@@ -653,11 +653,15 @@ def warning_check(name):
 # dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`.
 
 
-def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None):
+def workflow_context(
+    workflow, arguments=None, composing=(), ceiling_index=None, capacity_gb=None
+):
     """One validation request's ValidationContext: the expansion over
     `arguments` (lazy and memoized, so the error pass and the warning
     pass share it), where relative paths resolve from, the device the
-    request is checked against and the catalog's VRAM ceilings
+    request is checked against (its own capacity, or `capacity_gb` when
+    the caller knows a larger card the job may land on - the server's
+    worker pool) and the catalog's VRAM ceilings
     (`ceiling_index`, for inherited_vram_warnings). Built per request
     and never stored on the Workflow, so its probe cache cannot serve a
     replaced file stale.
@@ -683,7 +687,7 @@ def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None)
         ),
         composing=composing,
         device_type=get_device_type(),
-        capacity_gb=device_capacity_gb(),
+        capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
         ceiling_index=ceiling_index,
         expand=expand,
     )

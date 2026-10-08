@@ -165,3 +165,38 @@ class TestThroughTheWorkflow:
 
     def test_the_default_guide_chain_is_clean(self, tmp_path):
         assert self.errors(tmp_path, continuity="guide") == []
+
+
+class TestOwnGuidesPlusTheChain:
+    """The chain adds a guide of its own at frame 0 (chain.py GuideContinuity),
+    so a step's written guides have one fewer slot than GUIDE_LIMIT."""
+
+    @staticmethod
+    def guides(count):
+        return [{"video": f"g{i}.mp4", "frame": 17 * (i + 1)} for i in range(count)]
+
+    def test_four_own_guides_leave_no_room_for_the_chain_guide(self):
+        error = one(definition(prompt="a cat", guides=self.guides(4)))
+        assert error["path"].endswith("continuity")
+        assert "the chain adds one" in error["message"]
+        assert "got 4" in error["message"]
+
+    def test_three_own_guides_leave_room(self):
+        assert (
+            guide_chain_errors(definition(prompt="a cat", guides=self.guides(3))) == []
+        )
+
+    def test_an_unresolved_guides_value_is_left_to_the_run(self):
+        assert (
+            guide_chain_errors(definition(prompt="a cat", guides="variable:guides"))
+            == []
+        )
+
+    def test_last_frame_continuity_takes_the_full_four(self):
+        chain = {"segments": 2, "continuity": "last_frame"}
+        assert (
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(4))
+            )
+            == []
+        )

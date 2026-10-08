@@ -444,112 +444,115 @@ def run_chain(pipeline, chain_definition, arguments):
     shots = []
     frame_count = 0
 
-    for segment in config.plan:
-        segment_arguments = dict(arguments)
+    try:
+        for segment in config.plan:
+            segment_arguments = dict(arguments)
 
-        if config.prompts:
-            segment_arguments["prompt"] = config.prompts[
-                min(segment.index, len(config.prompts) - 1)
-            ]
+            if config.prompts:
+                segment_arguments["prompt"] = config.prompts[
+                    min(segment.index, len(config.prompts) - 1)
+                ]
 
-        if config.source_audio is not None:
-            segment_arguments["num_frames"] = segment.num_frames
-            if config.holds_audio:
-                segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
-            else:
-                segment_arguments["references"] = _sliced_references(
-                    config, segment, arguments["references"]
-                )
-
-        if segment.index > 0:
-            continuity.inject(segment_arguments, carry, config.segment_argument)
-
-        logger.info(
-            f"Chain segment {segment.index + 1}/{len(config.plan)}"
-            + (f": {segment.num_frames} frames" if segment.num_frames else "")
-        )
-
-        # The denoise counter restarts for every segment - without this the
-        # bar rewinds to zero with nothing saying why
-        pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
-        output = pipeline._run_once(segment_arguments)
-        artifact = _single_artifact(output)
-
-        carry = continuity.extract(artifact)
-        segment_frames = frames_as_pil_list(artifact)
-        segment_audio, segment_rate = _generated_audio(artifact)
-        # A segment's own generated audio can run a codec-padding sliver
-        # short of the frames it was asked for - the same gap #197 fixed for
-        # a decoded file (_decode_audio_video) and for an in-memory
-        # previous_result shot (Result.save). A chained segment goes through
-        # neither of those, so the shortfall was surviving here uncorrected
-        # and compounding once per segment (#408).
-        if segment_audio is not None and segment_rate and config.fps:
-            segment_audio = fit_codec_padding(
-                segment_audio, len(segment_frames), config.fps, segment_rate
-            )
-
-        kept_frames = segment_frames[segment.head_trim :]
-        start_sample = audio.shape[1] if audio is not None else 0
-        shots.append(
-            shot_record(
-                f"segment {segment.index + 1}",
-                frame_count,
-                len(kept_frames),
-                start_sample,
-            )
-        )
-        frame_count += len(kept_frames)
-        if spill is not None:
-            spill.write(
-                kept_frames,
-                _on_timeline_audio(segment_audio, segment, config, segment_rate),
-                segment_rate,
-            )
-        else:
-            frames.extend(kept_frames)
-
-        if config.source_audio is None and segment_audio is not None:
-            applied = {}
-            audio, audio_rate = _joined_audio(
-                audio,
-                audio_rate,
-                segment_audio,
-                segment_rate,
-                segment,
-                config,
-                applied,
-            )
-            if segment.index > 0:
-                # The seam's own blend, so assess_output can tell it from a
-                # dropout in the content (#660)
-                shots[-1]["trim_frames"] = segment.head_trim
-                if "crossfade_ms" in applied:
-                    shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
-                emit_log(
-                    f"Chain seam {segment.index}/{len(config.plan) - 1}: trimmed "
-                    f"{segment.head_trim} head frame(s), crossfade "
-                    + (
-                        f"{applied['crossfade_ms']} ms"
-                        if "crossfade_ms" in applied
-                        else "none (the guide held the audio)"
-                        if config.guide_holds_audio
-                        else "none (no head material)"
+            if config.source_audio is not None:
+                segment_arguments["num_frames"] = segment.num_frames
+                if config.holds_audio:
+                    segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
+                else:
+                    segment_arguments["references"] = _sliced_references(
+                        config, segment, arguments["references"]
                     )
+
+            if segment.index > 0:
+                continuity.inject(segment_arguments, carry, config.segment_argument)
+
+            logger.info(
+                f"Chain segment {segment.index + 1}/{len(config.plan)}"
+                + (f": {segment.num_frames} frames" if segment.num_frames else "")
+            )
+
+            # The denoise counter restarts for every segment - without this the
+            # bar rewinds to zero with nothing saying why
+            pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
+            output = pipeline._run_once(segment_arguments)
+            artifact = _single_artifact(output)
+
+            carry = continuity.extract(artifact)
+            segment_frames = frames_as_pil_list(artifact)
+            segment_audio, segment_rate = _generated_audio(artifact)
+            # A segment's own generated audio can run a codec-padding sliver
+            # short of the frames it was asked for - the same gap #197 fixed for
+            # a decoded file (_decode_audio_video) and for an in-memory
+            # previous_result shot (Result.save). A chained segment goes through
+            # neither of those, so the shortfall was surviving here uncorrected
+            # and compounding once per segment (#408).
+            if segment_audio is not None and segment_rate and config.fps:
+                segment_audio = fit_codec_padding(
+                    segment_audio, len(segment_frames), config.fps, segment_rate
                 )
 
-        shots[-1]["num_samples"] = (
-            audio.shape[1] if audio is not None else 0
-        ) - start_sample
+            kept_frames = segment_frames[segment.head_trim :]
+            start_sample = audio.shape[1] if audio is not None else 0
+            shots.append(
+                shot_record(
+                    f"segment {segment.index + 1}",
+                    frame_count,
+                    len(kept_frames),
+                    start_sample,
+                )
+            )
+            frame_count += len(kept_frames)
+            if spill is not None:
+                spill.write(
+                    kept_frames,
+                    _on_timeline_audio(segment_audio, segment, config, segment_rate),
+                    segment_rate,
+                )
+            else:
+                frames.extend(kept_frames)
 
-        # The segment's raw output is finished with - the frames live on
-        # (in RAM or on disk) and the carry frame is extracted. Free it
-        # before the next segment needs the accelerator.
-        del output, artifact, segment_frames, segment_audio, kept_frames
-        gc.collect()
-        empty_device_cache()
+            if config.source_audio is None and segment_audio is not None:
+                applied = {}
+                audio, audio_rate = _joined_audio(
+                    audio,
+                    audio_rate,
+                    segment_audio,
+                    segment_rate,
+                    segment,
+                    config,
+                    applied,
+                )
+                if segment.index > 0:
+                    # The seam's own blend, so assess_output can tell it from a
+                    # dropout in the content (#660)
+                    shots[-1]["trim_frames"] = segment.head_trim
+                    if "crossfade_ms" in applied:
+                        shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
+                    emit_log(
+                        f"Chain seam {segment.index}/{len(config.plan) - 1}: trimmed "
+                        f"{segment.head_trim} head frame(s), crossfade "
+                        + (
+                            f"{applied['crossfade_ms']} ms"
+                            if "crossfade_ms" in applied
+                            else "none (the guide held the audio)"
+                            if config.guide_holds_audio
+                            else "none (no head material)"
+                        )
+                    )
 
-    pipeline.segment_label = None
+            shots[-1]["num_samples"] = (
+                audio.shape[1] if audio is not None else 0
+            ) - start_sample
+
+            # The segment's raw output is finished with - the frames live on
+            # (in RAM or on disk) and the carry frame is extracted. Free it
+            # before the next segment needs the accelerator.
+            del output, artifact, segment_frames, segment_audio, kept_frames
+            gc.collect()
+            empty_device_cache()
+    finally:
+        # The label belongs to the run that set it - on a raise or a cancel
+        # as much as on the way out
+        pipeline.segment_label = None
 
     if spill is not None:
         # match_audio overshoots by design - the tail trim happens as the

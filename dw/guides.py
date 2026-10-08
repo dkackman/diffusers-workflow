@@ -264,6 +264,23 @@ def guide_chain_errors(workflow_definition, source_indices=None):
                     "message": f"{GUIDE_CHAIN_RULE}: {problem}",
                 }
             )
+        # The chain adds a guide of its own at frame 0 for every segment
+        # after the first (chain.py GuideContinuity), and the run's cap
+        # counts it - so the step's written guides get one slot fewer. An
+        # unresolved value is the run's to count.
+        arguments = pipeline.get("arguments")
+        own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
+        if isinstance(own, (list, tuple)) and len(own) + 1 > GUIDE_LIMIT:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", "continuity")),
+                    "message": (
+                        f"{GUIDE_CHAIN_RULE}: guides takes at most {GUIDE_LIMIT} "
+                        f"clips and the chain adds one of its own, so a guide "
+                        f"chain leaves room for {GUIDE_LIMIT - 1} - got {len(own)}"
+                    ),
+                }
+            )
         for key, message in guide_chain_problems(chain):
             errors.append(
                 {"path": render_path(base + ("chain", key)), "message": message}

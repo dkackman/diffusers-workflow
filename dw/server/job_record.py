@@ -59,6 +59,10 @@ class Job:
         self.workflow_name = spec["workflow_name"]
         self.catalog_name = spec.get("catalog_name")
         self.status = QUEUED
+        # Set by JobManager.cancel on a running job: the job's thread
+        # checks it before sending Execute, since a cancel that reaches an
+        # idle worker is ignored
+        self.cancel_requested = False
         self.created_at = time.time()
         self.started_at = None
         self.finished_at = None

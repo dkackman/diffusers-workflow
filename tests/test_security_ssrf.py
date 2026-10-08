@@ -739,26 +739,42 @@ class TestHuggingFaceTokenScope:
         assert _carried_token(transport.sent[0])
         assert not _carried_token(transport.sent[1])
 
-    def test_a_redirect_to_http_on_the_same_host_drops_the_token(
-        self, untrusted, no_real_sockets, monkeypatch
-    ):
-        """A downgrade to cleartext is a different origin too."""
-        start = "https://api-inference.huggingface.co/models/x"
-        downgrade = "http://api-inference.huggingface.co/models/x"
-        transport = _encode(
-            start,
+    _DOWNGRADE_START = "https://api-inference.huggingface.co/models/x"
+    _DOWNGRADE = "http://api-inference.huggingface.co/models/x"
+
+    def _downgrade(self, monkeypatch):
+        return _encode(
+            self._DOWNGRADE_START,
             monkeypatch,
             routes={
-                start: (307, {"Location": downgrade}, b""),
-                downgrade: (
+                self._DOWNGRADE_START: (307, {"Location": self._DOWNGRADE}, b""),
+                self._DOWNGRADE: (
                     200,
                     {"Content-Type": "application/octet-stream"},
                     b"embeds",
                 ),
             },
         )
+
+    def test_a_redirect_to_http_is_refused_untrusted(
+        self, untrusted, no_real_sockets, monkeypatch
+    ):
+        """Every hop passes validate_remote_encoder_url (review 2026-10-07
+        #4), so the https-only rule holds for a redirect too: nothing is
+        sent in cleartext at all."""
+        transport = self._downgrade(monkeypatch)
+        assert [r.url for r in transport.sent] == [self._DOWNGRADE_START]
+
+    def test_a_redirect_to_http_on_the_same_host_drops_the_token(
+        self, no_real_sockets, monkeypatch
+    ):
+        """Trusted, the downgrade is followed - but a downgrade to cleartext
+        is a different origin too, and the token stays behind."""
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "1")
+        transport = self._downgrade(monkeypatch)
         cleartext = [r for r in transport.sent if r.url.startswith("http://")]
         assert cleartext, "the scripted redirect was not followed"
+        assert _carried_token(transport.sent[0])
         assert not any(_carried_token(r) for r in cleartext)
 
     def test_trust_lifts_the_scope(self, no_real_sockets, monkeypatch):

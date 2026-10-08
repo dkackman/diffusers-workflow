@@ -455,7 +455,9 @@ An argument that names a *location* is confined, untrusted (the default):
   and an `asset:` reference - which is what those exist for.
 - a `glob` is confined the same way, and each match re-checked.
 - an `http(s)` URL may not resolve to an address inside the deployment -
-  loopback, link-local, private ranges.
+  loopback, link-local, private ranges. Its host must resolve, the body
+  is capped at 1 GiB and a fetch at 10 minutes end to end; past that,
+  `upload_asset` is the route.
 - `remote_text_encoder.url` is https-only, and only a HuggingFace host is
   sent this machine's token.
 - `model_name` must be a Hub repo id, or a path inside one of those roots.
@@ -1738,6 +1740,9 @@ guide at frame 0 (appended to the step's own `guides`), with `"audio": true` whe
 restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
 next segment opens with a near-copy of those P frames, so P frames are trimmed from its
 head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 is 328.
+The chain's carried clip is itself a guide, so a step that also writes its own
+`guides` may list at most three of them with `continuity: "guide"` - validation
+says so before the run rather than after the first segment.
 
 | Rule | Value |
 |---|---|

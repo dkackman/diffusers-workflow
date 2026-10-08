@@ -111,6 +111,7 @@ def admit(
     prompt_library,
     supplied=True,
     plan_for=None,
+    capacity_gb=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
@@ -171,7 +172,7 @@ def admit(
             # context expands lazily, inside validation_errors' gates, so an
             # expansion failure is still answered there as a finding
             context = validation.workflow_context(
-                candidate, checked, ceiling_index=ceiling_index
+                candidate, checked, ceiling_index=ceiling_index, capacity_gb=capacity_gb
             )
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
@@ -375,6 +376,17 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
+def pool_capacity_gb(state):
+    """The pool's largest card, for a declared vram_estimate's ceiling - or
+    None, which leaves workflow_context on the process's own device: a
+    state without a manager (validate-only embeddings) or a pool where no
+    card's size could be read (no torch, or the probe failed)."""
+    manager = getattr(state, "job_manager", None)
+    if manager is None or not hasattr(manager, "largest_ceiling_gb"):
+        return None
+    return manager.largest_ceiling_gb()
+
+
 def admit_for(state, workspace, **request):
     """`admit()` with this server's view of `workspace` - the asset and
     prompt search paths and the catalog's VRAM ceilings, which live on the
@@ -382,6 +394,7 @@ def admit_for(state, workspace, **request):
     return admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
+        capacity_gb=pool_capacity_gb(state),
         asset_library=resolution_library(state, workspace),
         prompt_library=server_prompt_library(state),
         **request,
