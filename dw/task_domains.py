@@ -195,17 +195,27 @@ def ingredients_grid_errors(arguments):
 
 
 # crop_face_track's rules past a plain domain. The crop feeds a video model
-# whose latent grid is 32 pixels, the padding is a multiple of the face's own
-# size added on each side, and the gate is a ramp from gate_full to gate_zero,
-# so the two must be in that order. Owned here so the static pass and the
-# command's run-time refusal read one rule
+# whose frame size and count move on a grid the workflow declares (modulus,
+# remainder and multiple; the defaults are LTX's 8n+1 and 32 pixels), the
+# padding is a multiple of the face's own size added on each side, and the gate
+# is a ramp from gate_full to gate_zero, so the two must be in that order.
+# Owned here so the static pass and the command's run-time refusal read one rule
+FACE_CROP_MODULUS = 8
+FACE_CROP_REMAINDER = 1
 FACE_CROP_MULTIPLE = 32
 FACE_PADDING_MAX = 3.0
 FACE_DETECTOR_SUFFIX = ".onnx"
 
 
 def face_track_problems(
-    crop_size=None, padding=None, gate_full=None, gate_zero=None, min_confidence=None
+    crop_size=None,
+    padding=None,
+    gate_full=None,
+    gate_zero=None,
+    min_confidence=None,
+    modulus=FACE_CROP_MODULUS,
+    remainder=FACE_CROP_REMAINDER,
+    multiple=FACE_CROP_MULTIPLE,
 ):
     """[(argument, message)] for each crop_face_track rule these values break.
 
@@ -214,17 +224,36 @@ def face_track_problems(
     """
     problems = []
     size = as_number(crop_size)
-    if size is not None and size > 0:
-        if size != int(size) or int(size) % FACE_CROP_MULTIPLE:
+    step = as_number(multiple)
+    if step is not None and (step <= 0 or step != int(step)):
+        step = None
+    if size is not None and size > 0 and step is not None:
+        step = int(step)
+        if size != int(size) or int(size) % step:
             problems.append(
                 (
                     "crop_size",
                     f"crop_face_track needs 'crop_size' as a multiple of "
-                    f"{FACE_CROP_MULTIPLE}, got {crop_size!r} - the crops feed a "
+                    f"{step}, got {crop_size!r} - the crops feed a "
                     f"video model whose frame size moves in steps of "
-                    f"{FACE_CROP_MULTIPLE}",
+                    f"{step}",
                 )
             )
+    mod, rem = as_number(modulus), as_number(remainder)
+    if (
+        mod is not None
+        and rem is not None
+        and mod == int(mod)
+        and rem == int(rem)
+        and 0 < mod <= rem
+    ):
+        problems.append(
+            (
+                "remainder",
+                f"crop_face_track needs 'remainder' ({int(rem)}) below "
+                f"'modulus' ({int(mod)})",
+            )
+        )
     pad = as_number(padding)
     if pad is not None and pad > FACE_PADDING_MAX:
         problems.append(
@@ -305,12 +334,23 @@ def check_face_detector_source(repo, filename):
 
 def face_track_errors(arguments):
     """[(argument, message)] for the crop_face_track rules a literal workflow
-    can break before it runs: the crop, padding and gate rules, and a detector
-    source that is not a Hub repo and an .onnx file."""
+    can break before it runs: the crop, padding, gate and frame-grid rules, and
+    a detector source that is not a Hub repo and an .onnx file."""
+    # A deferred value is passed through, not dropped: as_number reads it as
+    # no number, so its rules are skipped instead of run against a default
     literal = {
-        name: arguments.get(name)
-        for name in ("crop_size", "padding", "gate_full", "gate_zero", "min_confidence")
-        if not is_ref(DEFERRED, arguments.get(name))
+        name: arguments[name]
+        for name in (
+            "crop_size",
+            "padding",
+            "gate_full",
+            "gate_zero",
+            "min_confidence",
+            "modulus",
+            "remainder",
+            "multiple",
+        )
+        if name in arguments
     }
     errors = face_track_problems(**literal)
     from .locations import validate_hub_repo_id, validate_weight_name

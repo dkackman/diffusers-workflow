@@ -39,6 +39,9 @@ from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo, JsonRecord
 from ..shots import carried_shots
 from ..task_domains import (
+    FACE_CROP_MODULUS,
+    FACE_CROP_MULTIPLE,
+    FACE_CROP_REMAINDER,
     check_face_detector_source,
     face_track_problems,
     paste_feather_problems,
@@ -326,10 +329,10 @@ def _cut(rgb, square, crop_size):
     return Image.fromarray(region).resize((crop_size, crop_size), Image.LANCZOS)
 
 
-def padding_to_8n1(count):
-    """(before, after): frames to add so count becomes the next 8n+1."""
-    target = count if (count - 1) % 8 == 0 else count + (8 - (count - 1) % 8)
-    pad = target - count
+def padding_to_grid(count, modulus, remainder):
+    """(before, after): frames to add so count becomes the next
+    modulus * n + remainder, split as evenly as it goes."""
+    pad = (remainder - count) % modulus
     return pad // 2, pad - pad // 2
 
 
@@ -388,6 +391,9 @@ def crop_face_track(
     gate_full=0.06,
     gate_zero=0.12,
     min_confidence=0.6,
+    modulus=FACE_CROP_MODULUS,
+    remainder=FACE_CROP_REMAINDER,
+    multiple=FACE_CROP_MULTIPLE,
     detector_repo=DEFAULT_DETECTOR_REPO,
     detector_file=DEFAULT_DETECTOR_FILE,
     device=None,
@@ -398,17 +404,25 @@ def crop_face_track(
         clip: The video - frames, an AudioVideo, or the path or URL of a video
             file. Named "clip" rather than "video" so the engine hands it over
             as read, with the shots it records
-        crop_size: Side of every crop in pixels, a multiple of 32
+        crop_size: Side of every crop in pixels, a multiple of `multiple`
         padding: Space added around the face on each side, as a fraction of
             its size - 0.6 gives a square 2.2 face widths across
         gate_full: Face width over frame width at or below which strength is 1
         gate_zero: Face width over frame width at or above which strength is 0
         min_confidence: Detections below this score are ignored
+        modulus: The crop count is padded to modulus * n + remainder frames,
+            the frame grid of the model the crops feed (8 with remainder 1 is
+            LTX's 8n+1)
+        remainder: The remainder of the padded count modulo `modulus`, from 0
+            to modulus - 1
+        multiple: crop_size must be a multiple of this, the model's frame-size
+            step (32 for LTX)
         detector_repo: Hugging Face repo holding the YuNet weights
         detector_file: The .onnx file in that repo
         device: Where detection runs; CUDA only when OpenCV was built with it
     Returns:
-        {"crops": AudioVideo of crop_size squares, padded to 8n+1 frames,
+        {"crops": AudioVideo of crop_size squares, padded to modulus * n + remainder
+         frames (8n+1 by default),
          "track": the record of every frame's box, crop and strength}
     """
     problems = face_track_problems(
@@ -417,10 +431,14 @@ def crop_face_track(
         gate_full=gate_full,
         gate_zero=gate_zero,
         min_confidence=min_confidence,
+        modulus=modulus,
+        remainder=remainder,
+        multiple=multiple,
     )
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
     crop_size = int(crop_size)
+    modulus, remainder = int(modulus), int(remainder)
 
     detector = _detector(detector_repo, detector_file, min_confidence, device)
 
@@ -460,7 +478,7 @@ def crop_face_track(
         entry["crop"] = square
         crops.append(_cut(rgb[index], square, crop_size))
 
-    before, after = padding_to_8n1(len(crops))
+    before, after = padding_to_grid(len(crops), modulus, remainder)
     crops = pad_frames(crops, before, after)
 
     record = JsonRecord(
@@ -501,7 +519,7 @@ def crop_face_track(
     emit_log(
         f"crop_face_track: face in {tracked} of {len(frames)} frames, "
         f"{len(resets)} reset(s), {len(crops)} crops of {crop_size}px "
-        f"({before} before, {after} after for 8n+1)"
+        f"({before} before, {after} after for {modulus}n+{remainder})"
     )
     return {"crops": AudioVideo(crops, None, None, fps=fps), "track": record}
 
@@ -602,7 +620,7 @@ def paste_face_track(clip, repaired, track, feather=0.3, color_match=True):
             or the path or URL of a video file. Its audio, frame rate and
             shots come through unchanged
         repaired: The crops after a face-detail pass, still padded to the
-            8n+1 count crop_face_track produced; any frame size
+            padded count crop_face_track produced; any frame size
         track: The `track` record crop_face_track returned, or its .json file
         feather: Fraction of the paste's radius that fades out, 0 to 1
         color_match: Match each crop's mean colour to the source's inside the

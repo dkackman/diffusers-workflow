@@ -535,7 +535,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "earlier step's video. A clip that records its shots resets the "
             "track at each boundary."
         ),
-        "crop_size": "Side of every crop in pixels; a multiple of 32.",
+        "crop_size": "Side of every crop in pixels; a multiple of `multiple`.",
         "padding": (
             "Space added around the face on each side, as a fraction of its "
             "size (0 to 3)."
@@ -548,6 +548,16 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "is 0; must exceed gate_full."
         ),
         "min_confidence": "Detector score below which a detection is ignored.",
+        "modulus": (
+            "The crop count is padded to modulus * n + remainder frames - the "
+            "frame grid of the model the crops feed; 8 with remainder 1 is "
+            "LTX's 8n+1."
+        ),
+        "remainder": "The padded count's remainder, from 0 to modulus - 1.",
+        "multiple": (
+            "crop_size must be a multiple of this - the model's frame-size "
+            "step (32 for LTX)."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -557,7 +567,11 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "gate_full": POSITIVE,
         "gate_zero": POSITIVE,
         "min_confidence": POSITIVE,
+        "modulus": POSITIVE,
+        "remainder": NON_NEGATIVE,
+        "multiple": POSITIVE,
     },
+    whole_numbers=("modulus", "remainder", "multiple"),
     static_check=face_track_errors,
     media_arguments=("clip",),
 )
@@ -583,8 +597,8 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
             "frame rate and shots are kept."
         ),
         "repaired": (
-            "The crops after a face-detail pass, still padded to the 8n+1 "
-            "count crop_face_track produced."
+            "The crops after a face-detail pass, still padded to the count "
+            "crop_face_track produced."
         ),
         "track": (
             "The track record crop_face_track returned - "
