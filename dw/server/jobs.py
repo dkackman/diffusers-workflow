@@ -801,10 +801,15 @@ class JobManager:
             if job.status == QUEUED:
                 if job.id in self._pending:
                     self._pending.remove(job.id)
+                self._needs.pop(job.id, None)
+                self._preferred.pop(job.id, None)
                 self._finish(job, CANCELLED)
                 return job.status
             slot = self._slot_running(job.id)
             if job.status == RUNNING and slot is not None:
+                # Recorded first: the job's thread may not have sent Execute
+                # yet, and a cancel reaching an idle worker is ignored
+                job.cancel_requested = True
                 try:
                     # The card running this job, and only that one
                     slot.manager.cancel()
@@ -955,27 +960,33 @@ class JobManager:
         manager = slot.manager
         with slot.lock:
             try:
-                if job.status != RUNNING:
-                    # Cancelled between dispatch and here
-                    return
-                manager.ensure_worker(self.log_level)
-                self._rank_for_oom(slot)
-                command = Execute(
-                    # The snapshot admission checked, which the worker runs
-                    # as it is rather than reading the file again
-                    definition=job.spec.get("definition"),
-                    file_spec=job.spec.get("file_spec"),
-                    source=job.spec.get("source"),
-                    workflow_dir=job.spec.get("workflow_dir"),
-                    # The job's own roots, so a job queued for one workspace
-                    # still runs in it after the manager has served another
-                    output_dir=job.spec.get("output_dir") or self.output_dir,
-                    arguments=job.spec["arguments"],
-                    log_level=self.log_level,
-                    asset_dir=job.spec.get("asset_dir") or None,
-                )
-                manager.send_command(command.to_wire())
-                outcome = self._consume_results(job, manager, slot)
+                if job.status != RUNNING or job.cancel_requested:
+                    # Cancelled between dispatch and here: nothing was sent,
+                    # so the outcome is the cancel itself
+                    outcome = (CANCELLED, None, None)
+                else:
+                    manager.ensure_worker(self.log_level)
+                    self._rank_for_oom(slot)
+                    command = Execute(
+                        # The snapshot admission checked, which the worker runs
+                        # as it is rather than reading the file again
+                        definition=job.spec.get("definition"),
+                        file_spec=job.spec.get("file_spec"),
+                        source=job.spec.get("source"),
+                        workflow_dir=job.spec.get("workflow_dir"),
+                        # The job's own roots, so a job queued for one workspace
+                        # still runs in it after the manager has served another
+                        output_dir=job.spec.get("output_dir") or self.output_dir,
+                        arguments=job.spec["arguments"],
+                        log_level=self.log_level,
+                        asset_dir=job.spec.get("asset_dir") or None,
+                    )
+                    manager.send_command(command.to_wire())
+                    if job.cancel_requested:
+                        # Asked while the worker was still idle; now it has
+                        # the job, and a second cancel lands behind it
+                        manager.cancel()
+                    outcome = self._consume_results(job, manager, slot)
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
                 outcome = (FAILED, str(e), None)

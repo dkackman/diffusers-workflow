@@ -164,9 +164,48 @@ class TestCancel:
         manager.cancel(second.id)
         wait_for(second, {"cancelled"})
 
-        assert cancels == {"a": 0, "b": 1}
+        # Routing, not a count: the scripted worker runs the job inside
+        # send_command, so this cancel lands before Execute "returns" and the
+        # job's thread follows it with the second cancel a pre-Execute
+        # request gets - a worker past its run ignores that one
+        assert cancels["a"] == 0
+        assert cancels["b"] >= 1
         assert first.status == "running"
         gate_a.release.set()
+        wait_for(first, {"succeeded"})
+
+    def test_a_cancel_before_the_execute_is_sent_still_lands(self, pool):
+        """The dispatcher marks RUNNING before the job's thread takes the
+        slot; a cancel in that window used to reach an idle worker, which
+        ignores it, and the job ran anyway."""
+        gate = Gate()
+        manager = pool(card(gate, "cuda:0", 24))
+        slot = manager.slots[0]
+        with slot.lock:  # a cache probe holds the card between dispatch and Execute
+            job = submit(manager, "late-cancel")
+            assert wait_until(lambda: job.status == "running")
+            assert manager.cancel(job.id) == "running"
+        wait_for(job, {"cancelled"})
+        assert not gate.started.is_set(), "the worker was still sent the job"
+
+    def test_a_cancel_after_the_job_finished_is_a_no_op(self, pool):
+        manager = pool(card(success_script, "cuda:0", 24))
+        job = submit(manager, "done")
+        wait_for(job, {"succeeded"})
+        assert manager.cancel(job.id) == "succeeded"
+        assert job.status == "succeeded"
+
+    def test_cancelling_a_queued_job_drops_its_dispatch_bookkeeping(self, pool):
+        gate = Gate()
+        manager = pool(card(gate, "cuda:0", 24))
+        first = submit(manager, "first")
+        gate.wait_started()
+        second = submit(manager, "second", vram_need=(8, True))
+        assert second.id in manager._needs
+        assert manager.cancel(second.id) == "cancelled"
+        assert second.id not in manager._needs
+        assert second.id not in manager._preferred
+        gate.release.set()
         wait_for(first, {"succeeded"})
 
 
