@@ -139,6 +139,11 @@
           {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}
+          {#if job.device}
+            <span class="wschip muted" title="the card this job ran on"
+              >{job.device}</span
+            >
+          {/if}
           {#if job.acknowledged === 'bound'}
             <span
               class="wschip muted"

@@ -3,6 +3,7 @@
   import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
+  import WorkerList from '../WorkerList.svelte'
   import {
     addressLabel,
     browserUrl,
@@ -75,26 +76,19 @@
       <dd>{info.version}</dd>
       <dt>Device</dt>
       <dd>{info.device}</dd>
-      <dt>Worker</dt>
+      <dt>{(health?.workers.length ?? 0) > 1 ? 'Workers' : 'Worker'}</dt>
       <dd>
-        {#if health?.worker_alive}
-          running
-        {:else if health}
-          <span class="muted">not started — spawns with the first job</span>
-        {:else}
+        {#if health?.workers.length}
+          <WorkerList workers={health.workers} />
+        {/if}
+        {#if !health}
           <span class="warn">unreachable</span>
+        {:else if !health.worker_alive}
+          <span class="muted">not started — spawns with the first job</span>
         {/if}
       </dd>
       <dt>Queue</dt>
       <dd>{health?.queued ?? 0} queued</dd>
-      <dt>Current job</dt>
-      <dd>
-        {#if health?.current_job}
-          <a href={'#/jobs/' + health.current_job}>{health.current_job} →</a>
-        {:else}
-          <span class="muted">idle</span>
-        {/if}
-      </dd>
     </dl>
   </div>
 
