@@ -180,7 +180,8 @@ One policy now answers all of it, untrusted:
   127.0.0.1 to the policy too). An untrusted fetch ignores proxy and
   `~/.netrc` settings from the environment. The body is capped at
   `MAX_MEDIA_BYTES` (1 GiB) and the whole fetch at `MEDIA_TOTAL_TIMEOUT`
-  (600 s), so a server trickling bytes cannot hold the worker; a 303 (or a
+  (600 s) - the connection is closed at the deadline, so a server
+  trickling its response headers or its body cannot hold the worker; a 303 (or a
   301/302 to a POST) is followed as a GET, as requests itself does; and
   `remote_text_encoder` POSTs through the same path with a timeout.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is

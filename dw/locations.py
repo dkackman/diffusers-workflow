@@ -36,10 +36,13 @@ location that arrives through a variable or a previous result was never in
 the document to check.
 """
 
+import contextvars
+import functools
 import ipaddress
 import logging
 import os
 import socket
+import threading
 import time
 from urllib.parse import urljoin, urlparse, urlsplit
 
@@ -433,10 +436,116 @@ _READ_CHUNK = 1 << 16
 MEDIA_TOTAL_TIMEOUT = 600
 
 
-def _pinned_adapter_class():
-    from requests.adapters import HTTPAdapter
+class _Deadline:
+    """The time.monotonic() deadline of one _safe_request, and the abort
+    timers its connections started. The call cancels the timers itself
+    when it ends: urllib3 2's PoolManager.clear() closes no connections
+    (they close when collected), so a timer left to the connection's own
+    close() would sit out the full deadline after every fetch."""
 
-    class _PinnedAdapter(HTTPAdapter):
+    def __init__(self, at):
+        self.at = at
+        self.timers = []
+
+    def cancel(self):
+        for timer in self.timers:
+            timer.cancel()
+
+
+# The _Deadline of the _safe_request in progress on this thread (or
+# context), for the connections it opens to enforce
+_REQUEST_DEADLINE = contextvars.ContextVar("_REQUEST_DEADLINE", default=None)
+
+
+def _abort_socket(sock):
+    """Shut a socket down from another thread, waking whatever read or
+    write is blocked on it."""
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    try:
+        sock.close()
+    except OSError:
+        pass
+
+
+@functools.lru_cache(maxsize=None)
+def _deadline_adapter_class():
+    """An HTTPAdapter whose connections are aborted at the deadline of the
+    _safe_request that opened them.
+
+    A per-operation timeout bounds each socket read, not their sum: a
+    server that sends a response header a byte every fraction of a second
+    never lets one read time out, and http.client takes header lines up to
+    64 KiB, a hundred of them. Checking the clock between body chunks
+    cannot reach that phase - the request has not returned yet - so the
+    bound lives on the connection: once connected, a timer closes its
+    socket when the deadline comes, whatever is waiting on it.
+    """
+    from requests.adapters import HTTPAdapter
+    from urllib3.connection import HTTPConnection, HTTPSConnection
+    from urllib3.connectionpool import HTTPConnectionPool, HTTPSConnectionPool
+
+    class _DeadlineMixin:
+        _deadline_timer = None
+
+        def connect(self):
+            super().connect()
+            deadline = _REQUEST_DEADLINE.get()
+            if deadline is None or self.sock is None:
+                return
+            remaining = max(deadline.at - time.monotonic(), 0)
+            current = self.sock.gettimeout()
+            self.sock.settimeout(
+                remaining if current is None else min(current, remaining)
+            )
+            timer = threading.Timer(remaining, _abort_socket, args=(self.sock,))
+            timer.daemon = True
+            deadline.timers.append(timer)
+            timer.start()
+            self._deadline_timer = timer
+
+        def close(self):
+            if self._deadline_timer is not None:
+                self._deadline_timer.cancel()
+                self._deadline_timer = None
+            super().close()
+
+    class _DeadlineHTTPConnection(_DeadlineMixin, HTTPConnection):
+        pass
+
+    class _DeadlineHTTPSConnection(_DeadlineMixin, HTTPSConnection):
+        pass
+
+    class _DeadlineHTTPPool(HTTPConnectionPool):
+        ConnectionCls = _DeadlineHTTPConnection
+
+    class _DeadlineHTTPSPool(HTTPSConnectionPool):
+        ConnectionCls = _DeadlineHTTPSConnection
+
+    pools = {"http": _DeadlineHTTPPool, "https": _DeadlineHTTPSPool}
+
+    class _DeadlineAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            super().init_poolmanager(*args, **kwargs)
+            self.poolmanager.pool_classes_by_scheme = dict(pools)
+
+        def proxy_manager_for(self, proxy, **proxy_kwargs):
+            # An http(s) proxy - a trusted run's, from the environment - gets
+            # the same connections. A SOCKS proxy brings its own pool
+            # classes, and keeps them
+            manager = super().proxy_manager_for(proxy, **proxy_kwargs)
+            if not proxy.lower().startswith("socks"):
+                manager.pool_classes_by_scheme = dict(pools)
+            return manager
+
+    return _DeadlineAdapter
+
+
+@functools.lru_cache(maxsize=None)
+def _pinned_adapter_class():
+    class _PinnedAdapter(_deadline_adapter_class()):
         """Dials `address` for every request to `host`, with TLS still
         negotiated and checked against `host`. The address is one the host
         policy resolved and passed, so a name that answers a public address
@@ -505,10 +614,15 @@ def _pinned_session(url, address):
 
 def _plain_session():
     """A requests Session that resolves for itself - the one a trusted run
-    is fetched with. A seam the tests replace."""
+    is fetched with, its environment's proxy settings included. It is still
+    bounded by the deadline. A seam the tests replace."""
     import requests
 
-    return requests.Session()
+    session = requests.Session()
+    adapter = _deadline_adapter_class()()
+    session.mount("http://", adapter)
+    session.mount("https://", adapter)
+    return session
 
 
 def _session_for(url, addresses):
@@ -605,11 +719,17 @@ def _read_capped(response, max_bytes, what, url, deadline=None):
             )
         if deadline is not None and time.monotonic() > deadline:
             response.close()
-            raise InvalidInputError(
-                f"Refusing {what} from '{url}': it did not finish arriving "
-                f"in the time allowed"
-            )
+            raise _too_slow(what, url)
     return body
+
+
+def _too_slow(what, url, total_timeout=None):
+    """The refusal for a fetch past its total_timeout - however the deadline
+    showed itself (the clock between chunks, or the connection aborted)."""
+    within = f" of {total_timeout} seconds" if total_timeout is not None else ""
+    return InvalidInputError(
+        f"Refusing {what} from '{url}': it exceeded its total_timeout{within}"
+    )
 
 
 def _safe_request(
@@ -648,17 +768,40 @@ def _safe_request(
             MAX_MEDIA_REDIRECTS, a body over the cap, or the total timeout
         requests.HTTPError: For an error status
     """
-    deadline = time.monotonic() + total_timeout
+    deadline = _Deadline(time.monotonic() + total_timeout)
+    # The connections this call opens read it, and abort at it
+    token = _REQUEST_DEADLINE.set(deadline)
+    try:
+        return _follow(
+            method,
+            url,
+            what,
+            timeout,
+            validate,
+            max_bytes,
+            total_timeout,
+            deadline.at,
+            kwargs,
+        )
+    finally:
+        _REQUEST_DEADLINE.reset(token)
+        deadline.cancel()
+
+
+def _follow(
+    method, url, what, timeout, validate, max_bytes, total_timeout, deadline, kwargs
+):
+    """`_safe_request`'s hops, with its deadline already in force."""
+    import requests
+
     checked = []
     current = validate(url, what, addresses=checked)
     for _ in range(MAX_MEDIA_REDIRECTS + 1):
         remaining = deadline - time.monotonic()
         if remaining <= 0:
-            raise InvalidInputError(
-                f"Refusing {what} from '{url}': it did not finish in "
-                f"{total_timeout} seconds"
-            )
+            raise _too_slow(what, url, total_timeout)
         session = _session_for(current, checked)
+        response = None
         try:
             response = session.request(
                 method,
@@ -668,6 +811,13 @@ def _safe_request(
                 stream=True,
                 **kwargs,
             )
+            # An aborted socket need not raise: http.client reads EOF in the
+            # middle of a header as the end of the headers, and hands back a
+            # response with nothing after them. Past the deadline, whatever
+            # arrived is a truncation, not an answer
+            if time.monotonic() >= deadline:
+                response.close()
+                raise _too_slow(what, url, total_timeout)
             if response.is_redirect:
                 target = urljoin(current, response.headers["Location"])
                 response.close()
@@ -690,10 +840,26 @@ def _safe_request(
                     f"Refusing {what} from '{url}': larger than {max_bytes} bytes "
                     f"({declared} declared)"
                 )
-            response._content = _read_capped(response, max_bytes, what, url, deadline)
+            body = _read_capped(response, max_bytes, what, url, deadline)
+            if time.monotonic() >= deadline:
+                # The same for a body cut short by the abort
+                raise _too_slow(what, url, total_timeout)
+            response._content = body
             response._content_consumed = True
             return response
+        except (requests.RequestException, OSError) as e:
+            # The deadline aborts the socket, which surfaces as a dropped
+            # connection or a short body; say what actually happened
+            if time.monotonic() >= deadline:
+                raise _too_slow(what, url, total_timeout) from e
+            raise
         finally:
+            # The response holds its connection (and that connection's
+            # deadline timer) until it is closed; the session closes only
+            # the idle ones. A read body stays on the response, and an
+            # error status keeps its status and headers
+            if response is not None:
+                response.close()
             session.close()
     raise InvalidInputError(
         f"Refusing to fetch {what} from '{url}': it redirects more than "

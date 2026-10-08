@@ -760,9 +760,12 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     /internal to the metadata address; /elsewhere 307s to /auth (which
     echoes Authorization) under another name for the same server;
     /see-other, /found and /temporary answer 303, 302 and 307 to /method.
-    Every path asked for is recorded in `seen`."""
+    /slow-headers starts a header and adds a byte every 0.2 s, never
+    finishing it. Every path asked for is recorded in `seen`, and a trickle
+    whose client went away sets `dropped`."""
 
     seen = []
+    dropped = threading.Event()
 
     def do_GET(self):
         self.received = 0
@@ -793,6 +796,8 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
             return self._redirect(f"http://localhost:{port}/auth", status=307)
         if path.startswith("/trickle"):
             return self._trickle()
+        if path.startswith("/slow-headers"):
+            return self._slow_headers()
         if path.startswith("/host"):
             body = self.headers["Host"].encode()
         elif path.startswith("/auth"):
@@ -819,7 +824,18 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
                 self.wfile.flush()
                 time.sleep(0.05)
         except OSError:
-            pass  # the client gave up, which is the point
+            self.dropped.set()  # the client gave up, which is the point
+
+    def _slow_headers(self):
+        try:
+            self.wfile.write(b"HTTP/1.1 200 OK\r\nX-Slow: ")
+            self.wfile.flush()
+            for _ in range(300):
+                time.sleep(0.2)
+                self.wfile.write(b"a")
+                self.wfile.flush()
+        except OSError:
+            self.dropped.set()
 
     def _redirect(self, target, status=302):
         self.send_response(status)
@@ -838,6 +854,7 @@ class _Server(socketserver.ThreadingMixIn, socketserver.TCPServer):
 @pytest.fixture
 def local_server():
     _EchoHandler.seen = []
+    _EchoHandler.dropped = threading.Event()
     server = _Server(("127.0.0.1", 0), _EchoHandler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -866,17 +883,19 @@ def _scripted(monkeypatch, answers):
     list of answers, one per lookup, the last repeated; an empty answer
     fails the way DNS does - and records every name looked up. An IP
     literal goes to the real resolver: urllib3 calls the same getaddrinfo
-    to dial the pin, and that is not a lookup of the name."""
+    to dial the pin, and that is not a lookup of the name. The answer
+    carries the port asked about, so urllib3's own lookup (a trusted run)
+    can dial it."""
     import ipaddress
     import socket
 
     real = socket.getaddrinfo
     lookups = []
 
-    def _resolve(host, *a, **k):
+    def _resolve(host, port=None, *a, **k):
         try:
             ipaddress.ip_address(host)
-            return real(host, *a, **k)
+            return real(host, port, *a, **k)
         except ValueError:
             pass
         lookups.append(host)
@@ -885,7 +904,7 @@ def _scripted(monkeypatch, answers):
         if not answer:
             raise socket.gaierror(socket.EAI_NONAME, "Name or service not known")
         return [
-            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, 0))
+            (socket.AF_INET, socket.SOCK_STREAM, 6, "", (address, port or 0))
             for address in answer
         ]
 
@@ -1019,11 +1038,67 @@ class TestSafeRequest:
         port = local_server.split(":")[1]
         _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
         started = time.monotonic()
-        with pytest.raises(InvalidInputError, match="time allowed"):
+        with pytest.raises(InvalidInputError, match="exceeded its total_timeout"):
             safe_get(
                 f"http://media.example:{port}/trickle", timeout=5, total_timeout=0.5
             )
         assert time.monotonic() - started < 2
+
+    @pytest.mark.parametrize("posture", ["untrusted", "trusted"])
+    def test_trickling_headers_are_refused_at_the_total_timeout(
+        self, local_server, server_is_public, monkeypatch, posture
+    ):
+        """No single read waits long enough for the per-operation timeout,
+        and the request has not returned, so nothing between chunks can
+        look at the clock. The connection itself is aborted at the
+        deadline - pinned or not - and the server sees it go."""
+        from dw.locations import safe_get
+        from dw.trust import TRUST_WORKFLOWS_ENV_VAR
+
+        monkeypatch.setenv(
+            TRUST_WORKFLOWS_ENV_VAR, "1" if posture == "trusted" else "0"
+        )
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        started = time.monotonic()
+        with pytest.raises(InvalidInputError, match="exceeded its total_timeout"):
+            safe_get(
+                f"http://media.example:{port}/slow-headers",
+                timeout=5,
+                total_timeout=2,
+            )
+        assert time.monotonic() - started < 2.5
+        assert _EchoHandler.dropped.wait(2), "the socket was left open"
+
+    def test_a_trusted_fetch_resolves_for_itself(
+        self, trusted, local_server, monkeypatch
+    ):
+        """The deadline adapter bounds a trusted run without pinning it:
+        the name is looked up by urllib3, at the dial, and not by the
+        policy."""
+        from dw import locations
+
+        port = local_server.split(":")[1]
+        lookups = _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+
+        def _never_pinned(url, address):
+            raise AssertionError("a trusted run must not be pinned")
+
+        monkeypatch.setattr(locations, "_pinned_session", _never_pinned)
+        response = locations.safe_get(f"http://media.example:{port}/host", timeout=5)
+        assert response.content == f"media.example:{port}".encode()
+        assert lookups == ["media.example"]
+
+    def test_the_deadline_is_cleared_after_the_call(self, trusted, local_server):
+        from dw.locations import _REQUEST_DEADLINE, safe_get
+
+        safe_get(f"http://{local_server}/ok", timeout=5)
+        assert _REQUEST_DEADLINE.get() is None
+        # urllib3 closes pooled connections only when they are collected,
+        # so the call itself must cancel the abort timers it started - or
+        # every fetch leaves a thread waiting out its full deadline
+        time.sleep(0.1)
+        assert not [t for t in threading.enumerate() if isinstance(t, threading.Timer)]
 
     def test_a_redirect_to_an_internal_address_is_refused(
         self, untrusted, local_server, server_is_public, monkeypatch
