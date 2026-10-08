@@ -864,3 +864,51 @@ class TestByCard:
         costs = self._costs(history, monkeypatch, default=False)
 
         assert costs.observed("templates/x", workflow())["runs"] == 1
+
+    def _two_card_costs(self, tmp_path, monkeypatch, devices):
+        names = {
+            "cuda:0": "NVIDIA GeForce RTX 3090",
+            "cuda:1": "NVIDIA GeForce RTX 4090",
+        }
+        monkeypatch.setattr("dw.devices.card_name", lambda device=None: names[device])
+        monkeypatch.setattr(
+            "dw.devices.is_default_device", lambda device=None: device == "cuda:0"
+        )
+        costs = ObservedCosts(self._history(tmp_path, devices))
+        costs._device = ("cuda", names["cuda:0"])
+        costs._card = names["cuda:0"]
+        return costs
+
+    def test_a_named_card_quotes_only_its_own_runs(self, tmp_path, monkeypatch):
+        costs = self._two_card_costs(
+            tmp_path,
+            monkeypatch,
+            [
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:1 NVIDIA GeForce RTX 4090",
+            ],
+        )
+
+        on_second = costs.observed("templates/x", workflow(), card="cuda:1")
+        on_first = costs.observed("templates/x", workflow(), card="cuda:0")
+        default = costs.observed("templates/x", workflow())
+
+        assert on_second["runs"] == 1
+        assert on_second["device"] == "cuda"
+        assert on_second["name"] == "NVIDIA GeForce RTX 4090"
+        assert on_first["runs"] == 3
+        assert on_first["name"] == "NVIDIA GeForce RTX 3090"
+        # No card named: the server's own, as before
+        assert default["runs"] == 3
+
+    def test_a_named_card_with_no_runs_of_its_own_has_no_figure(
+        self, tmp_path, monkeypatch
+    ):
+        costs = self._two_card_costs(
+            tmp_path, monkeypatch, ["cuda:0 NVIDIA GeForce RTX 3090"]
+        )
+
+        assert costs.observed("templates/x", workflow(), card="cuda:1") is None
+        assert costs.observed("templates/x", workflow(), card="cuda:0")["runs"] == 1

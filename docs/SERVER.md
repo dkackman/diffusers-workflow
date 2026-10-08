@@ -218,9 +218,15 @@ crash fails only its own job. The worker started later gets a higher Linux
 `oom_score_adj` (+100 over the highest other live worker), so a host-RAM
 squeeze kills the later job; nothing is written with one worker. There is no
 host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
-`GET /api/memory`, the probe cache and memory reporting still read the first
-worker (or report `job_running` when any job runs); `POST /api/memory/clear`
-clears every idle worker.
+Among the free cards a job fits, dispatch prefers the one it has an affinity
+for: a rerun goes to the card that ran the original, and any job to the card
+whose worker last ran the same workflow (the same file, or an inline
+definition's `id`) - that worker's pipelines and step cache are warm, and a
+worker frees both when the workflow changes. A busy preferred card is not
+waited for. A validation's cache probe and its `plan.estimate` ask about the
+card the job would be dispatched to now, and the estimate names it in
+`priced_for`. Memory is per card: `GET /api/memory` and `POST
+/api/memory/clear` take an optional `device`.
 
 ### Progress events
 
@@ -630,7 +636,10 @@ The editor's forms come from these; they are just as usable from scripts:
   `reason` (`job_running`, `worker_stopped`, `worker_busy`,
   `worker_unreachable`) and `age_seconds`, so a cached reading is never
   mistaken for the worker's memory now - `info: null` means nothing has been
-  measured because nothing is resident. health also reports `hostname`,
+  measured because nothing is resident. Without `device` (`?device=cuda:1`)
+  the first card's reading is at the top level and `workers` has one entry per
+  card, each naming its `device`; with it, that card's alone (400 for a card
+  this server has no worker on). health also reports `hostname`,
   `device` and whether `mcp` is mounted, so a remote client can tell which
   machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
@@ -638,10 +647,12 @@ The editor's forms come from these; they are just as usable from scripts:
   host_memory_rss_mb}` - `device` is the ordinal (`cuda:1`) and `name` the
   GPU's own name, the two halves of a job's `device` - the last absent when the worker process isn't running
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
-  cache (MCP `clear_memory`), and returns the
-  memory reading taken right after. Refused with 409 while a job is running
-  or queued - the queue is FIFO, so the caller retries once it finishes
-  rather than this call blocking until it does
+  cache on each idle card (MCP `clear_memory`), and returns the memory
+  reading taken right after. A card running a job is left alone: `workers`
+  reports it `{device, cleared: false, reason: "job_running", job}`. With
+  `?device=cuda:1` it clears that card alone and answers `{cleared, info,
+  device}`. Refused with 409 when no card asked about is idle - the caller
+  retries once the job finishes rather than this call blocking until it does
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the

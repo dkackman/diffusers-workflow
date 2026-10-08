@@ -215,8 +215,11 @@ def child_lookup(catalog, monkeypatch):
     workspace = SimpleNamespace(
         name="default", outputs=None, assets=None, prompts=None, workflows=str(root)
     )
+    # The card the run would be routed to: one card, nothing warm
+    card = SimpleNamespace(ordinal=lambda: "cuda:0", label=lambda: "cuda:0")
+    manager = SimpleNamespace(identity_of=lambda *a: None, route=lambda *a, **kw: card)
     jobs._validation_plan(
-        SimpleNamespace(job_manager=None),
+        SimpleNamespace(job_manager=manager),
         candidate,
         request,
         workspace,

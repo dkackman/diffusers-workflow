@@ -148,18 +148,19 @@ def list_models(client):
     return client.get_json("/api/models")
 
 
-def get_memory(client):
-    """Worker VRAM/RAM stats - the first thing to check on an OOM."""
-    return client.get_json("/api/memory")
+def get_memory(client, device=None):
+    """Worker VRAM/RAM stats - the first thing to check on an OOM. With
+    `device`, that card's alone."""
+    params = {"device": device} if device else None
+    return client.get_json("/api/memory", params=params)
 
 
-def clear_memory(client):
-    """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-    immediately rather than waiting for the next job to evict one model
-    for another. Refused with a 409 while a job is running or queued -
-    the queue is FIFO, so retry once it finishes rather than expecting
-    this call to wait for it."""
-    return client.post_json("/api/memory/clear")
+def clear_memory(client, device=None):
+    """Drop every loaded pipeline and the step cache on each idle card -
+    `device`'s alone when one is named. A card running a job is skipped;
+    refused with a 409 when no card asked about is idle."""
+    params = {"device": device} if device else None
+    return client.post_json("/api/memory/clear", params=params)
 
 
 def get_health(client):
