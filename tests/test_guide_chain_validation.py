@@ -179,10 +179,12 @@ class TestOwnGuidesPlusTheChain:
         error = one(definition(prompt="a cat", guides=self.guides(4)))
         assert error["path"].endswith("continuity")
         assert "the chain adds one" in error["message"]
-        assert "4" in error["message"]
+        assert "got 4" in error["message"]
 
     def test_three_own_guides_leave_room(self):
-        assert guide_chain_errors(definition(prompt="a cat", guides=self.guides(3))) == []
+        assert (
+            guide_chain_errors(definition(prompt="a cat", guides=self.guides(3))) == []
+        )
 
     def test_an_unresolved_guides_value_is_left_to_the_run(self):
         assert (
@@ -193,6 +195,8 @@ class TestOwnGuidesPlusTheChain:
     def test_last_frame_continuity_takes_the_full_four(self):
         chain = {"segments": 2, "continuity": "last_frame"}
         assert (
-            guide_chain_errors(definition(chain=chain, prompt="a cat", guides=self.guides(4)))
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(4))
+            )
             == []
         )
