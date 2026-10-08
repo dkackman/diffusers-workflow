@@ -92,8 +92,8 @@ def test_every_static_check_is_registered_to_exactly_one_command():
     registered = collections.Counter(TASK_STATIC_CHECKS.values())
     for check in _static_check_functions():
         assert registered[check] == 1, check.__name__
-    # and nothing registered comes from anywhere else
-    assert set(registered) == set(_static_check_functions())
+    # and one kept in its task's own module (attribute_voices') is not shared
+    assert set(registered.values()) == {1}
 
 
 def test_every_media_argument_is_a_parameter_of_its_command():

@@ -172,6 +172,47 @@ def _span(entry, where, duration, allow_empty=False):
     return start, min(end, duration) if duration is not None else end
 
 
+def voices_argument_errors(arguments):
+    """[(argument, message)] for an attribute_voices `voices` its parse_voices
+    would refuse - fewer than two, a bad name, a malformed span, a reference
+    under min_reference_seconds (#494).
+
+    What needs the audio - a span past its end, a clip's length - stays the
+    run's: the duration is not known here. A `voices` still spelled as a
+    reference, or with a span holding one, is left to the run too.
+    """
+    if "voices" not in arguments:
+        return []
+    voices = arguments["voices"]
+    if isinstance(voices, str) or _voices_hold_reference(voices):
+        return []
+    minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
+    if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
+        minimum = MIN_REFERENCE_SECONDS
+    try:
+        parse_voices(voices, None, minimum)
+    except ValueError as error:
+        return [("voices", str(error))]
+    return []
+
+
+def _voices_hold_reference(voices):
+    """Whether any span in `voices` carries a string - a reference the run
+    resolves - so its numbers are not known yet. A clip path in place of a
+    voice's spans is not a span and does not count."""
+    if not isinstance(voices, dict):
+        return False
+    for reference in voices.values():
+        spans = [reference] if isinstance(reference, dict) else reference
+        if not isinstance(spans, list):
+            continue
+        for span in spans:
+            values = span.values() if isinstance(span, dict) else [span]
+            if any(isinstance(value, str) for value in values):
+                return True
+    return False
+
+
 def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     """The voices argument as {name: spans | clip path}, checked.
 

@@ -66,7 +66,8 @@ def my_task(source, num_frames, start_frame=0, mode="fast"): ...
 - `static_check` - a function of the step's `arguments` that returns
   `(argument, message)` pairs for rules across arguments. It lives in
   `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
-  command.
+  command - or, when it needs the task's own parser, in the task's module
+  behind an import on use, as `attribute_voices`' does.
 - `media_arguments` - an argument that reads a file under a name that does not
   say so (`source`, `media`, `lut`). Validation confines it as it does `image`
   or `*_video`; an argument left out of it is not path-checked.

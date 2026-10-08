@@ -38,7 +38,6 @@ from ..task_domains import (
     paste_face_track_errors,
     script_lines_errors,
     slice_audio_errors,
-    voices_argument_errors,
     window_video_errors,
 )
 from . import beats  # noqa: F401 - registers analyze_beats
@@ -671,13 +670,20 @@ def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
     return analyze_sync_drift(**arguments)
 
 
+def _voices_argument_errors(arguments):
+    """attribute_voices' static check, imported on use: its module loads torch."""
+    from .voice_attribution import voices_argument_errors
+
+    return voices_argument_errors(arguments)
+
+
 @register_command(
     "attribute_voices",
     implementation="dw.tasks.voice_attribution.attribute_voices",
     consumes_device=True,
     returns="json",
     domains={"window_seconds": POSITIVE, "min_reference_seconds": POSITIVE},
-    static_check=voices_argument_errors,
+    static_check=_voices_argument_errors,
 )
 def _handle_attribute_voices(task, arguments, previous_pipelines):
     """Say which reference voice sings each line of a song, by timbre"""
