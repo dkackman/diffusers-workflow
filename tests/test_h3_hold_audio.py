@@ -699,12 +699,12 @@ class TestWithHeldAudio:
         arguments = {"prompt": "x", "output": ["videos", "audio"]}
         assert Pipeline._with_held_audio(ns(object()), arguments) is arguments
 
-    def test_a_single_string_output_of_audio_gains_the_held_keys(self):
+    def test_a_list_output_of_only_audio_gains_the_held_keys(self):
         pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
         insert_audio_hold(pipeline)
         reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
         result = Pipeline._with_held_audio(
-            ns(pipeline), {"hold_audio": reference, "output": "audio"}
+            ns(pipeline), {"hold_audio": reference, "output": ["audio"]}
         )
         assert result["output"] == ["audio", HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
 
