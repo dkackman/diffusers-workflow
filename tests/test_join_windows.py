@@ -539,3 +539,140 @@ class TestWorkflow:
             "window@c",
         ]
         assert sum(s["num_frames"] for s in entry["shots"]) == 20
+
+
+def _reference_join(windows, total, num_frames, overlap, curve):
+    """The float32 accumulator join_windows used before #695."""
+    stride = num_frames - overlap
+    weights = _weights(overlap, curve).reshape(-1, 1, 1, 1)
+    joined = numpy.empty((total,) + windows[0].shape[1:], numpy.float32)
+    first_end = min(stride, total)
+    joined[:first_end] = windows[0][overlap : overlap + first_end]
+    for index in range(1, len(windows)):
+        start = index * stride - overlap
+        window = windows[index].astype(numpy.float32)
+        skip = max(0, -start)
+        head = slice(start + skip, start + overlap)
+        joined[head] = (
+            joined[head] * (1 - weights[skip:]) + window[skip:overlap] * weights[skip:]
+        )
+        tail_end = min(start + num_frames, total)
+        joined[start + overlap : tail_end] = window[overlap : tail_end - start]
+    return joined.round().clip(0, 255).astype(numpy.uint8)
+
+
+class TestUint8Output:
+    def test_the_frames_are_a_uint8_array_of_the_sources_length(self):
+        clip = _ramp_clip(50)
+        joined = join_windows(_cut(clip, 17, 4), clip, 17, 4)
+
+        assert isinstance(joined.frames, numpy.ndarray)
+        assert joined.frames.dtype == numpy.uint8
+        assert joined.frames.shape == (50, 4, 6, 3)
+
+    @pytest.mark.parametrize("curve", CURVES)
+    @pytest.mark.parametrize(
+        "total, num_frames, overlap",
+        [
+            (50, 17, 4),  # total not a multiple of the stride
+            (52, 17, 4),
+            (30, 9, 6),  # overlap wider than the stride
+            (33, 9, 8),
+            (23, 9, 5),
+            (40, 9, 0),
+            (10, 17, 4),  # a single window
+            (7, 6, 4),  # stride 2, the second window's head reaches back
+        ],
+    )
+    def test_matches_the_float32_accumulator_exactly(
+        self, curve, total, num_frames, overlap
+    ):
+        rng = numpy.random.default_rng(total * 100 + num_frames * 10 + overlap)
+        count = window_count(total, num_frames, overlap)
+        windows = [
+            rng.integers(0, 256, (num_frames, 4, 6, 3), dtype=numpy.uint8)
+            for _ in range(count)
+        ]
+        videos = [AudioVideo(w, None, None, fps=24.0) for w in windows]
+
+        joined = join_windows(videos, _flat(total, 0), num_frames, overlap, curve=curve)
+
+        expected = _reference_join(windows, total, num_frames, overlap, curve)
+        assert joined.frames.shape == expected.shape
+        assert numpy.array_equal(joined.frames, expected), (
+            f"max diff {numpy.abs(joined.frames.astype(int) - expected).max()}"
+        )
+
+
+class TestFileSourceRoundTrip:
+    @pytest.mark.parametrize("num_frames, overlap", [(9, 0), (9, 2), (9, 6)])
+    def test_windows_of_a_file_rejoin_to_its_frames_and_audio(
+        self, tmp_path, num_frames, overlap
+    ):
+        from dw.tasks.video_utils import load_audio_video
+
+        path = _write_video(tmp_path / "long.mp4", num_frames=37)
+        clip = load_audio_video(path)
+        count = window_count(37, num_frames, overlap)
+        windows = [
+            window_video(VideoFileReference(path), i, num_frames, overlap)
+            for i in range(count)
+        ]
+
+        for source in (path, VideoFileReference(path)):
+            joined = join_windows(windows, source, num_frames, overlap)
+
+            assert joined.frames.dtype == numpy.uint8
+            assert numpy.array_equal(joined.frames, frames_as_array(clip))
+            assert joined.fps == clip.fps
+            assert joined.sample_rate == clip.sample_rate
+            assert joined.audio.shape == (
+                2,
+                frames_to_samples(37, clip.fps, clip.sample_rate),
+            )
+            assert numpy.array_equal(
+                joined.audio, clip.audio[:, : joined.audio.shape[1]]
+            )
+
+
+class TestJoinMemory:
+    @pytest.mark.parametrize("dtype", [numpy.uint8, numpy.float32])
+    def test_the_join_never_holds_the_whole_video_in_float32(self, dtype):
+        import tracemalloc
+
+        total, num_frames, overlap, size = 1200, 33, 8, 64
+        count = window_count(total, num_frames, overlap)
+        source = _ramp_clip(total, size=(size, size), audio=False)
+        rng = numpy.random.default_rng(0)
+        base = rng.integers(0, 256, (num_frames, size, size, 3), dtype=numpy.uint8)
+        windows = [
+            AudioVideo(
+                base.astype(dtype) if dtype == numpy.float32 else base.copy(),
+                None,
+                None,
+                fps=24.0,
+            )
+            for _ in range(count)
+        ]
+        full_uint8 = total * size * size * 3
+        window_float = num_frames * size * size * 3 * 4
+
+        tracemalloc.start()
+        try:
+            joined = join_windows(windows, source, num_frames, overlap)
+            peak = tracemalloc.get_traced_memory()[1]
+        finally:
+            tracemalloc.stop()
+
+        assert joined.frames.shape == (total, size, size, 3)
+        # No full-size float32 accumulator
+        assert peak < full_uint8 * 4 * 0.75, f"peak {peak}, float32 {full_uint8 * 4}"
+        if dtype == numpy.uint8:
+            # Windows are used as they are: the output and a few windows' seams
+            assert peak < 1.5 * full_uint8 + 4 * window_float, (
+                f"peak {peak}, uint8 output {full_uint8}"
+            )
+        else:
+            # Each float window is held once as uint8 beside the output
+            held = count * num_frames * size * size * 3
+            assert peak < full_uint8 + held + 4 * window_float
