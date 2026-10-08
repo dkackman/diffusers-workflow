@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Task layer consolidation: one registration pattern, one coercion,
+  shared image ops** (#692, stages #773-#775), shipped 2026-10-08. A task's
+  domains, choices, static check and media arguments are declared on
+  `register_command`, and the old tables are derived views. Task numbers
+  are coerced by `whole_number`/`real_number`, and validate and run agree.
+  `crop_face_track` takes its grid from the workflow. Record:
+  `complete/task-layer-consolidation-complete.md`. The follow-up is #784.
 - **`h3_blocks.py` split into `h3_rules` / `h3_hold` / `h3_guides`, and the
   H3 copies of diffusers pinned** (#691, stages #770-#771), shipped
   2026-10-08. Drift tests pin the refine sigma grid to stock
