@@ -5,7 +5,8 @@ Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 #598-#603 batch landed, reviewed against `develop` on 2026-10-07, and
 approved by Don without answers to its questions, so each question's
 default stood. It was built as four stages, #675, #676, #677 and #678,
-all shipped and verified 2026-10-07/08. No design doc existed before this
+all shipped and verified 2026-10-07/08, plus one fix-forward stage, #682,
+after the feature's final check. No design doc existed before this
 one: the plan lived only on the issue.
 
 ## The idea
@@ -126,6 +127,24 @@ Cost: the stage comments carry no `usage:` figures, so none is recorded.
 | #676 B | worker pool, dispatcher and backfill, fit check and 400, `workers` on health, `oom_score_adj` | `d890661c`, `0d8c71d0`, `19844829` | 1 architecture (rationale in `dw/server/CLAUDE.md`, moved to the `jobs.py` docstring); 1 verify (the `workers` entry shape, the fit check's 24 vs admission's 23.6 at the boundary, and lem still on one card until Don set `devices`) |
 | #677 C | identity and rerun affinity, routed probe, per-card memory, `priced_for` | `26f063b9`, `bffb2641` | 1 architecture (the VRAM need computed a second way in `routes/jobs.py`, and three related second-owner/map findings) |
 | #678 D | MCP text, docs, UI | `7163f069` | none |
+| #682 fix-forward | `get_job`/`list_jobs` descriptions name `device` | `22ebd1a7` | none |
 
-Acceptance cases C-F337-C-F350 (`regression-suite-complete.md`) all
-passed on lem with both cards. The UI is Don's to check by eye.
+## The final check, and the fix-forward
+
+The feature's first final check failed 2 of 14 cases:
+
+- **C-F350, a build miss.** Stage D changed the instructions and the
+  `get_health`/`get_memory` descriptions but left `get_job` and
+  `list_jobs` without a word on a job's `device`. Fix-forward #682 added
+  it to both, within `SURFACE_BUDGET`, and C-F350 passed as written.
+- **C-F344, a case error, not a server one.** The case declared the VRAM
+  need through a workflow's `cost[].vram_gb`. That figure records a
+  measured run, so stage B made it a soft need on purpose: it orders
+  dispatch and refuses nothing. Only a declared `vram_estimate` gates
+  submit, and that gate worked. Plan v1 named both sources loosely; the
+  build settled it. The case was amended in dkackman/harnest#81 (Don
+  approved; the soft-need arm was added) rather than the server changed.
+
+Acceptance cases C-F337-C-F350 (`regression-suite-complete.md`) passed
+on lem with both cards, C-F350 after #682. The UI is Don's to check by
+eye.
