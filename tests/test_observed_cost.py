@@ -16,6 +16,7 @@ import os
 import pytest
 
 from dw.server.job_history import JobHistory
+from dw.server.job_record import Job
 from dw.server.observed_cost import (
     ObservedCosts,
     declared_drivers,
@@ -831,8 +832,13 @@ class TestByCard:
 
     @staticmethod
     def _history(tmp_path, devices):
+        """Rows as a server before #693 wrote them - the `device` label
+        alone - then the history reopened, so every row reaches the reader
+        through the migration's backfill."""
         history = JobHistory(tmp_path / "jobs.sqlite")
         with history._connect() as connection:
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_ordinal")
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_card")
             for index, device in enumerate(devices):
                 connection.execute(
                     "INSERT INTO jobs (id, status, started_at, finished_at,"
@@ -850,7 +856,7 @@ class TestByCard:
                         device,
                     ),
                 )
-        return history
+        return JobHistory(tmp_path / "jobs.sqlite")
 
     def _costs(self, history, monkeypatch, default):
         monkeypatch.setattr("dw.devices.is_default_device", lambda device=None: default)
@@ -951,3 +957,21 @@ class TestByCard:
 
         assert costs.observed("templates/x", workflow(), card="cuda:1") is None
         assert costs.observed("templates/x", workflow(), card="cuda:0")["runs"] == 1
+
+    def test_a_row_recorded_with_the_fields_counts_by_its_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        for job_id, ordinal, card in [
+            ("a", "cuda:1", self.CARD),
+            ("b", "cuda:0", "NVIDIA GeForce RTX 4090"),
+        ]:
+            job = Job({"workflow_name": "x", "catalog_name": "templates/x"})
+            job.id = job_id
+            job.status = "succeeded"
+            job.started_at, job.finished_at = 0.0, 60.0
+            job.device_ordinal, job.device_card = ordinal, card
+            history.record(job)
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 1

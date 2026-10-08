@@ -289,7 +289,11 @@ def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
     server, monkeypatch
 ):
     label = "cuda:1 NVIDIA GeForce RTX 3090"
-    monkeypatch.setattr(ScriptedWorkerManager, "device_label", lambda self: label)
+    monkeypatch.setattr(
+        ScriptedWorkerManager,
+        "device_fields",
+        lambda self: ("cuda:1", "NVIDIA GeForce RTX 3090"),
+    )
     with server(hanging_script) as client:
         running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, running["id"], ["running"])
@@ -308,7 +312,11 @@ def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
 
 def test_a_finished_jobs_device_is_remembered_in_history(server, monkeypatch):
     label = "cuda:1 NVIDIA GeForce RTX 3090"
-    monkeypatch.setattr(ScriptedWorkerManager, "device_label", lambda self: label)
+    monkeypatch.setattr(
+        ScriptedWorkerManager,
+        "device_fields",
+        lambda self: ("cuda:1", "NVIDIA GeForce RTX 3090"),
+    )
     with server(success_script) as client:
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, job["id"], ["succeeded"])

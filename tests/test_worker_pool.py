@@ -42,7 +42,7 @@ def card(script, device, capacity_gb, name="Test GPU"):
     manager.device = device
     manager._capacity_read = True
     manager._capacity_gb = capacity_gb
-    manager._device_label = f"{device} {name}"
+    manager._device_fields = (device, name)
     return manager
 
 
@@ -284,7 +284,7 @@ class TestFitAtSubmit:
         )
         worker = ScriptedWorkerManager(success_script)
         worker.device = "cuda:0"
-        worker._device_label = "cuda:0 NVIDIA GeForce RTX 3090"
+        worker._device_fields = ("cuda:0", "NVIDIA GeForce RTX 3090")
         manager = pool(worker)
 
         admission_ceiling = _entries_for([], "cuda", 23.57)[0]["vram_gb"]
@@ -311,7 +311,7 @@ class TestFitAtSubmit:
             worker = client.app.state.job_manager.worker_manager
             worker._capacity_read = True
             worker._capacity_gb = 24
-            worker._device_label = "cuda:0 Test GPU"
+            worker._device_fields = ("cuda:0", "Test GPU")
 
             response = client.post("/api/jobs", json={"workflow": valid_workflow()})
 
@@ -684,6 +684,28 @@ class TestRerunAffinity:
         assert manager._original_device(original.id) == "cuda:1"
         assert manager._original_device("nonexistent") is None
 
+    def test_a_rerun_of_a_job_recorded_before_the_fields_prefers_its_card(self, pool):
+        import sqlite3
+
+        from dw.server.job_history import JobHistory
+
+        manager, original = self.original_on_second_card(pool, Gate())
+        del manager.jobs[original.id]
+        # The row as a server before #693 left it - the label alone - and the
+        # history reopened, as the upgraded server's first start does
+        path = manager.history.db_path
+        with sqlite3.connect(path) as connection:
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_ordinal")
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_card")
+        manager.history = JobHistory(path)
+
+        assert manager._original_device(original.id) == "cuda:1"
+        rerun = manager.rerun(
+            original.id, admitted=admitted_for(manager, valid_workflow("x"))
+        )
+        wait_for(rerun, {"succeeded"})
+        assert rerun.device == "cuda:1 Test GPU"
+
 
 class TestProbeRouting:
     COMMAND = {
@@ -999,13 +1021,25 @@ class TestPricedFor:
 
 
 class TestLabelAndIdentityRules:
-    def test_a_label_reads_back_as_its_ordinal_and_card(self):
-        from dw.devices import card_of, ordinal_of
+    def test_a_job_stores_its_ordinal_and_card_and_shows_them_as_one_label(self):
+        from dw.server.job_record import Job
 
-        assert ordinal_of("cuda:1 NVIDIA GeForce RTX 3090") == "cuda:1"
-        assert card_of("cuda:1 NVIDIA GeForce RTX 3090") == "NVIDIA GeForce RTX 3090"
-        assert ordinal_of("cpu") == "cpu"
-        assert ordinal_of(None) is None
+        job = Job({"workflow_name": "w"})
+        assert (job.device_ordinal, job.device_card, job.device) == (None, None, None)
+
+        job.device_ordinal, job.device_card = "cuda:1", "NVIDIA GeForce RTX 3090"
+        assert job.device == "cuda:1 NVIDIA GeForce RTX 3090"
+
+        job.device_ordinal, job.device_card = "cpu", None
+        assert job.device == "cpu"
+
+    def test_a_dispatched_job_takes_its_cards_fields(self, pool):
+        manager = pool(card(success_script, "cuda:1", 24))
+
+        job = submit(manager, "x")
+        wait_for(job, {"succeeded"})
+
+        assert (job.device_ordinal, job.device_card) == ("cuda:1", "Test GPU")
 
     def test_the_server_routes_by_the_identity_the_worker_caches_by(self):
         from dw.worker_protocol import workflow_identity

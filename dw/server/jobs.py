@@ -40,7 +40,7 @@ import logging
 import threading
 
 from ..worker_protocol import Execute, workflow_identity
-from ..devices import card_of, device_ordinal, ordinal_of
+from ..devices import device_ordinal
 from ..host_memory import process_rss_mb
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
@@ -549,10 +549,8 @@ class JobManager:
         """The ordinal of the card `job_id` ran on ('cuda:1'), or None."""
         job = self.jobs.get(job_id)
         if job is not None:
-            label = job.device
-        else:
-            label = (self.history.get(job_id) or {}).get("device")
-        return ordinal_of(label)
+            return job.device_ordinal
+        return self.history.device_ordinal(job_id)
 
     def queue_position(self, job_id):
         """Index in the waiting queue, or None when the job is not queued."""
@@ -685,7 +683,7 @@ class JobManager:
                 slot, job = picked
                 job.status = RUNNING
                 job.started_at = time.time()
-                job.device = self._job_device(slot)
+                job.device_ordinal, job.device_card = slot.device_fields()
                 slot.current_job_id = job.id
                 slot.started_at = job.started_at
                 # The worker switches to this identity for the run
@@ -839,12 +837,6 @@ class JobManager:
         highest = max((other.oom_score_adj or 0) for other in others)
         manager.set_oom_score_adj(min(1000, highest + 100))
 
-    def _job_device(self, slot=None):
-        """The card the worker runs on, for the job record. A label that
-        cannot be read leaves the job's `device` null rather than failing
-        the job - the run itself does not depend on it."""
-        return (slot or self.slots[0]).label()
-
     def is_busy(self):
         """True while a job is running on any card or queued - the window in
         which a worker may be reading model files a cache delete would rip
@@ -889,7 +881,7 @@ class JobManager:
             pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
             entry = {
                 "device": device_ordinal(slot.device),
-                "name": card_of(slot.label()),
+                "name": slot.device_fields()[1],
                 "vram_gb": slot.capacity_gb(),
                 "current_job": job_id,
                 "alive": slot.alive(),
