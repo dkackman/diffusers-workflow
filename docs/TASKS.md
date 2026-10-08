@@ -2084,7 +2084,8 @@ Every seam between shots, audio and picture:
 | `seams[].between` | `[previous shot name, next shot name]` |
 | `seams[].seconds` | Where the seam sits in the file |
 | `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
-| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
+| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` - `concat_videos` sets it on a shot opening a seam it butt-joined (a plain cut, or a cut with a `seam_fade_ms` fade). A seam that got an `audio_bleed_ms` bleed carries `audio_bleed_ms` instead of `hard_cut` |
+| `seams[].audio_bleed_ms` | The bleed the seam actually got (clamped to the material); absent where none ran. The picture is still a cut, so `seam_frame_jump` stays quiet |
 | `seams[].before_shot_rms_dbfs` / `after_shot_rms_dbfs` | RMS level of the whole shot either side of the seam |
 | `seams[].level_step_db` | The absolute difference between those two shot levels. Shot against shot, not the audio at the seam's edges: a take's own tail and head can sit 20 dB apart, which is not a step the cut made |
 | `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level of the 0.25 s either side of the seam - what `seam_hole`'s both-sides-voiced guard reads |

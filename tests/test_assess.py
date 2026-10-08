@@ -434,6 +434,27 @@ class TestConcatVideosMarksHardCut:
         ]
         assert jump_findings == []
 
+    def test_a_bled_seam_records_the_bleed_not_a_hard_cut(self):
+        # #783: the bleed ran, so the seam is not a butt join
+        import numpy
+
+        fps, frames_per_shot, rate = 24, 24, 8000
+        clip_a, clip_b = self._clips(fps, frames_per_shot)
+        noise = numpy.random.default_rng(0).uniform(-0.1, 0.1, (1, rate))
+        for clip in (clip_a, clip_b):
+            clip.audio, clip.sample_rate = noise.astype("float32"), rate
+
+        joined = concat_videos(
+            [clip_a, clip_b], fps=fps, sample_rate=rate, audio_bleed_ms=200
+        )
+        assert "hard_cut" not in joined.shots[1]
+        assert joined.shots[1]["audio_bleed_ms"] == 200.0
+
+        answer = analyze_seams(joined)
+        assert answer["seams"][0]["hard_cut"] is False
+        assert answer["seams"][0]["audio_bleed_ms"] == 200.0
+        assert [f for f in answer["findings"] if f["rule"] == "seam_frame_jump"] == []
+
     def test_the_same_jump_without_a_concat_seam_still_fires(self):
         # A chain never marks hard_cut on its inner segments (dw/pipeline_processors/chain.py) -
         # the same picture jump, built the same way but joined by hand rather

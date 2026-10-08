@@ -378,8 +378,10 @@ def bleed_join(
             already at its native rate
         seam: The seam's index, named in the log line and the tonal warning
         between: What the seam joins ("a -> b"), named beside the index
-        applied: A dict that gets `seam_fade_ms` when the no-material
-            fallback applied the caller's fade (see `_declick_join`)
+        applied: A dict that gets `audio_bleed_ms` - the bleed as realized,
+            clamped to the material - when the bleed ran, or `seam_fade_ms`
+            when the no-material fallback applied the caller's fade (see
+            `_declick_join`)
 
     Returns:
         The two waveforms joined, of their full combined length
@@ -430,6 +432,8 @@ def bleed_join(
     gain = 10.0 ** (gain_db / 20.0) if gain_db else 1.0
     following = following.copy()
     following[:, :window] += tail * decay * gain
+    if applied is not None:
+        applied["audio_bleed_ms"] = round(window / sample_rate * 1000, 1)
     emit_log(
         f"audio_bleed: {window / sample_rate * 1000:.0f} ms of tail over {where}"
         f" at {gain_db:g} dB (asked {bleed_ms} ms)",

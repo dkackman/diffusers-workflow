@@ -32,6 +32,10 @@ A shot is a dict:
   realized (clamped to the material, so it can be under the ask), so
   `seam_hole` (`dw/assessment_rules.py`) does not blame content for the dip
   that was asked for (#659). Absent where no fade was requested or applied
+- `audio_bleed_ms` - set on the shot that opens a seam `concat_videos` bled the
+  outgoing tail over, as realized (clamped to the material). Such a seam
+  carries it *instead of* `hard_cut`: the picture is still a cut, but the
+  audio is not a butt join (#783). `seam_frame_jump` stays quiet there too
 - `crossfade_ms`, `trim_frames` - set on each shot a chain's seam opens: the
   head frames trimmed and the equal-power crossfade as realized (clamped to the
   trimmed head's audio; absent when no audio was blended). `seam_hole` reads
@@ -158,6 +162,7 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
 _SEAM_KEYS = (
     "hard_cut",
     "seam_fade_ms",
+    "audio_bleed_ms",
     "crossfade_ms",
     "trim_frames",
     "overlap_frames",
