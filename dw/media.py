@@ -13,7 +13,7 @@ open" something a test can count and a patch can intercept:
   cannot play) or for a track too long to send whole (#193);
 - decodes that answer arrays and rates, never a step type: `decode_soundtrack`,
   `decode_audio_video`, `decode_rgb_frames`, `read_frames`,
-  `read_thumbnails_and_track`.
+  `read_frame_range`, `count_video_frames`, `read_thumbnails_and_track`.
 
 PyAV only: this runs in the server process, where a request must not pull in
 torch or materialise frames.
@@ -380,30 +380,16 @@ def read_frames(path, indexes, fit=None):
         # target sat on the last packets, and raises EOFError (#654)
         decoded = container.decode(stream)
         for target in wanted:
-            if target < position or target - position > 2 * (int(fps) if fps else 24):
+            if _seek_needed(target, position, fps):
                 # seek back or a long way forward: land on the keyframe at
-                # or before the target, then read up to it. The seek target
-                # is a container timestamp too, so it needs the same anchor.
-                seconds = target / fps if fps else 0.0
-                container.seek(
-                    int(seconds / stream.time_base) + start_pts,
-                    stream=stream,
-                    backward=True,
-                )
+                # or before the target, then read up to it
+                _seek_before(container, stream, target, fps, start_pts)
                 position = None
             recovered = False
             for frame in decoded:
                 if position is None:
                     # first frame after a seek says where we landed
-                    position = (
-                        int(
-                            round(
-                                float((frame.pts - start_pts) * stream.time_base) * fps
-                            )
-                        )
-                        if fps and frame.pts is not None
-                        else 0
-                    )
+                    position = _landed_at(frame, stream, fps, start_pts)
                     if position > target and not recovered:
                         # Landed past the target: the keyframe estimate was
                         # wrong for this file (off-rate or VFR). Reading on
@@ -423,6 +409,99 @@ def read_frames(path, indexes, fit=None):
         if missing:
             raise ValueError(f"could not decode frame(s) {missing} of {path}")
     return found
+
+
+def _seek_needed(target, position, fps):
+    """Whether reaching frame `target` from `position` takes a seek: going
+    back, or a long way forward (more than two seconds of decoding)."""
+    return target < position or target - position > 2 * (int(fps) if fps else 24)
+
+
+def _seek_before(container, stream, target, fps, start_pts):
+    """Land on the keyframe at or before frame `target`. The seek target is
+    a container timestamp too, so it needs the same `start_pts` anchor."""
+    seconds = target / fps if fps else 0.0
+    container.seek(
+        int(seconds / stream.time_base) + start_pts,
+        stream=stream,
+        backward=True,
+    )
+
+
+def _landed_at(frame, stream, fps, start_pts):
+    """The frame index of the first frame decoded after a seek."""
+    if not fps or frame.pts is None:
+        return 0
+    return int(round(float((frame.pts - start_pts) * stream.time_base) * fps))
+
+
+class ShortFrameRange(ValueError):
+    """`read_frame_range` reached the end of the file before `stop`;
+    `decoded` is the frame index the decode had reached."""
+
+    def __init__(self, path, start, stop, decoded):
+        super().__init__(
+            f"could not decode frames {start}..{stop - 1} of {path}: the file "
+            f"ended after {decoded} frames"
+        )
+        self.decoded = decoded
+
+
+def read_frame_range(path, start, stop):
+    """The frames `[start, stop)` of `path` as one (n, height, width, 3)
+    uint8 array, from one keyframe seek and one forward decode.
+
+    `read_frames`' seek, for a run of frames rather than a set: the same
+    `start_time` anchor, the same read-from-the-top fallback when the seek
+    lands past `start`, and one decode generator (#654). Each frame is
+    converted to `rgb24` exactly as `decode_audio_video` converts it, so the
+    run is byte for byte what a full decode holds at those indexes, without
+    the rest of the file ever being resident (#695).
+
+    Raises `ShortFrameRange` when the file ends before `stop`.
+    """
+    start, stop = int(start), int(stop)
+    if start < 0 or stop <= start:
+        raise ValueError(
+            f"read_frame_range needs 0 <= start < stop, got {start} and {stop}"
+        )
+    out = None
+    with av.open(path) as container:
+        stream = container.streams.video[0]
+        fps = float(stream.average_rate) if stream.average_rate else None
+        start_pts = stream.start_time if stream.start_time is not None else 0
+        position = 0
+        decoded = container.decode(stream)
+        if _seek_needed(start, position, fps):
+            _seek_before(container, stream, start, fps, start_pts)
+            position = None
+        recovered = False
+        for frame in decoded:
+            if position is None:
+                position = _landed_at(frame, stream, fps, start_pts)
+                if position > start and not recovered:
+                    # Landed past the start: the keyframe estimate was wrong
+                    # for this file; read from the top once instead
+                    container.seek(start_pts, stream=stream, backward=True)
+                    position = None
+                    recovered = True
+                    continue
+            if position >= start:
+                picture = frame.to_ndarray(format="rgb24")
+                if out is None:
+                    out = numpy.empty((stop - start,) + picture.shape, numpy.uint8)
+                out[position - start] = picture
+            position += 1
+            if position >= stop:
+                return out
+    raise ShortFrameRange(path, start, stop, position or 0)
+
+
+def count_video_frames(path):
+    """The picture frame count of `path`, by decoding every frame rather
+    than reading the header. Nothing is held but the frame in hand."""
+    with av.open(path) as container:
+        return sum(1 for _ in container.decode(container.streams.video[0]))
 
 
 def decode_audio_video(handle):
