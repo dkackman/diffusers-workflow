@@ -700,6 +700,45 @@ class TestTheCatalogsDriversAreReal:
             missing.append(relative)
         assert missing == []
 
+    def test_a_per_entry_list_is_a_driver(self):
+        """#763: a `per_entry` rate prices the run by its list's length, so
+        the observed bucket must key on that length too - otherwise runs at
+        one length shadow the estimate for every other."""
+        missing = []
+        for path in sorted(
+            glob.glob(
+                os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
+            )
+        ):
+            with open(path, encoding="utf-8") as handle:
+                definition = json.load(handle)
+            drivers = definition.get("cost_drivers") or []
+            for entry in definition.get("cost") or []:
+                per = entry.get("per_entry") if isinstance(entry, dict) else None
+                if per and per.get("variable") not in drivers:
+                    missing.append(os.path.relpath(path, REPO_ROOT))
+        assert missing == []
+
+    def test_observed_figure_is_bucketed_by_list_length(self):
+        from dw.server.observed_cost import observed_for
+
+        definition = {
+            "variables": {"windows": [{}, {}, {}]},
+            "cost_drivers": ["windows"],
+        }
+        rows = [
+            {
+                "manifest": "[]",
+                "arguments": json.dumps({"windows": [{}, {}, {}]}),
+                "duration": 600,
+                "had_load": True,
+                "events_at_cap": False,
+                "finished_at": 1,
+            }
+        ]
+        assert observed_for(definition, rows, arguments={"windows": [{}] * 3})
+        assert observed_for(definition, rows, arguments={"windows": [{}] * 5}) is None
+
     def test_the_minimax_templates_declare_drivers(self):
         """#91's report was about these specifically."""
         found = glob.glob(

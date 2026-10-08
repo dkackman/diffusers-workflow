@@ -18,7 +18,8 @@
     "cost_drivers": [
         "num_frames",
         "width",
-        "height"
+        "height",
+        "windows"
     ],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
