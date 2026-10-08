@@ -20,7 +20,7 @@ from dw.arguments import (
 )
 from dw.security import InvalidInputError, SecurityError
 from dw.variables import set_variables
-from tests.test_locations import (  # noqa: F401
+from tests.test_outbound import (  # noqa: F401
     _EchoHandler,
     _scripted,
     local_server,

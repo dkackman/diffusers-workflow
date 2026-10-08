@@ -8,10 +8,10 @@ from huggingface_hub import get_token
 
 from ..locations import (
     HF_TOKEN_HOST_SUFFIXES,
-    safe_post,
     token_host_allowed,
     validate_remote_encoder_url,
 )
+from ..outbound import safe_post
 from ..trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")

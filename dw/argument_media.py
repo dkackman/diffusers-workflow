@@ -17,7 +17,8 @@ from .security import (
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
 )
-from .locations import is_http_url, safe_get, validate_media_path
+from .locations import is_http_url, validate_media_path
+from .outbound import safe_get
 
 logger = logging.getLogger("dw")
 

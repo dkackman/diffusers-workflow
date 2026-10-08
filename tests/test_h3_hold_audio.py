@@ -32,7 +32,7 @@ from dw.pipeline_processors.h3_blocks import (
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
-from tests.test_locations import (  # noqa: F401
+from tests.test_outbound import (  # noqa: F401
     _EchoHandler,
     _scripted,
     local_server,

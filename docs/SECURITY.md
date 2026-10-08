@@ -165,7 +165,7 @@ One policy now answers all of it, untrusted:
   **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
   that fetches media from another machine on your tailnet is refused unless
   it runs under `--trust-workflows`.
-- **Every redirect is re-checked.** A media fetch (`safe_get`) never lets the
+- **Every redirect is re-checked.** A media fetch (`safe_get` in `dw/outbound.py`) never lets the
   HTTP client follow a redirect on its own: it follows at most 5 hops
   (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
   host policy before it is dialed. A public URL answering `302` to
@@ -295,5 +295,5 @@ SecurityError
 ## Testing
 
 ```bash
-pytest tests/test_security.py tests/test_locations.py tests/test_workflow_trust.py -v
+pytest tests/test_security.py tests/test_locations.py tests/test_outbound.py tests/test_workflow_trust.py -v
 ```

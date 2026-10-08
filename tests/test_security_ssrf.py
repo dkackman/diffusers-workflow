@@ -453,7 +453,7 @@ class TestRedirects:
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
     ):
         from dw.argument_media import fetch_image
-        from dw.locations import MAX_MEDIA_REDIRECTS
+        from dw.outbound import MAX_MEDIA_REDIRECTS
 
         routes = {
             f"https://cdn.example.com/{hop}.png": (
