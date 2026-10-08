@@ -20,8 +20,9 @@ Two rules, applied wherever a caller-supplied location is resolved:
   link-local (the cloud metadata address), a private range, or anything else
   that is not globally routable (100.64.0.0/10, Tailscale's range). The check
   runs on the resolved address, not on the literal string, so a hostname that
-  answers 127.0.0.1 is caught too, and `safe_get` runs it again on every
-  redirect before following it.
+  answers 127.0.0.1 is caught too, and `safe_get` / `safe_post` run it again
+  on every redirect before following it, then dial the address it checked
+  rather than resolving the name a second time.
 
 Both yield to `--trust-workflows`, exactly as the import and remote-code
 gates do: an operator who has vouched for a workflow's source may point it at
@@ -39,7 +40,7 @@ import ipaddress
 import logging
 import os
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urljoin, urlparse, urlsplit
 
 from . import references
 from .security import (
@@ -376,45 +377,214 @@ def validate_media_url(url, what="a media argument"):
 # default is 30; a CDN needs one or two
 MAX_MEDIA_REDIRECTS = 5
 
+# The most a fetched body may hold - the worker reads it whole into host RAM
+# before the media loader sees it, and a workflow names the URL
+MAX_MEDIA_BYTES = 1024**3
 
-def safe_get(url, what="a media argument", timeout=60):
-    """GET a workflow-supplied media URL, re-checking every redirect.
+_READ_CHUNK = 1 << 16
 
-    `validate_media_url` checks the URL the document wrote, but a fetch that
-    follows redirects on its own goes wherever the first host tells it to -
-    a public URL answering 302 to 169.254.169.254 or to the server's own
-    loopback was fetched unchecked (#407). Redirects are followed here, one
-    hop at a time, and each `Location` passes the same host policy before it
-    is dialed.
 
-    Args:
-        url: The http(s) URL the workflow supplied
-        what: Short phrase naming the argument, for the error message
-        timeout: Seconds per request
+def _pinned_adapter_class():
+    from requests.adapters import HTTPAdapter
 
-    Returns:
-        The final requests.Response, its status already checked
+    class _PinnedAdapter(HTTPAdapter):
+        """Dials `address` for every request to `host`, with TLS still
+        negotiated and checked against `host`. The address is the one the
+        host policy resolved and passed, so a name that answers a public
+        address to the lookup and an internal one to the connect (DNS
+        rebinding) reaches only the address that was checked."""
 
-    Raises:
-        InvalidInputError: If the URL or any redirect target is refused, or
-            the redirects run past MAX_MEDIA_REDIRECTS
-        requests.HTTPError: If the final answer is an error status
-    """
+        def __init__(self, host, address, **kwargs):
+            super().__init__(**kwargs)
+            self.host = host
+            self.address = address
+
+        def _host_header(self, url):
+            # The name as the URL wrote it, with its port: a server on a
+            # non-default port routes and builds redirects by both
+            netloc = urlsplit(url).netloc.rsplit("@", 1)[-1]
+            return netloc or self.host
+
+        def build_connection_pool_key_attributes(self, request, verify, cert=None):
+            # The pool - and so the socket - is keyed on the address; the
+            # request itself keeps the name, which is what redirects resolve
+            # against and what anything inspecting the request sees
+            host_params, pool_kwargs = super().build_connection_pool_key_attributes(
+                request, verify, cert
+            )
+            host_params["host"] = self.address
+            if host_params.get("scheme") == "https":
+                pool_kwargs["server_hostname"] = self.host
+                pool_kwargs["assert_hostname"] = self.host
+            return host_params, pool_kwargs
+
+        def send(self, request, **kwargs):
+            # The connection is to an address, so http.client would name
+            # the address in Host unless the request already names the host
+            request.headers.setdefault("Host", self._host_header(request.url))
+            return super().send(request, **kwargs)
+
+    return _PinnedAdapter
+
+
+def _pinned_session(url, address):
+    """A requests Session that dials `address` for `url`'s host."""
     import requests
 
-    current = validate_media_url(url, what)
+    session = requests.Session()
+    host = (urlsplit(url).hostname or "").strip("[]")
+    session.mount(url, _pinned_adapter_class()(host, address))
+    return session
+
+
+def _plain_session():
+    """A requests Session that resolves for itself - the one a trusted run
+    or an unresolved name is fetched with. A seam the tests replace."""
+    import requests
+
+    return requests.Session()
+
+
+def _session_for(url):
+    """The session a validated URL is fetched with: pinned to the first
+    address the policy resolved, or plain when the policy is lifted
+    (--trust-workflows) or the name resolved to nothing (the fetch reports
+    that itself)."""
+    if workflows_are_trusted():
+        return _plain_session()
+    host = (urlsplit(url).hostname or "").strip("[]")
+    addresses = _resolved_addresses(host)
+    if not addresses:
+        return _plain_session()
+    return _pinned_session(url, str(addresses[0]))
+
+
+def _validated(validate, target, what):
+    """`validate` applied the way each policy takes its arguments:
+    validate_media_url names the argument for its message, and
+    validate_remote_encoder_url takes the URL alone."""
+    if validate is validate_media_url:
+        return validate_media_url(target, what)
+    return validate(target)
+
+
+def _without_credential(kwargs, current, target):
+    """`kwargs` for the hop to `target`, Authorization dropped when the
+    redirect leaves `current`'s host or downgrades to http - what requests'
+    own redirect handling did, so a token sent to one endpoint does not
+    follow its redirect somewhere else."""
+    headers = kwargs.get("headers")
+    if not headers:
+        return kwargs
+    before, after = urlsplit(current), urlsplit(target)
+    if before.hostname == after.hostname and not (
+        before.scheme == "https" and after.scheme == "http"
+    ):
+        return kwargs
+    kept = {k: v for k, v in headers.items() if k.lower() != "authorization"}
+    return {**kwargs, "headers": kept}
+
+
+def _read_capped(response, max_bytes, what, url):
+    """The body, read in chunks and refused past `max_bytes`."""
+    chunks, size = [], 0
+    for chunk in response.iter_content(_READ_CHUNK):
+        size += len(chunk)
+        if size > max_bytes:
+            response.close()
+            raise InvalidInputError(
+                f"Refusing {what} from '{url}': larger than {max_bytes} bytes"
+            )
+        chunks.append(chunk)
+    return b"".join(chunks)
+
+
+def _safe_request(
+    method,
+    url,
+    what,
+    timeout,
+    validate=validate_media_url,
+    max_bytes=MAX_MEDIA_BYTES,
+    **kwargs,
+):
+    """One outbound request on the workflow's behalf: `validate` on the URL
+    and on every redirect target, each hop dialed at the address the policy
+    resolved, the body capped at `max_bytes`, a timeout always set.
+
+    A fetch that follows redirects on its own goes wherever the first host
+    tells it to - a public URL answering 302 to 169.254.169.254 was fetched
+    unchecked (#407) - so hops are followed here, one at a time. And a host
+    checked at lookup but resolved again at the dial can answer differently
+    the second time, so the dial uses the address that was checked.
+
+    Returns:
+        The final requests.Response with its `.content` read, status
+        already checked
+
+    Raises:
+        InvalidInputError: For a refused hop, a redirect chain past
+            MAX_MEDIA_REDIRECTS, or a body over the cap
+        requests.HTTPError: For an error status
+    """
+    current = _validated(validate, url, what)
     for _ in range(MAX_MEDIA_REDIRECTS + 1):
-        response = requests.get(current, timeout=timeout, allow_redirects=False)
-        if not response.is_redirect:
+        session = _session_for(current)
+        try:
+            response = session.request(
+                method,
+                current,
+                timeout=timeout,
+                allow_redirects=False,
+                stream=True,
+                **kwargs,
+            )
+            if response.is_redirect:
+                target = urljoin(current, response.headers["Location"])
+                response.close()
+                logger.debug(f"{current} redirects to {target}")
+                target = _validated(
+                    validate, target, f"{what} (redirected from '{url}')"
+                )
+                kwargs = _without_credential(kwargs, current, target)
+                current = target
+                continue
             response.raise_for_status()
+            declared = response.headers.get("Content-Length")
+            if declared and declared.isdigit() and int(declared) > max_bytes:
+                response.close()
+                raise InvalidInputError(
+                    f"Refusing {what} from '{url}': larger than {max_bytes} bytes "
+                    f"({declared} declared)"
+                )
+            response._content = _read_capped(response, max_bytes, what, url)
+            response._content_consumed = True
             return response
-        target = urljoin(current, response.headers["Location"])
-        response.close()
-        logger.debug(f"{current} redirects to {target}")
-        current = validate_media_url(target, f"{what} (redirected from '{url}')")
+        finally:
+            session.close()
     raise InvalidInputError(
         f"Refusing to fetch {what} from '{url}': it redirects more than "
         f"{MAX_MEDIA_REDIRECTS} times"
+    )
+
+
+def safe_get(url, what="a media argument", timeout=60, max_bytes=MAX_MEDIA_BYTES):
+    """GET a media URL for a workflow (`_safe_request`)."""
+    return _safe_request("GET", url, what, timeout, max_bytes=max_bytes)
+
+
+def safe_post(
+    url,
+    what,
+    timeout=120,
+    max_bytes=MAX_MEDIA_BYTES,
+    validate=validate_media_url,
+    **kwargs,
+):
+    """POST on a workflow's behalf, the way safe_get fetches: `kwargs` are
+    requests' own (`json=`, `headers=`)."""
+    return _safe_request(
+        "POST", url, what, timeout, validate=validate, max_bytes=max_bytes, **kwargs
     )
 
 

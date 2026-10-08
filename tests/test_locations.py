@@ -9,11 +9,15 @@ one overrides tests/conftest.py's autouse _trust_workflows_by_default fixture
 back to the posture a deployed server actually runs on.
 """
 
+import http.server
 import os
+import socketserver
 import tempfile
-from unittest.mock import patch
+import threading
+from unittest.mock import Mock, patch
 
 import pytest
+import requests
 from PIL import Image
 
 from dw.argument_media import fetch_image
@@ -271,16 +275,36 @@ class TestRemoteEncoderUrl:
 
         class _Response:
             ok = True
+            is_redirect = False
             headers = {"Content-Type": "application/octet-stream"}
-            content = b""
             status_code = 200
+            _content = b""
 
-        def _post(url, json=None, headers=None):
-            sent["headers"] = headers
-            return _Response()
+            @property
+            def content(self):
+                return self._content
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                return iter([b""])
+
+            def close(self):
+                pass
+
+        class _Session:
+            def request(self, method, url, **kwargs):
+                sent["method"] = method
+                sent["headers"] = kwargs.get("headers")
+                sent["timeout"] = kwargs.get("timeout")
+                return _Response()
+
+            def close(self):
+                pass
 
         with (
-            patch.object(remote.requests, "post", _post),
+            patch("dw.locations._pinned_session", lambda url, address: _Session()),
             patch.object(remote.torch, "load", return_value=_Embeds()),
             patch(
                 "dw.locations.socket.getaddrinfo",
@@ -290,6 +314,8 @@ class TestRemoteEncoderUrl:
             remote.remote_text_encoder(["a"], "https://evil.example.com/encode", "cpu")
 
         assert "Authorization" not in sent["headers"]
+        assert sent["method"] == "POST"
+        assert sent["timeout"] == remote.REMOTE_ENCODER_TIMEOUT
 
     def test_a_backslash_is_refused(self, untrusted):
         """#409: urllib.parse and urllib3 disagree on the host of a URL
@@ -690,3 +716,225 @@ class TestApplyLutArguments:
         errors = location_errors(definition, base_dir=workflow_dir)
 
         assert [error["path"] for error in errors] == ["steps[0].task.arguments.media"]
+
+
+class _EchoHandler(http.server.BaseHTTPRequestHandler):
+    """/ok answers 2 bytes; /host echoes the Host header; /big answers 1000
+    bytes; /nolength streams 1000 bytes with no Content-Length; /hop
+    redirects to /ok; /loop redirects to itself; /internal redirects to
+    127.0.0.1; /auth echoes the Authorization header; /elsewhere 307s to
+    /auth under another name for the same server."""
+
+    def do_GET(self):
+        self._answer()
+
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length") or 0))
+        self._answer()
+
+    def _answer(self):
+        path = self.path
+        if path.startswith("/hop"):
+            return self._redirect(f"http://{self.headers['Host']}/ok")
+        if path.startswith("/loop"):
+            return self._redirect(f"http://{self.headers['Host']}/loop")
+        if path.startswith("/internal"):
+            return self._redirect("http://127.0.0.1:1/x")
+        if path.startswith("/elsewhere"):
+            port = self.headers["Host"].rsplit(":", 1)[1]
+            return self._redirect(f"http://localhost:{port}/auth", status=307)
+        if path.startswith("/host"):
+            body = self.headers["Host"].encode()
+        elif path.startswith("/auth"):
+            body = (self.headers.get("Authorization") or "none").encode()
+        elif path.startswith("/big") or path.startswith("/nolength"):
+            body = b"x" * 1000
+        else:
+            body = b"ok"
+        self.send_response(200)
+        if not path.startswith("/nolength"):
+            self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def _redirect(self, target, status=302):
+        self.send_response(status)
+        self.send_header("Location", target)
+        self.send_header("Content-Length", "0")
+        self.end_headers()
+
+    def log_message(self, *args):
+        pass
+
+
+@pytest.fixture
+def local_server():
+    server = socketserver.TCPServer(("127.0.0.1", 0), _EchoHandler)
+    thread = threading.Thread(target=server.serve_forever, daemon=True)
+    thread.start()
+    yield f"127.0.0.1:{server.server_address[1]}"
+    server.shutdown()
+    server.server_close()
+
+
+def _public(monkeypatch):
+    """Every name resolves to a public address for the policy; the pin
+    then decides what is actually dialed. An IP literal goes to the real
+    resolver, since urllib3 calls the same getaddrinfo to dial the pin."""
+    import ipaddress
+    import socket
+
+    real = socket.getaddrinfo
+
+    def _resolve(host, *a, **k):
+        try:
+            ipaddress.ip_address(host)
+        except ValueError:
+            return [(None, None, None, "", ("93.184.216.34", 80))]
+        return real(host, *a, **k)
+
+    monkeypatch.setattr("dw.locations.socket.getaddrinfo", _resolve)
+
+
+class TestSafeRequest:
+    """Review 2026-10-07 #3/#4: one path for every outbound request - the
+    address dialed is the one the policy checked, the body is capped, and
+    POST goes the same way as GET."""
+
+    def test_the_pin_dials_the_validated_address_not_a_second_lookup(
+        self, trusted, local_server
+    ):
+        from dw.locations import _pinned_session
+
+        host, port = local_server.split(":")
+        url = f"http://pinned.example:{port}/host"
+        # pinned.example resolves nowhere; only the pin can reach the server
+        response = _pinned_session(url, host).get(url, timeout=5, allow_redirects=False)
+        assert response.content == f"pinned.example:{port}".encode()
+
+    def test_trust_lifts_pinning_but_keeps_the_cap(self, trusted, local_server):
+        from dw.locations import safe_get
+
+        assert safe_get(f"http://{local_server}/ok", timeout=5).content == b"ok"
+        with pytest.raises(InvalidInputError, match="larger than"):
+            safe_get(f"http://{local_server}/big", timeout=5, max_bytes=100)
+        with pytest.raises(InvalidInputError, match="larger than"):
+            safe_get(f"http://{local_server}/nolength", timeout=5, max_bytes=100)
+
+    def test_a_body_exactly_at_the_cap_is_kept(self, trusted, local_server):
+        from dw.locations import safe_get
+
+        response = safe_get(
+            f"http://{local_server}/nolength", timeout=5, max_bytes=1000
+        )
+        assert len(response.content) == 1000
+        with pytest.raises(InvalidInputError, match="larger than"):
+            safe_get(f"http://{local_server}/nolength", timeout=5, max_bytes=999)
+
+    def test_a_declared_length_over_the_cap_is_refused_before_the_body(
+        self, trusted, local_server, monkeypatch
+    ):
+        from dw import locations
+
+        read = []
+        monkeypatch.setattr(
+            locations, "_read_capped", lambda *a, **k: read.append(a) or b""
+        )
+        with pytest.raises(InvalidInputError, match="larger than"):
+            locations.safe_get(f"http://{local_server}/big", timeout=5, max_bytes=100)
+        assert read == []
+
+    def test_a_redirect_to_an_internal_address_is_refused(
+        self, untrusted, local_server, monkeypatch
+    ):
+        """The first hop is a public name (pinned here to the local server
+        so the test can answer it); its 302 names 127.0.0.1, which the
+        policy refuses before anything is dialed."""
+        from dw import locations
+
+        _public(monkeypatch)
+        host, port = local_server.split(":")
+        real_pinned = locations._pinned_session
+        monkeypatch.setattr(
+            locations, "_pinned_session", lambda url, address: real_pinned(url, host)
+        )
+        with pytest.raises(InvalidInputError, match="inside this deployment"):
+            locations.safe_get(f"http://public.example:{port}/internal", timeout=5)
+
+    def test_a_redirect_loop_is_refused(self, trusted, local_server):
+        from dw.locations import MAX_MEDIA_REDIRECTS, safe_get
+
+        with pytest.raises(InvalidInputError, match=f"{MAX_MEDIA_REDIRECTS} times"):
+            safe_get(f"http://{local_server}/loop", timeout=5)
+
+    def test_a_redirect_is_followed_to_a_good_target(self, trusted, local_server):
+        from dw.locations import safe_get
+
+        assert safe_get(f"http://{local_server}/hop", timeout=5).content == b"ok"
+
+    def test_post_goes_through_the_same_path(self, trusted, local_server):
+        from dw.locations import safe_post
+
+        response = safe_post(
+            f"http://{local_server}/ok", "a test endpoint", timeout=5, json={"a": 1}
+        )
+        assert response.content == b"ok"
+
+    def test_a_redirect_to_another_host_drops_the_credential(
+        self, trusted, local_server
+    ):
+        """requests.post dropped Authorization when a redirect changed host;
+        hops followed by hand must too, or the token sent to one endpoint
+        goes wherever that endpoint redirects."""
+        from dw.locations import safe_post
+
+        response = safe_post(
+            f"http://{local_server}/elsewhere",
+            "a test endpoint",
+            timeout=5,
+            json={"a": 1},
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert response.content == b"none"
+
+    def test_the_credential_reaches_the_host_it_was_meant_for(
+        self, trusted, local_server
+    ):
+        from dw.locations import safe_post
+
+        response = safe_post(
+            f"http://{local_server}/auth",
+            "a test endpoint",
+            timeout=5,
+            headers={"Authorization": "Bearer secret"},
+        )
+        assert response.content == b"Bearer secret"
+
+    def test_an_unresolvable_host_is_fetched_unpinned(self, untrusted, monkeypatch):
+        """A typo stays the fetch's error to report (TestHostPolicy), and
+        the pin must not crash on an empty resolution."""
+        import socket
+
+        from dw import locations
+
+        monkeypatch.setattr(
+            "dw.locations.socket.getaddrinfo", Mock(side_effect=socket.gaierror)
+        )
+        dialed = {}
+
+        class _Session:
+            def request(self, method, url, **kwargs):
+                dialed["url"] = url
+                raise requests.ConnectionError("no such host")
+
+            def close(self):
+                pass
+
+        def _never_pinned(url, address):
+            raise AssertionError("an unresolved name must not be pinned")
+
+        monkeypatch.setattr(locations, "_pinned_session", _never_pinned)
+        monkeypatch.setattr(locations, "_plain_session", lambda: _Session())
+        with pytest.raises(requests.ConnectionError):
+            locations.safe_get("https://nope.invalid/x.png", timeout=5)
+        assert dialed["url"] == "https://nope.invalid/x.png"
