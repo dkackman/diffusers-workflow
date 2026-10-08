@@ -235,17 +235,18 @@ class CatalogTools:
         """List queued, running and recent jobs, newest first, with their
         status and queue position. The ids here are what `get_job`,
         `wait_for_job`, `get_job_events`, `cancel_job`, `rerun_job` and
-        `move_job` take - including jobs from before this session, so a run
-        someone started in the browser can be picked up here.
+        `move_job` take - including jobs started before this session or in
+        the browser.
 
         `limit` is the newest N (20 by default); `total` reports how many
-        matched, so a truncated answer says so rather than looking
-        complete. `status` narrows to one state or a comma-separated set of
-        them - queued, running, succeeded, failed, cancelled. `workspace`
-        lists one workspace's jobs; without it, a named workspace lists its
-        own and the default workspace lists every job the server holds,
-        whichever workspace ran it. Each job carries `acknowledged` - `none`,
-        `boolean` or `bound` - which form of cost acknowledgement queued it."""
+        matched, so truncation shows. `status` narrows to one state or a
+        comma-separated set of them - queued, running, succeeded, failed,
+        cancelled. `workspace` lists one workspace's jobs; without it, a
+        named workspace lists its own and the default lists every job on
+        the server. Each job carries `device`, the card it ran or runs on
+        (e.g. `cuda:1 NVIDIA GeForce RTX 3090`, null before multi-GPU), and
+        `acknowledged` (`none`, `boolean` or `bound`), the form of cost
+        acknowledgement that queued it."""
         return catalog.list_jobs(
             self.client, limit=limit, status=status, workspace=workspace
         )

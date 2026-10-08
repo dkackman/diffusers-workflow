@@ -79,12 +79,13 @@ class JobTools:
         and each entry's `subfolder` says what kind of output the step
         declared - by convention `final` is the deliverable, `intermediate`
         the scratch work, and '' a step that said nothing. A step served
-        from the step cache is marked `reused` and reports the earlier run's
-        files. When a job failed, the error and traceback here are what to
-        read before changing anything. `acknowledged` says which form of
-        cost acknowledgement queued the job (`none`, `boolean`, `bound`) and
-        `acknowledged_cost` is the bound `{fingerprint, minutes, downloads}`
-        when there was one."""
+        from the step cache is marked `reused`, with the earlier run's
+        files. On failure, read the error and traceback before changing
+        anything. `device` is the card the job ran or is running on, e.g.
+        `cuda:1 NVIDIA GeForce RTX 3090`; null for jobs from before
+        multi-GPU. `acknowledged` says which form of cost acknowledgement
+        queued it (`none`, `boolean`, `bound`), and `acknowledged_cost` is
+        the bound `{fingerprint, minutes, downloads}` if any."""
         return diagnose.get_job(self.client, job_id)
 
     def get_job_workflow(self, job_id: str) -> dict:
