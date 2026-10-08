@@ -931,7 +931,7 @@ def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_pat
     )
     with TestClient(app, base_url="http://localhost") as client:
         # the last reading taken while the worker was still alive
-        manager.last_memory = {"gpu_available": True, "used": 42}
+        manager.slots[0].last_memory = {"gpu_available": True, "used": 42}
 
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, job["id"], TERMINAL_STATES)
@@ -973,7 +973,7 @@ def test_a_slow_worker_is_not_declared_dead(tmp_path):
         history_path=str(tmp_path / "jobs.sqlite"),
     )
     manager.worker_manager.worker_active = True
-    manager.last_memory = {"gpu_available": True}
+    manager.slots[0].last_memory = {"gpu_available": True}
 
     status = manager.memory_status(timeout=0.01)
     assert status["live"] is False
@@ -1010,14 +1010,42 @@ def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
 
     # (b) a job is running, so the reading on file predates it
     manager._record_memory({"gpu_memory_allocated_mb": 8.125})
-    manager.last_memory_at -= 60
-    manager._current_job_id = "abc"
+    manager.slots[0].last_memory_at -= 60
+    manager.slots[0].current_job_id = "abc"
     busy = manager.memory_status()
     assert busy["live"] is False
     assert busy["stale"] is True
     assert busy["reason"] == "job_running"
     assert busy["age_seconds"] >= 60
     assert busy["info"] == {"gpu_memory_allocated_mb": 8.125}
+
+
+def test_health_names_the_running_job(server):
+    """The web UI header's running job: /api/health's `current_job` names
+    the job a worker is running (JobManager.running_job_id, #776), and
+    clears once it finishes."""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def held_script(command):
+        started.set()
+        release.wait(timeout=5)
+        yield from success_script(command)
+
+    with server(held_script) as client:
+        assert client.get("/api/health").json()["current_job"] is None
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        assert started.wait(timeout=5)
+
+        health = client.get("/api/health").json()
+        assert health["current_job"] == job["id"]
+        assert health["workers"][0]["current_job"] == job["id"]
+
+        release.set()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert client.get("/api/health").json()["current_job"] is None
 
 
 def test_clearing_memory_with_no_worker_resident_is_a_no_op_not_a_fault(server):

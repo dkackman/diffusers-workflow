@@ -777,7 +777,7 @@ class TestMemoryPerCard:
         first, second = manager.slots
         assert first.last_memory == {"card": "cuda:0"}
         assert second.last_memory == {"card": "cuda:1"}
-        assert manager.last_memory == {"card": "cuda:0"}
+        assert manager.slots[0].last_memory == {"card": "cuda:0"}
 
         manager.clear_memory(device="cuda:1")
         assert first.last_memory == {"card": "cuda:0"}
