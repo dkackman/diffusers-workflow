@@ -275,7 +275,9 @@ def guide_chain_errors(workflow_definition, source_indices=None):
         own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
         segments = chain.get("segments")
         added = 0 if segments == 1 and not isinstance(segments, bool) else 1
-        if isinstance(own, (list, tuple)) and len(own) + added > GUIDE_LIMIT:
+        # With no chain guide, an overflow is the guide count's own error
+        # (guides_errors); the chain's reason would not apply.
+        if added and isinstance(own, (list, tuple)) and len(own) + added > GUIDE_LIMIT:
             errors.append(
                 {
                     "path": render_path(base + ("chain", "continuity")),

@@ -202,6 +202,17 @@ class TestOwnGuidesPlusTheChain:
             == []
         )
 
+    def test_a_one_segment_chain_with_five_guides_gets_no_chain_error(self):
+        # The count overflow is guides_errors' to report; the chain's "adds one
+        # of its own" reason does not apply to a chain that adds none
+        chain = {"segments": 1, "continuity": "guide"}
+        assert (
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(5))
+            )
+            == []
+        )
+
     def test_a_two_segment_chain_still_adds_one(self):
         chain = {"segments": 2, "continuity": "guide"}
         error = one(definition(chain=chain, prompt="a cat", guides=self.guides(4)))
