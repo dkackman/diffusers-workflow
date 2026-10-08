@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`h3_blocks.py` split into `h3_rules` / `h3_hold` / `h3_guides`, and the
+  H3 copies of diffusers pinned** (#691, stages #770-#771), shipped
+  2026-10-08. Drift tests pin the refine sigma grid to stock
+  `set_timesteps` and the guide chunk sizes to the H3 video VAE; the rules
+  module is torch-free. Record, including the cut catalog move of
+  `guide_frames`: `complete/h3-blocks-split-complete.md`.
+
 - **Enhancer presets ruled UI wiring, not model knowledge** (#696, stage
   #781), shipped 2026-10-08. `PRESETS` stays in `dw/server/enhancers.py` as
   the Enhance panel's menu; a new *Prompt enhancement* map row states the
