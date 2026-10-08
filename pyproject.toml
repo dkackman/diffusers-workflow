@@ -169,7 +169,9 @@ ignore = ["E501"]
 # function's parameter (the idiomatic way to share a fixture across
 # modules) - pyflakes/ruff can't tell that from a genuine redefinition.
 "tests/test_api_contract.py" = ["F811"]
+"tests/test_arguments.py" = ["F811"]
 "tests/test_cli.py" = ["F811"]
+"tests/test_h3_hold_audio.py" = ["F811"]
 "tests/test_jobs_listing.py" = ["F811"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]

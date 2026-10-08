@@ -131,6 +131,9 @@ class ValidationContext:
         # tests patch them
         device_type=None,
         capacity_gb=None,
+        # What `capacity_gb` is called in a refusal, when it is not this
+        # process's own device
+        capacity_label=None,
         # The catalog's VRAM ceilings, for inherited_vram_warnings
         ceiling_index=None,
         expand=None,
@@ -141,6 +144,7 @@ class ValidationContext:
         self.composing = tuple(composing or ())
         self.device_type = device_type
         self.capacity_gb = capacity_gb
+        self.capacity_label = capacity_label
         self.ceiling_index = ceiling_index
         self._expand = expand
         self._expanded = expanded
@@ -363,6 +367,7 @@ ERROR_CHECKS = [
             supplied=c.supplied,
             device_type=c.device_type,
             capacity_gb=c.capacity_gb,
+            capacity_label=c.capacity_label,
             source_indices=c.source_indices,
             written=c.definition,
         ),
@@ -630,6 +635,7 @@ WARNING_CHECKS = [
                 supplied=c.supplied,
                 device_type=c.device_type,
                 capacity_gb=c.capacity_gb,
+                capacity_label=c.capacity_label,
                 source_indices=c.source_indices,
                 written=c.definition,
             )
@@ -653,11 +659,20 @@ def warning_check(name):
 # dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`.
 
 
-def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None):
+def workflow_context(
+    workflow,
+    arguments=None,
+    composing=(),
+    ceiling_index=None,
+    capacity_gb=None,
+    capacity_label=None,
+):
     """One validation request's ValidationContext: the expansion over
     `arguments` (lazy and memoized, so the error pass and the warning
     pass share it), where relative paths resolve from, the device the
-    request is checked against and the catalog's VRAM ceilings
+    request is checked against (its own capacity, or `capacity_gb` when
+    the caller knows a larger card the job may land on - the server's
+    worker pool, which `capacity_label` names in a refusal) and the catalog's VRAM ceilings
     (`ceiling_index`, for inherited_vram_warnings). Built per request
     and never stored on the Workflow, so its probe cache cannot serve a
     replaced file stale.
@@ -683,7 +698,8 @@ def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None)
         ),
         composing=composing,
         device_type=get_device_type(),
-        capacity_gb=device_capacity_gb(),
+        capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
+        capacity_label=capacity_label,
         ceiling_index=ceiling_index,
         expand=expand,
     )

@@ -20,6 +20,12 @@ from dw.arguments import (
 )
 from dw.security import InvalidInputError, SecurityError
 from dw.variables import set_variables
+from tests.test_outbound import (  # noqa: F401
+    _EchoHandler,
+    _scripted,
+    local_server,
+    server_is_public,
+)
 
 
 class TestFetchImage:
@@ -538,6 +544,20 @@ class Reference:
         return cls(media, **arguments)
 
 
+class ReadingReference:
+    """A from_file() that reads its media while it is called, as diffusers'
+    H3 references do"""
+
+    def __init__(self, location, content):
+        self.location = location
+        self.content = content
+
+    @classmethod
+    def from_file(cls, media):
+        with open(media, "rb") as handle:
+            return cls(media, handle.read())
+
+
 class TestRealizeObject:
     """Test constructing arguments that name a type and the file to build it from"""
 
@@ -568,12 +588,40 @@ class TestRealizeObject:
             assert args["reference"].arguments == {"fps": 30.0}
 
     def test_object_is_constructed_from_a_url(self):
+        """The URL is fetched through safe_get and the type handed the copy:
+        diffusers' from_file given a URL downloads it with requests itself,
+        outside the host policy."""
         url = "https://example.com/subject.jpg"
 
-        args = {"reference": self.reference_argument(url)}
-        realize_args(args)
+        with patch(
+            "dw.argument_media.safe_get",
+            return_value=SimpleNamespace(content=b"jpeg bytes"),
+        ) as safe_get:
+            args = {"reference": {"reference_type": ReadingReference, "from_file": url}}
+            realize_args(args)
 
-        assert args["reference"].location == url
+        assert safe_get.call_args[0][0] == url
+        assert args["reference"].content == b"jpeg bytes"
+        assert args["reference"].location.endswith(".jpg")
+        assert not os.path.exists(args["reference"].location)
+
+    def test_a_url_redirecting_inside_is_refused(
+        self, monkeypatch, local_server, server_is_public
+    ):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+
+        with pytest.raises(SecurityError, match="inside this deployment"):
+            realize_args(
+                {
+                    "reference": {
+                        "reference_type": ReadingReference,
+                        "from_file": f"http://media.example:{port}/internal.jpg",
+                    }
+                }
+            )
+        assert _EchoHandler.seen == ["/internal.jpg"]
 
     def test_type_reference_is_resolved_before_construction(self):
         with tempfile.TemporaryDirectory() as temp_dir:

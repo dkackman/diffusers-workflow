@@ -455,7 +455,9 @@ An argument that names a *location* is confined, untrusted (the default):
   and an `asset:` reference - which is what those exist for.
 - a `glob` is confined the same way, and each match re-checked.
 - an `http(s)` URL may not resolve to an address inside the deployment -
-  loopback, link-local, private ranges.
+  loopback, link-local, private ranges. Its host must resolve, the body
+  is capped at 1 GiB and a fetch at 10 minutes end to end; past that,
+  `upload_asset` is the route.
 - `remote_text_encoder.url` is https-only, and only a HuggingFace host is
   sent this machine's token.
 - `model_name` must be a Hub repo id, or a path inside one of those roots.
@@ -1733,7 +1735,10 @@ a few dB.
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
 keyframe: `"chain": {"segments": 3, "continuity": "guide", "guide_frames": 22}`. Every
 segment after the first gets the previous segment's last P = `guide_frames` frames as a
-guide at frame 0 (appended to the step's own `guides`), with `"audio": true` when
+guide at frame 0 (appended to the step's own `guides`; the carried clip counts as a guide, so a step
+that also writes its own `guides` may list at most three of them with
+`continuity: "guide"` - validation says so before the run rather than after the first
+segment), with `"audio": true` when
 `carry_audio` is (the default), so motion and voice run on across the seam rather than
 restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
 next segment opens with a near-copy of those P frames, so P frames are trimmed from its

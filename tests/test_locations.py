@@ -179,12 +179,45 @@ class TestHostPolicy:
                 == "https://example.com/x.png"
             )
 
-    def test_a_host_that_does_not_resolve_is_left_to_the_fetch(self, untrusted):
-        """A typo is the loader's error to report, not a security refusal."""
+    def test_a_host_that_does_not_resolve_is_refused(self, untrusted):
+        """Review 2026-10-07: a lookup that fails gives the policy nothing to
+        check, and the client would resolve the name again on its own - a
+        SERVFAIL here and 127.0.0.1 there. A typo is refused, saying so."""
+        import socket
+
+        with patch("dw.locations.socket.getaddrinfo", side_effect=socket.gaierror):
+            with pytest.raises(InvalidInputError, match="did not resolve"):
+                validate_media_url("https://nope.invalid/x.png", "an image")
+
+    def test_trust_leaves_an_unresolved_host_to_the_fetch(self, trusted):
         import socket
 
         with patch("dw.locations.socket.getaddrinfo", side_effect=socket.gaierror):
             assert validate_media_url("https://nope.invalid/x.png", "an image")
+
+    @pytest.mark.parametrize(
+        "url",
+        [
+            "http://127%2e0%2e0%2e1:8765/",
+            "http://127.0.0%2e1/",
+            "http://%31%32%37.0.0.1/",
+            "http://localhost%2e/",
+            "http://169%2e254%2e169%2e254/latest/meta-data/",
+        ],
+    )
+    def test_a_percent_encoded_host_is_refused(self, untrusted, url):
+        """urllib.parse keeps the escapes and no lookup answers them;
+        urllib3 decodes them and dials what they spell."""
+        with pytest.raises(InvalidInputError):
+            validate_media_url(url, "an image")
+
+    def test_a_percent_encoded_public_host_is_refused_too(self, untrusted):
+        with patch(
+            "dw.locations.socket.getaddrinfo",
+            return_value=[(None, None, None, "", ("93.184.216.34", 80))],
+        ):
+            with pytest.raises(InvalidInputError, match="percent-encoded"):
+                validate_media_url("http://exa%6dple.com/x.png", "an image")
 
     def test_trust_lifts_the_host_policy(self, trusted):
         assert validate_media_url("http://127.0.0.1:8765/x.png", "an image")
@@ -271,16 +304,36 @@ class TestRemoteEncoderUrl:
 
         class _Response:
             ok = True
+            is_redirect = False
             headers = {"Content-Type": "application/octet-stream"}
-            content = b""
             status_code = 200
+            _content = b""
 
-        def _post(url, json=None, headers=None):
-            sent["headers"] = headers
-            return _Response()
+            @property
+            def content(self):
+                return self._content
+
+            def raise_for_status(self):
+                pass
+
+            def iter_content(self, chunk_size):
+                return iter([b""])
+
+            def close(self):
+                pass
+
+        class _Session:
+            def request(self, method, url, **kwargs):
+                sent["method"] = method
+                sent["headers"] = kwargs.get("headers")
+                sent["timeout"] = kwargs.get("timeout")
+                return _Response()
+
+            def close(self):
+                pass
 
         with (
-            patch.object(remote.requests, "post", _post),
+            patch("dw.outbound._pinned_session", lambda url, address: _Session()),
             patch.object(remote.torch, "load", return_value=_Embeds()),
             patch(
                 "dw.locations.socket.getaddrinfo",
@@ -290,6 +343,9 @@ class TestRemoteEncoderUrl:
             remote.remote_text_encoder(["a"], "https://evil.example.com/encode", "cpu")
 
         assert "Authorization" not in sent["headers"]
+        assert sent["method"] == "POST"
+        # Per operation, and never past what is left of the total budget
+        assert 0 < sent["timeout"] <= remote.REMOTE_ENCODER_TIMEOUT
 
     def test_a_backslash_is_refused(self, untrusted):
         """#409: urllib.parse and urllib3 disagree on the host of a URL

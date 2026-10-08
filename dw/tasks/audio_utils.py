@@ -80,7 +80,7 @@ def load_audio(location, base_dir=None):
         return as_channels_samples(video.audio), video.sample_rate
 
     if location.startswith(("http://", "https://")):
-        from ..locations import safe_get
+        from ..outbound import safe_get
 
         logger.debug(f"Downloading audio from {location}")
         response = safe_get(location, "an audio argument", timeout=60)

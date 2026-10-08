@@ -164,9 +164,49 @@ class TestCancel:
         manager.cancel(second.id)
         wait_for(second, {"cancelled"})
 
-        assert cancels == {"a": 0, "b": 1}
+        # Exactly two: the scripted worker runs the job inside send_command,
+        # so this cancel lands before Execute "returns" and the job's thread
+        # follows it with the second cancel a pre-Execute request gets (the
+        # harness answers each with a `cancelled` reply; the real worker
+        # ignores an idle cancel, dw/worker.py)
+        assert cancels["a"] == 0
+        assert cancels["b"] == 2
         assert first.status == "running"
         gate_a.release.set()
+        wait_for(first, {"succeeded"})
+
+    def test_a_cancel_before_the_execute_is_sent_still_lands(self, pool):
+        """The dispatcher marks RUNNING before the job's thread takes the
+        slot; a cancel in that window used to reach an idle worker, which
+        ignores it, and the job ran anyway."""
+        gate = Gate()
+        manager = pool(card(gate, "cuda:0", 24))
+        slot = manager.slots[0]
+        with slot.lock:  # a cache probe holds the card between dispatch and Execute
+            job = submit(manager, "late-cancel")
+            assert wait_until(lambda: job.status == "running")
+            assert manager.cancel(job.id) == "running"
+        wait_for(job, {"cancelled"})
+        assert not gate.started.is_set(), "the worker was still sent the job"
+
+    def test_a_cancel_after_the_job_finished_is_a_no_op(self, pool):
+        manager = pool(card(success_script, "cuda:0", 24))
+        job = submit(manager, "done")
+        wait_for(job, {"succeeded"})
+        assert manager.cancel(job.id) == "succeeded"
+        assert job.status == "succeeded"
+
+    def test_cancelling_a_queued_job_drops_its_dispatch_bookkeeping(self, pool):
+        gate = Gate()
+        manager = pool(card(gate, "cuda:0", 24))
+        first = submit(manager, "first")
+        gate.wait_started()
+        second = submit(manager, "second", vram_need=(8, True))
+        assert second.id in manager._needs
+        assert manager.cancel(second.id) == "cancelled"
+        assert second.id not in manager._needs
+        assert second.id not in manager._preferred
+        gate.release.set()
         wait_for(first, {"succeeded"})
 
 
@@ -277,6 +317,86 @@ class TestFitAtSubmit:
             assert response.status_code == 400
             assert "more than any card here has" in str(response.json())
             assert worker.commands == []
+
+    @staticmethod
+    def _pool_client(pool, tmp_path, *capacities):
+        from fastapi.testclient import TestClient
+
+        from dw.server.app import create_app
+
+        manager = pool(
+            *(
+                card(success_script, f"cuda:{index}", capacity)
+                for index, capacity in enumerate(capacities)
+            )
+        )
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        app = create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(prompts),
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    @staticmethod
+    def _needs_18_gb():
+        # No `cost` entry, so admission holds the projection to the capacity
+        # it is handed (dw/vram_estimate.py `_entries_for`): n=18 at 1 GiB each
+        workflow = valid_workflow("needs_18")
+        workflow["variables"]["n"] = 18
+        workflow["vram_estimate"] = {
+            "voxel_variables": ["n"],
+            "base_gb": 0,
+            "bytes_per_voxel": 1024**3,
+        }
+        return workflow
+
+    def test_a_job_only_the_larger_card_holds_is_admitted(
+        self, pool, tmp_path, monkeypatch
+    ):
+        # The process device is card 0 under --devices: 12 GB here
+        monkeypatch.setattr("dw.validation.device_capacity_gb", lambda: 12.0)
+        with self._pool_client(pool, tmp_path, 12, 24) as client:
+            response = client.post("/api/jobs", json={"workflow": self._needs_18_gb()})
+            assert response.status_code == 201, response.json()
+
+    def test_a_job_no_card_holds_is_still_refused(self, pool, tmp_path, monkeypatch):
+        monkeypatch.setattr("dw.validation.device_capacity_gb", lambda: 12.0)
+        with self._pool_client(pool, tmp_path, 12, 12) as client:
+            response = client.post("/api/jobs", json={"workflow": self._needs_18_gb()})
+            assert response.status_code == 400
+            assert "the largest card here (" in response.text
+            assert "this cuda device" not in response.text
+
+    def test_both_refusal_sentences_name_the_card_the_same_way(self, pool):
+        manager = pool(
+            card(success_script, "cuda:0", 12, name="Small GPU"),
+            card(success_script, "cuda:1", 24, name="Large GPU"),
+        )
+        _, label = manager.largest_ceiling()
+        name = label.removeprefix("the largest card here (").removesuffix(")")
+        assert name
+        assert name in manager._unfit_message((99.0, True))
+
+    def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
+        manager = pool(
+            card(success_script, "cuda:0", 12, name="Small GPU"),
+            card(success_script, "cuda:1", 24, name="Large GPU"),
+        )
+        assert manager.largest_ceiling_gb() == 24
+
+    def test_no_ceiling_when_no_cards_size_could_be_read(self, pool, monkeypatch):
+        monkeypatch.setattr(
+            "dw.worker_manager.device_capacity_gb", lambda device=None: None
+        )
+        worker = ScriptedWorkerManager(success_script)
+        worker.device = "cuda:0"
+        manager = pool(worker)
+        assert manager.largest_ceiling_gb() is None
 
 
 class FakeProcess:

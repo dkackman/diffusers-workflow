@@ -23,6 +23,7 @@ from .argument_media import (
     fetch_image_with_context,
     fetch_video,
     fetch_video_with_context,
+    local_media_file,
 )
 from PIL import Image
 from .security import (
@@ -514,9 +515,11 @@ def realize_object(value, base_dir=None):
         k: v for k, v in value.items() if k not in (FROM_FILE_KEY, type_keys[0])
     }
     accepted, overrides = split_from_file_arguments(object_type, arguments)
-    return apply_field_overrides(
-        object_type.from_file(location, **accepted), overrides, object_type
-    )
+    # A URL is fetched here, through the host policy, and the type handed a
+    # path: diffusers' from_file downloads a URL with requests itself
+    with local_media_file(location, f"'{FROM_FILE_KEY}' media") as path:
+        built = object_type.from_file(path, **accepted)
+    return apply_field_overrides(built, overrides, object_type)
 
 
 def split_from_file_arguments(object_type, arguments):

@@ -11,9 +11,14 @@ from ..locations import (
     token_host_allowed,
     validate_remote_encoder_url,
 )
+from ..outbound import safe_post
 from ..trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
+
+# A text encoder answering a long prompt list takes seconds, not minutes;
+# without a bound a dead endpoint holds the card's worker forever
+REMOTE_ENCODER_TIMEOUT = 120
 
 
 def remote_text_encoder(prompts, url, device):
@@ -29,7 +34,22 @@ def remote_text_encoder(prompts, url, device):
             f"token, run with --trust-workflows."
         )
 
-    response = requests.post(url, json={"prompt": prompts}, headers=headers)
+    # Every redirect re-validated and dialed at the checked address, like a
+    # media fetch - a 307 to an internal address otherwise re-sends this
+    # POST, token and all, inside the deployment
+    try:
+        response = safe_post(
+            url,
+            "the remote text encoder",
+            timeout=REMOTE_ENCODER_TIMEOUT,
+            total_timeout=REMOTE_ENCODER_TIMEOUT,
+            validate=validate_remote_encoder_url,
+            json={"prompt": prompts},
+            headers=headers,
+        )
+    except requests.HTTPError as e:
+        # An error status is still answered below, by its status and type
+        response = e.response
     content_type = response.headers.get("Content-Type", "")
     # An endpoint that has moved or been retired answers with an HTML page,
     # and torch.load's unpickling error about it names nothing a reader
@@ -41,6 +61,6 @@ def remote_text_encoder(prompts, url, device):
             "The endpoint may have moved or been retired; drop "
             "'remote_text_encoder' to load the text encoder locally."
         )
-    prompt_embeds = torch.load(io.BytesIO(response.content))
+    prompt_embeds = torch.load(io.BytesIO(response.content), weights_only=True)
 
     return prompt_embeds.to(device)

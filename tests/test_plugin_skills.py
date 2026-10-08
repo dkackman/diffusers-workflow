@@ -401,12 +401,23 @@ class TestMiniMaxH3Skill:
         assert "`guides`" in body
         assert f'section="{section}"' in body
         assert f"up to {GUIDE_LIMIT} clips" in body
+        # the chain adds a guide at frame 0, so one fewer of the caller's own
+        assert f"{GUIDE_LIMIT - 1} on a guide chain" in " ".join(body.split())
         assert f"multiple of {GUIDE_FRAMES_PER_CHUNK}" in body
         assert "`guides`" in get_guide("workflows", section=section)["content"]
         # C-F301: a full-length guide copies the take, so the skill must not
         # offer guides as a restyle
         assert "restyle a take" not in body
         assert "does not restyle" in " ".join(body.split())
+
+    def test_the_guide_chain_lengths_the_skill_offers_are_the_engines(self):
+        """Review 2026-10-07: `guide_frames` 22 or 39 is hand-written in the
+        skill; the engine's GUIDE_CHAIN_FRAMES is the rule it must match."""
+        from dw.pipeline_processors.h3_blocks import GUIDE_CHAIN_FRAMES
+
+        body = " ".join(skill_body(H3_SKILL).split())
+        offered = " or ".join(str(frames) for frames in GUIDE_CHAIN_FRAMES)
+        assert f"`guide_frames` {offered}" in body
 
     def test_the_dialogue_into_a_song_recipe_is_the_task_s_and_the_guide_s(self):
         """#514: the skill states the recipe in brief and points at the

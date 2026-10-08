@@ -5,7 +5,8 @@ from diffusers.utils import load_image
 from PIL import Image
 from ..argument_media import fetch_image
 from ..security import SecurityError
-from ..locations import contained_matches, safe_get, validate_media_glob
+from ..locations import contained_matches, validate_media_glob
+from ..outbound import safe_get
 from .video_utils import load_audio_video
 
 logger = logging.getLogger("dw")

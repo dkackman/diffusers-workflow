@@ -623,6 +623,7 @@ def hold_audio_reference(value, base_dir=None):
         ValueError: If the value is not audio
         SecurityError: If the path or URL is outside what the workflow may read
     """
+    from ..argument_media import local_media_file
     from ..arguments import media_arguments
     from ..locations import is_http_url, validate_media_path, validate_media_url
     from ..security import (
@@ -643,13 +644,17 @@ def hold_audio_reference(value, base_dir=None):
                 f"({', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))})"
             ) from error
         if is_http_url(value):
+            # Checked again, hop by hop, by the fetch below
             location = validate_media_url(value, "hold_audio")
         else:
             location = validate_file_extension(
                 validate_media_path(value, base_dir, "hold_audio"),
                 ALLOWED_AUDIO_EXTENSIONS,
             )
-        return audio_reference.from_file(location)
+        # from_file given a URL downloads it with requests itself, outside
+        # the host policy; given a path it only decodes
+        with local_media_file(location, "hold_audio") as path:
+            return audio_reference.from_file(path)
     try:
         return audio_reference(**media_arguments(audio_reference, value))
     except ValueError as error:

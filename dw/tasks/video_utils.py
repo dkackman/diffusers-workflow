@@ -429,7 +429,8 @@ def load_audio_video(location, base_dir=None):
         seams inside it (#399); a URL carries none.
     """
     from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
-    from ..locations import safe_get, validate_media_path
+    from ..locations import validate_media_path
+    from ..outbound import safe_get
 
     if isinstance(location, dict):
         location = location["location"]

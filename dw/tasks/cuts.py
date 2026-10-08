@@ -716,13 +716,16 @@ def plan_cuts(
     from ..events import emit_warning
     from ..task_domains import check_arguments, cuts_problems
 
+    # An explicit 0 is a value (every silence counts); only an absent gap takes 2.0.
+    gap = _number(min_gap_seconds, "min_gap_seconds")
+    gap = 2.0 if gap is None else gap
     args = types.SimpleNamespace(
         fps=_number(fps, "fps", required=True),
         duration_s=_number(duration_s, "duration_s"),
         min_scene_s=_number(min_scene_s, "min_scene_s") or 0.0,
         max_scene_s=_number(max_scene_s, "max_scene_s"),
         vocal_tail_s=_number(vocal_tail_s, "vocal_tail_s") or 0.0,
-        min_gap_seconds=_number(min_gap_seconds, "min_gap_seconds") or 0.0,
+        min_gap_seconds=gap,
         include_instrumental_gaps=bool(include_instrumental_gaps),
         modulus=_integer(modulus, "modulus"),
         remainder=_integer(remainder, "remainder"),
@@ -798,7 +801,7 @@ def plan_cuts(
             _lyric_lines(lyrics), chunks, duration, warnings, max(args.min_scene_s, 0.5)
         )
     else:
-        lines = _transcript_lines(chunks, args.min_gap_seconds or 2.0)
+        lines = _transcript_lines(chunks, args.min_gap_seconds)
         if not lines:
             warnings.append(
                 f"{COMMAND}: the transcript has no sung lines - the song is "
