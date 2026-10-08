@@ -2,6 +2,7 @@
 {media_type, location} reference, an `image`/`video` argument's path or URL, and
 the frame rate and shots a loaded video carries."""
 
+import contextlib
 import io
 import os
 import logging
@@ -16,7 +17,7 @@ from .security import (
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
 )
-from .locations import safe_get, validate_media_path
+from .locations import is_http_url, safe_get, validate_media_path
 
 logger = logging.getLogger("dw")
 
@@ -228,24 +229,41 @@ def _declared_fps(path):
         return None
 
 
-def _fetch_remote_video(url):
-    """A video URL's frames, fetched through `safe_get` and decoded from a
-    temporary file. `load_video` would fetch the URL itself and follow its
-    redirects unchecked; handed a path, it only decodes. The suffix comes
-    from the URL, as `load_video`'s own download names it, since a `.gif`
-    decodes differently."""
-    from .tasks.video_utils import FrameList
+@contextlib.contextmanager
+def local_media_file(location, what, default_suffix=""):
+    """`location` as a path a loader opens: a path as it is, an http(s) URL
+    fetched through `safe_get` into a temporary file that lasts as long as
+    the `with` block.
 
-    response = safe_get(url, "a video argument", timeout=300)
-    suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
+    A loader handed a URL fetches it itself - diffusers' `load_video`,
+    `load_image` and its H3 references' `from_file` all call requests
+    directly, resolving the host a second time and following redirects
+    unchecked, with no cap on the body. Handed a path, they only decode.
+    The suffix comes from the URL, as those loaders' own downloads name
+    it, since a container is often told apart by it. The loader must have
+    read the file before the block ends.
+    """
+    if not is_http_url(location):
+        yield location
+        return
+    response = safe_get(location, what, timeout=300)
+    suffix = os.path.splitext(unquote(urlparse(location).path))[1] or default_suffix
     handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     try:
         with handle:
             handle.write(response.content)
-        frames = load_video(handle.name)
-        fps = _declared_fps(handle.name)
+        yield handle.name
     finally:
         os.remove(handle.name)
+
+
+def _fetch_remote_video(url):
+    """A video URL's frames, decoded from `local_media_file`'s copy."""
+    from .tasks.video_utils import FrameList
+
+    with local_media_file(url, "a video argument", default_suffix=".mp4") as path:
+        frames = load_video(path)
+        fps = _declared_fps(path)
     # A URL has no run beside it, so it carries no shots
     return FrameList(frames, fps, None) if fps else frames
 

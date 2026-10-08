@@ -789,8 +789,11 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
             "/found": (302, f"{here}/method"),
             "/temporary": (307, f"{here}/method"),
         }
-        if path in redirects:
-            return self._redirect(redirects[path][1], status=redirects[path][0])
+        # A media suffix is ignored, for loaders that insist on one
+        # (/internal.wav redirects as /internal does)
+        redirect = redirects.get(os.path.splitext(path)[0])
+        if redirect:
+            return self._redirect(redirect[1], status=redirect[0])
         if path.startswith("/elsewhere"):
             port = self.headers["Host"].rsplit(":", 1)[1]
             return self._redirect(f"http://localhost:{port}/auth", status=307)
@@ -1038,7 +1041,9 @@ class TestSafeRequest:
         port = local_server.split(":")[1]
         _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
         started = time.monotonic()
-        with pytest.raises(InvalidInputError, match="exceeded its total_timeout"):
+        with pytest.raises(
+            InvalidInputError, match="took longer than the .* allowed for one fetch"
+        ):
             safe_get(
                 f"http://media.example:{port}/trickle", timeout=5, total_timeout=0.5
             )
@@ -1061,7 +1066,9 @@ class TestSafeRequest:
         port = local_server.split(":")[1]
         _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
         started = time.monotonic()
-        with pytest.raises(InvalidInputError, match="exceeded its total_timeout"):
+        with pytest.raises(
+            InvalidInputError, match="took longer than the .* allowed for one fetch"
+        ):
             safe_get(
                 f"http://media.example:{port}/slow-headers",
                 timeout=5,
@@ -1088,6 +1095,28 @@ class TestSafeRequest:
         response = locations.safe_get(f"http://media.example:{port}/host", timeout=5)
         assert response.content == f"media.example:{port}".encode()
         assert lookups == ["media.example"]
+
+    def test_an_ssl_error_mid_body_becomes_a_requests_error(self):
+        """An HTTPS socket closed at the deadline mid-body raises urllib3's
+        SSLError; translated as iter_content does, it reaches _follow's
+        handler and becomes the total-timeout refusal."""
+        import io
+        from types import SimpleNamespace
+
+        import requests
+        from urllib3.exceptions import SSLError
+        from urllib3.response import HTTPResponse
+
+        from dw.locations import _chunks
+
+        raw = HTTPResponse(body=io.BytesIO(b""), preload_content=False)
+
+        def _read1(*a, **k):
+            raise SSLError("closed")
+
+        raw.read1 = _read1
+        with pytest.raises(requests.exceptions.SSLError):
+            list(_chunks(SimpleNamespace(raw=raw)))
 
     def test_the_deadline_is_cleared_after_the_call(self, trusted, local_server):
         from dw.locations import _REQUEST_DEADLINE, safe_get

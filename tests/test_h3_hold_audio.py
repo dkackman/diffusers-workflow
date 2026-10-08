@@ -32,6 +32,12 @@ from dw.pipeline_processors.h3_blocks import (
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
+from tests.test_locations import (  # noqa: F401
+    _EchoHandler,
+    _scripted,
+    local_server,
+    server_is_public,
+)
 
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
@@ -620,6 +626,48 @@ class TestHoldAudioLocation:
         with pytest.raises(SecurityError, match="'file' URL"):
             hold_audio_reference("file:///usr/share/sounds/x.wav", str(tmp_path))
         assert opened == []
+
+    def test_a_url_redirecting_inside_is_refused_at_the_fetch(
+        self, tmp_path, opened, monkeypatch, local_server, server_is_public
+    ):
+        """from_file handed the URL would download it with requests itself,
+        following the redirect unchecked; the fetch is dw's, and the
+        redirect target meets the host policy first."""
+        from dw.security import SecurityError
+
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+
+        with pytest.raises(SecurityError, match="inside this deployment"):
+            hold_audio_reference(
+                f"http://media.example:{port}/internal.wav", str(tmp_path)
+            )
+        assert _EchoHandler.seen == ["/internal.wav"]
+        assert opened == []
+
+    def test_a_url_reaches_from_file_as_a_fetched_local_file(
+        self, tmp_path, monkeypatch, local_server, server_is_public
+    ):
+        monkeypatch.setenv("DW_TRUST_WORKFLOWS", "0")
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        read = {}
+
+        def from_file(cls, location):
+            read["path"] = location
+            with open(location, "rb") as handle:
+                read["bytes"] = handle.read()
+            return cls(audio=torch.zeros(2, 10), sample_rate=8000)
+
+        monkeypatch.setattr(
+            MiniMaxH3AudioReference, "from_file", classmethod(from_file)
+        )
+        hold_audio_reference(f"http://media.example:{port}/ok.wav", str(tmp_path))
+
+        assert read["bytes"] == b"ok"
+        assert read["path"].endswith(".wav")
+        assert not os.path.exists(read["path"]), "the temporary copy was kept"
 
     def test_the_step_hands_its_base_dir_to_the_check(self, tmp_path, opened):
         (tmp_path / "track.wav").write_bytes(b"")

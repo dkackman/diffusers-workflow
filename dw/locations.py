@@ -685,7 +685,12 @@ def _chunks(response):
     sending a byte a minute stretches without limit. A body not read off
     urllib3 (another transport, a test double) goes through iter_content."""
     import requests
-    from urllib3.exceptions import DecodeError, ProtocolError, ReadTimeoutError
+    from urllib3.exceptions import (
+        DecodeError,
+        ProtocolError,
+        ReadTimeoutError,
+        SSLError,
+    )
     from urllib3.response import BaseHTTPResponse
 
     raw = getattr(response, "raw", None)
@@ -699,13 +704,16 @@ def _chunks(response):
             yield chunk
     except ReadTimeoutError as e:
         raise requests.ConnectionError(e) from e
+    except SSLError as e:
+        # An HTTPS socket closed at the deadline mid-body surfaces here
+        raise requests.exceptions.SSLError(e) from e
     except ProtocolError as e:
         raise requests.exceptions.ChunkedEncodingError(e) from e
     except DecodeError as e:
         raise requests.exceptions.ContentDecodingError(e) from e
 
 
-def _read_capped(response, max_bytes, what, url, deadline=None):
+def _read_capped(response, max_bytes, what, url, deadline=None, total_timeout=None):
     """The body, refused past `max_bytes` or past `deadline` (a
     time.monotonic() value). A bytearray, grown in place: a joined list of
     chunks holds the body twice at the end, and the cap is a gigabyte."""
@@ -719,16 +727,18 @@ def _read_capped(response, max_bytes, what, url, deadline=None):
             )
         if deadline is not None and time.monotonic() > deadline:
             response.close()
-            raise _too_slow(what, url)
+            raise _too_slow(what, url, total_timeout)
     return body
 
 
 def _too_slow(what, url, total_timeout=None):
     """The refusal for a fetch past its total_timeout - however the deadline
     showed itself (the clock between chunks, or the connection aborted)."""
-    within = f" of {total_timeout} seconds" if total_timeout is not None else ""
+    allowed = (
+        f"the {total_timeout:g} s allowed" if total_timeout else "the time allowed"
+    )
     return InvalidInputError(
-        f"Refusing {what} from '{url}': it exceeded its total_timeout{within}"
+        f"Refusing {what} from '{url}': it took longer than {allowed} for one fetch"
     )
 
 
@@ -840,7 +850,7 @@ def _follow(
                     f"Refusing {what} from '{url}': larger than {max_bytes} bytes "
                     f"({declared} declared)"
                 )
-            body = _read_capped(response, max_bytes, what, url, deadline)
+            body = _read_capped(response, max_bytes, what, url, deadline, total_timeout)
             if time.monotonic() >= deadline:
                 # The same for a body cut short by the abort
                 raise _too_slow(what, url, total_timeout)
