@@ -461,3 +461,16 @@ class TestTheDomainIsVisibleOverTheApi:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+
+def test_transcript_problem_lives_in_task_domains_and_names_plan_cuts():
+    from dw.task_domains import transcript_problem
+
+    assert transcript_problem({"chunks": []}) is None
+    assert transcript_problem("plain").startswith(
+        "plan_cuts needs a timestamped transcript - {text, chunks: "
+    )
+    assert transcript_problem({"text": "x"}).startswith(
+        "plan_cuts's 'transcript' has no 'chunks' list"
+    )
+    assert transcript_problem(3).endswith("not int")

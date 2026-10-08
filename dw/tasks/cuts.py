@@ -41,6 +41,7 @@ from ..task_domains import (
     POSITIVE,
     cuts_errors,
     real_number,
+    transcript_problem,
     whole_number,
 )
 
@@ -79,34 +80,6 @@ def _grid_down(frames, grid):
     if not grid["modulus"]:
         return frames
     return aligned_down(frames, grid)
-
-
-def transcript_problem(transcript):
-    """Why this transcript can't be planned from, or None. A bare string is
-    text without timings - the commonest mistake, so it is named."""
-    if isinstance(transcript, str):
-        return (
-            f"{COMMAND} needs a timestamped transcript - {{text, chunks: "
-            "[{start, end, text}]}, not plain text: run transcribe_audio with "
-            "'timestamps': \"segment\" (Whisper's return_timestamps), its "
-            "result's content_type application/json"
-        )
-    if isinstance(transcript, dict):
-        chunks = transcript.get("chunks")
-        if not isinstance(chunks, list):
-            return (
-                f"{COMMAND}'s 'transcript' has no 'chunks' list - run "
-                "transcribe_audio with 'timestamps' set (Whisper's "
-                "return_timestamps) for the {text, chunks} shape"
-            )
-        return None
-    if isinstance(transcript, list):
-        return None
-    return (
-        f"{COMMAND}'s 'transcript' is a {{text, chunks}} dict from "
-        "transcribe_audio with 'timestamps' set (Whisper's return_timestamps), "
-        f"not {type(transcript).__name__}"
-    )
 
 
 def _chunks(transcript, duration):

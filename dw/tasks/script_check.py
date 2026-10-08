@@ -51,6 +51,7 @@ from ..task_domains import check_arguments
 from ..locations import is_http_url
 from ..shots import duplicate_shot_names
 from .assess import DEAD_AIR_WINDOW, resolve_shots, sample_span
+from .audio_transcription import WHISPER_DEFAULT_MODEL
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
@@ -61,8 +62,6 @@ COMMAND = "check_script"
 # it is a `line_mismatch`. The template's own default is set from stage A's
 # two-model measurement (#609 Q3); this one is the task's
 DEFAULT_SIMILARITY = 0.85
-# The ASR model the task defaults to - transcribe_audio's own default
-DEFAULT_MODEL = "openai/whisper-base"
 # A heard word is guarded (discarded as unheard) when its loudest
 # GUARD_WINDOW_SECONDS window sits at or below GUARD_FLOOR_DBFS. The floor is
 # the assessment probes' dead-air floor and the window is the one
@@ -733,7 +732,7 @@ def check_script(
     audio,
     lines,
     similarity=DEFAULT_SIMILARITY,
-    model_name=DEFAULT_MODEL,
+    model_name=WHISPER_DEFAULT_MODEL,
     sample_rate=None,
     device="cpu",
     shots=None,

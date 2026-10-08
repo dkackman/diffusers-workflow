@@ -670,6 +670,12 @@ class TestPasteFaceTrack:
         for a, b in zip(from_dict.frames, from_file.frames):
             assert np.array_equal(np.asarray(a), np.asarray(b))
 
+    def test_track_path_with_traversal_is_refused(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        with pytest.raises(SecurityError):
+            ft.paste_face_track(clip, crops, "../track.json")
+
     def test_refusals(self, stub_detector):
         arrays = self.frames()
         clip, crops, track = tracked(arrays)

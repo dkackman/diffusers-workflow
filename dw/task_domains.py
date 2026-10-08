@@ -449,6 +449,34 @@ def beats_errors(arguments):
     return beats_problems(**literal)
 
 
+def transcript_problem(transcript):
+    """Why this transcript can't be planned from, or None. A bare string is
+    text without timings - the commonest mistake, so it is named."""
+    if isinstance(transcript, str):
+        return (
+            "plan_cuts needs a timestamped transcript - {text, chunks: "
+            "[{start, end, text}]}, not plain text: run transcribe_audio with "
+            "'timestamps': \"segment\" (Whisper's return_timestamps), its "
+            "result's content_type application/json"
+        )
+    if isinstance(transcript, dict):
+        chunks = transcript.get("chunks")
+        if not isinstance(chunks, list):
+            return (
+                "plan_cuts's 'transcript' has no 'chunks' list - run "
+                "transcribe_audio with 'timestamps' set (Whisper's "
+                "return_timestamps) for the {text, chunks} shape"
+            )
+        return None
+    if isinstance(transcript, list):
+        return None
+    return (
+        "plan_cuts's 'transcript' is a {text, chunks} dict from "
+        "transcribe_audio with 'timestamps' set (Whisper's return_timestamps), "
+        f"not {type(transcript).__name__}"
+    )
+
+
 def cuts_problems(
     transcript=None,
     segment_by=None,
@@ -465,8 +493,6 @@ def cuts_problems(
     cutting by beat with no beats, and a render grid (modulus, remainder,
     min_frames, max_frames) that has a remainder with no modulus or past it, or leaves no length a shot could render at. A
     reference is skipped - only the run has its value."""
-    from .tasks.cuts import transcript_problem
-
     problems = []
     if transcript is not None and not is_ref(DEFERRED, transcript):
         problem = transcript_problem(transcript)

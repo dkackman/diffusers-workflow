@@ -566,20 +566,9 @@ def paste_crop(source_rgb, crop, square, strength, feather, color_match):
 def _read_track(track):
     """The track record, from the dict a step handed on or its saved .json."""
     if isinstance(track, str):
-        import json
+        from ..locations import load_json_record
 
-        from ..locations import validate_media_path
-        from ..security import (
-            ALLOWED_JSON_EXTENSIONS,
-            validate_file_extension,
-            validate_json_size,
-        )
-
-        path = validate_media_path(track, None, "a track argument")
-        validate_file_extension(path, ALLOWED_JSON_EXTENSIONS)
-        validate_json_size(path)
-        with open(path, encoding="utf-8") as handle:
-            track = json.load(handle)
+        track = load_json_record(track, None, "a track argument")
     if not (
         isinstance(track, dict)
         and isinstance(track.get("source"), dict)
