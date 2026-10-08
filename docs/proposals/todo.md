@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`dw/server/jobs.py` split into `pool` / `job_results` /
+  `worker_memory`; device ordinal and card as stored fields** (#693,
+  stages #776-#777), shipped 2026-10-08. The `slots[0]` shims are gone
+  (`running_job_id()` serves `/api/health`). `Job` and the history DB carry
+  `device_ordinal`/`device_card` (additive columns, SQL backfill), `device`
+  is derived from them, and `card_of`/`ordinal_of` are deleted. REST and
+  MCP are unchanged. Record, including what was deferred (history readers,
+  API fields, multi-card checks on lem): `complete/jobs-split-device-fields-complete.md`.
 - **H3 guides in the VRAM estimate** (#694, stages #778-#779), shipped
   2026-10-08. An optional `vram_estimate.bytes_per_guide_voxel` (28.71 on the
   H3 t2va templates and `chained-segments`, which also gained a `cost` and an
