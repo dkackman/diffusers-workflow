@@ -278,6 +278,58 @@ class TestFitAtSubmit:
             assert "more than any card here has" in str(response.json())
             assert worker.commands == []
 
+    @staticmethod
+    def _pool_client(pool, tmp_path, *capacities):
+        from fastapi.testclient import TestClient
+
+        from dw.server.app import create_app
+
+        manager = pool(
+            *(
+                card(success_script, f"cuda:{index}", capacity)
+                for index, capacity in enumerate(capacities)
+            )
+        )
+        workflows = tmp_path / "workflows"
+        workflows.mkdir()
+        prompts = tmp_path / "prompts"
+        prompts.mkdir()
+        app = create_app(
+            workflow_dir=str(workflows),
+            output_dir=str(tmp_path / "outputs"),
+            job_manager=manager,
+            prompt_dir=str(prompts),
+        )
+        return TestClient(app, base_url="http://localhost")
+
+    @staticmethod
+    def _needs_18_gb():
+        # No `cost` entry, so admission holds the projection to the capacity
+        # it is handed (dw/vram_estimate.py `_entries_for`): n=18 at 1 GiB each
+        workflow = valid_workflow("needs_18")
+        workflow["variables"]["n"] = 18
+        workflow["vram_estimate"] = {
+            "voxel_variables": ["n"],
+            "base_gb": 0,
+            "bytes_per_voxel": 1024**3,
+        }
+        return workflow
+
+    def test_a_job_only_the_larger_card_holds_is_admitted(
+        self, pool, tmp_path, monkeypatch
+    ):
+        # The process device is card 0 under --devices: 12 GB here
+        monkeypatch.setattr("dw.validation.device_capacity_gb", lambda: 12.0)
+        with self._pool_client(pool, tmp_path, 12, 24) as client:
+            response = client.post("/api/jobs", json={"workflow": self._needs_18_gb()})
+            assert response.status_code == 201, response.json()
+
+    def test_a_job_no_card_holds_is_still_refused(self, pool, tmp_path, monkeypatch):
+        monkeypatch.setattr("dw.validation.device_capacity_gb", lambda: 12.0)
+        with self._pool_client(pool, tmp_path, 12, 12) as client:
+            response = client.post("/api/jobs", json={"workflow": self._needs_18_gb()})
+            assert response.status_code == 400
+
     def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
         manager = pool(
             card(success_script, "cuda:0", 12, name="Small GPU"),

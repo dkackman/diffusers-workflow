@@ -379,8 +379,8 @@ class JobRequest(BaseModel):
 def pool_capacity_gb(state):
     """The pool's largest card, for a declared vram_estimate's ceiling - or
     None, which leaves workflow_context on the process's own device: a
-    state without a manager (validate-only embeddings) or a pool whose
-    workers have not read their cards yet."""
+    state without a manager (validate-only embeddings) or a pool where no
+    card's size could be read (no torch, or the probe failed)."""
     manager = getattr(state, "job_manager", None)
     if manager is None or not hasattr(manager, "largest_ceiling_gb"):
         return None

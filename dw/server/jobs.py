@@ -332,7 +332,8 @@ class JobManager:
 
     def largest_ceiling_gb(self):
         """The most VRAM any card here can be held to (WorkerSlot.ceiling_gb),
-        or None when no card has reported its size yet. Admission checks a
+        or None when no card's size could be read (no torch, or the probe
+        failed). Admission checks a
         declared vram_estimate against this rather than the process's own
         device, which under --devices is only the first card."""
         capacities = self._capacities(hard=True)
