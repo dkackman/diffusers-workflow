@@ -348,6 +348,7 @@ def _handle_fit_to_model(task, arguments, previous_pipelines):
             "the source's pixel density."
         ),
     },
+    media_arguments=("fit",),
 )
 def _handle_restore_to_source(task, arguments, previous_pipelines):
     """Put a fitted video back at its source's size and length"""
@@ -479,7 +480,9 @@ def _handle_find_loop_bed(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "stabilize_video", implementation="dw.tasks.stabilize.stabilize_video"
+    "stabilize_video",
+    implementation="dw.tasks.stabilize.stabilize_video",
+    media_arguments=("clip",),
 )
 def _handle_stabilize_video(task, arguments, previous_pipelines):
     """Remove a generated clip's accumulated framing drift"""
@@ -527,6 +530,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "min_confidence": POSITIVE,
     },
     static_check=face_track_errors,
+    media_arguments=("clip",),
 )
 def _handle_crop_face_track(task, arguments, previous_pipelines):
     """Crop a steady square around the one face a clip follows"""
@@ -565,6 +569,7 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     },
     domains={"feather": NON_NEGATIVE},
     static_check=paste_face_track_errors,
+    media_arguments=("clip", "repaired", "track"),
 )
 def _handle_paste_face_track(task, arguments, previous_pipelines):
     """Blend repaired face crops back into the clip they were cut from"""

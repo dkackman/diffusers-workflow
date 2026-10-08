@@ -69,7 +69,7 @@ def my_task(source, num_frames, start_frame=0, mode="fast"): ...
   command - or, when it needs the task's own parser, in the task's module
   behind an import on use, as `attribute_voices`' does.
 - `media_arguments` - an argument that reads a file under a name that does not
-  say so (`source`, `media`, `lut`). Validation confines it as it does `image`
+  say so (`source`, `media`, `lut`, `clip`, `track`). Validation confines it as it does `image`
   or `*_video`; an argument left out of it is not path-checked.
 
 `TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS` and
