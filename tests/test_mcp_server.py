@@ -768,6 +768,9 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
 
     result = await server_over(handler).call_tool(name, arguments)
 
+    # The full get_workflow also reads the variables route for `observed` (#786)
+    if name == "get_workflow":
+        seen = seen[-1:]
     assert seen == [(method, path)]
     assert result.content
 
