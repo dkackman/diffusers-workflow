@@ -278,6 +278,22 @@ class TestFitAtSubmit:
             assert "more than any card here has" in str(response.json())
             assert worker.commands == []
 
+    def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
+        manager = pool(
+            card(success_script, "cuda:0", 12, name="Small GPU"),
+            card(success_script, "cuda:1", 24, name="Large GPU"),
+        )
+        assert manager.largest_ceiling_gb() == 24
+
+    def test_an_unread_card_has_no_ceiling(self, pool, monkeypatch):
+        monkeypatch.setattr(
+            "dw.worker_manager.device_capacity_gb", lambda device=None: None
+        )
+        worker = ScriptedWorkerManager(success_script)
+        worker.device = "cuda:0"
+        manager = pool(worker)
+        assert manager.largest_ceiling_gb() is None
+
 
 class FakeProcess:
     def __init__(self, pid):

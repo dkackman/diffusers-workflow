@@ -330,6 +330,14 @@ class JobManager:
         ]
         return [(slot, capacity) for slot, capacity in readings if capacity]
 
+    def largest_ceiling_gb(self):
+        """The most VRAM any card here can be held to (WorkerSlot.ceiling_gb),
+        or None when no card has reported its size yet. Admission checks a
+        declared vram_estimate against this rather than the process's own
+        device, which under --devices is only the first card."""
+        capacities = self._capacities(hard=True)
+        return max(capacity for _, capacity in capacities) if capacities else None
+
     def _unfit_message(self, need):
         """Why no card here can ever run a job needing `need` (admission's
         `vram_need`, (GB, hard)), or None when one can. Only a declared
