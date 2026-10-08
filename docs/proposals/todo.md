@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 guides in the VRAM estimate** (#694, stages #778-#779), shipped
+  2026-10-08. An optional `vram_estimate.bytes_per_guide_voxel` (28.71 on the
+  H3 t2va templates and `chained-segments`, which also gained a `cost` and an
+  estimate) charges each guide's snapped frames on the canvas, plus a
+  `continuity: "guide"` chain's guide, probed alike at validate, admission and
+  run. Measured on lem: `h3-guide-vram.md`. Record, including what was cut or
+  deferred (`hold_audio` and refine terms, calibration margins, with their
+  triggers): `complete/h3-guide-vram-complete.md`.
 - **Task layer consolidation: one registration pattern, one coercion,
   shared image ops** (#692, stages #773-#775), shipped 2026-10-08. A task's
   domains, choices, static check and media arguments are declared on

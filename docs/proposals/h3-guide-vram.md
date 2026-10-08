@@ -4,6 +4,8 @@ _Measured by `claude-opus-5-5` (anthropic) on lem's RTX 3090 (24 GB), 2026-10-08
 
 These are measurements only, with no code. They feed the guide term in #694 stage B.
 
+The feature's design record, what stage B built from these numbers, is [`complete/h3-guide-vram-complete.md`](complete/h3-guide-vram-complete.md). This record stays here because `dw/vram_estimate.py` cites it.
+
 ## Setup
 
 - **Workflow:** an H3 t2va step from the catalog template: group-offloaded transformer, int4 SDNQ, the Turbo LoRA and 8 steps, seed 42. Every run is **124 frames**. Workflows are `w778/f124-<canvas>-<n>x<len>.json` in lem's workspace.
