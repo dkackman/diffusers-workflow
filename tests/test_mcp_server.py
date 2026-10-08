@@ -1557,6 +1557,8 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 2026-10-03: the LoRA catalog added list_loras, save_lora and
 # recommend_loras - measured at 14_255.0 (9_398.5 / 4_345.75 / 510.75); the
 # ceiling moves to 14_265 with 10 of headroom.
+# 2026-10-07 (#682): get_job and list_jobs name a job's `device`, paid for by
+# trimming their own text - measured at 14_264.75; the ceiling stays.
 SURFACE_BUDGET = 14_265
 
 
