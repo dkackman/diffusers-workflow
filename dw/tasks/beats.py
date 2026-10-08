@@ -20,6 +20,10 @@ import math
 import types
 
 from .registry import register_command
+from ..task_domains import (
+    POSITIVE,
+    beats_errors,
+)
 
 logger = logging.getLogger("dw")
 
@@ -294,7 +298,16 @@ def analyze_beats(
 
 
 @register_command(
-    COMMAND, implementation="dw.tasks.beats.analyze_beats", returns="json"
+    COMMAND,
+    implementation="dw.tasks.beats.analyze_beats",
+    returns="json",
+    domains={
+        "sample_rate": POSITIVE,
+        "tempo_bpm": POSITIVE,
+        "min_bpm": POSITIVE,
+        "max_bpm": POSITIVE,
+    },
+    static_check=beats_errors,
 )
 def _handle_analyze_beats(task, arguments, previous_pipelines):
     """Find a song's tempo and the seconds its beats fall on"""
