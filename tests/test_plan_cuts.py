@@ -694,12 +694,17 @@ class TestRenderGridRefusals:
             {"modulus": 17, "remainder": 17},
             {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 100},
             {"modulus": 17, "remainder": 5, "min_frames": 125, "max_frames": 128},
-            {"modulus": 1.5},
         ],
     )
     def test_the_static_check_refuses_a_bad_literal_grid(self, bad):
         assert cuts_errors(bad)
         assert workflow_errors({"transcript": "previous_result:t", **bad})
+
+    def test_a_fractional_grid_value_is_refused_once_as_not_whole(self):
+        # The shared whole-number check owns it (#774); the grid rules skip it
+        assert cuts_errors({"modulus": 1.5}) == []
+        errors = workflow_errors({"transcript": "previous_result:t", "modulus": 1.5})
+        assert len(errors) == 1 and "whole number" in str(errors), errors
 
     def test_the_domains_refuse_a_nonpositive_literal(self):
         for name in ("modulus", "min_frames", "max_frames"):

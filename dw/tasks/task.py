@@ -201,6 +201,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    whole_numbers=("start_frame", "num_frames", "lead_frames"),
     static_check=slice_audio_errors,
 )
 def _handle_slice_audio(task, arguments, previous_pipelines):
@@ -222,6 +223,7 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    whole_numbers=("start_frame", "num_frames"),
 )
 def _handle_gain_audio(task, arguments, previous_pipelines):
     """Apply a gain to a time- or frame-aligned region of an audio track"""
@@ -235,6 +237,7 @@ def _handle_gain_audio(task, arguments, previous_pipelines):
     "resample_audio",
     implementation="dw.tasks.audio_utils.resample_audio",
     domains={"target_sample_rate": POSITIVE, "sample_rate": POSITIVE},
+    whole_numbers=("target_sample_rate",),
 )
 def _handle_resample_audio(task, arguments, previous_pipelines):
     """Resample an audio track to a different sample rate"""
@@ -257,6 +260,7 @@ def _handle_video_frames(task, arguments, previous_pipelines):
     "loop_frames",
     implementation="dw.tasks.video_utils.loop_frames",
     domains={"num_frames": POSITIVE},
+    whole_numbers=("num_frames",),
 )
 def _handle_loop_frames(task, arguments, previous_pipelines):
     """Repeat a still or a short clip into a run of a given length"""
@@ -275,6 +279,7 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
         "overlap": NON_NEGATIVE,
         "fps": POSITIVE,
     },
+    whole_numbers=("index", "num_frames", "overlap"),
     static_check=window_video_errors,
 )
 def _handle_window_video(task, arguments, previous_pipelines):
@@ -319,6 +324,7 @@ def _handle_window_video(task, arguments, previous_pipelines):
         "num_frames": POSITIVE,
         "downscale": POSITIVE,
     },
+    whole_numbers=("width", "height", "num_frames", "downscale"),
     choices={"mode": FIT_MODES},
     static_check=fit_to_model_errors,
 )
@@ -362,6 +368,7 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
     "join_windows",
     implementation="dw.tasks.windows.join_windows",
     domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
+    whole_numbers=("num_frames", "overlap"),
     choices={"curve": JOIN_WINDOWS_CURVES},
     static_check=join_windows_errors,
     media_arguments=("source",),
@@ -378,6 +385,7 @@ def _handle_join_windows(task, arguments, previous_pipelines):
     "frame_grid",
     implementation="dw.tasks.video_utils.frame_grid",
     domains={"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
+    whole_numbers=("count", "columns", "tile_width"),
 )
 def _handle_frame_grid(task, arguments, previous_pipelines):
     """Tile evenly sampled frames of a video into one contact-sheet image"""
@@ -396,6 +404,7 @@ def _handle_frame_grid(task, arguments, previous_pipelines):
         "gap": NON_NEGATIVE,
         "max_images": POSITIVE,
     },
+    whole_numbers=("width", "height", "gap", "max_images"),
     choices={"layout": INGREDIENTS_LAYOUTS, "fit": INGREDIENTS_FITS},
     static_check=ingredients_grid_errors,
 )
@@ -443,6 +452,7 @@ def _handle_crossfade_audio(task, arguments, previous_pipelines):
         "crossfade_ms": NON_NEGATIVE,
         "sample_rate": POSITIVE,
     },
+    whole_numbers=("target_frames",),
 )
 def _handle_loop_audio(task, arguments, previous_pipelines):
     """Loop a short recording into a bed of a given length"""
@@ -470,6 +480,7 @@ def _handle_loop_audio(task, arguments, previous_pipelines):
         "max_candidates": POSITIVE,
         "fps": POSITIVE,
     },
+    whole_numbers=("max_candidates",),
 )
 def _handle_find_loop_bed(task, arguments, previous_pipelines):
     """Rank the quiet windows of a recording worth looping into a room-tone bed"""

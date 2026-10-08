@@ -23,7 +23,7 @@ from ..media_frames import (
     grid_tile,
 )
 from ..media_types import AudioVideo, FittedVideo, fit_codec_padding
-from ..task_domains import frame_size_error
+from ..task_domains import frame_size_error, whole_number
 
 logger = logging.getLogger("dw")
 
@@ -207,17 +207,7 @@ def loop_frames(video, num_frames):
         [0, 255] and refuses a float frame when `crf` is set -
         `frames_as_array` is the shape for that
     """
-    if isinstance(num_frames, str):
-        try:
-            num_frames = int(num_frames)
-        except ValueError:
-            raise ValueError(
-                f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
-            )
-    if not isinstance(num_frames, int) or isinstance(num_frames, bool):
-        raise ValueError(
-            f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
-        )
+    num_frames = whole_number(num_frames, "num_frames", "loop_frames", required=True)
     if num_frames < 1:
         raise ValueError(
             f"loop_frames needs 'num_frames' of at least 1, got {num_frames}"
@@ -279,15 +269,7 @@ def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
 
 
 def _positive_int(value, command, name):
-    if isinstance(value, str):
-        try:
-            value = int(value)
-        except ValueError:
-            raise ValueError(
-                f"{command} needs '{name}' as a whole number, got {value!r}"
-            )
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
+    value = whole_number(value, name, command, required=True)
     if value < 1:
         raise ValueError(f"{command} needs '{name}' of at least 1, got {value}")
     return value

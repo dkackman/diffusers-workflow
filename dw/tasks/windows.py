@@ -59,9 +59,10 @@ from ..task_domains import (
     frames_to_samples,
     window_count,
     window_count_problem,
+    real_number,
+    whole_number,
     window_overlap_problem,
 )
-from .audio_utils import coerce_number
 from .joins import video_names
 from .video_utils import (
     VideoFileReference,
@@ -115,10 +116,10 @@ def window_video(video, index, num_frames, overlap, fps=None):
         length under the repeated frames. A source with no track gives a
         window with none
     """
-    index = coerce_number(index, int, "index", "window_video")
-    num_frames = coerce_number(num_frames, int, "num_frames", "window_video")
-    overlap = coerce_number(overlap, int, "overlap", "window_video")
-    fps = coerce_number(fps, float, "fps", "window_video")
+    index = whole_number(index, "index", "window_video")
+    num_frames = whole_number(num_frames, "num_frames", "window_video")
+    overlap = whole_number(overlap, "overlap", "window_video")
+    fps = real_number(fps, "fps", "window_video")
     for name, value in (
         ("index", index),
         ("num_frames", num_frames),
@@ -329,9 +330,9 @@ def join_windows(videos, source, num_frames, overlap, curve="cosine", fps=None):
         on the source's frame boundaries (#401), so assess_output reads the
         seams as dissolves
     """
-    num_frames = coerce_number(num_frames, int, "num_frames", "join_windows")
-    overlap = coerce_number(overlap, int, "overlap", "join_windows")
-    fps = coerce_number(fps, float, "fps", "join_windows")
+    num_frames = whole_number(num_frames, "num_frames", "join_windows")
+    overlap = whole_number(overlap, "overlap", "join_windows")
+    fps = real_number(fps, "fps", "join_windows")
     for name, value in (("num_frames", num_frames), ("overlap", overlap)):
         if not isinstance(value, numbers.Integral) or isinstance(value, bool):
             raise ValueError(

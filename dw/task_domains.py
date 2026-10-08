@@ -30,8 +30,10 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 """
 
 import logging
+import math
 import numbers
 import re
+from fractions import Fraction
 
 from .references import (
     DEFERRED,
@@ -120,6 +122,11 @@ TASK_ARGUMENT_CHOICES = RegistryTable("choices")
 # (`register_command(static_check=...)`) - the rules below, which
 # task_argument_errors runs on each step of the command
 TASK_STATIC_CHECKS = RegistryTable("static_check")
+# command -> the arguments it reads as whole numbers
+# (`register_command(whole_numbers=...)`); every other argument with a domain
+# is a real number. `whole_number` and `real_number` below read each kind at
+# run time, and the static pass refuses what they would
+TASK_WHOLE_NUMBER_ARGUMENTS = RegistryTable("whole_numbers")
 INGREDIENTS_DEFAULT_MAX_IMAGES = 12
 
 
@@ -451,8 +458,7 @@ def cuts_problems(
     """[(argument, message)] for each plan_cuts rule these values break: a
     transcript that is plain text (no timings), a scene range that is empty,
     cutting by beat with no beats, and a render grid (modulus, remainder,
-    min_frames, max_frames) that is not whole numbers, has a remainder with no
-    modulus or past it, or leaves no length a shot could render at. A
+    min_frames, max_frames) that has a remainder with no modulus or past it, or leaves no length a shot could render at. A
     reference is skipped - only the run has its value."""
     from .tasks.cuts import transcript_problem
 
@@ -483,7 +489,8 @@ def cuts_problems(
 
 def grid_problems(modulus, remainder, min_frames, max_frames):
     """[(argument, message)] for the plan_cuts render grid rules these values
-    break. A value that is absent or not a number is skipped."""
+    break. A value that is absent or not a whole number is skipped -
+    `domain_violation` refuses the second."""
     problems = []
     whole = {}
     modulus_given = modulus is not None
@@ -493,17 +500,9 @@ def grid_problems(modulus, remainder, min_frames, max_frames):
         ("min_frames", min_frames),
         ("max_frames", max_frames),
     ):
+        # A fractional value is the shared whole-number check's to report
         number = as_number(value)
-        if number is None:
-            continue
-        if number != int(number):
-            problems.append(
-                (
-                    name,
-                    f"plan_cuts needs a whole number of frames for '{name}', got {value!r}",
-                )
-            )
-        else:
+        if number is not None and number == int(number):
             whole[name] = int(number)
     modulus, remainder = whole.get("modulus"), whole.get("remainder")
     low, high = whole.get("min_frames"), whole.get("max_frames")
@@ -706,26 +705,117 @@ def in_domain(value, domain):
 
 
 def as_number(value):
-    """A value as a float if it is one, else None.
+    """A value as a float if it is a finite number, else None.
 
     A workflow variable declared null carries no type, so a number supplied
     for it on the command line arrives as a string - the tasks coerce those
-    (`coerce_number` in audio_utils), so this reads them too. Booleans are not
-    numbers here whatever Python thinks, and a `variable:`/`item:`/
-    `previous_result:` string is somebody else's complaint.
+    (`whole_number` and `real_number` below), so this reads them too.
+    Booleans are not numbers here whatever Python thinks, inf and nan are not
+    measurable, and a `variable:`/`item:`/`previous_result:` string is
+    somebody else's complaint.
     """
     if isinstance(value, bool) or value is None:
         return None
     # numbers.Real rather than (int, float): an fps is coerced to a Fraction
     # before it is checked, so an exact 24000/1001 stays exact
     if isinstance(value, numbers.Real):
-        return float(value)
-    if isinstance(value, str):
+        number = float(value)
+    elif isinstance(value, str):
         try:
-            return float(value)
+            number = float(value)
         except ValueError:
             return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
+
+
+# The one numeric coercion in dw/tasks/ (#692). Before it there were five
+# idioms that disagreed: plan_cuts took "3.0" for a frame count where
+# window_video, trim_video and fit_to_model refused 3.0, slice_audio's let
+# True through as 1, and analyze_beats truncated a sample_rate of "3.5" to 3.
+# `number_problem` is the rule; the two readers raise it at run time, and the
+# static pass (`domain_violation`) reports it, so the two cannot disagree.
+
+
+def number_problem(value, name, command, whole=False):
+    """The refusal sentence for a value that is not a number of its kind, or
+    None - None for a value that is one, for None itself (an argument left
+    out), and for a reference string, which is resolved before the run.
+
+    A number is an int, a float or a numeric string, finite, and not a bool.
+    A whole number is one with an integral value: 3, 3.0, "3" and "3.0", but
+    not 3.5, "3.5" or True.
+    """
+    if value is None or (isinstance(value, str) and is_ref(DEFERRED, value)):
+        return None
+    kind = "a whole number" if whole else "a number"
+    refusal = f"{command} needs {kind} for '{name}', got {value!r}"
+    if isinstance(value, bool):
+        return refusal
+    if isinstance(value, numbers.Real):
+        number = value
+    elif isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return refusal
+    else:
+        return refusal
+    if not math.isfinite(number):
+        return (
+            f"{command} needs a finite whole number for '{name}', got {value!r}"
+            if whole
+            else f"{command} needs a finite number for '{name}', got {value!r}"
+        )
+    if whole and number != int(number):
+        return refusal
     return None
+
+
+def _required(value, name, command, kind):
+    if value is None:
+        raise ValueError(f"{command} needs {kind} for '{name}', got None")
+
+
+def whole_number(value, name, command, required=False):
+    """A whole-number task argument as an int; None stays None unless
+    `required`. Raises ValueError, naming the argument, for anything
+    `number_problem` refuses."""
+    if required:
+        _required(value, name, command, "a whole number")
+    if value is None:
+        return None
+    problem = number_problem(value, name, command, whole=True)
+    if problem is not None:
+        raise ValueError(problem)
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return int(float(value))
+    return int(value)
+
+
+def real_number(value, name, command, required=False, exact=False):
+    """A real-number task argument; None stays None unless `required`.
+
+    A number is handed back as it came - an int stays an int - and a numeric
+    string as a float, or with `exact` as a Fraction, so a frame rate written
+    "23.976" keeps its decimal value. Raises ValueError, naming the argument,
+    for anything `number_problem` refuses."""
+    if required:
+        _required(value, name, command, "a number")
+    if value is None:
+        return None
+    problem = number_problem(value, name, command)
+    if problem is not None:
+        raise ValueError(problem)
+    if isinstance(value, str):
+        return Fraction(value) if exact else float(value)
+    return value
 
 
 def _is_literal_text(value):
@@ -753,21 +843,25 @@ def domain_text(domain):
     return _DOMAIN_TEXT[domain]
 
 
-def domain_violation(command, name, value, domain):
-    """(index, message) for the first out-of-domain element, or None if all
-    are fine. index is None when the argument itself is the scalar checked
-    rather than one entry of a list.
+def domain_violation(command, name, value, domain, whole=False):
+    """(index, message) for the first element that is not a number of its
+    kind (`number_problem`, a whole one when `whole`) or is out of domain, or
+    None if all are fine. index is None when the argument itself is the
+    scalar checked rather than one entry of a list.
 
     Shared by the static pass and the commands' own run-time guards so the
     two cannot word the same refusal differently.
     """
     for index, item in _domain_candidates(value):
         label = f"{name}[{index}]" if index is not None else name
-        if _is_literal_text(item):
+        if _is_literal_text(item) and not _is_non_finite_text(item):
             return index, (
                 f"{command} needs '{label}' to be a number "
                 f"({_DOMAIN_TEXT[domain]}), got {item!r}."
             )
+        problem = number_problem(item, label, command, whole)
+        if problem is not None:
+            return index, problem
         if in_domain(item, domain):
             continue
         reason = _DOMAIN_REASON.get(domain, _DEFAULT_REASON)
@@ -778,9 +872,18 @@ def domain_violation(command, name, value, domain):
     return None
 
 
-def domain_error(command, name, value, domain):
+def _is_non_finite_text(value):
+    """ "inf" or "nan" - a number to float(), and refused as not a finite one
+    rather than as not a number at all."""
+    try:
+        return not math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def domain_error(command, name, value, domain, whole=False):
     """The message for one out-of-domain argument, or None if it is fine."""
-    violation = domain_violation(command, name, value, domain)
+    violation = domain_violation(command, name, value, domain, whole)
     return None if violation is None else violation[1]
 
 
@@ -794,7 +897,8 @@ def check_argument(command, name, value):
     domain = TASK_ARGUMENT_DOMAINS.get(command, {}).get(name)
     if domain is None:
         return
-    message = domain_error(command, name, value, domain)
+    whole = name in TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
+    message = domain_error(command, name, value, domain, whole)
     if message is not None:
         raise ValueError(message)
 
@@ -830,6 +934,7 @@ def task_argument_errors(workflow_definition, source_indices=None):
         if not isinstance(command, str) or not isinstance(arguments, dict):
             continue
         domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+        wholes = TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
         static_check = TASK_STATIC_CHECKS.get(command)
         if not domains and static_check is None:
             continue
@@ -843,7 +948,9 @@ def task_argument_errors(workflow_definition, source_indices=None):
         for key, domain in domains.items():
             if key not in arguments:
                 continue
-            violation = domain_violation(command, key, arguments[key], domain)
+            violation = domain_violation(
+                command, key, arguments[key], domain, key in wholes
+            )
             if violation is None:
                 continue
             element_index, message = violation
@@ -947,16 +1054,16 @@ def window_video_errors(arguments, command="window_video"):
     break before it runs: an overlap that is not below the window length.
     Whether `index` falls inside the source needs the source's frame count,
     which is the run's to measure."""
-    num_frames = arguments.get("num_frames")
-    overlap = arguments.get("overlap")
-    for value in (num_frames, overlap):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, numbers.Integral)
-            or value < 0
-        ):
+    counts = []
+    for name in ("num_frames", "overlap"):
+        value = arguments.get(name)
+        if number_problem(value, name, command, whole=True) or is_ref(DEFERRED, value):
             return []
-    problem = window_overlap_problem(num_frames, overlap, command)
+        number = as_number(value)
+        if number is None or number < 0:
+            return []
+        counts.append(int(number))
+    problem = window_overlap_problem(*counts, command)
     return [] if problem is None else [("overlap", problem)]
 
 
@@ -1034,22 +1141,10 @@ def fit_downscale_problem(width, height, downscale):
 
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
-    can break before it runs: an unknown `mode`, a size, frame count or
-    downscale that is a number but not a whole one (the domains catch zero
-    and negatives), and a size the downscale does not divide."""
+    can break before it runs: an unknown `mode` and a size the downscale does
+    not divide. A size, frame count or downscale that is not a whole number
+    is the shared whole-number check's (`domain_violation`) to refuse."""
     errors = choice_errors("fit_to_model", arguments)
-    for name in ("width", "height", "num_frames", "downscale"):
-        value = arguments.get(name)
-        number = as_number(value)
-        if (
-            number is not None
-            and number > 0
-            and not number.is_integer()
-            and not is_ref(DEFERRED, value)
-        ):
-            errors.append(
-                (name, f"fit_to_model needs '{name}' as a whole number, got {value!r}")
-            )
     sizes = [as_number(arguments.get(name)) for name in ("width", "height")]
     downscale = as_number(arguments.get("downscale", 1))
     if not errors and all(

@@ -13,9 +13,15 @@ import numbers
 from ..dsp import as_channels_samples
 from ..media_types import AudioVideo
 from ..shots import shot_record, trimmed_shots
-from ..task_domains import NON_NEGATIVE, POSITIVE, check_arguments, frames_to_samples
+from ..task_domains import (
+    NON_NEGATIVE,
+    POSITIVE,
+    check_arguments,
+    frames_to_samples,
+    real_number,
+    whole_number,
+)
 from .registry import register_command
-from .audio_utils import coerce_number
 from .joins import video_names
 from .video_utils import VideoFileReference, frames_as_pil_list, load_audio_video
 
@@ -44,9 +50,9 @@ def trim_video(video, start_frame, num_frames, fps=None):
         the span (sample side cleared); a clip with none carries one shot
         spanning the kept frames, named after the file it was read from
     """
-    start_frame = coerce_number(start_frame, int, "start_frame", COMMAND)
-    num_frames = coerce_number(num_frames, int, "num_frames", COMMAND)
-    fps = coerce_number(fps, float, "fps", COMMAND)
+    start_frame = whole_number(start_frame, "start_frame", COMMAND)
+    num_frames = whole_number(num_frames, "num_frames", COMMAND)
+    fps = real_number(fps, "fps", COMMAND)
     for name, value in (("start_frame", start_frame), ("num_frames", num_frames)):
         if not isinstance(value, numbers.Integral) or isinstance(value, bool):
             raise ValueError(
@@ -119,6 +125,7 @@ def _span_of_audio(audio, sample_rate, fps, start_frame, end):
     COMMAND,
     implementation="dw.tasks.trim.trim_video",
     domains={"start_frame": NON_NEGATIVE, "num_frames": POSITIVE, "fps": POSITIVE},
+    whole_numbers=("start_frame", "num_frames"),
 )
 def _handle_trim_video(task, arguments, previous_pipelines):
     """Keep a span of a video's frames, and its audio over the same span"""

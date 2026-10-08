@@ -34,7 +34,8 @@ _COMMAND_REGISTRY: Dict[str, Callable] = {}
 _COMMAND_INFO: Dict[str, dict] = {}
 
 # command -> the validate-time rules its registration declared: any of
-# 'domains', 'choices', 'static_check' and 'media_arguments'. Kept apart from
+# 'domains', 'choices', 'static_check', 'media_arguments' and
+# 'whole_numbers'. Kept apart from
 # _COMMAND_INFO, whose entries describe the signature and stay plain data
 _COMMAND_RULES: Dict[str, dict] = {}
 
@@ -94,6 +95,7 @@ def register_command(
     choices=None,
     static_check=None,
     media_arguments=(),
+    whole_numbers=(),
 ):
     """
     Decorator to register a command handler function.
@@ -152,6 +154,10 @@ def register_command(
         media_arguments: Names of arguments that name a file to read but not
             by the media-key convention (`dw/locations.py`) - confined like
             a media key at validation (#630)
+        whole_numbers: Names of the arguments with a domain that the command
+            reads as whole numbers (`task_domains.whole_number`): 3, 3.0,
+            "3" and "3.0" are 3, and 3.5 is refused - at validation as at
+            run time. Every other argument with a domain is a real number
 
     Returns:
         Decorator function
@@ -190,6 +196,8 @@ def register_command(
             rules["static_check"] = static_check
         if media_arguments:
             rules["media_arguments"] = tuple(media_arguments)
+        if whole_numbers:
+            rules["whole_numbers"] = tuple(whole_numbers)
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func

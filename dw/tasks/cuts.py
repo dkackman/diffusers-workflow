@@ -40,6 +40,8 @@ from ..task_domains import (
     NON_NEGATIVE,
     POSITIVE,
     cuts_errors,
+    real_number,
+    whole_number,
 )
 
 logger = logging.getLogger("dw")
@@ -58,31 +60,8 @@ TIME_PLACES = 4
 def _number(value, name, required=False):
     """A float from a number or numeric string; None stays None unless
     required."""
-    if value is None:
-        if required:
-            raise ValueError(f"{COMMAND} needs '{name}'")
-        return None
-    if isinstance(value, bool):
-        raise ValueError(f"{COMMAND} needs a number for '{name}', got {value!r}")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            f"{COMMAND} needs a number for '{name}', got {value!r}"
-        ) from error
-    if not math.isfinite(number):
-        raise ValueError(f"{COMMAND} needs a finite number for '{name}'")
-    return number
-
-
-def _integer(value, name):
-    """An int from a whole number or numeric string; None stays None."""
-    number = _number(value, name)
-    if number is None:
-        return None
-    if number != int(number):
-        raise ValueError(f"{COMMAND} needs a whole number for '{name}', got {value!r}")
-    return int(number)
+    number = real_number(value, name, COMMAND, required=required)
+    return None if number is None else float(number)
 
 
 def _grid_up(frames, grid):
@@ -732,10 +711,10 @@ def plan_cuts(
         vocal_tail_s=_number(vocal_tail_s, "vocal_tail_s") or 0.0,
         min_gap_seconds=gap,
         include_instrumental_gaps=bool(include_instrumental_gaps),
-        modulus=_integer(modulus, "modulus"),
-        remainder=_integer(remainder, "remainder"),
-        min_frames=_integer(min_frames, "min_frames"),
-        max_frames=_integer(max_frames, "max_frames"),
+        modulus=whole_number(modulus, "modulus", COMMAND),
+        remainder=whole_number(remainder, "remainder", COMMAND),
+        min_frames=whole_number(min_frames, "min_frames", COMMAND),
+        max_frames=whole_number(max_frames, "max_frames", COMMAND),
         lead_s=_number(lead_s, "lead_s"),
     )
     check_arguments(
@@ -903,6 +882,7 @@ def plan_cuts(
         "max_frames": POSITIVE,
         "lead_s": NON_NEGATIVE,
     },
+    whole_numbers=("modulus", "remainder", "min_frames", "max_frames"),
     choices={"segment_by": ("line", "stanza", "beat")},
     static_check=cuts_errors,
 )

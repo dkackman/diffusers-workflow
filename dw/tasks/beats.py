@@ -58,20 +58,24 @@ def _parse_anchors(anchors, duration):
 
 
 def _coerce_arguments(sample_rate, tempo_bpm, min_bpm, max_bpm, anchors):
-    from ..task_domains import beats_problems, check_arguments
-    from .audio_utils import coerce_number
+    from ..task_domains import (
+        beats_problems,
+        check_arguments,
+        real_number,
+        whole_number,
+    )
 
     values = {
-        name: coerce_number(value, float, name, COMMAND)
-        for name, value in (
-            ("sample_rate", sample_rate),
-            ("tempo_bpm", tempo_bpm),
-            ("min_bpm", min_bpm),
-            ("max_bpm", max_bpm),
-        )
+        "sample_rate": whole_number(sample_rate, "sample_rate", COMMAND),
+        **{
+            name: real_number(value, name, COMMAND)
+            for name, value in (
+                ("tempo_bpm", tempo_bpm),
+                ("min_bpm", min_bpm),
+                ("max_bpm", max_bpm),
+            )
+        },
     }
-    if values["sample_rate"] is not None:
-        values["sample_rate"] = int(values["sample_rate"])
     check_arguments(COMMAND, **values)
     problems = beats_problems(values["min_bpm"], values["max_bpm"], anchors)
     if problems:
@@ -307,6 +311,7 @@ def analyze_beats(
         "min_bpm": POSITIVE,
         "max_bpm": POSITIVE,
     },
+    whole_numbers=("sample_rate",),
     static_check=beats_errors,
 )
 def _handle_analyze_beats(task, arguments, previous_pipelines):
