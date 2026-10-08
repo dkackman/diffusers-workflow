@@ -410,7 +410,7 @@ def health(request: Request):
         # server is unhealthy (#206). Any worker of the pool (#462)
         "worker_alive": any(worker["alive"] for worker in workers),
         # The longest-running job, as before the pool; `workers` names each
-        "current_job": manager._current_job_id,
+        "current_job": manager.running_job_id(),
         "workers": workers,
         "queued": sum(1 for j in manager.list() if j["status"] == "queued"),
         # which machine answered - the thing a remote client cannot
