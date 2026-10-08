@@ -48,6 +48,7 @@ from .security import (
     validate_path,
     validate_url,
 )
+from .tasks.registry import RegistryTable
 from .trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
@@ -59,17 +60,13 @@ MEDIA_KEY_SUFFIXES = ("_image", "_video", "_audio")
 MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 
 # Task arguments that name a file to read but not by the conventions above -
-# a generic name the key match would miss, so it is listed per command. Each
-# gets the same validate-time refusal as a media key, rather than only the
-# loader's one at run time (#630). The finishing commands' `media` and
-# apply_lut's `lut` likewise (#635, SE-F044)
-TASK_MEDIA_ARGUMENTS = {
-    "join_windows": ("source",),
-    "grade": ("media",),
-    "sharpen": ("media",),
-    "film_grain": ("media",),
-    "apply_lut": ("media", "lut"),
-}
+# a generic name the key match would miss, so each command declares them on
+# its registration (`register_command(media_arguments=...)`,
+# dw/tasks/registry.py) and this is a view of them. Each gets the same
+# validate-time refusal as a media key, rather than only the loader's one at
+# run time (#630) - join_windows' `source`, the finishing commands' `media`
+# and apply_lut's `lut` (#635, SE-F044)
+TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
 
 # Of those, the arguments read from a local file only: no loader fetches
 # them, so an http(s) URL is refused rather than passed on as a location

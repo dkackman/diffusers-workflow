@@ -41,6 +41,7 @@ from .references import (
     is_ref,
     render_path,
 )
+from .tasks.registry import RegistryTable
 
 logger = logging.getLogger("dw")
 
@@ -98,206 +99,27 @@ _DEFAULT_REASON = (
     "documented range"
 )
 
-# command -> argument -> domain. Every entry here is pinned to a real command
-# and a real parameter of it by tests/test_task_domains.py, so a renamed
-# argument cannot leave a domain checking nothing
-TASK_ARGUMENT_DOMAINS = {
-    "slice_audio": {
-        "start_seconds": NON_NEGATIVE,
-        "duration_seconds": POSITIVE,
-        "start_frame": NON_NEGATIVE,
-        "lead_frames": SEED,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "gain_audio": {
-        "start_seconds": NON_NEGATIVE,
-        "duration_seconds": POSITIVE,
-        "start_frame": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "resample_audio": {
-        "target_sample_rate": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "loop_audio": {
-        "duration_seconds": POSITIVE,
-        "target_frames": POSITIVE,
-        "fps": POSITIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "find_loop_bed": {
-        "start_seconds": NON_NEGATIVE,
-        "end_seconds": POSITIVE,
-        "min_seconds": POSITIVE,
-        "max_seconds": POSITIVE,
-        "max_bin_dbfs": NON_POSITIVE,
-        "max_mean_dbfs": NON_POSITIVE,
-        "max_spike_db": NON_NEGATIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "loop_seconds": POSITIVE,
-        "target_bed_dbfs": NON_POSITIVE,
-        "max_candidates": POSITIVE,
-        "fps": POSITIVE,
-    },
-    "fade_audio": {
-        "fade_in_ms": NON_NEGATIVE,
-        "fade_out_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "normalize_audio": {
-        "sample_rate": POSITIVE,
-        "target_lufs": NON_POSITIVE,
-    },
-    "crossfade_audio": {
-        "crossfade_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "mix_audio": {"gains": NON_NEGATIVE, "sample_rate": POSITIVE},
-    "pair_audio": {"sample_rate": POSITIVE},
-    "concat_videos": {
-        "trim_frames": NON_NEGATIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "audio_bleed_ms": NON_NEGATIVE,
-        "seam_fade_ms": NON_NEGATIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "join_into_song": {
-        "cue_seconds": NON_NEGATIVE,
-        "duck_delay_ms": NON_NEGATIVE,
-        "duck_db": NON_POSITIVE,
-        "duck_ramp_ms": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "loop_frames": {"num_frames": POSITIVE},
-    "window_video": {
-        "index": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "overlap": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "trim_video": {
-        "start_frame": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-    },
-    "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
-    "fit_to_model": {
-        "width": POSITIVE,
-        "height": POSITIVE,
-        "num_frames": POSITIVE,
-        "downscale": POSITIVE,
-    },
-    "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
-    "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
-    "ingredients_grid": {
-        "width": POSITIVE,
-        "height": POSITIVE,
-        "gap": NON_NEGATIVE,
-        "max_images": POSITIVE,
-    },
-    "dissolve_videos": {
-        "dissolve_frames": NON_NEGATIVE,
-        "fade_in_frames": NON_NEGATIVE,
-        "fade_out_frames": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "compress_audio": {
-        "ratio": POSITIVE,
-        "attack_ms": NON_NEGATIVE,
-        "release_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "filter_audio": {
-        "cutoff_hz": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "analyze_audio": {"sample_rate": POSITIVE},
-    "attribute_voices": {
-        "window_seconds": POSITIVE,
-        "min_reference_seconds": POSITIVE,
-    },
-    "check_script": {"similarity": UNIT},
-    "grade": {
-        "contrast": NON_NEGATIVE,
-        "saturation": NON_NEGATIVE,
-        "temperature": CLOSED_UNIT,
-        "tint": CLOSED_UNIT,
-        "highlights": CLOSED_UNIT,
-        "shadows": CLOSED_UNIT,
-        "whites": CLOSED_UNIT,
-        "blacks": CLOSED_UNIT,
-        "clarity": CLOSED_UNIT,
-        "vignette": CLOSED_UNIT,
-        "fade": UNIT,
-    },
-    "sharpen": {
-        "amount": NON_NEGATIVE,
-        "radius": POSITIVE,
-        "threshold": CHANNEL_LEVEL,
-    },
-    "apply_lut": {"strength": UNIT},
-    "film_grain": {
-        "amount": UNIT,
-        "size": AT_LEAST_ONE,
-        "chroma": UNIT,
-        "seed": SEED,
-    },
-    "crop_face_track": {
-        "crop_size": POSITIVE,
-        "padding": NON_NEGATIVE,
-        "gate_full": POSITIVE,
-        "gate_zero": POSITIVE,
-        "min_confidence": POSITIVE,
-    },
-    "paste_face_track": {
-        "feather": NON_NEGATIVE,
-    },
-    "analyze_beats": {
-        "sample_rate": POSITIVE,
-        "tempo_bpm": POSITIVE,
-        "min_bpm": POSITIVE,
-        "max_bpm": POSITIVE,
-    },
-    "plan_cuts": {
-        "fps": POSITIVE,
-        "duration_s": POSITIVE,
-        "min_scene_s": NON_NEGATIVE,
-        "max_scene_s": POSITIVE,
-        "vocal_tail_s": NON_NEGATIVE,
-        "min_gap_seconds": NON_NEGATIVE,
-        "modulus": POSITIVE,
-        "remainder": NON_NEGATIVE,
-        "min_frames": POSITIVE,
-        "max_frames": POSITIVE,
-        "lead_s": NON_NEGATIVE,
-    },
-}
+# command -> argument -> domain, declared on each command's registration
+# (`register_command(domains=...)`, dw/tasks/registry.py) and read here as a
+# view. Every entry is pinned to a real command and a real parameter of it by
+# tests/test_task_domains.py, so a renamed argument cannot leave a domain
+# checking nothing
+TASK_ARGUMENT_DOMAINS = RegistryTable("domains")
 
 
-# command -> argument -> the literal values it accepts. Owned here so the
-# command's run-time refusal and the static pass read one list
+# The literal values an argument accepts, for the commands whose run-time
+# refusal and static pass read one list
 INGREDIENTS_LAYOUTS = ("auto", "rows", "panels")
 INGREDIENTS_FITS = ("contain", "cover")
 # How fit_to_model puts a source into the model's frame (#602)
 FIT_MODES = ("letterbox", "stretch", "crop")
 JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
-TASK_ARGUMENT_CHOICES = {
-    "fit_to_model": {"mode": FIT_MODES},
-    "join_windows": {"curve": JOIN_WINDOWS_CURVES},
-    "ingredients_grid": {
-        "layout": INGREDIENTS_LAYOUTS,
-        "fit": INGREDIENTS_FITS,
-    },
-    "plan_cuts": {
-        "segment_by": ("line", "stanza", "beat"),
-    },
-}
+# Declared on each registration (`register_command(choices=...)`)
+TASK_ARGUMENT_CHOICES = RegistryTable("choices")
+# command -> its cross-argument check, `arguments -> [(argument, message)]`
+# (`register_command(static_check=...)`) - the rules below, which
+# task_argument_errors runs on each step of the command
+TASK_STATIC_CHECKS = RegistryTable("static_check")
 INGREDIENTS_DEFAULT_MAX_IMAGES = 12
 
 
@@ -1007,8 +829,9 @@ def task_argument_errors(workflow_definition, source_indices=None):
         arguments = task.get("arguments")
         if not isinstance(command, str) or not isinstance(arguments, dict):
             continue
-        domains = TASK_ARGUMENT_DOMAINS.get(command)
-        if not domains:
+        domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+        static_check = TASK_STATIC_CHECKS.get(command)
+        if not domains and static_check is None:
             continue
         source = author_index(source_indices, index)
         name = step.get("name")
@@ -1033,21 +856,8 @@ def task_argument_errors(workflow_definition, source_indices=None):
                     "message": f"{message}{where}.",
                 }
             )
-        extra = {
-            "ingredients_grid": ingredients_grid_errors,
-            "crop_face_track": face_track_errors,
-            "paste_face_track": paste_face_track_errors,
-            "analyze_beats": beats_errors,
-            "plan_cuts": cuts_errors,
-            "window_video": window_video_errors,
-            "join_windows": join_windows_errors,
-            "fit_to_model": fit_to_model_errors,
-            "slice_audio": slice_audio_errors,
-            "apply_lut": lut_errors,
-            "check_script": script_lines_errors,
-        }.get(command)
-        if extra is not None:
-            for key, message in extra(arguments):
+        if static_check is not None:
+            for key, message in static_check(arguments):
                 path = ("steps", source, "task", "arguments", key)
                 errors.append(
                     {"path": render_path(path), "message": f"{message}{where}."}

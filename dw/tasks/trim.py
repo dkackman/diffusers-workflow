@@ -13,7 +13,7 @@ import numbers
 from ..dsp import as_channels_samples
 from ..media_types import AudioVideo
 from ..shots import shot_record, trimmed_shots
-from ..task_domains import check_arguments, frames_to_samples
+from ..task_domains import NON_NEGATIVE, POSITIVE, check_arguments, frames_to_samples
 from .registry import register_command
 from .audio_utils import coerce_number
 from .joins import video_names
@@ -115,7 +115,11 @@ def _span_of_audio(audio, sample_rate, fps, start_frame, end):
     return waveform[:, first:last]
 
 
-@register_command(COMMAND, implementation="dw.tasks.trim.trim_video")
+@register_command(
+    COMMAND,
+    implementation="dw.tasks.trim.trim_video",
+    domains={"start_frame": NON_NEGATIVE, "num_frames": POSITIVE, "fps": POSITIVE},
+)
 def _handle_trim_video(task, arguments, previous_pipelines):
     """Keep a span of a video's frames, and its audio over the same span"""
     logger.debug("Trimming a video")

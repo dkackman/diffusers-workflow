@@ -17,6 +17,29 @@ from .format_messages import (
 # handler (`beats`) without a cycle through this one; re-exported here under
 # the names the rest of dw and the tests read
 from .registry import _COMMAND_INFO, _COMMAND_REGISTRY, register_command  # noqa: F401
+from ..task_domains import (
+    AT_LEAST_ONE,
+    CHANNEL_LEVEL,
+    CLOSED_UNIT,
+    FIT_MODES,
+    INGREDIENTS_FITS,
+    INGREDIENTS_LAYOUTS,
+    JOIN_WINDOWS_CURVES,
+    NON_NEGATIVE,
+    NON_POSITIVE,
+    POSITIVE,
+    SEED,
+    UNIT,
+    face_track_errors,
+    fit_to_model_errors,
+    ingredients_grid_errors,
+    join_windows_errors,
+    lut_errors,
+    paste_face_track_errors,
+    script_lines_errors,
+    slice_audio_errors,
+    window_video_errors,
+)
 from . import beats  # noqa: F401 - registers analyze_beats
 from . import cuts  # noqa: F401 - registers plan_cuts
 from . import trim  # noqa: F401 - registers trim_video
@@ -80,7 +103,16 @@ def _handle_gather_inputs(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "concat_videos", implementation="dw.tasks.concat_videos.concat_videos"
+    "concat_videos",
+    implementation="dw.tasks.concat_videos.concat_videos",
+    domains={
+        "trim_frames": NON_NEGATIVE,
+        "crossfade_ms": NON_NEGATIVE,
+        "audio_bleed_ms": NON_NEGATIVE,
+        "seam_fade_ms": NON_NEGATIVE,
+        "fps": POSITIVE,
+        "sample_rate": POSITIVE,
+    },
 )
 def _handle_concat_videos(task, arguments, previous_pipelines):
     """Concatenate videos - and the audio generated with them - into one"""
@@ -91,7 +123,14 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "dissolve_videos", implementation="dw.tasks.dissolve_videos.dissolve_videos"
+    "dissolve_videos",
+    implementation="dw.tasks.dissolve_videos.dissolve_videos",
+    domains={
+        "dissolve_frames": NON_NEGATIVE,
+        "fade_in_frames": NON_NEGATIVE,
+        "fade_out_frames": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
 )
 def _handle_dissolve_videos(task, arguments, previous_pipelines):
     """Join videos with cross-dissolves, fading the whole from and to a colour"""
@@ -102,7 +141,15 @@ def _handle_dissolve_videos(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "join_into_song", implementation="dw.tasks.join_into_song.join_into_song"
+    "join_into_song",
+    implementation="dw.tasks.join_into_song.join_into_song",
+    domains={
+        "cue_seconds": NON_NEGATIVE,
+        "duck_delay_ms": NON_NEGATIVE,
+        "duck_db": NON_POSITIVE,
+        "duck_ramp_ms": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
 )
 def _handle_join_into_song(task, arguments, previous_pipelines):
     """Join dialogue shots and song shots into one video over the unbroken song"""
@@ -112,7 +159,15 @@ def _handle_join_into_song(task, arguments, previous_pipelines):
     return join_into_song(**arguments)
 
 
-@register_command("fade_audio", implementation="dw.tasks.audio_utils.fade_audio")
+@register_command(
+    "fade_audio",
+    implementation="dw.tasks.audio_utils.fade_audio",
+    domains={
+        "fade_in_ms": NON_NEGATIVE,
+        "fade_out_ms": NON_NEGATIVE,
+        "sample_rate": POSITIVE,
+    },
+)
 def _handle_fade_audio(task, arguments, previous_pipelines):
     """Fade an audio track in from silence and out to it"""
     logger.debug("Fading audio")
@@ -122,7 +177,9 @@ def _handle_fade_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "normalize_audio", implementation="dw.tasks.audio_dynamics.normalize_audio"
+    "normalize_audio",
+    implementation="dw.tasks.audio_dynamics.normalize_audio",
+    domains={"sample_rate": POSITIVE, "target_lufs": NON_POSITIVE},
 )
 def _handle_normalize_audio(task, arguments, previous_pipelines):
     """Scale an audio track so its peak sits at a given level"""
@@ -132,7 +189,20 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
     return normalize_audio(**arguments)
 
 
-@register_command("slice_audio", implementation="dw.tasks.audio_utils.slice_audio")
+@register_command(
+    "slice_audio",
+    implementation="dw.tasks.audio_utils.slice_audio",
+    domains={
+        "start_seconds": NON_NEGATIVE,
+        "duration_seconds": POSITIVE,
+        "start_frame": NON_NEGATIVE,
+        "lead_frames": SEED,
+        "num_frames": POSITIVE,
+        "fps": POSITIVE,
+        "sample_rate": POSITIVE,
+    },
+    static_check=slice_audio_errors,
+)
 def _handle_slice_audio(task, arguments, previous_pipelines):
     """Cut a time- or frame-aligned slice out of an audio track"""
     logger.debug("Slicing audio")
@@ -141,7 +211,18 @@ def _handle_slice_audio(task, arguments, previous_pipelines):
     return slice_audio(**arguments)
 
 
-@register_command("gain_audio", implementation="dw.tasks.audio_utils.gain_audio")
+@register_command(
+    "gain_audio",
+    implementation="dw.tasks.audio_utils.gain_audio",
+    domains={
+        "start_seconds": NON_NEGATIVE,
+        "duration_seconds": POSITIVE,
+        "start_frame": NON_NEGATIVE,
+        "num_frames": POSITIVE,
+        "fps": POSITIVE,
+        "sample_rate": POSITIVE,
+    },
+)
 def _handle_gain_audio(task, arguments, previous_pipelines):
     """Apply a gain to a time- or frame-aligned region of an audio track"""
     logger.debug("Gaining audio region")
@@ -151,7 +232,9 @@ def _handle_gain_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "resample_audio", implementation="dw.tasks.audio_utils.resample_audio"
+    "resample_audio",
+    implementation="dw.tasks.audio_utils.resample_audio",
+    domains={"target_sample_rate": POSITIVE, "sample_rate": POSITIVE},
 )
 def _handle_resample_audio(task, arguments, previous_pipelines):
     """Resample an audio track to a different sample rate"""
@@ -170,7 +253,11 @@ def _handle_video_frames(task, arguments, previous_pipelines):
     return frames_as_array(**arguments)
 
 
-@register_command("loop_frames", implementation="dw.tasks.video_utils.loop_frames")
+@register_command(
+    "loop_frames",
+    implementation="dw.tasks.video_utils.loop_frames",
+    domains={"num_frames": POSITIVE},
+)
 def _handle_loop_frames(task, arguments, previous_pipelines):
     """Repeat a still or a short clip into a run of a given length"""
     logger.debug("Looping frames")
@@ -179,7 +266,17 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     return loop_frames(**arguments)
 
 
-@register_command("window_video", implementation="dw.tasks.windows.window_video")
+@register_command(
+    "window_video",
+    implementation="dw.tasks.windows.window_video",
+    domains={
+        "index": NON_NEGATIVE,
+        "num_frames": POSITIVE,
+        "overlap": NON_NEGATIVE,
+        "fps": POSITIVE,
+    },
+    static_check=window_video_errors,
+)
 def _handle_window_video(task, arguments, previous_pipelines):
     """Cut one overlapping, fixed-length window out of a long video"""
     logger.debug("Cutting a video window")
@@ -216,6 +313,14 @@ def _handle_window_video(task, arguments, previous_pipelines):
             "divisible by it; the fit record's model size is the divided one."
         ),
     },
+    domains={
+        "width": POSITIVE,
+        "height": POSITIVE,
+        "num_frames": POSITIVE,
+        "downscale": POSITIVE,
+    },
+    choices={"mode": FIT_MODES},
+    static_check=fit_to_model_errors,
 )
 def _handle_fit_to_model(task, arguments, previous_pipelines):
     """Fit a video into a model's working size and frame count"""
@@ -252,7 +357,14 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
     return restore_to_source(**arguments)
 
 
-@register_command("join_windows", implementation="dw.tasks.windows.join_windows")
+@register_command(
+    "join_windows",
+    implementation="dw.tasks.windows.join_windows",
+    domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
+    choices={"curve": JOIN_WINDOWS_CURVES},
+    static_check=join_windows_errors,
+    media_arguments=("source",),
+)
 def _handle_join_windows(task, arguments, previous_pipelines):
     """Blend processed overlapping windows back into one video the source's length"""
     logger.debug("Joining video windows")
@@ -261,7 +373,11 @@ def _handle_join_windows(task, arguments, previous_pipelines):
     return join_windows(**arguments)
 
 
-@register_command("frame_grid", implementation="dw.tasks.video_utils.frame_grid")
+@register_command(
+    "frame_grid",
+    implementation="dw.tasks.video_utils.frame_grid",
+    domains={"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
+)
 def _handle_frame_grid(task, arguments, previous_pipelines):
     """Tile evenly sampled frames of a video into one contact-sheet image"""
     logger.debug("Building frame grid")
@@ -271,7 +387,16 @@ def _handle_frame_grid(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "ingredients_grid", implementation="dw.tasks.image_utils.ingredients_grid"
+    "ingredients_grid",
+    implementation="dw.tasks.image_utils.ingredients_grid",
+    domains={
+        "width": POSITIVE,
+        "height": POSITIVE,
+        "gap": NON_NEGATIVE,
+        "max_images": POSITIVE,
+    },
+    choices={"layout": INGREDIENTS_LAYOUTS, "fit": INGREDIENTS_FITS},
+    static_check=ingredients_grid_errors,
 )
 def _handle_ingredients_grid(task, arguments, previous_pipelines):
     """Lay individual images out as one reference sheet"""
@@ -281,7 +406,11 @@ def _handle_ingredients_grid(task, arguments, previous_pipelines):
     return ingredients_grid(**arguments)
 
 
-@register_command("pair_audio", implementation="dw.tasks.pair_audio.pair_audio")
+@register_command(
+    "pair_audio",
+    implementation="dw.tasks.pair_audio.pair_audio",
+    domains={"sample_rate": POSITIVE},
+)
 def _handle_pair_audio(task, arguments, previous_pipelines):
     """Pair a video's frames with an audio track generated beside them"""
     logger.debug("Pairing audio with video")
@@ -291,7 +420,9 @@ def _handle_pair_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "crossfade_audio", implementation="dw.tasks.audio_utils.crossfade_audio"
+    "crossfade_audio",
+    implementation="dw.tasks.audio_utils.crossfade_audio",
+    domains={"crossfade_ms": NON_NEGATIVE, "sample_rate": POSITIVE},
 )
 def _handle_crossfade_audio(task, arguments, previous_pipelines):
     """Join audio tracks with an equal-power crossfade"""
@@ -301,7 +432,17 @@ def _handle_crossfade_audio(task, arguments, previous_pipelines):
     return crossfade_audio(**arguments)
 
 
-@register_command("loop_audio", implementation="dw.tasks.audio_utils.loop_audio")
+@register_command(
+    "loop_audio",
+    implementation="dw.tasks.audio_utils.loop_audio",
+    domains={
+        "duration_seconds": POSITIVE,
+        "target_frames": POSITIVE,
+        "fps": POSITIVE,
+        "crossfade_ms": NON_NEGATIVE,
+        "sample_rate": POSITIVE,
+    },
+)
 def _handle_loop_audio(task, arguments, previous_pipelines):
     """Loop a short recording into a bed of a given length"""
     logger.debug("Looping audio")
@@ -311,7 +452,23 @@ def _handle_loop_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "find_loop_bed", implementation="dw.tasks.loop_bed.find_loop_bed", returns="json"
+    "find_loop_bed",
+    implementation="dw.tasks.loop_bed.find_loop_bed",
+    returns="json",
+    domains={
+        "start_seconds": NON_NEGATIVE,
+        "end_seconds": POSITIVE,
+        "min_seconds": POSITIVE,
+        "max_seconds": POSITIVE,
+        "max_bin_dbfs": NON_POSITIVE,
+        "max_mean_dbfs": NON_POSITIVE,
+        "max_spike_db": NON_NEGATIVE,
+        "crossfade_ms": NON_NEGATIVE,
+        "loop_seconds": POSITIVE,
+        "target_bed_dbfs": NON_POSITIVE,
+        "max_candidates": POSITIVE,
+        "fps": POSITIVE,
+    },
 )
 def _handle_find_loop_bed(task, arguments, previous_pipelines):
     """Rank the quiet windows of a recording worth looping into a room-tone bed"""
@@ -362,6 +519,14 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
+    domains={
+        "crop_size": POSITIVE,
+        "padding": NON_NEGATIVE,
+        "gate_full": POSITIVE,
+        "gate_zero": POSITIVE,
+        "min_confidence": POSITIVE,
+    },
+    static_check=face_track_errors,
 )
 def _handle_crop_face_track(task, arguments, previous_pipelines):
     """Crop a steady square around the one face a clip follows"""
@@ -398,6 +563,8 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
             "before blending."
         ),
     },
+    domains={"feather": NON_NEGATIVE},
+    static_check=paste_face_track_errors,
 )
 def _handle_paste_face_track(task, arguments, previous_pipelines):
     """Blend repaired face crops back into the clip they were cut from"""
@@ -407,7 +574,11 @@ def _handle_paste_face_track(task, arguments, previous_pipelines):
     return paste_face_track(**arguments)
 
 
-@register_command("mix_audio", implementation="dw.tasks.audio_utils.mix_audio")
+@register_command(
+    "mix_audio",
+    implementation="dw.tasks.audio_utils.mix_audio",
+    domains={"gains": NON_NEGATIVE, "sample_rate": POSITIVE},
+)
 def _handle_mix_audio(task, arguments, previous_pipelines):
     """Layer audio tracks on top of one another, rather than end to end"""
     logger.debug("Mixing audio")
@@ -417,7 +588,14 @@ def _handle_mix_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "compress_audio", implementation="dw.tasks.audio_dynamics.compress_audio"
+    "compress_audio",
+    implementation="dw.tasks.audio_dynamics.compress_audio",
+    domains={
+        "ratio": POSITIVE,
+        "attack_ms": NON_NEGATIVE,
+        "release_ms": NON_NEGATIVE,
+        "sample_rate": POSITIVE,
+    },
 )
 def _handle_compress_audio(task, arguments, previous_pipelines):
     """Shape a track's dynamics with a compressor, limiter or gate"""
@@ -427,7 +605,11 @@ def _handle_compress_audio(task, arguments, previous_pipelines):
     return compress_audio(**arguments)
 
 
-@register_command("filter_audio", implementation="dw.tasks.audio_dynamics.filter_audio")
+@register_command(
+    "filter_audio",
+    implementation="dw.tasks.audio_dynamics.filter_audio",
+    domains={"cutoff_hz": POSITIVE, "sample_rate": POSITIVE},
+)
 def _handle_filter_audio(task, arguments, previous_pipelines):
     """Run a track through a single lowpass/highpass/bandpass/notch filter"""
     logger.debug("Filtering audio")
@@ -437,7 +619,9 @@ def _handle_filter_audio(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "analyze_audio", implementation="dw.tasks.audio_dynamics.analyze_audio"
+    "analyze_audio",
+    implementation="dw.tasks.audio_dynamics.analyze_audio",
+    domains={"sample_rate": POSITIVE},
 )
 def _handle_analyze_audio(task, arguments, previous_pipelines):
     """Measure a track's levels and spectral balance without changing it"""
@@ -486,11 +670,20 @@ def _handle_analyze_sync_drift(task, arguments, previous_pipelines):
     return analyze_sync_drift(**arguments)
 
 
+def _voices_argument_errors(arguments):
+    """attribute_voices' static check, imported on use: its module loads torch."""
+    from .voice_attribution import voices_argument_errors
+
+    return voices_argument_errors(arguments)
+
+
 @register_command(
     "attribute_voices",
     implementation="dw.tasks.voice_attribution.attribute_voices",
     consumes_device=True,
     returns="json",
+    domains={"window_seconds": POSITIVE, "min_reference_seconds": POSITIVE},
+    static_check=_voices_argument_errors,
 )
 def _handle_attribute_voices(task, arguments, previous_pipelines):
     """Say which reference voice sings each line of a song, by timbre"""
@@ -504,6 +697,8 @@ def _handle_attribute_voices(task, arguments, previous_pipelines):
     implementation="dw.tasks.script_check.check_script",
     consumes_device=True,
     returns="json",
+    domains={"similarity": UNIT},
+    static_check=script_lines_errors,
 )
 def _handle_check_script(task, arguments, previous_pipelines):
     """Check that a take speaks its script, line by line"""
@@ -686,6 +881,20 @@ def _load_media(media):
             "unchanged."
         ),
     },
+    domains={
+        "contrast": NON_NEGATIVE,
+        "saturation": NON_NEGATIVE,
+        "temperature": CLOSED_UNIT,
+        "tint": CLOSED_UNIT,
+        "highlights": CLOSED_UNIT,
+        "shadows": CLOSED_UNIT,
+        "whites": CLOSED_UNIT,
+        "blacks": CLOSED_UNIT,
+        "clarity": CLOSED_UNIT,
+        "vignette": CLOSED_UNIT,
+        "fade": UNIT,
+    },
+    media_arguments=("media",),
 )
 def _handle_grade(task, arguments, previous_pipelines):
     """Adjust the exposure, tone, white balance and colour of an image or a video"""
@@ -732,6 +941,8 @@ _MEDIA_DESCRIPTION = (
     implementation="dw.tasks.finish.sharpen_image",
     summary="Sharpen an image or a video with an unsharp mask.",
     parameter_descriptions={"media": _MEDIA_DESCRIPTION},
+    domains={"amount": NON_NEGATIVE, "radius": POSITIVE, "threshold": CHANNEL_LEVEL},
+    media_arguments=("media",),
 )
 def _handle_sharpen(task, arguments, previous_pipelines):
     """Sharpen an image or a video with an unsharp mask"""
@@ -760,6 +971,8 @@ def _handle_sharpen(task, arguments, previous_pipelines):
             "none, recorded in the manifest), so a rerun reproduces the grain."
         ),
     },
+    domains={"amount": UNIT, "size": AT_LEAST_ONE, "chroma": UNIT, "seed": SEED},
+    media_arguments=("media",),
 )
 def _handle_film_grain(task, arguments, previous_pipelines):
     """Add film grain to an image or a video, reproducibly from a seed"""
@@ -782,6 +995,12 @@ def _handle_film_grain(task, arguments, previous_pipelines):
         "file or built from a palette - blended with the original by strength."
     ),
     parameter_descriptions={"media": _MEDIA_DESCRIPTION},
+    domains={"strength": UNIT},
+    static_check=lut_errors,
+    media_arguments=(
+        "media",
+        "lut",
+    ),
 )
 def _handle_apply_lut(task, arguments, previous_pipelines):
     """Apply a .cube or palette 3D lookup table to an image or a video"""
@@ -863,6 +1082,7 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
             "read from the v1 checkpoint folder)."
         ),
     },
+    domains={"width": POSITIVE, "height": POSITIVE},
 )
 def _handle_upscale_h3_latents(task, arguments, previous_pipelines):
     """Resize MiniMax-H3 video latents to a larger canvas"""

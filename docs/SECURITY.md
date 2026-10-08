@@ -146,7 +146,8 @@ One policy now answers all of it, untrusted:
   cannot be used as a file-existence oracle. Validation finds a path by its
   argument's name (`image`, `*_video`, `location`, ...); a task argument
   that reads a file under a generic name, like `join_windows`' `source`, is
-  listed in `TASK_MEDIA_ARGUMENTS` so it is refused at the same moment
+  declared on its registration (`@register_command(media_arguments=...)`,
+  read through `TASK_MEDIA_ARGUMENTS`, #692) so it is refused at the same moment
   (#630), as are the finishing tasks' `media` and `apply_lut`'s `lut`
   (#635). `lut` is only ever read from a file on the server, so an http(s)
   URL there is refused as a URL (`LOCAL_ONLY_TASK_ARGUMENTS`).

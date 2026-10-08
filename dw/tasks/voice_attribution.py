@@ -31,8 +31,6 @@ import torch
 
 from .. import dsp
 from ..events import emit_warning
-from ..for_each import MEMBER_SEPARATOR, render_path
-from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
 from ..dsp import resample_waveform
@@ -174,6 +172,47 @@ def _span(entry, where, duration, allow_empty=False):
     return start, min(end, duration) if duration is not None else end
 
 
+def voices_argument_errors(arguments):
+    """[(argument, message)] for an attribute_voices `voices` its parse_voices
+    would refuse - fewer than two, a bad name, a malformed span, a reference
+    under min_reference_seconds (#494).
+
+    What needs the audio - a span past its end, a clip's length - stays the
+    run's: the duration is not known here. A `voices` still spelled as a
+    reference, or with a span holding one, is left to the run too.
+    """
+    if "voices" not in arguments:
+        return []
+    voices = arguments["voices"]
+    if isinstance(voices, str) or _voices_hold_reference(voices):
+        return []
+    minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
+    if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
+        minimum = MIN_REFERENCE_SECONDS
+    try:
+        parse_voices(voices, None, minimum)
+    except ValueError as error:
+        return [("voices", str(error))]
+    return []
+
+
+def _voices_hold_reference(voices):
+    """Whether any span in `voices` carries a string - a reference the run
+    resolves - so its numbers are not known yet. A clip path in place of a
+    voice's spans is not a span and does not count."""
+    if not isinstance(voices, dict):
+        return False
+    for reference in voices.values():
+        spans = [reference] if isinstance(reference, dict) else reference
+        if not isinstance(spans, list):
+            continue
+        for span in spans:
+            values = span.values() if isinstance(span, dict) else [span]
+            if any(isinstance(value, str) for value in values):
+                return True
+    return False
+
+
 def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     """The voices argument as {name: spans | clip path}, checked.
 
@@ -225,66 +264,6 @@ def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
                 "(min_reference_seconds) - give it a longer span or more of them"
             )
     return parsed
-
-
-def voices_errors(workflow_definition, source_indices=None):
-    """Every attribute_voices step whose literal `voices` parse_voices would
-    refuse, as [{path, message}] - fewer than two, a bad name, a malformed
-    span, a reference under min_reference_seconds.
-
-    The definition is substituted and expanded, so a `voices` a caller
-    passed is checked as it will run. What needs the audio - a span past its
-    end, a clip's length - stays the run's: the duration is not known here.
-    A `voices` still spelled as a reference, or with a span holding one, is
-    left to the run too.
-    """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-    errors = []
-    for index, step in enumerate(steps):
-        task = step.get("task") if isinstance(step, dict) else None
-        if not isinstance(task, dict) or task.get("command") != COMMAND:
-            continue
-        arguments = task.get("arguments")
-        if not isinstance(arguments, dict) or "voices" not in arguments:
-            continue
-        voices = arguments["voices"]
-        if isinstance(voices, str) or _holds_reference(voices):
-            continue
-        minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
-        if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
-            minimum = MIN_REFERENCE_SECONDS
-        try:
-            parse_voices(voices, None, minimum)
-        except ValueError as error:
-            source = author_index(source_indices, index)
-            name = step.get("name")
-            where = (
-                f" in member '{name}'"
-                if isinstance(name, str) and MEMBER_SEPARATOR in name
-                else ""
-            )
-            path = ("steps", source, "task", "arguments", "voices")
-            errors.append({"path": render_path(path), "message": f"{error}{where}"})
-    return errors
-
-
-def _holds_reference(voices):
-    """Whether any span in `voices` carries a string - a reference the run
-    resolves - so its numbers are not known yet. A clip path in place of a
-    voice's spans is not a span and does not count."""
-    if not isinstance(voices, dict):
-        return False
-    for reference in voices.values():
-        spans = [reference] if isinstance(reference, dict) else reference
-        if not isinstance(spans, list):
-            continue
-        for span in spans:
-            values = span.values() if isinstance(span, dict) else [span]
-            if any(isinstance(value, str) for value in values):
-                return True
-    return False
 
 
 def parse_lines(lines, duration, window_seconds):
