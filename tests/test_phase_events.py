@@ -229,6 +229,23 @@ def test_a_chain_labels_each_segment_for_the_restarting_counter():
     assert pipeline.segment_label is None
 
 
+def test_a_chain_that_fails_mid_run_clears_its_label():
+    from dw.pipeline_processors.chain import run_chain
+
+    class FailsOnSecond(ChainedFakePipeline):
+        def _run_once(self, arguments):
+            if len(self.labels) == 1:
+                raise RuntimeError("segment 2 blew up")
+            return super()._run_once(arguments)
+
+    pipeline = FailsOnSecond()
+    with patch("dw.pipeline_processors.chain.empty_device_cache"):
+        with pytest.raises(RuntimeError, match="segment 2"):
+            run_chain(pipeline, {"segments": 3}, {"prompt": "p"})
+
+    assert pipeline.segment_label is None
+
+
 # ---------------------------------------------------------- cancel_pending
 #
 # A model load or a task step has no checkpoint of its own to catch the
