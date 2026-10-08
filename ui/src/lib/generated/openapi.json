@@ -1050,7 +1050,7 @@
             "type": "boolean"
           },
           "workers": {
-            "description": "One entry per card the server runs a worker on (--devices), each running one job at a time.",
+            "description": "One entry per card the server runs a worker on (--devices), each running its own job: one job per GPU.",
             "items": {
               "$ref": "#/components/schemas/WorkerInfo"
             },

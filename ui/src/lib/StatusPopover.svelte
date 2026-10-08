@@ -2,6 +2,7 @@
   import { gbFromMb } from './format'
   import type { HealthInfo, MemoryInfo } from './types'
   import Popover from './ui/Popover.svelte'
+  import WorkerList from './WorkerList.svelte'
 
   let {
     open = $bindable(false),
@@ -30,26 +31,21 @@
       {/if}
     </dd>
 
-    <dt>Worker</dt>
+    <dt>{(health?.workers.length ?? 0) > 1 ? 'Workers' : 'Worker'}</dt>
     <dd>
-      {#if health?.worker_alive}
-        running
-      {:else}
+      {#if health?.workers.length}
+        <WorkerList
+          workers={health.workers}
+          onnavigate={() => (open = false)}
+        />
+      {/if}
+      {#if !health?.worker_alive}
         <span class="muted">not started — spawns with the first job</span>
       {/if}
     </dd>
 
     <dt>Queue</dt>
     <dd>{health?.queued ?? 0} queued</dd>
-
-    {#if health?.current_job}
-      <dt>Job</dt>
-      <dd>
-        <a href={'#/jobs/' + health.current_job} onclick={() => (open = false)}
-          >watch the running job →</a
-        >
-      </dd>
-    {/if}
 
     <dt>Memory</dt>
     <dd>

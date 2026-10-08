@@ -780,8 +780,9 @@ class JobManager:
     # ------------------------------------------------------------ cancel/stop
 
     def cancel(self, job_id):
-        """Cancel a queued or running job. Returns the job's status after the
-        request, or None for an unknown job."""
+        """Cancel a queued or running job. A running job's cancel reaches
+        only the card running it; the other cards' jobs carry on. Returns
+        the job's status after the request, or None for an unknown job."""
         job = self.jobs.get(job_id)
         if job is None:
             return None
@@ -804,8 +805,10 @@ class JobManager:
 
     def move(self, job_id, direction):
         """Reorder a queued job: 'up'/'down' swap with a neighbour,
-        'front'/'back' go to the ends. Returns the new pending order, or
-        None for a job that is not queued (finished, running, unknown)."""
+        'front'/'back' go to the ends. The order is the order to start: with
+        several cards a job behind may still start first, on a free card the
+        one ahead does not fit. Returns the new pending order, or None for a
+        job that is not queued (finished, running, unknown)."""
         if direction not in ("up", "down", "front", "back"):
             raise ValueError(f"Unknown queue direction '{direction}'")
         with self._lock:

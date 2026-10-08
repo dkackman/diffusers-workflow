@@ -290,9 +290,12 @@ path behind that workspace's own library, so:
 It holds assets only. A prompt is already shared, and workflows and outputs
 belong to the work that made them.
 
-This is what lets two agents share one GPU without sharing a namespace: each
-takes a workspace, and neither can save over the other's workflows or delete
-the other's renders.
+This is what lets two agents share the server's GPUs without sharing a
+namespace: each takes a workspace, and neither can save over the other's
+workflows or delete the other's renders. The queue is shared across
+workspaces and the engine runs one job per GPU (`dw.serve --devices`), so two
+agents' jobs run side by side when there is a free card each fits, and queue
+otherwise.
 
 **How a client picks one.** Every scoped route takes an optional
 `?workspace=<name>`; omitting it means `default`, which is why every

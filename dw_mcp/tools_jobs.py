@@ -23,8 +23,8 @@ class JobTools:
         wait_seconds: int = 0,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
-        occupies the machine for minutes and the engine runs one job at a
-        time. Tell the user what will run and get their go-ahead, then pass
+        occupies a GPU for minutes and the engine runs one job per GPU.
+        Tell the user what will run and get their go-ahead, then pass
         acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
         fold that first wait in with `wait_seconds` above 0, which waits on
@@ -178,8 +178,8 @@ class JobTools:
         new_seed: bool = False,
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. This
-        costs GPU time: a rerun is a run - it occupies the machine for
-        minutes and the engine runs one job at a time. Tell the user what
+        costs GPU time: a rerun is a run - it occupies a GPU for
+        minutes and the engine runs one job per GPU. Tell the user what
         will run and get their go-ahead, then pass acknowledged_cost.
 
         Pass new_seed=true for a different image: a workflow that pins its

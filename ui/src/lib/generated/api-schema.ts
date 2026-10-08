@@ -2060,7 +2060,7 @@ export interface components {
             worker_alive: boolean;
             /**
              * Workers
-             * @description One entry per card the server runs a worker on (--devices), each running one job at a time.
+             * @description One entry per card the server runs a worker on (--devices), each running its own job: one job per GPU.
              */
             workers: components["schemas"]["WorkerInfo"][];
         };

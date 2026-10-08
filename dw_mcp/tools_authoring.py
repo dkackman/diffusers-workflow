@@ -219,7 +219,7 @@ class PromptTools:
     ) -> dict:
         """Expand a short idea into a full prompt with a language model.
         This costs time on the engine: it queues a real job, and the engine
-        runs one at a time, so a generation waiting behind it is delayed.
+        runs one job per GPU, so a generation waiting behind it is delayed.
         Tell the user what will be enhanced and get their go-ahead, then
         pass acknowledged_cost=true. Returns as soon as the job is queued;
         the enhanced text is the text file in its finished manifest."""

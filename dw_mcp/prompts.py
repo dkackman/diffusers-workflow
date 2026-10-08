@@ -15,7 +15,7 @@ from dw_mcp.client import DwApiError, api_path, coerce_json_object
 
 ENHANCE_COST_REFUSAL = (
     "Enhancing a prompt loads a language model and queues a real job on the "
-    "engine, which runs one job at a time - it delays any generation waiting "
+    "engine, which runs one job per GPU - it delays any generation waiting "
     "behind it. Tell the user what will be enhanced and with which preset, "
     "get their go-ahead, then call again with acknowledged_cost=true."
 )
