@@ -1,5 +1,6 @@
 import importlib
 import inspect
+import threading
 import types
 
 from .trust import (
@@ -15,9 +16,16 @@ from .security import UntrustedWorkflowError
 NON_TYPE_KEYS = {"content_type", "offload_type"}
 
 
+# diffusers resolves its classes lazily, importing peft and friends on first
+# touch. Two threads doing that at once hit a circular-import / module-lock
+# deadlock (validate_workflow calls run in parallel), so resolution is serialized
+_IMPORT_LOCK = threading.RLock()
+
+
 def get_type(module_name, type_name):
-    module = __import__(module_name)
-    return getattr(module, type_name)
+    with _IMPORT_LOCK:
+        module = __import__(module_name)
+        return getattr(module, type_name)
 
 
 def _accepts_dtype(key):
@@ -117,12 +125,12 @@ def load_type_from_full_name(full_name, key=None, constructed=True):
     module_path, object_name = full_name.rsplit(".", 1)
 
     # Dynamically import the module
-    module = importlib.import_module(module_path)
+    with _IMPORT_LOCK:
+        module = importlib.import_module(module_path)
+        value = getattr(module, object_name)
 
     # Get the object from the module
-    return require_loadable_type(
-        full_name, getattr(module, object_name), key, constructed
-    )
+    return require_loadable_type(full_name, value, key, constructed)
 
 
 def has_method(o, name):
