@@ -583,3 +583,44 @@ def test_a_failure_names_an_asset_by_reference_not_by_server_path(tmp_path):
     assert "output:id/a.png" in error["message"]
     assert str(tmp_path) not in error["message"]
     assert str(tmp_path) not in error["traceback"]
+
+
+def test_a_warning_names_an_asset_by_reference_not_by_server_path(tmp_path):
+    """GHSA-cr8g-q9j9-j68g (and -m7jg-h8hm-m45q, -j924-mr8f-x2x4): a task
+    warning naming the 'asset:' input it resampled printed the path it had
+    resolved to - in the message and as a key of `sample_rates`. Free-text
+    events are rewritten as the failure is; an event's `files` reach the
+    server absolute, which relativises them itself."""
+    assets = tmp_path / "ws" / "assets"
+    outputs = tmp_path / "ws" / "outputs"
+    source = str(assets / "cast" / "cut.mp4")
+    written = str(outputs / "id" / "a.wav")
+
+    class WarningWorkflow(StubWorkflow):
+        def run(
+            self, arguments, previous_pipelines=None, context=None, prior_step_keys=None
+        ):
+            context.emit(
+                "warning",
+                message=f"mix_audio: tracks differ ({source}: 48000 Hz)",
+                sample_rates={source: 48000, "track 2": 16000},
+            )
+            context.emit("log", message=f"wrote {written}")
+            context.emit("step_end", step="mix", files=[written])
+
+    worker = _make_worker()
+    messages = _execute(
+        worker,
+        WarningWorkflow(),
+        command=snapshot_command(asset_dir=str(assets), output_dir=str(outputs)),
+    )
+    events = [m for m in messages if m["type"] == "progress"]
+    warning = next(e for e in events if e["event"] == "warning")
+    assert (
+        warning["message"] == "mix_audio: tracks differ (asset:cast/cut.mp4: 48000 Hz)"
+    )
+    assert warning["sample_rates"] == {"asset:cast/cut.mp4": 48000, "track 2": 16000}
+    log = next(e for e in events if e["event"] == "log")
+    assert log["message"] == "wrote output:id/a.wav"
+    step_end = next(e for e in events if e["event"] == "step_end")
+    assert step_end["files"] == [written]
