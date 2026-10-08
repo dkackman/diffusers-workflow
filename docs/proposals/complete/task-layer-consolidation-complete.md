@@ -1,7 +1,8 @@
 # Task layer: one registration pattern, one coercion, shared image ops (#692)
 
 Written by model `claude-opus-5-5` via provider `anthropic`, at close-out
-2026-10-08, from plan v2 on #692 and the stage threads (#773, #774, #775).
+2026-10-08, from plan v2 on #692 and the stage threads (#773, #774, #775,
+and fix-forward #785).
 Plan v1 approved by Don 2026-10-08 with every default (D1–D3), recorded as
 v2 with no scope change. Built and verified on mini-ai (mps) the same day.
 
@@ -119,6 +120,22 @@ alternative and also removes the hand-kept tables.
   image-task loader `task._load_media` sets. Pipeline inputs still load as
   RGB.
 
+### Stage D (#785, fix-forward): float-string window counts
+
+- The feature's final check failed on C-F354h: `join_windows`' validate-time
+  window-count check (`dw/window_count_errors.py`) skipped `num_frames` /
+  `overlap` given as numeric-string literals (`"33.0"`). Validate passed a
+  window list the run then refused at the join step, after the window steps
+  had already spent their time. That broke stage B's rule that validate and
+  run agree.
+- A build miss, not a plan gap: the plan scoped *variable* coercion in
+  `window_count_errors.py` out (#338), but the literal task arguments it
+  reads are task coercion and should have gone through stage B's helper.
+  `_literal_whole` now reads through `task_domains.whole_number`, the run's
+  rule (`fb7324d0`, merged `926f96bf`). Tests in
+  `tests/test_window_count_errors.py`.
+- Architecture review passed; verified on mini-ai (mps) with no bounces.
+
 ## Bounces
 
 | Stage | Bounces | What |
@@ -126,6 +143,7 @@ alternative and also removes the hand-kept tables.
 | A (#773) | 1 tester | SE-F045: `restore_to_source.fit` and `paste_face_track.track` weren't declared as media arguments, so a `../` or `/etc/hosts` record path validated. The fix declared them, added them to `LOCAL_ONLY_TASK_ARGUMENTS`, and a sweep found and declared `paste_face_track.clip`/`.repaired`, `crop_face_track.clip` and `stabilize_video.clip`. This was exactly the silent-drop class the feature set out to close. The old hand-kept table had missed them too. |
 | B (#774) | 1 tester | C-F356: `grade.exposure` had no domain, so validate let `"0.5"`/`true`/`"nan"` through and the handler raised `TypeError`. Fixed with the `finite` domain and coercion at dispatch. |
 | C (#775) | 1 architecture review, 1 tester | Review: `padding_to_grid` did grid arithmetic that `variable_constraints.aligned` owns, and the map lacked rows for `image_ops` and `load_json_record`. Tester, C-F361: an RGBA file read from `asset:`/`output:` came back opaque because `load_image` flattened it to RGB before the command ran. The flattening predates the stage, but the stage's acceptance needed it fixed. |
+| Feature final check | 1 tester | C-F354h: float-string `num_frames`/`overlap` silenced `join_windows`' validate-time count check. Fixed forward in stage D (#785), which passed review and verify first time. |
 
 Cost per stage is not recorded: the stage comments name no `usage:` figures.
 

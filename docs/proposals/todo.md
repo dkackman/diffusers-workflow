@@ -58,7 +58,7 @@ remaining deferred fix is recorded in
   deferred (`hold_audio` and refine terms, calibration margins, with their
   triggers): `complete/h3-guide-vram-complete.md`.
 - **Task layer consolidation: one registration pattern, one coercion,
-  shared image ops** (#692, stages #773-#775), shipped 2026-10-08. A task's
+  shared image ops** (#692, stages #773-#775, fix-forward #785), shipped 2026-10-08. A task's
   domains, choices, static check and media arguments are declared on
   `register_command`, and the old tables are derived views. Task numbers
   are coerced by `whole_number`/`real_number`, and validate and run agree.
