@@ -103,6 +103,10 @@ The range that separates them on this data is 27.7–35.9 B per guide voxel:
 
 28.71 sits at the bottom of that range, which leaves the most room before over-refusal. Its 0.05 GiB margin on 768 2×22 is thin, but it is set against a pool peak, not an allocation.
 
+Two caveats for stage B:
+- **768 2×22 clears its peak by only 0.05 GiB** (the projection is 20.937, the peak 20.89; rounded per column it reads 20.94 − 20.89).
+- **Both censored 768 rows were measured above their projections:** ≥ 23.55 against 22.15 (4×22) and 23.14 (1×124). The separation holds there only because those runs completed, by thrashing the allocator for 25 and 33 minutes. The term doesn't bound their peaks; it only puts them on the right side of 24 GiB.
+
 ## Exit
 
 At 4 × 124 frames on the largest canvas, the guide term adds 13.7 GiB at 28.71 B, and 38.9 GiB at the least-squares fit (80.2 B plus 0.18 GiB per guide). Either is far more than 0.5 GB, so **the feature continues to stage B.**
