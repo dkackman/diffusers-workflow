@@ -798,7 +798,8 @@ def plan_cuts(
             _lyric_lines(lyrics), chunks, duration, warnings, max(args.min_scene_s, 0.5)
         )
     else:
-        lines = _transcript_lines(chunks, args.min_gap_seconds or 2.0)
+        gap = 2.0 if args.min_gap_seconds is None else args.min_gap_seconds
+        lines = _transcript_lines(chunks, gap)
         if not lines:
             warnings.append(
                 f"{COMMAND}: the transcript has no sung lines - the song is "

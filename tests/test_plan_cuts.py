@@ -334,6 +334,15 @@ class TestSegmentBy:
         assert len(lyrics) == 2
         assert all("\n" in lyric for lyric in lyrics)
 
+    def test_a_zero_gap_starts_a_stanza_at_every_silence(self):
+        """`min_gap_seconds=0` is a value, not an absence: every pause in the
+        transcript begins a stanza, so the fixture's four chunks make four
+        one-line stanzas rather than the default gap's two."""
+        result = plan(segment_by="stanza", min_gap_seconds=0)
+        lyrics = [s["lyric"] for s in result["shots"] if s["lyric"]]
+        assert len(lyrics) == 4
+        assert not any("\n" in lyric for lyric in lyrics)
+
     def test_beat_mode_cuts_on_beats_and_carries_lyrics(self):
         result = plan(lyrics=LYRICS, beats=beat_list(2.0), segment_by="beat")
         assert len(result["shots"]) == 15
