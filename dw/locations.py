@@ -65,12 +65,17 @@ MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 # dw/tasks/registry.py) and this is a view of them. Each gets the same
 # validate-time refusal as a media key, rather than only the loader's one at
 # run time (#630) - join_windows' `source`, the finishing commands' `media`
-# and apply_lut's `lut` (#635, SE-F044)
+# and apply_lut's `lut` (#635, SE-F044), and the face-track and fit commands'
+# `clip`, `repaired`, `track` and `fit` (#773, SE-F045)
 TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
 
 # Of those, the arguments read from a local file only: no loader fetches
 # them, so an http(s) URL is refused rather than passed on as a location
-LOCAL_ONLY_TASK_ARGUMENTS = {"apply_lut": ("lut",)}
+LOCAL_ONLY_TASK_ARGUMENTS = {
+    "apply_lut": ("lut",),
+    "paste_face_track": ("track",),
+    "restore_to_source": ("fit",),
+}
 
 # The tasks whose arguments name a filesystem pattern rather than one file
 GLOB_ARGUMENT = "glob"

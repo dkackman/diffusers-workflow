@@ -148,9 +148,11 @@ One policy now answers all of it, untrusted:
   that reads a file under a generic name, like `join_windows`' `source`, is
   declared on its registration (`@register_command(media_arguments=...)`,
   read through `TASK_MEDIA_ARGUMENTS`, #692) so it is refused at the same moment
-  (#630), as are the finishing tasks' `media` and `apply_lut`'s `lut`
-  (#635). `lut` is only ever read from a file on the server, so an http(s)
-  URL there is refused as a URL (`LOCAL_ONLY_TASK_ARGUMENTS`).
+  (#630), as are the finishing tasks' `media`, `apply_lut`'s `lut` (#635),
+  and the face-track and fit tasks' `clip`, `repaired`, `track` and `fit`
+  (#773). `lut`, `track` and `fit` are only ever read from a file on the
+  server, so an http(s) URL there is refused as a URL
+  (`LOCAL_ONLY_TASK_ARGUMENTS`).
 - **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
   validation and at the loader, whatever the trust posture. No loader opens
   one, but as a relative path it joined onto the workflow directory and

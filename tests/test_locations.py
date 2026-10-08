@@ -746,3 +746,80 @@ class TestApplyLutArguments:
         errors = location_errors(definition, base_dir=workflow_dir)
 
         assert [error["path"] for error in errors] == ["steps[0].task.arguments.media"]
+
+
+class TestFaceTrackAndFitArguments:
+    """The face-track and fit commands' files - `clip`, `repaired`, `track` and
+    `fit`, none named like its media - are refused at validation, at their own
+    argument paths, rather than only by the loader once the job is queued
+    (#773, SE-F045). `track` and `fit` are records read from a local .json, so
+    a URL is refused as a URL."""
+
+    CASES = [
+        ("restore_to_source", "fit"),
+        ("paste_face_track", "clip"),
+        ("paste_face_track", "repaired"),
+        ("paste_face_track", "track"),
+        ("crop_face_track", "clip"),
+        ("stabilize_video", "clip"),
+    ]
+
+    @staticmethod
+    def _step(command, key, value):
+        return {
+            "steps": [
+                {
+                    "name": "probe",
+                    "task": {"command": command, "arguments": {key: value}},
+                }
+            ]
+        }
+
+    @pytest.mark.parametrize("command,key", CASES)
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "../x.png",
+            "../../../../etc/passwd.json",
+            "/etc/passwd",
+            "/nonexistent-dw-probe/x.json",
+            "file:///etc/passwd.json",
+        ],
+    )
+    def test_an_unreadable_file_is_an_error_at_its_path(
+        self, untrusted, workflow_dir, command, key, value
+    ):
+        errors = location_errors(self._step(command, key, value), base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == [f"steps[0].task.arguments.{key}"]
+        assert f"'{key}'" in errors[0]["message"]
+
+    @pytest.mark.parametrize("command,key", [CASES[0], CASES[3]])
+    def test_a_url_record_is_refused_as_a_url(
+        self, untrusted, workflow_dir, command, key
+    ):
+        errors = location_errors(
+            self._step(command, key, "https://example.com/x.json"),
+            base_dir=workflow_dir,
+        )
+
+        assert "never fetched from a URL" in errors[0]["message"]
+
+    @pytest.mark.parametrize("command,key", CASES)
+    @pytest.mark.parametrize(
+        "value", ["asset:x.json", "output:x.json", "previous_result:crop.track"]
+    )
+    def test_a_reference_is_left_alone(
+        self, untrusted, workflow_dir, command, key, value
+    ):
+        assert (
+            location_errors(self._step(command, key, value), base_dir=workflow_dir)
+            == []
+        )
+
+    @pytest.mark.parametrize("command,key", CASES)
+    def test_a_record_handed_on_as_a_dict_is_left_alone(
+        self, untrusted, workflow_dir, command, key
+    ):
+        definition = self._step(command, key, {"mode": "crop"})
+        assert location_errors(definition, base_dir=workflow_dir) == []
