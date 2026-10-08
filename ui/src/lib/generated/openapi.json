@@ -1278,12 +1278,6 @@
             "description": "That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.",
             "title": "Run Version"
           },
-          "spec": {
-            "additionalProperties": true,
-            "description": "The submitted spec; history rows only.",
-            "title": "Spec",
-            "type": "object"
-          },
           "started_at": {
             "anyOf": [
               {
@@ -2816,17 +2810,6 @@
             "title": "List Entries",
             "type": "object"
           },
-          "output_dir": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Output Dir"
-          },
           "steps": {
             "title": "Steps",
             "type": "integer"
@@ -2844,8 +2827,7 @@
           "cached_steps",
           "downloads_required",
           "estimate",
-          "workspace",
-          "output_dir"
+          "workspace"
         ],
         "title": "Plan",
         "type": "object"

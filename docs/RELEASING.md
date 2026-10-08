@@ -38,6 +38,11 @@ when a release ships.
   validation refuses four own `guides` plus `continuity: "guide"` before the
   run; `plan_cuts` treats `min_gap_seconds: 0` as zero and `null` as the 2.0
   default.
+- Security: no response carries the server's absolute paths. Job warnings,
+  log lines and phase details name an input as its `asset:` or `output:`
+  reference (as job errors already did); `GET /api/jobs/{id}` (`get_job`)
+  no longer returns a history row's `spec`; and the validate plan's
+  `output_dir` is gone - `plan.workspace` names the same place.
 
 ### 0.9.0
 

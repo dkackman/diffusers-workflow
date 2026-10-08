@@ -252,8 +252,13 @@ def get_job(request: Request, job_id: str):
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job")
-    # a historical job is already a detail dict; a live one renders itself
+    # a historical job is already a detail dict; a live one renders itself.
+    # A history row's `spec` is the submitted job as the server ran it -
+    # absolute workflow, output and asset directories under the server's
+    # home (GHSA-f233-wqrv-46r8) - and every part a caller can use is a
+    # field of its own, or get_job_workflow's, so it is not served
     detail = job if isinstance(job, dict) else manager.describe(job)
+    detail = {key: value for key, value in detail.items() if key != "spec"}
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
@@ -899,9 +904,10 @@ def validate_workflow(
         # cached_steps is 0 both when nothing hit and when the probe ran
         # against the wrong workspace's output root (#184) - echoing
         # what it was actually probed against turns the second case
-        # from a silent miss into something a caller can read
+        # from a silent miss into something a caller can read. By name:
+        # the output root's absolute path told a caller nothing more, and
+        # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
         answer["plan"]["workspace"] = workspace.name
-        answer["plan"]["output_dir"] = workspace.outputs
         answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
         if catalog_name:
             answer["warnings"] += _host_memory_warnings(
