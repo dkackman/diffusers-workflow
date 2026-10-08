@@ -455,7 +455,9 @@ An argument that names a *location* is confined, untrusted (the default):
   and an `asset:` reference - which is what those exist for.
 - a `glob` is confined the same way, and each match re-checked.
 - an `http(s)` URL may not resolve to an address inside the deployment -
-  loopback, link-local, private ranges.
+  loopback, link-local, private ranges. Its host must resolve, the body
+  is capped at 1 GiB and a fetch at 10 minutes end to end; past that,
+  `upload_asset` is the route.
 - `remote_text_encoder.url` is https-only, and only a HuggingFace host is
   sent this machine's token.
 - `model_name` must be a Hub repo id, or a path inside one of those roots.

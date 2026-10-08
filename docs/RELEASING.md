@@ -20,6 +20,24 @@ when a release ships.
   server process's old import.
 - A completed model download on huggingface_hub 1.33 is no longer reported
   `failed`.
+- Security: media and remote-encoder requests from a workflow are dialed at
+  the address the host policy checked (DNS rebinding closed), every redirect
+  is re-validated, a POST follows the same path as a GET, and the
+  HuggingFace token is dropped on a redirect that leaves the host or
+  downgrades to http.
+- Untrusted (the default), a URL whose host does not resolve or is
+  percent-encoded is refused at validation rather than left to the fetch;
+  `--trust-workflows` keeps the old behaviour.
+- A fetched body is capped at 1 GiB and a fetch at 10 minutes end to end;
+  use `upload_asset` for larger media.
+- Multi-card servers: a declared `vram_estimate` is admitted against the
+  largest card in the pool, not the first.
+- A cancel sent between dispatch and the worker's start now lands; a
+  cancelled queued job no longer leaves dispatch bookkeeping behind.
+- H3: `hold_audio` with `"output": "audio"` returns the held track;
+  validation refuses four own `guides` plus `continuity: "guide"` before the
+  run; `plan_cuts` treats `min_gap_seconds: 0` as zero and `null` as the 2.0
+  default.
 
 ### 0.9.0
 

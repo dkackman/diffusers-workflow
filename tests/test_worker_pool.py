@@ -376,7 +376,7 @@ class TestFitAtSubmit:
         )
         assert manager.largest_ceiling_gb() == 24
 
-    def test_an_unread_card_has_no_ceiling(self, pool, monkeypatch):
+    def test_no_ceiling_when_no_cards_size_could_be_read(self, pool, monkeypatch):
         monkeypatch.setattr(
             "dw.worker_manager.device_capacity_gb", lambda device=None: None
         )
