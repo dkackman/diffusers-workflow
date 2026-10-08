@@ -77,6 +77,8 @@ ALLOWED_UPLOAD_EXTENSIONS = (
     | ALLOWED_AUDIO_EXTENSIONS
     | ALLOWED_LUT_EXTENSIONS
 )
+# The library holds LUTs too, so the listing shows them (#757)
+LUT_KINDS = {ext: "lut" for ext in ALLOWED_LUT_EXTENSIONS}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
 
@@ -218,7 +220,9 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
 
     def media_names(root):
         try:
-            files = list(iter_gallery_files(root, group_runs=False))
+            files = list(
+                iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS)
+            )
         except OSError:
             return []
         names = []

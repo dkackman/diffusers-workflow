@@ -1164,3 +1164,20 @@ class TestSharedAssets:
             assert [
                 w["name"] for w in client.get("/api/workspaces").json()["workspaces"]
             ] == ["default"]
+
+
+class TestLutAssetsAreListed:
+    """#757: an uploaded .cube resolved as an asset but the listing, which
+    walks media kinds, never showed it."""
+
+    def test_an_uploaded_cube_is_listed_with_kind_lut(self, server):
+        with server() as client:
+            uploaded = client.post(
+                "/api/uploads?filename=x.cube&asset_name=qa-lut/identity.cube",
+                content=b"LUT_3D_SIZE 2\n",
+            )
+            assert uploaded.status_code == 201
+            listed = client.get("/api/assets").json()["assets"]
+        entries = [e for e in listed if e["name"].endswith("identity.cube")]
+        assert [e["kind"] for e in entries] == ["lut"]
+        assert entries[0]["reference"].startswith("asset:uploads/qa-lut/")

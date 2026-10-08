@@ -116,7 +116,8 @@
               "image",
               "video",
               "audio",
-              "text"
+              "text",
+              "lut"
             ],
             "title": "Kind",
             "type": "string"
@@ -3469,7 +3470,8 @@
               "image",
               "video",
               "audio",
-              "text"
+              "text",
+              "lut"
             ],
             "title": "Kind",
             "type": "string"

@@ -279,6 +279,8 @@ class DiffusersStatus(ApiModel):
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 OutputKind = Literal["image", "video", "audio", "text"]
+# An asset library entry may also be a .cube colour lookup table
+AssetKind = Literal["image", "video", "audio", "text", "lut"]
 
 
 class JobSummary(ApiModel):
@@ -784,7 +786,7 @@ class AssetFile(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin = Field(
@@ -801,7 +803,7 @@ class ShadowedAsset(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin

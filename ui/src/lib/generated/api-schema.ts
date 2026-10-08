@@ -1713,7 +1713,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */
@@ -2969,7 +2969,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */
