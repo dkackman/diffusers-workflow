@@ -641,7 +641,9 @@ class TestMusicVideoTemplate:
             + [f"slice@{k}" for k in self.KEYS]
             + [f"shot@{k}" for k in self.KEYS]
             + [f"trim@{k}" for k in self.KEYS]
-            + ["edit", "balanced", "music_video"]
+            + ["edit"]
+            + [f"song_cut@{k}" for k in self.KEYS]
+            + ["song_cuts", "balanced", "music_video"]
         )
 
     def test_the_soundtrack_is_cut_to_the_edit_rather_than_to_a_constant(self):
@@ -653,11 +655,30 @@ class TestMusicVideoTemplate:
         got = steps_by_name(self.expanded())
         arguments = got["music_video"]["task"]["arguments"]
         assert arguments["audio"] == "previous_result:balanced"
-        # 'song' is substituted: the expanded run still reads the written song
         assert got["balanced"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
+            "previous_result:song_cuts"
         )
         assert arguments["fit"] == "video"
+
+    def test_the_soundtrack_is_the_song_pieces_the_shots_sang(self):
+        """#788: the track was the whole song from sample 0, so a cut whose
+        entries did not tile the song from frame 0 played out of sync. Each
+        entry's own cut is sliced from the song at its own start_frame and the
+        pieces are joined in list order, with no crossfade."""
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            args = got[f"song_cut@{entry['name']}"]["task"]["arguments"]
+            assert args["audio"] == "previous_result:write_song"
+            assert args["start_frame"] == entry["start_frame"]
+            assert args["num_frames"] == entry["cut_frames"]
+            assert args["lead_frames"] == 0
+        soundtrack = got["song_cuts"]["task"]
+        assert soundtrack["command"] == "crossfade_audio"
+        assert soundtrack["arguments"]["audios"] == [
+            f"previous_result:song_cut@{k}" for k in self.KEYS
+        ]
+        assert soundtrack["arguments"]["crossfade_ms"] == 0
 
     def test_the_song_is_a_variable_defaulting_to_the_written_one(self):
         template = load_template("music-video.json")
@@ -742,6 +763,7 @@ class TestMusicVideoTemplate:
             "slice",
             "shot",
             "trim",
+            "song_cut",
         ]
 
     def test_each_shot_keeps_the_generation_settings(self):
@@ -1067,3 +1089,27 @@ class TestEntryFieldWarnings:
         assert entry_field_warnings(w)[0].startswith(
             "variables.shots[0]: entry 0 carries 'extra'"
         )
+
+
+class TestMusicVideoSoundtrackSamples:
+    """#788: the soundtrack's samples are the song's samples under each cut."""
+
+    def test_a_cut_starting_past_frame_zero_carries_that_part_of_the_song(self):
+        import numpy
+
+        from dw.tasks.audio_utils import crossfade_audio, slice_audio
+
+        rate, fps = 1000, 24
+        song = numpy.arange(rate * 20, dtype=numpy.float32)[None, :] / (rate * 20)
+        # entries as in the issue: start at 124, then 248, a gap-free pair
+        pieces = [
+            slice_audio(
+                song, start_frame=start, num_frames=124, fps=fps, sample_rate=rate
+            )
+            for start in (124, 248)
+        ]
+        joined = crossfade_audio(pieces, crossfade_ms=0, sample_rate=rate)
+        waveform = numpy.asarray(joined.audio)
+        first = round(124 / fps * rate)
+        assert abs(waveform.shape[-1] - 2 * 124 / fps * rate) <= 2
+        assert waveform[0, 0] == pytest.approx(song[0, first], abs=1e-3)
