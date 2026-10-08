@@ -1,6 +1,7 @@
 """MiniMax-H3 guides (#611): the aligned lengths, the guide rows spliced into the
 packed layout, the blocks dw inserts and the call-time checks on `guides`."""
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -14,8 +15,11 @@ from dw.pipeline_processors.h3_blocks import (
     GUIDE_AUDIO_BLOCK,
     GUIDE_AUDIO_ROWS,
     GUIDE_CONDITION_BLOCK,
+    GUIDE_FRAMES_PER_CHUNK,
+    GUIDE_LATENTS_PER_CHUNK,
     GUIDE_LATENTS_BLOCK,
     GUIDE_LIMIT,
+    LAYOUT_ANCHORS,
     RENDER_GRID,
     default_num_frames,
     fit_guide_frames,
@@ -132,6 +136,44 @@ class TestLengths:
     )
     def test_guide_latent_frames(self, n, latents):
         assert guide_latent_frames(n) == latents
+
+
+def vae_defaults():
+    """The H3 video VAE's config defaults, read off its signature - no weights."""
+    import inspect
+
+    from diffusers import AutoencoderKLMiniMaxH3
+
+    return {
+        name: param.default
+        for name, param in inspect.signature(
+            AutoencoderKLMiniMaxH3.__init__
+        ).parameters.items()
+    }
+
+
+class TestChunkDrift:
+    """The chunk sizes are copies of the installed VAE's temporal geometry."""
+
+    def test_frames_per_chunk_is_the_vae_clip_length(self):
+        assert GUIDE_FRAMES_PER_CHUNK == vae_defaults()["clip_length"]
+
+    def test_latents_per_chunk_is_the_vae_tokens_per_clip(self):
+        # The VAE's own derivation of `tokens_chunk_size`
+        config = vae_defaults()
+        ratio = math.prod(config["temporal_downsample_factors"])
+        assert GUIDE_LATENTS_PER_CHUNK == math.ceil(config["clip_length"] / ratio)
+
+    @pytest.mark.parametrize("chunks", [1, 2, 3, 7])
+    def test_guide_latent_frames_is_the_vae_encode_length(self, chunks):
+        # `_encode` pads to whole clips and drops `token_drop` trailing latents
+        config = vae_defaults()
+        ratio = math.prod(config["temporal_downsample_factors"])
+        n = config["clip_length"] * (chunks - 1) + 5
+        encoded = (
+            chunks * math.ceil(config["clip_length"] / ratio) - config["token_drop"]
+        )
+        assert guide_latent_frames(n) == encoded
 
     @pytest.mark.parametrize("frame", [0, 17, 34, 119])
     def test_aligned_frames_pass(self, frame):
@@ -377,6 +419,12 @@ class TestAnchors:
         assert insert_guides(pipeline) is False
         assert names(pipeline) == before
         assert "_frame_position_grid" in guides_refusal(pipeline)
+
+    def test_the_audio_position_helper_is_anchored(self, monkeypatch):
+        # guide_audio_positions imports it from before_denoise
+        assert "_fill_audio_positions" in LAYOUT_ANCHORS
+        monkeypatch.delattr(before_denoise, "_fill_audio_positions")
+        assert layout_anchor_problem() == "_fill_audio_positions"
 
     def test_a_missing_nested_anchor(self, monkeypatch):
         monkeypatch.delattr(Stock, "build_packed_sequence")
