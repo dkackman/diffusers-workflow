@@ -3525,6 +3525,10 @@ def test_rerun_endpoint_and_historical_job_surface(tmp_path):
     with make_client() as client:  # restarted server
         detail = client.get(f"/api/jobs/{job['id']}").json()
         assert detail["historical"] is True and detail["status"] == "succeeded"
+        # The row's spec holds the server's absolute directories
+        # (GHSA-f233-wqrv-46r8) - kept on the row, never served
+        assert "spec" not in detail
+        assert str(tmp_path) not in json.dumps(detail)
 
         # a historical job has no event log - the stream closes immediately
         with client.stream("GET", f"/api/jobs/{job['id']}/events") as response:
@@ -5170,7 +5174,7 @@ EMPTY_PLAN = {
 }
 # The route adds these to whatever build_plan() returns - the workspace the
 # plan (and any cache probe inside it) actually ran against (#184)
-PLAN_ROUTE_KEYS = {"workspace", "output_dir"}
+PLAN_ROUTE_KEYS = {"workspace"}
 
 
 class TestValidatePlan:
@@ -5193,6 +5197,9 @@ class TestValidatePlan:
         plan = result["plan"]
         assert set(plan) == set(EMPTY_PLAN) | PLAN_ROUTE_KEYS
         assert plan["workspace"] == "default"
+        # Named, not located: no output_dir under the server's home
+        # (GHSA-9wg7-95xv-qqcr)
+        assert "output_dir" not in plan
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
