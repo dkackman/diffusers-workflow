@@ -1,5 +1,9 @@
 # H3 multi-frame guides, and guide continuity in chains (#611)
 
+> **Since #691 (2026-10-08):** `h3_blocks.py` named below is split into
+> `h3_rules.py`, `h3_hold.py` and `h3_guides.py`; see
+> `h3-blocks-split-complete.md`.
+
 Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 2026-10-07). Plan v1 approved by Don 2026-10-05; v2 answered the tester's
 spec questions, and v3 (2026-10-06) recorded Don's answers to v2 with no

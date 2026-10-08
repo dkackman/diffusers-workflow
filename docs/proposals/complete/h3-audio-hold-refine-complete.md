@@ -1,5 +1,9 @@
 # H3 audio-hold + refine pass after latent upscale (#598)
 
+> **Since #691 (2026-10-08):** `h3_blocks.py` named below is split into
+> `h3_rules.py`, `h3_hold.py` and `h3_guides.py`; see
+> `h3-blocks-split-complete.md`.
+
 Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 2026-10-06). Plan v1 approved by Don 2026-10-05; v3 (schedule B) approved
 2026-10-06 and folded into v4. Four stages, #618, #619, #620 and #621, all
