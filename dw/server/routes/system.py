@@ -10,7 +10,7 @@ State comes from `request.app.state`, never a closure: `downloads` and
 import logging
 from typing import Optional
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
@@ -22,7 +22,7 @@ from ..api_models import (
     DiffusersStatus,
     HealthInfo,
     MemoryCleared,
-    MemoryInfo,
+    MemoryStatus,
     ModelCache,
     ModelDeleted,
     ModelDownload,
@@ -45,6 +45,7 @@ from ...workspace import Workspace
 from .. import guides
 from ..deps import selected_workspace
 from ..guides import GuideError
+from ..jobs import WorkerBusy
 from ..netinfo import local_addresses
 from ..sysinfo import runtime_info
 
@@ -338,11 +339,24 @@ def update_diffusers(
 # --------------------------------------------------------- memory/health
 
 
-@router.get("/api/memory", response_model=MemoryInfo, response_model_exclude_unset=True)
-def memory(request: Request):
+DEVICE_QUERY = Query(
+    None,
+    max_length=32,
+    description="The card to ask about, as `cuda:1`; every card when omitted.",
+)
+
+
+@router.get(
+    "/api/memory", response_model=MemoryStatus, response_model_exclude_unset=True
+)
+def memory(request: Request, device: Optional[str] = DEVICE_QUERY):
+    """Memory per card: `device`'s reading, or the first card's at the top
+    level with `workers` holding one reading per card."""
     manager = request.app.state.job_manager
     try:
-        return manager.memory_status()
+        return manager.memory_status(device=device)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
 
@@ -350,29 +364,32 @@ def memory(request: Request):
 @router.post(
     "/api/memory/clear", response_model=MemoryCleared, response_model_exclude_unset=True
 )
-def clear_memory(request: Request):
-    """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-    without waiting for the next job to evict one model for another.
+def clear_memory(request: Request, device: Optional[str] = DEVICE_QUERY):
+    """Drop every loaded pipeline and the step cache on each idle card -
+    `device`'s alone when named - freeing VRAM/RAM without waiting for
+    the next job to evict one model for another.
 
-    Refused while a job is running or queued (409) rather than blocked -
-    the queue is FIFO, so the caller should wait for the job to finish
-    and retry instead of this call stalling until it does.
+    A card running a job is left alone, and `workers` says so. Refused
+    (409) rather than blocked when no card asked about is idle - `device`'s
+    is running a job, even with another card idle - so the caller waits
+    for the job to finish and retries instead of this call stalling.
 
-    A server with no worker process resident answers `cleared` with a
+    A card with no worker process resident answers `cleared` with a
     null `info` rather than a 503: the worker is on-demand, so its
     absence means there was nothing loaded to clear."""
     manager = request.app.state.job_manager
-    if manager.is_busy():
+    try:
+        return manager.clear_memory(device=device)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except WorkerBusy as e:
         raise HTTPException(
             status_code=409,
-            detail="A job is running or queued - clearing memory out "
-            "from under it would corrupt the run. Wait for it to finish.",
+            detail=f"{e} - clearing memory out from under it would corrupt "
+            "the run. Wait for it to finish.",
         )
-    try:
-        info = manager.clear_memory()
     except RuntimeError as e:
         raise HTTPException(status_code=503, detail=f"Worker unavailable: {e}")
-    return {"cleared": True, "info": info}
 
 
 @router.get("/api/health", response_model=HealthInfo, response_model_exclude_unset=True)

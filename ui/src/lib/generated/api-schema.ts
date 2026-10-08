@@ -930,7 +930,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Memory */
+        /**
+         * Memory
+         * @description Memory per card: `device`'s reading, or the first card's at the top
+         *     level with `workers` holding one reading per card.
+         */
         get: operations["memory_api_memory_get"];
         put?: never;
         post?: never;
@@ -951,14 +955,16 @@ export interface paths {
         put?: never;
         /**
          * Clear Memory
-         * @description Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-         *     without waiting for the next job to evict one model for another.
+         * @description Drop every loaded pipeline and the step cache on each idle card -
+         *     `device`'s alone when named - freeing VRAM/RAM without waiting for
+         *     the next job to evict one model for another.
          *
-         *     Refused while a job is running or queued (409) rather than blocked -
-         *     the queue is FIFO, so the caller should wait for the job to finish
-         *     and retry instead of this call stalling until it does.
+         *     A card running a job is left alone, and `workers` says so. Refused
+         *     (409) rather than blocked when no card asked about is idle - `device`'s
+         *     is running a job, even with another card idle - so the caller waits
+         *     for the job to finish and retries instead of this call stalling.
          *
-         *     A server with no worker process resident answers `cleared` with a
+         *     A card with no worker process resident answers `cleared` with a
          *     null `info` rather than a 503: the worker is on-demand, so its
          *     absence means there was nothing loaded to clear.
          */
@@ -1752,6 +1758,53 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /** CardCleared */
+        CardCleared: {
+            /**
+             * Cleared
+             * @description False for a card left alone: it runs a job.
+             */
+            cleared: boolean;
+            /** Device */
+            device: string;
+            info?: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Job
+             * @description The job the card is running.
+             */
+            job?: string;
+            /**
+             * Reason
+             * @description Why the card was not cleared: `job_running`.
+             */
+            reason?: string;
+        };
+        /** CardMemory */
+        CardMemory: {
+            /** Age Seconds */
+            age_seconds: number | null;
+            /**
+             * Device
+             * @description The card this reading is of, as `cuda:1`.
+             */
+            device: string;
+            info: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Live
+             * @description Measured now, rather than the last reading.
+             */
+            live: boolean;
+            /**
+             * Reason
+             * @description Why the reading is not a live one.
+             */
+            reason: string | null;
+            /**
+             * Stale
+             * @description `info` is an earlier reading: compare only `live` readings.
+             */
+            stale: boolean;
+        };
         /** ClassList */
         ClassList: {
             /** Classes */
@@ -2452,7 +2505,17 @@ export interface components {
         MemoryCleared: {
             /** Cleared */
             cleared: boolean;
+            /**
+             * Device
+             * @description The card cleared, when the request named one.
+             */
+            device?: string;
             info: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Workers
+             * @description Each card's outcome; a card running a job is left alone.
+             */
+            workers?: components["schemas"]["CardCleared"][];
         };
         /**
          * MemoryDetail
@@ -2477,10 +2540,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** MemoryInfo */
-        MemoryInfo: {
+        /** MemoryStatus */
+        MemoryStatus: {
             /** Age Seconds */
             age_seconds: number | null;
+            /**
+             * Device
+             * @description The card this reading is of, as `cuda:1`.
+             */
+            device?: string;
             info: components["schemas"]["MemoryDetail"] | null;
             /**
              * Live
@@ -2497,6 +2565,11 @@ export interface components {
              * @description `info` is an earlier reading: compare only `live` readings.
              */
             stale: boolean;
+            /**
+             * Workers
+             * @description One reading per card; the top level repeats the first card's.
+             */
+            workers?: components["schemas"]["CardMemory"][];
         };
         /** ModelCache */
         ModelCache: {
@@ -2654,7 +2727,7 @@ export interface components {
         Plan: {
             /**
              * Cached Steps
-             * @description How many steps the worker's step cache would serve; null when the worker was busy or did not answer.
+             * @description How many steps the step cache of the card the run would be dispatched to would serve; null when that worker was busy or did not answer.
              */
             cached_steps: number | null;
             /** Downloads Required */
@@ -2701,6 +2774,11 @@ export interface components {
             observed_minutes?: number;
             /** Partial */
             partial: boolean;
+            /**
+             * Priced For
+             * @description The card the run would be dispatched to, whose history the figure is - as `cuda:1 NVIDIA GeForce RTX 3090`.
+             */
+            priced_for?: string;
             /** Runs */
             runs: number | null;
             /** Tempered */
@@ -4483,7 +4561,10 @@ export interface operations {
     };
     memory_api_memory_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The card to ask about, as `cuda:1`; every card when omitted. */
+                device?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4496,14 +4577,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemoryInfo"];
+                    "application/json": components["schemas"]["MemoryStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     clear_memory_api_memory_clear_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The card to ask about, as `cuda:1`; every card when omitted. */
+                device?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4517,6 +4610,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryCleared"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

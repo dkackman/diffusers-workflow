@@ -252,6 +252,112 @@
         "title": "AssetList",
         "type": "object"
       },
+      "CardCleared": {
+        "additionalProperties": false,
+        "properties": {
+          "cleared": {
+            "description": "False for a card left alone: it runs a job.",
+            "title": "Cleared",
+            "type": "boolean"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "description": "The job the card is running.",
+            "title": "Job",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the card was not cleared: `job_running`.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device",
+          "cleared"
+        ],
+        "title": "CardCleared",
+        "type": "object"
+      },
+      "CardMemory": {
+        "additionalProperties": false,
+        "properties": {
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "device": {
+            "description": "The card this reading is of, as `cuda:1`.",
+            "title": "Device",
+            "type": "string"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "live": {
+            "description": "Measured now, rather than the last reading.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the reading is not a live one.",
+            "title": "Reason"
+          },
+          "stale": {
+            "description": "`info` is an earlier reading: compare only `live` readings.",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "live",
+          "info",
+          "stale",
+          "reason",
+          "age_seconds",
+          "device"
+        ],
+        "title": "CardMemory",
+        "type": "object"
+      },
       "ClassList": {
         "additionalProperties": false,
         "properties": {
@@ -2035,6 +2141,11 @@
             "title": "Cleared",
             "type": "boolean"
           },
+          "device": {
+            "description": "The card cleared, when the request named one.",
+            "title": "Device",
+            "type": "string"
+          },
           "info": {
             "anyOf": [
               {
@@ -2044,6 +2155,14 @@
                 "type": "null"
               }
             ]
+          },
+          "workers": {
+            "description": "Each card's outcome; a card running a job is left alone.",
+            "items": {
+              "$ref": "#/components/schemas/CardCleared"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -2124,7 +2243,7 @@
         "title": "MemoryDetail",
         "type": "object"
       },
-      "MemoryInfo": {
+      "MemoryStatus": {
         "additionalProperties": false,
         "properties": {
           "age_seconds": {
@@ -2140,6 +2259,11 @@
               }
             ],
             "title": "Age Seconds"
+          },
+          "device": {
+            "description": "The card this reading is of, as `cuda:1`.",
+            "title": "Device",
+            "type": "string"
           },
           "info": {
             "anyOf": [
@@ -2172,6 +2296,14 @@
             "description": "`info` is an earlier reading: compare only `live` readings.",
             "title": "Stale",
             "type": "boolean"
+          },
+          "workers": {
+            "description": "One reading per card; the top level repeats the first card's.",
+            "items": {
+              "$ref": "#/components/schemas/CardMemory"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -2181,7 +2313,7 @@
           "reason",
           "age_seconds"
         ],
-        "title": "MemoryInfo",
+        "title": "MemoryStatus",
         "type": "object"
       },
       "ModelCache": {
@@ -2652,7 +2784,7 @@
                 "type": "null"
               }
             ],
-            "description": "How many steps the worker's step cache would serve; null when the worker was busy or did not answer.",
+            "description": "How many steps the step cache of the card the run would be dispatched to would serve; null when that worker was busy or did not answer.",
             "title": "Cached Steps"
           },
           "downloads_required": {
@@ -2805,6 +2937,11 @@
           "partial": {
             "title": "Partial",
             "type": "boolean"
+          },
+          "priced_for": {
+            "description": "The card the run would be dispatched to, whose history the figure is - as `cuda:1 NVIDIA GeForce RTX 3090`.",
+            "title": "Priced For",
+            "type": "string"
           },
           "runs": {
             "anyOf": [
@@ -6497,17 +6634,49 @@
     },
     "/api/memory": {
       "get": {
+        "description": "Memory per card: `device`'s reading, or the first card's at the top\nlevel with `workers` holding one reading per card.",
         "operationId": "memory_api_memory_get",
+        "parameters": [
+          {
+            "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+              "title": "Device"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemoryInfo"
+                  "$ref": "#/components/schemas/MemoryStatus"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Memory"
@@ -6515,8 +6684,29 @@
     },
     "/api/memory/clear": {
       "post": {
-        "description": "Drop every loaded pipeline and the step cache, freeing VRAM/RAM\nwithout waiting for the next job to evict one model for another.\n\nRefused while a job is running or queued (409) rather than blocked -\nthe queue is FIFO, so the caller should wait for the job to finish\nand retry instead of this call stalling until it does.\n\nA server with no worker process resident answers `cleared` with a\nnull `info` rather than a 503: the worker is on-demand, so its\nabsence means there was nothing loaded to clear.",
+        "description": "Drop every loaded pipeline and the step cache on each idle card -\n`device`'s alone when named - freeing VRAM/RAM without waiting for\nthe next job to evict one model for another.\n\nA card running a job is left alone, and `workers` says so. Refused\n(409) rather than blocked when no card asked about is idle - `device`'s\nis running a job, even with another card idle - so the caller waits\nfor the job to finish and retries instead of this call stalling.\n\nA card with no worker process resident answers `cleared` with a\nnull `info` rather than a 503: the worker is on-demand, so its\nabsence means there was nothing loaded to clear.",
         "operationId": "clear_memory_api_memory_clear_post",
+        "parameters": [
+          {
+            "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+              "title": "Device"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6527,6 +6717,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Clear Memory"

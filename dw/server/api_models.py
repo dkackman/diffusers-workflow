@@ -178,11 +178,34 @@ class MemoryInfo(ApiModel):
     )
     reason: str | None = Field(description="Why the reading is not a live one.")
     age_seconds: int | float | None
+    device: str = sometimes("The card this reading is of, as `cuda:1`.")
+
+
+class CardMemory(MemoryInfo):
+    device: str = Field(description="The card this reading is of, as `cuda:1`.")
+
+
+class MemoryStatus(MemoryInfo):
+    workers: list[CardMemory] = sometimes(
+        "One reading per card; the top level repeats the first card's."
+    )
+
+
+class CardCleared(ApiModel):
+    device: str
+    cleared: bool = Field(description="False for a card left alone: it runs a job.")
+    info: MemoryDetail | None = sometimes()
+    reason: str = sometimes("Why the card was not cleared: `job_running`.")
+    job: str = sometimes("The job the card is running.")
 
 
 class MemoryCleared(ApiModel):
     cleared: bool
     info: MemoryDetail | None
+    device: str = sometimes("The card cleared, when the request named one.")
+    workers: list[CardCleared] = sometimes(
+        "Each card's outcome; a card running a job is left alone."
+    )
 
 
 class ModelRevision(ApiModel):
@@ -461,6 +484,10 @@ class PlanEstimate(ApiModel):
     observed_minutes: int | float = sometimes()
     curated_minutes: int | float = sometimes()
     low_confidence: bool = sometimes()
+    priced_for: str = sometimes(
+        "The card the run would be dispatched to, whose history the figure is - "
+        "as `cuda:1 NVIDIA GeForce RTX 3090`."
+    )
 
 
 class Plan(ApiModel):
@@ -472,8 +499,8 @@ class Plan(ApiModel):
     )
     list_entries: dict[str, int]
     cached_steps: int | None = Field(
-        description="How many steps the worker's step cache would serve; null when "
-        "the worker was busy or did not answer."
+        description="How many steps the step cache of the card the run would be "
+        "dispatched to would serve; null when that worker was busy or did not answer."
     )
     downloads_required: list[RequiredDownload]
     estimate: PlanEstimate
