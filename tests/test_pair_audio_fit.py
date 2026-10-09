@@ -176,10 +176,12 @@ class TestWithoutFit:
         pair_audio(cut(248), song(248 / FPS), sample_rate=SAMPLE_RATE)
         assert warnings_emitted == []
 
-    def test_unknown_fps_is_not_a_mismatch(self, warnings_emitted):
-        """A frame rate this layer cannot know is not something to warn about."""
-        pair_audio(cut(248, fps=None), song(30), sample_rate=SAMPLE_RATE)
-        assert warnings_emitted == []
+    def test_unknown_fps_is_measured_at_the_written_rate(self, warnings_emitted):
+        """The writer uses 8 fps for frames with none (#673), so that is the
+        rate the lengths are compared at - and the fallback is said aloud."""
+        pair_audio(cut(248, fps=None), song(31), sample_rate=SAMPLE_RATE)
+        assert len(warnings_emitted) == 1
+        assert "no frame rate" in warnings_emitted[0]
 
 
 class TestTheTemplateItself:
@@ -190,11 +192,13 @@ class TestTheTemplateItself:
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
         arguments = steps["music_video"]["task"]["arguments"]
-        # The whole song, by way of the gain step that gives the mux headroom (#159)
+        # The song pieces the shots sang (#788), by way of the gain step that
+        # gives the mux headroom (#159)
         assert arguments["audio"] == "previous_result:balanced"
         assert steps["balanced"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
+            "previous_result:song_cuts"
         )
+        assert definition["variables"]["song"] == "previous_result:write_song"
         assert arguments["fit"] == "video"
 
     def test_no_template_hardcodes_a_soundtrack_length(self):
@@ -226,3 +230,29 @@ class TestTheTemplateItself:
                     f"soundtrack for a cut whose length may be an argument - "
                     f"use pair_audio's 'fit': 'video' instead (#142)"
                 )
+
+
+def test_frames_without_a_rate_warn_and_fit_at_the_written_rate(warnings_emitted):
+    """#673: a bare array carries no fps and the writer uses 8; fit measured
+    nothing, so the picture and track disagreed 3x with no word said."""
+    video = AudioVideo([object()] * 248, None, None, fps=None)
+    result = pair_audio(video, song(10.0), sample_rate=SAMPLE_RATE, fit="video")
+    assert result.fps == 8
+    assert samples(result) == int(248 / 8 * SAMPLE_RATE)
+    assert any("no frame rate" in m for m in warnings_emitted)
+
+
+def test_video_frames_chain_keeps_the_source_rate():
+    from dw.tasks.video_utils import frames_as_array
+
+    source = AudioVideo(
+        numpy.zeros((4, 8, 8, 3), dtype=numpy.uint8), None, None, fps=24
+    )
+    frames = frames_as_array(source)
+    assert frames.dtype == numpy.uint8
+    assert frames.fps == 24
+    from dw.tasks.image_ops import per_frame
+
+    resized = per_frame(frames, lambda image: image.resize((4, 4)))
+    assert resized.fps == 24
+    assert pair_audio(resized, song(1.0), sample_rate=SAMPLE_RATE).fps == 24

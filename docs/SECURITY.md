@@ -143,7 +143,20 @@ One policy now answers all of it, untrusted:
   rather than one of them three seconds into a queued job (#124). The remedy
   for a file outside is to put it in the asset library and use an `asset:`
   reference. Containment is checked **before** existence, so the refusal
-  cannot be used as a file-existence oracle.
+  cannot be used as a file-existence oracle. Validation finds a path by its
+  argument's name (`image`, `*_video`, `location`, ...); a task argument
+  that reads a file under a generic name, like `join_windows`' `source`, is
+  declared on its registration (`@register_command(media_arguments=...)`,
+  read through `TASK_MEDIA_ARGUMENTS`, #692) so it is refused at the same moment
+  (#630), as are the finishing tasks' `media`, `apply_lut`'s `lut` (#635),
+  and the face-track and fit tasks' `clip`, `repaired`, `track` and `fit`
+  (#773). `lut`, `track` and `fit` are only ever read from a file on the
+  server, so an http(s) URL there is refused as a URL
+  (`LOCAL_ONLY_TASK_ARGUMENTS`).
+- **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
+  validation and at the loader, whatever the trust posture. No loader opens
+  one, but as a relative path it joined onto the workflow directory and
+  passed containment, so validation called it clean (#618).
 - **A glob** is contained the same way, on the fixed directory its pattern
   starts from, and every match is re-checked on its real path so a symlink
   cannot carry the expansion out.
@@ -155,17 +168,33 @@ One policy now answers all of it, untrusted:
   **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
   that fetches media from another machine on your tailnet is refused unless
   it runs under `--trust-workflows`.
-- **Every redirect is re-checked.** A media fetch (`safe_get`) never lets the
+- **Every redirect is re-checked.** A media fetch (`safe_get` in `dw/outbound.py`) never lets the
   HTTP client follow a redirect on its own: it follows at most 5 hops
   (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
   host policy before it is dialed. A public URL answering `302` to
   `http://127.0.0.1:8765/api/server` is refused with the target named, and
   nothing is fetched from it. Images are decoded from the fetched bytes and
   still go through diffusers' `load_image`, so EXIF orientation and RGB
-  conversion are unchanged.
+  conversion are unchanged. Each hop's host is resolved once, by the policy,
+  and dialed at the address it checked - so a name that answers differently
+  to the lookup and the connect (DNS rebinding) reaches only what was
+  checked - and refused when it does not resolve or is percent-encoded (the
+  host is read with the HTTP client's own parser, so `127%2e0%2e0%2e1` is
+  127.0.0.1 to the policy too). An untrusted fetch ignores proxy and
+  `~/.netrc` settings from the environment. The body is capped at
+  `MAX_MEDIA_BYTES` (1 GiB) and the whole fetch at `MEDIA_TOTAL_TIMEOUT`
+  (600 s) - the connection is closed at the deadline, so a server
+  trickling its response headers or its body cannot hold the worker; a 303 (or a
+  301/302 to a POST) is followed as a GET, as requests itself does; and
+  `remote_text_encoder` POSTs through the same path with a timeout. Two limits
+  to know: a trusted run behind a SOCKS proxy is not deadline-bounded (SOCKS
+  brings its own connection classes), and the TLS handshake is bounded by the
+  per-operation timeout only.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.
+  A redirect that leaves the host, or drops from https to http, is followed
+  without the token.
 - **`model_name`** must be a Hub repo id or a path inside a root - the same
   shape check `download_model` has always applied to `repo_id`. A URL is
   neither, and is refused as such rather than resolving into the workflow's
@@ -269,5 +298,5 @@ SecurityError
 ## Testing
 
 ```bash
-pytest tests/test_security.py tests/test_locations.py tests/test_workflow_trust.py -v
+pytest tests/test_security.py tests/test_locations.py tests/test_outbound.py tests/test_workflow_trust.py -v
 ```

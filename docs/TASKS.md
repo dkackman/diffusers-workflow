@@ -1,6 +1,6 @@
 # Task Commands
 
-Tasks are utility operations that run outside of pipeline inference. Use them for image preprocessing, data gathering, and other non-model operations.
+Tasks are utility operations that run outside of a pipeline step. Use them for preprocessing, assembly, data gathering, and analysis - most are plain code, and some run a small helper model (an upscaler, a face detector, a stem separator).
 
 ```json
 {
@@ -35,6 +35,75 @@ offset to start at zero or above. Those are refused rather than interpreted -
 reported as clean successes. The commands refuse the same values at run time,
 which is what catches one that arrived from a `variable:` or an earlier step
 rather than being written in the file.
+
+A numeric argument is read the same way by every command and by validation
+(`whole_number` and `real_number` in `dw/task_domains.py`, the only numeric
+coercion in `dw/tasks/`). A number may arrive as a JSON number or as a numeric
+string - a `variable:` resolved from the command line is text - so `3`, `3.0`,
+`"3"` and `"3.0"` are all the whole number 3, and `"23.976"` is a frame rate.
+A whole-number argument (a frame count, an index, a sample rate, a pixel size)
+refuses a fractional value such as `3.5` or `"22050.5"` rather than truncating
+it, naming the argument and saying "whole number". Every numeric argument
+refuses `true`/`false`, text that is no number (`"abc"`) and an infinite or NaN
+value. What validation refuses, the run refuses with the same sentence, and
+the reverse.
+`Task.run` reads every declared numeric argument before the command sees it
+(`coerce_arguments`), so a handler is handed a number, never the string it
+arrived as: `exposure: "0.5"` grades exactly as `0.5` does. An argument whose
+only rule is being a number, such as `grade`'s `exposure` or a gain in dB,
+declares the `finite` domain, so validation reads it too.
+
+## Adding a task
+
+A task is one function, registered with `@register_command` in
+`dw/tasks/registry.py`. Its signature is its argument schema, and everything
+validation knows about it beyond the signature is declared on the same
+decorator, so a new task cannot be half-registered (#692):
+
+```python
+from .registry import register_command
+from ..task_domains import NON_NEGATIVE, POSITIVE, my_task_errors
+
+
+@register_command(
+    "my_task",
+    domains={"num_frames": POSITIVE, "start_frame": NON_NEGATIVE},
+    choices={"mode": ("fast", "best")},
+    static_check=my_task_errors,
+    media_arguments=("source",),
+)
+def my_task(source, num_frames, start_frame=0, mode="fast"): ...
+```
+
+- `domains` - each numeric argument's domain (`dw/task_domains.py`'s
+  `POSITIVE`, `NON_NEGATIVE`, ...): refused at validation at
+  `steps[i].task.arguments.<name>`, and again at run time when the task calls
+  `check_arguments`.
+- `choices` - each argument's literal choices; `get_task` lists them.
+- `static_check` - a function of the step's `arguments` that returns
+  `(argument, message)` pairs for rules across arguments. It lives in
+  `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
+  command - or, when it needs the task's own parser, in the task's module
+  behind an import on use, as `attribute_voices`' does.
+- `whole_numbers` - the numeric arguments that take only a whole number; the
+  rest of `domains` take any real number. Validation refuses `3.5` for one
+  of these, as the task's own `whole_number` call does at run time.
+- `media_arguments` - an argument that reads a file under a name that does not
+  say so (`source`, `media`, `lut`, `clip`, `track`). Validation confines it as it does `image`
+  or `*_video`; an argument left out of it is not path-checked.
+
+`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS`,
+`TASK_WHOLE_NUMBER_ARGUMENTS` and `TASK_MEDIA_ARGUMENTS` are read-only views of these declarations;
+`tests/test_task_registry_rules.py` pins them to the registry and every name in
+them to the command's signature.
+
+A new task is:
+
+1. a module in `dw/tasks/` holding the function and its decorator;
+2. one import line for that module in `dw/tasks/task.py` - the registry is
+   filled by importing `dw.tasks.task`, and modules are not discovered
+   automatically, so a module it does not import registers nothing;
+3. a section in this file.
 
 ## Image Processing
 
@@ -177,6 +246,264 @@ The `resize_bucket` command snaps an image to the closest model-native aspect ra
 
 For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800x600 photo (4:3) becomes 1344x1024.
 
+### grade
+
+`grade` is the finishing pass: exposure, contrast, tonal range, local contrast,
+white balance, colour and a matte or vignette look, on CPU, for an image or a
+video. A video is graded one frame at a time and keeps its frame count, frame
+rate and audio. Unlike the other image commands, its input is named `media`,
+and a file path or `asset:`/`output:` reference to a video is accepted
+directly. An alpha channel passes through untouched.
+
+```json
+{
+    "task": {
+        "command": "grade",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "highlights": -0.3,
+            "shadows": 0.2,
+            "clarity": 0.25,
+            "fade": 0.15,
+            "vignette": 0.3
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+Every argument is optional and defaults to identity, so a step with none
+returns the input pixels. The step's job events carry one "applied" log naming
+every argument that is not at its identity value.
+
+| Argument | Range | Identity | Effect |
+| -------- | ----- | -------- | ------ |
+| `exposure` | any | 0.0 | Stops to brighten (positive) or darken (negative): a multiply by 2^exposure |
+| `contrast` | 0 or above | 1.0 | Multiplier around mid grey; below 1 flattens |
+| `whites` | -1.0..1.0 | 0.0 | Moves the white point: the top of the curve up or down, black held |
+| `blacks` | -1.0..1.0 | 0.0 | Moves the black point: the bottom of the curve up (lift) or down (crush), white held |
+| `highlights` | -1.0..1.0 | 0.0 | Lifts or pulls down tones above mid grey, by a smooth luma mask; tones at and below mid grey are untouched |
+| `shadows` | -1.0..1.0 | 0.0 | The same for tones below mid grey; tones at and above mid grey are untouched |
+| `clarity` | -1.0..1.0 | 0.0 | Adds (positive) or removes (negative) medium-detail local contrast in the midtones |
+| `temperature` | -1.0..1.0 | 0.0 | Warmer (toward red) or cooler (toward blue) |
+| `tint` | -1.0..1.0 | 0.0 | Toward magenta (positive) or green (negative) |
+| `saturation` | 0 or above | 1.0 | Multiplier around each pixel's luma; 0 is greyscale |
+| `fade` | 0.0..1.0 | 0.0 | Lifts the black floor and flattens the shadows toward it, white kept: a matte look |
+| `vignette` | -1.0..1.0 | 0.0 | Darkens (positive) or lightens (negative) toward the corners; the centre is untouched |
+
+**Order of operations:** exposure, contrast, whites/blacks,
+highlights/shadows, clarity, temperature/tint, saturation, fade, vignette. The
+order is fixed whatever order the arguments are written in: fade comes after
+the tonal controls so `blacks` cannot pull its floor back down, and vignette is
+last so it darkens the finished picture.
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("grade")` reports each range.
+
+### sharpen
+
+`sharpen` is an unsharp mask, on CPU, for an image or a video: the image is
+blurred with a Gaussian, and the difference between the image and its blur (the
+detail) is added back, scaled by `amount`. Like `grade`, its input is named
+`media`, and a file path or `asset:`/`output:` reference to a video is read with
+its audio. A video is sharpened one frame at a time and keeps its frame count,
+frame rate and audio. An alpha channel passes through untouched.
+
+```json
+{
+    "task": {
+        "command": "sharpen",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "amount": 0.8,
+            "radius": 1.5,
+            "threshold": 3
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `amount` | 0 or above | 1.0 | How much of the detail is added back; 0 is identity. Applied in whole percent, so it is rounded to 0.01 |
+| `radius` | above zero | 2.0 | The Gaussian blur's radius in pixels: the scale of the detail that is sharpened |
+| `threshold` | 0..255 | 0 | The smallest difference, in channel levels, between a pixel and its blur that gets sharpened; smaller differences are left alone. A whole number of levels: a fractional value is rounded |
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("sharpen")` reports each range.
+
+### film_grain
+
+`film_grain` adds seeded film grain, on CPU, to an image or a video. Its input
+is `media`, as in `grade` and `sharpen`: a video is processed one frame at a
+time and keeps its frame count, frame rate and audio, and an alpha channel
+passes through untouched. The grain is Gaussian noise, strongest in the
+midtones and weaker toward black and white.
+
+```json
+{
+    "task": {
+        "command": "film_grain",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "amount": 0.15,
+            "size": 1.5,
+            "chroma": 0.2
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `amount` | 0.0..1.0 | 0.1 | Grain strength; 0 is identity |
+| `size` | 1 or above | 1.0 | Grain size in pixels: the noise is generated at 1/size resolution and upsampled |
+| `chroma` | 0.0..1.0 | 0.0 | 0 puts the same grain on every channel (brightness only, hue unchanged); 1 draws independent grain per channel; values between mix the two |
+| `seed` | a whole number, 0 or above | the workflow's or step's seed | Seeds the grain |
+
+**Seeding:** one generator is made per step from the seed and consumed frame by
+frame, so every frame of a video gets different grain and the same seed
+reproduces the whole output byte for byte. A workflow run always has a seed (a
+random one is drawn when the workflow names none, and recorded in the run's
+manifest), so rerunning a job reproduces its grain. An explicit `seed`
+argument overrides the workflow's or step's seed. The step's job events carry
+a log naming the seed used.
+
+A value outside its range is refused by `validate_workflow`, naming the
+argument and the range, and again at run time when it arrives from a
+`variable:` or an earlier step. `get_task("film_grain")` reports each range.
+
+### apply_lut
+
+`apply_lut` colours an image or a video through a 3D lookup table (LUT), read
+from a `.cube` file or built from a `palette`, on CPU. Its input is `media`, as in `grade`: a video is
+processed one frame at a time and keeps its frame count, frame rate and audio,
+and an alpha channel passes through untouched. Each pixel's colour is looked up
+with trilinear interpolation, and the result is blended with the original by
+`strength`.
+
+```json
+{
+    "task": {
+        "command": "apply_lut",
+        "arguments": {
+            "media": "previous_result:generate_video",
+            "lut": "asset:looks/teal-orange.cube",
+            "strength": 0.7
+        }
+    },
+    "result": { "content_type": "video/mp4" }
+}
+```
+
+| Argument | Range | Default | Effect |
+| -------- | ----- | ------- | ------ |
+| `lut` | a `.cube` file | none | The LUT: an `asset:` reference (upload one with `upload_asset`, or `POST /api/uploads`), an `output:` reference, or a path inside the workflow's directory, the asset libraries or the output root |
+| `palette` | 2..16 `#rrggbb` colours | none | Instead of a `.cube`, a look built from colours ordered dark to light (below) |
+| `strength` | 0.0..1.0 | 1.0 | 0 returns the original, 1 the full LUT result; values between blend the two |
+
+Exactly one of `lut` or `palette` is given; both or neither refuses, naming
+the two.
+
+**A palette.** `palette` is a list of 2 to 16 `#rrggbb` colours, ordered dark
+to light, spaced evenly along the luminance axis: the first colour sits at
+black, the last at white. Each pixel keeps its own luminance (Rec. 709 luma)
+and takes its hue and chroma from the palette at that luminance, interpolated
+between neighbouring colours, so shadows lean toward the first colour and
+highlights toward the last. Near black and white the chroma shrinks as far as
+it must to stay in range. The 33³ table is built in memory, never written to
+disk, and applied exactly as a `.cube` is (same interpolation, same `strength`
+blend). The same palette always gives the same result, so one palette passed
+as a `variable:` to every shot of a series gives them one look:
+
+```json
+{
+    "variables": { "look": ["#102030", "#e0c090"] },
+    "steps": [
+        {
+            "name": "look",
+            "task": {
+                "command": "apply_lut",
+                "arguments": {
+                    "media": "previous_result:generate_video",
+                    "palette": "variable:look",
+                    "strength": 0.6
+                }
+            },
+            "result": { "content_type": "video/mp4" }
+        }
+    ]
+}
+```
+
+A palette that is not a list, a colour that is not `#rrggbb`, or fewer than 2
+or more than 16 colours refuses, naming the bad entry - at `validate_workflow`,
+and again at run time for a palette that arrives from an earlier step.
+
+**Where the file may be.** A literal path is held to the same roots as any
+media argument, and must end in `.cube`; anything else is refused, naming only
+what the workflow wrote. The file is read and parsed once per step, not once
+per frame.
+
+**The `.cube` the parser takes** is the 3D subset of the format, read strictly.
+Anything else refuses the step, naming the file and the line:
+
+- at most 16 MiB of UTF-8 text;
+- only `TITLE`, `LUT_3D_SIZE`, `DOMAIN_MIN`, `DOMAIN_MAX`, `#` comment lines,
+  blank lines and data rows. `LUT_1D_SIZE` (a 1D LUT) and every other keyword
+  refuse;
+- every keyword before the data, and `LUT_3D_SIZE` exactly once, 2..65;
+- a domain of exactly `0 0 0` to `1 1 1` (the default when the file names
+  none);
+- exactly size³ data rows of three finite numbers, each in 0..1, listed red
+  fastest, then green, then blue, as the format specifies.
+
+Some grading applications write values slightly outside 0..1 or a wider domain;
+those files are refused rather than clipped. `strength` outside 0..1 is refused
+by `validate_workflow` and again at run time when it arrives from a `variable:`
+or an earlier step.
+
+### A finishing chain
+
+The three finishing commands chain through `previous_result:`, each taking the
+last one's output as its `media`. Grade first, sharpen the graded picture, and
+add grain last so it is not itself sharpened:
+
+```json
+{
+    "steps": [
+        {
+            "name": "graded",
+            "task": {
+                "command": "grade",
+                "arguments": { "media": "previous_result:generate_video", "fade": 0.15, "vignette": 0.3 }
+            },
+            "result": { "content_type": "video/mp4" }
+        },
+        {
+            "name": "sharpened",
+            "task": {
+                "command": "sharpen",
+                "arguments": { "media": "previous_result:graded", "amount": 0.6 }
+            },
+            "result": { "content_type": "video/mp4" }
+        },
+        {
+            "name": "grainy",
+            "task": {
+                "command": "film_grain",
+                "arguments": { "media": "previous_result:sharpened", "amount": 0.12, "size": 1.5 }
+            },
+            "result": { "content_type": "video/mp4" }
+        }
+    ]
+}
+```
+
 ## Video Processing
 
 | Command | Description | Extra Arguments |
@@ -184,6 +511,10 @@ For example, a 1600x900 photo (16:9) at resolution 1024 becomes 1792x1024. A 800
 | `get_first_frame` | Extract first video frame | |
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
+| `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
+| `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
+| `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -480,6 +811,393 @@ assembly templates once did and what made their output visibly wider than
 the source. The join tasks refuse shots of different sizes, so no
 normalization step is needed before them.
 
+### trim_video
+
+Keep one span of a video's frames, and its audio over the same span:
+
+```json
+{
+    "task": {
+        "command": "trim_video",
+        "arguments": {
+            "video": "previous_result:shot",
+            "start_frame": 12,
+            "num_frames": 72
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The clip. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as it is. A URL is fetched as frames only |
+| `start_frame` | Yes | The first frame kept, from `0` |
+| `num_frames` | Yes | How many frames are kept: `1` or more |
+| `fps` | No | The clip's frame rate. Defaults to the rate the clip carries; needed only to cut its audio, which is refused without one |
+
+Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
+the same span at the track's own sample rate: each end is `frames_to_samples`
+of a frame index, rounded on its own, so consecutive trims tile the track with
+no sample lost or repeated. A clip with audio (or an audio+video pair) comes
+back as an audio+video pair with its frame rate and sample rate kept; a bare
+frame list comes back as frames.
+
+The shots the clip carries are clipped to the span and re-based to start at
+`0`, with their sample side cleared. A clip that carries none (a decoded file,
+a fresh render) comes back as one shot spanning the kept frames, named after
+the file it was read from (else `video 1`), its samples measured off the cut
+track. A span that reaches past the clip's end is refused, naming the clip's
+frame count - it is never shortened or padded - and so is a `num_frames` of
+`0` or less or a negative `start_frame`; `validate_workflow` catches these on
+literal values.
+
+### window_video
+
+Cut one overlapping, fixed-length window out of a long video, so a
+video-to-video model that reads at most one bucket of frames (121 for LTX)
+can work through a longer source a window at a time:
+
+```json
+{
+    "name": "window",
+    "for_each": [
+        {"name": "w0", "index": 0},
+        {"name": "w1", "index": 1},
+        {"name": "w2", "index": 2}
+    ],
+    "task": {
+        "command": "window_video",
+        "arguments": {
+            "video": "asset:long-take.mp4",
+            "index": "item:index",
+            "num_frames": 121,
+            "overlap": 16
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | Yes | The long source. A path, `asset:` or `output:` reference is read with its audio; an earlier step's video is used as it is. A URL is fetched as frames only, so its window is silent |
+| `index` | Yes | Which window, from `0` |
+| `num_frames` | Yes | Frames per window - the model's bucket, e.g. an 8n+1 LTX length |
+| `overlap` | Yes | Frames each window shares with the one before it; `0` or more, and below `num_frames` |
+| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to cut its audio |
+
+With `stride = num_frames - overlap`, window `i` covers source frames
+`i*stride - overlap` up to (not including) `i*stride + stride`. The first
+window starts `overlap` frames before the source and repeats its first frame
+there; the last may run past the source's end and repeats its last frame.
+Every window is exactly `num_frames` frames, float32 in `[0, 1]` like
+`loop_frames`' output. A source of `N` frames takes `ceil(N / stride)`
+windows, indexes `0` to `(N - 1) // stride`.
+
+The window's audio is the source's samples for its real frames, cut on the
+source's own frame boundaries (`frames_to_samples`, #401), so adjacent
+windows' strides tile the track exactly; the repeated frames carry silence of
+the length they would have had. A source with no track gives a silent window.
+
+Memory (#695): a file source (a path, `asset:` or `output:`) is never decoded
+whole - the window reads only the source frames it covers, from the keyframe
+before them, and the soundtrack on its own, so a window of a long source
+holds about one window of float32 frames plus the decoded track. An earlier
+step's video is already in memory and is cut from there.
+
+One step makes one window: a task cannot return a list of them, so drive it
+with `for_each` over `{name, index}` entries as above. It refuses an
+`overlap` that is not below `num_frames`, and a negative `overlap` or `index`
+- `validate_workflow` catches these on literal values - and, at run time, an
+`index` whose window would start at or past the source's last frame, naming
+the source's frame count and the last valid index.
+
+### join_windows
+
+The other half of `window_video`: blend the processed windows back into one
+video the source's length. Give it the windows in order, the source they were
+cut from, and the same `num_frames` and `overlap`:
+
+```json
+[
+    {
+        "name": "window",
+        "for_each": "variable:windows",
+        "task": {
+            "command": "window_video",
+            "arguments": {
+                "video": "variable:source_video",
+                "index": "item:index",
+                "num_frames": 121,
+                "overlap": 16
+            }
+        }
+    },
+    {
+        "name": "joined",
+        "task": {
+            "command": "join_windows",
+            "arguments": {
+                "videos": "gather:window",
+                "source": "variable:source_video",
+                "num_frames": 121,
+                "overlap": 16
+            }
+        }
+    }
+]
+```
+
+with `"windows": [{"name": "w0", "index": 0}, {"name": "w1", "index": 1}, ...]`.
+A step that processes each window goes between the two, and `videos` gathers
+that step instead.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `videos` | Yes | The processed windows, in window order: `gather:<step>` over the step that processed them |
+| `source` | Yes | The video the windows were cut from, as for `window_video`'s `video`. Its frame count sets the plan and its track is the output's |
+| `num_frames` | Yes | Frames per window, as given to `window_video` |
+| `overlap` | Yes | Frames each window shares with the one before, as given to `window_video` |
+| `curve` | No | The blend's shape across a seam: `cosine` (the default, `(1 - cos πt) / 2`), `smoothstep` (`3t² - 2t³`) or `linear` (`t`) |
+| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to put its audio back |
+
+The result has exactly the source's frame count, each source frame once:
+window 0's real frames, then each later window's first `overlap` frames
+blended over the previous window's last `overlap` frames, and the last
+window's pad dropped. The incoming weight is `w(t)` at `t = (k + 1) /
+(overlap + 1)` for seam frame `k` - the open ramp `dissolve_videos` uses, so
+no seam frame is a bare copy of either side. The windows may be at a
+different size from the source (a 2x upscale); the output is at the windows'
+size.
+
+Memory (#695): the output is built as uint8, with only a seam's `overlap`
+frames blended in float32, so a join holds the output at one byte a channel
+plus the windows it was given - never the whole video in float32. A file
+`source` is read for its frame count and soundtrack only, never its picture.
+
+The window count must be exactly `ceil(source_frames / (num_frames -
+overlap))` - the rule has one home, `window_count` in `dw/task_domains.py`,
+and `window_video`'s last valid `index` is one below it. A different count is
+refused naming both numbers and the list entries (by index) to add or drop:
+by `validate_workflow`, before any window renders, when the count is
+knowable from the document - `source` an `asset:`/`output:` reference or a
+literal path (probed header-only), `num_frames` and `overlap` literal after
+substitution, `videos` a list (a `gather:` over a `for_each` step is one) -
+and otherwise at run time, once the source is decoded. The validate-time
+check is the task's (`dw/window_count_errors.py`), so any `join_windows`
+step gets it, and it applies the same `window_count_problem` the task does. It also refuses a window whose frame count is not `num_frames`
+(named by position) and windows of different sizes. An unknown `curve` and an
+`overlap` that is not below `num_frames` are refused by `validate_workflow`
+on literal values as well.
+
+The output's audio is the source's own track over exactly
+`frames_to_samples(source_frames)`, and none when the source has none; the
+windows' audio is discarded. Its shot records are one per window over the
+frames it owns (window `i > 0` starts at its blended head), with
+`overlap_frames` on every seam and cumulative `frames_to_samples` sample spans
+(#401), so `assess_output` reads the seams as dissolves and its sync check
+measures against the source's timeline. Like `concat_videos` and
+`dissolve_videos`, its catalog shape is a cut task.
+
+### fit_to_model and restore_to_source
+
+A video-to-video model works at its own size and frame count, not the
+source's. `fit_to_model` fits the source into the model's `width` x `height`
+and exactly `num_frames`, the pipeline runs on the fitted video, and
+`restore_to_source` puts the output back at the source's size and length:
+
+```json
+[
+    {
+        "name": "fit",
+        "task": {
+            "command": "fit_to_model",
+            "arguments": {
+                "video": "asset:clip.mp4",
+                "width": 768,
+                "height": 512,
+                "num_frames": 121,
+                "mode": "letterbox"
+            }
+        }
+    },
+    {"name": "upscale", "pipeline": {"...": "reads previous_result:fit.video"}},
+    {
+        "name": "restore",
+        "task": {
+            "command": "restore_to_source",
+            "arguments": {
+                "video": "previous_result:upscale",
+                "fit": "previous_result:fit.fit"
+            }
+        }
+    }
+]
+```
+
+`mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
+(resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
+count is exact: a longer source is cut to its first `num_frames` frames and a
+shorter one holds its last frame. `downscale` (default 1) divides `width` and
+`height`, which must both be divisible by it: a 2x upscaler whose `width` x
+`height` is the output it renders takes its reference at half that, so it fits
+with `downscale: 2` and passes the same `width`/`height` to the pipeline
+(`templates/ltx2/upscale-clip`). The step returns `{video, fit}`, read as
+`previous_result:<step>.video` and `previous_result:<step>.fit`. `video` is a
+float32 array of frames, height, width, RGB in 0-1 that carries its `fps`, so
+it goes straight to a pipeline's `video` or a reference condition's `frames`;
+saved, it is written as an mp4 at that rate. The `fit`
+record holds `mode`, `source_width`, `source_height`, `source_frames`,
+`model_width`, `model_height`, `model_frames`, `content_box` (where the source
+sits in the model frame) and `source_box` (the part of the source kept - all
+of it unless `mode` is `crop`), each box `{x, y, w, h}`.
+
+`restore_to_source` takes the pipeline's output and that record; it has no
+`scale` argument. The scale is the output's size over the fitted size and must
+be the same across and down, so a 2x upscaler restores to twice the source.
+Letterbox bars are cropped off, and frames are trimmed to the source's count,
+dropping the held ones (an output shorter than that is returned as it is).
+`crop` cannot bring back the edges it cut, so it returns the kept region at
+the source's pixel density times the scale: 640x480 fitted into 512x288
+restores to 640x360. A saved video keeps its exact size; only an odd side
+grows by one pixel, since the encoder needs even sides.
+
+Neither task carries a soundtrack. Pair the source's with `pair_audio` after
+the restore.
+
+### crop_face_track
+
+Follow one face through a clip and cut a steady square around it, for a
+face-detail pass that needs the face large and still:
+
+```json
+{
+    "name": "face_crops",
+    "task": {
+        "command": "crop_face_track",
+        "arguments": {
+            "clip": "asset:interview.mp4",
+            "crop_size": 512
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `clip` | Yes | The video - frames, an audio+video pair, or the path or URL of a video file. Named `clip` so the engine hands it over as read, with the shots it records |
+| `crop_size` | No | Side of every crop in pixels, a multiple of `multiple`. Default `512` |
+| `padding` | No | Space added around the face on each side, as a fraction of its size, `0` to `3`. Default `0.6` |
+| `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
+| `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
+| `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
+| `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
+| `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
+| `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
+| `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
+| `device` | No | Where detection runs |
+
+`modulus`, `remainder` and `multiple` follow `plan_cuts`: the model's grid is
+the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
+32-pixel steps, so a workflow that names none gets the output it always did;
+the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
+explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+and a `crop_size` that is not a multiple of `multiple` are refused at
+validation.
+
+These defaults are the task's own. The `face-repair` template tunes them on
+lem for LTX-2.5 at `padding` 1.5, `gate_full` 0.03 and `gate_zero` 0.06: a
+medium face (7.5% of the frame's width when tuned) already renders cleanly, and the wider
+context keeps the refine from re-inventing hair and clothing.
+
+**Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — find, refine and paste back a wide shot's far face.
+
+Detection is OpenCV's YuNet, run on the full frame and on four overlapping
+enlarged tiles, merged by non-maximum suppression, so a face only a few dozen
+pixels wide is still seen. One track is kept and smoothed with an exponential
+moving average; across a short detector miss the last box is held at a decaying
+strength. The track restarts at each shot boundary the clip records, or, for a
+clip that records none, where the picture jumps: a sharp drop in its HSV
+colour histogram, or a spike in its difference from the previous frame (a cut
+between two framings of one picture keeps its colours). A padded square
+around the smoothed box is cut from every frame and resized to `crop_size`, then
+the crops are padded to `modulus * n + remainder` frames (8n+1 by default) with mirrored warm-up and cool-down frames.
+
+Each frame carries a strength from 0 to 1: how much a face-detail pass should
+change it. It is 1 when face width over frame width is at or below `gate_full`,
+0 at or above `gate_zero`, linear between, and multiplied by the hold decay on
+frames the detector missed.
+
+It returns `{crops, track}`. `crops` is a video (no audio) at the clip's frame
+rate. `track` is a JSON record saved as its own `.json` file, readable by
+`previous_result:<step>.track`:
+
+| Field | Description |
+| ----- | ----------- |
+| `source` | `{width, height, frames, fps}` of the input |
+| `crop_size`, `padding`, `gate_full`, `gate_zero`, `min_confidence` | The parameters used |
+| `detector` | `{repo, file}` |
+| `pad_before`, `pad_after` | Mirrored frames added to the start and end |
+| `crop_frames` | Frames in `crops`, including the padding |
+| `face_found` | Whether any frame had a face |
+| `message` | Present only when no face was found |
+| `frames` | One entry per source frame: `box` (the smoothed `[x, y, w, h]`, or null), `crop` (the `[x, y, side, side]` square cut), `strength`, and `state` (`tracked`, `held` or `none`) |
+| `resets` | `[{frame, reason, detail}]` where the track restarted; `reason` is `shot`, `cut` or `lost`; a `cut`'s `detail` is `{histogram_correlation, frame_change}` |
+
+A clip with no face still succeeds: every strength is 0, the crops are the
+centre square, and a `no_face_found` warning is raised. `validate_workflow`
+refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
+`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
+and a `detector_file` that is not a `.onnx` name, before anything downloads.
+
+### paste_face_track
+
+Put the crops of a face-detail pass back into the clip they were cut from,
+using the `track` record `crop_face_track` returned:
+
+```json
+{
+    "name": "pasted",
+    "task": {
+        "command": "paste_face_track",
+        "arguments": {
+            "clip": "asset:interview.mp4",
+            "repaired": "previous_result:face_repair",
+            "track": "previous_result:face_crops.track"
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `clip` | Yes | The video `crop_face_track` tracked - frames, an audio+video pair, or the path or URL of a video file |
+| `repaired` | Yes | The crops after a face-detail pass, still padded to the count `crop_face_track` produced; any frame size |
+| `track` | Yes | The `track` record `crop_face_track` returned (`previous_result:<step>.track`), or the path of its saved `.json`, such as an `output:` reference |
+| `feather` | No | Fraction of the paste's radius that fades out, `0` to `1`. Default `0.3` |
+| `color_match` | No | Shift each crop's mean colour onto the source's inside the mask before blending. Default `true` |
+
+The pad frames are dropped: the crop at `pad_before + i` goes back on source
+frame `i`. Each crop is resized to the square it was cut from, then blended
+over the frame with a radial feathered mask times that frame's strength. The
+mask is the circle inscribed in the square; its outer `feather` fraction fades
+from 1 to 0 along a smoothstep, so the square's corners and everything past
+the circle keep the source. A square that ran past the frame's edge is
+clipped to the frame.
+
+A frame with strength 0 (no face, or a face too large for the gate) is passed
+through exactly. With `color_match`, the crop's mean colour is shifted onto the
+source's inside the mask, so a repair pass that drifted in tone does not show
+as a patch.
+
+It returns the source clip with its audio, frame rate and shots carried, the
+same frames one for one. It refuses a track whose frame count or frame size
+does not match the clip, a `repaired` with fewer frames than the track's
+`crop_frames`, and a `track` that is not a `crop_face_track` record.
+`validate_workflow` refuses a `feather` past `1` before the job runs.
+
+**Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — the repaired crops pasted back over the source, its soundtrack kept.
+
 ### video_frames
 
 The frames of a generated video, as one `(frames, height, width, channels)`
@@ -597,6 +1315,7 @@ a length still passes the whole track along:
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
 | `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
+| `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
 ### gain_audio
@@ -1139,13 +1858,197 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
 
+### analyze_beats
+
+Find where a song's beats fall, to cut picture to them - a Music 3 song
+carries no tempo map, and a cut that lands on the beat needs one. An onset
+envelope gives the tempo and the beats are tracked through it; the result is
+JSON and nothing is built:
+
+```json
+{
+    "name": "beats",
+    "task": {
+        "command": "analyze_beats",
+        "arguments": {
+            "audio": "previous_result:song",
+            "anchors": [0.52, 31.9]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path, `asset:`/`output:` reference of an audio or video file, a waveform from a previous step, or an earlier step's generated audio or video |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+| `tempo_bpm` | No | The tempo, when known. With exactly one anchor it lays an exact grid and nothing is detected; otherwise it steers detection toward that tempo |
+| `anchors` | No | Where beats are known to fall, ascending: a list of times in seconds, or of `{beat_index, seconds}` marks placing detected beat `beat_index` (from 0) at `seconds`. One kind per list |
+| `min_bpm` / `max_bpm` | No | The tempo range searched (default `60` / `200`); `min_bpm` must be below `max_bpm` |
+
+Returns `{bpm, beats, downbeat_phase, method, calibration, duration_seconds,
+warnings}`: `beats` ascend, in seconds. `method` is `onset` (tracked from the
+onsets), `rms_peaks` or `grid`. `downbeat_phase` is which of the first four
+beats starts a bar, `null` when none stands out. `calibration` is
+`{offset_s, drift, anchors_used}`, the anchors' shift at the first mark and
+how much it changes by the last. `warnings` repeats what was emitted.
+
+Anchors correct the detection three ways:
+
+- Two or more warp the detected beats piecewise-linearly through them, so a
+  detection that starts late or drifts lands on the marks.
+- One alone shifts every beat by the same amount.
+- One plus `tempo_bpm` lays an exact grid through it, with no detection:
+  `method` is `grid`.
+
+A bare-seconds anchor snaps to the nearest detected beat, so it corrects a
+drift of under half a beat; where the detection is further off than that, use
+`{beat_index, seconds}` marks, which name the beat instead of guessing it.
+
+A track with no clear, regular onsets - a pad, a swell, a noise bed at any
+level - falls back to the peaks of its loudness (`method` `rms_peaks`, with a
+warning that no reliable beat was found and the peaks follow swells rather
+than a pulse). A level that drifts (a fade, a loud first second) is not a
+pulse. A pulse that tracks but is faint - its onsets repeat weakly at the
+period and its beats sit low against the rest of the envelope, as in a song
+with a long quiet build - is kept, with a warning to check a few beats against
+the song and pass `anchors` or `tempo_bpm` if they are off. The tempo is the
+track's strongest period, folded into the range: a half-time song whose pulse
+is 50 BPM reports 100, not a riff that happens to repeat at 95. A silent track returns empty `beats` and a warning. So does a
+near-silent one whose loudest 50 ms is under -40 dBFS - room tone, hiss, or a
+song mixed far too low - since the log-compressed onset envelope would find a
+pulse in it. Raise a real song's level first (`gain_audio`).
+
+`bpm` is always within `min_bpm`-`max_bpm`, or `null`. A pulse found outside the
+range is folded by octaves into it (85.7 BPM searched at 140-200 reports 171.4,
+beating every half pulse). Where no octave fits, the beats keep to a tempo in
+the range and a warning names the pulse. Where the `rms_peaks` peaks have no
+octave in the range, `bpm` is `null` with a warning. The beats run to the
+song's ends: a hit at 0 s is a beat, and a noise bed starting at 0 s is not.
+
+Refused: `min_bpm` at or above `max_bpm`, and malformed anchors (mixed kinds,
+out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past
+the song's end, or a `beat_index` past the detected count, at run start.
+It returns JSON, so `result` may only be `application/json`.
+
+### plan_cuts
+
+Plan a music video's cuts from a song's lyrics and beats. `transcribe_audio`
+(with timestamps) says when each line is sung and `analyze_beats` says where
+the beats fall; this turns the two into shots - each a start frame and a
+length - that tile the song exactly, so one prompt per shot can be written and
+the list rendered. The result is JSON and nothing is built:
+
+```json
+{
+    "name": "plan",
+    "task": {
+        "command": "plan_cuts",
+        "arguments": {
+            "transcript": "previous_result:transcribe",
+            "beats": "previous_result:beats",
+            "duration_s": "previous_result:beats.duration_seconds",
+            "lyrics": "variable:lyrics",
+            "segment_by": "line",
+            "fps": 24,
+            "min_scene_s": 1.5,
+            "max_scene_s": 10,
+            "vocal_tail_s": 0.5,
+            "snap_to_beats": true
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json` |
+| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them. `null` or `""` means none: the transcript's text is used |
+| `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
+| `segment_by` | No | `line` (default), `stanza` or `beat` |
+| `fps` | No | Frames per second the shots are counted in (default `24`) |
+| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
+| `min_scene_s` | No | The shortest a shot may be (default `1.0`) |
+| `max_scene_s` | No | The longest a shot may be (default none) |
+| `vocal_tail_s` | No | Seconds a sung shot holds past its last word (default `0`) |
+| `include_instrumental_gaps` | No | Whether a long silence becomes its own instrumental shot (default `true`) |
+| `min_gap_seconds` | No | The shortest silence that becomes its own shot (default `2.0`) |
+| `snap_to_beats` | No | Whether every cut moves to its nearest beat (default `false`) |
+| `modulus` / `remainder` | No | The model's render grid: a shot renders `modulus * n + remainder` frames (H3: `17`, `5`). With none, a shot renders exactly its cut |
+| `min_frames` / `max_frames` | No | The fewest and most frames a shot may render (H3: `124`, `345`) |
+| `lead_s` | No | Seconds a shot starts before its cut, as a run-up the model renders and `trim_video` drops. Each shot's `lead_frames` is `min(round(lead_s * fps), start_frame)`, so the first shot has none (default `0`) |
+
+Returns `{shots, bpm, fps, duration_s, total_frames, render_frames,
+warnings}`. `shots` tile the song in order, each `{name, start_frame,
+num_frames, cut_frames, lead_frames, lyric, kind}`: `start_frame` and
+`cut_frames` are the cut's start and length on the timeline (the `cut_frames`
+sum to `round(duration_s * fps)`), `lead_frames` the run-up before the cut,
+and `num_frames` the length to render: `max(min_frames, lead_frames +
+cut_frames)` raised to the grid, so the render starts at `start_frame -
+lead_frames` and its cut is frames `[lead_frames, lead_frames + cut_frames)`.
+With no grid arguments `num_frames` is `cut_frames` and `lead_frames` `0`.
+`render_frames` is the sum of the `num_frames` - what the render costs, which
+is more than `total_frames` when shots lead or round up. `lyric` the lines sung in it joined by newlines or `null`, and `kind`
+`"vocal"` or `"instrumental"`. A dict rather than a list, since a list result
+would become one artifact per shot. Its `result` may only be
+`application/json`.
+
+How the plan is made:
+
+- With `lyrics`, those lines are the lines, and the transcript only lends them
+  timings: they are aligned to it word by word, since Whisper mishears sung
+  words and splits lines where it likes. A line never heard is placed between
+  its neighbours with a warning, as a shot of its own: when its neighbours
+  touch, it takes `min_scene_s` (at least half a second) from them, never
+  more than half of either. Blank lines and section tags are stanza
+  breaks, not sung lines. Without `lyrics`, each transcript chunk is a line.
+- `segment_by` makes a shot per line, per stanza (the lyrics' blank-line
+  groups, or lines without a `min_gap_seconds` silence between them) or per
+  few beats (a cut on the first beat at least `min_scene_s` after the last).
+- The silence between lines goes to the shot before it, or - when it lasts
+  `min_gap_seconds` and `include_instrumental_gaps` is on - becomes its own
+  instrumental shot, as can the silence before the first line and after the
+  last.
+- A shot over `max_scene_s` splits evenly, each cut on its nearest beat when
+  there are beats, and a sung shot split this way is warned about by its
+  lyric, which every piece carries; one under `min_scene_s` merges into its
+  shorter neighbour.
+  A shot still outside the range is warned about by name.
+- A shot whose render would pass `max_frames` is split, on a beat when
+  there is one, and warned about.
+- `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
+  and leaves the cuts where the lines put them.
+- Every boundary is rounded once, from its absolute time, so the frame counts
+  sum to the song's and no rounding drifts.
+
+Refused, at `validate_workflow` where the value is a literal and at run start
+otherwise: a bare-string `transcript` (the message names `timestamps` /
+`return_timestamps`), `segment_by` not one of the three, `segment_by: "beat"`
+without `beats`, `min_scene_s` above `max_scene_s`, and `fps`, `duration_s`,
+`max_scene_s` at or below zero or `min_scene_s`, `vocal_tail_s`,
+`min_gap_seconds` below zero, and a `remainder` outside `0` to below `modulus` (or one with no
+`modulus`) or a `max_frames` below the smallest grid length at or above
+`min_frames`. Also refused at run start: a song whose length
+can't be known (no `duration_s`, no `beats` result, and no transcript to end
+on) and `lyrics` with no sung lines.
+[music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
+chains `transcribe_audio`, `analyze_beats` and `plan_cuts`, passing H3's
+grid (`17`, `5`, `124`, `345`) and a `lead_s` variable (default `0.5`, 12
+frames at 24 fps). Its shots are what
+[music-video.json](../workflows/templates/minimax/music-video.json) renders:
+the agent writes a prompt per shot, drops `lyric` and `kind`, and passes the
+list as `shots`.
+
 ## Assessment Probes
 
 Three read-only commands measure a finished cut and say where to look -
 `analyze_shots`, `analyze_seams`, `analyze_sync_drift`. Each is registered
 with `assessment=True` (`register_command`, `dw/tasks/task.py`), which is
 what makes a command a probe - not merely answering JSON, since
-[`attribute_voices`](#voice-attribution) answers JSON too and is not one.
+[`attribute_voices`](#voice-attribution) and [`check_script`](#script-check)
+answer JSON too and are not probes.
 Each takes a video
 (a stored file - `asset:`, `output:` or a path, read straight from disk
 rather than decoded first - or the video an earlier step returned; not a
@@ -1212,7 +2115,8 @@ Every seam between shots, audio and picture:
 | `seams[].between` | `[previous shot name, next shot name]` |
 | `seams[].seconds` | Where the seam sits in the file |
 | `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
-| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
+| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` - `concat_videos` sets it on a shot opening a seam it butt-joined (a plain cut, or a cut with a `seam_fade_ms` fade). A seam that got an `audio_bleed_ms` bleed carries `audio_bleed_ms` instead of `hard_cut` |
+| `seams[].audio_bleed_ms` | The bleed the seam actually got (clamped to the material); absent where none ran. The picture is still a cut, so `seam_frame_jump` stays quiet |
 | `seams[].before_shot_rms_dbfs` / `after_shot_rms_dbfs` | RMS level of the whole shot either side of the seam |
 | `seams[].level_step_db` | The absolute difference between those two shot levels. Shot against shot, not the audio at the seam's edges: a take's own tail and head can sit 20 dB apart, which is not a step the cut made |
 | `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level of the 0.25 s either side of the seam - what `seam_hole`'s both-sides-voiced guard reads |
@@ -1278,6 +2182,46 @@ without reading every command's schema. The list is exactly the commands
 declared `assessment=True`; `attribute_voices` stays in `commands` only,
 since it analyzes a song rather than checking a cut.
 
+## Stem separation
+
+Split a mix into its htdemucs stems - `vocals`, `drums`, `bass` and `other` -
+each returned as its own audio result. It is the separator `attribute_voices`
+runs (one shared loader and cache), exposed for its own sake: transcribing the
+`vocals` stem aligns sung lyrics better than transcribing the full mix, and
+`drums` + `bass` + `other` is the instrumental to put under dialogue as a
+score bed.
+
+```json
+{
+    "name": "stems",
+    "task": {
+        "command": "separate_stems",
+        "arguments": { "audio": "asset:song.mp3" }
+    },
+    "result": { "content_type": "audio/wav", "file_name": "stems" }
+},
+{
+    "name": "lyrics",
+    "task": {
+        "command": "transcribe_audio",
+        "arguments": { "audio": "previous_result:stems.vocals" }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack |
+| `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
+
+The result saves one file per stem, `<file_name>-vocals`, `-drums`, `-bass`
+and `-other`, and a later step reads one as `previous_result:<step>.vocals`.
+Stems are 44.1 kHz stereo, whatever the source was, and sum back to the mix.
+The model is fixed (`htdemucs`, run in fp32), its weights download on first
+use, and it needs the `demucs` package. On MPS a failed separation falls back
+to the CPU and warns (`separation_cpu_fallback`).
+
 ## Voice attribution
 
 Which reference voice sings each line of a song, by timbre - staging
@@ -1319,7 +2263,7 @@ voiced, so a weak answer is visible as weak rather than silently accepted.
 | -------- | -------- | ----------- |
 | `audio` | Yes | The song - a path, `asset:`/`output:` reference, or an earlier step's audio or video |
 | `voices` | Yes | Each voice's name mapped to its reference: a list of `{start_seconds, duration_seconds}` (or `{start, end}`) spans into `audio`, or a path/`asset:` of a separate clip. At least 2 voices; names follow the variable-name pattern; each voice's reference must total at least `min_reference_seconds` |
-| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. Omitted: the song is cut into fixed windows of `window_seconds` |
+| `lines` | No | Spans to attribute, `{start, end, text?}` (a `transcribe_audio` transcript, or its `chunks` list, drops in directly) or `{start_seconds, duration_seconds, text?}`. A zero-length line (`start` = `end`, as Whisper's word timestamps sometimes give) comes back with `voice: null` rather than refusing the call. Omitted: the song is cut into fixed windows of `window_seconds` |
 | `windows` | No | Named spans to roll lines up into, `{name, start, end}`. Omitted: mirrors the fixed windows when `lines` is also omitted, otherwise none |
 | `window_seconds` | No | Length of the fixed windows used without `lines` (default `2.0`) |
 | `min_reference_seconds` | No | Least total reference length per voice; a shorter one is refused by name (default `3.0`) |
@@ -1355,6 +2299,8 @@ well above that and well below the singing.
 | `min_voiced_seconds` | 0.5 s | A line or window under this much voiced time has no voice - `voice: null`, `uncertain: true` |
 | `uncertain_margin` | 0.05 | A line whose best score beats the runner-up by less than this is `uncertain` - the argmax is still reported |
 | `uncertain_share_margin` | 0.2 | A window whose leading voice's share beats the runner-up's by less than this is `uncertain` - a duet line, or a window straddling a hand-over |
+| `piece_seconds` | 2.0 s | A line longer than this is also scored in pieces of this length |
+| `mixed_line_share` | 0.25 | A line whose confidently attributed pieces give a second voice at least this share of their voiced time is `uncertain`, and its `reason` names each voice's seconds - one embedding of two singers can name either of them with a wide margin |
 | `voices_too_similar` | 0.8 | Two references scoring above this against each other make every line between them a weak answer whatever its scores say |
 
 A `voices_too_similar` pair is reported in `reference_similarity`, added to
@@ -1368,6 +2314,125 @@ Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
 and are cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
+
+**Example:** [attribute-lines.json](../workflows/templates/attribute-lines.json) — Which singer sings each line of a song, and when: `transcribe_audio` with timestamps, its transcript handed whole to `attribute_voices` as `lines`.
+
+### Checking the lip-sync target
+
+A sung multi-shot piece can put the right song on the wrong mouth: the shot
+lip-syncs whoever the prompt or the reference made most prominent, not the
+singer the song gives that line to. Listening does not catch it, and one
+frame per shot does not either. This check lines each sung line up with the
+picture and looks at whose mouth is open on it.
+
+1. Run `attribute-lines` on the song with each singer's reference spans as
+   `voices`. Every line comes back with numeric `start` and `end` seconds into
+   the song, its `voice`, `margin` and `uncertain` flag.
+2. Map each line's song times onto the cut's timeline (the rules below).
+3. For every line with a non-null `voice`, take two moments: `start + 0.3 s`,
+   where the mouth has opened on the line's first syllable, and the line's
+   midpoint.
+4. Make one `get_output_frames` call per face: `at` the moments, `crop` the
+   face's region, `hear: 1.0`. At most 32 moments per call, so a long song
+   takes more than one call per face.
+5. On each line, the singer `voice` names should be the face with an open
+   mouth. Another face singing it is the wrong lip-sync target; both mouths
+   open on a solo line is a shot that lip-syncs everyone.
+6. Skip the lines that are `uncertain` or have a null `voice`, and name them
+   in the report - a skipped line is unchecked, not passed.
+
+**Song time to cut time.** `attribute-lines` answers in seconds into the song
+it was given; the frames are read from the cut. The offset between the two
+depends on how the piece was assembled:
+
+- `minimax/music-video`: song time is cut time unless `trim_frames > 0`. The
+  template slices the song `lead_frames` before each shot's `start_frame`,
+  renders `num_frames`, keeps the shot's `cut_frames` with `trim_video`, joins
+  the trims with `concat_videos` at `trim_frames: 0`, and lays the whole song back with
+  `pair_audio` at `fit: video`, so no offset applies. A trim drops frames at
+  every seam, and the song no longer lines up past the first one.
+- `join_into_song`: add `start_frame / fps − cue_seconds` to every line time,
+  where `start_frame` is the first sung shot's, from the step's shots output.
+  That shot's frame 0 is where song time `cue_seconds` lands.
+- Any other assembly: transcribe the final cut's own track instead, so the
+  times are already the cut's. Attribution is weaker there - dialogue ducked
+  under the song is in the mix too.
+
+**Where it misleads:**
+
+- A duet line - two singers on one line, or call and response inside one
+  Whisper segment - comes back `uncertain`: its 2 s pieces name more than one
+  voice, and the `reason` says how many seconds each holds.
+  `timestamps: "word"` splits it into words, each attributed on its own, at
+  the cost of noisier scores. A zero-length word comes back with a null
+  `voice`, like any line too short to embed.
+- Whisper can return one segment over most of a song, its text a repeated
+  hallucination, when the accompaniment drowns the words. Such a line is a
+  duet line by the rule above whenever two singers are in it; re-run with
+  `timestamps: "word"`, or transcribe the `vocals` stem of
+  [`separate_stems`](#stem-separation) instead.
+- `start + 0.3 s` is a heuristic: a singer who opens late or holds a pickup
+  note is still closed-mouthed there. That is why the midpoint frame is read
+  too; trust the two together, not either alone.
+
+### ingredients_grid
+
+Lay individual images - a character, a prop, a location - out on one canvas as a
+reference sheet. It is `frame_grid`'s counterpart for separate images, and builds
+the still `ltx2/reference-sheet` conditions on. Pure PIL.
+
+```json
+{
+    "name": "sheet",
+    "task": {
+        "command": "ingredients_grid",
+        "arguments": {
+            "images": ["asset:hero.png", "asset:sword.png", "asset:castle.png"],
+            "width": 768,
+            "height": 448
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Default | Description |
+| -------- | ------- | ----------- |
+| `images` | required | Images in reading order: references, paths or `{"location": ...}` dicts; `gather:` of a `for_each` step splices in |
+| `width`, `height` | 768, 448 | Canvas size in pixels |
+| `layout` | `auto` | `rows`, `panels` or `auto` |
+| `fit` | `contain` | `contain` scales each image to fit whole and pads with `background`; `cover` fills its cell and crops the overflow |
+| `gap` | 8 | Pixels between cells, and kept clear of the canvas edge |
+| `background` | `white` | Canvas colour, a name or `#hex` |
+| `max_images` | 12 | More images than this is refused, never silently dropped |
+
+`rows` keeps every image at its own aspect ratio and justifies each row to the
+canvas width. Which images share a row is searched: every way of cutting the
+list, in order, into rows is scored on wasted canvas, overflow past the height,
+and spread of row heights. `panels` gives every image an equal grid cell, the
+column count chosen to waste the least canvas, with a short last row centred.
+`auto` uses `rows` for up to 3 images and `panels` for more. Transparency is
+flattened onto white. Returns one RGB image of exactly `width` x `height`.
+
+To build the sheet inside `ltx2/reference-sheet`, add this step first and point
+`static_sheet`'s `video` at it (`"video": "previous_result:sheet"` in place of the
+`reference_sheet` asset). Keep `width` and `height` the clip's own, so the sheet
+reads at the size the model was trained on:
+
+```json
+{
+    "name": "sheet",
+    "task": {
+        "command": "ingredients_grid",
+        "arguments": {
+            "images": ["asset:hero.png", "asset:sword.png", "asset:castle.png"],
+            "width": "variable:width",
+            "height": "variable:height"
+        }
+    },
+    "result": { "content_type": "image/png", "save": false }
+}
+```
 
 ## Data Gathering
 
@@ -1429,8 +2494,8 @@ can be upscaled without losing what was generated alongside it:
 Captioning (`image_to_text`) is the exception - describe a frame, taken with
 `get_first_frame`, rather than a video.
 
-A file path or `asset:`/`output:` reference to a video is not accepted here,
-even though the route above takes a video from a step - route it through
+A file path or `asset:`/`output:` reference to a video is not accepted here
+(`grade`, whose input is `media`, is the exception), even though the route above takes a video from a step - route it through
 `video_frames` first: an image command's `image` argument must be an
 `AudioVideo`, a frame array, or a still image.
 
@@ -1830,7 +2895,7 @@ The result needs no `sample_rate`. A generated track carries the rate its model 
 
 ### Generating a voice to condition on
 
-The role this earns its place in is voice *timbre reference*, not the track a mouth follows. MiniMax H3 lip-syncs well when it generates the speech itself and poorly when it must follow supplied audio, so its `MiniMaxH3AudioReference` takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
+The role this earns its place in is voice *timbre reference*, not the track a mouth follows. A `MiniMaxH3AudioReference` is audio H3 reads, not audio it plays: it takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line, and a mouth asked to follow a whole track through a reference follows it loosely. That reference is still the better lip sync: `music-video` and the `match_audio` chain templates pass each shot's slice as one. Holding the track with `hold_audio` (the `workflows` guide, "H3: generating to a held soundtrack") keeps it exact, but on a sung track the mouth followed it less well than the reference (#619's A/B, measured in that section), so hold is opt-in. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
 
 ```json
 "references": [
@@ -1875,9 +2940,79 @@ Transcribe spoken audio to text with a local Whisper-class model. The word-corre
 
 Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. By default the result is plain text, read with MCP's `get_output_text`.
 
-Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask.
+Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
+
+To compare a take against the lines it was meant to speak, use [`check_script`](#script-check) rather than reading the transcript by eye.
 
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
+
+## Script check
+
+Whether a dialogue take speaks its script. Confirming it used to mean transcribing the take and comparing the transcript to the script by eye, which missed a word Whisper dropped, an H3 tag read aloud, and a last word cut off by the end of the file. `check_script` does the comparison and reports where to look.
+
+It transcribes the take with [`transcribe_audio`](#speech-transcription) word timestamps - the same code and model cache, no second ASR path. Every heard word is measured, and one at or below the dead-air floor is discarded as unheard, because Whisper invents words over silence. So is every word of a repetition loop - the same words over and over (`Pre-pre-pre-...`), which Whisper invents over music or room tone loud enough to pass the floor. H3 markup is stripped from each expected line, and the heard words are aligned to the expected words in order (`difflib`). Each line scores the similarity of its own expected and heard words. It decides nothing: findings are places to look, not verdicts. It is not an assessment probe (`assessment=True`); like [`attribute_voices`](#voice-attribution) it answers a JSON document.
+
+```json
+{
+    "task": {
+        "command": "check_script",
+        "arguments": {
+            "audio": "output:take.wav",
+            "lines": ["<d>[English] Where were you?</d>", "I was at the station."]
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+The step's `result.content_type` must be `"application/json"`; read the answer with MCP's `get_output_text`.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The take - a path, `asset:`/`output:` reference, or an earlier step's audio or video (its soundtrack is taken) |
+| `lines` | Yes | The expected lines in order: a list of strings or `{text, shot}` objects, `shot` naming the take's shot the line belongs in. Markup is stripped (below). `[]` means no speech is expected |
+| `shots` | No | The take's shot map, `[{name, start_frame, num_frames, start_sample, num_samples}]`. Default: the take's own `.shots` (an earlier step's video), else the run manifest or `keep_output` sidecar beside an `asset:`/`output:` file - resolved as the assessment probes resolve them (`assess.resolve_shots`). The argument wins over both |
+| `similarity` | No | Least similarity, 0..1, of a line's heard words to its expected words before it is a `line_mismatch` (default `0.85`) |
+| `model_name` | No | HuggingFace ID of a Whisper-class ASR model (default `openai/whisper-base`) |
+| `sample_rate` | No | Sample rate of a waveform passed directly |
+| `device` | No | Where the ASR model runs |
+
+Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, `<cutoff>`, `[unclear]`, speaker IDs `(S1)` and `(S1,S2)`, and any other `<tag>` or `[tag]`. A plain parenthetical stays dialogue. The words of the stripped tokens (`cutoff`, `unclear`, `english`, `s1`) are what `tag_spoken` listens for; a tag word heard is reported there and left out of the line's similarity, so it is never a `line_mismatch` too.
+
+| Rule | Fires when | `value` / `threshold` | `at` |
+| ---- | ---------- | --------------------- | ---- |
+| `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
+| `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
+| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one |
+| `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
+| `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names. A word is in the shot its midpoint falls in; one a line in another shot matched (a word straddling the cut) is that line's, not counted | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first counted word, `seconds` no earlier than the shot's start |
+
+Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` is skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent).
+
+The thresholds are module constants in `dw/tasks/script_check.py`, deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
+
+| Constant | Value | What crossing it does |
+| -------- | ----- | --------------------- |
+| `DEFAULT_SIMILARITY` | 0.85 | A line below this similarity is a `line_mismatch` (the `similarity` argument overrides it) |
+| `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
+| `GUARD_WINDOW_SECONDS` | 0.05 s (= `DEAD_AIR_WINDOW`, `shot_dead_air`'s window) | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
+| `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
+| `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
+| `REPEAT_MAX_PERIOD` | 4 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
+
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor` or `repetition`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
+
+How the alignment reads a take:
+
+- A dropped line comes back with `heard: ""` and a `line_mismatch` at where it should have been.
+- An added line's words go to `unmatched` and lower no line's similarity.
+- A line spoken out of order reads as a mismatch on that line.
+- Whisper mishears names and numbers (`2` for `two`), so listen before re-rolling a take on a mismatch.
+- A quiet line can be discarded by the guard. Discarded words are reported under `discarded`, not hidden.
+
+A malformed `lines` - not a list, an entry without text, an unknown key in a line object - is refused at validation, at `steps[i].task.arguments.lines`, as is a `similarity` outside 0..1. A line naming a shot the map lacks is refused, listing the map's shots, and so is a line naming a shot the map holds twice; a literal `shots` and literal lines are checked against each other at validation, and a `shots` or `lines` that is a reference is checked when the step runs.
+
+**Example:** [check-script.json](../workflows/templates/check-script.json) — Check a take against its script and save the answer as JSON. Its defaults are `openai/whisper-large-v3-turbo` at `similarity` 0.6, not the task's `openai/whisper-base` at 0.85: on the two-model measurement (#609, job `af5de241ca83`), turbo scored the take's correct lines 0.71 to 1.00 and its wrong or missing lines 0.00, where base scored correct lines as low as 0.43 on mishearings (`O'Connor`, `415`). Turbo writes numbers as words (`four fifteen`), so a script with digits costs similarity under it.
 
 ## Frame Interpolation
 
@@ -2093,3 +3228,4 @@ Canny edge detection followed by ControlNet generation:
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
+- [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face

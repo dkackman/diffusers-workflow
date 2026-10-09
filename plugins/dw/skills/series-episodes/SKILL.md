@@ -64,12 +64,24 @@ and reference it as `prompt:<series>/<character>` from every episode.
 described the same way in episode 6 as in episode 1 is a reference rather
 than a paragraph retyped - which is the drift this skill exists to stop.
 
+Store each speaking character's voice description the same way, beside the
+portrait: `prompt:<series>/<character>-voice`. It is the written half of the
+voice clip, and the shot list's cast entry (`script-to-video` step 2) points at both.
+
 ## 1-5. Per episode: generate, then recut, bed, match_levels, normalize, pair
 
 Generate the episode's shots with `templates/minimax/dialogue-short` (or
 `music-video`), `shots` referencing the fixed cast from step 0. Each shot
 is its own H3 generation, so cast drift *within* one episode does not
 happen - only *across* episodes does, which is what step 0 closes.
+
+**Optional look, before the recut.** Not a beat and skippable: to give
+every episode one look, grade each shot with `apply_lut` and one shared
+`palette` (2-16 `#rrggbb` colours, dark to light), then optionally
+`film_grain`. Fix the palette once, like the cast, and pass the same list
+every episode; the same palette gives the same look. An uploaded `.cube` as
+`lut` works too. The graded clips are then the recut's `shots`. The recipe
+and its workflow are in `references/look.md`.
 
 Once every shot for the episode exists (freshly generated, or promoted from
 a run with `keep_output`), cut and score them with
@@ -160,16 +172,18 @@ episode with one loud outlier (a studio-audience laugh, a sting) can sit
 that gap is `target_lufs`'s to close, matched downward to a series-wide
 value every episode's ceiling allows (see the **normalize** bullet above);
 `target_lufs` alone cannot raise a capped episode to meet a louder one -
-`limit: true` can, for a series that must sit louder (same bullet). To confirm a
-line actually rendered rather than judging it by ear, `get_output_audio`
-returns sound, not text: `validate_workflow(name="templates/transcribe-audio",
-arguments={"input_audio": "output:<name>"})` first (free; it takes the
-episode's muxed soundtrack directly), then `run_workflow(...,
+`limit: true` can, for a series that must sit louder (same bullet). To confirm every
+line rendered rather than judging it by ear, run `templates/check-script`
+against the episode's script: `validate_workflow(name="templates/check-script",
+arguments={"input_audio": "output:<name>", "lines": [...]})` first (free; it
+takes the episode's muxed soundtrack directly, and `lines` is the script in
+order, `{text, shot}` to name each line's shot), then `run_workflow(...,
 acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
-wait_seconds=60)`, then `get_output_text` on the result, and
+wait_seconds=60)`, then `get_output_text` for its `findings` - a dropped or
+changed line, speech in a silent shot, a clipped last word - and
 `delete_output(job_id=...)` the scratch run afterward. This workflow's
 plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
-minutes; it runs in a few seconds.
+minutes.
 
 To take the project home, call `export_job` once per job of the project (each
 episode, and the cast run), then fetch each zip's `open_url` and unpack it into

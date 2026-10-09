@@ -371,7 +371,18 @@ def _list_entry_field_shifted(default_entries, effective_entries):
     return False
 
 
-def _scalar_driver_shifted(definition, expanded, list_entries):
+def _per_entry_variable(cost, device):
+    """The list variable the cost entry priced for `device` (else the first,
+    as `_price` chooses) re-prices by a measured per-entry rate, or None."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    chosen = next((e for e in entries if e.get("device") == device), None)
+    if chosen is None and entries:
+        chosen = entries[0]
+    per = chosen.get("per_entry") if chosen else None
+    return per.get("variable") if isinstance(per, dict) else None
+
+
+def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
     """Whether a declared, non-list `cost_driver` was overridden away from
     the default value the curated `cost` was measured against (#267).
 
@@ -385,7 +396,12 @@ def _scalar_driver_shifted(definition, expanded, list_entries):
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
         if isinstance(default_value, list):
-            if _list_entry_field_shifted(default_value, effective.get(name)):
+            # A list the cost prices per entry is already extrapolated in
+            # either direction; its entries' index/name fields are labels,
+            # not cost fields (#772)
+            if name != per_entry and _list_entry_field_shifted(
+                default_value, effective.get(name)
+            ):
                 return True
             continue
         if name in list_entries:
@@ -399,7 +415,10 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
     """The workflow's own price, reset to unknown when a scalar driver moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     if own["basis"] in (CATALOG, OTHER_DEVICE) and _scalar_driver_shifted(
-        definition, expanded, list_entries
+        definition,
+        expanded,
+        list_entries,
+        _per_entry_variable(definition.get("cost"), device),
     ):
         # A scalar cost_driver (H3's num_frames, say) moved away from the
         # value the curated cost was measured against, and _repriced only
@@ -469,7 +488,12 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
     if (
         child["basis"] in (CATALOG, OTHER_DEVICE)
         and child_definition is not None
-        and _scalar_driver_shifted(child_definition, child_expanded, child_list_entries)
+        and _scalar_driver_shifted(
+            child_definition,
+            child_expanded,
+            child_list_entries,
+            _per_entry_variable(child_cost, device),
+        )
     ):
         # A scalar cost_driver the composing step overrode (H3's
         # num_frames at 345 against a default of 124, say) is the
@@ -487,6 +511,7 @@ class _ChildTotals:
         self.minutes = minutes
         self.partial = partial
         self.unpriced = unpriced
+        self.unpriced_children = []
         self.had_child = False
         self.all_observed = True
         self.runs = []
@@ -503,6 +528,7 @@ class _ChildTotals:
         if child["minutes"] is None:
             self.partial = True
             self.unpriced.append(path)
+            self.unpriced_children.append(path)
             return
         self.bases.append((child["basis"], child.get("measured_on")))
         if self.minutes is not None:
@@ -517,8 +543,12 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
     partial = totals.partial
     unpriced = totals.unpriced
     if minutes is None:
+        # No number to be partial about - but a composed child that went
+        # unpriced is the reason there is none, and an empty list gave the
+        # caller nothing to act on (#655). The parent's own id is dropped:
+        # it is only ever a contributor to a total that exists.
         partial = False
-        unpriced = []
+        unpriced = list(totals.unpriced_children)
     top_basis = own["basis"]
     top_measured_on = own["measured_on"]
     top_runs = None

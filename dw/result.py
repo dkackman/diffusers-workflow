@@ -1,5 +1,6 @@
 import os
 import time
+import numpy as np
 import torch
 import json
 import logging
@@ -22,6 +23,7 @@ from .events import emit_log, emit_phase, emit_warning
 from .media_types import (
     AudioTrack,
     AudioVideo,
+    JsonRecord,
     Selected,
     fit_codec_padding,
     sample_axis,
@@ -57,6 +59,11 @@ DEFAULT_AUDIO_SAMPLE_RATE = 44100
 # says - a diffusers convention old enough that changing it would restate
 # every existing workflow's output
 DEFAULT_VIDEO_FPS = 8
+# imageio's default macroblock (16) rescales a frame whose sides aren't
+# multiples of 16 - a 640x360 video was written 640x368. yuv420p needs only
+# even sides, so a frame is saved at its own size and an odd side grows by
+# one pixel
+VIDEO_MACRO_BLOCK = 2
 
 
 # Result definition keys passed through to soundfile - encoding quality controls
@@ -82,6 +89,26 @@ def _refuse_scalar_artifact(artifact, file_base_name):
             f"'{file_base_name}' is a {type(artifact).__name__} ({artifact!r}), "
             "not an artifact - a 'result' block cannot save it"
         )
+
+
+def _frames_for_export_to_video(frames):
+    """Frames `export_to_video` reads correctly.
+
+    It scales ndarray frames by 255 as if they were floats in [0, 1], so uint8
+    frames (what `frames_as_array` returns) wrap modulo 256 into a colour
+    negative (#679). uint8 arrays go through PIL, which it writes as they are.
+    """
+    from PIL import Image
+
+    if isinstance(frames, np.ndarray) and frames.dtype == np.uint8:
+        return [Image.fromarray(frame) for frame in frames]
+    if (
+        isinstance(frames, (list, tuple))
+        and frames
+        and all(isinstance(f, np.ndarray) and f.dtype == np.uint8 for f in frames)
+    ):
+        return [Image.fromarray(frame) for frame in frames]
+    return frames
 
 
 class Result:
@@ -391,6 +418,15 @@ class Result:
 
         _refuse_scalar_artifact(artifact, file_base_name)
 
+        if isinstance(artifact, JsonRecord):
+            # Data riding beside the step's media, saved whole whatever the
+            # step's content type - never exploded key by key below
+            output_path = output_file_path(output_dir, f"{file_base_name}.json")
+            logger.info(f"Saving JSON record to {output_path}")
+            with open(output_path, "w") as file:
+                file.write(json.dumps(artifact, indent=4))
+            return [output_path]
+
         if isinstance(artifact, dict):
             return self._save_mapping_artifact(
                 output_dir, artifact, file_base_name, content_type, extension
@@ -534,7 +570,12 @@ class Result:
         if isinstance(artifact, AudioVideo):
             self.save_audio_video(artifact, output_path, content_type)
         else:
-            export_to_video(artifact, output_path, fps=self.video_fps(artifact))
+            export_to_video(
+                _frames_for_export_to_video(artifact),
+                output_path,
+                fps=self.video_fps(artifact),
+                macro_block_size=VIDEO_MACRO_BLOCK,
+            )
 
     def _write_audio_file(
         self, output_dir, artifact, file_base_name, content_type, extension, output_path
@@ -791,7 +832,16 @@ class Result:
                 audio_sample_rate=sample_rate if audio is not None else None,
                 video_chunks_number=len(artifact.frames),
             )
-            artifact.frames.cleanup()
+            segmented = artifact.frames
+            segmented.cleanup()
+            # A later step naming this result reads the saved file back as
+            # frames: the segment files are gone (or not the whole video) and
+            # len(segmented) is the segment count, not the frame count
+            from .pipeline_processors.chain import SavedFrames
+
+            artifact.frames = SavedFrames(
+                output_path, segmented.frame_count, segmented.cleaned
+            )
             return
 
         reason = None
@@ -809,7 +859,12 @@ class Result:
             # concatenations - so it logs quietly; losing audio we do have warns
             log = logger.debug if audio is None else logger.warning
             log(f"Saving {output_path} without its audio because {reason}")
-            export_to_video(artifact.frames, output_path, fps=fps)
+            export_to_video(
+                _frames_for_export_to_video(artifact.frames),
+                output_path,
+                fps=fps,
+                macro_block_size=VIDEO_MACRO_BLOCK,
+            )
             return
 
         logger.debug(f"Muxing audio at {sample_rate}Hz into {output_path}")

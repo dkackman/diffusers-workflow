@@ -16,6 +16,7 @@ import os
 import pytest
 
 from dw.server.job_history import JobHistory
+from dw.server.job_record import Job
 from dw.server.observed_cost import (
     ObservedCosts,
     declared_drivers,
@@ -500,10 +501,11 @@ class TestOffTheJobRow:
         running on CUDA - the silent null this field exists to replace. This
         asserts the symbols resolve rather than that any particular card is
         present, since the suite runs on CUDA, MPS and CPU."""
-        from dw import device_memory_stats, get_device, get_device_type
+        from dw import get_device, get_device_type
+        from dw.devices import card_name
 
         assert callable(get_device) and callable(get_device_type)
-        assert "device_name" in device_memory_stats()
+        assert callable(card_name)
 
         kind, _card = ObservedCosts(None).device()
         assert kind == get_device_type(get_device())
@@ -699,6 +701,45 @@ class TestTheCatalogsDriversAreReal:
             missing.append(relative)
         assert missing == []
 
+    def test_a_per_entry_list_is_a_driver(self):
+        """#763: a `per_entry` rate prices the run by its list's length, so
+        the observed bucket must key on that length too - otherwise runs at
+        one length shadow the estimate for every other."""
+        missing = []
+        for path in sorted(
+            glob.glob(
+                os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
+            )
+        ):
+            with open(path, encoding="utf-8") as handle:
+                definition = json.load(handle)
+            drivers = definition.get("cost_drivers") or []
+            for entry in definition.get("cost") or []:
+                per = entry.get("per_entry") if isinstance(entry, dict) else None
+                if per and per.get("variable") not in drivers:
+                    missing.append(os.path.relpath(path, REPO_ROOT))
+        assert missing == []
+
+    def test_observed_figure_is_bucketed_by_list_length(self):
+        from dw.server.observed_cost import observed_for
+
+        definition = {
+            "variables": {"windows": [{}, {}, {}]},
+            "cost_drivers": ["windows"],
+        }
+        rows = [
+            {
+                "manifest": "[]",
+                "arguments": json.dumps({"windows": [{}, {}, {}]}),
+                "duration": 600,
+                "had_load": True,
+                "events_at_cap": False,
+                "finished_at": 1,
+            }
+        ]
+        assert observed_for(definition, rows, arguments={"windows": [{}] * 3})
+        assert observed_for(definition, rows, arguments={"windows": [{}] * 5}) is None
+
     def test_the_minimax_templates_declare_drivers(self):
         """#91's report was about these specifically."""
         found = glob.glob(
@@ -780,3 +821,157 @@ class TestTheBucketAPlanAsksFor:
 
         assert observed["cold_minutes"] == 20.0
         assert observed["drivers"] == {"shots": 4}
+
+
+class TestByCard:
+    """#462: a row names the card it ran on, and a figure counts only the
+    rows from the card this server runs on - a 3090 run says nothing about a
+    4090 estimate, whichever index either had."""
+
+    CARD = "NVIDIA GeForce RTX 3090"
+
+    @staticmethod
+    def _history(tmp_path, devices):
+        """Rows as a server before #693 wrote them - the `device` label
+        alone - then the history reopened, so every row reaches the reader
+        through the migration's backfill."""
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        with history._connect() as connection:
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_ordinal")
+            connection.execute("ALTER TABLE jobs DROP COLUMN device_card")
+            for index, device in enumerate(devices):
+                connection.execute(
+                    "INSERT INTO jobs (id, status, started_at, finished_at,"
+                    " arguments, manifest, events, workflow_name, device)"
+                    " VALUES (?,?,?,?,?,?,?,?,?)",
+                    (
+                        f"job-{index}",
+                        "succeeded",
+                        0.0,
+                        60.0,
+                        "{}",
+                        "[]",
+                        "[]",
+                        "templates/x",
+                        device,
+                    ),
+                )
+        return JobHistory(tmp_path / "jobs.sqlite")
+
+    def _costs(self, history, monkeypatch, default):
+        monkeypatch.setattr("dw.devices.is_default_device", lambda device=None: default)
+        costs = ObservedCosts(history)
+        # What device() would have read from torch on a 3090 box
+        costs._device = ("cuda", self.CARD)
+        costs._card = self.CARD
+        return costs
+
+    def test_only_rows_from_this_card_count_whichever_index_they_had(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(
+            tmp_path,
+            [
+                "cuda:0 NVIDIA GeForce RTX 4090",
+                "cuda:0 NVIDIA GeForce RTX 4090",
+                "cuda:1 NVIDIA GeForce RTX 3090",
+            ],
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        observed = costs.observed("templates/x", workflow())
+
+        assert observed["runs"] == 1
+
+    def test_a_card_with_no_rows_of_its_own_has_no_figure(self, tmp_path, monkeypatch):
+        history = self._history(
+            tmp_path,
+            ["cuda:0 NVIDIA GeForce RTX 4090", "cuda:0 NVIDIA GeForce RTX 4090"],
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow()) is None
+
+    def test_rows_from_before_jobs_carried_a_device_count_on_the_default_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(
+            tmp_path, [None, None, "cuda:0 NVIDIA GeForce RTX 4090"]
+        )
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 2
+
+    def test_rows_from_before_jobs_carried_a_device_do_not_count_off_the_default_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = self._history(tmp_path, [None, None, "cuda:1 " + self.CARD])
+        costs = self._costs(history, monkeypatch, default=False)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 1
+
+    def _two_card_costs(self, tmp_path, monkeypatch, devices):
+        names = {
+            "cuda:0": "NVIDIA GeForce RTX 3090",
+            "cuda:1": "NVIDIA GeForce RTX 4090",
+        }
+        monkeypatch.setattr("dw.devices.card_name", lambda device=None: names[device])
+        monkeypatch.setattr(
+            "dw.devices.is_default_device", lambda device=None: device == "cuda:0"
+        )
+        costs = ObservedCosts(self._history(tmp_path, devices))
+        costs._device = ("cuda", names["cuda:0"])
+        costs._card = names["cuda:0"]
+        return costs
+
+    def test_a_named_card_quotes_only_its_own_runs(self, tmp_path, monkeypatch):
+        costs = self._two_card_costs(
+            tmp_path,
+            monkeypatch,
+            [
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:0 NVIDIA GeForce RTX 3090",
+                "cuda:1 NVIDIA GeForce RTX 4090",
+            ],
+        )
+
+        on_second = costs.observed("templates/x", workflow(), card="cuda:1")
+        on_first = costs.observed("templates/x", workflow(), card="cuda:0")
+        default = costs.observed("templates/x", workflow())
+
+        assert on_second["runs"] == 1
+        assert on_second["device"] == "cuda"
+        assert on_second["name"] == "NVIDIA GeForce RTX 4090"
+        assert on_first["runs"] == 3
+        assert on_first["name"] == "NVIDIA GeForce RTX 3090"
+        # No card named: the server's own, as before
+        assert default["runs"] == 3
+
+    def test_a_named_card_with_no_runs_of_its_own_has_no_figure(
+        self, tmp_path, monkeypatch
+    ):
+        costs = self._two_card_costs(
+            tmp_path, monkeypatch, ["cuda:0 NVIDIA GeForce RTX 3090"]
+        )
+
+        assert costs.observed("templates/x", workflow(), card="cuda:1") is None
+        assert costs.observed("templates/x", workflow(), card="cuda:0")["runs"] == 1
+
+    def test_a_row_recorded_with_the_fields_counts_by_its_card(
+        self, tmp_path, monkeypatch
+    ):
+        history = JobHistory(tmp_path / "jobs.sqlite")
+        for job_id, ordinal, card in [
+            ("a", "cuda:1", self.CARD),
+            ("b", "cuda:0", "NVIDIA GeForce RTX 4090"),
+        ]:
+            job = Job({"workflow_name": "x", "catalog_name": "templates/x"})
+            job.id = job_id
+            job.status = "succeeded"
+            job.started_at, job.finished_at = 0.0, 60.0
+            job.device_ordinal, job.device_card = ordinal, card
+            history.record(job)
+        costs = self._costs(history, monkeypatch, default=True)
+
+        assert costs.observed("templates/x", workflow())["runs"] == 1

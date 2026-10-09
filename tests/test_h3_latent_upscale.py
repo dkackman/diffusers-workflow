@@ -469,3 +469,38 @@ class TestRegistration:
 
 if __name__ == "__main__":
     pytest.main([__file__, "-v"])
+
+    def test_the_lms_upscaler_is_read_from_its_folder_at_its_pinned_commit(
+        self, monkeypatch, tmp_path
+    ):
+        from safetensors.torch import save_file
+
+        from dw.tasks import h3_latent_upscaler_model
+
+        captured = {}
+        weights_path = tmp_path / "weights.safetensors"
+        save_file(LatentResizer3D(channels=64).state_dict(), str(weights_path))
+        monkeypatch.setattr(
+            h3_latent_upscaler_model,
+            "LatentResizer3D",
+            lambda: LatentResizer3D(channels=64),
+        )
+
+        def fake_hf_hub_download(repo_id, filename, subfolder, revision):
+            captured.update(subfolder=subfolder, revision=revision)
+            return str(weights_path)
+
+        monkeypatch.setattr("huggingface_hub.hf_hub_download", fake_hf_hub_download)
+
+        hlu._load_upscaler(
+            "cpu", hlu.LMS_UPSCALER_REPO, "h3_upscaler_lms_v0.1.safetensors"
+        )
+        assert captured == {
+            "subfolder": "latent_upscaler",
+            "revision": "849fb3d4f434f2e9b4a4d4f7253471bf5e6719f9",
+        }
+        # another file in that repo is not the pinned one
+        hlu._load_upscaler(
+            "cpu", hlu.LMS_UPSCALER_REPO, "h3_upscaler_lms_v0.1_fp32.safetensors"
+        )
+        assert captured == {"subfolder": None, "revision": None}

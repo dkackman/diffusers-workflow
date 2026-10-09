@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import api_path, project
+from dw_mcp.client import DwApiError, api_path, project
 
 
 def list_workflows(
@@ -96,10 +96,22 @@ def get_workflow(client, name, variables_only=False):
     read one integer (2026-09-11). Long defaults come back cut to their
     first 200 characters, with the names of the cut ones in `truncated`,
     including strings inside a list default, named like `shots[0].prompt`.
+
+    The full form also carries `observed` when this box has run the
+    workflow (#786): the definition endpoint serves the file as stored, so
+    the block is read from the variables route and added alongside.
     """
+    variables_path = api_path("api", "workflows", name, "variables")
     if variables_only:
-        return client.get_json(api_path("api", "workflows", name, "variables"))
-    return client.get_json(api_path("api", "workflows", name))
+        return client.get_json(variables_path)
+    try:
+        observed = client.get_json(variables_path).get("observed")
+    except DwApiError:
+        observed = None
+    definition = client.get_json(api_path("api", "workflows", name))
+    if observed and isinstance(definition, dict):
+        definition["observed"] = observed
+    return definition
 
 
 def get_schema(client, section=None):
@@ -148,24 +160,25 @@ def list_models(client):
     return client.get_json("/api/models")
 
 
-def get_memory(client):
-    """Worker VRAM/RAM stats - the first thing to check on an OOM."""
-    return client.get_json("/api/memory")
+def get_memory(client, device=None):
+    """Worker VRAM/RAM stats - the first thing to check on an OOM. With
+    `device`, that card's alone."""
+    params = {"device": device} if device else None
+    return client.get_json("/api/memory", params=params)
 
 
-def clear_memory(client):
-    """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-    immediately rather than waiting for the next job to evict one model
-    for another. Refused with a 409 while a job is running or queued -
-    the queue is FIFO, so retry once it finishes rather than expecting
-    this call to wait for it."""
-    return client.post_json("/api/memory/clear")
+def clear_memory(client, device=None):
+    """Drop every loaded pipeline and the step cache on each idle card -
+    `device`'s alone when one is named. A card running a job is skipped;
+    refused with a 409 when no card asked about is idle."""
+    params = {"device": device} if device else None
+    return client.post_json("/api/memory/clear", params=params)
 
 
 def get_health(client):
     """Server liveness, plus what answered: version, device, whether a
-    model process is currently resident, the job running now and how many
-    are queued. `worker_alive: false` is the normal idle state on a server
+    model process is currently resident, the job running now (`workers`: one entry per
+    card, each with its current_job) and how many are queued. `worker_alive: false` is the normal idle state on a server
     that hasn't run a job yet - not a degraded server."""
     return client.get_json("/api/health")
 

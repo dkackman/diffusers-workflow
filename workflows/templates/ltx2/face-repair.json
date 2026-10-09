@@ -1,0 +1,263 @@
+{
+    "id": "LTX2FaceRepair",
+    "description": "Repairs small, broken faces in a clip from the asset library - the far faces of a wide shot that the model rendered as a smear - and leaves everything else alone. 'crop' (crop_face_track) finds and tracks the clip's main face, smooths the track, and cuts a 'crop_size' square around it on every frame, 'padding' face-widths of context on each side; 'refine' (LTX2RefinePipeline) re-renders those crops at the same size over a three-sigma schedule; 'pasted' (paste_face_track) feathers each repaired crop back into the source at the track's box, colour-matched to it. How much each frame is repaired comes from the face's size: full strength while the face is at most 'gate_full' of the frame's width, fading to none at 'gate_zero', so a near or medium face (and a clip with no face) comes back as the source. 'strength' is the refine's one knob: an integer 0-4 that picks one of five schedules lem-tuned on face crops, from 0 (lightest - the face stays close to the smear) to 4 (re-invented - sharp, but hair and clothing can drift); default 2, a defined face that keeps the person's colouring and dress. An out-of-range 'strength' is refused by the first step, before any pipeline loads. Replace the default prompt with a description of the person (hair, clothing, lighting) to hold identity at the higher strengths. The soundtrack, frame rate and shots are the source's own: the repaired picture is paired with them in final/, and the crops and refined crops are saved to intermediate/.",
+    "summary": "Repairs a wide shot's small, smeared face in place at strength 0-4; the rest and the soundtrack kept.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.0
+        }
+    ],
+    "cost_drivers": [
+        "crop_size"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:clip.mp4",
+        "prompt": "A sharp, detailed close-up of the person in frame: a clear, natural face with defined eyes, nose and mouth, the same clothing, lighting and motion, steady and photographic.",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "strength": 2,
+        "crop_size": 512,
+        "padding": 1.5,
+        "gate_full": 0.03,
+        "gate_zero": 0.06,
+        "feather": 0.3,
+        "frame_rate": 24.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "crop_size": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "the crops are the LTX-2.5 refine's frame size, and its pipelines refuse a size not divisible by 32 outright, so it is checked here before anything runs; the crop step declares LTX-2.5's grid (modulus 8, remainder 1, multiple 32), so the crop count is padded to 8 * n + 1 frames"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "ladder",
+            "task": {
+                "command": "select",
+                "arguments": {
+                    "candidates": [
+                        {
+                            "sigmas": [
+                                0.65,
+                                0.45,
+                                0.2
+                            ],
+                            "noise_scale": 0.65
+                        },
+                        {
+                            "sigmas": [
+                                0.75,
+                                0.55,
+                                0.3
+                            ],
+                            "noise_scale": 0.75
+                        },
+                        {
+                            "sigmas": [
+                                0.85,
+                                0.65,
+                                0.4
+                            ],
+                            "noise_scale": 0.85
+                        },
+                        {
+                            "sigmas": [
+                                0.9,
+                                0.72,
+                                0.45
+                            ],
+                            "noise_scale": 0.9
+                        },
+                        {
+                            "sigmas": [
+                                0.95,
+                                0.8,
+                                0.5
+                            ],
+                            "noise_scale": 0.95
+                        }
+                    ],
+                    "scores": [
+                        0,
+                        1,
+                        2,
+                        3,
+                        4
+                    ],
+                    "rule": "index",
+                    "index": "variable:strength"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "save": false
+            }
+        },
+        {
+            "name": "crop",
+            "task": {
+                "command": "crop_face_track",
+                "arguments": {
+                    "clip": "variable:source_video",
+                    "crop_size": "variable:crop_size",
+                    "padding": "variable:padding",
+                    "gate_full": "variable:gate_full",
+                    "gate_zero": "variable:gate_zero",
+                    "modulus": 8,
+                    "remainder": 1,
+                    "multiple": 32
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "refine",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        },
+                        "duration_head": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "video": "previous_result:crop.crops",
+                    "noise_scale": "previous_result:ladder.noise_scale",
+                    "sigmas": "previous_result:ladder.sigmas",
+                    "width": "variable:crop_size",
+                    "height": "variable:crop_size",
+                    "num_frames": null,
+                    "frame_rate": "variable:frame_rate",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "pasted",
+            "task": {
+                "command": "paste_face_track",
+                "arguments": {
+                    "clip": "variable:source_video",
+                    "repaired": "previous_result:refine",
+                    "track": "previous_result:crop.track",
+                    "feather": "variable:feather"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

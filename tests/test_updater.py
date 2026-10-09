@@ -8,36 +8,54 @@ import sys
 from dw.server.updater import (
     DIFFUSERS_GIT_URL,
     PYPI_PACKAGE,
-    build_pip_args,
+    build_pip_commands,
     release_floor,
 )
 
 
-class TestBuildPipArgs:
+class TestBuildPipCommands:
     def test_default_tracks_git_head(self):
-        args = build_pip_args()
-        assert args == [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            DIFFUSERS_GIT_URL,
+        commands = build_pip_commands()
+        assert commands == [
+            [
+                sys.executable,
+                "-m",
+                "pip",
+                "install",
+                "--force-reinstall",
+                "--no-deps",
+                DIFFUSERS_GIT_URL,
+            ],
+            [sys.executable, "-m", "pip", "install", PYPI_PACKAGE],
         ]
 
     def test_commit_pins_the_git_install(self):
-        args = build_pip_args(commit="abc1234")
-        assert args == [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            f"{DIFFUSERS_GIT_URL}@abc1234",
-        ]
+        commands = build_pip_commands(commit="abc1234")
+        assert commands[0][-1] == f"{DIFFUSERS_GIT_URL}@abc1234"
+
+    def test_a_git_install_replaces_an_install_of_the_same_version(self):
+        """diffusers main keeps one dev version string for a whole release
+        cycle, so `--upgrade` saw the newer commit as already satisfied and
+        left the old one installed while reporting success (#663). The git
+        install is forced, and without its dependencies - forcing those
+        would reinstall torch."""
+        for commands in (build_pip_commands(), build_pip_commands(commit="abc1234")):
+            install = commands[0]
+            assert "--force-reinstall" in install
+            assert "--no-deps" in install
+            assert "--upgrade" not in install
+
+    def test_a_git_install_then_fills_in_new_dependencies(self):
+        """The forced install skipped dependencies; a plain install of the
+        package name (no URL, so no second clone, and no --upgrade, so the
+        git build stays) adds whatever the new commit requires."""
+        follow_up = build_pip_commands()[1]
+        assert follow_up == [sys.executable, "-m", "pip", "install", PYPI_PACKAGE]
 
     def test_revert_installs_the_pinned_release_without_git(self):
-        args = build_pip_args(revert=True)
+        commands = build_pip_commands(revert=True)
+        assert len(commands) == 1
+        args = commands[0]
         assert args[:4] == [sys.executable, "-m", "pip", "install"]
         target = args[4]
         assert target.startswith(f"{PYPI_PACKAGE}==")
@@ -47,10 +65,11 @@ class TestBuildPipArgs:
     def test_revert_ignores_commit(self):
         """revert wins if both were somehow passed through - the route
         itself rejects this combination before start() is ever called, but
-        build_pip_args stays defensively unambiguous."""
-        args = build_pip_args(commit="abc1234", revert=True)
-        assert "git+" not in args[-1]
-        assert args[-1] == f"{PYPI_PACKAGE}=={release_floor()}"
+        build_pip_commands stays defensively unambiguous."""
+        commands = build_pip_commands(commit="abc1234", revert=True)
+        assert len(commands) == 1
+        assert "git+" not in commands[0][-1]
+        assert commands[0][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
 
 
 class TestReleaseFloor:
@@ -85,51 +104,64 @@ class TestReleaseFloor:
 
 
 class TestDiffusersUpdaterRunFn:
-    """The default _run_fn sanitizes and runs the built argument list -
+    """The default _run_fn sanitizes and runs the built commands in order -
     verified here with subprocess.run mocked out, never actually invoked."""
 
-    def test_run_pip_invokes_subprocess_with_built_args(self, monkeypatch):
+    def _fake_run(self, monkeypatch, returncodes=None):
         from types import SimpleNamespace
-        from dw.server.updater import DiffusersUpdater
 
-        captured = {}
+        calls = []
+        codes = list(returncodes or [])
 
         def fake_run(args, **kwargs):
-            captured["args"] = args
-            captured["kwargs"] = kwargs
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
+            calls.append((args, kwargs))
+            code = codes.pop(0) if codes else 0
+            return SimpleNamespace(
+                returncode=code, stdout=f"out{len(calls)}", stderr=f"err{len(calls)}"
+            )
 
         monkeypatch.setattr("dw.server.updater.subprocess.run", fake_run)
+        return calls
+
+    def test_run_pip_invokes_subprocess_with_built_commands(self, monkeypatch):
+        from dw.server.updater import DiffusersUpdater
+
+        calls = self._fake_run(monkeypatch)
 
         result = DiffusersUpdater._run_pip(commit="deadbee")
         assert result.returncode == 0
-        assert captured["args"] == [
-            sys.executable,
-            "-m",
-            "pip",
-            "install",
-            "--upgrade",
-            f"{DIFFUSERS_GIT_URL}@deadbee",
-        ]
-        # shell=True is never passed - subprocess.run defaults to shell=False,
-        # and the call here never overrides it
-        assert captured["kwargs"].get("shell", False) is False
-        assert captured["kwargs"]["capture_output"] is True
-        assert captured["kwargs"]["text"] is True
+        assert [args for args, _ in calls] == build_pip_commands(commit="deadbee")
+        for _, kwargs in calls:
+            # shell=True is never passed - subprocess.run defaults to
+            # shell=False, and the call here never overrides it
+            assert kwargs.get("shell", False) is False
+            assert kwargs["capture_output"] is True
+            assert kwargs["text"] is True
 
-    def test_run_pip_revert_invokes_subprocess_with_release_pin(self, monkeypatch):
-        from types import SimpleNamespace
-
-        captured = {}
-
-        def fake_run(args, **kwargs):
-            captured["args"] = args
-            return SimpleNamespace(returncode=0, stdout="", stderr="")
-
-        monkeypatch.setattr("dw.server.updater.subprocess.run", fake_run)
-
+    def test_run_pip_keeps_every_command_output(self, monkeypatch):
         from dw.server.updater import DiffusersUpdater
 
+        self._fake_run(monkeypatch)
+
+        result = DiffusersUpdater._run_pip()
+        assert "out1" in result.stdout and "out2" in result.stdout
+        assert "err1" in result.stderr and "err2" in result.stderr
+
+    def test_a_failed_git_install_stops_before_the_dependency_pass(self, monkeypatch):
+        from dw.server.updater import DiffusersUpdater
+
+        calls = self._fake_run(monkeypatch, returncodes=[1])
+
+        result = DiffusersUpdater._run_pip()
+        assert result.returncode == 1
+        assert len(calls) == 1
+
+    def test_run_pip_revert_invokes_subprocess_with_release_pin(self, monkeypatch):
+        from dw.server.updater import DiffusersUpdater
+
+        calls = self._fake_run(monkeypatch)
+
         DiffusersUpdater._run_pip(revert=True)
-        assert captured["args"][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
-        assert "git+" not in captured["args"][-1]
+        assert len(calls) == 1
+        assert calls[0][0][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
+        assert "git+" not in calls[0][0][-1]

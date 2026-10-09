@@ -25,12 +25,18 @@ from ..assets import (
     is_asset_reference,
     resolve_asset_reference,
 )
-from .. import references, validation
+from .. import get_device_type, references, validation
 from ..plan import build_plan
 from ..prompts import resolve_prompt_reference
-from ..runs import is_output_reference, resolve_output_reference
+from ..runs import (
+    activate_output_root,
+    deactivate_output_root,
+    is_output_reference,
+    resolve_output_reference,
+)
 from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
+from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .deps import ceiling_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
@@ -73,6 +79,9 @@ class Admission:
     # rather than the arguments' - validate names the checked arguments only
     # for the latter
     schema_errors: bool = False
+    # What a card must hold to run it, (gb, hard) or None - the worker pool
+    # dispatches on it (dw/vram_estimate.py required_vram_gb, #462)
+    vram_need: Optional[tuple] = None
 
     @property
     def ok(self):
@@ -102,11 +111,14 @@ def admit(
     prompt_library,
     supplied=True,
     plan_for=None,
+    capacity_gb=None,
+    capacity_label=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
     used to leave it off for its warnings). `plan_for`, a callable taking
-    the Workflow, is called inside the same scope when the caller needs the
+    the Workflow and the admission's `vram_need` (the need dispatch routes
+    by), is called inside the same scope when the caller needs the
     plan (validate always; submit only for a bound acknowledgement) and only
     when the request is admissible.
 
@@ -141,11 +153,17 @@ def admit(
 
     # validation_errors() and the warnings resolve 'asset:' references
     # themselves (dissolve_frame_errors, video_size_errors,
-    # slice_past_end_warnings, shot_span_warnings) through dw.assets' default
+    # window_count_errors, slice_past_end_warnings, shot_span_warnings) through dw.assets' default
     # discovery, which a real deployment's DW_ASSET_DIR pins to the default
     # workspace - so this request's own workspace is the active library for
-    # every check, the same ContextVar the worker activates before it runs
+    # every check, the same ContextVar the worker activates before it runs.
+    # Its outputs are the active root for the same reason: an 'output:' source
+    # a check probes otherwise resolves under the default workspace's outputs,
+    # misses, and the check stays silent (#666)
     token = activate_asset_dir(workspace.assets) if workspace.assets else None
+    output_token = (
+        activate_output_root(workspace.outputs) if workspace.outputs else None
+    )
     try:
         try:
             # Checked against the caller's arguments, not the document alone:
@@ -155,11 +173,16 @@ def admit(
             # context expands lazily, inside validation_errors' gates, so an
             # expansion failure is still answered there as a finding
             context = validation.workflow_context(
-                candidate, checked, ceiling_index=ceiling_index
+                candidate,
+                checked,
+                ceiling_index=ceiling_index,
+                capacity_gb=capacity_gb,
+                capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
             raise _validator_failure(e) from e
+        admission.vram_need = _vram_need(candidate, context, arguments)
         if admission.errors:
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
@@ -189,11 +212,38 @@ def admit(
             run_checks(context, validation.WARNING_CHECKS, WARNING, loud=admission.ok)
         )
         if plan_for is not None and admission.ok:
-            admission.plan = plan_for(candidate)
+            admission.plan = plan_for(candidate, admission.vram_need)
         return admission
     finally:
+        if output_token is not None:
+            deactivate_output_root(output_token)
         if token is not None:
             deactivate_asset_dir(token)
+
+
+def _vram_need(candidate, context, arguments):
+    """required_vram_gb over the definition the run will execute, or None
+    where it cannot be read - a need that cannot be computed dispatches the
+    job to any card rather than failing a request validation answered."""
+    try:
+        try:
+            definition = context.expanded
+        except Exception:
+            definition = None
+        if not isinstance(definition, dict):
+            definition = candidate.workflow_definition
+        # The context's memoized probe counts each guide clip's frames, as
+        # validate just did (#694)
+        return required_vram_gb(
+            definition,
+            arguments,
+            get_device_type(),
+            base_dir=context.base_dir,
+            probe=context.probe,
+        )
+    except Exception as e:
+        logger.debug(f"Could not compute the job's VRAM need: {e}")
+        return None
 
 
 def argument_reference_errors(
@@ -339,13 +389,28 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
+def pool_capacity(state):
+    """(GB, label) of the pool's largest card, for a declared vram_estimate's
+    ceiling; the label is what a refusal calls it. (None, None) leaves
+    workflow_context on the process's own device: a state without a manager
+    (validate-only embeddings) or a pool where no card's size could be read
+    (no torch, or the probe failed)."""
+    manager = getattr(state, "job_manager", None)
+    if manager is None or not hasattr(manager, "largest_ceiling"):
+        return None, None
+    return manager.largest_ceiling()
+
+
 def admit_for(state, workspace, **request):
     """`admit()` with this server's view of `workspace` - the asset and
     prompt search paths and the catalog's VRAM ceilings, which live on the
     app's state rather than in the request."""
+    capacity_gb, capacity_label = pool_capacity(state)
     return admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
+        capacity_gb=capacity_gb,
+        capacity_label=capacity_label,
         asset_library=resolution_library(state, workspace),
         prompt_library=server_prompt_library(state),
         **request,
@@ -365,7 +430,7 @@ def bound_plan_for(arguments, workspace):
     run these arguments execute, planned without asking the hub for
     sizes. None when it cannot be built, which the check refuses."""
 
-    def plan_for(candidate):
+    def plan_for(candidate, vram_need=None):
         try:
             from .. import get_device, get_device_type
 

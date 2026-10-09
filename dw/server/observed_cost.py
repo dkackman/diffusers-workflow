@@ -183,11 +183,10 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
     """This server's history for one workflow, as the `observed` block, or
     None when it has nothing comparable to report.
 
-    `rows` are that workflow's finished runs as `history_rows` yields them.
-    The device is the server's current one: the history holds no device
-    column, so a figure is about whatever accelerator this box has now - true
-    for every box that has not had its card swapped, and `runs`/`since` are
-    what let a reader notice if it has.
+    `rows` are that workflow's finished runs as `history_rows` yields them,
+    already narrowed to the server's current card (`ObservedCosts.observed`
+    does that by each row's `device`, #462). `device`/`device_name` name that
+    card in the block.
 
     `arguments` are the run being asked about, and they choose the bucket:
     the listing asks with none, so its figure is the one the *defaults* give
@@ -278,20 +277,23 @@ class ObservedCosts:
         self._mark = None
         self._rows = {}
         self._device = None
+        self._card = None
+        # (kind, card name, is the default card) per named card, read once
+        self._cards = {}
 
     def device(self):
         """The accelerator every figure here is about, as (type, card name).
 
         Computed once: it cannot change inside a process, and the listing is
         the agent's hot path - asking torch for the card's name on every call
-        would be a torch round trip per catalog read. The history holds no
-        device column, so this is the server's current accelerator rather
-        than the one each run used; a box whose card was swapped mid-history
-        is the one case that misreports, and `runs`/`since` are what let a
-        reader notice.
+        would be a torch round trip per catalog read. The card is the one
+        this server's worker runs on (`dw.serve --devices cuda:1` names
+        cuda:1, not whichever card is index 0), read by its ordinal from
+        dw/devices.py, and it is what `observed` buckets rows by.
         """
         if self._device is None:
-            from .. import device_memory_stats, get_device, get_device_type
+            from .. import get_device, get_device_type
+            from ..devices import card_name
 
             kind, card = None, None
             try:
@@ -299,17 +301,66 @@ class ObservedCosts:
             except Exception:
                 logger.debug("observed cost: could not read the device type")
             try:
-                # The card's marketing name, which only CUDA reports. Its
-                # absence is not the device's absence, so the two are asked
-                # for separately - one try around both let an ImportError on
-                # the second answer `device: null` for a box plainly running
-                # on CUDA, which is the silent-null shape this whole field
-                # exists to replace
-                card = device_memory_stats().get("device_name")
+                # Asked for separately: the name's absence is not the
+                # device's absence, and one try around both let a failure
+                # on the second answer `device: null` for a box plainly
+                # running on CUDA
+                card = card_name()
             except Exception:
                 logger.debug("observed cost: could not read the device name")
-            self._device = (kind, card)
+            self._card = card
+            # The block names the card only for CUDA, as it always has
+            self._device = (kind, card if kind == "cuda" else None)
         return self._device
+
+    def card(self, ordinal):
+        """A named card ('cuda:1') as (type, card name, whether it is the
+        box's default card) - what `observed(card=...)` prices for. Read
+        once per card, for the same reason `device` is."""
+        if ordinal not in self._cards:
+            from ..devices import card_name, is_default_device
+
+            kind = str(ordinal).split(":", 1)[0]
+            try:
+                name = card_name(ordinal)
+            except Exception:
+                logger.debug("observed cost: could not read %s's name", ordinal)
+                name = None
+            try:
+                default = is_default_device(ordinal)
+            except Exception:
+                default = True
+            self._cards[ordinal] = (kind, name, default)
+        return self._cards[ordinal]
+
+    def _on_this_card(self, rows, card=None):
+        """The rows that ran on the card this server runs on now, or on
+        `card` when one is named (#462).
+
+        A row names its card (`device_card`, "NVIDIA GeForce RTX 3090") and
+        counts when the card name matches, whichever index it had - a 3090
+        run tells a 3090 estimate, not a 4090 one. A row from before jobs
+        carried a device (no `device_ordinal`) ran on the box's default
+        card, so it counts only for that card."""
+        from ..devices import is_default_device
+
+        if card is not None:
+            _, name, default = self.card(card)
+        else:
+            self.device()
+            name = self._card
+            try:
+                default = is_default_device()
+            except Exception:
+                default = True
+        kept = []
+        for row in rows:
+            if row.get("device_ordinal") is None:
+                if default:
+                    kept.append(row)
+            elif row.get("device_card") == name:
+                kept.append(row)
+        return kept
 
     def refresh(self):
         """Bring the cached rows up to the table's watermark, once.
@@ -359,11 +410,22 @@ class ObservedCosts:
                 rows.extend(workspace_rows)
         return rows
 
-    def observed(self, name, definition, arguments=None, *, fresh=True, workspace=None):
-        rows = self.rows_for(name, fresh=fresh, workspace=workspace)
+    def observed(
+        self, name, definition, arguments=None, *, fresh=True, workspace=None, card=None
+    ):
+        """`name`'s `observed` block. `card` ('cuda:1') prices it for that
+        card - the one a plan's job would be dispatched to - rather than the
+        server's own, and names that card in the block."""
+        rows = self._on_this_card(
+            self.rows_for(name, fresh=fresh, workspace=workspace), card
+        )
         if not rows:
             return None
-        device, device_name = self.device()
+        if card is not None:
+            device, device_name, _ = self.card(card)
+            device_name = device_name if device == "cuda" else None
+        else:
+            device, device_name = self.device()
         try:
             return observed_for(
                 definition,

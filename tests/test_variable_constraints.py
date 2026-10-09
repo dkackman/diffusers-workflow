@@ -21,6 +21,7 @@ import pytest
 
 from dw.variable_constraints import (
     aligned,
+    aligned_down,
     entry_constraint_fields,
     apply_constraints,
     constraint_errors,
@@ -62,6 +63,30 @@ class TestTheGrid:
         assert aligned(130, H3) == 141
         assert snapped(130, H3) == 141
         assert violations(130, H3) == []
+
+    def test_the_floor_is_the_largest_grid_value_at_or_below(self):
+        """`aligned_down` is `aligned`'s floor - the longest render that
+        fits under a ceiling, which `plan_cuts` reads `max_frames` through."""
+        assert aligned_down(345, H3) == 345
+        assert aligned_down(344, H3) == 328
+        assert aligned_down(5, H3) == 5
+        assert aligned_down(4, H3) is None
+        assert aligned_down(100, {}) is None
+        # the remainder is normalised the same way `aligned` normalises it
+        odd = {"modulus": 17, "remainder": 22}
+        assert aligned(130, odd) == aligned(130, H3)
+        assert aligned_down(344, odd) == aligned_down(344, H3)
+
+    def test_plan_cuts_rounds_through_the_constraint_owner(self):
+        """`plan_cuts` gets its grid arithmetic from here, so a planned
+        `num_frames` is one the template's own constraint accepts."""
+        from dw.tasks import cuts
+
+        grid = {"modulus": 17, "remainder": 5, "min_frames": 124}
+        for lead, cut in ((0, 48), (12, 48), (12, 130), (0, 1)):
+            planned = cuts._render_length(grid, lead, cut)
+            assert planned == aligned(max(124, lead + cut), H3)
+            assert violations(planned, {**H3, "snap": None}) == []
 
     def test_the_range_holds_for_the_rounded_value(self):
         """What the pipeline does: `align_num_frames` snaps first and the
@@ -481,8 +506,14 @@ class TestTheCatalogsNumbersAreTheLibrarys:
             assert rule["min_frames"] == low, path
             assert rule["max_frames"] == high, path
             # The pipeline rounds up and warns; the constraint says so too,
-            # so the caller hears it before the run rather than in a log
-            assert rule["snap"] == "up", path
+            # so the caller hears it before the run rather than in a log.
+            # music-video is the named exception: its entries lay out
+            # start_frame, lead_frames and cut_frames against num_frames,
+            # so a rounded length would move the cuts - refused instead.
+            if path.endswith("music-video.json"):
+                assert "snap" not in rule, path
+            else:
+                assert rule["snap"] == "up", path
 
     def test_the_ltx2_frame_rule_is_the_pipelines(self):
         ltx = pytest.importorskip(
@@ -586,8 +617,17 @@ class TestTheCatalogReportsAnEntrysBound:
         )
 
     def test_a_list_with_no_constrained_field_carries_no_block(self):
-        """`music-video`'s entries take `prompt` and `start_frame`, neither
-        of which any rule reaches - so the key is absent rather than empty."""
+        """A list whose entries' fields no rule reaches carries no
+        `constraints` key rather than an empty one."""
+        from dw.server.catalog_shape import derive_catalog_metadata
+
+        definition = self.definition()
+        definition.pop("variable_constraints")
+        lists = derive_catalog_metadata(definition)["lists"]
+
+        assert "constraints" not in lists["shots"]
+
+    def test_music_video_reports_its_rule_without_a_snap(self):
         from dw.server.catalog_shape import derive_catalog_metadata
 
         path = os.path.join(
@@ -596,7 +636,7 @@ class TestTheCatalogReportsAnEntrysBound:
         with open(path, encoding="utf-8") as handle:
             lists = derive_catalog_metadata(json.load(handle))["lists"]
 
-        assert "constraints" not in lists["shots"]
+        assert lists["shots"]["constraints"]["num_frames"] == "17*n+5, 124-345"
 
 
 class TestValidationSeesTheSnappedValue:
@@ -651,3 +691,45 @@ def _values_under(node, key):
         for item in node:
             found.extend(_values_under(item, key))
     return found
+
+
+class TestH3SizeIsMultipleOf32:
+    """#789: the pipeline refuses an off-grid size after the weights load."""
+
+    def test_every_h3_template_with_a_size_declares_the_grid(self):
+        declared = {
+            (path, variable)
+            for path, variable, rule in declared_in_the_catalog()
+            if "minimax" in path
+            and variable in ("width", "height")
+            and rule["modulus"] == 32
+        }
+        for path in glob.glob(
+            os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json")
+        ):
+            with open(path, encoding="utf-8") as handle:
+                variables = json.load(handle).get("variables", {})
+            for name in ("width", "height"):
+                if name in variables:
+                    assert (path, name) in {
+                        (os.path.join(REPO_ROOT, p) if not os.path.isabs(p) else p, n)
+                        for p, n in declared
+                    } or any(
+                        p.endswith(os.path.basename(path)) and n == name
+                        for p, n in declared
+                    ), (path, name)
+
+    def test_music_video_refuses_272_before_a_run(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        errors = constraint_errors(
+            definition, {"height": 272, "width": 480}, supplied=("height", "width")
+        )
+        assert [e["path"] for e in errors] == ["arguments.height"]
+        errors = constraint_errors(
+            definition, {"height": 288, "width": 480}, supplied=("height", "width")
+        )
+        assert errors == []

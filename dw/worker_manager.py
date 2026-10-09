@@ -5,12 +5,22 @@ Handles starting, stopping, and communicating with the worker process
 that keeps models loaded in GPU memory.
 """
 
+import math
 import multiprocessing
 import queue as queue_module
 import logging
 import signal
+import sys
 import time
 from typing import Optional
+from . import device_capacity_gb, get_device
+from .devices import (
+    card_name,
+    device_ordinal,
+    label_of,
+    pinned_environment,
+    worker_environment,
+)
 from .worker import worker_main
 from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
 
@@ -27,8 +37,23 @@ WORKER_LIVENESS_POLL_SECONDS = 1.0
 class WorkerManager:
     """Manages the worker process lifecycle and communication."""
 
-    def __init__(self):
-        """Initialize worker manager with no active worker."""
+    def __init__(self, device: Optional[str] = None):
+        """Initialize worker manager with no active worker.
+
+        Args:
+            device: The card this manager's worker runs on, as the server
+                addresses it ('cuda:1'). None is the device dw runs on -
+                `get_device()`, read when the worker is spawned. A CUDA
+                device named with an index pins the worker to that card
+                (dw/devices.py)
+        """
+        self.device = device
+        self._device_fields = None
+        self._capacity_read = False
+        self._capacity_gb = None
+        self._ceiling_gb = None
+        # What set_oom_score_adj last wrote for the running process
+        self.oom_score_adj = None
         self.worker_process: Optional[multiprocessing.Process] = None
         self.command_queue: Optional[multiprocessing.Queue] = None
         self.result_queue: Optional[multiprocessing.Queue] = None
@@ -49,9 +74,28 @@ class WorkerManager:
                 target=worker_main,
                 args=(self.command_queue, self.result_queue, log_level),
             )
-            self.worker_process.start()
+            # Pinned in the parent: a spawned child copies os.environ at
+            # start(), and dw/__init__.py imports torch before anything in
+            # the child could set CUDA_VISIBLE_DEVICES itself
+            with pinned_environment(worker_environment(self.device or get_device())):
+                self.worker_process.start()
             self.worker_active = True
+            self.oom_score_adj = None
             logger.info("Worker process started")
+
+    def device_fields(self):
+        """This worker's card as a job record stores it - `("cuda:1",
+        "NVIDIA GeForce RTX 3090")`, the card None where it has no name -
+        read once, in the server process, which sees every card by its
+        ordinal."""
+        if self._device_fields is None:
+            ordinal = device_ordinal(self.device)
+            self._device_fields = (ordinal, card_name(ordinal))
+        return self._device_fields
+
+    def device_label(self):
+        """`"cuda:1 NVIDIA GeForce RTX 3090"` - the two fields as one label."""
+        return label_of(*self.device_fields())
 
     def shutdown_worker(self):
         """Gracefully shutdown worker process."""
@@ -193,3 +237,56 @@ class WorkerManager:
         handshake to attempt, just clear the tracking state."""
         self.worker_active = False
         self.worker_process = None
+
+    def pid(self):
+        """The worker process's pid while it is alive, else None."""
+        process = self.worker_process
+        if process is None or not process.is_alive():
+            return None
+        return process.pid
+
+    def _read_capacity(self):
+        """Measure the card once, in the server process, which sees every
+        card by its ordinal: a card does not change size."""
+        if not self._capacity_read:
+            self._capacity_read = True
+            capacity = device_capacity_gb(self.device)
+            if capacity:
+                self._capacity_gb = math.ceil(capacity)
+                self._ceiling_gb = round(capacity, 1)
+
+    def capacity_gb(self):
+        """What this worker's card holds, in the GB a catalog `cost` entry's
+        `vram_gb` is written in - the card's GiB rounded up, so a 3090
+        (23.6 GiB) is the "24" the catalog measured on - or None where the
+        card cannot be read."""
+        self._read_capacity()
+        return self._capacity_gb
+
+    def ceiling_gb(self):
+        """The most a declared `vram_estimate` may project on this card - its
+        GiB to one decimal (a 3090's 23.6), the figure admission's own
+        ceiling holds a projection to on a device no `cost` entry describes
+        (dw/vram_estimate.py `_entries_for`), so the two gates agree. Falls
+        back to capacity_gb when only that is known."""
+        self._read_capacity()
+        return self._ceiling_gb if self._ceiling_gb is not None else self._capacity_gb
+
+    def set_oom_score_adj(self, value):
+        """Ask the kernel's OOM killer to pick this worker ahead of anything
+        scored lower (Linux only; best effort). In a pool the worker started
+        later is scored higher, so a host-RAM squeeze kills the newer job
+        rather than whichever worker happens to be larger (#462). Raising a
+        process's own score needs no privilege. Returns whether it took."""
+        pid = self.pid()
+        if pid is None or not sys.platform.startswith("linux"):
+            return False
+        value = max(-1000, min(1000, int(value)))
+        try:
+            with open(f"/proc/{int(pid)}/oom_score_adj", "w") as file:
+                file.write(str(value))
+        except OSError as e:
+            logger.debug(f"Could not set oom_score_adj for worker {pid}: {e}")
+            return False
+        self.oom_score_adj = value
+        return True

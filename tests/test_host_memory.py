@@ -26,13 +26,18 @@ def test_fields_carry_the_payload_names():
     fields = host_memory.host_memory_fields()
     assert all(name.startswith("host_memory_") for name in fields)
     # every name reported is one the payload declares
-    assert set(fields) <= set(host_memory.FIELD_NAMES.values())
+    assert set(fields) <= set(host_memory.FIELD_NAMES.values()) | set(
+        host_memory.SPLIT_FIELD_NAMES.values()
+    )
 
 
 def test_a_reading_that_cannot_be_taken_is_absent_rather_than_null(monkeypatch):
     monkeypatch.setattr(host_memory, "_psutil_stats", lambda: {"rss_mb": None})
     monkeypatch.setattr(host_memory, "_proc_stats", lambda: {"rss_mb": None})
     monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: None)
+    # the Linux-only anon/file split reads /proc directly (#709); without the
+    # stub the test is green on macOS and red on CI
+    monkeypatch.setattr(host_memory, "rss_split_mb", lambda: {})
     assert host_memory.host_memory_fields() == {}
 
 
@@ -197,3 +202,16 @@ class TestReleasingHostCaches:
         monkeypatch.setattr(__import__("sys"), "platform", "darwin")
 
         assert host_memory.trim_host_memory() == 0.0
+
+
+def test_rss_split_reads_anon_and_file(tmp_path):
+    status = tmp_path / "status"
+    status.write_text("VmRSS:\t300 kB\nRssAnon:\t102400 kB\nRssFile:\t204800 kB\n")
+    assert host_memory.rss_split_mb(str(status)) == {"anon_mb": 100.0, "file_mb": 200.0}
+
+
+def test_rss_split_absent_without_the_split(tmp_path):
+    status = tmp_path / "status"
+    status.write_text("VmRSS:\t300 kB\n")
+    assert host_memory.rss_split_mb(str(status)) == {}
+    assert host_memory.rss_split_mb(str(tmp_path / "missing")) == {}

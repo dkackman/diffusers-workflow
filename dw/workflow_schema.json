@@ -69,7 +69,7 @@
             "$ref": "#/$defs/arguments"
         },
         "vram_estimate": {
-            "description": "A declared VRAM ceiling over this workflow's cost_drivers, checked against each 'cost' entry's 'vram_gb' in validate_workflow and again before a run starts. Never derived from a profiler - a maintainer's own reading of what a stage needs, the same way 'cost' itself is. Projected per pipeline step of the definition as it will run - variables substituted and every for_each expanded, so each member is projected with its own values: required_gb = base_gb + bytes_per_voxel * (product of voxel_variables' values) / 2^30 + gb_per_reference * (the step's 'references' entries whose from_file/from_previous_result is not null); a step projecting above any cost entry's vram_gb for that entry's device is refused, not warned, since the failure this guards is an OOM partway through a run that already spent minutes loading. Only the largest step past the ceiling is reported - for a for_each member, at the list entry it came from. 'voxel_variables' names the cost_drivers whose product drives the estimate - typically width, height and num_frames for a video template.",
+            "description": "A declared VRAM ceiling over this workflow's cost_drivers, checked against each 'cost' entry's 'vram_gb' in validate_workflow and again before a run starts. Never derived from a profiler - a maintainer's own reading of what a stage needs, the same way 'cost' itself is. Projected per pipeline step of the definition as it will run - variables substituted and every for_each expanded, so each member is projected with its own values: required_gb = base_gb + bytes_per_voxel * (product of voxel_variables' values) / 2^30 + gb_per_reference * (the step's 'references' entries whose from_file/from_previous_result is not null) + bytes_per_guide_voxel * (sum over the step's guides of snapped guide frames) * (product of the voxel_variables other than num_frames) / 2^30; a step projecting above any cost entry's vram_gb for that entry's device is refused, not warned, since the failure this guards is an OOM partway through a run that already spent minutes loading. Only the largest step past the ceiling is reported - for a for_each member, at the list entry it came from. 'voxel_variables' names the cost_drivers whose product drives the estimate - typically width, height and num_frames for a video template.",
             "type": "object",
             "required": ["base_gb", "bytes_per_voxel", "voxel_variables"],
             "properties": {
@@ -83,6 +83,7 @@
                     "description": "Names whose product is the voxel count the formula scales with. Each is read from the step's own pipeline arguments, else from the workflow's variables; a step where one is not a number is not projected."
                 },
                 "gb_per_reference": {"type": "number", "minimum": 0, "description": "GB of additional VRAM per reference the step passes - a reference-conditioned pipeline holds each one's encoding resident beside the latents. Every kind counts once; an entry whose media is null is dropped before the pipeline sees it and is not counted. Absent means references are not in the formula."},
+                "bytes_per_guide_voxel": {"type": "number", "minimum": 0, "description": "Bytes of additional VRAM per guide voxel - an H3 guide is encoded on the target canvas, so each one the step lays in (its own 'guides' whose video is not null, plus the one a continuity 'guide' chain appends) costs its snapped frame count times the product of the voxel_variables other than num_frames. A clip's frames are probed from its header; one that cannot be probed (a previous_result:, an unreadable file) is charged at the step's num_frames, the worst case. Absent means guides are not in the formula."},
                 "reason": {"type": "string"}
             },
             "additionalProperties": false
@@ -310,17 +311,34 @@
                     "minimum": 1
                 },
                 "match_audio": {
-                    "description": "Derive the segment count from the duration of the audio reference in this step's arguments, slicing it into frame-aligned per-segment chunks; the final video is muxed with the original, unsliced audio track.",
+                    "description": "Derive the segment count from the duration of this step's hold_audio track, or else its one audio reference, slicing it into frame-aligned per-segment chunks (each segment's hold_audio, or its audio reference); the final video is muxed with the original, unsliced audio track.",
                     "type": "boolean"
                 },
                 "continuity": {
-                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list.",
-                    "type": "string",
-                    "enum": [
-                        "last_frame",
-                        "last_segment"
+                    "description": "How continuity is carried from one segment into the next. 'last_frame' carries the segment's final frame as the next one's keyframe. 'last_segment' carries the segment itself - its frames and the soundtrack generated with them - as a video reference, which keeps motion, camera and voice across the seam instead of appearance alone; it needs a 'segment_argument' holding a references list. 'guide' (MiniMax-H3 t2va and fl2va only - guides stay off ref2va) lays the segment's last 'guide_frames' frames, with their audio when 'carry_audio', into the next at frame 0 as a guide, sets an fl2va keyframe to the guide's first frame, and trims the guide off again; 'trim_frames' and 'carry_frames' do not apply, and 'crossfade_ms' only when 'carry_audio' is false. Accepts a 'variable:' reference.",
+                    "anyOf": [
+                        {
+                            "type": "string",
+                            "enum": [
+                                "last_frame",
+                                "last_segment",
+                                "guide"
+                            ]
+                        },
+                        {
+                            "type": "string",
+                            "pattern": "^variable:"
+                        }
                     ],
                     "default": "last_frame"
+                },
+                "guide_frames": {
+                    "description": "'guide' only - frames of each segment's tail laid into the next as its frame-0 guide, and trimmed off it: 22 or 39 (whole-latent guide lengths), nothing else. Ignored by the other continuity modes. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "default": 22
                 },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
@@ -336,7 +354,7 @@
                     "minimum": 1
                 },
                 "carry_audio": {
-                    "description": "'last_segment' only - whether the carried video reference brings the soundtrack generated with it, which is what carries a voice across the seam. Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
+                    "description": "'last_segment' and 'guide' - whether the carry brings the soundtrack generated with it, which is what carries a voice across the seam (a guide holds it, so the seam is not crossfaded). Turn it off when the segments are already conditioned on a supplied audio track, as in a 'match_audio' chain.",
                     "type": "boolean",
                     "default": true
                 },
@@ -402,8 +420,12 @@
                     ]
                 },
                 "prompts": {
-                    "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)].",
-                    "type": "array",
+                    "description": "Per-segment prompt overrides; segment i uses prompts[min(i, len(prompts) - 1)]. Accepts a 'variable:' reference; a variable left null leaves every segment on the step's own 'prompt'.",
+                    "type": [
+                        "array",
+                        "string",
+                        "null"
+                    ],
                     "items": {
                         "type": "string"
                     },

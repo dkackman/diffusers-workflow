@@ -16,6 +16,8 @@ python -m dw.serve --workspace ~/studio
 python -m dw.serve --workspace ~/studio --examples-dir ~/src/diffusers-workflow/workflows
 python -m dw.serve --host 0.0.0.0 --token "some-long-random-string"   # reachable off this machine
 python -m dw.serve --host 0.0.0.0 --token "..." --mcp   # ...and drivable by an agent on another machine
+python -m dw.serve --devices cuda:1      # run the worker on the second card
+python -m dw.serve --devices cuda:0,cuda:1   # one worker per card, two jobs at once
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
@@ -25,6 +27,26 @@ Installed as a package, the same server is `dw-serve`. Interactive API docs
 The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
+
+### Choosing the card
+
+`--devices cuda:1` runs the worker on that card. The worker is pinned to it
+with `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker the
+card is the only one it can see; a bare `cuda`, or no flag at all, pins
+nothing and behaves as before. The `devices` setting is the standing form of
+the same choice, and the flag wins over it. A list (`--devices cuda:0,cuda:1`)
+runs one worker per card, each running one job at a time. A card named twice,
+or a bare `cuda` in a list of several, is refused at startup, as is a card the
+machine lacks, with the message naming the cards that are present
+(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...).
+
+Each job's record carries `device` - the card it ran on, as the server
+addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`), set when the job starts
+running and null for a job still queued and for jobs recorded before the
+field existed. Observed cost figures are bucketed by it: a figure counts the
+runs from cards of the same name as the one the server runs on now, so a
+3090's runs never inform a 4090's estimate. Rows from before jobs carried a
+`device` count only while the server is on the box's default card.
 
 ## The pages
 
@@ -165,7 +187,7 @@ agent from another machine, plus the queue across every workspace:
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
-| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. No parameters means every job, which is what the web UI polls |
+| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs). No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
@@ -177,8 +199,34 @@ agent from another machine, plus the queue across every workspace:
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
 
-One job runs at a time (it is one GPU); submissions queue in order, and
-the waiting portion of the queue can be reordered.
+Each worker runs one job at a time, so with one device (the default) one job
+runs at a time; submissions queue in order, and the waiting portion of the
+queue can be reordered. With several `--devices` the dispatcher walks the
+queue in order and gives each job the first free card, in `--devices` order,
+that fits it. A job that fits no free card keeps its place while a smaller
+one behind it takes the card (backfill).
+
+What a job needs: the workflow's declared `vram_estimate` projected over the
+job's arguments (hard: a job bigger than every card is refused at submit with
+a 400 naming the largest card); else the smallest `cost` entry's `vram_gb` for
+this device type (soft: if no card is that big, the job runs on any card, as
+on one card); else any card. A card's size is its GiB rounded up (a 3090
+counts as 24), which a `cost` figure is compared to; a declared estimate is
+held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
+admission checks it against. Cancel reaches only the worker running that job, and a worker
+crash fails only its own job. The worker started later gets a higher Linux
+`oom_score_adj` (+100 over the highest other live worker), so a host-RAM
+squeeze kills the later job; nothing is written with one worker. There is no
+host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
+Among the free cards a job fits, dispatch prefers the one it has an affinity
+for: a rerun goes to the card that ran the original, and any job to the card
+whose worker last ran the same workflow (the same file, or an inline
+definition's `id`) - that worker's pipelines and step cache are warm, and a
+worker frees both when the workflow changes. A busy preferred card is not
+waited for. A validation's cache probe and its `plan.estimate` ask about the
+card the job would be dispatched to now, and the estimate names it in
+`priced_for`. Memory is per card: `GET /api/memory` and `POST
+/api/memory/clear` take an optional `device`.
 
 ### Progress events
 
@@ -545,9 +593,11 @@ The editor's forms come from these; they are just as usable from scripts:
   caller waits through for nothing. Everything else - `.json`, `.md`,
   `.txt`, an unrecognized extension - deflates; so does the export zip's
   text files (`workflow.json`, `manifest.json`, `job.json`, the README)
-- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file
+- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file,
+  or a `.cube` 3D LUT for `apply_lut`
   (200MB ceiling, checked from `Content-Length` before a byte is read, and
-  again on the body; extension held to the allowed image/video list), saved
+  again on the body; extension held to the allowed image, video, audio and
+  `.cube` list), saved
   into the asset library's `uploads/` subfolder - the shared library at
   `<root>/common/assets` when `shared=true`, this workspace's own otherwise -
   under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
@@ -569,7 +619,10 @@ The editor's forms come from these; they are just as usable from scripts:
   installed diffusers version/commit, and a background diffusers install/
   update (refused while a job is running or queued). The POST body is
   optional JSON, `{"commit": ..., "revert": ...}`: with neither, it
-  `pip install --upgrade`s from GitHub HEAD; `commit` (7-40 hex characters,
+  installs from GitHub HEAD - forced in with `--force-reinstall --no-deps`,
+  since main keeps one dev version string for a release cycle and a plain
+  upgrade would keep an older commit, then a plain `pip install diffusers`
+  for any dependency the new commit adds; `commit` (7-40 hex characters,
   validated before it reaches the command line) pins the git install to
   that commit instead of HEAD; `revert: true` pins back to the known-good
   published release instead of installing from git - the diffusers floor
@@ -583,14 +636,23 @@ The editor's forms come from these; they are just as usable from scripts:
   `reason` (`job_running`, `worker_stopped`, `worker_busy`,
   `worker_unreachable`) and `age_seconds`, so a cached reading is never
   mistaken for the worker's memory now - `info: null` means nothing has been
-  measured because nothing is resident. health also reports `hostname`,
+  measured because nothing is resident. Without `device` (`?device=cuda:1`)
+  the first card's reading is at the top level and `workers` has one entry per
+  card, each naming its `device`; with it, that card's alone (400 for a card
+  this server has no worker on). health also reports `hostname`,
   `device` and whether `mcp` is mounted, so a remote client can tell which
-  machine answered
+  machine answered. `current_job` is the longest-running job and `worker_alive`
+  is true if any worker is alive; `workers` has one entry per card (one with a
+  single device): `{device, name, vram_gb, current_job, alive,
+  host_memory_rss_mb}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last absent when the worker process isn't running
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
-  cache (MCP `clear_memory`), and returns the
-  memory reading taken right after. Refused with 409 while a job is running
-  or queued - the queue is FIFO, so the caller retries once it finishes
-  rather than this call blocking until it does
+  cache on each idle card (MCP `clear_memory`), and returns the memory
+  reading taken right after. A card running a job is left alone: `workers`
+  reports it `{device, cleared: false, reason: "job_running", job}`. With
+  `?device=cuda:1` it clears that card alone and answers `{cleared, info,
+  device}`. Refused with 409 when no card asked about is idle - the caller
+  retries once the job finishes rather than this call blocking until it does
 - `GET /api/server` — connection details for the Server page: `hostname`,
   `version`, `device`, the `bind_host`/`port`/`wildcard_bind` the server was
   started with, `auth_required` (whether a token is configured - never the

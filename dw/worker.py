@@ -19,7 +19,7 @@ from dw import workflow_run
 from dw.workflow import workflow_from_snapshot
 from dw.step_cache import step_cache
 from dw.assets import activate_asset_dir, asset_library, deactivate_asset_dir
-from dw.path_redaction import redact_paths
+from dw.path_redaction import redact_event, redact_paths
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
@@ -36,6 +36,7 @@ from dw.worker_protocol import (
     Succeeded,
     WorkerCrashed,
     WorkflowLoaded,
+    workflow_identity,
 )
 from dw.host_memory import (
     host_memory_fields,
@@ -313,7 +314,7 @@ class WorkflowWorker:
 
     @staticmethod
     def _failure_redactor(command: Dict[str, Any]):
-        """What rewrites a failure reply's paths under this job's asset
+        """What rewrites a failure reply's (or a run event's) paths under this job's asset
         search path and output directory as references - called while the
         job's asset root is still active, so the search path is its own.
         A search path that cannot be built leaves the asset roots out
@@ -376,8 +377,13 @@ class WorkflowWorker:
         # of refusing with job_running for the run's whole duration; the
         # first such reading is this job's baseline for the job-scoped
         # peak field carried on every memory_info from here on (#272)
+        # A warning or log line names what a step was handed, and an
+        # 'asset:' reference has been resolved to an absolute path by then
+        # (GHSA-cr8g-q9j9-j68g) - rewritten as the failure reply is
+        redact = self._failure_redactor(command)
+
         def _on_event(event):
-            self._reply(Progress(event=event))
+            self._reply(Progress(event=redact_event(event, redact)))
             if event.get("event") == "phase":
                 memory_info = self._get_memory_info()
                 if job.baseline_peak_rss_mb is None:
@@ -439,9 +445,7 @@ class WorkflowWorker:
         workflow = workflow_from_snapshot(
             definition, output_dir, file_spec, command.get("workflow_dir")
         )
-        if command.get("source") == "path":
-            return workflow, ("path", file_spec)
-        return workflow, ("inline", definition.get("id"))
+        return workflow, workflow_identity(command.get("source"), file_spec, definition)
 
     def _reply(self, reply):
         """Put one typed reply on the result queue, as its wire dict."""

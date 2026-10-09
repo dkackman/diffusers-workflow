@@ -163,10 +163,9 @@ No `usage:` figures were recorded on the stages, so cost is left out.
   set-timesteps block that takes `sigmas`, renoises the upscaled latent to
   σ_start and runs the tail of the schedule with the 768p LoRA at shift 6,
   with audio held or re-paired. The gate's "close but soft" is the result
-  plan v1 named as bringing it back. Building it needs a new plan version,
-  which is Don's call. #585's H3 LoRA eval is relevant: the fal Realism
-  People LoRA on the 768p turbo path gave the best faces at ~zero added
-  cost, which raises the bar a refine pass has to clear.
+  plan v1 named as bringing it back. **Built by #598** (`refine_strength`
+  and `templates/minimax/upscale-refine`, 2026-10-06); see
+  `h3-audio-hold-refine-complete.md`.
 - **Persisted latents** (a `.safetensors` result type reachable by
   `output:`): only worth it if a promotion template lands.
 - **`downloads_required` counting task weights** (Q3): a separate issue

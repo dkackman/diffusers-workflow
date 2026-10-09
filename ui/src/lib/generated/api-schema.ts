@@ -823,9 +823,11 @@ export interface paths {
          *     and for `get_job_workflow` over MCP.
          *
          *     `realized: true` means every mutable input is pinned - the copy the
-         *     run itself wrote. `false` means the job predates run tracking (or its
-         *     run directory is gone) and this is the definition as submitted. 404
-         *     when neither is readable - the job itself still is.
+         *     run itself wrote. `false` means the run's copy is not there (the job
+         *     predates run tracking, or its run directory or workspace was deleted)
+         *     and this is the definition as submitted, with the arguments on record
+         *     laid over its variables and a `note` saying so. 404 when neither is
+         *     readable - the job itself still is.
          */
         get: operations["get_job_workflow_api_jobs__job_id__workflow_get"];
         put?: never;
@@ -928,7 +930,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Memory */
+        /**
+         * Memory
+         * @description Memory per card: `device`'s reading, or the first card's at the top
+         *     level with `workers` holding one reading per card.
+         */
         get: operations["memory_api_memory_get"];
         put?: never;
         post?: never;
@@ -949,14 +955,16 @@ export interface paths {
         put?: never;
         /**
          * Clear Memory
-         * @description Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-         *     without waiting for the next job to evict one model for another.
+         * @description Drop every loaded pipeline and the step cache on each idle card -
+         *     `device`'s alone when named - freeing VRAM/RAM without waiting for
+         *     the next job to evict one model for another.
          *
-         *     Refused while a job is running or queued (409) rather than blocked -
-         *     the queue is FIFO, so the caller should wait for the job to finish
-         *     and retry instead of this call stalling until it does.
+         *     A card running a job is left alone, and `workers` says so. Refused
+         *     (409) rather than blocked when no card asked about is idle - `device`'s
+         *     is running a job, even with another card idle - so the caller waits
+         *     for the job to finish and retries instead of this call stalling.
          *
-         *     A server with no worker process resident answers `cleared` with a
+         *     A card with no worker process resident answers `cleared` with a
          *     null `info` rather than a 503: the worker is on-demand, so its
          *     absence means there was nothing loaded to clear.
          */
@@ -1705,7 +1713,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */
@@ -1749,6 +1757,53 @@ export interface components {
             shadowed: components["schemas"]["ShadowedAsset"][];
             /** Workspace */
             workspace: string;
+        };
+        /** CardCleared */
+        CardCleared: {
+            /**
+             * Cleared
+             * @description False for a card left alone: it runs a job.
+             */
+            cleared: boolean;
+            /** Device */
+            device: string;
+            info?: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Job
+             * @description The job the card is running.
+             */
+            job?: string;
+            /**
+             * Reason
+             * @description Why the card was not cleared: `job_running`.
+             */
+            reason?: string;
+        };
+        /** CardMemory */
+        CardMemory: {
+            /** Age Seconds */
+            age_seconds: number | null;
+            /**
+             * Device
+             * @description The card this reading is of, as `cuda:1`.
+             */
+            device: string;
+            info: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Live
+             * @description Measured now, rather than the last reading.
+             */
+            live: boolean;
+            /**
+             * Reason
+             * @description Why the reading is not a live one.
+             */
+            reason: string | null;
+            /**
+             * Stale
+             * @description `info` is an earlier reading: compare only `live` readings.
+             */
+            stale: boolean;
         };
         /** ClassList */
         ClassList: {
@@ -1978,7 +2033,10 @@ export interface components {
         };
         /** HealthInfo */
         HealthInfo: {
-            /** Current Job */
+            /**
+             * Current Job
+             * @description The longest-running job; `workers` names every running one.
+             */
             current_job: string | null;
             /** Device */
             device: string;
@@ -1997,9 +2055,14 @@ export interface components {
             version: string;
             /**
              * Worker Alive
-             * @description The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
+             * @description Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.
              */
             worker_alive: boolean;
+            /**
+             * Workers
+             * @description One entry per card the server runs a worker on (--devices), each running its own job: one job per GPU.
+             */
+            workers: components["schemas"]["WorkerInfo"][];
         };
         /** JobCancelled */
         JobCancelled: {
@@ -2027,6 +2090,11 @@ export interface components {
             };
             /** Created At */
             created_at: number | null;
+            /**
+             * Device
+             * @description The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.
+             */
+            device?: string | null;
             /** Error */
             error: string | null;
             /** Event Count */
@@ -2071,13 +2139,6 @@ export interface components {
              * @description That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.
              */
             run_version: number | null;
-            /**
-             * Spec
-             * @description The submitted spec; history rows only.
-             */
-            spec?: {
-                [key: string]: unknown;
-            };
             /** Started At */
             started_at: number | null;
             /**
@@ -2244,6 +2305,11 @@ export interface components {
             acknowledged: "none" | "boolean" | "bound";
             /** Created At */
             created_at: number | null;
+            /**
+             * Device
+             * @description The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.
+             */
+            device?: string | null;
             /** Finished At */
             finished_at: number | null;
             /**
@@ -2299,6 +2365,11 @@ export interface components {
             };
             /** Id */
             id: string;
+            /**
+             * Note
+             * @description Present when `realized` is false: why, and what was folded.
+             */
+            note?: string;
             /**
              * Realized
              * @description Every mutable input is pinned - the copy the run itself wrote.
@@ -2427,7 +2498,17 @@ export interface components {
         MemoryCleared: {
             /** Cleared */
             cleared: boolean;
+            /**
+             * Device
+             * @description The card cleared, when the request named one.
+             */
+            device?: string;
             info: components["schemas"]["MemoryDetail"] | null;
+            /**
+             * Workers
+             * @description Each card's outcome; a card running a job is left alone.
+             */
+            workers?: components["schemas"]["CardCleared"][];
         };
         /**
          * MemoryDetail
@@ -2452,10 +2533,15 @@ export interface components {
         } & {
             [key: string]: unknown;
         };
-        /** MemoryInfo */
-        MemoryInfo: {
+        /** MemoryStatus */
+        MemoryStatus: {
             /** Age Seconds */
             age_seconds: number | null;
+            /**
+             * Device
+             * @description The card this reading is of, as `cuda:1`.
+             */
+            device?: string;
             info: components["schemas"]["MemoryDetail"] | null;
             /**
              * Live
@@ -2472,6 +2558,11 @@ export interface components {
              * @description `info` is an earlier reading: compare only `live` readings.
              */
             stale: boolean;
+            /**
+             * Workers
+             * @description One reading per card; the top level repeats the first card's.
+             */
+            workers?: components["schemas"]["CardMemory"][];
         };
         /** ModelCache */
         ModelCache: {
@@ -2604,6 +2695,11 @@ export interface components {
             /** Annotation */
             annotation: string | null;
             /**
+             * Choices
+             * @description The values a string task argument accepts.
+             */
+            choices?: string[];
+            /**
              * Default
              * @description Null when there is none; see `required`.
              */
@@ -2622,6 +2718,11 @@ export interface components {
             domain?: unknown;
             /** Name */
             name: string;
+            /**
+             * Range
+             * @description The domain's bounds, in words.
+             */
+            range?: string;
             /** Required */
             required: boolean;
         };
@@ -2629,7 +2730,7 @@ export interface components {
         Plan: {
             /**
              * Cached Steps
-             * @description How many steps the worker's step cache would serve; null when the worker was busy or did not answer.
+             * @description How many steps the step cache of the card the run would be dispatched to would serve; null when that worker was busy or did not answer.
              */
             cached_steps: number | null;
             /** Downloads Required */
@@ -2646,8 +2747,6 @@ export interface components {
             list_entries: {
                 [key: string]: number;
             };
-            /** Output Dir */
-            output_dir: string | null;
             /** Steps */
             steps: number;
             /** Workspace */
@@ -2676,13 +2775,18 @@ export interface components {
             observed_minutes?: number;
             /** Partial */
             partial: boolean;
+            /**
+             * Priced For
+             * @description The card the run would be dispatched to, whose history the figure is - as `cuda:1 NVIDIA GeForce RTX 3090`.
+             */
+            priced_for?: string;
             /** Runs */
             runs: number | null;
             /** Tempered */
             tempered?: boolean;
             /**
              * Unpriced
-             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.
+             * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.
              */
             unpriced: string[];
         };
@@ -2866,7 +2970,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */
@@ -2984,6 +3088,33 @@ export interface components {
             valid: boolean;
             /** Warnings */
             warnings: string[];
+        };
+        /** WorkerInfo */
+        WorkerInfo: {
+            /** Alive */
+            alive: boolean;
+            /** Current Job */
+            current_job: string | null;
+            /**
+             * Device
+             * @description The card this worker is pinned to.
+             */
+            device: string;
+            /**
+             * Host Memory Rss Mb
+             * @description The worker process's resident host memory; absent while it is not running.
+             */
+            host_memory_rss_mb?: number;
+            /**
+             * Name
+             * @description The card as a job record's device names it.
+             */
+            name: string | null;
+            /**
+             * Vram Gb
+             * @description What the card holds, in the GB a catalog cost entry is written in.
+             */
+            vram_gb: number | null;
         };
         /**
          * WorkflowCard
@@ -4431,7 +4562,10 @@ export interface operations {
     };
     memory_api_memory_get: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The card to ask about, as `cuda:1`; every card when omitted. */
+                device?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4444,14 +4578,26 @@ export interface operations {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": components["schemas"]["MemoryInfo"];
+                    "application/json": components["schemas"]["MemoryStatus"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };
     };
     clear_memory_api_memory_clear_post: {
         parameters: {
-            query?: never;
+            query?: {
+                /** @description The card to ask about, as `cuda:1`; every card when omitted. */
+                device?: string | null;
+            };
             header?: never;
             path?: never;
             cookie?: never;
@@ -4465,6 +4611,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["MemoryCleared"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
         };

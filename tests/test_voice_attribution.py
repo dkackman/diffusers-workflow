@@ -19,19 +19,21 @@ from dw.tasks import model_cache
 from dw.tasks.task import _COMMAND_INFO
 from dw.tasks.voice_attribution import (
     MIN_VOICED_SECONDS,
+    MIXED_LINE_SHARE,
     UNCERTAIN_MARGIN,
     UNCERTAIN_SHARE_MARGIN,
     VOICES_TOO_SIMILAR,
     attribute_voices,
     cosine,
+    mixed_reason,
     reference_similarity,
     roll_up,
     score_line,
     voiced_floor_dbfs,
     voiced_mask,
-    voices_errors,
 )
 from dw.locations import location_errors
+from dw.task_domains import task_argument_errors
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.workflow import Workflow
 
@@ -325,6 +327,122 @@ class TestUncertainPaths(unittest.TestCase):
         )
         self.assertTrue(result["uncertain"])
         self.assertIn("too similar", result["reason"])
+
+
+# ---------------------------------------------------------------------------
+# 4b. Transcript lines that are zero-length or hold two voices (#617)
+# ---------------------------------------------------------------------------
+
+
+def duet_audio():
+    """4 s of a quiet tone ('a') then 4 s of a loud one ('b'). Both sit well
+    above the relative voiced floor, so all 8 s is voiced."""
+    quiet = tone(4.0, amplitude=0.1)
+    loud = tone(4.0, amplitude=0.6)
+    return FakeAudio(numpy.concatenate([quiet, loud], axis=1))
+
+
+def loudness_embed(encoder, samples):
+    """'b' for any stretch holding the loud tone, else 'a' - so a whole-line
+    embedding over both singers names 'b' confidently, as ECAPA did on the
+    tester's duet."""
+    if len(samples) and float(numpy.max(numpy.abs(samples))) > 0.3:
+        return numpy.array([0.0, 1.0])
+    return numpy.array([1.0, 0.0])
+
+
+class TestTranscriptLines(unittest.TestCase):
+    def _run(self, audio, lines):
+        with (
+            patch("dw.tasks.voice_attribution._load_embedder") as mock_load_embedder,
+            patch("dw.tasks.voice_attribution.embed") as mock_embed,
+        ):
+            mock_load_embedder.return_value = MagicMock()
+            mock_embed.side_effect = loudness_embed
+            return attribute_voices(
+                audio,
+                voices={
+                    "a": [{"start_seconds": 0, "duration_seconds": 4}],
+                    "b": [{"start_seconds": 4, "duration_seconds": 4}],
+                },
+                lines=lines,
+                separate=False,
+            )
+
+    def test_a_zero_length_word_chunk_has_no_voice_rather_than_refusing(self):
+        # Whisper word timestamps on the tester's duet: chunks [8] and [9]
+        # both {start 3.96, end 3.96} refused the whole template run
+        transcript = {
+            "text": "la la la",
+            "chunks": [
+                {"start": 1.0, "end": 2.0, "text": "la"},
+                {"start": 3.96, "end": 3.96, "text": "la"},
+                {"start": 5.0, "end": 6.5, "text": "la"},
+            ],
+        }
+        result = self._run(duet_audio(), transcript)
+        lines = result["lines"]
+        self.assertEqual(len(lines), 3)
+        self.assertEqual(lines[0]["voice"], "a")
+        self.assertIsNone(lines[1]["voice"])
+        self.assertTrue(lines[1]["uncertain"])
+        self.assertIn("voiced", lines[1]["reason"])
+        self.assertEqual((lines[1]["start"], lines[1]["end"]), (3.96, 3.96))
+        self.assertEqual(lines[2]["voice"], "b")
+
+    def test_a_zero_length_chunk_at_the_very_end_is_accepted(self):
+        result = self._run(duet_audio(), [{"start": 8.0, "end": 8.0}])
+        self.assertIsNone(result["lines"][0]["voice"])
+
+    def test_a_line_ending_before_it_starts_is_still_refused(self):
+        with self.assertRaisesRegex(ValueError, "lines\\[0\\] ends at 2.0 s"):
+            self._run(duet_audio(), [{"start": 3.0, "end": 2.0}])
+
+    def test_a_zero_length_window_is_still_refused(self):
+        with (
+            patch("dw.tasks.voice_attribution._load_embedder"),
+            self.assertRaisesRegex(ValueError, "windows\\[0\\] .*not after"),
+        ):
+            attribute_voices(
+                duet_audio(),
+                voices={
+                    "a": [{"start_seconds": 0, "duration_seconds": 4}],
+                    "b": [{"start_seconds": 4, "duration_seconds": 4}],
+                },
+                lines=[{"start": 0, "end": 2}],
+                windows=[{"name": "w", "start": 2, "end": 2}],
+                separate=False,
+            )
+
+    def test_one_segment_over_both_singers_is_uncertain_and_names_the_split(self):
+        # The tester's segment-mode run: one chunk over the whole duet came
+        # back as one confident voice. Its pieces disagree, so it is uncertain
+        result = self._run(duet_audio(), [{"start": 0.0, "end": 8.0}])
+        line = result["lines"][0]
+        self.assertEqual(line["voice"], "b")  # the whole-line argmax, still reported
+        self.assertTrue(line["uncertain"])
+        self.assertIn("more than one voice", line["reason"])
+        self.assertIn("'a' 4.00 s", line["reason"])
+        self.assertIn("'b' 4.00 s", line["reason"])
+        self.assertEqual(result["thresholds"]["mixed_line_share"], MIXED_LINE_SHARE)
+
+    def test_a_long_line_by_one_singer_stays_confident(self):
+        result = self._run(duet_audio(), [{"start": 0.0, "end": 4.0}])
+        line = result["lines"][0]
+        self.assertEqual(line["voice"], "a")
+        self.assertFalse(line["uncertain"])
+        self.assertIsNone(line["reason"])
+
+    def test_a_short_line_is_not_split(self):
+        # Inside 2 s there is one piece: nothing to disagree with
+        result = self._run(duet_audio(), [{"start": 3.0, "end": 5.0}])
+        self.assertFalse(result["lines"][0]["uncertain"])
+
+    def test_mixed_reason_needs_the_second_voice_at_the_share(self):
+        self.assertIsNone(mixed_reason({"a": 9.0, "b": 1.0}))
+        self.assertIsNone(mixed_reason({"a": 4.0}))
+        self.assertIsNone(mixed_reason({}))
+        self.assertIsNotNone(mixed_reason({"a": 6.0, "b": 2.0}))
 
 
 # ---------------------------------------------------------------------------
@@ -690,10 +808,11 @@ SPAN = {"start_seconds": 0, "duration_seconds": 4}
 
 class TestVoicesErrors(unittest.TestCase):
     """C-F141: what parse_voices refuses without the audio is refused at
-    validation, at the path the author wrote."""
+    validation, at the path the author wrote - through attribute_voices'
+    registered static check (#773)."""
 
     def errors(self, *steps, source_indices=None):
-        return voices_errors({"steps": list(steps)}, source_indices)
+        return task_argument_errors({"steps": list(steps)}, source_indices)
 
     def test_a_good_voices_map_is_clean(self):
         self.assertEqual(self.errors(_voices_step({"a": SPAN, "b": [SPAN]})), [])
@@ -782,3 +901,79 @@ class TestVoicePathsAreLocations(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# ---------------------------------------------------------------------------
+# The attribute-lines template: transcribe_audio -> attribute_voices (#488)
+# ---------------------------------------------------------------------------
+
+
+class TestAttributeLinesTemplate(unittest.TestCase):
+    TEMPLATE = "workflows/templates/attribute-lines.json"
+
+    def _workflow(self, output_dir):
+        import json
+
+        with open(self.TEMPLATE) as f:
+            return Workflow(json.load(f), output_dir, "")
+
+    def test_the_template_validates_and_needs_its_voices(self):
+        import tempfile
+
+        with tempfile.TemporaryDirectory() as output_dir:
+            workflow = self._workflow(output_dir)
+            self.assertEqual(workflow.validation_errors(), [])
+            errors = workflow.validation_errors({"audio": "asset:song.wav"})
+            self.assertEqual(
+                [error["path"] for error in errors],
+                ["steps[1].task.arguments.voices"],
+            )
+
+    def test_the_transcript_reaches_attribute_voices_as_its_lines(self):
+        """The whole {text, chunks} transcript is attribute_voices' lines, and
+        a last chunk Whisper left open-ended (end None) is attributed with the
+        clip's duration as its end rather than refusing the transcript."""
+        import tempfile
+
+        pipe = MagicMock(
+            return_value={
+                "text": "one two",
+                "chunks": [
+                    {"timestamp": (0.0, 4.0), "text": " one"},
+                    {"timestamp": (4.0, None), "text": " two"},
+                ],
+            }
+        )
+        pipe.type = "seq2seq_whisper"
+        model_cache.clear_model_cache()
+        with (
+            tempfile.TemporaryDirectory() as output_dir,
+            patch("dw.tasks.audio_transcription.hf_pipeline", return_value=pipe),
+            patch("dw.tasks.voice_attribution._load_embedder"),
+            patch(
+                "dw.tasks.voice_attribution.embed",
+                return_value=numpy.array([1.0, 0.0]),
+            ),
+            patch(
+                "dw.tasks.voice_attribution.separate_vocals",
+                side_effect=lambda mix, rate, device, dtype: mix.mean(axis=0),
+            ),
+        ):
+            result = self._workflow(output_dir).run(
+                {
+                    "audio": song_audio(10.0),
+                    "voices": {
+                        "a": [{"start_seconds": 0.0, "duration_seconds": 3.0}],
+                        "b": [{"start_seconds": 5.0, "duration_seconds": 3.0}],
+                    },
+                }
+            )
+        model_cache.clear_model_cache()
+
+        self.assertEqual(len(result), 1)
+        lines = result[0]["lines"]
+        self.assertEqual([line["text"] for line in lines], ["one", "two"])
+        self.assertEqual(
+            [(line["start"], line["end"]) for line in lines],
+            [(0.0, 4.0), (4.0, 10.0)],
+        )

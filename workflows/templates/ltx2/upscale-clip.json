@@ -1,7 +1,7 @@
 {
     "id": "LTX2UpscaleClip",
-    "description": "Re-renders a clip from the asset library at twice its size with the spatial-upscaler in-context LoRA, the clip attached as the reference for the whole denoise - so composition, motion and subject carry over while fine detail (texture, edges, micro-contrast) is invented, not interpolated. It is a generative re-render, not a faithful resize: the vendor scopes it as a creative step, not for live-action footage where factual fidelity matters, and a heavily compressed source is 'restore-decompression''s job first. The source is scaled and center-cropped to width/2 x height/2 with no error, so set 'width'/'height' to twice the source's size, keeping its aspect ratio - a different aspect ratio is silently cropped and a larger source silently downscaled. 'num_frames' must not exceed the source's length: the reference is trimmed to it, and frames past the end of a shorter source are generated with no reference. Read the source's size, frame rate and length first with get_gallery_metadata('asset:...'). Defaults fit a 480x272, 121-frame, 24 fps source. Replace the default prompt with a description of the source's subject, setting, motion and lighting - the vendor card states no caption convention, and the prompt is what anchors the re-render to the scene. 'lora_scale' is 1.0 because the weights ship pre-scaled. The upscale is saved to intermediate/; the deliverable in final/ carries the source's own soundtrack cut to the output length, so a source with no audio fails at that step, after the upscale is saved.",
-    "summary": "2x generative re-render of your own clip, soundtrack kept. width/height = 2x the source's; num_frames <= its length.",
+    "description": "Re-renders a clip from the asset library at exactly twice its size with the spatial-upscaler in-context LoRA, the clip attached as the reference for the whole denoise - so composition, motion and subject carry over while fine detail (texture, edges, micro-contrast) is invented, not interpolated. It is a generative re-render, not a faithful resize: the vendor scopes it as a creative step, not for live-action footage where factual fidelity matters, and a heavily compressed source is 'restore-decompression''s job first. 'width'/'height' are the output size the model renders (each divisible by 32); a first step fits the source to half of it and 'num_frames', and a last step restores the result to twice the source's size at the source's own length - so the output is exactly 2x the source whatever its size. A different aspect ratio is handled by 'fit': letterbox (default) pads it and the padding is cut back off, stretch resizes it, crop cuts it to fill. A source shorter than 'num_frames' is held on its last frame and trimmed back after; a longer one is cut to its opening 'num_frames' frames. Defaults render 960x544 at 121 frames, 24 fps - set 'frame_rate' to the source's (get_gallery_metadata('asset:...') reads it). Replace the default prompt with a description of the source's subject, setting, motion and lighting - the vendor card states no caption convention, and the prompt is what anchors the re-render to the scene. 'lora_scale' is 1.0 because the weights ship pre-scaled. The upscale is saved to intermediate/; the deliverable in final/ carries the source's own soundtrack cut to the output length, so a source with no audio fails at that step, after the upscale is saved.",
+    "summary": "2x generative re-render of your own clip, any aspect or length, soundtrack kept. width/height = the render size.",
     "cost_drivers": [
         "num_frames",
         "width",
@@ -17,6 +17,7 @@
         "height": 544,
         "num_frames": 121,
         "frame_rate": 24.0,
+        "fit": "letterbox",
         "lora_scale": 1.0,
         "seed": 42
     },
@@ -40,6 +41,24 @@
     },
     "seed": "variable:seed",
     "steps": [
+        {
+            "name": "fit",
+            "task": {
+                "command": "fit_to_model",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "variable:fit",
+                    "downscale": 2
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false
+            }
+        },
         {
             "name": "upscaled",
             "pipeline": {
@@ -151,10 +170,7 @@
                         {
                             "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
                             "from_arguments": {
-                                "frames": {
-                                    "media_type": "video",
-                                    "location": "variable:source_video"
-                                },
+                                "frames": "previous_result:fit.video",
                                 "strength": 1.0
                             }
                         }
@@ -178,11 +194,26 @@
             }
         },
         {
+            "name": "restore",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:upscaled",
+                    "fit": "previous_result:fit.fit"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": "variable:frame_rate"
+            }
+        },
+        {
             "name": "with_source_audio",
             "task": {
                 "command": "pair_audio",
                 "arguments": {
-                    "video": "previous_result:upscaled",
+                    "video": "previous_result:restore",
                     "audio": "variable:source_video",
                     "fit": "video"
                 }

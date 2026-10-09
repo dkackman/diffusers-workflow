@@ -46,6 +46,37 @@ class AudioVideo:
         self.shots = shots
 
 
+class FittedVideo(numpy.ndarray):
+    """Video frames as one float32 (frames, height, width, 3) array in [0, 1],
+    carrying the rate they play at.
+
+    What fit_to_model hands on (#602). A plain array is what a pipeline's
+    `video` and an LTX2ReferenceCondition's `frames` both take as they are -
+    an AudioVideo is neither - and `.fps` is what the result writer reads
+    for a video with no declared rate, the same attribute AudioVideo carries.
+    It deliberately has no `.frames`: output extraction reads that attribute
+    off a pipeline's output object.
+    """
+
+    def __new__(cls, frames, fps=None, dtype=numpy.float32):
+        array = numpy.asarray(frames, dtype=dtype).view(cls)
+        array.fps = fps
+        return array
+
+    def __array_finalize__(self, source):
+        self.fps = getattr(source, "fps", None)
+
+    def __reduce__(self):
+        # The worker pickles a step's results across its queue; ndarray's own
+        # reduce would drop the rate
+        rebuild, arguments, state = super().__reduce__()
+        return rebuild, arguments, (state, self.fps)
+
+    def __setstate__(self, state):
+        array_state, self.fps = state
+        super().__setstate__(array_state)
+
+
 class AudioTrack:
     """A generated waveform together with the rate it was generated at.
 
@@ -101,6 +132,18 @@ class Selected:
 
     def __repr__(self):
         return f"Selected(value={self.value!r}, position={self.position}, score={self.score!r})"
+
+
+class JsonRecord(dict):
+    """A JSON-safe dict a step hands on as data, and saves as a .json file.
+
+    A dict artifact is otherwise saved one entry per file under the step's
+    declared content type, so a record riding beside a video (a face track
+    beside its crops) would be exploded key by key into files that are not
+    video. Marking it says what it is: the writer saves it whole, as JSON,
+    whatever the step's content type, and `previous_result:<step>.<key>`
+    still reads it as the dict it is.
+    """
 
 
 # How far a decoded track may be off the frames' own duration and still be

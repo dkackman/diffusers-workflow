@@ -26,6 +26,17 @@ reference's encoding resident beside the video latents, so an optional
 pass; one whose media resolved null is dropped before the pipeline sees it
 (#478) and costs nothing.
 
+An H3 guide is VAE-encoded on the target canvas and laid in beside the video
+latents, so an optional `bytes_per_guide_voxel` charges each guide the step
+lays in - its own `guides`, plus the one a `continuity: "guide"` chain
+appends - at its snapped frame count times the canvas (every voxel variable
+but `num_frames`), measured in #694's Stage A (docs/proposals/
+h3-guide-vram.md). A clip's frame count comes from the same header probe
+validation memoizes (`guides.guide_lengths`), so validate, admission and run
+answer the same number; a clip no probe can count - a `previous_result:`, an
+unreadable header - is charged at the step's own `num_frames`, the most a
+guide can hold, and the message says that is the worst case.
+
 A workflow-level estimate was measured against one pipeline, not against
 every step that happens to load one (#516) - a music-video template's image
 step at a caller-chosen resolution has no business being judged by the H3
@@ -48,9 +59,13 @@ import numbers
 
 from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, VARIABLE, ref_name
 from .for_each import FOR_EACH_KEY, MEMBER_SEPARATOR, render_path
+from .guides import guide_lengths
 
 KEY = "vram_estimate"
 REFERENCES_KEY = "references"
+GUIDE_VOXEL_KEY = "bytes_per_guide_voxel"
+# The voxel variable a guide's own frame count stands in for
+FRAMES_VARIABLE = "num_frames"
 _SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY)
 
 
@@ -129,29 +144,68 @@ def reference_count(arguments):
     return count
 
 
-def required_gb(estimate, values, references=0):
-    """The projected requirement for `values` with `references` counted, or
-    None when a voxel variable's value is not a number this pass can compute
-    with - an undeclared reference or a list is somebody else's error."""
+def required_gb(estimate, values, references=0, guides=()):
+    """The projected requirement for `values` with `references` and `guides`
+    (each guide's snapped frame count) counted, or None when a voxel
+    variable's value is not a number this pass can compute with - an
+    undeclared reference or a list is somebody else's error. A guide's voxels
+    are its frames times the canvas: every voxel variable but `num_frames`."""
     product = 1.0
+    canvas = 1.0
     for name in estimate.get("voxel_variables", []):
         number = _as_number(values.get(name))
         if number is None:
             return None
         product *= number
+        if name != FRAMES_VARIABLE:
+            canvas *= number
     base = estimate.get("base_gb", 0)
     per_voxel = estimate.get("bytes_per_voxel", 0)
     per_reference = estimate.get("gb_per_reference", 0)
-    return base + per_voxel * product / (1024**3) + per_reference * references
+    per_guide_voxel = estimate.get(GUIDE_VOXEL_KEY, 0)
+    guide_voxels = sum(guides) * canvas
+    return (
+        base
+        + per_voxel * product / (1024**3)
+        + per_reference * references
+        + per_guide_voxel * guide_voxels / (1024**3)
+    )
 
 
-def _entries_for(cost, device_type, capacity_gb):
+def _guide_frames(pipeline, values, variables, base_dir, probe):
+    """[(frames, worst_case)] for every guide the step lays in, or None when
+    one cannot be probed and the step's `num_frames` is not a number to charge
+    it at. Only read when the estimate prices guides - nothing else is."""
+    lengths = guide_lengths(pipeline, base_dir, probe)
+    if not lengths:
+        return []
+    arguments = pipeline.get("arguments")
+    arguments = arguments if isinstance(arguments, dict) else {}
+    most = _as_number(
+        values[FRAMES_VARIABLE]
+        if FRAMES_VARIABLE in values
+        else arguments.get(FRAMES_VARIABLE, variables.get(FRAMES_VARIABLE))
+    )
+    frames = []
+    for length in lengths:
+        if length is not None:
+            frames.append((length, False))
+        elif most is None:
+            return None
+        else:
+            frames.append((int(most), True))
+    return frames
+
+
+def _entries_for(cost, device_type, capacity_gb, capacity_label=None):
     """The cost entries a projection is checked against on this device.
 
     Entries measured on this backend first. A backend no entry describes - a
     Mac, against a catalog measured on CUDA cards - is checked against its own
     capacity when it can report one, and against every entry when it cannot,
-    so an unreadable ceiling never turns the guard off."""
+    so an unreadable ceiling never turns the guard off. `capacity_label`
+    names the capacity when it is not this process's own device (the
+    server's largest card)."""
     entries = [entry for entry in cost if isinstance(entry, dict)]
     if device_type is None:
         return entries
@@ -165,7 +219,8 @@ def _entries_for(cost, device_type, capacity_gb):
     if capacity_gb is not None:
         return [
             {
-                "name": f"this {device_type} device (recommended maximum)",
+                "name": capacity_label
+                or f"this {device_type} device (recommended maximum)",
                 "vram_gb": round(capacity_gb, 1),
             }
         ]
@@ -206,9 +261,9 @@ def _estimate_identity(steps, variables, names):
     return None
 
 
-def _projections(definition, estimate, arguments):
-    """(step index, step, values, references, projected GB) for every step
-    the estimate can project.
+def _projections(definition, estimate, arguments, base_dir=None, probe=None):
+    """(step index, step, values, references, guides, projected GB) for every
+    step the estimate can project - `guides` as `_guide_frames` gives them.
 
     Only a step that loads a pipeline is projected, since the ceiling is the
     pipeline's. Each voxel variable is read from that step's own arguments -
@@ -218,14 +273,15 @@ def _projections(definition, estimate, arguments):
     from its variables alone, as a single step. When the estimate's own
     pipeline identity can be determined (`_estimate_identity`), a step whose
     identity does not match it is not projected at all (#516) - the estimate
-    was never measured for that pipeline.
+    was never measured for that pipeline. `probe` and `base_dir` count each
+    guide clip's frames when the estimate prices guides (#694).
     """
     variables = {**(definition.get("variables") or {}), **(arguments or {})}
     steps = definition.get("steps")
     if not isinstance(steps, list):
         projected = required_gb(estimate, variables)
         if projected is not None:
-            yield None, None, variables, 0, projected
+            yield None, None, variables, 0, [], projected
         return
     names = estimate.get("voxel_variables", [])
     identity = _estimate_identity(steps, variables, names)
@@ -245,9 +301,18 @@ def _projections(definition, estimate, arguments):
             for name in names
         }
         references = reference_count(step_arguments)
-        projected = required_gb(estimate, values, references)
+        guides = (
+            _guide_frames(pipeline, values, variables, base_dir, probe)
+            if GUIDE_VOXEL_KEY in estimate
+            else []
+        )
+        if guides is None:
+            continue
+        projected = required_gb(
+            estimate, values, references, [frames for frames, _ in guides]
+        )
         if projected is not None:
-            yield index, step, values, references, projected
+            yield index, step, values, references, guides, projected
 
 
 def _variable_names(value):
@@ -318,7 +383,31 @@ def _formula(estimate):
     )
     if "gb_per_reference" in estimate:
         formula += f" plus {estimate['gb_per_reference']} GB per reference"
+    if GUIDE_VOXEL_KEY in estimate:
+        canvas = [name for name in voxel_variables if name != FRAMES_VARIABLE]
+        formula += (
+            f" plus {estimate[GUIDE_VOXEL_KEY]:.4g} bytes per unit of each "
+            f"guide's frames * {' * '.join(canvas)}"
+        )
     return formula
+
+
+def _with_guides(guides):
+    """' with 3 guides (22+22+124 frames)', naming the guides charged at the
+    worst case, or '' with none."""
+    if not guides:
+        return ""
+    counted = "+".join(str(frames) for frames, _ in guides)
+    text = (
+        f" with {len(guides)} guide{'s' if len(guides) != 1 else ''} ({counted} frames"
+    )
+    worst = sum(1 for _, worst_case in guides if worst_case)
+    if worst:
+        text += (
+            f"; {worst} not probeable before the run, so charged at "
+            f"{FRAMES_VARIABLE} - the worst case"
+        )
+    return text + ")"
 
 
 def vram_estimate_errors(
@@ -329,6 +418,9 @@ def vram_estimate_errors(
     capacity_gb=None,
     source_indices=None,
     written=None,
+    capacity_label=None,
+    base_dir=None,
+    probe=None,
 ):
     """The step a declared vram_estimate projects past a `cost` entry, as
     [{path, message}] - refused, not warned, since the failure this guards
@@ -340,13 +432,16 @@ def vram_estimate_errors(
     a member back to the list entry it came from. One step is reported - the
     largest - rather than one error per shot: cutting that one is the fix
     the caller has to make first, and the rest follow from the same formula.
+    `probe` (the metadata probe, or validation's memoizing wrapper) and
+    `base_dir` count each guide clip's frames; without a probe every guide is
+    charged at its step's `num_frames`.
     """
     estimate = declared_estimate(definition)
     if estimate is None:
         return []
     cost = definition.get("cost")
     cost = cost if isinstance(cost, list) else []
-    entries = _entries_for(cost, device_type, capacity_gb)
+    entries = _entries_for(cost, device_type, capacity_gb, capacity_label)
     capacities = [
         entry.get("vram_gb") for entry in entries if entry.get("vram_gb") is not None
     ]
@@ -354,12 +449,12 @@ def vram_estimate_errors(
         return []
     over = [
         projection
-        for projection in _projections(definition, estimate, arguments)
-        if projection[4] > min(capacities)
+        for projection in _projections(definition, estimate, arguments, base_dir, probe)
+        if projection[-1] > min(capacities)
     ]
     if not over:
         return []
-    index, step, values, references, projected = max(over, key=lambda p: p[4])
+    index, step, values, references, guides, projected = max(over, key=lambda p: p[-1])
 
     voxel_variables = estimate.get("voxel_variables", [])
     reason = estimate.get("reason")
@@ -388,7 +483,8 @@ def vram_estimate_errors(
                 "message": (
                     f"{member}{'*'.join(voxel_variables)} = "
                     f"{'*'.join(str(values.get(v)) for v in voxel_variables)}"
-                    f"{with_references} projects to {projected:.2f} GB VRAM, "
+                    f"{with_references}{_with_guides(guides)} projects to "
+                    f"{projected:.2f} GB VRAM, "
                     f"above the {capacity} GB declared for {device_label}"
                     f"{because}. {_formula(estimate)}"
                 ),
@@ -397,7 +493,63 @@ def vram_estimate_errors(
     return errors
 
 
-def apply_vram_estimate(definition, variables, device_type=None, capacity_gb=None):
+def required_vram_gb(
+    definition, arguments=None, device_type=None, base_dir=None, probe=None
+):
+    """What a card must hold to run `definition` (the expanded one the run
+    executes), as `(gb, hard)`, or None when nothing says.
+
+    A declared vram_estimate answers with its largest projection, and the
+    answer is hard: a pool with no card that big refuses the job. Otherwise
+    the smallest `cost` entry measured on `device_type` is the least any
+    card it ran on held - soft, since it records a card the catalog was
+    measured on rather than a floor, so a pool with no card that big still
+    runs the job. A server's worker pool dispatches on this (#462).
+    `probe` and `base_dir` count guide clips as vram_estimate_errors does."""
+    if not isinstance(definition, dict):
+        return None
+    estimate = declared_estimate(definition)
+    if estimate is not None:
+        projected = [
+            projection[-1]
+            for projection in _projections(
+                definition,
+                estimate,
+                arguments if isinstance(arguments, dict) else None,
+                base_dir,
+                probe,
+            )
+        ]
+        if projected:
+            return max(projected), True
+    cost = definition.get("cost")
+    entries = [
+        entry
+        for entry in (cost if isinstance(cost, list) else [])
+        if isinstance(entry, dict)
+        and (
+            device_type is None
+            or str(entry.get("device", "")).split(":")[0] == device_type
+        )
+    ]
+    measured = [
+        number
+        for number in (_as_number(entry.get("vram_gb")) for entry in entries)
+        if number is not None
+    ]
+    if measured:
+        return min(measured), False
+    return None
+
+
+def apply_vram_estimate(
+    definition,
+    variables,
+    device_type=None,
+    capacity_gb=None,
+    base_dir=None,
+    probe=None,
+):
     """The run-time half of the check above - the backstop for a caller
     that skips validate_workflow (or an inline/composed workflow static
     validation never saw). `definition` is the expanded one the run
@@ -409,6 +561,8 @@ def apply_vram_estimate(definition, variables, device_type=None, capacity_gb=Non
         variables if isinstance(variables, dict) else None,
         device_type=device_type,
         capacity_gb=capacity_gb,
+        base_dir=base_dir,
+        probe=probe,
     )
     if errors:
         raise ValueError(errors[0]["message"])

@@ -31,8 +31,6 @@ import torch
 
 from .. import dsp
 from ..events import emit_warning
-from ..for_each import MEMBER_SEPARATOR, render_path
-from ..references import author_index
 from ..security import InvalidInputError, validate_variable_name
 from ..task_domains import check_arguments
 from ..dsp import resample_waveform
@@ -85,6 +83,15 @@ VOICES_TOO_SIMILAR = 0.8
 END_TOLERANCE_SECONDS = 0.1
 # Default length of the fixed windows the song is cut into without `lines`
 WINDOW_SECONDS = 2.0
+# A line longer than this is also scored in pieces of this length, because
+# one embedding of two singers can name either of them confidently: a
+# Whisper segment over a whole duet - 7.4 s of one singer, 6.5 s of the
+# other - came back as the second at margin 0.54 (#617)
+PIECE_SECONDS = 2.0
+# A line whose confidently attributed pieces give a second voice at least
+# this share of their voiced time is `uncertain` - it holds more than one
+# singer, and its single verdict cannot be trusted
+MIXED_LINE_SHARE = 0.25
 
 THRESHOLDS = {
     "voiced_level_percentile": VOICED_LEVEL_PERCENTILE,
@@ -93,6 +100,8 @@ THRESHOLDS = {
     "min_voiced_seconds": MIN_VOICED_SECONDS,
     "uncertain_margin": UNCERTAIN_MARGIN,
     "uncertain_share_margin": UNCERTAIN_SHARE_MARGIN,
+    "piece_seconds": PIECE_SECONDS,
+    "mixed_line_share": MIXED_LINE_SHARE,
     "voices_too_similar": VOICES_TOO_SIMILAR,
 }
 
@@ -112,11 +121,14 @@ def _round(value, places=4):
 # --- arguments -------------------------------------------------------------
 
 
-def _span(entry, where, duration):
+def _span(entry, where, duration, allow_empty=False):
     """A {start, end} span in seconds from either accepted shape.
 
     `{start, end}` is transcribe_audio's chunk shape (#483), so its output
     drops in as `lines`; `{start_seconds, duration_seconds}` is slice_audio's.
+    allow_empty accepts end == start: Whisper's word timestamps give a
+    zero-length chunk now and then, and a transcript line is attributed
+    (no voice, too short) rather than failing the whole call (#617).
     """
     if not isinstance(entry, dict):
         raise ValueError(
@@ -144,9 +156,10 @@ def _span(entry, where, duration):
         raise ValueError(f"{COMMAND}: {where} is not a finite span")
     if start < 0:
         raise ValueError(f"{COMMAND}: {where} starts before the audio ({start} s)")
-    if end <= start:
+    empty = allow_empty and end == start
+    if end <= start and not empty:
         raise ValueError(f"{COMMAND}: {where} ends at {end} s, not after its start")
-    if duration is not None and start >= duration:
+    if duration is not None and (start > duration or (start == duration and not empty)):
         raise ValueError(
             f"{COMMAND}: {where} starts at {start:.3f} s, past the end of the "
             f"{duration:.3f} s audio"
@@ -157,6 +170,47 @@ def _span(entry, where, duration):
             f"{duration:.3f} s audio"
         )
     return start, min(end, duration) if duration is not None else end
+
+
+def voices_argument_errors(arguments):
+    """[(argument, message)] for an attribute_voices `voices` its parse_voices
+    would refuse - fewer than two, a bad name, a malformed span, a reference
+    under min_reference_seconds (#494).
+
+    What needs the audio - a span past its end, a clip's length - stays the
+    run's: the duration is not known here. A `voices` still spelled as a
+    reference, or with a span holding one, is left to the run too.
+    """
+    if "voices" not in arguments:
+        return []
+    voices = arguments["voices"]
+    if isinstance(voices, str) or _voices_hold_reference(voices):
+        return []
+    minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
+    if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
+        minimum = MIN_REFERENCE_SECONDS
+    try:
+        parse_voices(voices, None, minimum)
+    except ValueError as error:
+        return [("voices", str(error))]
+    return []
+
+
+def _voices_hold_reference(voices):
+    """Whether any span in `voices` carries a string - a reference the run
+    resolves - so its numbers are not known yet. A clip path in place of a
+    voice's spans is not a span and does not count."""
+    if not isinstance(voices, dict):
+        return False
+    for reference in voices.values():
+        spans = [reference] if isinstance(reference, dict) else reference
+        if not isinstance(spans, list):
+            continue
+        for span in spans:
+            values = span.values() if isinstance(span, dict) else [span]
+            if any(isinstance(value, str) for value in values):
+                return True
+    return False
 
 
 def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
@@ -212,66 +266,6 @@ def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     return parsed
 
 
-def voices_errors(workflow_definition, source_indices=None):
-    """Every attribute_voices step whose literal `voices` parse_voices would
-    refuse, as [{path, message}] - fewer than two, a bad name, a malformed
-    span, a reference under min_reference_seconds.
-
-    The definition is substituted and expanded, so a `voices` a caller
-    passed is checked as it will run. What needs the audio - a span past its
-    end, a clip's length - stays the run's: the duration is not known here.
-    A `voices` still spelled as a reference, or with a span holding one, is
-    left to the run too.
-    """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-    errors = []
-    for index, step in enumerate(steps):
-        task = step.get("task") if isinstance(step, dict) else None
-        if not isinstance(task, dict) or task.get("command") != COMMAND:
-            continue
-        arguments = task.get("arguments")
-        if not isinstance(arguments, dict) or "voices" not in arguments:
-            continue
-        voices = arguments["voices"]
-        if isinstance(voices, str) or _holds_reference(voices):
-            continue
-        minimum = arguments.get("min_reference_seconds", MIN_REFERENCE_SECONDS)
-        if isinstance(minimum, bool) or not isinstance(minimum, (int, float)):
-            minimum = MIN_REFERENCE_SECONDS
-        try:
-            parse_voices(voices, None, minimum)
-        except ValueError as error:
-            source = author_index(source_indices, index)
-            name = step.get("name")
-            where = (
-                f" in member '{name}'"
-                if isinstance(name, str) and MEMBER_SEPARATOR in name
-                else ""
-            )
-            path = ("steps", source, "task", "arguments", "voices")
-            errors.append({"path": render_path(path), "message": f"{error}{where}"})
-    return errors
-
-
-def _holds_reference(voices):
-    """Whether any span in `voices` carries a string - a reference the run
-    resolves - so its numbers are not known yet. A clip path in place of a
-    voice's spans is not a span and does not count."""
-    if not isinstance(voices, dict):
-        return False
-    for reference in voices.values():
-        spans = [reference] if isinstance(reference, dict) else reference
-        if not isinstance(spans, list):
-            continue
-        for span in spans:
-            values = span.values() if isinstance(span, dict) else [span]
-            if any(isinstance(value, str) for value in values):
-                return True
-    return False
-
-
 def parse_lines(lines, duration, window_seconds):
     """The lines to attribute, as [{start, end, text}].
 
@@ -295,7 +289,7 @@ def parse_lines(lines, duration, window_seconds):
         raise ValueError(f"{COMMAND}: 'lines' must be a non-empty list of spans")
     parsed = []
     for index, line in enumerate(lines):
-        start, end = _span(line, f"lines[{index}]", duration)
+        start, end = _span(line, f"lines[{index}]", duration, allow_empty=True)
         parsed.append({"start": start, "end": end, "text": line.get("text")})
     return parsed
 
@@ -534,7 +528,8 @@ def _load_embedder(device, dtype):
     return cached_model((COMMAND, _EMBEDDER_MODEL, str(device), str(dtype)), load)
 
 
-def _run_separator(waveform, sample_rate, device, dtype):
+def _run_separator_stems(waveform, sample_rate, device, dtype):
+    """Every htdemucs stem of a mix: ({name: (channels, samples) array}, rate)."""
     from demucs.apply import apply_model
 
     model = _load_separator(device, dtype)
@@ -551,30 +546,42 @@ def _run_separator(waveform, sample_rate, device, dtype):
         stems = apply_model(
             model, ((mix - mean) / std)[None], device=device, split=True
         )[0]
-    vocals = stems[model.sources.index("vocals")] * std + mean
-    return vocals.float().cpu().numpy(), rate
+    return {
+        name: (stems[index] * std + mean).float().cpu().numpy()
+        for index, name in enumerate(model.sources)
+    }, rate
 
 
-def separate_vocals(waveform, sample_rate, device, dtype):
-    """The vocal stem of a (channels, samples) mix, as a mono 16 kHz array.
+def _run_separator(waveform, sample_rate, device, dtype):
+    stems, rate = _run_separator_stems(waveform, sample_rate, device, dtype)
+    return stems["vocals"], rate
 
-    demucs on MPS is unverified; if it fails there, separation is retried on
-    the CPU with a warning rather than failing the step.
-    """
+
+def _separate_with_fallback(run, command, waveform, sample_rate, device, dtype):
+    """`run` (a separator entry point) on the device, retried on the CPU on
+    MPS. demucs on MPS is unverified; if it fails there, separation is retried
+    on the CPU with a warning rather than failing the step."""
     from .. import get_device_type
 
     try:
-        vocals, rate = _run_separator(waveform, sample_rate, device, dtype)
+        return run(waveform, sample_rate, device, dtype)
     except Exception as error:
         if get_device_type(device) != "mps":
             raise
         emit_warning(
-            f"{COMMAND}: htdemucs failed on {device} ({error}); separating on "
+            f"{command}: htdemucs failed on {device} ({error}); separating on "
             "the CPU instead, which is slower",
             kind="separation_cpu_fallback",
-            command=COMMAND,
+            command=command,
         )
-        vocals, rate = _run_separator(waveform, sample_rate, "cpu", torch.float32)
+        return run(waveform, sample_rate, "cpu", torch.float32)
+
+
+def separate_vocals(waveform, sample_rate, device, dtype):
+    """The vocal stem of a (channels, samples) mix, as a mono 16 kHz array."""
+    vocals, rate = _separate_with_fallback(
+        _run_separator, COMMAND, waveform, sample_rate, device, dtype
+    )
     return _mono_16k(vocals, rate)
 
 
@@ -638,22 +645,66 @@ def _embed_references(references, clips, song, encoder, separate, device, dtype)
     return embeddings
 
 
+def piece_voices(start, end, score_piece):
+    """Voiced seconds by voice over a line's PIECE_SECONDS pieces, counting
+    only the pieces score_piece(start, end) answers with a confident voice."""
+    tally = {}
+    count = max(1, math.ceil((end - start) / PIECE_SECONDS - 1e-9))
+    for index in range(count):
+        piece_start = start + index * PIECE_SECONDS
+        piece = score_piece(piece_start, min(piece_start + PIECE_SECONDS, end))
+        if piece["voice"] is not None and not piece["uncertain"]:
+            tally[piece["voice"]] = (
+                tally.get(piece["voice"], 0.0) + piece["voiced_seconds"]
+            )
+    return tally
+
+
+def mixed_reason(tally):
+    """Why a line is mixed, when a second voice holds MIXED_LINE_SHARE or
+    more of its pieces' voiced time; None when one voice has it."""
+    total = sum(tally.values())
+    if len(tally) < 2 or total <= 0:
+        return None
+    ranked = sorted(tally, key=tally.get, reverse=True)
+    share = tally[ranked[1]] / total
+    if share < MIXED_LINE_SHARE:
+        return None
+    split = ", ".join(f"'{name}' {tally[name]:.2f} s" for name in ranked)
+    return (
+        f"its {PIECE_SECONDS:g} s pieces name more than one voice ({split}); "
+        f"'{ranked[1]}' holds {share:.2f} of it, at or over {MIXED_LINE_SHARE} "
+        '- a duet, or a segment over a hand-over; timestamps: "word" splits it'
+    )
+
+
 def _attribute_lines(parsed_lines, song, encoder, embeddings, too_similar, separate):
-    """Score each parsed line against every voice."""
-    attributed = []
-    for line in parsed_lines:
-        voiced = song.seconds(line["start"], line["end"])
+    """Score each parsed line against every voice - and a line longer than
+    PIECE_SECONDS in pieces too, `uncertain` when they disagree."""
+
+    def score(start, end):
+        voiced = song.seconds(start, end)
         embedding = None
         if voiced >= MIN_VOICED_SECONDS:
-            embedding = embed(encoder, song.samples([(line["start"], line["end"])]))
+            embedding = embed(encoder, song.samples([(start, end)]))
+        return score_line(
+            embedding, embeddings, voiced, too_similar, separated=separate
+        )
+
+    attributed = []
+    for line in parsed_lines:
+        result = score(line["start"], line["end"])
+        if result["voice"] is not None and line["end"] - line["start"] > PIECE_SECONDS:
+            reason = mixed_reason(piece_voices(line["start"], line["end"], score))
+            if reason is not None:
+                result["uncertain"] = True
+                result["reason"] = "; ".join(filter(None, [result["reason"], reason]))
         attributed.append(
             {
                 "start": _round(line["start"], 3),
                 "end": _round(line["end"], 3),
                 "text": line["text"],
-                **score_line(
-                    embedding, embeddings, voiced, too_similar, separated=separate
-                ),
+                **result,
             }
         )
     return attributed
@@ -718,8 +769,11 @@ def attribute_voices(
             (letters, digits, '_', '-').
         lines: The spans to attribute, in seconds - a list of {start, end,
             text?} (transcribe_audio's chunk shape) or {start_seconds,
-            duration_seconds, text?}. Omitted: the song is cut into fixed
-            windows of window_seconds.
+            duration_seconds, text?}. A zero-length line (a word chunk with
+            start == end) has no voice rather than being refused. A line
+            longer than 2 s is also scored in 2 s pieces, and is uncertain
+            when they name different voices. Omitted: the song is cut into
+            fixed windows of window_seconds.
         windows: Named spans to roll the lines up into, e.g. shots - a list
             of {name, start, end}. Each reports every voice's share of its
             voiced time. Omitted: the fixed windows when 'lines' is omitted
@@ -808,4 +862,43 @@ def attribute_voices(
         "reference_similarity": similarity,
         "warnings": warnings,
         "thresholds": dict(THRESHOLDS),
+    }
+
+
+STEMS_COMMAND = "separate_stems"
+
+
+def separate_stems(audio, sample_rate=None, device="cpu"):
+    """Task command: split a mix into its vocals, drums, bass and other stems.
+
+    Runs htdemucs (Hybrid Transformer Demucs), the separator `attribute_voices`
+    uses, and returns each stem as its own audio result: the step's result
+    saves them as `<name>-vocals`, `<name>-drums`, `<name>-bass` and
+    `<name>-other`, and a later step reads one as
+    `previous_result:<step>.vocals`. Transcribing the vocal stem aligns sung
+    lyrics better than the full mix, and `other` + `drums` + `bass` is the
+    instrumental to put under dialogue as a score bed. The stems sum back to
+    the mix. Needs the `demucs` package; on MPS a failed separation is retried
+    on the CPU with a warning.
+
+    Args:
+        audio: Path or URL of an audio file (or of a video file, whose
+            soundtrack is taken), a video generated with a soundtrack, or a
+            waveform (which needs sample_rate alongside it)
+        sample_rate: Sample rate of a directly passed waveform (files carry
+            their own)
+        device: Where htdemucs runs
+
+    Returns:
+        Dict of stem name to an audio track, at htdemucs' 44.1 kHz stereo
+    """
+    from .audio_utils import as_track
+
+    waveform, rate = waveform_and_rate(audio, sample_rate, STEMS_COMMAND)
+    # fp32 on every device, as attribute_voices runs it
+    stems, stem_rate = _separate_with_fallback(
+        _run_separator_stems, STEMS_COMMAND, waveform, rate, device, torch.float32
+    )
+    return {
+        name: as_track(array, stem_rate, STEMS_COMMAND) for name, array in stems.items()
     }

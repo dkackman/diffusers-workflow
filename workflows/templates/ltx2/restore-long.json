@@ -1,0 +1,245 @@
+{
+    "id": "LTX2DeblurLong",
+    "description": "Restores sharpness to an out-of-focus source longer than one LTX-2.5 bucket by cutting it into overlapping windows, running restore-deblur's in-context pass on each, and blending them back into one video of exactly the source's length. 'window' (window_video) cuts window i of 'num_frames' frames, sharing 'overlap' frames with the one before; 'restore' regenerates each window in focus with the window attached as the IC-LoRA reference; 'join' (join_windows) blends each seam's 'overlap' frames on the 'curve' ramp and puts the source's own soundtrack back over the whole result, so the model's generated audio is discarded. 'windows' is a list of {name, index} entries, one per window, and must be exactly ceil(source_frames / (num_frames - overlap)) long, indexes 0 upward: read the source's frame count first with get_gallery_metadata('asset:...'). The defaults (121-frame windows, overlap 16, stride 105) take 3 windows for a source of 211 to 315 frames - about 9 to 13 s at 24 fps; 2 windows cover up to 210 frames, 4 up to 420. validate_workflow refuses a list of the wrong length when the source is an asset: or output: reference, naming the count it needs, before any GPU time. At most 32 windows (for_each's limit), about 140 s at these defaults. 'num_frames' is LTX's 8 * n + 1 bucket and is the window length, not the output's: the output is the source's frame count. A larger 'overlap' hides per-window drift in colour or detail better and costs more windows. Everything else - the trained 960x544 / 24 fps bucket, 'lora_scale', the dual-panel prompt, spatial defocus only - is restore-deblur's; set 'width'/'height' to the source's own size.",
+    "summary": "Sharpens out-of-focus footage longer than one bucket, a window at a time, joined back to the source's length.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 12.2,
+            "per_entry": {
+                "variable": "windows",
+                "minutes": 1.56,
+                "entries": 3
+            }
+        }
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height",
+        "windows"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:qa-cast/ep13-episode.mp4",
+        "windows": [
+            {
+                "name": "w0",
+                "index": 0
+            },
+            {
+                "name": "w1",
+                "index": 1
+            },
+            {
+                "name": "w2",
+                "index": 2
+            }
+        ],
+        "prompt": "prompt:ltx2/deblur_dual_panel",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "overlap": 16,
+        "curve": "cosine",
+        "frame_rate": 24.0,
+        "lora_scale": 1.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "window",
+            "for_each": "variable:windows",
+            "task": {
+                "command": "window_video",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "index": "item:index",
+                    "num_frames": "variable:num_frames",
+                    "overlap": "variable:overlap"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false,
+                "fps": "variable:frame_rate"
+            }
+        },
+        {
+            "name": "restore",
+            "for_each": "variable:windows",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2InContextPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}",
+                    "reference_conditions": [
+                        {
+                            "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+                            "from_arguments": {
+                                "frames": "previous_result:window.frames",
+                                "strength": 1.0
+                            }
+                        }
+                    ],
+                    "reference_downscale_factor": 1,
+                    "conditioning_attention_strength": 1.0
+                },
+                "loras": [
+                    {
+                        "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Deblur",
+                        "weight_name": "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
+                        "adapter_name": "ic_lora",
+                        "scale": "variable:lora_scale"
+                    }
+                ]
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "join",
+            "task": {
+                "command": "join_windows",
+                "arguments": {
+                    "videos": "gather:restore",
+                    "source": "variable:source_video",
+                    "num_frames": "variable:num_frames",
+                    "overlap": "variable:overlap",
+                    "curve": "variable:curve"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

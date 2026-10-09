@@ -603,6 +603,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "attention-processor.json": {
         "generate_with_sdpa": "8dc3e92052c445d5dbf20bf6e8b6fe91794cfa3772bb7366e2390889b4e99459"
     },
+    "attribute-lines.json": {},
     "audio-trim-fade.json": {},
     "base-and-refiner.json": {
         "main": "384b0dccd2842b0c235b9d325e53e48bef5bc1b5150fd2e836f154d7dde32507",
@@ -614,6 +615,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "still@2": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
         "still@3": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3",
     },
+    "check-script.json": {},
     "community-pipeline.json": {
         "invert": "7013cd33f88d6c850c7775f0bdf6d7be74ef427bf6fdf34c3663ddd793028a25"
     },
@@ -661,6 +663,16 @@ TEMPLATE_PIPELINE_KEYS = {
     "ip-adapter.json": {
         "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
     },
+    "kandinsky6/generate-and-upscale.json": {
+        "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a",
+        "upscale": "838beb7eefde695da365c37927645fc388ab8feeaf8e1bc1695440cbd2b54fdd",
+    },
+    "kandinsky6/image-to-video.json": {
+        "image_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a"
+    },
+    "kandinsky6/text-to-video.json": {
+        "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a"
+    },
     "lora-styles.json": {
         "couple": "e0d4d24cbe4caec22ee9e2afc43e9cfd772971430ed633cd289ff362e8213816",
         "font-design": "8f28fcccd557b862030508fa1db006f365afbf9b394f981488673df4c46eb548",
@@ -690,6 +702,9 @@ TEMPLATE_PIPELINE_KEYS = {
         "extended": "7102a40f1655f06fd5173c45ea4989b877dc336221c4ab219fa0d0d9d845a69b",
         "opening": "9c52ab1464a239a6e192ec36ffb4687b3dd61a66363886f38bb7ab5ceb83d638",
     },
+    "ltx2/face-repair.json": {
+        "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
+    },
     "ltx2/generative-upscale.json": {
         "low_resolution": "fab6e3ec8feb0909dc44660990636418bdccbbb045154e1a56b26f235435acf0",
         "upscaled": "eb12a8878241511cecd56d4c41a168e9b59a11803656bef3948c704d18fba112",
@@ -707,11 +722,19 @@ TEMPLATE_PIPELINE_KEYS = {
         "refine": "cdc51f4b605ee60ec9359390b4a9fb7f60762b419637699527f5a7b1457c1f22",
         "upscale": "f97469b7a921acca65cf45135dafd45796a29297794eabb43d3adabeeed3c33d",
     },
+    "ltx2/refine-in-place.json": {
+        "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
+    },
     "ltx2/restore-deblur.json": {
         "restored": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396"
     },
     "ltx2/restore-decompression.json": {
         "restored": "afcb2e67a7c03447b5860bfe19f4785480e214eb54a39a61a53ccbf0e51717f6"
+    },
+    "ltx2/restore-long.json": {
+        "restore@w0": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+        "restore@w1": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+        "restore@w2": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
     },
     "ltx2/text-to-video.json": {
         "text_to_video": "c4da9234234392f4df1a76b9d3ffb2cbff735540e278709da11e43f9b4bc7313"
@@ -767,6 +790,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/last-frame-only.json": {
         "last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
     },
+    "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
         "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "shot@closeup": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
@@ -882,3 +906,55 @@ def test_copy_containers_copies_exact_containers_and_shares_leaves():
     # A subclass keeps its type by being shared, never rebuilt as its base
     assert copied["ordered"] is ordered
     assert copied["pair"] is pair
+
+
+def test_normalized_downstream_true_for_a_join_with_match_levels_set():
+    """dialogue-short's shots are consumed by a concat_videos that levels
+    them when match_levels is set (#671); with it null nothing resets them."""
+
+    def steps(match_levels):
+        return [
+            {"name": "shot@a", "pipeline": {"arguments": {}}},
+            {
+                "name": "episode",
+                "task": {
+                    "command": "concat_videos",
+                    "arguments": {
+                        "videos": ["previous_result:shot@a"],
+                        "match_levels": match_levels,
+                    },
+                },
+            },
+        ]
+
+    assert normalized_downstream(steps("rms"), "shot@a")
+    assert not normalized_downstream(steps(None), "shot@a")
+
+
+def test_dialogue_short_shot_is_level_reset_with_variable_match_levels():
+    """The real template passes `match_levels` as a variable; once expanded
+    each shot is consumed by a leveling join, and the post-write check on
+    the shot video stands down (#671). Null leaves it speaking."""
+    import json
+
+    from dw.audio_qc import written_peak_already_warned
+    from dw.workflow import Workflow
+
+    with open("workflows/templates/minimax/dialogue-short.json") as handle:
+        definition = json.load(handle)
+    shots = [
+        {"name": n, "prompt": "p", "references": [], "num_frames": 124}
+        for n in ("a", "b")
+    ]
+
+    def consumed(match_levels):
+        definition["variables"]["shots"] = shots
+        definition["variables"]["match_levels"] = match_levels
+        steps = Workflow._expand(definition, definition["variables"])["steps"]
+        index = next(i for i, s in enumerate(steps) if s["name"] == "shot@a")
+        return normalized_downstream(steps[index + 1 :], "shot@a")
+
+    assert consumed("rms")
+    assert not consumed(None)
+    assert written_peak_already_warned("video/mp4", True, False)
+    assert not written_peak_already_warned("video/mp4", False, False)

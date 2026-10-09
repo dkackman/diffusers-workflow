@@ -1487,6 +1487,25 @@ class TestSegmentBackedSave:
         with av.open(str(path)) as container:
             return sum(1 for _ in container.decode(video=0))
 
+    def test_size_narration_counts_frames_not_segment_files(self, tmp_path):
+        from dw.pipeline_processors.chain import SegmentedFrames
+        from dw.writers import _artifact_size
+
+        files = self.make_segments(tmp_path)
+        frames = SegmentedFrames(files.paths, stored_frames=7)
+        assert len(frames) == 2
+
+        class Artifact:
+            pass
+
+        artifact = Artifact()
+        artifact.frames = frames
+        assert _artifact_size(artifact) == "7 frames"
+
+        trimmed = SegmentedFrames(files.paths, total_frames=5, stored_frames=7)
+        artifact.frames = trimmed
+        assert _artifact_size(artifact) == "5 frames"
+
     def test_streams_segments_into_one_video(self, tmp_path):
         frames = self.make_segments(tmp_path)
         result = Result({"content_type": "video/mp4", "fps": 4})
@@ -1506,6 +1525,72 @@ class TestSegmentBackedSave:
         result.save(str(tmp_path), "final")
 
         assert list(tmp_path.glob("segment-*.mp4")) == []
+
+    def test_the_saved_artifact_is_the_frames_not_the_deleted_segments(self, tmp_path):
+        frames = self.make_segments(tmp_path)
+        artifact = AudioVideo(frames, None, None)
+        result = Result({"content_type": "video/mp4", "fps": 4})
+        result.add_result(artifact)
+
+        result.save(str(tmp_path), "final")
+
+        downstream = result.get_artifacts()[0].frames
+        assert len(downstream) == 7
+        assert len(list(downstream)) == 7
+        assert downstream[0].size == (16, 16)
+
+    def test_the_saved_artifact_can_be_encoded_again_downstream(self, tmp_path):
+        import av
+
+        frames = self.make_segments(tmp_path)
+        first = Result({"content_type": "video/mp4", "fps": 4})
+        first.add_result(AudioVideo(frames, None, None))
+        first.save(str(tmp_path), "final")
+
+        audio = numpy.zeros((2, int(7 / 4 * 8000)), dtype=numpy.float32)
+        again = Result({"content_type": "video/mp4", "fps": 4})
+        again.add_result(AudioVideo(first.get_artifacts()[0].frames, audio, 8000))
+        again.save(str(tmp_path), "second")
+
+        with av.open(str(tmp_path / "second-0.0.mp4")) as container:
+            assert container.streams.video[0].frames == 7
+
+    def test_the_video_tasks_read_a_saved_chain_named_downstream(self, tmp_path):
+        # #667: a step naming the chain (previous_result:) is handed its
+        # frames as a list - get_last_frame on a SavedFrames raised TypeError
+        from dw.previous_results import get_iterations
+        from dw.tasks import video_utils
+
+        chain = Result({"content_type": "video/mp4", "fps": 4})
+        chain.add_result(AudioVideo(self.make_segments(tmp_path), None, None))
+        chain.save(str(tmp_path), "final")
+        previous = {"chain": chain}
+
+        (arguments,) = get_iterations({"video": "previous_result:chain"}, previous)
+        video = arguments["video"]
+
+        last = video_utils.process_video(video, "get_last_frame", None, {})
+        first = video_utils.process_video(video, "get_first_frame", None, {})
+        assert last.getpixel((8, 8))[0] > 40  # the second segment's red
+        assert first.getpixel((8, 8))[0] < 40  # the first segment's black
+        assert video_utils.get_frame(video, 6).size == (16, 16)
+        assert video_utils.frame_count(video) == 7
+        assert len(video_utils.frames_as_pil_list(video)) == 7
+        assert video_utils.frames_as_array(video).shape[:3] == (7, 16, 16)
+        assert video_utils.frame_count(video_utils.loop_frames(video, 10)) == 10
+        assert video_utils.frame_grid(video, count=4) is not None
+        assert video_utils.is_video(video)
+
+        (by_property,) = get_iterations(
+            {"video": "previous_result:chain.frames"}, previous
+        )
+        assert video_utils.frame_count(by_property["video"]) == 7
+
+        # The stored result keeps its lazy, file-backed frames
+        from dw.pipeline_processors.chain import SavedFrames
+
+        assert isinstance(chain.get_artifacts()[0].frames, SavedFrames)
+        assert chain.retainable is False
 
     def test_audio_is_muxed_into_the_streamed_video(self, tmp_path):
         import av
@@ -1699,11 +1784,22 @@ class TestFramesForEncoding:
     def test_anything_that_is_not_a_float_array_is_passed_through(self):
         from dw.writers import frames_for_encoding
 
-        already_uint8 = numpy.zeros((1, 2, 2, 3), dtype=numpy.uint8)
-        assert frames_for_encoding(already_uint8) is already_uint8
         assert frames_for_encoding("frames") == "frames"
         tensor = torch.zeros((1, 2, 2, 3))
         assert frames_for_encoding(tensor) is tensor
+
+    def test_a_uint8_array_is_handed_over_as_pixel_values(self):
+        """join_windows' uint8 output (#695): as an array, encode_video would
+        read a near-black clip - every value 0 or 1 - as floats in [0, 1]
+        and scale it by 255, so it goes over as a tensor, unscaled."""
+        from dw.writers import frames_for_encoding
+
+        near_black = numpy.ones((1, 2, 2, 3), dtype=numpy.uint8)
+        encoded = frames_for_encoding(near_black)
+
+        assert isinstance(encoded, torch.Tensor)
+        assert encoded.dtype == torch.uint8
+        assert numpy.array_equal(encoded.numpy(), near_black)
 
     def test_a_muxed_save_converts_before_it_encodes(self):
         result = Result({"content_type": "video/mp4", "fps": 24})
@@ -1988,6 +2084,40 @@ class TestNoHeadroom:
             warnings = self.events_from(lambda: self.save_muxed(torch.ones((2, 100))))
 
         assert [w["kind"] for w in warnings] == ["audio_no_headroom"]
+
+    @pytest.mark.parametrize(
+        "probe",
+        [
+            {"return_value": {"peak_dbfs": 1.02, "kind": "video"}},
+            {"return_value": {"peak_dbfs": -1.12, "kind": "video"}},
+            {"side_effect": OSError("truncated")},
+        ],
+        ids=["measured-hot", "measured-clean", "unprobeable"],
+    )
+    def test_a_video_a_join_level_matches_draws_no_headroom_warning(self, probe):
+        """#671: dialogue-short's shot, consumed by a `match_levels` join,
+        with a hot predicted peak. The join resets the level it ships at, so
+        neither the measured clip nor the held prediction (which claimed the
+        measured file "could not be re-measured") may reach the caller."""
+        from dw.media_types import AudioVideo
+        from dw.result import Result
+
+        def save():
+            result = Result({"content_type": "video/mp4"}, consumed_by_normalizer=True)
+            result.add_result(AudioVideo("frames", torch.ones((2, 100)), 48000))
+            with (
+                patch("dw.result.encode_video"),
+                patch("dw.result.is_av_available", return_value=True),
+                tempfile.TemporaryDirectory() as temp_dir,
+            ):
+                result.save(temp_dir, "shot")
+
+        with patch("dw.media.probe_media", **probe):
+            warnings = self.events_from(save)
+
+        kinds = [w["kind"] for w in warnings]
+        assert "audio_clipped" not in kinds
+        assert "audio_no_headroom" not in kinds
 
 
 class TestTheWrittenLevel:
@@ -2297,15 +2427,24 @@ class TestTheMusicTemplatesLeaveHeadroom:
     @pytest.mark.parametrize(
         "path,source,target",
         [
-            ("workflows/templates/minimax/music.json", "generate_music", -3.0),
-            ("workflows/templates/minimax/music-video.json", "write_song", -3.0),
+            (
+                "workflows/templates/minimax/music.json",
+                "previous_result:generate_music",
+                -3.0,
+            ),
+            # music-video reads the song pieces under its cuts (#788)
+            (
+                "workflows/templates/minimax/music-video.json",
+                "previous_result:song_cuts",
+                -3.0,
+            ),
         ],
     )
     def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):
         steps = self.steps_of(path)
         balanced = steps["balanced"]["task"]
         assert balanced["command"] == "normalize_audio"
-        assert balanced["arguments"]["audio"] == f"previous_result:{source}"
+        assert balanced["arguments"]["audio"] == source
         assert balanced["arguments"]["peak_dbfs"] == target
 
     @pytest.mark.parametrize(
@@ -2329,9 +2468,7 @@ class TestTheMusicTemplatesLeaveHeadroom:
         """Only the mux is normalized. The slices condition the shots, so a
         gain change there would change the picture rather than its level."""
         steps = self.steps_of("workflows/templates/minimax/music-video.json")
-        assert steps["slice"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
-        )
+        assert steps["slice"]["task"]["arguments"]["audio"] == "variable:song"
         assert steps["music_video"]["task"]["arguments"]["audio"] == (
             "previous_result:balanced"
         )

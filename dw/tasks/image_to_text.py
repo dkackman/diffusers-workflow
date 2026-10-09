@@ -9,11 +9,11 @@ work is done by vision-language models now.
 """
 
 import logging
-from .text_generation import generate_text, _DEFAULT_VISION_MODEL
+from .text_generation import generate_text, DEFAULT_VISION_MODEL
 
 logger = logging.getLogger("dw")
 
-_DEFAULT_MODEL = _DEFAULT_VISION_MODEL
+_DEFAULT_MODEL = DEFAULT_VISION_MODEL
 _DEFAULT_PROMPT = "Describe this image."
 
 

@@ -15,11 +15,17 @@ import pytest
 
 from dw.task_domains import (
     TASK_ARGUMENT_DOMAINS,
+    AT_LEAST_ONE,
+    CHANNEL_LEVEL,
+    SEED,
     CLOSED_UNIT,
+    FINITE,
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
+    UNIT,
     as_number,
+    slice_region,
     task_argument_errors,
 )
 from dw.dsp import resample_waveform
@@ -69,6 +75,11 @@ class TestTheRegistryNamesRealArguments:
                 NON_NEGATIVE,
                 NON_POSITIVE,
                 CLOSED_UNIT,
+                UNIT,
+                AT_LEAST_ONE,
+                CHANNEL_LEVEL,
+                SEED,
+                FINITE,
             }
 
 
@@ -115,6 +126,19 @@ class TestTheStaticPass:
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.target_lufs"
 
+    @pytest.mark.parametrize("name", ["shadows", "temperature"])
+    def test_a_non_numeric_string_is_refused_as_not_a_number(self, name):
+        errors = errors_for("grade", {"media": "asset:a.png", name: "abc"})
+        assert len(errors) == 1
+        assert errors[0]["path"] == f"steps[0].task.arguments.{name}"
+        assert "to be a number" in errors[0]["message"]
+
+    def test_a_numeric_string_and_a_reference_are_still_left_alone(self):
+        assert errors_for("grade", {"media": "asset:a.png", "shadows": "0.5"}) == []
+        assert (
+            errors_for("grade", {"media": "asset:a.png", "shadows": "variable:s"}) == []
+        )
+
     def test_an_out_of_range_temperature_is_refused(self):
         errors = errors_for("grade", {"media": "asset:a.png", "temperature": 5.0})
         assert len(errors) == 1
@@ -125,6 +149,27 @@ class TestTheStaticPass:
         errors = errors_for("grade", {"media": "asset:a.png", "tint": -1.5})
         assert len(errors) == 1
         assert errors[0]["path"] == "steps[0].task.arguments.tint"
+
+    def test_the_unit_domain_accepts_its_ends_and_refuses_outside_them(self):
+        from dw.task_domains import in_domain
+
+        assert in_domain(0, UNIT) and in_domain(1, UNIT)
+        assert not in_domain(-0.1, UNIT) and not in_domain(1.1, UNIT)
+        for value in (0, 1, 0.5):
+            assert errors_for("grade", {"media": "asset:a.png", "fade": value}) == []
+        for value in (-0.1, 1.1):
+            errors = errors_for("grade", {"media": "asset:a.png", "fade": value})
+            assert [e["path"] for e in errors] == ["steps[0].task.arguments.fade"]
+            assert "between 0.0 and 1.0" in errors[0]["message"]
+
+    def test_select_index_has_no_domain_its_range_is_select_errors(self):
+        # One owner for the index's range: select_index_problem, which names
+        # both ends when the candidate count is known (#639)
+        errors = errors_for(
+            "select",
+            {"candidates": ["a"], "scores": [1], "rule": "index", "index": -1},
+        )
+        assert errors == []
 
     def test_a_boundary_temperature_is_fine(self):
         assert errors_for("grade", {"media": "asset:a.png", "temperature": 1.0}) == []
@@ -174,6 +219,98 @@ class TestTheStaticPass:
             "num_frames",
             "fps",
         }
+
+
+class TestSliceLeadFrames:
+    """#627: lead_frames is extra audio before the cut, frame form only."""
+
+    FRAMES = {"audio": "asset:bed.wav", "num_frames": 24, "fps": 24}
+
+    def test_a_lead_reaching_before_the_head_is_refused_statically(self):
+        errors = errors_for(
+            "slice_audio", {**self.FRAMES, "start_frame": 6, "lead_frames": 12}
+        )
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.lead_frames"]
+        assert "start_frame" in errors[0]["message"]
+
+    def test_a_lead_with_no_start_is_refused_statically(self):
+        errors = errors_for("slice_audio", {**self.FRAMES, "lead_frames": 1})
+        assert len(errors) == 1
+
+    def test_a_lead_with_the_seconds_form_is_refused_statically(self):
+        errors = errors_for(
+            "slice_audio",
+            {"audio": "asset:bed.wav", "start_seconds": 1, "lead_frames": 2},
+        )
+        assert len(errors) == 1
+        assert "start_seconds" in errors[0]["message"]
+
+    def test_a_lead_inside_the_track_is_accepted(self):
+        assert (
+            errors_for(
+                "slice_audio", {**self.FRAMES, "start_frame": 48, "lead_frames": 12}
+            )
+            == []
+        )
+
+    def test_a_reference_is_unknown_and_says_nothing(self):
+        assert (
+            errors_for(
+                "slice_audio",
+                {**self.FRAMES, "start_frame": "variable:s", "lead_frames": 12},
+            )
+            == []
+        )
+
+    def test_a_fractional_lead_is_refused(self):
+        errors = errors_for("slice_audio", {**self.FRAMES, "lead_frames": 1.5})
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.lead_frames"]
+
+    def test_the_run_refuses_a_negative_start(self):
+        with pytest.raises(ValueError, match="start_frame.*lead_frames"):
+            slice_audio(
+                tone(),
+                start_frame=6,
+                lead_frames=12,
+                num_frames=24,
+                fps=24,
+                sample_rate=32000,
+            )
+
+    def test_the_run_refuses_a_lead_with_seconds(self):
+        with pytest.raises(ValueError, match="lead_frames"):
+            slice_audio(
+                tone(),
+                start_seconds=0.5,
+                duration_seconds=0.25,
+                lead_frames=2,
+                sample_rate=32000,
+            )
+
+    def test_the_run_starts_the_slice_lead_frames_earlier(self):
+        rate = 24000
+        ramp = numpy.arange(rate * 4, dtype=numpy.float32).reshape(1, -1)
+        track = slice_audio(
+            ramp,
+            start_frame=48,
+            lead_frames=12,
+            num_frames=24,
+            fps=24,
+            sample_rate=rate,
+        )
+        expected = ramp[:, 36 * 1000 : 60 * 1000]
+        assert track.audio.shape == (1, 24 * 1000)
+        assert numpy.array_equal(numpy.asarray(track.audio), expected)
+
+    def test_slice_region_starts_at_start_minus_lead(self):
+        lead = slice_region(
+            24000, start_frame=48, lead_frames=12, num_frames=24, fps=24
+        )
+        assert lead == (36000, 24000)
+        assert slice_region(24000, start_frame=48, num_frames=24, fps=24) == (
+            48000,
+            24000,
+        )
 
 
 class TestThroughValidateWorkflow:
@@ -309,6 +446,73 @@ class TestTheDomainIsVisibleOverTheApi:
 
         parameters = {p["name"]: p for p in describe_task("slice_audio")["parameters"]}
         assert "domain" not in parameters["audio"]
+
+    def test_get_task_reports_the_range_in_words_beside_the_domain(self):
+        from dw.introspection import describe_task
+
+        parameters = {p["name"]: p for p in describe_task("grade")["parameters"]}
+        assert parameters["fade"]["domain"] == UNIT
+        assert parameters["fade"]["range"] == "between 0.0 and 1.0"
+        assert parameters["tint"]["range"] == "between -1.0 and 1.0"
+        parameters = {p["name"]: p for p in describe_task("slice_audio")["parameters"]}
+        assert parameters["num_frames"]["range"] == "above zero"
+        assert "range" not in parameters["audio"]
+
+
+class TestFaceTrackGrid:
+    """crop_face_track's frame grid is the workflow's to declare (#775)."""
+
+    def test_the_default_multiple_keeps_todays_message(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(crop_size=500) == [
+            (
+                "crop_size",
+                "crop_face_track needs 'crop_size' as a multiple of 32, got 500 - "
+                "the crops feed a video model whose frame size moves in steps of 32",
+            )
+        ]
+
+    @pytest.mark.parametrize("multiple", [32.0, "32"])
+    def test_a_whole_multiple_prints_without_a_fraction(self, multiple):
+        from dw.task_domains import face_track_problems
+
+        [(_, message)] = face_track_problems(crop_size=48, multiple=multiple)
+        assert "multiple of 32," in message and "steps of 32" in message
+
+    def test_a_declared_multiple_replaces_the_default(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(crop_size=48, multiple=16) == []
+        assert face_track_problems(crop_size=48) != []
+
+    def test_remainder_must_be_below_modulus(self):
+        from dw.task_domains import face_track_problems
+
+        [(name, message)] = face_track_problems(modulus=4, remainder=4)
+        assert name == "remainder"
+        assert message == "crop_face_track needs 'remainder' (4) below 'modulus' (4)"
+        assert face_track_problems(modulus=16, remainder=0) == []
+
+    def test_what_the_domain_check_owns_is_skipped(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(modulus=0, remainder=3) == []
+        assert face_track_problems(modulus=8, remainder=-1) == []
+        assert face_track_problems(crop_size=48, multiple=0) == []
+
+
+def test_transcript_problem_lives_in_task_domains_and_names_plan_cuts():
+    from dw.task_domains import transcript_problem
+
+    assert transcript_problem({"chunks": []}) is None
+    assert transcript_problem("plain").startswith(
+        "plan_cuts needs a timestamped transcript - {text, chunks: "
+    )
+    assert transcript_problem({"text": "x"}).startswith(
+        "plan_cuts's 'transcript' has no 'chunks' list"
+    )
+    assert transcript_problem(3).endswith("not int")
 
 
 if __name__ == "__main__":

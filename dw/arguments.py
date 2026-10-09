@@ -23,6 +23,7 @@ from .argument_media import (
     fetch_image_with_context,
     fetch_video,
     fetch_video_with_context,
+    local_media_file,
 )
 from PIL import Image
 from .security import (
@@ -139,7 +140,10 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             # Handle video loading for keys ending in '_video' or exactly 'video'
             elif apply_key_conventions and (k.endswith("_video") or k == "video"):
                 logger.debug(f"Loading video for key: {k}")
-                arg[k] = fetch_video_with_context(v, base_dir, k)
+                # A guide holding its soundtrack (#649) needs the file's audio too
+                arg[k] = fetch_video_with_context(
+                    v, base_dir, k, with_audio=arg.get("audio") is True
+                )
             # Handle type references, and the keys that only look like one
             elif apply_key_conventions and (
                 k.endswith("_type") or k.endswith("_dtype") or k == "dtype"
@@ -511,9 +515,11 @@ def realize_object(value, base_dir=None):
         k: v for k, v in value.items() if k not in (FROM_FILE_KEY, type_keys[0])
     }
     accepted, overrides = split_from_file_arguments(object_type, arguments)
-    return apply_field_overrides(
-        object_type.from_file(location, **accepted), overrides, object_type
-    )
+    # A URL is fetched here, through the host policy, and the type handed a
+    # path: diffusers' from_file downloads a URL with requests itself
+    with local_media_file(location, f"'{FROM_FILE_KEY}' media") as path:
+        built = object_type.from_file(path, **accepted)
+    return apply_field_overrides(built, overrides, object_type)
 
 
 def split_from_file_arguments(object_type, arguments):
@@ -906,7 +912,9 @@ def resolve_relative_path(path, base_dir):
 # get_frame and its two fixed-index siblings, and the assessment probes
 # (dw/tasks/assess.py), which stream the file themselves - decoding it to a
 # frame list first dropped the soundtrack they measure and failed every probe
-# on an asset:/output: video (#387) - see _realize_lazy_frame_arguments
+# on an asset:/output: video (#387) - and window_video, which cuts the
+# source's soundtrack with its frames and so reads the file with its audio
+# (#601) - and trim_video, which cuts a soundtrack the same way (#627) - see _realize_lazy_frame_arguments
 _LAZY_FRAME_COMMANDS = frozenset(
     {
         "get_frame",
@@ -915,6 +923,8 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_shots",
         "analyze_seams",
         "analyze_sync_drift",
+        "window_video",
+        "trim_video",
     }
 )
 

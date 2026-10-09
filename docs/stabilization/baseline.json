@@ -1,13 +1,13 @@
 {
-  "modules": 175,
-  "modules_over_size_ceiling": 0,
-  "functions_over_150_lines": 0,
+  "modules": 198,
+  "modules_over_size_ceiling": 2,
+  "functions_over_150_lines": 7,
   "prefix_literals": 0,
   "prefix_handling": 0,
-  "test_dw_patch_targets": 284,
-  "claude_md_lines": 128,
-  "duplicate_blocks": 5,
-  "complex_functions": 7,
+  "test_dw_patch_targets": 325,
+  "claude_md_lines": 129,
+  "duplicate_blocks": 8,
+  "complex_functions": 16,
   "import_cycles": 0,
   "modules_in_import_cycles": 0
 }

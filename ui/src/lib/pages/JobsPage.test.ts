@@ -42,3 +42,21 @@ it('lists a job recorded without a workflow name', async () => {
   await waitFor(() => expect(screen.getByText('text-to-image')).toBeTruthy())
   expect(screen.getByText(/old-1/)).toBeTruthy()
 })
+
+it('shows the card a job ran on, and nothing for one with no device', async () => {
+  data.jobs = [
+    summary({
+      id: 'g1',
+      workflow: 'on-gpu',
+      device: 'cuda:1 NVIDIA GeForce RTX 3090',
+    }),
+    summary({ id: 'g2', workflow: 'no-gpu', device: null }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('no-gpu')).toBeTruthy())
+  expect(screen.getByText('cuda:1 NVIDIA GeForce RTX 3090')).toBeTruthy()
+  expect(container.textContent).not.toContain('cuda:0')
+  expect(
+    container.querySelectorAll('[title="the card this job ran on"]'),
+  ).toHaveLength(1)
+})

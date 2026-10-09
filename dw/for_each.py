@@ -58,6 +58,11 @@ def member_name(group, key):
     return f"{group}{MEMBER_SEPARATOR}{key}"
 
 
+def is_member_name(name):
+    """Whether a step name is a for_each member's (built by `member_name`)."""
+    return isinstance(name, str) and MEMBER_SEPARATOR in name
+
+
 def expand_for_each(definition, source_indices=None):
     """The definition with every 'for_each' step replaced by its members.
 

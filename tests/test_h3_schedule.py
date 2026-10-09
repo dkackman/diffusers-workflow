@@ -93,6 +93,34 @@ def test_every_h3_step_declares_both_schedules(path):
     assert definition["variables"]["audio_shift"] == 3.0
 
 
+# The shift each turbo file was trained at, from upstream's published runs
+TRAINED_SHIFT = {
+    "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors": 12.0,
+    "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors": 6.0,
+    "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors": 12.0,
+}
+
+
+def resolve(definition, value):
+    if isinstance(value, str) and value.startswith("variable:"):
+        return definition["variables"][value.removeprefix("variable:")]
+    return value
+
+
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_each_step_runs_its_adapters_shift(path):
+    """The pairing #147 is about, per step: an adapter run on another
+    checkpoint's shift is a schedule it was never distilled at."""
+    definition = load(path)
+    for step, pipeline in h3_steps(definition):
+        shift = resolve(definition, pipeline["scheduler"]["shift"])
+        for lora in pipeline.get("loras", []):
+            name = resolve(definition, lora["weight_name"])
+            assert TRAINED_SHIFT[name] == shift, (
+                f"{os.path.basename(path)}:{step['name']} runs {name} at shift {shift}"
+            )
+
+
 @pytest.mark.parametrize("path", H3_TEMPLATES)
 def test_every_lora_takes_a_declared_alpha(path):
     """Every template can override the alpha a checkpoint declares."""

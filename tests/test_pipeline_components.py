@@ -647,6 +647,40 @@ class TestAudiosSampleRate:
 
         assert not hasattr(output, "audio_sample_rate")
 
+    def test_an_audio_vae_rate_is_recorded_for_video_plus_audio(self):
+        # Kandinsky 6's vocoder config carries no rate; its MMAudioVAE does,
+        # as `sample_rate` (#663)
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vocoder=SimpleNamespace(config=SimpleNamespace(num_mels=128)),
+            audio_vae=SimpleNamespace(config=SimpleNamespace(sample_rate=44100)),
+        )
+        output = SimpleNamespace(audio=[0.0, 0.0])
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 44100
+
+    def test_a_vocoder_rate_wins_over_the_audio_vae_rate(self):
+        # LTX-2's audio VAE works at a lower rate than its vocoder outputs;
+        # the vocoder's is the rate of the waveform
+        from types import SimpleNamespace
+
+        from dw.pipeline_processors.pipeline import attach_audio_sample_rate
+
+        pipeline = self._pipeline(
+            vocoder=SimpleNamespace(config=SimpleNamespace(output_sampling_rate=24000)),
+            audio_vae=SimpleNamespace(config=SimpleNamespace(sample_rate=16000)),
+        )
+        output = SimpleNamespace(audio=[0.0, 0.0])
+
+        attach_audio_sample_rate(pipeline, output)
+
+        assert output.audio_sample_rate == 24000
+
 
 class TestRemoteTextEncoderResponse:
     """A retired endpoint answers with an HTML page. The error has to say
@@ -665,12 +699,29 @@ class TestRemoteTextEncoderResponse:
 
         monkeypatch.setattr(remote, "get_token", lambda: "tok")
         monkeypatch.setattr(
-            remote.requests,
-            "post",
+            remote,
+            "safe_post",
             lambda *a, **k: self._response(206, "text/html; charset=utf-8"),
         )
 
         with pytest.raises(RuntimeError, match="https://example.invalid/predict"):
+            remote.remote_text_encoder(
+                ["a mug"], "https://example.invalid/predict", "cpu"
+            )
+
+    def test_an_error_status_is_reported_by_its_status(self, monkeypatch):
+        """safe_post raises on an error status; the message still names it."""
+        import requests
+
+        from dw.pipeline_processors import remote
+
+        def _raise(*a, **k):
+            raise requests.HTTPError(response=self._response(503, "text/plain"))
+
+        monkeypatch.setattr(remote, "get_token", lambda: "tok")
+        monkeypatch.setattr(remote, "safe_post", _raise)
+
+        with pytest.raises(RuntimeError, match="HTTP 503"):
             remote.remote_text_encoder(
                 ["a mug"], "https://example.invalid/predict", "cpu"
             )
@@ -682,8 +733,8 @@ class TestRemoteTextEncoderResponse:
         torch.save(torch.zeros(2), buffer)
         monkeypatch.setattr(remote, "get_token", lambda: "tok")
         monkeypatch.setattr(
-            remote.requests,
-            "post",
+            remote,
+            "safe_post",
             lambda *a, **k: self._response(
                 200, "application/octet-stream", buffer.getvalue()
             ),

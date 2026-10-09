@@ -285,6 +285,47 @@ def test_job_lifecycle_success(server):
         assert execute[0]["arguments"] == {"prompt": "hi"}
 
 
+def test_a_running_job_carries_the_workers_device_and_a_queued_one_does_not(
+    server, monkeypatch
+):
+    label = "cuda:1 NVIDIA GeForce RTX 3090"
+    monkeypatch.setattr(
+        ScriptedWorkerManager,
+        "device_fields",
+        lambda self: ("cuda:1", "NVIDIA GeForce RTX 3090"),
+    )
+    with server(hanging_script) as client:
+        running = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, running["id"], ["running"])
+        queued = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+
+        assert detail["device"] == label
+        assert client.get(f"/api/jobs/{queued['id']}").json()["device"] is None
+        summaries = {job["id"]: job for job in client.get("/api/jobs").json()["jobs"]}
+        assert summaries[running["id"]]["device"] == label
+        assert summaries[queued["id"]]["device"] is None
+
+        client.post(f"/api/jobs/{queued['id']}/cancel")
+        client.post(f"/api/jobs/{running['id']}/cancel")
+        wait_for_status(client, running["id"], ["cancelled"])
+
+
+def test_a_finished_jobs_device_is_remembered_in_history(server, monkeypatch):
+    label = "cuda:1 NVIDIA GeForce RTX 3090"
+    monkeypatch.setattr(
+        ScriptedWorkerManager,
+        "device_fields",
+        lambda self: ("cuda:1", "NVIDIA GeForce RTX 3090"),
+    )
+    with server(success_script) as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], ["succeeded"])
+
+        assert detail["device"] == label
+        manager = client.app.state.job_manager
+        assert manager.history.get(job["id"])["device"] == label
+
+
 def test_failed_job_surfaces_the_error_and_traceback(server):
     """The failure path is what every user sees when a run goes wrong -
     the error and traceback must reach the detail, the event log must
@@ -554,6 +595,43 @@ def test_job_workflow_reports_whether_it_is_realized(server):
 
     assert body["realized"] is False
     assert body["definition"]["id"] == "server_test"
+
+
+def test_unrealized_job_workflow_folds_recorded_arguments_and_says_why(server):
+    """A job whose run copy is gone (workspace deleted) still comes back with
+    the caller's arguments in its variables and a note, not the declared
+    defaults under a "predates run tracking" reading."""
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": valid_workflow(), "arguments": {"prompt": "a cat"}},
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["prompt"] == "a cat"
+    assert "prompt" in body["note"] and "deleted" in body["note"]
+
+
+def test_unrealized_job_workflow_folds_arguments_coerced_like_the_run(server):
+    """The fold goes through set_variables, so a numeric variable passed as
+    a string comes back as the number the run used."""
+    workflow = valid_workflow()
+    workflow["variables"]["steps"] = 20
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"steps": "30"}},
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        client.app.state.job_manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["steps"] == 30
 
 
 def test_submit_rejects_a_real_path_outside_the_workflow_dir(server, tmp_path):
@@ -861,7 +939,7 @@ def test_a_silently_killed_worker_reports_its_exit_and_frees_the_manager(tmp_pat
     )
     with TestClient(app, base_url="http://localhost") as client:
         # the last reading taken while the worker was still alive
-        manager.last_memory = {"gpu_available": True, "used": 42}
+        manager.slots[0].last_memory = {"gpu_available": True, "used": 42}
 
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, job["id"], TERMINAL_STATES)
@@ -903,7 +981,7 @@ def test_a_slow_worker_is_not_declared_dead(tmp_path):
         history_path=str(tmp_path / "jobs.sqlite"),
     )
     manager.worker_manager.worker_active = True
-    manager.last_memory = {"gpu_available": True}
+    manager.slots[0].last_memory = {"gpu_available": True}
 
     status = manager.memory_status(timeout=0.01)
     assert status["live"] is False
@@ -927,24 +1005,55 @@ def test_memory_says_why_a_reading_is_not_the_worker_s(tmp_path):
 
     # (a) nothing has ever been measured, which means nothing is resident
     stopped = manager.memory_status()
-    assert stopped == {
+    reading = {
         "live": False,
         "info": None,
         "stale": False,
         "reason": "worker_stopped",
         "age_seconds": None,
     }
+    # The first card's reading at the top level, and one entry per card
+    card = manager.slots[0].ordinal()
+    assert stopped == {**reading, "workers": [{"device": card, **reading}]}
 
     # (b) a job is running, so the reading on file predates it
     manager._record_memory({"gpu_memory_allocated_mb": 8.125})
-    manager.last_memory_at -= 60
-    manager._current_job_id = "abc"
+    manager.slots[0].last_memory_at -= 60
+    manager.slots[0].current_job_id = "abc"
     busy = manager.memory_status()
     assert busy["live"] is False
     assert busy["stale"] is True
     assert busy["reason"] == "job_running"
     assert busy["age_seconds"] >= 60
     assert busy["info"] == {"gpu_memory_allocated_mb": 8.125}
+
+
+def test_health_names_the_running_job(server):
+    """The web UI header's running job: /api/health's `current_job` names
+    the job a worker is running (JobManager.running_job_id, #776), and
+    clears once it finishes."""
+    import threading
+
+    started = threading.Event()
+    release = threading.Event()
+
+    def held_script(command):
+        started.set()
+        release.wait(timeout=5)
+        yield from success_script(command)
+
+    with server(held_script) as client:
+        assert client.get("/api/health").json()["current_job"] is None
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        assert started.wait(timeout=5)
+
+        health = client.get("/api/health").json()
+        assert health["current_job"] == job["id"]
+        assert health["workers"][0]["current_job"] == job["id"]
+
+        release.set()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        assert client.get("/api/health").json()["current_job"] is None
 
 
 def test_clearing_memory_with_no_worker_resident_is_a_no_op_not_a_fault(server):
@@ -2900,6 +3009,26 @@ def test_upload_media_lands_in_the_asset_library(asset_server, tmp_path):
         assert fetched.content == b"not-really-png-bytes"
 
 
+def test_a_cube_lut_uploads_and_its_reference_resolves(asset_server, tmp_path):
+    """A .cube is the one non-media kind the library takes: apply_lut reads
+    it through an asset: reference (#603)."""
+    from dw.assets import resolve_asset_reference
+
+    cube = b"LUT_3D_SIZE 2\n" + b"0 0 0\n" * 8
+    with asset_server(success_script) as client:
+        response = client.post(
+            "/api/uploads",
+            params={"filename": "teal.cube", "asset_name": "looks/teal"},
+            content=cube,
+        )
+        assert response.status_code == 201
+        reference = response.json()["reference"]
+    assert reference == "asset:uploads/looks/teal.cube"
+    resolved = resolve_asset_reference(reference, asset_dir=str(tmp_path / "assets"))
+    with open(resolved, "rb") as handle:
+        assert handle.read() == cube
+
+
 def test_an_upload_can_be_given_a_readable_name(asset_server, tmp_path):
     """A recurring cast stored as 'uploads/084eaecc....wav' cannot be told
     apart in the workflows that carry it - asset_name is what makes the
@@ -3432,6 +3561,10 @@ def test_rerun_endpoint_and_historical_job_surface(tmp_path):
     with make_client() as client:  # restarted server
         detail = client.get(f"/api/jobs/{job['id']}").json()
         assert detail["historical"] is True and detail["status"] == "succeeded"
+        # The row's spec holds the server's absolute directories
+        # (GHSA-f233-wqrv-46r8) - kept on the row, never served
+        assert "spec" not in detail
+        assert str(tmp_path) not in json.dumps(detail)
 
         # a historical job has no event log - the stream closes immediately
         with client.stream("GET", f"/api/jobs/{job['id']}/events") as response:
@@ -3805,6 +3938,17 @@ class TestTaskDescription:
             names = [p["name"] for p in description["parameters"]]
             assert "qr_code_contents" in names
             assert client.get("/api/tasks/not_a_task").status_code == 404
+            # A declared domain carries its range in words, and a string
+            # argument its choices; both are part of the response shape
+            grade = client.get("/api/tasks/grade")
+            assert grade.status_code == 200
+            exposure = {p["name"]: p for p in grade.json()["parameters"]}["exposure"]
+            assert exposure["domain"] == "finite"
+            assert exposure["range"] == "a finite number"
+            fit = client.get("/api/tasks/fit_to_model")
+            assert fit.status_code == 200
+            mode = {p["name"]: p for p in fit.json()["parameters"]}["mode"]
+            assert mode["choices"]
 
     def test_task_typos_surface_in_validation(self, server):
         workflow = {
@@ -5077,7 +5221,7 @@ EMPTY_PLAN = {
 }
 # The route adds these to whatever build_plan() returns - the workspace the
 # plan (and any cache probe inside it) actually ran against (#184)
-PLAN_ROUTE_KEYS = {"workspace", "output_dir"}
+PLAN_ROUTE_KEYS = {"workspace"}
 
 
 class TestValidatePlan:
@@ -5100,6 +5244,9 @@ class TestValidatePlan:
         plan = result["plan"]
         assert set(plan) == set(EMPTY_PLAN) | PLAN_ROUTE_KEYS
         assert plan["workspace"] == "default"
+        # Named, not located: no output_dir under the server's home
+        # (GHSA-9wg7-95xv-qqcr)
+        assert "output_dir" not in plan
         assert plan["steps"] == 1
         assert plan["estimate"]["basis"] in {"catalog", "other_device"}
         assert plan["estimate"]["minutes"] == 2.0
@@ -5150,7 +5297,9 @@ class TestValidatePlan:
         asked = []
 
         class History:
-            def observed(self, name, definition, arguments=None, *, workspace=None):
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
                 asked.append((name, arguments))
                 return {
                     "device": serving,
@@ -5166,6 +5315,8 @@ class TestValidatePlan:
                 "/api/validate?sizes=false",
                 json={"workflow_path": "Basic", "arguments": {"prompt": "x"}},
             ).json()
+            card = client.app.state.job_manager.slots[0]
+            priced_for = card.label() or card.ordinal()
 
         assert result["plan"]["estimate"] == {
             "minutes": 8.0,
@@ -5176,6 +5327,7 @@ class TestValidatePlan:
             "unpriced": [],
             "runs": 11,
             "cached_minutes": 8.0,
+            "priced_for": priced_for,
         }
         assert asked == [("Basic", {"prompt": "x"})]
 
@@ -5188,7 +5340,9 @@ class TestValidatePlan:
         )
 
         class History:
-            def observed(self, name, definition, arguments=None, *, workspace=None):
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
                 raise AssertionError("an inline definition has no history")
 
         with server(success_script) as client:

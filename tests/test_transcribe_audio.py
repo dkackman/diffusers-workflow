@@ -7,7 +7,7 @@ import numpy
 
 from dw.tasks.audio_transcription import (
     transcribe_audio,
-    _DEFAULT_ASR_MODEL,
+    WHISPER_DEFAULT_MODEL,
     _ASR_SAMPLE_RATE,
 )
 
@@ -54,7 +54,7 @@ class TestTranscribeAudio(unittest.TestCase):
         transcribe_audio(waveform, device="cpu", sample_rate=rate)
 
         self.assertEqual(mock_pipeline.call_args[0][0], "automatic-speech-recognition")
-        self.assertEqual(mock_pipeline.call_args[1]["model"], _DEFAULT_ASR_MODEL)
+        self.assertEqual(mock_pipeline.call_args[1]["model"], WHISPER_DEFAULT_MODEL)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_custom_model_name(self, mock_pipeline):
@@ -199,6 +199,81 @@ class TestTranscribeAudio(unittest.TestCase):
         )
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_word_bounds_exclude_leading_inner_and_trailing_silence(
+        self, mock_pipeline
+    ):
+        # #661: Whisper's word times absorb silence - first word from 0.0,
+        # last to the clip end, a word after a pause swallowing the pause.
+        # Real waveform: speech at 1.0-1.4 s and 2.4-2.8 s in a 4 s clip.
+        waveform, rate = self._waveform(seconds=4.0)
+        t = numpy.arange(int(0.4 * rate)) / rate
+        burst = (0.3 * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+        waveform[0, 16000 : 16000 + len(burst)] = burst
+        waveform[0, 38400 : 38400 + len(burst)] = burst
+        self._mock_pipe(
+            mock_pipeline,
+            "I please",
+            chunks=[
+                {"text": " I", "timestamp": (0.0, 2.0)},
+                {"text": " please", "timestamp": (2.0, 4.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        first, last = result["chunks"]
+        self.assertAlmostEqual(first["start"], 1.0, delta=0.05)
+        self.assertAlmostEqual(first["end"], 1.4, delta=0.05)
+        self.assertAlmostEqual(last["start"], 2.4, delta=0.05)
+        self.assertAlmostEqual(last["end"], 2.8, delta=0.05)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_word_span_covering_its_neighbours_onset_shrinks_to_its_own_sound(
+        self, mock_pipeline
+    ):
+        # #661 "please": the span runs from the tail of "so" across a pause
+        # and a short sound to the onset of the next word. Speech at 0.5-1.0
+        # (so), 1.5-1.7 (please), 2.2-3.0 (next); the word spans 0.8-2.3.
+        waveform, rate = self._waveform(seconds=3.0)
+        for lo, hi in ((0.5, 1.0), (1.5, 1.7), (2.2, 3.0)):
+            t = numpy.arange(int((hi - lo) * rate)) / rate
+            tone = (0.3 * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+            waveform[0, int(lo * rate) : int(lo * rate) + len(tone)] = tone
+        self._mock_pipe(
+            mock_pipeline,
+            "so please next",
+            chunks=[
+                {"text": " so", "timestamp": (0.0, 0.8)},
+                {"text": " please", "timestamp": (0.8, 2.3)},
+                {"text": " next", "timestamp": (2.3, 3.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        please = result["chunks"][1]
+        self.assertAlmostEqual(please["start"], 1.5, delta=0.05)
+        self.assertAlmostEqual(please["end"], 1.7, delta=0.05)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_segment_bounds_are_left_as_whisper_gave_them(self, mock_pipeline):
+        waveform, rate = self._waveform(seconds=2.0)
+        waveform[0, 16000:20000] = 0.3
+        self._mock_pipe(
+            mock_pipeline, "x", chunks=[{"text": "x", "timestamp": (0.0, 2.0)}]
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"], [{"start": 0.0, "end": 2.0, "text": "x"}])
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_timestamps_segment_requests_true_and_returns_chunks(self, mock_pipeline):
         pipe = self._mock_pipe(
             mock_pipeline,
@@ -215,6 +290,73 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(
             result["chunks"], [{"start": 0.0, "end": 1.0, "text": "hello world"}]
         )
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_an_open_ended_last_chunk_ends_at_the_clips_duration(self, mock_pipeline):
+        # #488: Whisper leaves the last chunk's end None when the clip stops
+        # inside a line, and attribute_voices refused the whole transcript
+        # on it - the clip's own duration is where that chunk ends
+        self._mock_pipe(
+            mock_pipeline,
+            "first line cut off",
+            chunks=[
+                {"text": " first line", "timestamp": (0.0, 2.0)},
+                {"text": " cut off", "timestamp": (2.5, None)},
+            ],
+        )
+        waveform, rate = self._waveform(seconds=4.0)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(
+            result["chunks"],
+            [
+                {"start": 0.0, "end": 2.0, "text": "first line"},
+                {"start": 2.5, "end": 4.0, "text": "cut off"},
+            ],
+        )
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_the_duration_is_the_clips_whatever_its_sample_rate(self, mock_pipeline):
+        # The duration comes from the 16 kHz mono array the model heard, so a
+        # 44.1 kHz stereo clip of 3 s still ends its open chunk at 3 s
+        self._mock_pipe(
+            mock_pipeline, "held", chunks=[{"text": "held", "timestamp": (1.0, None)}]
+        )
+        waveform, rate = self._waveform(channels=2, seconds=3.0, sample_rate=44100)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertAlmostEqual(result["chunks"][0]["end"], 3.0, places=3)
+
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_a_none_start_takes_the_previous_end_or_zero(self, mock_pipeline):
+        self._mock_pipe(
+            mock_pipeline,
+            "a b c",
+            chunks=[
+                {"text": "a", "timestamp": (None, 1.0)},
+                {"text": "b", "timestamp": (1.0, 1.5)},
+                {"text": "c", "timestamp": (None, 2.0)},
+            ],
+        )
+        waveform, rate = self._waveform(seconds=3.0)
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(
+            [(c["start"], c["end"]) for c in result["chunks"]],
+            [(0.0, 1.0), (1.0, 1.5), (1.5, 2.0)],
+        )
+        for chunk in result["chunks"]:
+            self.assertIsInstance(chunk["start"], float)
+            self.assertIsInstance(chunk["end"], float)
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_timestamps_requested_under_thirty_seconds_too(self, mock_pipeline):
@@ -245,6 +387,79 @@ class TestTranscribeAudio(unittest.TestCase):
             transcribe_audio(
                 waveform, device="cpu", sample_rate=rate, timestamps="paragraph"
             )
+
+
+class TestTranscribeAudioStoppedShort(unittest.TestCase):
+    """Whisper stops at a mid-clip silence and drops the later line (#672)."""
+
+    def _two_line_clip(self):
+        rate = _ASR_SAMPLE_RATE
+        rng = numpy.random.default_rng(0)
+
+        def speech(seconds):
+            return (rng.standard_normal(int(seconds * rate)) * 0.3).astype("float32")
+
+        def silence(seconds):
+            return numpy.zeros(int(seconds * rate), dtype="float32")
+
+        # line 1: 0.5-3 s, line 2: 4.5-9 s, 10 s clip
+        return numpy.concatenate(
+            [silence(0.5), speech(2.5), silence(1.5), speech(4.5), silence(1.0)]
+        )
+
+    @patch("dw.tasks.audio_transcription.emit_warning")
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_resumes_after_a_early_stop(self, mock_pipeline, mock_warn):
+        pipe = MagicMock()
+        pipe.type = "seq2seq_whisper"
+        pipe.side_effect = [
+            {
+                "text": "line one",
+                "chunks": [{"timestamp": (0.5, 5.0), "text": "line one"}],
+            },
+            {
+                "text": "line two",
+                "chunks": [{"timestamp": (0.0, 4.5), "text": "line two"}],
+            },
+        ]
+        mock_pipeline.return_value = pipe
+
+        result = transcribe_audio(
+            self._two_line_clip(),
+            device="cpu",
+            sample_rate=_ASR_SAMPLE_RATE,
+            timestamps="segment",
+        )
+
+        self.assertEqual(result["text"], "line one line two")
+        self.assertEqual(result["chunks"][1]["start"], 4.5)
+        self.assertEqual(result["chunks"][1]["end"], 9.0)
+        # the resumed decode got only the audio from the second line on
+        self.assertAlmostEqual(
+            len(pipe.call_args_list[1][0][0]["raw"]) / _ASR_SAMPLE_RATE, 5.5, places=1
+        )
+        mock_warn.assert_not_called()
+
+    @patch("dw.tasks.audio_transcription.emit_warning")
+    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    def test_warns_when_still_short(self, mock_pipeline, mock_warn):
+        pipe = MagicMock()
+        pipe.type = "seq2seq_whisper"
+        pipe.side_effect = [
+            {
+                "text": "line one",
+                "chunks": [{"timestamp": (0.5, 3.0), "text": "line one"}],
+            },
+            {"text": "", "chunks": []},
+        ]
+        mock_pipeline.return_value = pipe
+
+        result = transcribe_audio(
+            self._two_line_clip(), device="cpu", sample_rate=_ASR_SAMPLE_RATE
+        )
+
+        self.assertEqual(result, "line one")
+        mock_warn.assert_called_once()
 
 
 class TestTranscribeAudioRegistration(unittest.TestCase):

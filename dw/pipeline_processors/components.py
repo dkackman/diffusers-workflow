@@ -14,6 +14,8 @@ from .. import get_device_type, resolve_device
 from ..events import WorkflowCancelled, emit_phase
 from .. import download_watch
 from huggingface_hub.errors import HfHubHTTPError
+from .h3_guides import insert_guides
+from .h3_hold import insert_audio_hold
 from .placement import (
     apply_on_demand_placement,
     create_components_manager,
@@ -629,6 +631,12 @@ def load_component(
                     )
                 logger.info(f"Loading components for {component_name}")
                 component.load_components(**load_components_arguments)
+
+            # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
+            # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)
+            insert_audio_hold(component)
+            # ...and `guides` on t2va and fl2va
+            insert_guides(component)
 
         if defer_placement:
             # The caller places this itself, once it has finished loading the

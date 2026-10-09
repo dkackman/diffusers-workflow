@@ -9,6 +9,7 @@ import numpy
 import torch
 
 from .media_types import AudioTrack, AudioVideo
+from .pipeline_processors.h3_rules import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
 
 logger = logging.getLogger("dw")
 
@@ -29,6 +30,12 @@ MODULAR_AUDIO_KEYS = ("audio",)
 
 
 MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
+
+
+# A MiniMax-H3 step that held a soundtrack: the caller's own track, fitted to the
+# video, which plays in place of the decoded audio (the VAE round trip of it)
+HELD_AUDIO_KEYS = (HELD_AUDIO_OUTPUT,)
+HELD_AUDIO_RATE_KEYS = (HELD_AUDIO_RATE_OUTPUT,)
 
 
 def _frames_from_attributes(result):
@@ -155,6 +162,14 @@ def modular_artifacts(result):
         consumed_keys.add(audio_key)
         rate_key, sample_rate = first_item(result, MODULAR_SAMPLE_RATE_KEYS)
         consumed_keys.add(rate_key)
+
+    held_key, held = first_item(result, HELD_AUDIO_KEYS)
+    if held is not None:
+        rate_key, held_rate = first_item(result, HELD_AUDIO_RATE_KEYS)
+        consumed_keys.update({held_key, rate_key})
+        # One track, held under every video the call generated
+        audio, sample_rate = [held[0]] * len(videos), held_rate
+    consumed_keys.update(HELD_AUDIO_KEYS + HELD_AUDIO_RATE_KEYS)
 
     artifacts = frames_with_audio(videos, audio, sample_rate)
 

@@ -8,7 +8,6 @@ into that layout.
 import io
 import os
 import logging
-from fractions import Fraction
 
 import numpy
 import soundfile
@@ -27,8 +26,11 @@ from ..task_domains import (
     as_number,
     check_arguments,
     frames_to_samples,
+    real_number,
+    slice_lead_problem,
     slice_padding,
     slice_region,
+    whole_number,
 )
 from .joins import crossfade_concat
 from ..security import (
@@ -79,7 +81,7 @@ def load_audio(location, base_dir=None):
         return as_channels_samples(video.audio), video.sample_rate
 
     if location.startswith(("http://", "https://")):
-        from ..locations import safe_get
+        from ..outbound import safe_get
 
         logger.debug(f"Downloading audio from {location}")
         response = safe_get(location, "an audio argument", timeout=60)
@@ -129,16 +131,6 @@ def as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=No
     )
 
 
-def coerce_number(value, kind, name, command="slice_audio"):
-    """Coerce a numeric task argument given as a string, leaving None alone."""
-    if not isinstance(value, str):
-        return value
-    try:
-        return kind(value)
-    except ValueError as e:
-        raise ValueError(f"{command} needs a number for '{name}', got {value!r}") from e
-
-
 def slice_audio(
     audio,
     start_seconds=None,
@@ -147,11 +139,18 @@ def slice_audio(
     num_frames=None,
     fps=None,
     sample_rate=None,
+    lead_frames=0,
 ):
     """Task command: cut a slice out of an audio track.
 
     The slice is addressed either in seconds (start_seconds + duration_seconds)
     or in video frames (start_frame + num_frames + fps).
+
+    In the frame form 'lead_frames' (default 0) adds audio before the cut: the
+    slice starts at start_frame - lead_frames and runs num_frames frames, so a
+    later trim of the head can land exactly on start_frame. A lead-in reaching
+    before the head of the track (start_frame - lead_frames below zero) is
+    refused, as is 'lead_frames' together with the seconds form.
 
     A slice reaching past the end of the track is zero-padded to the length
     asked for - it does not fail and it is not shortened - and the padding is
@@ -181,11 +180,13 @@ def slice_audio(
     # A variable a workflow declares null carries no type, so a value given for
     # it on the command line arrives as a string - the same coercion the upscale
     # and interpolation tasks do on their numeric arguments
-    start_seconds = coerce_number(start_seconds, float, "start_seconds")
-    duration_seconds = coerce_number(duration_seconds, float, "duration_seconds")
-    start_frame = coerce_number(start_frame, int, "start_frame")
-    num_frames = coerce_number(num_frames, int, "num_frames")
-    fps = coerce_number(fps, Fraction, "fps")
+    command = "slice_audio"
+    start_seconds = real_number(start_seconds, "start_seconds", command)
+    duration_seconds = real_number(duration_seconds, "duration_seconds", command)
+    start_frame = whole_number(start_frame, "start_frame", command)
+    num_frames = whole_number(num_frames, "num_frames", command)
+    fps = real_number(fps, "fps", command, exact=True)
+    lead_frames = whole_number(lead_frames, "lead_frames", command)
 
     # A count or an offset outside its domain is refused rather than handed to
     # Python's slice semantics, which answered a negative 'num_frames' with
@@ -200,7 +201,13 @@ def slice_audio(
         num_frames=num_frames,
         fps=fps,
         sample_rate=sample_rate,
+        lead_frames=lead_frames,
     )
+    problem = slice_lead_problem(
+        start_frame, lead_frames, start_seconds, duration_seconds
+    )
+    if problem:
+        raise ValueError(problem)
 
     waveform, sample_rate = waveform_and_rate(audio, sample_rate, "slice_audio")
     total = waveform.shape[1]
@@ -213,6 +220,7 @@ def slice_audio(
         num_frames=num_frames,
         fps=fps,
         total=total,
+        lead_frames=lead_frames or 0,
     )
     if region is None:
         in_seconds = start_seconds is not None or duration_seconds is not None
@@ -302,16 +310,13 @@ def gain_audio(
         An AudioTrack holding the whole track with the region's gain
         applied, and the rate it is at
     """
-    start_seconds = coerce_number(
-        start_seconds, float, "start_seconds", command="gain_audio"
-    )
-    duration_seconds = coerce_number(
-        duration_seconds, float, "duration_seconds", command="gain_audio"
-    )
-    start_frame = coerce_number(start_frame, int, "start_frame", command="gain_audio")
-    num_frames = coerce_number(num_frames, int, "num_frames", command="gain_audio")
-    fps = coerce_number(fps, Fraction, "fps", command="gain_audio")
-    gain_db = coerce_number(gain_db, float, "gain_db", command="gain_audio")
+    command = "gain_audio"
+    start_seconds = real_number(start_seconds, "start_seconds", command)
+    duration_seconds = real_number(duration_seconds, "duration_seconds", command)
+    start_frame = whole_number(start_frame, "start_frame", command)
+    num_frames = whole_number(num_frames, "num_frames", command)
+    fps = real_number(fps, "fps", command, exact=True)
+    gain_db = real_number(gain_db, "gain_db", command)
 
     check_arguments(
         "gain_audio",
@@ -478,8 +483,8 @@ def resample_audio(audio, target_sample_rate, sample_rate=None):
     Returns:
         An AudioTrack holding the resampled waveform and its new rate
     """
-    target_sample_rate = coerce_number(
-        target_sample_rate, int, "target_sample_rate", "resample_audio"
+    target_sample_rate = whole_number(
+        target_sample_rate, "target_sample_rate", "resample_audio"
     )
     # A zero or negative rate is not a rate. It used to reach PyAV's resampler,
     # which left the samples alone, and then the save, which fell back to
@@ -757,10 +762,11 @@ def loop_audio(
     Returns:
         An AudioTrack holding the bed and the rate it is at
     """
-    duration_seconds = coerce_number(duration_seconds, float, "duration_seconds")
-    target_frames = coerce_number(target_frames, int, "target_frames")
-    fps = coerce_number(fps, Fraction, "fps")
-    crossfade_ms = coerce_number(crossfade_ms, float, "crossfade_ms")
+    command = "loop_audio"
+    duration_seconds = real_number(duration_seconds, "duration_seconds", command)
+    target_frames = whole_number(target_frames, "target_frames", command)
+    fps = real_number(fps, "fps", command, exact=True)
+    crossfade_ms = real_number(crossfade_ms, "crossfade_ms", command)
 
     waveform, sample_rate = waveform_and_rate(audio, sample_rate, "loop_audio")
     if waveform.size == 0:

@@ -116,7 +116,8 @@
               "image",
               "video",
               "audio",
-              "text"
+              "text",
+              "lut"
             ],
             "title": "Kind",
             "type": "string"
@@ -250,6 +251,112 @@
           "shadowed"
         ],
         "title": "AssetList",
+        "type": "object"
+      },
+      "CardCleared": {
+        "additionalProperties": false,
+        "properties": {
+          "cleared": {
+            "description": "False for a card left alone: it runs a job.",
+            "title": "Cleared",
+            "type": "boolean"
+          },
+          "device": {
+            "title": "Device",
+            "type": "string"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "job": {
+            "description": "The job the card is running.",
+            "title": "Job",
+            "type": "string"
+          },
+          "reason": {
+            "description": "Why the card was not cleared: `job_running`.",
+            "title": "Reason",
+            "type": "string"
+          }
+        },
+        "required": [
+          "device",
+          "cleared"
+        ],
+        "title": "CardCleared",
+        "type": "object"
+      },
+      "CardMemory": {
+        "additionalProperties": false,
+        "properties": {
+          "age_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Age Seconds"
+          },
+          "device": {
+            "description": "The card this reading is of, as `cuda:1`.",
+            "title": "Device",
+            "type": "string"
+          },
+          "info": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MemoryDetail"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "live": {
+            "description": "Measured now, rather than the last reading.",
+            "title": "Live",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Why the reading is not a live one.",
+            "title": "Reason"
+          },
+          "stale": {
+            "description": "`info` is an earlier reading: compare only `live` readings.",
+            "title": "Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "live",
+          "info",
+          "stale",
+          "reason",
+          "age_seconds",
+          "device"
+        ],
+        "title": "CardMemory",
         "type": "object"
       },
       "ClassList": {
@@ -910,6 +1017,7 @@
                 "type": "null"
               }
             ],
+            "description": "The longest-running job; `workers` names every running one.",
             "title": "Current Job"
           },
           "device": {
@@ -938,9 +1046,17 @@
             "type": "string"
           },
           "worker_alive": {
-            "description": "The worker is on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.",
+            "description": "Whether any worker is alive. Workers are on-demand: false on an idle server that has not run a job yet, or after a memory clear, is normal - no model process is resident, not a fault.",
             "title": "Worker Alive",
             "type": "boolean"
+          },
+          "workers": {
+            "description": "One entry per card the server runs a worker on (--devices), each running its own job: one job per GPU.",
+            "items": {
+              "$ref": "#/components/schemas/WorkerInfo"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -948,6 +1064,7 @@
           "version",
           "worker_alive",
           "current_job",
+          "workers",
           "queued",
           "hostname",
           "device",
@@ -1024,6 +1141,18 @@
               }
             ],
             "title": "Created At"
+          },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
+            "title": "Device"
           },
           "error": {
             "anyOf": [
@@ -1149,12 +1278,6 @@
             ],
             "description": "That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.",
             "title": "Run Version"
-          },
-          "spec": {
-            "additionalProperties": true,
-            "description": "The submitted spec; history rows only.",
-            "title": "Spec",
-            "type": "object"
           },
           "started_at": {
             "anyOf": [
@@ -1616,6 +1739,18 @@
             ],
             "title": "Created At"
           },
+          "device": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card the job ran on, as ordinal then name - 'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
+            "title": "Device"
+          },
           "finished_at": {
             "anyOf": [
               {
@@ -1749,6 +1884,11 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "description": "Present when `realized` is false: why, and what was folded.",
+            "title": "Note",
             "type": "string"
           },
           "realized": {
@@ -1996,6 +2136,11 @@
             "title": "Cleared",
             "type": "boolean"
           },
+          "device": {
+            "description": "The card cleared, when the request named one.",
+            "title": "Device",
+            "type": "string"
+          },
           "info": {
             "anyOf": [
               {
@@ -2005,6 +2150,14 @@
                 "type": "null"
               }
             ]
+          },
+          "workers": {
+            "description": "Each card's outcome; a card running a job is left alone.",
+            "items": {
+              "$ref": "#/components/schemas/CardCleared"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -2085,7 +2238,7 @@
         "title": "MemoryDetail",
         "type": "object"
       },
-      "MemoryInfo": {
+      "MemoryStatus": {
         "additionalProperties": false,
         "properties": {
           "age_seconds": {
@@ -2101,6 +2254,11 @@
               }
             ],
             "title": "Age Seconds"
+          },
+          "device": {
+            "description": "The card this reading is of, as `cuda:1`.",
+            "title": "Device",
+            "type": "string"
           },
           "info": {
             "anyOf": [
@@ -2133,6 +2291,14 @@
             "description": "`info` is an earlier reading: compare only `live` readings.",
             "title": "Stale",
             "type": "boolean"
+          },
+          "workers": {
+            "description": "One reading per card; the top level repeats the first card's.",
+            "items": {
+              "$ref": "#/components/schemas/CardMemory"
+            },
+            "title": "Workers",
+            "type": "array"
           }
         },
         "required": [
@@ -2142,7 +2308,7 @@
           "reason",
           "age_seconds"
         ],
-        "title": "MemoryInfo",
+        "title": "MemoryStatus",
         "type": "object"
       },
       "ModelCache": {
@@ -2559,6 +2725,14 @@
             ],
             "title": "Annotation"
           },
+          "choices": {
+            "description": "The values a string task argument accepts.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Choices",
+            "type": "array"
+          },
           "default": {
             "description": "Null when there is none; see `required`.",
             "title": "Default"
@@ -2587,6 +2761,11 @@
             "title": "Name",
             "type": "string"
           },
+          "range": {
+            "description": "The domain's bounds, in words.",
+            "title": "Range",
+            "type": "string"
+          },
           "required": {
             "title": "Required",
             "type": "boolean"
@@ -2613,7 +2792,7 @@
                 "type": "null"
               }
             ],
-            "description": "How many steps the worker's step cache would serve; null when the worker was busy or did not answer.",
+            "description": "How many steps the step cache of the card the run would be dispatched to would serve; null when that worker was busy or did not answer.",
             "title": "Cached Steps"
           },
           "downloads_required": {
@@ -2645,17 +2824,6 @@
             "title": "List Entries",
             "type": "object"
           },
-          "output_dir": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Output Dir"
-          },
           "steps": {
             "title": "Steps",
             "type": "integer"
@@ -2673,8 +2841,7 @@
           "cached_steps",
           "downloads_required",
           "estimate",
-          "workspace",
-          "output_dir"
+          "workspace"
         ],
         "title": "Plan",
         "type": "object"
@@ -2767,6 +2934,11 @@
             "title": "Partial",
             "type": "boolean"
           },
+          "priced_for": {
+            "description": "The card the run would be dispatched to, whose history the figure is - as `cuda:1 NVIDIA GeForce RTX 3090`.",
+            "title": "Priced For",
+            "type": "string"
+          },
           "runs": {
             "anyOf": [
               {
@@ -2783,7 +2955,7 @@
             "type": "boolean"
           },
           "unpriced": {
-            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block. Empty when `partial` is false.",
+            "description": "What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.",
             "items": {
               "type": "string"
             },
@@ -3293,7 +3465,8 @@
               "image",
               "video",
               "audio",
-              "text"
+              "text",
+              "lut"
             ],
             "title": "Kind",
             "type": "string"
@@ -3618,6 +3791,69 @@
           "warnings"
         ],
         "title": "ValidationResult",
+        "type": "object"
+      },
+      "WorkerInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "alive": {
+            "title": "Alive",
+            "type": "boolean"
+          },
+          "current_job": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Current Job"
+          },
+          "device": {
+            "description": "The card this worker is pinned to.",
+            "title": "Device",
+            "type": "string"
+          },
+          "host_memory_rss_mb": {
+            "description": "The worker process's resident host memory; absent while it is not running.",
+            "title": "Host Memory Rss Mb",
+            "type": "number"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The card as a job record's device names it.",
+            "title": "Name"
+          },
+          "vram_gb": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What the card holds, in the GB a catalog cost entry is written in.",
+            "title": "Vram Gb"
+          }
+        },
+        "required": [
+          "device",
+          "name",
+          "vram_gb",
+          "current_job",
+          "alive"
+        ],
+        "title": "WorkerInfo",
         "type": "object"
       },
       "WorkflowCard": {
@@ -6034,7 +6270,7 @@
     },
     "/api/jobs/{job_id}/workflow": {
       "get": {
-        "description": "The workflow this job ran, for the read-only graph on the job page\nand for `get_job_workflow` over MCP.\n\n`realized: true` means every mutable input is pinned - the copy the\nrun itself wrote. `false` means the job predates run tracking (or its\nrun directory is gone) and this is the definition as submitted. 404\nwhen neither is readable - the job itself still is.",
+        "description": "The workflow this job ran, for the read-only graph on the job page\nand for `get_job_workflow` over MCP.\n\n`realized: true` means every mutable input is pinned - the copy the\nrun itself wrote. `false` means the run's copy is not there (the job\npredates run tracking, or its run directory or workspace was deleted)\nand this is the definition as submitted, with the arguments on record\nlaid over its variables and a `note` saying so. 404 when neither is\nreadable - the job itself still is.",
         "operationId": "get_job_workflow_api_jobs__job_id__workflow_get",
         "parameters": [
           {
@@ -6395,17 +6631,49 @@
     },
     "/api/memory": {
       "get": {
+        "description": "Memory per card: `device`'s reading, or the first card's at the top\nlevel with `workers` holding one reading per card.",
         "operationId": "memory_api_memory_get",
+        "parameters": [
+          {
+            "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+              "title": "Device"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/MemoryInfo"
+                  "$ref": "#/components/schemas/MemoryStatus"
                 }
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Memory"
@@ -6413,8 +6681,29 @@
     },
     "/api/memory/clear": {
       "post": {
-        "description": "Drop every loaded pipeline and the step cache, freeing VRAM/RAM\nwithout waiting for the next job to evict one model for another.\n\nRefused while a job is running or queued (409) rather than blocked -\nthe queue is FIFO, so the caller should wait for the job to finish\nand retry instead of this call stalling until it does.\n\nA server with no worker process resident answers `cleared` with a\nnull `info` rather than a 503: the worker is on-demand, so its\nabsence means there was nothing loaded to clear.",
+        "description": "Drop every loaded pipeline and the step cache on each idle card -\n`device`'s alone when named - freeing VRAM/RAM without waiting for\nthe next job to evict one model for another.\n\nA card running a job is left alone, and `workers` says so. Refused\n(409) rather than blocked when no card asked about is idle - `device`'s\nis running a job, even with another card idle - so the caller waits\nfor the job to finish and retries instead of this call stalling.\n\nA card with no worker process resident answers `cleared` with a\nnull `info` rather than a 503: the worker is on-demand, so its\nabsence means there was nothing loaded to clear.",
         "operationId": "clear_memory_api_memory_clear_post",
+        "parameters": [
+          {
+            "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+            "in": "query",
+            "name": "device",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "maxLength": 32,
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "The card to ask about, as `cuda:1`; every card when omitted.",
+              "title": "Device"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "content": {
@@ -6425,6 +6714,16 @@
               }
             },
             "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
           }
         },
         "summary": "Clear Memory"

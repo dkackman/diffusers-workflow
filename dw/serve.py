@@ -36,6 +36,8 @@ class ServeConfig:
     prompt_dir: str
     asset_dir: str
     token: str | None
+    # --devices as resolved: one worker per entry, None for the one default
+    devices: list | None = None
 
 
 def build_parser():
@@ -125,6 +127,16 @@ def build_parser():
         "stay untrusted.",
     )
     parser.add_argument(
+        "--devices",
+        default=None,
+        help="The cards this server runs workers on, e.g. cuda:1, or "
+        "cuda:0,cuda:1 for one worker per card, each running one job at a "
+        "time (default: the 'devices' setting, else DW_DEVICE / the 'device' "
+        "setting / detection). Each worker is pinned to its card with "
+        "CUDA_VISIBLE_DEVICES. A device this machine lacks is refused at "
+        "startup.",
+    )
+    parser.add_argument(
         "--mcp",
         action="store_true",
         default=False,
@@ -154,6 +166,31 @@ def check_bind_safety(args, token):
             file=sys.stderr,
         )
         raise SystemExit(2)
+
+
+def configure_devices(args):
+    """Pick the workers' cards from --devices, else the `devices` setting,
+    and refuse one this machine lacks (exit 2) - before any worker spawns.
+    Returns the list, or None when neither names any.
+
+    The first is pinned as DW_DEVICE, which `get_device()` reads in this
+    process: with one entry the worker manager pins the worker to it
+    (dw/devices.py) and a job record's `device` names it; with several,
+    JobManager runs one worker per entry. Neither set leaves the device as
+    it was."""
+    from .devices import DeviceConfigError, resolve_serve_devices
+    from .settings import load_settings
+
+    try:
+        devices = resolve_serve_devices(
+            getattr(args, "devices", None), load_settings().devices
+        )
+    except DeviceConfigError as error:
+        print(f"dw-serve: {error}", file=sys.stderr)
+        raise SystemExit(2) from None
+    if devices:
+        os.environ["DW_DEVICE"] = devices[0]
+    return devices
 
 
 def configure_environment(args):
@@ -203,6 +240,8 @@ def configure_environment(args):
     token = args.token or os.environ.get("DW_API_TOKEN") or None
 
     check_bind_safety(args, token)
+
+    devices = configure_devices(args)
 
     # Set before create_app / before the worker subprocess is ever spawned -
     # 'spawn' launches a fresh interpreter that inherits this environment
@@ -255,6 +294,7 @@ def configure_environment(args):
         prompt_dir=prompt_dir,
         asset_dir=asset_dir,
         token=token,
+        devices=devices,
     )
 
 
@@ -304,6 +344,7 @@ def run(config):
         token=config.token,
         mcp=config.mcp,
         port=config.port,
+        devices=config.devices,
     )
     ui = " - UI at /" if default_ui_dir() else ""
     mcp = " - MCP at /mcp" if config.mcp else ""

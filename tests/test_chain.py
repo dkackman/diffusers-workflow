@@ -7,8 +7,10 @@ with .frames, LTX-2 style objects with audio attributes, and modular dicts
 keyed videos/audio/sampling_rate. No GPU is involved.
 """
 
+import os
 from dataclasses import dataclass
 from types import SimpleNamespace
+from unittest.mock import patch
 
 import pytest
 import torch
@@ -22,6 +24,7 @@ from dw.pipeline_processors.chain import (
     validate_frame_snap,
 )
 from dw.media_types import AudioVideo
+from dw.task_domains import frames_to_samples
 
 MINIMAX_SNAP = {"modulus": 17, "remainder": 5, "min_frames": 124, "max_frames": 345}
 
@@ -211,6 +214,47 @@ class TestGeneratedAudioJoining:
         assert result.audio[0, 174] == pytest.approx(1.0)
         assert result.audio[0, 200] == pytest.approx(2.0)
 
+    def test_each_seam_records_its_trim_and_realized_crossfade(self):
+        pipeline = FakePipeline(modular_output)
+        chain = {"segments": 2, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        result = run_chain(pipeline, chain, {"num_frames": 8})
+
+        assert "crossfade_ms" not in result.shots[0]
+        assert result.shots[1]["trim_frames"] == 2
+        assert result.shots[1]["crossfade_ms"] == 250.0
+
+    def test_each_seam_reaches_the_job_event_stream(self, monkeypatch):
+        logs = []
+        monkeypatch.setattr(
+            "dw.pipeline_processors.chain.emit_log", lambda m, **d: logs.append(m)
+        )
+        chain = {"segments": 2, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        run_chain(FakePipeline(modular_output), chain, {"num_frames": 8})
+
+        assert len(logs) == 1 and logs[0].startswith("Chain seam 1/1: trimmed 2")
+        assert "crossfade 250.0 ms" in logs[0]
+
+    def test_seam_log_total_is_stable_across_a_three_segment_chain(self, monkeypatch):
+        logs = []
+        monkeypatch.setattr(
+            "dw.pipeline_processors.chain.emit_log", lambda m, **d: logs.append(m)
+        )
+        chain = {"segments": 3, "trim_frames": 2, "fps": 4, "crossfade_ms": 250}
+
+        run_chain(FakePipeline(modular_output), chain, {"num_frames": 8})
+
+        assert [m.split(":")[0] for m in logs] == ["Chain seam 1/2", "Chain seam 2/2"]
+
+    def test_the_recorded_crossfade_is_clamped_to_the_head(self):
+        pipeline = FakePipeline(modular_output)
+        chain = {"segments": 2, "trim_frames": 1, "fps": 4, "crossfade_ms": 900}
+
+        result = run_chain(pipeline, chain, {"num_frames": 8})
+
+        assert result.shots[1]["crossfade_ms"] == 250.0
+
     def test_mismatched_sample_rates_raise(self):
         def output(arguments, index):
             return modular_output(arguments, index, sample_rate=100 + index)
@@ -390,6 +434,144 @@ class TestMatchAudioMode:
 
         with pytest.raises(ValueError, match="sample rate"):
             run_chain(pipeline, self.chain(), arguments)
+
+
+class TestMatchAudioHold:
+    """A match_audio chain whose step names `hold_audio` slices that track into
+    each segment's own `hold_audio` - the references are left alone (#619)."""
+
+    @pytest.fixture(autouse=True)
+    def reference_type(self):
+        references = pytest.importorskip(
+            "diffusers.modular_pipelines.minimax_h3.references"
+        )
+        self.reference = references.MiniMaxH3AudioReference
+
+    def make_arguments(self, held, num_frames=8):
+        return {
+            "prompt": "test",
+            "num_frames": num_frames,
+            "references": [FakeImageReference(solid_frame((9, 9, 9)))],
+            "hold_audio": held,
+        }
+
+    def chain(self, **overrides):
+        return {
+            "match_audio": True,
+            "fps": 4,
+            "trim_frames": 2,
+            "segment_argument": "references",
+        } | overrides
+
+    def ramp(self, samples=500):
+        """A track whose every sample says where it came from."""
+        return torch.arange(samples, dtype=torch.float32).repeat(2, 1)
+
+    def test_each_segment_holds_its_frame_aligned_slice(self):
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        # 5s at 4 fps -> 20 frames: segments of 8 frames, 2 trimmed per seam
+        assert len(result.frames) == 20
+        assert len(pipeline.calls) == 3
+        slices = [call["hold_audio"] for call in pipeline.calls]
+        assert all(isinstance(piece, self.reference) for piece in slices)
+        assert all(piece is not held for piece in slices)
+        assert all(piece.sample_rate == 100 for piece in slices)
+        # 8 frames at 4 fps and 100Hz -> 200 samples, starting at output
+        # frames 0, 6 and 12 - each later slice backs up by the 2-frame trim
+        assert [int(piece.audio[0, 0]) for piece in slices] == [0, 150, 300]
+        assert all(piece.audio.shape == (2, 200) for piece in slices)
+
+    def test_no_audio_reference_is_added_or_needed(self):
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        for call in pipeline.calls:
+            assert not [r for r in call["references"] if r.kind == "audio"]
+        # the workflow's own image, then the carried frame beside it
+        assert len(pipeline.calls[0]["references"]) == 1
+        assert len(pipeline.calls[1]["references"]) == 2
+
+    def test_the_final_audio_is_the_original_held_track(self):
+        track = self.ramp()
+        held = self.reference(audio=track, sample_rate=100)
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(pipeline, self.chain(), self.make_arguments(held))
+
+        assert result.sample_rate == 100
+        assert torch.equal(torch.as_tensor(result.audio), track)
+
+    def test_the_held_reference_is_never_mutated(self):
+        track = self.ramp()
+        held = self.reference(audio=track, sample_rate=100)
+        arguments = self.make_arguments(held)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        assert arguments["hold_audio"] is held
+        assert torch.equal(held.audio, self.ramp())
+
+    def test_a_track_artifact_is_held_too(self):
+        from dw.media_types import AudioTrack
+
+        pipeline = FakePipeline(modular_output)
+
+        result = run_chain(
+            pipeline, self.chain(), self.make_arguments(AudioTrack(self.ramp(), 100))
+        )
+
+        assert len(result.frames) == 20
+        assert all(
+            isinstance(call["hold_audio"], self.reference) for call in pipeline.calls
+        )
+
+    def test_a_held_file_is_read_once_against_the_workflow_directory(
+        self, tmp_path, monkeypatch
+    ):
+        (tmp_path / "song.wav").write_bytes(b"")
+        opened = []
+
+        def from_file(cls, location):
+            opened.append(location)
+            return cls(audio=self.ramp(), sample_rate=100)
+
+        monkeypatch.setattr(self.reference, "from_file", classmethod(from_file))
+        pipeline = FakePipeline(modular_output)
+        pipeline.base_dir = str(tmp_path)
+
+        run_chain(pipeline, self.chain(), self.make_arguments("song.wav"))
+
+        assert opened == [os.path.realpath(tmp_path / "song.wav")]
+        assert len(pipeline.calls) == 3
+
+    def test_a_held_value_that_is_not_audio_raises(self):
+        pipeline = FakePipeline(modular_output)
+
+        with pytest.raises(ValueError, match="hold_audio"):
+            run_chain(pipeline, self.chain(), self.make_arguments("cover.png"))
+
+        assert pipeline.calls == []
+
+    def test_an_audio_reference_beside_the_hold_is_passed_through(self):
+        # The hold is what is matched; a voice reference beside it is the
+        # caller's, carried to every segment as it is
+        voice = FakeAudioReference(torch.zeros(2, 50), 100)
+        held = self.reference(audio=self.ramp(), sample_rate=100)
+        arguments = self.make_arguments(held)
+        arguments["references"].append(voice)
+        pipeline = FakePipeline(modular_output)
+
+        run_chain(pipeline, self.chain(), arguments)
+
+        for call in pipeline.calls:
+            assert [r for r in call["references"] if r.kind == "audio"] == [voice]
 
 
 class TestSaveSegments:
@@ -639,6 +821,233 @@ class TestLastSegmentContinuity:
             )
 
 
+class TestGuideContinuity:
+    FPS = 24
+    RATE = 100
+
+    def chain(self, **overrides):
+        return {
+            "segments": 3,
+            "continuity": "guide",
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        } | overrides
+
+    def output(self, arguments, index):
+        """Each frame's colour names its segment and frame: (segment, frame)."""
+        num_frames = arguments.get("num_frames", 124)
+        frames = [solid_frame((index * 50, frame, 7)) for frame in range(num_frames)]
+        samples = int(num_frames / self.FPS * self.RATE)
+        audio = torch.full((1, 2, samples), float(index + 1))
+        return {"videos": [frames], "audio": audio, "sampling_rate": self.RATE}
+
+    def arguments(self, num_frames=124, **extra):
+        return {"prompt": "test", "num_frames": num_frames} | extra
+
+    @pytest.mark.parametrize("guide_frames", [22, 39])
+    def test_plan_trims_the_guide_off_each_later_segment(self, guide_frames):
+        total = 124 + 2 * (124 - guide_frames)
+
+        plan = plan_segments(total, 124, guide_frames, MINIMAX_SNAP)
+
+        assert [s.num_frames for s in plan] == [124, 124, 124]
+        assert [s.head_trim for s in plan] == [0, guide_frames, guide_frames]
+
+    def test_a_short_last_segment_snaps_up_to_the_minimum_length(self):
+        # 124 + 102 + 30 covers 256; the last needs 52 frames of progress
+        plan = plan_segments(124 + 102 + 30, 124, 22, MINIMAX_SNAP)
+
+        assert [s.num_frames for s in plan] == [124, 124, 124]
+        assert sum(s.num_frames - s.head_trim for s in plan) >= 256
+
+    def test_a_short_last_segment_snaps_to_the_next_valid_length(self):
+        snap = {"modulus": 17, "remainder": 5}
+
+        plan = plan_segments(124 + 102 + 30, 124, 22, snap)
+
+        # 30 frames of progress plus the 22 guide is 52, which snaps to 17*3+5
+        assert [s.num_frames for s in plan] == [124, 124, 56]
+        assert [s.head_trim for s in plan] == [0, 22, 22]
+
+    def test_match_audio_plans_with_the_guide_length_as_the_trim(self):
+        audio = torch.zeros(1, 2, int(256 / self.FPS * self.RATE))
+        chain = {
+            "match_audio": True,
+            "continuity": "guide",
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        }
+        references = [FakeAudioReference(audio, self.RATE)]
+
+        config = ChainConfig(chain, {"num_frames": 124, "references": references})
+
+        assert [s.head_trim for s in config.plan] == [
+            0 if i == 0 else 22 for i in range(len(config.plan))
+        ]
+
+    @pytest.mark.parametrize("guide_frames", [22, 39])
+    def test_segments_mode_lays_the_previous_tail_in_as_a_guide(self, guide_frames):
+        pipeline = FakePipeline(self.output)
+        keyframe = solid_frame((1, 2, 3))
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=guide_frames),
+            self.arguments(image=keyframe),
+        )
+
+        kept = 124 - guide_frames
+        assert len(result.frames) == 124 + 2 * kept
+        # the first segment keeps its own keyframe
+        assert pipeline.calls[0]["image"] is keyframe
+        assert "guides" not in pipeline.calls[0]
+        second = pipeline.calls[1]
+        assert len(second["guides"]) == 1
+        guide = second["guides"][0]
+        assert guide["frame"] == 0
+        assert guide["audio"] is True
+        assert isinstance(guide["video"], AudioVideo)
+        expected = [(0, f, 7) for f in range(124 - guide_frames, 124)]
+        assert [frame.getpixel((0, 0)) for frame in guide["video"].frames] == expected
+        samples = frames_to_samples(guide_frames, self.FPS, self.RATE)
+        assert guide["video"].audio.shape[-1] == samples
+        assert guide["video"].sample_rate == self.RATE
+        # the keyframe is the previous segment's frame -guide_frames
+        assert second["image"].getpixel((0, 0)) == (0, 124 - guide_frames, 7)
+        third = pipeline.calls[2]
+        assert third["image"].getpixel((0, 0)) == (50, 124 - guide_frames, 7)
+        assert len(third["guides"]) == 1
+        # the kept frames start at the new segment's frame guide_frames
+        assert result.frames[124].getpixel((0, 0)) == (50, guide_frames, 7)
+        assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
+
+    def test_the_guide_is_appended_to_the_segments_own_guides(self):
+        pipeline = FakePipeline(self.output)
+        own = {"video": "clip.mp4", "frame": 17}
+
+        run_chain(pipeline, self.chain(segments=2), self.arguments(guides=[own]))
+
+        assert pipeline.calls[1]["guides"][0] is own
+        assert len(pipeline.calls[1]["guides"]) == 2
+        # the caller's list is not mutated
+        assert pipeline.calls[0]["guides"] == [own]
+
+    def test_t2va_injects_no_keyframe(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(pipeline, self.chain(), self.arguments())
+
+        assert all("image" not in call for call in pipeline.calls)
+        assert len(pipeline.calls[1]["guides"]) == 1
+
+    def test_a_custom_segment_argument_is_the_keyframe(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(
+            pipeline,
+            self.chain(segment_argument="first_frame"),
+            self.arguments(first_frame=solid_frame((1, 1, 1))),
+        )
+
+        assert pipeline.calls[1]["first_frame"].getpixel((0, 0)) == (0, 102, 7)
+
+    def test_carry_audio_false_guides_with_frames_alone(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(carry_audio=False),
+            self.arguments(image=solid_frame((1, 1, 1))),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        assert guide["audio"] is False
+        assert isinstance(guide["video"], list)
+        assert len(guide["video"]) == 22
+        assert len(result.frames) == 328
+
+    def test_carry_audio_false_keeps_the_configured_crossfade(self):
+        config = ChainConfig(
+            self.chain(carry_audio=False, crossfade_ms=40), self.arguments()
+        )
+
+        assert config.crossfade_ms == 40
+        assert config.guide_holds_audio is False
+
+    def test_carry_audio_forces_the_crossfade_to_zero(self):
+        config = ChainConfig(self.chain(crossfade_ms=40), self.arguments())
+
+        assert config.crossfade_ms == 0.0
+        assert config.guide_holds_audio is True
+        assert config.guide_frames == 22
+        assert config.head_trim == 22
+
+    def test_the_guide_length_defaults_to_22(self):
+        config = ChainConfig(self.chain(), self.arguments())
+
+        assert config.guide_frames == 22
+
+    @pytest.mark.parametrize("guide_frames", [30, 5])
+    def test_a_guide_length_other_than_22_or_39_raises(self, guide_frames):
+        with pytest.raises(ValueError, match="22") as raised:
+            ChainConfig(self.chain(guide_frames=guide_frames), self.arguments())
+
+        assert "39" in str(raised.value)
+
+    def test_carry_frames_raises(self):
+        with pytest.raises(ValueError, match="carry_frames"):
+            ChainConfig(self.chain(carry_frames=10), self.arguments())
+
+    def test_references_in_the_arguments_raise(self):
+        pipeline = FakePipeline(self.output)
+        arguments = self.arguments(
+            references=[FakeImageReference(solid_frame((1, 1, 1)))]
+        )
+
+        with pytest.raises(ValueError, match="ref2va"):
+            run_chain(pipeline, self.chain(), arguments)
+
+        assert pipeline.calls == []
+
+    def test_a_pipeline_that_refuses_guides_raises_before_rendering(self):
+        pipeline = FakePipeline(self.output)
+        pipeline.pipeline = SimpleNamespace()
+
+        with patch(
+            "dw.pipeline_processors.chain.guides_refusal", return_value="no guides"
+        ):
+            with pytest.raises(ValueError, match="no guides"):
+                run_chain(pipeline, self.chain(), self.arguments())
+
+        assert pipeline.calls == []
+
+    def test_a_segment_no_longer_than_the_guide_raises(self):
+        with pytest.raises(ValueError, match="cannot progress"):
+            ChainConfig(
+                self.chain(frame_snap=None, guide_frames=22),
+                self.arguments(num_frames=22),
+            )
+
+    def test_trim_frames_is_ignored_with_a_note(self):
+        pipeline = FakePipeline(self.output)
+
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            result = run_chain(pipeline, self.chain(trim_frames=3), self.arguments())
+
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("trim_frames is ignored" in note for note in notes)
+        assert len(result.frames) == 328
+
+    def test_no_note_without_trim_frames(self):
+        pipeline = FakePipeline(self.output)
+
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(pipeline, self.chain(), self.arguments())
+
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert not any("trim_frames" in note for note in notes)
+
+
 class TestValidation:
     def test_segments_and_match_audio_together_raise(self):
         with pytest.raises(ValueError, match="exactly one of"):
@@ -737,3 +1146,40 @@ class TestSnapFrames:
     def test_validate_rejects_wrong_modulus(self):
         with pytest.raises(ValueError):
             validate_frame_snap(125, MINIMAX_SNAP)
+
+
+class TestChainPromptsMustBeAList:
+    """#653: a bare string for chain 'prompts' used to validate and then be
+    indexed a character per segment."""
+
+    @staticmethod
+    def _definition(prompts):
+        return {
+            "steps": [
+                {
+                    "name": "video",
+                    "pipeline": {"chain": {"segments": 2, "prompts": prompts}},
+                }
+            ]
+        }
+
+    def test_string_prompts_is_an_error(self):
+        from dw.step_value_checks import chain_prompts_errors
+
+        errors = chain_prompts_errors(self._definition("one literal string"))
+        assert len(errors) == 1
+        assert "one prompt per segment" in errors[0]["message"]
+        assert "prompts" in errors[0]["path"]
+
+    def test_list_and_missing_prompts_pass(self):
+        from dw.step_value_checks import chain_prompts_errors
+
+        assert chain_prompts_errors(self._definition(["a", "b"])) == []
+        assert chain_prompts_errors(self._definition(None)) == []
+
+    def test_run_refuses_string_prompts(self):
+        from dw.previous_results import resolve_chain_prompts
+
+        action = SimpleNamespace(pipeline_definition={"chain": {"prompts": "abc"}})
+        with pytest.raises(ValueError, match="one prompt per segment"):
+            resolve_chain_prompts(action, {})

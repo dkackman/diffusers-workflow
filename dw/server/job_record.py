@@ -10,6 +10,7 @@ import threading
 import time
 import uuid
 
+from ..devices import label_of
 from ..download_watch import format_progress
 from ..workspace import DEFAULT_WORKSPACE_NAME
 
@@ -59,6 +60,10 @@ class Job:
         self.workflow_name = spec["workflow_name"]
         self.catalog_name = spec.get("catalog_name")
         self.status = QUEUED
+        # Set by JobManager.cancel on a running job: the job's thread
+        # checks it before sending Execute, since a cancel that reaches an
+        # idle worker is ignored
+        self.cancel_requested = False
         self.created_at = time.time()
         self.started_at = None
         self.finished_at = None
@@ -74,6 +79,13 @@ class Job:
         self.run_id = None
         self.run_dir = None
         self.run_version = None
+        # The card the job ran on - its ordinal ("cuda:1") and its name
+        # ("NVIDIA GeForce RTX 3090", None for a card with none) - set when
+        # it starts running, so None while queued and forever for a job
+        # cancelled before it ran (#462, #693). `device` is the two as one
+        # label
+        self.device_ordinal = None
+        self.device_card = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
         # The worker's own high-water mark for this run, from its final
@@ -101,6 +113,11 @@ class Job:
         self.denoise_step = None
         self.denoise_total_steps = None
         self.condition = threading.Condition()
+
+    @property
+    def device(self):
+        """`"cuda:1 NVIDIA GeForce RTX 3090"`, or None before it ran."""
+        return label_of(self.device_ordinal, self.device_card)
 
     def add_event(self, event):
         with self.condition:
@@ -263,6 +280,7 @@ class Job:
             # The run's ordinal - 'v4' - so the job that just ran can be
             # named the way the gallery will name it
             "run_version": self.run_version,
+            "device": self.device,
             "acknowledged": self.acknowledged,
         }
 

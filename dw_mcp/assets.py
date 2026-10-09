@@ -46,6 +46,7 @@ ALLOWED_UPLOAD_EXTENSIONS = frozenset(
         ".mp3",
         ".flac",
         ".ogg",
+        ".cube",
     }
 )
 

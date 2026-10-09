@@ -10,6 +10,7 @@ from dw.for_each import (
     ForEachError,
     entry_field_warnings,
     expand_for_each,
+    is_member_name,
     list_fields,
     member_name,
 )
@@ -44,6 +45,11 @@ def steps_by_name(definition):
 class TestNaming:
     def test_member_name_joins_with_at(self):
         assert member_name("shot", "wide_open") == "shot@wide_open"
+
+    def test_is_member_name_round_trips_member_name(self):
+        assert is_member_name(member_name("shot", "wide_open"))
+        assert not is_member_name("shot")
+        assert not is_member_name(None)
 
     def test_an_object_entry_is_named_by_its_name(self):
         expanded = expand_for_each(
@@ -616,8 +622,9 @@ class TestSameKeySiblings:
 
 
 class TestMusicVideoTemplate:
-    """music-video's slices and shots are two for_each groups over one
-    'shots' list, paired by entry name: shot@closeup reads slice@closeup."""
+    """music-video's slices, shots and trims are three for_each groups over
+    one 'shots' list, paired by entry name: shot@closeup reads slice@closeup
+    and trim@closeup reads shot@closeup."""
 
     KEYS = ["wide_open", "closeup", "room", "finale"]
 
@@ -633,7 +640,10 @@ class TestMusicVideoTemplate:
             ["draw_singer", "write_song"]
             + [f"slice@{k}" for k in self.KEYS]
             + [f"shot@{k}" for k in self.KEYS]
-            + ["edit", "balanced", "music_video"]
+            + [f"trim@{k}" for k in self.KEYS]
+            + ["edit"]
+            + [f"song_cut@{k}" for k in self.KEYS]
+            + ["song_cuts", "balanced", "music_video"]
         )
 
     def test_the_soundtrack_is_cut_to_the_edit_rather_than_to_a_constant(self):
@@ -646,9 +656,39 @@ class TestMusicVideoTemplate:
         arguments = got["music_video"]["task"]["arguments"]
         assert arguments["audio"] == "previous_result:balanced"
         assert got["balanced"]["task"]["arguments"]["audio"] == (
-            "previous_result:write_song"
+            "previous_result:song_cuts"
         )
         assert arguments["fit"] == "video"
+
+    def test_the_soundtrack_is_the_song_pieces_the_shots_sang(self):
+        """#788: the track was the whole song from sample 0, so a cut whose
+        entries did not tile the song from frame 0 played out of sync. Each
+        entry's own cut is sliced from the song at its own start_frame and the
+        pieces are joined in list order, with no crossfade."""
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            args = got[f"song_cut@{entry['name']}"]["task"]["arguments"]
+            assert args["audio"] == "previous_result:write_song"
+            assert args["start_frame"] == entry["start_frame"]
+            assert args["num_frames"] == entry["cut_frames"]
+            assert args["lead_frames"] == 0
+        soundtrack = got["song_cuts"]["task"]
+        assert soundtrack["command"] == "crossfade_audio"
+        assert soundtrack["arguments"]["audios"] == [
+            f"previous_result:song_cut@{k}" for k in self.KEYS
+        ]
+        assert soundtrack["arguments"]["crossfade_ms"] == 0
+
+    def test_the_song_is_a_variable_defaulting_to_the_written_one(self):
+        template = load_template("music-video.json")
+        assert template["variables"]["song"] == "previous_result:write_song"
+        assert "num_frames" not in template["variables"]
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            assert got[f"slice@{key}"]["task"]["arguments"]["audio"] == (
+                "previous_result:write_song"
+            )
 
     def test_each_slice_starts_where_its_entry_says(self):
         got = steps_by_name(self.expanded())
@@ -656,6 +696,29 @@ class TestMusicVideoTemplate:
             got[f"slice@{k}"]["task"]["arguments"]["start_frame"] for k in self.KEYS
         ]
         assert starts == [0, 124, 248, 372]
+
+    def test_each_slice_leads_and_each_shot_runs_its_entry_s_length(self):
+        template = load_template("music-video.json")
+        got = steps_by_name(self.expanded())
+        for entry in template["variables"]["shots"]:
+            key = entry["name"]
+            slice_args = got[f"slice@{key}"]["task"]["arguments"]
+            assert slice_args["lead_frames"] == entry["lead_frames"] == 0
+            assert slice_args["num_frames"] == entry["num_frames"] == 124
+            shot_args = got[f"shot@{key}"]["pipeline"]["arguments"]
+            assert shot_args["num_frames"] == entry["num_frames"]
+
+    def test_each_trim_cuts_the_lead_off_its_own_shot(self):
+        got = steps_by_name(self.expanded())
+        for key in self.KEYS:
+            task = got[f"trim@{key}"]["task"]
+            assert task["command"] == "trim_video"
+            assert task["arguments"] == {
+                "video": f"previous_result:shot@{key}",
+                "start_frame": 0,
+                "num_frames": 124,
+            }
+            assert got[f"trim@{key}"]["result"]["subfolder"] == "intermediate"
 
     def test_each_shot_reads_its_own_slice_and_the_one_portrait(self):
         got = steps_by_name(self.expanded())
@@ -686,7 +749,7 @@ class TestMusicVideoTemplate:
     def test_the_edit_gathers_the_shots_in_order(self):
         got = steps_by_name(self.expanded())
         assert got["edit"]["task"]["arguments"]["videos"] == [
-            f"previous_result:shot@{k}" for k in self.KEYS
+            f"previous_result:trim@{k}" for k in self.KEYS
         ]
 
     def test_the_template_keeps_the_list(self):
@@ -699,6 +762,8 @@ class TestMusicVideoTemplate:
         assert [s["name"] for s in template["steps"] if "for_each" in s] == [
             "slice",
             "shot",
+            "trim",
+            "song_cut",
         ]
 
     def test_each_shot_keeps_the_generation_settings(self):
@@ -713,6 +778,76 @@ class TestMusicVideoTemplate:
             loras = got[f"shot@{key}"]["pipeline"]["loras"]
             assert len(loras) == 1
             assert loras[0]["model_name"] == "lightx2v/Minimax-h3-Turbo"
+
+
+class TestMusicVideoEntries:
+    """music-video's entries are {name, prompt, start_frame, num_frames,
+    lead_frames, cut_frames}, all required, and the length rule applies to
+    each entry rather than to a top-level variable."""
+
+    def workflow(self):
+        return load_workflow("music-video.json")
+
+    def shots(self):
+        return copy.deepcopy(load_template("music-video.json")["variables"]["shots"])
+
+    def paths(self, arguments):
+        return [
+            (e["path"], e["message"])
+            for e in self.workflow().validation_errors(arguments)
+        ]
+
+    def test_a_top_level_num_frames_is_an_unknown_variable(self):
+        from dw.variables import argument_errors
+
+        problems = argument_errors(
+            load_template("music-video.json"), {"num_frames": 124}
+        )
+        assert [p["path"] for p in problems] == ["arguments.num_frames"]
+        assert "Unknown variable 'num_frames'" in problems[0]["message"]
+
+    def test_an_entry_without_lead_frames_is_refused_naming_the_field(self):
+        shots = self.shots()
+        del shots[1]["lead_frames"]
+        problems = self.paths({"shots": shots})
+        assert any("lead_frames" in message for _path, message in problems)
+
+    def test_an_off_grid_entry_length_is_refused_not_snapped(self):
+        shots = self.shots()
+        shots[2]["num_frames"] = 130
+        problems = self.paths({"shots": shots})
+        assert [
+            message
+            for path, message in problems
+            if path == "arguments.shots[2].num_frames"
+        ]
+
+    def test_a_cuts_plan_with_prompts_validates_with_only_an_unread_field_warning(
+        self,
+    ):
+        from dw.for_each import entry_field_warnings
+
+        shots = [
+            {
+                "name": "verse",
+                "prompt": "p",
+                "start_frame": 24,
+                "num_frames": 124,
+                "lead_frames": 12,
+                "cut_frames": 112,
+                "lyric": "words",
+                "kind": "sung",
+            }
+        ]
+        arguments = {"shots": shots}
+        assert [
+            e
+            for e in self.workflow().validation_errors(arguments)
+            if "VRAM" not in e["message"]
+        ] == []
+        (warning,) = entry_field_warnings(load_template("music-video.json"), arguments)
+        assert "'kind', 'lyric'" in warning
+        assert "num_frames" in warning
 
 
 class TestDialogueShortTemplate:
@@ -954,3 +1089,27 @@ class TestEntryFieldWarnings:
         assert entry_field_warnings(w)[0].startswith(
             "variables.shots[0]: entry 0 carries 'extra'"
         )
+
+
+class TestMusicVideoSoundtrackSamples:
+    """#788: the soundtrack's samples are the song's samples under each cut."""
+
+    def test_a_cut_starting_past_frame_zero_carries_that_part_of_the_song(self):
+        import numpy
+
+        from dw.tasks.audio_utils import crossfade_audio, slice_audio
+
+        rate, fps = 1000, 24
+        song = numpy.arange(rate * 20, dtype=numpy.float32)[None, :] / (rate * 20)
+        # entries as in the issue: start at 124, then 248, a gap-free pair
+        pieces = [
+            slice_audio(
+                song, start_frame=start, num_frames=124, fps=fps, sample_rate=rate
+            )
+            for start in (124, 248)
+        ]
+        joined = crossfade_audio(pieces, crossfade_ms=0, sample_rate=rate)
+        waveform = numpy.asarray(joined.audio)
+        first = round(124 / fps * rate)
+        assert abs(waveform.shape[-1] - 2 * 124 / fps * rate) <= 2
+        assert waveform[0, 0] == pytest.approx(song[0, first], abs=1e-3)

@@ -41,7 +41,7 @@ python -m dw.test
 the seam, and the test or check that enforces it. Open it before grepping - it names the
 module, and that module's docstring holds the detail.
 
-- `dw.serve` runs every job in one persistent spawned worker (`dw/worker.py`, managed by
+- `dw.serve` runs every job in a persistent spawned worker (one per `--devices` card) (`dw/worker.py`, managed by
   `dw/worker_manager.py`) that keeps models cached between runs, so a change to engine
   code needs a server restart before a job sees it.
 - The packaged `dw/workflows/` is what a `builtin:` step names (resolved in
@@ -71,8 +71,9 @@ The guides in `docs/`, by topic:
 ### Claude Code plugin
 
 `.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
-composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`) that
-chooses a template for a request's shape and states the family's hard rules, plus
+composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`,
+`kandinsky-6`) that chooses a template for a request's shape and states the family's
+hard rules, plus
 cross-cutting composition skills (`script-to-video`, `series-episodes`) - shapes above
 the families that orchestrate the decision trees and cast consistency across multiple
 generations. Every skill the directory holds is named in `plugins/dw/README.md` and here,

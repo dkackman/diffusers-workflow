@@ -1,6 +1,7 @@
-"""Three step-value checkers: `fps_errors` (a result's `fps`),
-`null_media_errors` (a bare object description whose media resolved null) and
-`select_errors` (a `select` step's arguments).
+"""Four step-value checkers: `fps_errors` (a result's `fps`),
+`null_media_errors` (a bare object description whose media resolved null),
+`select_errors` (a `select` step's arguments) and `chain_prompts_errors` (a
+chain's `prompts` that is not a list).
 
 Each is a pure function of an expanded definition (and the source step
 indices that map an expanded step back to the one the author wrote) returning
@@ -230,11 +231,38 @@ def _is_expanded_gather(value):
     )
 
 
-def select_errors(workflow_definition, source_indices=None):
-    """Every select step whose arguments cannot be right, as [{path, message}]."""
+def _written_candidate_count(written_steps, source, candidates):
+    """How many candidates the run will have, when validation can know: the
+    author wrote `candidates` as a list. A list a variable resolved to is not
+    counted - a composed child is validated with its defaults, and the
+    parent's list arrives only at run time."""
+    if not isinstance(candidates, list):
+        return None
+    if not isinstance(written_steps, list) or not 0 <= source < len(written_steps):
+        return None
+    task = (
+        written_steps[source].get("task")
+        if isinstance(written_steps[source], dict)
+        else None
+    )
+    arguments = task.get("arguments") if isinstance(task, dict) else None
+    if not isinstance(arguments, dict) or not isinstance(
+        arguments.get("candidates"), list
+    ):
+        return None
+    return len(candidates)
+
+
+def select_errors(workflow_definition, source_indices=None, written=None):
+    """Every select step whose arguments cannot be right, as [{path, message}].
+
+    `written` is the definition as the author wrote it (by default the one
+    handed here), which says whether a `candidates` list is the run's own.
+    """
     steps = workflow_definition.get("steps")
     if not isinstance(steps, list):
         return []
+    written_steps = (workflow_definition if written is None else written).get("steps")
 
     errors = []
     for index, step in enumerate(steps):
@@ -255,6 +283,7 @@ def select_errors(workflow_definition, source_indices=None):
             path = render_path(("steps", source, "task", "arguments", key))
             errors.append({"path": path, "message": f"{message}{where}."})
 
+        candidates = arguments.get("candidates")
         rule = arguments.get("rule")
         if isinstance(rule, str):
             # What the run itself refuses, in its own sentence - at most one,
@@ -262,7 +291,12 @@ def select_errors(workflow_definition, source_indices=None):
             problems = {
                 _select_problem_key(rule): problem
                 for problem in select_rule_problems(
-                    rule, arguments.get("threshold"), arguments.get("index")
+                    rule,
+                    arguments.get("threshold"),
+                    arguments.get("index"),
+                    # The range is refused here, in the run's own sentence,
+                    # when the count is the author's
+                    _written_candidate_count(written_steps, source, candidates),
                 )
             }
             if "rule" in problems:
@@ -287,7 +321,6 @@ def select_errors(workflow_definition, source_indices=None):
                         f"not {rule!r}",
                     )
 
-        candidates = arguments.get("candidates")
         scores = arguments.get("scores")
         if "candidates" in arguments and "scores" in arguments:
             if _is_gather(candidates) != _is_gather(scores):
@@ -306,4 +339,39 @@ def select_errors(workflow_definition, source_indices=None):
                         f"{len(candidates)} entries, scores has {len(scores)}",
                     )
 
+    return errors
+
+
+# --- A chain's 'prompts' (#653) ---------------------------------------------
+#
+# The schema lets `chain.prompts` hold a string so a `variable:` reference
+# validates, but the resolved value has to be a list: a bare string would be
+# walked character by character (dw/previous_results.py), giving each segment
+# one letter of it as its prompt.
+
+
+def chain_prompts_errors(workflow_definition, source_indices=None):
+    """Every chain whose resolved 'prompts' is a string, as [{path, message}]."""
+    steps = workflow_definition.get("steps")
+    if not isinstance(steps, list):
+        return []
+
+    errors = []
+    for index, step in enumerate(steps):
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        chain = pipeline.get("chain") if isinstance(pipeline, dict) else None
+        if not isinstance(chain, dict) or not isinstance(chain.get("prompts"), str):
+            continue
+        source = references.author_index(source_indices, index)
+        path = render_path(("steps", source, "pipeline", "chain", "prompts"))
+        errors.append(
+            {
+                "path": path,
+                "message": (
+                    "chain 'prompts' must be a list with one prompt per segment, "
+                    f"got the string {chain['prompts']!r} - to give every segment "
+                    "one prompt, set 'prompt' instead, or pass a one-element list"
+                ),
+            }
+        )
     return errors

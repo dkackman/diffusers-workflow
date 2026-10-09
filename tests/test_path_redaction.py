@@ -2,7 +2,7 @@
 
 import os
 
-from dw.path_redaction import redact_paths
+from dw.path_redaction import redact_event, redact_paths
 
 
 def test_a_file_under_an_asset_root_becomes_its_reference():
@@ -55,3 +55,26 @@ def test_a_name_with_a_space_still_loses_its_root():
 def test_a_quoted_path_keeps_its_quotes():
     text = redact_paths("cannot read '/w/assets/a.wav'", ["/w/assets"])
     assert text == "cannot read 'asset:a.wav'"
+
+
+def test_a_free_text_event_is_redacted_keys_and_all():
+    redact = lambda text: redact_paths(text, ["/w/assets"])  # noqa: E731
+    event = {
+        "event": "warning",
+        "message": "/w/assets/a.wav: 48000 Hz",
+        "sample_rates": {"/w/assets/a.wav": 48000},
+        "names": ["/w/assets/b.wav"],
+    }
+    assert redact_event(event, redact) == {
+        "event": "warning",
+        "message": "asset:a.wav: 48000 Hz",
+        "sample_rates": {"asset:a.wav": 48000},
+        "names": ["asset:b.wav"],
+    }
+
+
+def test_a_structured_event_passes_untouched():
+    """'files' reach the server absolute - it relativises them itself."""
+    redact = lambda text: redact_paths(text, ["/w/assets"])  # noqa: E731
+    event = {"event": "step_end", "files": ["/w/assets/a.wav"]}
+    assert redact_event(event, redact) is event

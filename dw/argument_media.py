@@ -2,6 +2,7 @@
 {media_type, location} reference, an `image`/`video` argument's path or URL, and
 the frame rate and shots a loaded video carries."""
 
+import contextlib
 import io
 import os
 import logging
@@ -16,7 +17,8 @@ from .security import (
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
 )
-from .locations import safe_get, validate_media_path
+from .locations import is_http_url, validate_media_path
+from .outbound import safe_get
 
 logger = logging.getLogger("dw")
 
@@ -81,10 +83,14 @@ def fetch_image_with_context(v, base_dir, key):
         ) from error
 
 
-def fetch_video_with_context(v, base_dir, key):
+def fetch_video_with_context(v, base_dir, key, with_audio=False):
     """fetch_video, with the same argument-key context as
-    fetch_image_with_context."""
+    fetch_image_with_context. `with_audio` reads a file's soundtrack along with
+    its frames, as an AudioVideo - an H3 guide's `"audio": true` beside its
+    `video` (#649), where frames alone leave the guide no audio to hold."""
     try:
+        if with_audio:
+            return _fetch_audio_video(v, base_dir)
         return fetch_video(v, base_dir)
     except ValueError as error:
         raise ValueError(
@@ -94,7 +100,30 @@ def fetch_video_with_context(v, base_dir, key):
         ) from error
 
 
-def fetch_image(img_spec, base_dir=None):
+def _fetch_audio_video(video_spec, base_dir=None):
+    """A video file - a path, URL or {"location": ...} - loaded with its audio
+    as an AudioVideo. A deferred reference stays for later resolution, and a
+    value already loaded passes through, so a second realization keeps it."""
+    from .tasks.video_utils import is_video_location, load_audio_video
+
+    if isinstance(video_spec, str) and references.is_ref(
+        references.LAZY_MEDIA, video_spec
+    ):
+        return video_spec
+    if is_video_location(video_spec):
+        return load_audio_video(video_spec, base_dir)
+    return video_spec
+
+
+def _rgb_keeping_alpha(image):
+    """RGBA when the file carries transparency (an alpha band, or a palette
+    or greyscale image's transparency key), plain RGB otherwise."""
+    if "A" in image.getbands() or "transparency" in image.info:
+        return image.convert("RGBA")
+    return image.convert("RGB")
+
+
+def fetch_image(img_spec, base_dir=None, keep_alpha=False):
     """
     Load image from file path or URL with security validation.
 
@@ -102,6 +131,10 @@ def fetch_image(img_spec, base_dir=None):
         img_spec: Image specification (file path, URL, dict with 'location' key, PIL Image, or list of any of these)
         base_dir: Directory relative file paths are resolved against - the
             workflow file's directory. Defaults to the process working directory
+        keep_alpha: Load a file with transparency as RGBA instead of
+            flattening it to RGB. A pipeline input wants RGB; the finishing
+            commands (grade, sharpen, film_grain, apply_lut) put the alpha
+            back after their op, so a cutout stays a cutout (#775)
 
     Returns:
         Loaded PIL Image, list of PIL Images, or None if img_spec is None
@@ -116,7 +149,7 @@ def fetch_image(img_spec, base_dir=None):
     # Handle lists of images (recursively process each)
     if isinstance(img_spec, list):
         logger.debug(f"Loading list of {len(img_spec)} images")
-        return [fetch_image(img, base_dir) for img in img_spec]
+        return [fetch_image(img, base_dir, keep_alpha) for img in img_spec]
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
@@ -140,6 +173,7 @@ def fetch_image(img_spec, base_dir=None):
         return img_spec
 
     logger.debug(f"Loading image from: {img_spec}")
+    convert_method = _rgb_keeping_alpha if keep_alpha else None
 
     try:
         # Check if it's a URL
@@ -150,7 +184,7 @@ def fetch_image(img_spec, base_dir=None):
             # without re-checking them; load_image still does the EXIF
             # transpose and RGB conversion on the decoded result
             response = safe_get(img_spec, "an image argument", timeout=60)
-            return load_image(Image.open(io.BytesIO(response.content)))
+            return load_image(Image.open(io.BytesIO(response.content)), convert_method)
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
@@ -164,7 +198,7 @@ def fetch_image(img_spec, base_dir=None):
                     f"Image file extension not allowed: {ext} - a video file "
                     "must go through video_frames first"
                 )
-            return load_image(validated_path)
+            return load_image(validated_path, convert_method)
 
     except SecurityError:
         raise
@@ -209,24 +243,41 @@ def _declared_fps(path):
         return None
 
 
-def _fetch_remote_video(url):
-    """A video URL's frames, fetched through `safe_get` and decoded from a
-    temporary file. `load_video` would fetch the URL itself and follow its
-    redirects unchecked; handed a path, it only decodes. The suffix comes
-    from the URL, as `load_video`'s own download names it, since a `.gif`
-    decodes differently."""
-    from .tasks.video_utils import FrameList
+@contextlib.contextmanager
+def local_media_file(location, what, default_suffix=""):
+    """`location` as a path a loader opens: a path as it is, an http(s) URL
+    fetched through `safe_get` into a temporary file that lasts as long as
+    the `with` block.
 
-    response = safe_get(url, "a video argument", timeout=300)
-    suffix = os.path.splitext(unquote(urlparse(url).path))[1] or ".mp4"
+    A loader handed a URL fetches it itself - diffusers' `load_video`,
+    `load_image` and its H3 references' `from_file` all call requests
+    directly, resolving the host a second time and following redirects
+    unchecked, with no cap on the body. Handed a path, they only decode.
+    The suffix comes from the URL, as those loaders' own downloads name
+    it, since a container is often told apart by it. The loader must have
+    read the file before the block ends.
+    """
+    if not is_http_url(location):
+        yield location
+        return
+    response = safe_get(location, what, timeout=300)
+    suffix = os.path.splitext(unquote(urlparse(location).path))[1] or default_suffix
     handle = tempfile.NamedTemporaryFile(suffix=suffix, delete=False)
     try:
         with handle:
             handle.write(response.content)
-        frames = load_video(handle.name)
-        fps = _declared_fps(handle.name)
+        yield handle.name
     finally:
         os.remove(handle.name)
+
+
+def _fetch_remote_video(url):
+    """A video URL's frames, decoded from `local_media_file`'s copy."""
+    from .tasks.video_utils import FrameList
+
+    with local_media_file(url, "a video argument", default_suffix=".mp4") as path:
+        frames = load_video(path)
+        fps = _declared_fps(path)
     # A URL has no run beside it, so it carries no shots
     return FrameList(frames, fps, None) if fps else frames
 

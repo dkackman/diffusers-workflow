@@ -499,7 +499,9 @@ async def test_get_output_audio_points_at_the_loop_for_transcription():
 
 def test_the_loop_carries_the_transcription_procedure():
     """The other half of #376's move: the pointer from get_output_audio
-    resolves to a section that names the template and the read tool."""
+    resolves to a section that names the template and the read tool. Since
+    #609 that template is check-script, which compares the take to its
+    script, in place of transcribing and reading by eye."""
     from dw.server import guides
 
     # "The loop" is a ### subsection; get_guide resolves ## sections.
@@ -508,7 +510,8 @@ def test_the_loop_carries_the_transcription_procedure():
     )["content"]
     loop = section.split("### The loop", 1)[1].split("\n### ", 1)[0]
     content = loop.split("\n6. ", 1)[1].split("\n7. ", 1)[0]
-    assert "templates/transcribe-audio" in content
+    assert "templates/check-script" in content
+    assert "templates/transcribe-audio" not in content
     assert "get_output_text" in content
     assert "delete_output(job_id=" in content
 
@@ -765,6 +768,9 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
 
     result = await server_over(handler).call_tool(name, arguments)
 
+    # The full get_workflow also reads the variables route for `observed` (#786)
+    if name == "get_workflow":
+        seen = seen[-1:]
     assert seen == [(method, path)]
     assert result.content
 
@@ -1196,6 +1202,8 @@ WRAPPER_HANDLER_MAP = {
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
     "get_workflow": (catalog, "get_workflow"),
     "get_schema": (catalog, "get_schema"),
+    "get_memory": (catalog, "get_memory"),
+    "clear_memory": (catalog, "clear_memory"),
     "delete_output": (media, "delete_output"),
     "list_prompts": (prompts, "list_prompts"),
 }
@@ -1552,6 +1560,8 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 2026-10-03: the LoRA catalog added list_loras, save_lora and
 # recommend_loras - measured at 14_255.0 (9_398.5 / 4_345.75 / 510.75); the
 # ceiling moves to 14_265 with 10 of headroom.
+# 2026-10-07 (#682): get_job and list_jobs name a job's `device`, paid for by
+# trimming their own text - measured at 14_264.75; the ceiling stays.
 SURFACE_BUDGET = 14_265
 
 

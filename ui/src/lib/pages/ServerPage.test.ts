@@ -50,8 +50,9 @@ const health = vi.hoisted(() =>
     Promise.resolve({
       status: 'ok',
       worker_alive: true,
-      current_job: null,
+      current_job: null as string | null,
       queued: 0,
+      workers: [] as unknown[],
     }),
   ),
 )
@@ -135,4 +136,42 @@ it('reports a failed request instead of an empty page', async () => {
   const text = await show({}, 'Not authenticated')
   expect(text).toContain('Not authenticated')
   expect(text).toContain('API token')
+})
+
+it('lists each worker with its card, VRAM and a link to its job', async () => {
+  health.mockResolvedValueOnce({
+    status: 'ok',
+    worker_alive: true,
+    current_job: 'job-a',
+    queued: 0,
+    workers: [
+      {
+        device: 'cuda:0',
+        name: 'cuda:0 NVIDIA GeForce RTX 3090',
+        vram_gb: 24,
+        current_job: 'job-a',
+        alive: true,
+        host_memory_rss_mb: 2048,
+      },
+      {
+        device: 'cuda:1',
+        name: 'cuda:1 NVIDIA GeForce RTX 3090',
+        vram_gb: 24,
+        current_job: 'job-b',
+        alive: true,
+      },
+    ],
+  })
+  state.info = base
+  state.fail = ''
+  const { container } = render(ServerPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  const text = (container.textContent ?? '').replace(/\s+/g, ' ')
+  expect(text).toContain('cuda:0 NVIDIA GeForce RTX 3090')
+  expect(text).toContain('cuda:1 NVIDIA GeForce RTX 3090')
+  expect(text).toContain('2.0 GB RSS')
+  const hrefs = [...container.querySelectorAll('li a')].map((a) =>
+    a.getAttribute('href'),
+  )
+  expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
 })

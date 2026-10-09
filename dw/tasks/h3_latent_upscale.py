@@ -36,6 +36,19 @@ DEFAULT_UPSCALER_WEIGHTS = "minimax_h3_latent_upscaler_3d_conv_v1_bf16.safetenso
 # file is without changing its path
 UPSCALER_REVISION = "3f941d5d182014dd5c0a5e16330420ee2d4aa0c6"
 
+# Other upscaler checkpoints known to be the v1 architecture, by (repo, file):
+# the folder each sits in and the commit it is read at. A source not named
+# here is read from its repo root at main
+LMS_UPSCALER_REPO = "Alissonerdx/Minimax-H3-ComfyUI"
+KNOWN_UPSCALER_SOURCES = {
+    (DEFAULT_UPSCALER_REPO, None): (DEFAULT_UPSCALER_SUBFOLDER, UPSCALER_REVISION),
+    # Sharpness-tuned from the default, same keys and shapes (#612)
+    (LMS_UPSCALER_REPO, "h3_upscaler_lms_v0.1.safetensors"): (
+        "latent_upscaler",
+        "849fb3d4f434f2e9b4a4d4f7253471bf5e6719f9",
+    ),
+}
+
 DEFAULT_H3_REPO = "MiniMaxAI/MiniMax-H3"
 
 # H3's video VAE compresses 16x in each spatial dimension
@@ -202,9 +215,10 @@ def _load_upscaler(device, model_name, weight_name):
 
     # The pin names a commit of the default repo; a caller naming another
     # repo gets that repo's main
-    default_repo = model_name == DEFAULT_UPSCALER_REPO
-    revision = UPSCALER_REVISION if default_repo else None
-    subfolder = DEFAULT_UPSCALER_SUBFOLDER if default_repo else None
+    source = KNOWN_UPSCALER_SOURCES.get(
+        (model_name, weight_name)
+    ) or KNOWN_UPSCALER_SOURCES.get((model_name, None))
+    subfolder, revision = source if source else (None, None)
 
     def load_net():
         from safetensors.torch import load_file
@@ -245,7 +259,9 @@ def upscale_h3_latents(
             LBH-123-AI/Minimax_h3_latent_Upscaler, read at a pinned revision)
         weight_name: The safetensors file within it, a bare file name (default:
             the v1 bf16 checkpoint). In the default repo it is read from the
-            v1 checkpoint folder, so the v1 fp16 file is named the same way
+            v1 checkpoint folder, so the v1 fp16 file is named the same way.
+            `Alissonerdx/Minimax-H3-ComfyUI` with `h3_upscaler_lms_v0.1.safetensors`
+            is the sharpness-tuned LMS upscaler, read at a pinned commit
 
     Returns:
         The upscaled latents, (B, 24, T, height / 16, width / 16), in the

@@ -62,12 +62,12 @@ def _anticipated(fn):
 
 INSTRUCTIONS = (
     "Generate images, video and audio on a real GPU: author, run "
-    "and diagnose diffusers-workflow jobs against a running "
+    "and diagnose diffusers-workflow jobs on a running "
     "dw.serve. A workflow is a JSON document of named steps, each a "
     "diffusers pipeline or a utility task.\n"
     "\n"
     "Start from `list_workflows(shape=...)` and run what the catalog "
-    "already holds, with `arguments` overriding its variables. "
+    "already holds, with `arguments` for its variables. "
     "Shapes: image, image-set, image-edit, shot, sequence, audio, "
     "text, utility. Traits: has-audio, chained, image-conditioned, "
     "identity-referenced, needs-input-media, composes-workflows. An "
@@ -78,11 +78,12 @@ INSTRUCTIONS = (
     "composition covers the request.\n"
     "\n"
     "`get_server_info` reports the accelerator and this "
-    "session's workspace; a CUDA-only choice is unavailable on an "
-    "mps or cpu server.\n"
+    "session's workspace (`use_workspace` picks it); a CUDA-only "
+    "choice is unavailable on mps or cpu. The engine runs one job per GPU; "
+    "`get_health`'s `workers` lists each card's.\n"
     "\n"
     'The loop: `get_guide("workflows", section="Authoring a '
-    'workflow from an agent")` before writing or repairing JSON -> '
+    'workflow from an agent")` before writing or fixing JSON -> '
     "`validate_workflow` (free; repeat until clean) -> quote its "
     "`plan.estimate` and get the user's go-ahead -> `run_workflow` "
     "-> `wait_for_job` -> `get_job` -> `get_output_image`, "
@@ -93,16 +94,15 @@ INSTRUCTIONS = (
     "cost: quote the `models/` entry for its pipeline "
     "(`list_workflows(include_models=true)`) times the number of "
     "images. Validate warns (never refuses) past the VRAM ceiling "
-    "inherited from the catalog template with the same pipeline; "
+    "of the catalog template with the same pipeline; "
     "your offload or quantization may differ.\n"
     "\n"
-    "Arguments carry references rather than literals: `variable:`, "
+    "Arguments carry references: `variable:`, "
     "`previous_result:`, `prompt:` (the stored prompt library), "
     "`asset:` (input media on the server - `upload_asset`, "
     "`keep_output`) and `output:` (an earlier run's file). The "
     "guide's References section defines each; a local path means "
-    "nothing to the server. "
-    "`use_workspace` picks this session's workspace."
+    "nothing to the server."
 )
 
 

@@ -19,6 +19,7 @@
     "vram_estimate": {
         "base_gb": 16.3,
         "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
         "voxel_variables": [
             "width",
             "height",
@@ -52,6 +53,16 @@
             "max_frames": 345,
             "snap": "up",
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
         }
     },
     "seed": "variable:seed",

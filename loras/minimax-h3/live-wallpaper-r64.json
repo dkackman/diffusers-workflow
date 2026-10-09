@@ -1,0 +1,23 @@
+{
+  "model_name": "Alissonerdx/Minimax-H3-ComfyUI",
+  "weight_name": "loras/minimax_h3_live_wallpaper_v1.0_ref2va_r64.safetensors",
+  "revision": "849fb3d4f434f2e9b4a4d4f7253471bf5e6719f9",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "ref2va",
+  "description": "Animates one source image (optionally a midpoint and an ending frame as the 2nd and 3rd references) while keeping its subject and composition, through native ref2va conditioning. The one to use when the camera must follow the prompt (continued with camera-aware captions); facial fidelity still varies by image, seed and strength. Every prompt starts 'live_wallpaper: Animate <Picture 1> with', describes the camera (locked-off if none is wanted) and ends 'while preserving the original subject and composition.'. diffusion_model. key format, r64; the card calls these research models",
+  "use_when": "Bringing a still image to life with gentle motion and effects while keeping it recognisably the same picture",
+  "trigger": "live_wallpaper:",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "tags": [
+    "wallpaper",
+    "animate",
+    "reference",
+    "image-to-video"
+  ],
+  "license": "apache-2.0"
+}

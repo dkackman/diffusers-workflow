@@ -8,9 +8,10 @@ inside the workflow and replays. See docs/proposals/score-and-select.md.
 """
 
 import logging
+import numbers
 
 from ..media_types import Selected
-from ..task_domains import SELECT_THRESHOLD_RULES, select_rule_problems
+from ..task_domains import SELECT_THRESHOLD_RULES, as_number, select_rule_problems
 
 logger = logging.getLogger("dw")
 
@@ -59,7 +60,7 @@ def select(candidates, scores, rule, threshold=None, index=None):
 
     parsed_scores = [_parse_score(i, s) for i, s in enumerate(scores)]
 
-    problems = select_rule_problems(rule, threshold, index)
+    problems = select_rule_problems(rule, threshold, index, len(candidates))
     if problems:
         raise ValueError(problems[0])
 
@@ -76,12 +77,10 @@ def select(candidates, scores, rule, threshold=None, index=None):
             raise ValueError(
                 f"select: no candidate passes rule '{rule}' at threshold {threshold}"
             )
-    else:  # "index" - select_rule_problems has refused anything else
-        if index < 0 or index >= len(candidates):
-            raise ValueError(
-                f"select: index {index} is out of range for {len(candidates)} candidates"
-            )
-        position = index
+    else:  # "index" - select_rule_problems has refused one not whole or in range
+        position = (
+            int(index) if isinstance(index, numbers.Integral) else int(as_number(index))
+        )
 
     logger.debug(f"select: rule={rule} chose position {position}")
     return Selected(

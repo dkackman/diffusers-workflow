@@ -1,39 +1,47 @@
-"""Job queue over the persistent worker process.
+"""Job queue over the persistent worker processes - one per card.
 
-One runner thread executes jobs FIFO against the single GPU worker, managed
-by WorkerManager. Jobs collect their progress events with
-sequence numbers so an SSE client can attach late (or reconnect) and replay
-from where it left off.
+The server runs one worker per `--devices` entry (a WorkerSlot each, its
+process managed by a WorkerManager). A dispatcher thread hands each free
+card the first queued job that fits it: queue order, except that a job too
+big for every free card waits while a smaller one behind it takes the card
+(backfill). Each running job has its own thread, so a crash or a cancel
+reaches only the worker it names (#462). With one device this is the old
+single FIFO worker.
+
+Among the free cards a job fits, it goes to the one it has an affinity for
+(`pool.choose_slot`): a rerun to the card that ran the original, then any
+job to the card whose worker last ran the same workflow identity - that
+worker's pipelines and step cache are warm, and a worker frees both whenever
+the identity changes. A cache probe and a plan's estimate ask about the card
+`route` names, the one the job would be dispatched to now. Memory is per
+card too: each slot keeps its own last reading.
+
+This module owns the queue, the dispatcher and the job history readers. The
+rest lives beside it, and JobManager keeps a thin delegator for every name a
+route or test calls:
+- `dw/server/pool.py`: WorkerSlot and the lock-free fit and affinity policy;
+- `dw/server/job_results.py`: folding a run's worker messages into its Job;
+- `dw/server/worker_memory.py`: a card's memory reading, cache probe and
+  memory clear.
+
+`JobManager.slots` is the pool. `worker_manager` is the first card's worker,
+the single-device default; `running_job_id()` is the oldest running job.
+
+Jobs collect their progress events with sequence numbers so an SSE client
+can attach late (or reconnect) and replay from where it left off.
 """
 
 import os
 import copy
 import json
-import queue
 import secrets
 import time
-import uuid
 import logging
 import threading
 
-from ..worker_protocol import (
-    Cancelled,
-    ClearMemory,
-    Execute,
-    Failed,
-    MemoryCleared,
-    MemoryInfo,
-    MemoryStatus,
-    MemoryStatusReply,
-    Output,
-    ProbeCache,
-    Progress,
-    Succeeded,
-    UnknownReply,
-    WorkerCrashed,
-    WorkflowLoaded,
-    parse_reply,
-)
+from ..worker_protocol import Execute, workflow_identity
+from ..devices import device_ordinal
+from ..host_memory import process_rss_mb
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
 from ..security import (
@@ -47,6 +55,7 @@ from .. import references
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
+from . import job_results, pool, worker_memory
 from .job_history import JobHistory
 from .job_record import (
     ACK_NONE,
@@ -55,11 +64,13 @@ from .job_record import (
     QUEUED,
     RERUN_SPEC_KEYS,
     RUNNING,
-    SUCCEEDED,
     TERMINAL_STATES,
     Job,
 )
-from .outputs import output_kinds
+from .pool import WorkerSlot
+from .worker_memory import WorkerBusy
+
+__all__ = ["JobManager", "TERMINAL_JOBS_KEPT", "WorkerBusy", "WorkerSlot"]
 
 logger = logging.getLogger("dw")
 
@@ -69,7 +80,7 @@ TERMINAL_JOBS_KEPT = 20
 
 
 class JobManager:
-    """Serializes job execution onto the one GPU worker process."""
+    """Queues jobs and dispatches them onto one worker process per card."""
 
     def __init__(
         self,
@@ -78,18 +89,32 @@ class JobManager:
         worker_manager=None,
         history_path=None,
         workflow_dir=None,
+        devices=None,
+        worker_managers=None,
     ):
+        """`devices` is the server's `--devices` list: one worker per entry
+        when it names more than one. `worker_managers` supplies the workers
+        themselves (tests); `worker_manager` is the one-worker form of it.
+        With none of the three, one worker on the device dw runs on."""
         self.output_dir = validate_output_path(output_dir, None)
         # Confines workflow_path/base_dir/sub-workflow resolution for every
         # job this manager submits - the server's configured workflow_dir
         self.workflow_dir = workflow_dir
         os.makedirs(self.output_dir, exist_ok=True)
         self.log_level = log_level
-        self.worker_manager = worker_manager or WorkerManager()
+        if worker_managers is None:
+            if worker_manager is not None:
+                worker_managers = [worker_manager]
+            elif devices and len(devices) > 1:
+                worker_managers = [WorkerManager(device) for device in devices]
+            else:
+                # One card: the worker follows get_device(), as it always has
+                worker_managers = [WorkerManager()]
+        self.slots = [WorkerSlot(manager) for manager in worker_managers]
+        # The first card's worker - what the single-worker callers address
+        self.worker_manager = self.slots[0].manager
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
         self.jobs = {}
-        self.last_memory = None
-        self.last_memory_at = None
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
         self._lock = threading.RLock()  # guards job state transitions
@@ -97,13 +122,78 @@ class JobManager:
         # can be reordered while jobs wait
         self._pending = []
         self._wake = threading.Condition(self._lock)
-        self._worker_lock = threading.Lock()  # guards worker communication
-        self._current_job_id = None
+        # The VRAM each job needs to start, by job id (dispatch reads it)
+        self._needs = {}
+        # The card a rerun prefers - the original's ordinal - by job id
+        self._preferred = {}
         self._stop = threading.Event()
+        # The thread running each dispatched job, joined by shutdown()
+        self._job_threads = set()
         self._runner = threading.Thread(
             target=self._run_loop, daemon=True, name="job-runner"
         )
         self._runner.start()
+
+    def running_job_id(self):
+        """The oldest running job's id, or None while every card is idle -
+        what /api/health reports as `current_job`; `workers()` names each
+        card's."""
+        with self._lock:
+            running = [slot for slot in self.slots if slot.current_job_id]
+            if not running:
+                return None
+            return min(running, key=lambda slot: slot.started_at or 0).current_job_id
+
+    # ------------------------------------------------------------- affinity
+
+    @staticmethod
+    def identity_of(source, file_spec, definition):
+        """The workflow identity a worker caches by - the worker's own rule,
+        `worker_protocol.workflow_identity`."""
+        return workflow_identity(source, file_spec, definition)
+
+    def _job_identity(self, job):
+        spec = job.spec
+        return self.identity_of(
+            spec.get("source"), spec.get("file_spec"), spec.get("definition")
+        )
+
+    def slot_for(self, device):
+        """The slot running `device` ('cuda:1'), or raise ValueError naming
+        the cards this server has (pool.slot_for)."""
+        return pool.slot_for(self.slots, device)
+
+    def route(self, identity=None, need=None):
+        """The slot a job with `identity` and VRAM `need` (admission's
+        `vram_need`) would be dispatched to now: a free card it fits when
+        there is one, else the card it would wait for. What a cache probe
+        and a plan's estimate ask about."""
+        need = pool.dispatch_need(self.slots, need)
+        with self._lock:
+            fitting = [slot for slot in self.slots if slot.fits(need)] or self.slots
+            free = [slot for slot in fitting if slot.current_job_id is None]
+            return pool.choose_slot(free or fitting, identity)
+
+    # ------------------------------------------------------------- VRAM fit
+
+    def largest_ceiling(self):
+        """(GB, label) of the largest card here (pool.largest_ceiling)."""
+        return pool.largest_ceiling(self.slots)
+
+    def largest_ceiling_gb(self):
+        """The most VRAM any card here can be held to, or None
+        (pool.largest_ceiling_gb)."""
+        return pool.largest_ceiling_gb(self.slots)
+
+    def _unfit_message(self, need):
+        """Why no card here can ever run a job needing `need`, or None
+        (pool.unfit_message)."""
+        return pool.unfit_message(self.slots, need)
+
+    def check_fits(self, admission):
+        """Raise ValueError - a 400 at the route - for a request that is
+        not admissible, or too big for every card here (pool.check_fits)."""
+        pool.check_fits(self.slots, admission)
 
     # ------------------------------------------------------------- submission
 
@@ -123,6 +213,8 @@ class JobManager:
         acknowledged=ACK_NONE,
         acknowledged_cost=None,
         warnings=None,
+        vram_need=None,
+        preferred_device=None,
     ):
         """Record a job request and queue it.
 
@@ -154,6 +246,13 @@ class JobManager:
 
         `warnings` are the admission's (`Admission.warnings`) - every warning
         /api/validate reports for this request - recorded on the job.
+
+        `vram_need` is the admission's (`Admission.vram_need`): the job
+        starts only on a card with that much VRAM (`check_fits` has already
+        refused one no card here holds).
+
+        `preferred_device` is the card ('cuda:1') the job goes to when that
+        card is free and fits it - a rerun's original card (`rerun`).
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -205,6 +304,9 @@ class JobManager:
         job = Job(spec)
         with self._lock:
             self.jobs[job.id] = job
+            self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
+            if preferred_device:
+                self._preferred[job.id] = preferred_device
         job.add_event({"event": "job_status", "status": QUEUED})
         with self._wake:
             self._pending.append(job.id)
@@ -303,6 +405,15 @@ class JobManager:
             logger.debug(f"No realized workflow for job {job_id}: {e}")
             return None
 
+    def arguments(self, job_id):
+        """The arguments a job was submitted with, or {} when none are on
+        record."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            return job.spec.get("arguments") or {}
+        historical = self.history.get(job_id)
+        return (historical or {}).get("arguments") or {}
+
     def seed_variable(self, job_id):
         """The variable this job's workflow draws its seed from, or None.
 
@@ -377,6 +488,7 @@ class JobManager:
         acknowledged_cost=None,
         warnings=None,
         arguments=None,
+        vram_need=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -402,6 +514,10 @@ class JobManager:
         `acknowledged` and `acknowledged_cost` are this request's own; the
         original's bound object rides along in the spec for the record when
         the request brought none.
+
+        The rerun prefers the card the original ran on: its step cache is
+        there, which is what makes a same-seed rerun finish at once. When
+        that card is busy, the rerun takes any free card it fits.
         """
         prepared = self.rerun_spec(job_id, new_seed=new_seed and arguments is None)
         if prepared is None:
@@ -425,7 +541,16 @@ class JobManager:
                 else spec.get("acknowledged_cost")
             ),
             warnings=warnings,
+            vram_need=vram_need,
+            preferred_device=self._original_device(job_id),
         )
+
+    def _original_device(self, job_id):
+        """The ordinal of the card `job_id` ran on ('cuda:1'), or None."""
+        job = self.jobs.get(job_id)
+        if job is not None:
+            return job.device_ordinal
+        return self.history.device_ordinal(job_id)
 
     def queue_position(self, job_id):
         """Index in the waiting queue, or None when the job is not queued."""
@@ -474,8 +599,9 @@ class JobManager:
     # ------------------------------------------------------------ cancel/stop
 
     def cancel(self, job_id):
-        """Cancel a queued or running job. Returns the job's status after the
-        request, or None for an unknown job."""
+        """Cancel a queued or running job. A running job's cancel reaches
+        only the card running it; the other cards' jobs carry on. Returns
+        the job's status after the request, or None for an unknown job."""
         job = self.jobs.get(job_id)
         if job is None:
             return None
@@ -485,19 +611,28 @@ class JobManager:
             if job.status == QUEUED:
                 if job.id in self._pending:
                     self._pending.remove(job.id)
+                self._needs.pop(job.id, None)
+                self._preferred.pop(job.id, None)
                 self._finish(job, CANCELLED)
                 return job.status
-            if job.status == RUNNING and self._current_job_id == job.id:
+            slot = self._slot_running(job.id)
+            if job.status == RUNNING and slot is not None:
+                # Recorded first: the job's thread may not have sent Execute
+                # yet, and a cancel reaching an idle worker is ignored
+                job.cancel_requested = True
                 try:
-                    self.worker_manager.cancel()
+                    # The card running this job, and only that one
+                    slot.manager.cancel()
                 except Exception as e:
                     logger.warning(f"Could not send cancel for job {job_id}: {e}")
         return job.status
 
     def move(self, job_id, direction):
         """Reorder a queued job: 'up'/'down' swap with a neighbour,
-        'front'/'back' go to the ends. Returns the new pending order, or
-        None for a job that is not queued (finished, running, unknown)."""
+        'front'/'back' go to the ends. The order is the order to start: with
+        several cards a job behind may still start first, on a free card the
+        one ahead does not fit. Returns the new pending order, or None for a
+        job that is not queued (finished, running, unknown)."""
         if direction not in ("up", "down", "front", "back"):
             raise ValueError(f"Unknown queue direction '{direction}'")
         with self._lock:
@@ -520,23 +655,85 @@ class JobManager:
         self._stop.set()
         with self._wake:
             self._wake.notify_all()
+        # The dispatcher and every job thread share the one wait the single
+        # runner had, so a job finishing now still records its outcome
+        deadline = time.monotonic() + 5
         self._runner.join(timeout=5)
-        self.worker_manager.shutdown_worker()
+        with self._lock:
+            running = list(self._job_threads)
+        for thread in running:
+            thread.join(timeout=max(0.0, deadline - time.monotonic()))
+        for slot in self.slots:
+            slot.manager.shutdown_worker()
 
     # ---------------------------------------------------------------- runner
 
     def _run_loop(self):
-        while not self._stop.is_set():
+        """The dispatcher: hand each free card the first queued job that
+        fits it, and start that job on its own thread."""
+        while True:
             with self._wake:
-                while not self._pending and not self._stop.is_set():
+                while True:
+                    if self._stop.is_set():
+                        return
+                    picked = self._next_dispatch()
+                    if picked is not None:
+                        break
                     self._wake.wait()
-                if self._stop.is_set():
-                    return
-                job_id = self._pending.pop(0)
+                slot, job = picked
+                job.status = RUNNING
+                job.started_at = time.time()
+                job.device_ordinal, job.device_card = slot.device_fields()
+                slot.current_job_id = job.id
+                slot.started_at = job.started_at
+                # The worker switches to this identity for the run
+                slot.last_identity = self._job_identity(job)
+            job.add_event({"event": "job_status", "status": RUNNING})
+            thread = threading.Thread(
+                target=self._run_job,
+                args=(slot, job),
+                daemon=True,
+                name=f"job-{job.id}",
+            )
+            with self._lock:
+                self._job_threads.add(thread)
+            thread.start()
+
+    def _next_dispatch(self):
+        """(slot, job) for the first queued job, in queue order, that fits
+        a free card - the one it has an affinity for (`_choose_slot`) - or
+        None. A job too big for every free card keeps its place, and the
+        scan goes on past it: a smaller job behind it takes the card
+        meanwhile (backfill). Called holding _lock."""
+        free = [slot for slot in self.slots if slot.current_job_id is None]
+        if not free:
+            return None
+        for job_id in list(self._pending):
             job = self.jobs.get(job_id)
             if job is None or job.status != QUEUED:
-                continue  # cancelled while waiting
-            self._run_job(job)
+                self._pending.remove(job_id)  # cancelled while waiting
+                self._needs.pop(job_id, None)
+                self._preferred.pop(job_id, None)
+                continue
+            need = self._needs.get(job_id)
+            fitting = [slot for slot in free if slot.fits(need)]
+            if fitting:
+                slot = pool.choose_slot(
+                    fitting, self._job_identity(job), self._preferred.get(job_id)
+                )
+                self._pending.remove(job_id)
+                self._needs.pop(job_id, None)
+                self._preferred.pop(job_id, None)
+                return slot, job
+        return None
+
+    def _slot_running(self, job_id):
+        """The slot whose worker is running `job_id`, or None."""
+        with self._lock:
+            for slot in self.slots:
+                if slot.current_job_id == job_id:
+                    return slot
+        return None
 
     def _finish(self, job, status, error=None, traceback_text=None):
         job.finish(status, error=error, traceback_text=traceback_text)
@@ -558,354 +755,173 @@ class JobManager:
             for job in terminal[:-TERMINAL_JOBS_KEPT]:
                 del self.jobs[job.id]
 
-    def _run_job(self, job):
-        with self._worker_lock:
+    def _run_job(self, slot, job):
+        """A dispatched job's thread: run it, then leave the set shutdown()
+        joins."""
+        try:
+            self._run_on(slot, job)
+        finally:
             with self._lock:
-                if job.status != QUEUED:
-                    return
-                job.status = RUNNING
-                job.started_at = time.time()
-                self._current_job_id = job.id
-            job.add_event({"event": "job_status", "status": RUNNING})
+                self._job_threads.discard(threading.current_thread())
+
+    def _run_on(self, slot, job):
+        """Run one dispatched job on its slot's worker. The dispatcher has
+        already marked it RUNNING and the slot busy."""
+        manager = slot.manager
+        with slot.lock:
             try:
-                self.worker_manager.ensure_worker(self.log_level)
-                command = Execute(
-                    # The snapshot admission checked, which the worker runs
-                    # as it is rather than reading the file again
-                    definition=job.spec.get("definition"),
-                    file_spec=job.spec.get("file_spec"),
-                    source=job.spec.get("source"),
-                    workflow_dir=job.spec.get("workflow_dir"),
-                    # The job's own roots, so a job queued for one workspace
-                    # still runs in it after the manager has served another
-                    output_dir=job.spec.get("output_dir") or self.output_dir,
-                    arguments=job.spec["arguments"],
-                    log_level=self.log_level,
-                    asset_dir=job.spec.get("asset_dir") or None,
-                )
-                self.worker_manager.send_command(command.to_wire())
-                outcome = self._consume_results(job)
+                if job.status != RUNNING or job.cancel_requested:
+                    # Cancelled between dispatch and here: nothing was sent,
+                    # so the outcome is the cancel itself
+                    outcome = (CANCELLED, None, None)
+                else:
+                    manager.ensure_worker(self.log_level)
+                    self._rank_for_oom(slot)
+                    command = Execute(
+                        # The snapshot admission checked, which the worker runs
+                        # as it is rather than reading the file again
+                        definition=job.spec.get("definition"),
+                        file_spec=job.spec.get("file_spec"),
+                        source=job.spec.get("source"),
+                        workflow_dir=job.spec.get("workflow_dir"),
+                        # The job's own roots, so a job queued for one workspace
+                        # still runs in it after the manager has served another
+                        output_dir=job.spec.get("output_dir") or self.output_dir,
+                        arguments=job.spec["arguments"],
+                        log_level=self.log_level,
+                        asset_dir=job.spec.get("asset_dir") or None,
+                    )
+                    manager.send_command(command.to_wire())
+                    if job.cancel_requested:
+                        # Asked while the worker was still idle; now it has
+                        # the job, and a second cancel lands behind it
+                        manager.cancel()
+                    outcome = job_results.consume_results(
+                        job,
+                        manager,
+                        slot,
+                        job.spec.get("output_dir") or self.output_dir,
+                        worker_memory.record_memory,
+                    )
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
                 outcome = (FAILED, str(e), None)
             finally:
                 # Cleared BEFORE the terminal status becomes visible - a
-                # client seeing "succeeded" must find the manager idle
-                with self._lock:
-                    self._current_job_id = None
-            if job.status not in TERMINAL_STATES:
-                status, error, traceback_text = outcome
-                self._finish(job, status, error=error, traceback_text=traceback_text)
+                # client seeing "succeeded" must find the card idle - and
+                # the dispatcher woken, since the card is free again
+                with self._wake:
+                    slot.current_job_id = None
+                    slot.started_at = None
+                    self._wake.notify_all()
+        if job.status not in TERMINAL_STATES:
+            status, error, traceback_text = outcome
+            self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _record_manifest(self, job, manifest):
-        """What the run wrote, named the way clients address outputs.
-
-        Recorded for a failed or cancelled run as well as a successful one -
-        the files the steps before the stop wrote are on disk either way,
-        and a manifest that omits them is the difference between "this run
-        produced nothing" and "this run produced four of five shots"
-        (T015)."""
-        job.manifest = self._relative_manifest(
-            manifest if manifest is not None else [], job.spec.get("output_dir")
-        )
-
-    def _relative_manifest(self, manifest, output_dir=None):
-        """A manifest list with every entry's 'files' relativised - the
-        rendering `get_job` and `step_end`/`workflow_end` events must all
-        agree on (#284)."""
-        return [
-            (
-                {
-                    **entry,
-                    "files": self._relative_output_names(entry["files"], output_dir),
-                }
-                if "files" in entry
-                else entry
-            )
-            for entry in manifest
+    def _rank_for_oom(self, slot):
+        """A worker this call just started is scored for the kernel's OOM
+        killer above every other live worker, so a host-RAM squeeze kills
+        the later-started worker - one job - rather than whichever is
+        largest. Nothing is written while it is the only worker, so one card
+        runs exactly as before."""
+        manager = slot.manager
+        pid = manager.pid() if hasattr(manager, "pid") else None
+        if pid is None or pid == slot.ranked_pid:
+            return
+        slot.ranked_pid = pid
+        others = [
+            other.manager for other in self.slots if other is not slot and other.alive()
         ]
-
-    def _relative_output_names(self, paths, output_dir=None):
-        """The worker reports absolute paths; clients build '/outputs/<name>'
-        URLs, and a run writes under '<output_dir>/<identity>/<run id>/'
-        (dw/workflow.py's effective_output_dir) - so every file is reported
-        by its name relative to the output directory of the job that wrote
-        it, with forward slashes. A path outside it (a task step writing
-        elsewhere) is left as it came.
-
-        The job's own directory, not the manager's: a job in a named
-        workspace writes under that workspace, and naming it relative to the
-        default workspace would produce '../<name>/outputs/...' - a path, not
-        a name."""
-        root = output_dir or self.output_dir
-        names = []
-        for path in paths:
-            relative = os.path.relpath(path, root)
-            if relative.startswith(".."):
-                names.append(path)
-            else:
-                names.append(relative.replace(os.sep, "/"))
-        return names
-
-    def _consume_results(self, job):
-        """Read worker messages until the run ends; returns the terminal
-        (status, error, traceback) for _run_job to apply once the manager
-        no longer counts the job as current."""
-        while True:
-            try:
-                message = self.worker_manager.get_result()
-            except RuntimeError as e:
-                # The worker died without managing to send anything - a
-                # signal, not an exception, so worker_main's handler never
-                # ran and there is no traceback to be had. The exit code is
-                # the only diagnosis available, and marking the crash here
-                # matters beyond this job: the manager would otherwise go on
-                # believing a dead process is active, and every later call
-                # that talks to it (memory_status above all) would fail
-                # against a queue nobody is reading
-                detail = self.worker_manager.crash_details()
-                self.worker_manager.mark_crashed()
-                reason = f"Worker process died: {detail or e}"
-                logger.error(f"Job {job.id}: {reason}")
-                return (FAILED, reason, None)
-            reply = parse_reply(message)
-
-            if isinstance(reply, Progress):
-                self._record_progress(job, dict(reply.event))
-            elif isinstance(reply, Output):
-                job.add_event({"event": "log", "message": reply.message or ""})
-            elif isinstance(reply, WorkflowLoaded):
-                job.add_event({"event": "log", "message": reply.workflow_name or ""})
-            elif isinstance(reply, MemoryInfo):
-                self._record_run_memory(job, reply.info)
-            elif isinstance(reply, Succeeded):
-                self._record_manifest(job, reply.manifest)
-                return (SUCCEEDED, None, None)
-            elif isinstance(reply, Cancelled):
-                self._record_manifest(job, reply.manifest)
-                return (CANCELLED, None, None)
-            elif isinstance(reply, Failed) and reply.request_id is None:
-                # A failed run's steps too: the ones before the failure wrote
-                # real files, and a job that reports an empty manifest hides
-                # them behind the error that stopped the run
-                self._record_manifest(job, reply.manifest)
-                return (FAILED, reply.message, reply.traceback)
-            elif isinstance(reply, WorkerCrashed):
-                self.worker_manager.mark_crashed()
-                return (
-                    FAILED,
-                    f"Worker crashed: {reply.message}",
-                    reply.traceback,
-                )
-            elif isinstance(reply, UnknownReply):
-                logger.warning(f"Unknown worker message type: {reply.type}")
-            else:
-                # A request's reply (memory_status, memory_cleared,
-                # probe_cache, or an error answering one) whose reader gave
-                # up before it landed - nobody is waiting for it now
-                logger.debug(f"Discarding a stray worker reply: {reply.TYPE}")
-
-    def _record_progress(self, job, event):
-        """One run event onto the job, its file names relativised the way
-        clients address outputs."""
-        if "files" in event:
-            event["files"] = self._relative_output_names(
-                event["files"], job.spec.get("output_dir")
-            )
-            # A running job's page renders each output as its step ends,
-            # before there is a manifest to classify
-            event["output_kinds"] = output_kinds([{"files": event["files"]}])
-        if "manifest" in event:
-            # workflow_end carries the run's full manifest nested under this
-            # key - it must match get_job's rendering of the same list rather
-            # than leaking absolute paths (#284)
-            event["manifest"] = self._relative_manifest(
-                event["manifest"], job.spec.get("output_dir")
-            )
-        if event.get("event") == "run_start":
-            job.run_id = event.get("run_id")
-            job.run_dir = event.get("run_dir")
-            job.run_version = event.get("version")
-        job.add_event(event)
-
-    def _record_run_memory(self, job, info):
-        """A memory reading the run reported. One per phase boundary now,
-        not just once post-run (#273) - each folds into the cached reading
-        memory_status() answers from while the job is busy, which is what
-        makes that call fresh instead of a refusal for the run's whole
-        duration."""
-        self._record_memory(info)
-        job.add_event({"event": "memory", "info": self.last_memory})
-        # The worker's own high-water mark, latest reading wins (it is
-        # monotonic for the process' life) - persisted as a real column
-        # rather than only inside the trimmed event tail (#243)
-        info = info or {}
-        peak = info.get("host_memory_peak_rss_mb")
-        if peak is not None:
-            job.host_memory_peak_rss_mb = peak
-        # This job's own contribution to that process-lifetime peak, computed
-        # against its own baseline (#272) - max() is defensive; by
-        # construction each reading only grows
-        job_peak = info.get("host_memory_job_peak_rss_mb")
-        if job_peak is not None:
-            job.host_memory_job_peak_rss_mb = max(
-                job_peak, job.host_memory_job_peak_rss_mb or 0
-            )
+        if not others or not hasattr(manager, "set_oom_score_adj"):
+            return
+        highest = max((other.oom_score_adj or 0) for other in others)
+        manager.set_oom_score_adj(min(1000, highest + 100))
 
     def is_busy(self):
-        """True while a job is running or queued - the window in which the
-        worker may be reading model files a cache delete would rip out."""
+        """True while a job is running on any card or queued - the window in
+        which a worker may be reading model files a cache delete would rip
+        out."""
         with self._lock:
-            if self._current_job_id is not None:
+            if any(slot.current_job_id is not None for slot in self.slots):
                 return True
             return any(job.status == QUEUED for job in self.jobs.values())
 
+    def is_worker_busy(self, slot):
+        """True while `slot`'s card is running a job."""
+        with self._lock:
+            return slot.current_job_id is not None
+
     def restart_worker_if_idle(self):
-        """Shut the idle worker down so its next start picks up upgraded
-        imports; the next job respawns it via ensure_worker. Returns False
-        without touching a busy worker - a run in flight keeps the version
-        it started with."""
+        """Shut every idle worker down so its next start picks up upgraded
+        imports; the next job on that card respawns it via ensure_worker.
+        A busy worker is left alone - a run in flight keeps the version it
+        started with. Returns whether every worker was restarted."""
         if self.is_busy():
             return False
-        if not self._worker_lock.acquire(timeout=2):
-            return False
-        try:
-            self.worker_manager.shutdown_worker()
-            return True
-        finally:
-            self._worker_lock.release()
+        restarted = True
+        for slot in self.slots:
+            if self.is_worker_busy(slot) or not slot.lock.acquire(timeout=2):
+                restarted = False
+                continue
+            try:
+                slot.manager.shutdown_worker()
+            finally:
+                slot.lock.release()
+        return restarted
+
+    def workers(self):
+        """One entry per card for /api/health: its device, name, VRAM, the
+        job it is running, whether its worker process is alive, and that
+        process's resident host memory - the pool shares one machine's RAM.
+        """
+        with self._lock:
+            running = [(slot, slot.current_job_id) for slot in self.slots]
+        described = []
+        for slot, job_id in running:
+            pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
+            entry = {
+                "device": device_ordinal(slot.device),
+                "name": slot.device_fields()[1],
+                "vram_gb": slot.capacity_gb(),
+                "current_job": job_id,
+                "alive": slot.alive(),
+            }
+            rss = process_rss_mb(pid) if pid is not None else None
+            if rss is not None:
+                entry["host_memory_rss_mb"] = rss
+            described.append(entry)
+        return described
 
     # ---------------------------------------------------------------- memory
 
-    def _record_memory(self, info):
-        """Remember a reading and when it was taken, so a later cached answer
-        can say how old it is."""
-        self.last_memory = info
-        self.last_memory_at = time.time() if info is not None else None
+    def _record_memory(self, info, slot=None):
+        """Keep `info` as a card's reading - the first card's by default
+        (worker_memory.record_memory)."""
+        worker_memory.record_memory(info, slot or self.slots[0])
 
-    def _cached_memory(self, reason):
-        """The last reading, labelled with why it is not a live one. A caller
-        comparing two readings must compare only `live: true` ones - a cached
-        `info` was taken at another moment, and while a job loads a model it
-        understates what is resident by however much has loaded since."""
-        info = self.last_memory
-        age = None
-        if info is not None and self.last_memory_at is not None:
-            age = round(time.time() - self.last_memory_at, 1)
-        return {
-            "live": False,
-            "info": info,
-            "stale": info is not None,
-            "reason": reason,
-            "age_seconds": age,
-        }
+    def probe_cache(self, command, timeout=5, slot=None):
+        """Which steps a worker's step cache would serve for `command`, or
+        None when that cannot be had now (worker_memory.probe_cache).
 
-    def probe_cache(self, command, timeout=5):
-        """Which steps the worker's step cache would serve for `command` (the
-        fields an execute command carries, minus its type), or None when the
-        answer cannot be had right now - a job is running, the worker is
-        busy, or it did not answer in time. Never blocks a request behind a
-        running job, for the same reason memory_status does not.
-
-        No worker running is a definite answer, not an unknown one: the
-        cache lives in the worker process, so a worker that is not running
-        holds nothing.
-        """
-        if self._current_job_id is not None:
-            return None
-        if not self.worker_manager.worker_active:
-            return []
-        if not self._worker_lock.acquire(timeout=2):
-            return None
-        # A probe that timed out still answers eventually, onto the same
-        # queue the next request reads - so each carries an id and request()
-        # discards every reply that is not its own, rather than reporting
-        # the previous workflow's hit list as this plan's
-        try:
-            reply = self.worker_manager.request(
-                ProbeCache(request_id=uuid.uuid4().hex, **command), timeout
+        The worker asked is `slot`'s, else the one `route` would dispatch
+        this workflow to: each card has its own step cache."""
+        if slot is None:
+            slot = self.route(
+                self.identity_of(
+                    command.get("source"),
+                    command.get("file_spec"),
+                    command.get("definition"),
+                )
             )
-        except (RuntimeError, queue.Empty) as e:
-            logger.debug(f"Worker did not answer the cache probe: {e}")
-            return None
-        finally:
-            self._worker_lock.release()
-        cached = getattr(reply, "cached", None)
-        return list(cached) if isinstance(cached, list) else None
+        return worker_memory.probe_cache(slot, self._lock, command, timeout)
 
-    def memory_status(self, timeout=5):
-        """Live memory stats when the worker is idle; the run's last report
-        while it is busy. The lock acquire is bounded: the runner holds
-        _worker_lock for a job's whole duration, and a poll that raced a job
-        start must fall back to the cached reading, not block for hours.
+    def memory_status(self, timeout=5, device=None):
+        """Memory per card, or `device`'s alone (worker_memory.memory_status).
+        Raises ValueError for a `device` this server has no worker on."""
+        return worker_memory.memory_status(self.slots, self._lock, timeout, device)
 
-        `live` says whether `info` was measured by this call. `stale` and
-        `reason` say why it was not, and `age_seconds` how old the cached
-        reading is; `info` is null when there has never been a reading, which
-        means nothing is resident rather than that the answer is unknown."""
-        if self._current_job_id is not None:
-            return self._cached_memory("job_running")
-        if not self.worker_manager.worker_active:
-            return self._cached_memory("worker_stopped")
-        if not self._worker_lock.acquire(timeout=2):
-            return self._cached_memory("worker_busy")
-        try:
-            reply = self.worker_manager.request(
-                MemoryStatus(request_id=uuid.uuid4().hex), timeout
-            )
-        except (RuntimeError, queue.Empty) as e:
-            # A dead worker is exactly when the last reading taken before it
-            # died is worth the most, so report that rather than failing the
-            # request. Without this the caller gets a 503 at the one moment
-            # it most wants a number
-            detail = self.worker_manager.crash_details()
-            logger.warning(f"Worker unavailable for memory status: {detail or e}")
-            if detail is not None:
-                # crash_details only answers for a process the OS has reaped,
-                # so a worker that is merely slow to reply keeps its state -
-                # a timeout is not evidence of death
-                self.worker_manager.mark_crashed()
-            return self._cached_memory("worker_unreachable")
-        finally:
-            self._worker_lock.release()
-        if isinstance(reply, MemoryStatusReply):
-            self._record_memory(reply.info)
-            return {
-                "live": True,
-                "info": self.last_memory,
-                "stale": False,
-                "reason": None,
-                "age_seconds": 0.0,
-            }
-        return self._cached_memory("worker_unreachable")
-
-    def clear_memory(self, timeout=30):
-        """Drop every loaded pipeline and the step cache, then report the
-        memory reading taken right after. Callers must check `is_busy()`
-        first - this does not itself refuse a running/queued job, and racing
-        one would clear state a queued run still expects resident. The
-        30s timeout (vs. `memory_status`'s 5s) allows for this: actually
-        freeing CUDA memory takes longer than reading a counter does.
-
-        Returns the reading taken after the clear, or None when there was no
-        worker to clear - nothing was resident in that case."""
-        if not self.worker_manager.worker_active:
-            # Nothing to clear, and not a fault: the pipelines and the step
-            # cache both live in the worker process, so no worker running
-            # means both are already gone. An on-demand worker is legitimately
-            # absent on an idle server (#206), which this used to answer with
-            # a 503 saying the worker was unavailable. None is "no reading
-            # was taken", not a failure
-            return None
-        if not self._worker_lock.acquire(timeout=2):
-            raise RuntimeError("worker busy")
-        try:
-            reply = self.worker_manager.request(
-                ClearMemory(request_id=uuid.uuid4().hex), timeout
-            )
-        finally:
-            self._worker_lock.release()
-        if not isinstance(reply, MemoryCleared):
-            raise RuntimeError(f"unexpected worker reply: {reply.TYPE}")
-        self._record_memory(reply.info)
-        return self.last_memory
+    def clear_memory(self, timeout=30, device=None):
+        """Clear each idle card's pipelines and step cache, or `device`'s
+        alone (worker_memory.clear_memory). Raises WorkerBusy when no card
+        asked about is idle."""
+        return worker_memory.clear_memory(self.slots, self._lock, timeout, device)

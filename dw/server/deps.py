@@ -172,7 +172,9 @@ def server_prompt_library(state):
     )
 
 
-def observed_for_name(state, name, definition, arguments=None, *, workspace=None):
+def observed_for_name(
+    state, name, definition, arguments=None, *, workspace=None, card=None
+):
     """One workflow's `observed` block, from the same aggregate the
     listing uses - so the figure a caller reads in the listing and the
     one they read here are the same figure.
@@ -180,10 +182,11 @@ def observed_for_name(state, name, definition, arguments=None, *, workspace=None
     `arguments` narrow it to the bucket the run being planned falls in;
     without them it is the figure the stored defaults give, which is the
     listing's. `workspace` scopes it to one workspace's own writable copy
-    (#274); omitted, it is a shared catalog entry's pooled figure (#154)."""
+    (#274); omitted, it is a shared catalog entry's pooled figure (#154).
+    `card` ('cuda:1') prices it for that card rather than the server's."""
     costs = getattr(state, "observed_costs", None)
     return (
-        costs.observed(name, definition, arguments, workspace=workspace)
+        costs.observed(name, definition, arguments, workspace=workspace, card=card)
         if costs
         else None
     )

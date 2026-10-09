@@ -23,8 +23,8 @@ class JobTools:
         wait_seconds: int = 0,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
-        occupies the machine for minutes and the engine runs one job at a
-        time. Tell the user what will run and get their go-ahead, then pass
+        occupies a GPU for minutes and the engine runs one job per GPU.
+        Tell the user what will run and get their go-ahead, then pass
         acknowledged_cost as below. Returns as soon as the job is queued;
         follow it with `wait_for_job`, then `get_job` for the manifest - or
         fold that first wait in with `wait_seconds` above 0, which waits on
@@ -79,12 +79,13 @@ class JobTools:
         and each entry's `subfolder` says what kind of output the step
         declared - by convention `final` is the deliverable, `intermediate`
         the scratch work, and '' a step that said nothing. A step served
-        from the step cache is marked `reused` and reports the earlier run's
-        files. When a job failed, the error and traceback here are what to
-        read before changing anything. `acknowledged` says which form of
-        cost acknowledgement queued the job (`none`, `boolean`, `bound`) and
-        `acknowledged_cost` is the bound `{fingerprint, minutes, downloads}`
-        when there was one."""
+        from the step cache is marked `reused`, with the earlier run's
+        files. On failure, read the error and traceback before changing
+        anything. `device` is the card the job ran or is running on, e.g.
+        `cuda:1 NVIDIA GeForce RTX 3090`; null for jobs from before
+        multi-GPU. `acknowledged` says which form of cost acknowledgement
+        queued it (`none`, `boolean`, `bound`), and `acknowledged_cost` is
+        the bound `{fingerprint, minutes, downloads}` if any."""
         return diagnose.get_job(self.client, job_id)
 
     def get_job_workflow(self, job_id: str) -> dict:
@@ -93,8 +94,8 @@ class JobTools:
         variables, the seed the run used, stored prompt text inlined, and any
         `output:.../latest/...` rewritten to the run it resolved to - so the
         definition reproduces that run however the library changes. When it is
-        false the job predates run tracking and this is the definition as
-        submitted. After a long inline run worth keeping, this then
+        false the run's copy is gone (old job, or its workspace was deleted)
+        and `note` says what was folded in from the recorded arguments. After a long inline run worth keeping, this then
         `save_workflow` is how it gets a name."""
         return diagnose.get_job_workflow(self.client, job_id)
 
@@ -178,8 +179,8 @@ class JobTools:
         new_seed: bool = False,
     ) -> dict:
         """Queue a fresh job from a previous job's stored specification. This
-        costs GPU time: a rerun is a run - it occupies the machine for
-        minutes and the engine runs one job at a time. Tell the user what
+        costs GPU time: a rerun is a run - it occupies a GPU for
+        minutes and the engine runs one job per GPU. Tell the user what
         will run and get their go-ahead, then pass acknowledged_cost.
 
         Pass new_seed=true for a different image: a workflow that pins its

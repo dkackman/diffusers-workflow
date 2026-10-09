@@ -29,6 +29,7 @@ from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .elision import elide_definition, warn_elided
 from .events import emit_warning
+from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
 from .realize import realize_workflow
@@ -45,7 +46,13 @@ from .runs import (
     write_manifest,
     write_realized_workflow,
 )
-from .shots import carries_shots, duplicate_shot_names, shot_references, step_shots
+from .shots import (
+    carries_shots,
+    duplicate_shot_names,
+    name_unsaved_shots,
+    shot_references,
+    step_shots,
+)
 from .step import Step
 from .step_cache import (
     borrowed_pipeline_keys,
@@ -135,11 +142,7 @@ class StepLoop:
 def run_base_dir(workflow):
     """The directory file paths in the workflow resolve against - the
     workflow file's own."""
-    return (
-        os.path.dirname(os.path.abspath(workflow.file_spec))
-        if workflow.file_spec
-        else None
-    )
+    return workflow.base_dir
 
 
 def owns_run_dir(workflow):
@@ -311,12 +314,15 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     # validate_workflow, so this raises the same refusal rather than
     # starting a job the decode step was always going to OOM on. After
     # expansion, so a for_each member is projected with its own frames
-    # and references (dw/vram_estimate.py, #265, #479)
+    # and references (dw/vram_estimate.py, #265, #479). The header-only
+    # probe counts each guide clip's frames as validate's does (#694)
     apply_vram_estimate(
         workflow_def,
         variables,
         device_type=get_device_type(),
         capacity_gb=device_capacity_gb(),
+        base_dir=base_dir,
+        probe=probe_metadata,
     )
 
     # A step nothing after it reads, and which saves no file, does not
@@ -780,11 +786,9 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
         details["selected"] = selected
     # Where each joined shot sits in the file, named by the
     # step's own input references (dw/shots.py)
-    shots = step_shots(
-        getattr(result, "saved_shots", None),
-        saved_files,
-        shot_references(step_data.get("task", {}).get("arguments", {})),
-    )
+    references = shot_references(step_data.get("task", {}).get("arguments", {}))
+    name_unsaved_shots(result, references)
+    shots = step_shots(getattr(result, "saved_shots", None), saved_files, references)
     if shots:
         details["shots"] = shots
         _warn_shot_collisions(step_data, step_name, shots)

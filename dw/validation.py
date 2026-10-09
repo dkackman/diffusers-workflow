@@ -39,6 +39,8 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
+from .guides import guide_chain_errors, guides_errors
+from .hold_audio import hold_audio_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
@@ -53,9 +55,13 @@ from .security import InvalidInputError, SecurityError
 from .shot_span_preflight import shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
-from .step_value_checks import fps_errors, null_media_errors, select_errors
+from .step_value_checks import (
+    chain_prompts_errors,
+    fps_errors,
+    null_media_errors,
+    select_errors,
+)
 from .task_domains import task_argument_errors
-from .tasks.voice_attribution import voices_errors
 from .type_references import component_name_errors, component_type_errors
 from .variable_constraints import (
     ConstraintReferenceError,
@@ -73,6 +79,7 @@ from .variables import (
 )
 from .video_extensions import video_extension_errors
 from .video_size_errors import video_size_errors
+from .window_count_errors import window_count_errors
 from .vram_estimate import vram_estimate_errors
 from .vram_inheritance import inherited_vram_warnings
 
@@ -123,6 +130,9 @@ class ValidationContext:
         # tests patch them
         device_type=None,
         capacity_gb=None,
+        # What `capacity_gb` is called in a refusal, when it is not this
+        # process's own device
+        capacity_label=None,
         # The catalog's VRAM ceilings, for inherited_vram_warnings
         ceiling_index=None,
         expand=None,
@@ -133,6 +143,7 @@ class ValidationContext:
         self.composing = tuple(composing or ())
         self.device_type = device_type
         self.capacity_gb = capacity_gb
+        self.capacity_label = capacity_label
         self.ceiling_index = ceiling_index
         self._expand = expand
         self._expanded = expanded
@@ -305,6 +316,23 @@ ERROR_CHECKS = [
         "video_extensions",
         lambda c: video_extension_errors(c.expanded, c.source_indices),
     ),
+    # hold_audio on a pipeline with no H3 hold blocks, or holding something
+    # that is not audio, costs a checkpoint load otherwise (dw/hold_audio.py)
+    Check("hold_audio", lambda c: hold_audio_errors(c.expanded, c.source_indices)),
+    # refine_strength with nothing to refine, no held soundtrack or a one-point
+    # schedule fails after the checkpoint load just the same
+    Check(
+        "refine_strength",
+        lambda c: refine_strength_errors(c.expanded, c.source_indices),
+    ),
+    # guides on a pipeline that cannot take them, with references, malformed,
+    # or a clip that is no video or runs past the render (dw/guides.py)
+    Check(
+        "guides",
+        lambda c: guides_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
     # A result content_type no writer will accept - a bare word like "video"
     # validated clean and then died inside the writer (dw/content_types.py,
     # #168)
@@ -338,8 +366,11 @@ ERROR_CHECKS = [
             supplied=c.supplied,
             device_type=c.device_type,
             capacity_gb=c.capacity_gb,
+            capacity_label=c.capacity_label,
             source_indices=c.source_indices,
             written=c.definition,
+            base_dir=c.base_dir,
+            probe=c.probe,
         ),
     ),
     # A bare object description whose media resolved null - realize_args
@@ -357,19 +388,26 @@ ERROR_CHECKS = [
             supplied=c.supplied,
         ),
     ),
-    # A number outside a task argument's declared domain (dw/task_domains.py,
-    # #139, #140)
+    # A number outside a task argument's declared domain, and a command's
+    # registered cross-argument check - attribute_voices' `voices` among them
+    # (dw/task_domains.py, #139, #140, #494)
     Check(
         "task_argument_domains",
         lambda c: task_argument_errors(c.expanded, c.source_indices),
     ),
-    # An attribute_voices `voices` it would refuse (#494)
-    Check("voices", lambda c: voices_errors(c.expanded, c.source_indices)),
     # A dissolve_videos overlap wider than a statically-resolvable input's
     # real frame count (dw/dissolve_frame_errors.py, #400)
     Check(
         "dissolve_frames",
         lambda c: dissolve_frame_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
+    # A join_windows list not the length its statically-resolvable source
+    # needs (dw/window_count_errors.py, #601)
+    Check(
+        "window_count",
+        lambda c: window_count_errors(
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
     ),
@@ -383,7 +421,22 @@ ERROR_CHECKS = [
     ),
     # A select step whose rule is misspelled, or whose threshold/index does
     # not match its rule (select_errors, above)
-    Check("select", lambda c: select_errors(c.expanded, c.source_indices)),
+    Check(
+        "select",
+        lambda c: select_errors(c.expanded, c.source_indices, written=c.definition),
+    ),
+    # A chain 'prompts' that resolved to a bare string, which the run would
+    # index a character per segment (#653)
+    Check(
+        "chain_prompts",
+        lambda c: chain_prompts_errors(c.expanded, c.source_indices),
+    ),
+    # A chain's continuity the run would refuse: an unknown mode, or a
+    # 'guide' chain off H3 t2va/fl2va or with a guide_frames other than 22/39
+    Check(
+        "guide_chain",
+        lambda c: guide_chain_errors(c.expanded, c.source_indices),
+    ),
     Check("task_signatures", _task_errors),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)
@@ -582,8 +635,11 @@ WARNING_CHECKS = [
                 supplied=c.supplied,
                 device_type=c.device_type,
                 capacity_gb=c.capacity_gb,
+                capacity_label=c.capacity_label,
                 source_indices=c.source_indices,
                 written=c.definition,
+                base_dir=c.base_dir,
+                probe=c.probe,
             )
         ),
     ),
@@ -605,11 +661,20 @@ def warning_check(name):
 # dw.workflow. A composed child is opened through `Workflow.open_sub_workflow`.
 
 
-def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None):
+def workflow_context(
+    workflow,
+    arguments=None,
+    composing=(),
+    ceiling_index=None,
+    capacity_gb=None,
+    capacity_label=None,
+):
     """One validation request's ValidationContext: the expansion over
     `arguments` (lazy and memoized, so the error pass and the warning
     pass share it), where relative paths resolve from, the device the
-    request is checked against and the catalog's VRAM ceilings
+    request is checked against (its own capacity, or `capacity_gb` when
+    the caller knows a larger card the job may land on - the server's
+    worker pool, which `capacity_label` names in a refusal) and the catalog's VRAM ceilings
     (`ceiling_index`, for inherited_vram_warnings). Built per request
     and never stored on the Workflow, so its probe cache cannot serve a
     replaced file stale.
@@ -635,7 +700,8 @@ def workflow_context(workflow, arguments=None, composing=(), ceiling_index=None)
         ),
         composing=composing,
         device_type=get_device_type(),
-        capacity_gb=device_capacity_gb(),
+        capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
+        capacity_label=capacity_label,
         ceiling_index=ceiling_index,
         expand=expand,
     )

@@ -81,6 +81,14 @@ Run a HuggingFace Diffusers model:
 }
 ```
 
+A `component_type` can also name a **community pipeline** that dw ships in `dw/community_pipelines/`, by its
+dotted path; `list_pipelines` lists them after the diffusers ones. `RFInversionFluxPipeline`
+(`dw.community_pipelines.pipeline_flux_rf_inversion.RFInversionFluxPipeline`) inverts an image into FLUX
+latents (below). `LTX2RefinePipeline` (`dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline`) is
+`LTX2Pipeline` plus a `video` argument: the clip is VAE-encoded at `width` x `height` and renoised at
+`noise_scale` over `sigmas`, a refine at the clip's own size rather than `refine-clip`'s 2x. `num_frames`
+(8 * n + 1, no longer than the clip) defaults to the clip's length; `video` and `latents` are exclusive.
+
 ### Pipeline Reference Steps
 
 Re-run an already-loaded pipeline from an earlier step with a fresh set of arguments,
@@ -447,7 +455,9 @@ An argument that names a *location* is confined, untrusted (the default):
   and an `asset:` reference - which is what those exist for.
 - a `glob` is confined the same way, and each match re-checked.
 - an `http(s)` URL may not resolve to an address inside the deployment -
-  loopback, link-local, private ranges.
+  loopback, link-local, private ranges. Its host must resolve, the body
+  is capped at 1 GiB and a fetch at 10 minutes end to end; past that,
+  `upload_asset` is the route.
 - `remote_text_encoder.url` is https-only, and only a HuggingFace host is
   sent this machine's token.
 - `model_name` must be a Hub repo id, or a path inside one of those roots.
@@ -474,6 +484,18 @@ your own `vram_estimate`, which always wins and is judged exactly as a
 template's. A pipeline the catalog declares no ceiling for gets no warning -
 silence there is not a clearance - and H3's `t2va` and `ref2va` are
 different identities with different ceilings.
+
+The projection is `base_gb`, plus `bytes_per_voxel` times the product of
+the `voxel_variables`, plus `gb_per_reference` per non-null reference, plus
+`bytes_per_guide_voxel` times each guide's frames times the canvas (every
+voxel variable but `num_frames`). The guides counted are the step's own
+`guides` with a non-null `video`, at their snapped length, and the one a
+`continuity: "guide"` chain appends (`guide_frames`, 22 or 39). A guide
+clip is probed at validate, at admission and at run; one that cannot be
+probed before the run (a `previous_result:` clip) is charged at the step's
+`num_frames`, and the message says it was charged at the worst case. H3's
+`t2va` and `fl2va` templates declare the guide term, so a guided step is
+judged by what its guides add rather than passing on the clip alone.
 
 ### Remote code is refused by default
 
@@ -626,7 +648,10 @@ own path, with the member it failed in named in the message.
 
 `templates/minimax/dialogue-short` and `templates/minimax/music-video` are
 this shape: each takes one `shots` list, and `get_workflow` on either shows
-the entry an item needs.
+the entry an item needs. `templates/ltx2/restore-long` runs two `for_each`
+steps over one `windows` list - a `window_video` slice, then a restore of it
+- and `gather:`s the restores into `join_windows`; its list length is fixed
+by the source, and `validate_workflow` names the entries to add or drop.
 
 ### The loop
 
@@ -710,14 +735,21 @@ the entry an item needs.
    soundtrack.
 
    To confirm the words a clip speaks - a text-only client can't consume the
-   `AudioContent` block `get_output_audio` returns - transcribe it instead.
-   `validate_workflow(name="templates/transcribe-audio",
-   arguments={"input_audio": "output:<name>"})` first (free; it takes an
-   audio file or a video's muxed soundtrack directly), then
+   `AudioContent` block `get_output_audio` returns - run
+   `templates/check-script` against its script rather than reading a
+   transcript by eye. `validate_workflow(name="templates/check-script",
+   arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
+   it takes an audio file or a video's muxed soundtrack directly, and
+   `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
+   a line's shot, `[]` for a take that should be silent), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
    "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
-   scratch run afterward. This workflow's plan comes back
+   scratch run afterward. Its `findings` are the places to listen: a
+   dropped or changed line (`line_mismatch`, with `heard`), a markup word
+   spoken aloud, speech in a shot meant to be silent, a last word clipped
+   by the cut. Words Whisper invents over silence or music are under
+   `discarded`, not findings. This workflow's plan comes back
    `basis: "unknown"` with `minutes: null` - nothing is curated or observed
    for it - so quote what it actually takes rather than the plan: seconds,
    not minutes (a few seconds per clip in practice). Four calls and a short
@@ -773,7 +805,8 @@ section="join_into_song")`), and the recipe is four parts:
    frame 0. The song enters that long before the cut, under the last line;
    `0` starts it exactly at the cut. It may not be longer than the dialogue.
 2. **Generate the sung shots against `slice_audio` slices of the song**, as
-   `templates/minimax/music-video` does (its `slice` and `shot` steps). The
+   `templates/minimax/music-video` does (its `slice`, `shot` and `trim` steps; it slices
+   `lead_frames` early and trims the run-up off). The
    first slice starts at `cue_seconds`, and each next one starts where the one
    before it ended, so the slices tile the song with no gap: `start_seconds`
    is `cue_seconds` plus the length of every sung shot before it
@@ -1587,13 +1620,163 @@ it — see [workflows/templates/minimax/last-frame-only.json](../workflows/templ
 See [workflows/templates/minimax/music.json](../workflows/templates/minimax/music.json) and
 [workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json) for full examples.
 
+### H3: generating to a held soundtrack
+
+A MiniMax-H3 step (`t2va`, `fl2va` or `ref2va`) takes a pipeline argument `hold_audio`:
+an audio value, spelled `asset:<file>`, `output:<file>` or `previous_result:<step>.audio`
+(an `AudioTrack` or `AudioVideo`). The video is generated *to* that soundtrack. The
+track goes through H3's Ref2VA reference-audio encode, is written over the target audio
+rows and held clean as conditioning through denoise, so the model draws picture that
+fits audio it is not allowed to change:
+
+```json
+"pipeline": {
+    "arguments": {
+        "prompt": "a drummer in a lit rehearsal room",
+        "num_frames": 125,
+        "hold_audio": "asset:track.wav"
+    },
+    "output": ["videos", "audio", "sampling_rate"]
+}
+```
+
+`"audio"` must be in `output` (as it already is in `video-with-audio`) for the held
+track to be what the step returns. A track longer than the video is cropped, a shorter
+one padded with silence. The step's `audio` is the caller's original waveform fitted to
+the video's duration (`num_frames / 24` s) at its own sample rate, not a VAE round trip.
+`previous_result:base.audio` holds a track an earlier step generated, music for example.
+
+`run_workflow`'s `arguments` can set only a declared variable, so unless the template
+has one, add `"hold_audio": "variable:hold_audio"` and a `hold_audio` variable, or edit
+the argument. Validation refuses `hold_audio` on a step that is not H3, on a modular
+pipeline loaded with a workflow other than `t2va`, `fl2va` or `ref2va`, on a path whose
+extension is not `.wav`, `.mp3`, `.flac` or `.ogg`, and on any `{"media_type": ...}`
+dict; a run refuses a pipeline with no hold blocks or a value that is not audio. Without
+`hold_audio` the output is unchanged.
+
+Hold is opt-in: the catalog's audio-driven templates (`music-video` and the `match_audio`
+chains) pass the track as a `MiniMaxH3AudioReference` instead. Measured on lem (#619:
+`chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm), a held track
+kept the soundtrack exact but the mouth was open at about 3 of 6 sung-word onsets, and
+closed through much of the second segment, against 6 of 6 with the reference; the
+held arm read as speech to camera rather than singing. Both arms took about the same
+time (19.8 and 18.3 min). Hold is for picture that must fit audio exactly, such as
+motion cut to music, not yet for lip sync. `refine_strength` also uses hold, to keep the
+base pass's own audio, which was generated jointly with that video - a different case from
+lip sync to supplied audio (see the refine section below).
+
+### H3: holding a clip with `guides`
+
+A MiniMax-H3 `t2va` or `fl2va` step takes a pipeline argument `guides`: a list of
+`{"video": <reference>, "frame": <pixel frame>}`, where the video is an `asset:`,
+`output:` or `previous_result:` reference. Each guide clip is VAE-encoded on the
+generation canvas and placed as condition rows, timed from the target frame it lands on,
+that are never denoised, so the generated video is held to earlier footage. On `fl2va`
+the `image` / `last_image` keyframes combine with guides. The clip is fitted to the
+canvas (scaled to cover, centre-cropped). By default a guide holds video only and its own
+audio is not used; `"audio": true` holds the guide's audio too (below).
+
+```json
+"pipeline": {
+    "arguments": {
+        "prompt": "variable:prompt",
+        "num_frames": "variable:num_frames",
+        "width": "variable:width",
+        "height": "variable:height",
+        "num_inference_steps": "variable:num_inference_steps",
+        "guides": [
+            {"video": "asset:opening.mp4", "frame": 0},
+            {"video": "asset:closing.mp4", "frame": 85}
+        ],
+        "output": ["videos", "audio", "sampling_rate"]
+    }
+}
+```
+
+This is the `text_to_video_audio` step of
+[workflows/templates/minimax/video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
+with `guides` added. As with `hold_audio`, `run_workflow`'s `arguments` can set only a
+declared variable, so reference a `guides` variable or edit the argument.
+
+| Rule | Value |
+|---|---|
+| `frame` | a multiple of 17 (a VAE chunk boundary): 0, 17, 34, ... |
+| clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
+| extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
+| count | at most 4 guides per step (a VRAM limit: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas); `guides: []` is the same as none |
+| where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
+
+Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
+guide is checked at run time, when its clip exists.
+
+#### Holding the guide's audio: `"audio": true`
+
+A guide with `"audio": true` holds its soundtrack as well as its frames:
+`{"video": "asset:opening.mp4", "frame": 0, "audio": true}`. The guide video's audio over
+the guide's span is encoded by the audio VAE (posterior mode, as `ref2va` reference audio
+is) and placed as condition audio rows timed at the target's own audio time, then held,
+never denoised. The output's audio under the guide reproduces the guide's audio, and the
+model generates the rest to run on from it. Audio runs at 40 latents a second against
+24 fps video, so a guide of n frames at `frame` k holds `round((k + n) * 40 / 24) -
+floor(k * 40 / 24)` audio latents: 37 for a 22-frame guide at frame 0, 65 (about 1.6 s)
+for a 39-frame one. A guide that does not start at frame 0 has its audio padded to the
+audio VAE's hop first, so its latents land at the right time. The clip is read as 24 fps
+footage, as its frames are.
+
+| Rule | Value |
+|---|---|
+| `audio` | `true` or `false`; absent is `false`. Any other value is refused |
+| soundtrack | `"audio": true` on a guide whose video has no audio stream is refused - before the run for an `asset:`/`output:` file, at run time for a `previous_result:` clip |
+| with `hold_audio` | allowed; a guide's audio rows come first, then the held track's |
+
+A guide holds its span's look as well as its composition and motion: the frames under it
+come out close to a copy of the clip, whatever the prompt says about style. A full-length
+guide at frame 0 therefore reproduces the take rather than restyling it - measured on lem,
+a 124-frame guide with the prompt "the same scene as a hand-painted watercolour
+animation" came back photoreal (#648). The prompt steers the frames the guides leave
+free. Restyling a whole take needs a LoRA trained on guides (#612), not the guide alone.
+
+With no guides (or `guides: []`) the step runs the stock layout and draws the same noise
+from its seed as before. Repeat runs at one seed are bit-identical only on a server with
+`cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); with the default
+`false`, two runs at seed 42 match frame for frame by eye, but their audio levels differ by
+a few dB.
+
+#### Chaining with a guide: `continuity: "guide"`
+
+A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
+keyframe: `"chain": {"segments": 3, "continuity": "guide", "guide_frames": 22}`. Every
+segment after the first gets the previous segment's last P = `guide_frames` frames as a
+guide at frame 0 (appended to the step's own `guides`; the carried clip counts as a guide, so a step
+that also writes its own `guides` may list at most three of them with
+`continuity: "guide"` - validation says so before the run rather than after the first
+segment), with `"audio": true` when
+`carry_audio` is (the default), so motion and voice run on across the seam rather than
+restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
+next segment opens with a near-copy of those P frames, so P frames are trimmed from its
+head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 is 328.
+
+| Rule | Value |
+|---|---|
+| `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
+| where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
+| `carry_frames` | refused - the carry is always the last `guide_frames` frames |
+| `trim_frames` | ignored (the trim is P), with a note in the job log |
+| `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
+| `num_frames` | must exceed P, or the chain cannot progress |
+
+`workflows/templates/minimax/chained-segments.json` takes `continuity` and
+`guide_frames` as variables. The `ref2va` chains (`chain-video-continuity` and the
+`match_audio` chains) keep `last_segment`.
+
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
 `decode_h3_latents` promote it to 1344x768 without denoising it again - cheaper than a
 native 768p render, since only a small 3D-convolution network and a VAE decode run,
-not the transformer. There is no refine pass over the upscaled latents, so the result
-is sharper than the 544p take but cannot show detail the base pass never generated.
+not the transformer. These two tasks run no refine pass, so the result
+is sharper than the 544p take but cannot show detail the base pass never generated; the
+refine section below adds one.
 Measured on a 124-frame crowd scene, it took 7.8 min against a native 768p render's
 12.7 min, and the faces came out soft and waxy where the native render's were distinct.
 So this is a measurement path, not a catalog template: the catalog's native 768p render
@@ -1621,7 +1804,7 @@ this task can still stall mid-run pulling the upscaler.
 ```json
 {
     "id": "H3LatentUpscalePreview",
-    "description": "Promote a MiniMax-H3 take from 960x544 to 1344x768 in latent space, no refine pass.",
+    "description": "Promote a MiniMax-H3 take from 960x544 to 1344x768 in latent space, decoded without refinement.",
     "variables": {
         "prompt": "prompt:minimax/fox_dawn_context_ir",
         "num_frames": 124,
@@ -1827,6 +2010,346 @@ and `pair_audio` unwraps a batch of one (a batch of several is refused, since on
 goes under one video). The dict's frames carry no frame rate, so the result's `fps`
 says it; without it the file is written at the 8 fps fallback.
 
+### Refining the upscaled latents: refine_strength
+
+`upscale_h3_latents` followed by `decode_h3_latents` adds no detail. To let the
+transformer add some, pass the upscaled latents to an H3 step as `latents` with
+`refine_strength`. The step adds noise to the video latents up to sigma = `refine_strength`
+and denoises from there down to 0, so the picture is kept and the fine detail is
+regenerated at 1344x768. The refined video is decoded by the step itself, so there is no
+`decode_h3_latents` step, and the step's `videos` is the deliverable.
+
+Refine re-denoises the video only. The audio rows have to be held, so pass the base
+pass's track as `hold_audio` (`previous_result:base.audio`) and the step's `audio` is that
+track. This is a different use of hold from the one above: it keeps the audio the base pass
+generated jointly with that video, rather than fitting picture to supplied audio. For lip
+sync to supplied audio, the per-shot audio reference was the better arm in #619's A/B.
+
+```json
+{
+    "id": "H3LatentUpscaleRefine",
+    "description": "Promote a MiniMax-H3 take from 960x544 to 1344x768 in latent space, then refine it at low strength.",
+    "variables": {
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
+        "num_frames": 124,
+        "num_inference_steps": 9,
+        "video_shift": 12.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "base",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": 960,
+                    "height": 544,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate",
+                        "latents"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "up",
+            "task": {
+                "command": "upscale_h3_latents",
+                "arguments": {
+                    "latents": "previous_result:base.latents",
+                    "width": 1344,
+                    "height": 768
+                }
+            }
+        },
+        {
+            "name": "refine",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": 1344,
+                    "height": 768,
+                    "num_inference_steps": 5,
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ],
+                    "latents": "previous_result:up",
+                    "refine_strength": 0.2,
+                    "hold_audio": "previous_result:base.audio"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
+```
+
+`num_inference_steps` is the number of sigma points, ending at 0, spaced by the
+scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluations. Here
+`5` points at shift 12 (the example's `video_shift`) and strength 0.2 are sigma `0.2,
+0.157, 0.110, 0.058, 0`: 4 evaluations. The time a refine takes scales with `num_inference_steps`. `refine_strength`
+sets where it starts, not how many steps run: a higher strength moves the picture further
+from the upscaled take, a lower one stays closer to it.
+
+Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive), a
+refine with no `latents` or no `hold_audio`, a step that is not H3, and a
+`num_inference_steps` below 2.
+
 ### Chained Video Generation
 
 Video pipelines generate short clips - a `chain` block on a pipeline step runs the
@@ -1850,10 +2373,12 @@ joined into a single file:
 
 - `segments` — how many times the pipeline runs. Total length is roughly
   `segments * num_frames`, minus `trim_frames` per seam.
-- `match_audio` — instead of a count, derive the length from the audio reference in
-  the step's arguments. The audio is sliced into frame-aligned per-segment chunks,
-  each segment is generated against its slice, and the final video is muxed with the
-  **original, unsliced track** - so the soundtrack has no seams at all. Requires
+- `match_audio` — instead of a count, derive the length from the step's `hold_audio`
+  track, or else the one audio reference in its `references`. The audio is sliced into
+  frame-aligned per-segment chunks, each segment is generated against its slice - a
+  held track's slice is that segment's `hold_audio`, a reference's replaces the
+  reference - and the final video is muxed with the **original, unsliced track** - so
+  the soundtrack has no seams at all. Requires
   `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
   or `match_audio` must be given.
 - `continuity` — how continuity carries across segments. `last_frame` (the default)
@@ -1861,10 +2386,14 @@ joined into a single file:
   conditioning, which carries pose and colour. `last_segment` carries the previous
   segment itself (frames and its generated soundtrack) into the next as a video
   reference, which also carries motion, camera, and voice across the seam; it
-  requires a `segment_argument` that takes a references list.
+  requires a `segment_argument` that takes a references list. `guide` (MiniMax-H3
+  `t2va`/`fl2va` only) lays the previous segment's last `guide_frames` frames into the
+  next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
+  guide*).
+- `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
   segment (the audio is cut to the same span). Unset carries the whole segment.
-- `carry_audio` — with `last_segment`, whether the carried reference includes its
+- `carry_audio` — with `last_segment` or `guide`, whether the carried reference includes its
   soundtrack (default `true`).
 - `segment_argument` — where the carried frame or reference lands: `image` (default)
   for image-to-video pipelines, or `references` for reference-conditioned modular
@@ -2399,7 +2928,8 @@ hand. `"fit": "video"` derives one from the other instead: the track is cut to
 exactly the frames it is laid over, or padded with silence and warned about when it
 is shorter than they are. That is what a soundtrack over a cut whose length is an
 argument needs - nothing in a workflow can multiply a list's length by a frame
-count, so `music-video.json` sliced a fixed 496 frames of song while its cut
+count, so `music-video.json` sliced a fixed 496 frames of song (it now cuts
+each shot to its own `cut_frames`) while its cut
 followed a `shots` list, and a two-shot run wrote 10.3 s of picture into a 20.7 s
 container and reported `succeeded` with no warnings (#142). Left unset the track is
 used as it is and a disagreement is warned about rather than passing in silence.

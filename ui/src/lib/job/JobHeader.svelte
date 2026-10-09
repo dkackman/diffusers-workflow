@@ -121,6 +121,11 @@
         >v{runVersion}</code
       >
     {/if}
+    {#if job.device}
+      <code class="muted seed" title="the card this job ran on"
+        >Card: {job.device}</code
+      >
+    {/if}
     {#if job.acknowledged === 'bound'}
       <!-- Whoever queued this bound their go-ahead to a plan; the number
            they quoted is what this run was consented to at -->

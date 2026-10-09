@@ -491,3 +491,20 @@ it('renders each output by the kind the server reports', async () => {
     'c.flac',
   )
 })
+
+it('shows the card the job ran on', async () => {
+  detail.job = { ...job([]), device: 'cuda:1 NVIDIA GeForce RTX 3090' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() =>
+    expect(
+      screen.getByText('Card: cuda:1 NVIDIA GeForce RTX 3090'),
+    ).toBeTruthy(),
+  )
+})
+
+it('shows no card for a job without a device', async () => {
+  detail.job = { ...job([]), device: null }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
+  expect(screen.queryByText(/Card:/)).toBeNull()
+})

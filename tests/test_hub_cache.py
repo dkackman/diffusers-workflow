@@ -284,6 +284,9 @@ class TestDownloadManager:
                 assert "rate" in bar.format_dict
                 bar.refresh()
                 bar.close()
+            # huggingface_hub 1.33 labels the finished transfer bar; without
+            # the method a complete download was reported failed (#663)
+            transfer.set_description_str("Download complete")
 
         manager = DownloadManager(
             download_fn=xet_download, info_fn=lambda repo_id: FakeInfo([600])

@@ -222,13 +222,16 @@ def test_a_route_the_ui_reads_declares_its_response(document, method, path):
 def test_memory_with_no_worker_keeps_its_keys(server):
     with server(success_script) as client:
         body = client.get("/api/memory").json()
-    assert body == {
+        card = client.app.state.job_manager.slots[0].ordinal()
+    reading = {
         "live": False,
         "info": None,
         "stale": False,
         "reason": "worker_stopped",
         "age_seconds": None,
     }
+    # #462 stage C added one reading per card beside the first card's
+    assert body == {**reading, "workers": [{"device": card, **reading}]}
 
 
 def test_health_sends_exactly_its_keys(server):
@@ -243,8 +246,13 @@ def test_health_sends_exactly_its_keys(server):
         "hostname",
         "device",
         "mcp",
+        "workers",
     }
     assert type(body["queued"]) is int
+    # One worker, not yet started: no process, so no host memory to read
+    (worker,) = body["workers"]
+    assert set(worker) == {"device", "name", "vram_gb", "current_job", "alive"}
+    assert worker["alive"] is False
 
 
 def test_an_empty_model_cache_counts_bytes_in_integers(server, tmp_path, monkeypatch):

@@ -256,8 +256,19 @@ def borrowed_pipeline_keys(steps, index, pipeline_keys):
 NORMALIZING_COMMANDS = {"normalize_audio", "match_levels"}
 
 
+def resets_level(task):
+    """Whether a task definition resets the level of the audio it reads: a
+    normalizing command, or a join whose `match_levels` is set (the join
+    levels its inputs and holds the result under full scale - #671)."""
+    if task.get("command") in NORMALIZING_COMMANDS:
+        return True
+    arguments = task.get("arguments")
+    return isinstance(arguments, dict) and bool(arguments.get("match_levels"))
+
+
 def normalized_downstream(steps, name):
-    """Whether a later normalize_audio/match_levels step consumes result `name`.
+    """Whether a later normalize_audio/match_levels step, or a join with
+    `match_levels` set, consumes result `name`.
 
     write_song's raw Music 3 mp3 (templates/minimax/music-video) always lands
     at or over full scale and is always normalized before the deliverable
@@ -272,10 +283,7 @@ def normalized_downstream(steps, name):
         if not isinstance(step, dict):
             continue
         task = step.get("task")
-        if (
-            not isinstance(task, dict)
-            or task.get("command") not in NORMALIZING_COMMANDS
-        ):
+        if not isinstance(task, dict) or not resets_level(task):
             continue
         if any(
             reference_resolves_to(ref, name) for ref in referenced_result_names([step])

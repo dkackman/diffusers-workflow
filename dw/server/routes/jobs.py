@@ -7,6 +7,7 @@ closes over an app, so two apps in one process never share a job manager.
 """
 
 import asyncio
+import copy
 import json
 import logging
 import os
@@ -32,6 +33,7 @@ from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
+from ...variables import set_variables
 from ...library import SubWorkflowNotFound, resolve_sub_workflow_reference
 from ...workspace import Workspace
 from ..admission import (
@@ -146,8 +148,8 @@ def submit_job(
                 else None
             ),
         )
-        if not admission.ok:
-            raise ValueError(admission.message())
+        # Refuses what admission refused, and a job too big for every card
+        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, request.acknowledged_cost, workspace
@@ -187,6 +189,8 @@ def submit_job(
             ),
             # The job carries every warning validate would have answered
             warnings=admission.warnings,
+            # What a card must hold to run it: the pool dispatches on it
+            vram_need=admission.vram_need,
         )
         return manager.describe(job)
     except HTTPException:
@@ -248,8 +252,13 @@ def get_job(request: Request, job_id: str):
     job = manager.get(job_id)
     if job is None:
         raise HTTPException(status_code=404, detail="Unknown job")
-    # a historical job is already a detail dict; a live one renders itself
+    # a historical job is already a detail dict; a live one renders itself.
+    # A history row's `spec` is the submitted job as the server ran it -
+    # absolute workflow, output and asset directories under the server's
+    # home (GHSA-f233-wqrv-46r8) - and every part a caller can use is a
+    # field of its own, or get_job_workflow's, so it is not served
     detail = job if isinstance(job, dict) else manager.describe(job)
+    detail = {key: value for key, value in detail.items() if key != "spec"}
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
@@ -311,9 +320,11 @@ def get_job_workflow(request: Request, job_id: str):
     and for `get_job_workflow` over MCP.
 
     `realized: true` means every mutable input is pinned - the copy the
-    run itself wrote. `false` means the job predates run tracking (or its
-    run directory is gone) and this is the definition as submitted. 404
-    when neither is readable - the job itself still is."""
+    run itself wrote. `false` means the run's copy is not there (the job
+    predates run tracking, or its run directory or workspace was deleted)
+    and this is the definition as submitted, with the arguments on record
+    laid over its variables and a `note` saying so. 404 when neither is
+    readable - the job itself still is."""
     manager = request.app.state.job_manager
     if manager.get(job_id) is None:
         raise HTTPException(status_code=404, detail="Unknown job")
@@ -323,7 +334,44 @@ def get_job_workflow(request: Request, job_id: str):
         raise HTTPException(
             status_code=404, detail="No workflow definition for this job"
         )
+    extra = {}
+    if realized is None:
+        definition = copy.deepcopy(definition)
+        arguments = manager.arguments(job_id)
+        variables = definition.get("variables")
+        folded = []
+        failure = None
+        if isinstance(variables, dict):
+            declared = {
+                name: arguments[name] for name in arguments if name in variables
+            }
+            # Fold through the owner, so a value is validated and coerced to
+            # the default's type exactly as it was when the run started
+            try:
+                set_variables(declared, variables)
+                folded = list(declared)
+            except (SecurityError, TypeError, ValueError) as exc:
+                definition = copy.deepcopy(manager.definition(job_id))
+                failure = str(exc)
+        extra["note"] = (
+            "The run's realized copy is gone (the job predates run tracking, "
+            "or its run directory or workspace was deleted). This is the "
+            "definition as submitted"
+            + (
+                f", with the recorded arguments folded into its variables "
+                f"({', '.join(folded)}); seed, stored prompts and "
+                "output:latest references are not pinned."
+                if folded
+                else (
+                    f"; the recorded arguments could not be folded ({failure}): "
+                    "see get_job.arguments."
+                    if failure
+                    else "; get_job.arguments holds what the caller passed."
+                )
+            )
+        )
     return {
+        **extra,
         "id": job_id,
         "definition": definition,
         "realized": realized is not None,
@@ -379,8 +427,8 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
                 bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
             ),
         )
-        if not admission.ok:
-            raise ValueError(admission.message())
+        # Refuses what admission refused, and a job too big for every card
+        manager.check_fits(admission)
         if form == ACK_BOUND:
             check_bound_acknowledgement(
                 admission.plan, body.acknowledged_cost, workspace
@@ -401,6 +449,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             # The arguments admitted - the fresh seed already drawn
             arguments=arguments,
             admitted=admission.workflow,
+            vram_need=admission.vram_need,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -618,11 +667,15 @@ def _probe_command_for(candidate, request, workspace, workflow_dir):
     return command
 
 
-def _validation_plan(state, candidate, request, workspace, source, catalog_name, sizes):
+def _validation_plan(
+    state, candidate, vram_need, request, workspace, source, catalog_name, sizes
+):
     """The plan a valid /api/validate answer carries: what the run will
     execute for these arguments, fingerprinted so an acknowledgement can
     be bound to it (#85). Best effort - None when it cannot be built,
     since the verdict is the schema's and the planner may not change it.
+    `vram_need` is admission's (`Admission.vram_need`), the need dispatch
+    routes the job by.
     """
     source_root = source.root if source else workspace.workflows
     definition = candidate.workflow_definition
@@ -630,6 +683,13 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
         from ... import get_device, get_device_type
 
         command = _probe_command_for(candidate, request, workspace, source_root)
+        # The card this run would be dispatched to now: its step cache is
+        # the one probed, and its history the one the estimate quotes (#462)
+        manager = state.job_manager
+        card = manager.route(
+            manager.identity_of(command["source"], command["file_spec"], definition),
+            vram_need,
+        )
 
         def observed_for_child(path, child_definition, arguments=None):
             """A composed child's own observed figure, keyed by the
@@ -671,16 +731,17 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                 child_definition,
                 arguments,
                 workspace=child_workspace,
+                card=card.ordinal(),
             )
 
-        return build_plan(
+        plan = build_plan(
             candidate,
             request.arguments,
             device=get_device_type(get_device()),
             prompt_dir=workspace.prompts,
             lookup_sizes=sizes,
-            cache_probe=lambda arguments: state.job_manager.probe_cache(
-                {**command, "arguments": arguments}
+            cache_probe=lambda arguments: manager.probe_cache(
+                {**command, "arguments": arguments}, slot=card
             ),
             # What this box's own runs of this shape took, which is what
             # the estimate quotes ahead of a curated figure (#154) - the
@@ -694,6 +755,7 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
                         definition,
                         arguments,
                         workspace=workspace.name if source.writable else None,
+                        card=card.ordinal(),
                     )
                 )
                 if catalog_name
@@ -701,6 +763,12 @@ def _validation_plan(state, candidate, request, workspace, source, catalog_name,
             ),
             observed_for_child=observed_for_child,
         )
+        # Which card the estimate is for - with several, the figure is
+        # that card's, and another card's may differ
+        priced_for = card.label() or card.ordinal()
+        if priced_for and isinstance(plan.get("estimate"), dict):
+            plan["estimate"]["priced_for"] = priced_for
+        return plan
     except Exception:
         logger.exception("Plan could not be built")
         return None
@@ -763,8 +831,15 @@ def validate_workflow(
             # "check the document", explicit is "check a run with these
             # arguments" (#364)
             supplied="arguments" in request.model_fields_set,
-            plan_for=lambda candidate: _validation_plan(
-                state, candidate, request, workspace, source, catalog_name, sizes
+            plan_for=lambda candidate, vram_need: _validation_plan(
+                state,
+                candidate,
+                vram_need,
+                request,
+                workspace,
+                source,
+                catalog_name,
+                sizes,
             ),
         )
     except HTTPException:
@@ -829,9 +904,10 @@ def validate_workflow(
         # cached_steps is 0 both when nothing hit and when the probe ran
         # against the wrong workspace's output root (#184) - echoing
         # what it was actually probed against turns the second case
-        # from a silent miss into something a caller can read
+        # from a silent miss into something a caller can read. By name:
+        # the output root's absolute path told a caller nothing more, and
+        # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
         answer["plan"]["workspace"] = workspace.name
-        answer["plan"]["output_dir"] = workspace.outputs
         answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
         if catalog_name:
             answer["warnings"] += _host_memory_warnings(

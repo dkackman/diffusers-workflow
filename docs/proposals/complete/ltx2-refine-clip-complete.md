@@ -1,5 +1,7 @@
 # `ltx2/refine-clip`: LTX-2.5 two-stage refine of an existing mp4 (#543)
 
+**Superseded in part (2026-10-06, #602):** the template's stretch and `loop_frames` rule was replaced by a `fit_to_model` → `restore_to_source` round trip. See `fit-to-model-restore-complete.md`.
+
 Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 2026-09-28). Plan v2 approved by Don (Q1-Q3 answered as the defaults) on
 2026-09-27; one stage, #549, verified 2026-09-28.

@@ -256,6 +256,14 @@ class Workflow:
             "parent_total_steps": parent["total_steps"],
         }
 
+    @property
+    def base_dir(self):
+        """The directory a relative path in this workflow resolves against -
+        its file's own."""
+        return (
+            os.path.dirname(os.path.abspath(self.file_spec)) if self.file_spec else None
+        )
+
     def step_file_prefix(self, step_name):
         """Naming prefix for files a step writes on its own (chain segment
         spills), matching the workflow-id-step naming its results are saved
@@ -747,6 +755,7 @@ class Workflow:
                 device,
                 self.step_output_dir(step_definition),
                 self.step_file_prefix(step_name),
+                base_dir=self.base_dir,
             )
 
         # Not in cache - a redefined step frees its previous model first,
@@ -763,6 +772,7 @@ class Workflow:
             device,
             self.step_output_dir(step_definition),
             self.step_file_prefix(step_name),
+            base_dir=self.base_dir,
         )
         previous_pipelines[cache_key] = pipeline
         return pipeline
@@ -795,6 +805,7 @@ class Workflow:
             previous_pipeline.pipeline,
             output_dir=self.step_output_dir(step_definition),
             file_prefix=self.step_file_prefix(step_definition["name"]),
+            base_dir=self.base_dir,
         )
 
     def _sub_workflow_action(self, step_definition, default_seed):

@@ -20,8 +20,8 @@ Two rules, applied wherever a caller-supplied location is resolved:
   link-local (the cloud metadata address), a private range, or anything else
   that is not globally routable (100.64.0.0/10, Tailscale's range). The check
   runs on the resolved address, not on the literal string, so a hostname that
-  answers 127.0.0.1 is caught too, and `safe_get` runs it again on every
-  redirect before following it.
+  answers 127.0.0.1 is caught too. `dw/outbound.py` runs the request and
+  applies this check on every hop it makes.
 
 Both yield to `--trust-workflows`, exactly as the import and remote-code
 gates do: an operator who has vouched for a workflow's source may point it at
@@ -36,18 +36,23 @@ the document to check.
 """
 
 import ipaddress
+import json
 import logging
 import os
 import socket
-from urllib.parse import urljoin, urlparse
+from urllib.parse import urlparse, urlsplit
 
 from . import references
 from .security import (
+    ALLOWED_JSON_EXTENSIONS,
     InvalidInputError,
     PathTraversalError,
+    validate_file_extension,
+    validate_json_size,
     validate_path,
     validate_url,
 )
+from .tasks.registry import RegistryTable
 from .trust import workflows_are_trusted
 
 logger = logging.getLogger("dw")
@@ -58,6 +63,24 @@ logger = logging.getLogger("dw")
 MEDIA_KEY_SUFFIXES = ("_image", "_video", "_audio")
 MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 
+# Task arguments that name a file to read but not by the conventions above -
+# a generic name the key match would miss, so each command declares them on
+# its registration (`register_command(media_arguments=...)`,
+# dw/tasks/registry.py) and this is a view of them. Each gets the same
+# validate-time refusal as a media key, rather than only the loader's one at
+# run time (#630) - join_windows' `source`, the finishing commands' `media`
+# and apply_lut's `lut` (#635, SE-F044), and the face-track and fit commands'
+# `clip`, `repaired`, `track` and `fit` (#773, SE-F045)
+TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
+
+# Of those, the arguments read from a local file only: no loader fetches
+# them, so an http(s) URL is refused rather than passed on as a location
+LOCAL_ONLY_TASK_ARGUMENTS = {
+    "apply_lut": ("lut",),
+    "paste_face_track": ("track",),
+    "restore_to_source": ("fit",),
+}
+
 # The tasks whose arguments name a filesystem pattern rather than one file
 GLOB_ARGUMENT = "glob"
 
@@ -65,6 +88,33 @@ GLOB_ARGUMENT = "glob"
 def is_http_url(value):
     """Whether a value is a string the loaders would fetch over HTTP."""
     return isinstance(value, str) and value.startswith(("http://", "https://"))
+
+
+def _refuse_other_url(location, what):
+    """Refuse a location written as a URL whose scheme is not http(s).
+
+    No loader opens a `file://` (or any other scheme) URL, but as a relative
+    path it joined onto the workflow directory, landed inside a root and so
+    passed containment - a refusal at run time only because no such directory
+    existed, and none at validation (#618). The rule `validate_model_name`
+    applies to a model_name (#117), applied to every media location.
+
+    "://" is what makes a location a URL; whether its scheme is allowed is
+    `validate_url`'s decision, so the two never disagree (`HTTPS://` is a
+    URL it accepts, not a refusal here).
+    """
+    text = str(location)
+    if "://" not in text:
+        return
+    try:
+        validate_url(text)
+    except InvalidInputError as e:
+        scheme = urlparse(text).scheme or text.split("://", 1)[0]
+        raise InvalidInputError(
+            f"Refusing to read {what} at '{location}': it is a '{scheme}' URL, "
+            f"and only http(s) URLs are fetched ({e}). Name a local file by "
+            f"its path or with an 'asset:' reference."
+        ) from e
 
 
 def media_roots(base_dir=None):
@@ -138,6 +188,7 @@ def validate_media_path(
         PathTraversalError: If the path resolves outside every root
         InvalidInputError, PathTraversalError: Whatever validate_path raises
     """
+    _refuse_other_url(location, what)
     # base_dir is the first root, so a relative path keeps resolving against
     # the workflow file exactly as it did before this check existed.
     # allow_create here, with the existence check moved below the containment
@@ -174,6 +225,23 @@ def validate_media_path(
 
 def _joined(location, base_dir):
     return os.path.join(base_dir, str(location)) if base_dir else str(location)
+
+
+def load_json_record(path, workspace=None, what="a record argument"):
+    """The parsed JSON a step saved at `path` - the one way a task reads a
+    record back. Confinement, extension and size are checked before the file
+    is opened.
+
+    Args:
+        path: The location the workflow supplied
+        workspace: Directory a relative path is resolved against
+        what: Short phrase naming the argument, for the error message
+    """
+    resolved = validate_media_path(path, workspace, what)
+    validate_file_extension(resolved, ALLOWED_JSON_EXTENSIONS)
+    validate_json_size(resolved)
+    with open(resolved, encoding="utf-8") as handle:
+        return json.load(handle)
 
 
 def validate_media_glob(pattern, base_dir=None, what="a glob argument"):
@@ -273,8 +341,7 @@ def _resolved_addresses(host):
     """Every IP a hostname answers on, as ip_address objects.
 
     A literal is returned as itself without a lookup. A name that does not
-    resolve yields nothing - the fetch will fail on its own, and refusing it
-    here would turn a typo into a security error.
+    resolve yields nothing, and the policy decides what that means.
     """
     try:
         return [ipaddress.ip_address(host)]
@@ -294,28 +361,50 @@ def _resolved_addresses(host):
     return addresses
 
 
-def validate_media_url(url, what="a media argument"):
+def _dial_host(url):
+    """The host urllib3 will connect to for `url`, as it will spell it.
+
+    urllib.parse leaves `127%2e0%2e0%2e1` encoded, so no lookup answers it
+    and the policy once passed it; urllib3 percent-decodes and IDNA-encodes
+    the same host and dials 127.0.0.1. The policy reads the dialing parser's
+    answer, so the name it checks is the name that is dialed.
+    """
+    from urllib3.exceptions import LocationParseError
+    from urllib3.util import parse_url
+
+    try:
+        host = parse_url(str(url)).host or ""
+    except LocationParseError as e:
+        raise InvalidInputError(f"Invalid URL '{url}': {e}") from e
+    return host.strip("[]")
+
+
+def validate_media_url(url, what="a media argument", *, addresses=None):
     """The validated URL, refused if it names a host inside the deployment.
 
     Args:
         url: The http(s) URL the workflow supplied
         what: Short phrase naming the argument, for the error message
+        addresses: A list the checked addresses are appended to, so a fetch
+            dials one of them instead of resolving the name a second time
+            (which may answer differently). Left empty under
+            --trust-workflows, where nothing is checked
 
     Returns:
         The URL, unchanged
 
     Raises:
-        InvalidInputError: If the scheme is not http(s), or the host is
-            internal to the deployment
+        InvalidInputError: If the scheme is not http(s), the host is
+            percent-encoded or does not resolve, or it is internal to the
+            deployment
     """
     validated = validate_url(url)
     if workflows_are_trusted():
         return validated
 
-    host = (urlparse(validated).hostname or "").strip("[]")
-    internal = [
-        address for address in _resolved_addresses(host) if _is_internal(address)
-    ]
+    host = _dial_host(validated)
+    resolved = _resolved_addresses(host)
+    internal = [address for address in resolved if _is_internal(address)]
     if internal:
         raise InvalidInputError(
             f"Refusing to fetch {what} from '{url}': {host} resolves to "
@@ -324,53 +413,29 @@ def validate_media_url(url, what="a media argument"):
             f"reach its own network. Pass --trust-workflows if you trust "
             f"this workflow's source."
         )
+    # After the internal check, so an IPv6 zone id (`fe80::1%25eth0`) is
+    # refused for the address it names; any other '%' is a spelling the
+    # policy and the client may not read alike, and no real host needs it
+    if "%" in (urlsplit(validated).hostname or "") or "%" in host:
+        raise InvalidInputError(
+            f"Refusing to fetch {what} from '{url}': its host is "
+            f"percent-encoded, which the HTTP client decodes into a different "
+            f"host than the one written. Write the host plainly, or pass "
+            f"--trust-workflows if you trust this workflow's source."
+        )
+    if not resolved:
+        # Nothing to check is not the same as nothing wrong: a resolver that
+        # fails here (SERVFAIL, a timeout an attacker's DNS can arrange) can
+        # answer an internal address to the client a moment later
+        raise InvalidInputError(
+            f"Refusing to fetch {what} from '{url}': {host} did not resolve, "
+            f"so there is no address to check it against. Check the host "
+            f"name, or pass --trust-workflows if you trust this workflow's "
+            f"source."
+        )
+    if addresses is not None:
+        addresses.extend(resolved)
     return validated
-
-
-# How many redirects a media fetch follows before giving up. requests' own
-# default is 30; a CDN needs one or two
-MAX_MEDIA_REDIRECTS = 5
-
-
-def safe_get(url, what="a media argument", timeout=60):
-    """GET a workflow-supplied media URL, re-checking every redirect.
-
-    `validate_media_url` checks the URL the document wrote, but a fetch that
-    follows redirects on its own goes wherever the first host tells it to -
-    a public URL answering 302 to 169.254.169.254 or to the server's own
-    loopback was fetched unchecked (#407). Redirects are followed here, one
-    hop at a time, and each `Location` passes the same host policy before it
-    is dialed.
-
-    Args:
-        url: The http(s) URL the workflow supplied
-        what: Short phrase naming the argument, for the error message
-        timeout: Seconds per request
-
-    Returns:
-        The final requests.Response, its status already checked
-
-    Raises:
-        InvalidInputError: If the URL or any redirect target is refused, or
-            the redirects run past MAX_MEDIA_REDIRECTS
-        requests.HTTPError: If the final answer is an error status
-    """
-    import requests
-
-    current = validate_media_url(url, what)
-    for _ in range(MAX_MEDIA_REDIRECTS + 1):
-        response = requests.get(current, timeout=timeout, allow_redirects=False)
-        if not response.is_redirect:
-            response.raise_for_status()
-            return response
-        target = urljoin(current, response.headers["Location"])
-        response.close()
-        logger.debug(f"{current} redirects to {target}")
-        current = validate_media_url(target, f"{what} (redirected from '{url}')")
-    raise InvalidInputError(
-        f"Refusing to fetch {what} from '{url}': it redirects more than "
-        f"{MAX_MEDIA_REDIRECTS} times"
-    )
 
 
 # Hosts this machine's HuggingFace token belongs to. The token is the
@@ -396,13 +461,17 @@ def token_host_allowed(host):
     )
 
 
-def validate_remote_encoder_url(url):
+def validate_remote_encoder_url(
+    url, what="the remote text encoder url", *, addresses=None
+):
     """The validated remote text-encoder URL, or a refusal saying why.
 
     https only, and no address inside this deployment: the workflow file is
     untrusted input, and this field sends a request - with a credential - to
     an address it chooses. `--trust-workflows` lifts both, for an operator
     running their own endpoint on the box or over plain http on a LAN.
+    Takes the same arguments as validate_media_url, so either one is a
+    `validate` for `_safe_request`.
 
     Raises:
         InvalidInputError: On a non-https scheme or an internal host
@@ -417,7 +486,7 @@ def validate_remote_encoder_url(url):
                 f"machine's HuggingFace token. Pass --trust-workflows if you "
                 f"trust this workflow's source."
             )
-    return validate_media_url(url, "the remote text encoder url")
+    return validate_media_url(url, what, addresses=addresses)
 
 
 def validate_model_name(name, base_dir=None):
@@ -546,6 +615,9 @@ def _check(value, base_dir, what):
     try:
         if is_http_url(value):
             validate_media_url(value, what)
+        elif "://" in value:
+            _refuse_other_url(value, what)
+            validate_media_url(value, what)
         elif os.path.isabs(value):
             validate_media_path(value, base_dir, what, require_exists=False)
         elif ".." in value.replace("\\", "/").split("/"):
@@ -590,7 +662,44 @@ def location_errors(definition, source_indices=None, base_dir=None):
             continue
         source = references.author_index(source_indices, index)
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_rules(step))
+        _task_media_errors(step, f"steps[{source}]", base_dir, errors)
     return errors
+
+
+def refuse_url_for_local_file(value, what):
+    """Refuse an http(s) URL where only a file on the server is read.
+
+    Containment would refuse it too, but as a path "outside every directory",
+    which misnames the problem; this names it.
+    """
+    if is_http_url(value):
+        raise InvalidInputError(
+            f"Refusing to read {what} at '{value}': it is read from a file on "
+            f"the server, never fetched from a URL. Upload it with "
+            f"upload_asset and name it with an 'asset:' reference."
+        )
+
+
+def _task_media_errors(step, path, base_dir, errors):
+    """The TASK_MEDIA_ARGUMENTS of a step's task, checked like a media key.
+    A `{"location": ...}` value is already the walk's, through its key."""
+    task = step.get("task")
+    if not isinstance(task, dict):
+        return
+    arguments = task.get("arguments")
+    if not isinstance(arguments, dict):
+        return
+    command = task.get("command")
+    local_only = LOCAL_ONLY_TASK_ARGUMENTS.get(command, ())
+    for key in TASK_MEDIA_ARGUMENTS.get(command, ()):
+        here = f"{path}.task.arguments.{key}"
+        for sub_path, item in _each(arguments.get(key), here):
+            message = None
+            if key in local_only:
+                message = _refusal(refuse_url_for_local_file, item, f"'{key}'")
+            message = message or _check(item, base_dir, f"'{key}'")
+            if message:
+                errors.append({"path": sub_path, "message": message})
 
 
 def _weight_rules(step):

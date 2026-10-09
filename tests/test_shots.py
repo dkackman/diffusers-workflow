@@ -36,6 +36,7 @@ from dw.shots import (
     shot_reference_names,
     shot_record,
     shots_for_file,
+    name_unsaved_shots,
     step_shots,
 )
 from dw.tasks.audio_utils import slice_audio
@@ -74,14 +75,22 @@ EXPECTED_SITES = {
     ("dw/tasks/concat_videos.py", "concat_videos"): ("populates", 1),
     ("dw/tasks/dissolve_videos.py", "dissolve_videos"): ("populates", 1),
     ("dw/tasks/join_into_song.py", "join_into_song"): ("populates", 1),
+    ("dw/tasks/windows.py", "join_windows"): ("remeasures", 1),
     ("dw/pipeline_processors/chain.py", "run_chain"): ("populates", 2),
-    ("dw/tasks/task.py", "_per_frame"): ("carries", 1),
+    ("dw/tasks/image_ops.py", "per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),
     ("dw/tasks/pair_audio.py", "pair_audio"): ("remeasures", 1),
     ("dw/tasks/video_utils.py", "_decode_audio_video"): ("none", 1),
     ("dw/output_extraction.py", "pair_audio_with_frames"): ("none", 1),
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
+    ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),
+    ("dw/tasks/windows.py", "window_video"): ("none", 1),
+    ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
+    # a guide chain's carried tail - a conditioning input, not a joined output
+    ("dw/pipeline_processors/chain.py", "inject"): ("none", 1),
+    ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
+    ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
 }
 
 _SHOTS_HELPER_BY_DECISION = {
@@ -89,6 +98,7 @@ _SHOTS_HELPER_BY_DECISION = {
     "carries": "carried_shots",
     "rescales": "rescaled_shots",
     "remeasures": "remeasured_shots",
+    "trims": "trimmed_shots",
 }
 
 
@@ -245,6 +255,36 @@ class TestConcatVideosShots:
         # position 0 keeps whatever name the join itself gave it - only the
         # previous_result reference at position 1 is renamed
         assert [shot["name"] for shot in named] == ["video 1", "shot2d"]
+
+    def test_for_each_member_with_inner_shots_qualifies_their_names(self):
+        """A member that nested several shots keeps their names, prefixed with
+        the member's, so two chained members do not collide (#670)."""
+        chain_a = concat_videos([audio_video(4, 1), audio_video(4, 2)], fps=4)
+        chain_b = concat_videos([audio_video(4, 3), audio_video(4, 4)], fps=4)
+        for shots, name in ((chain_a.shots, "segment"), (chain_b.shots, "segment")):
+            for number, shot in enumerate(shots, 1):
+                shot["name"] = f"{name} {number}"
+        joined = concat_videos([chain_a, chain_b, audio_video(4, 5)], fps=4)
+
+        named = named_shots(
+            joined.shots,
+            shot_reference_names(
+                [
+                    "previous_result:scene@a.frames",
+                    "previous_result:scene@b.frames",
+                    "previous_result:scene@c.frames",
+                ]
+            ),
+        )
+
+        names = [shot["name"] for shot in named]
+        assert names == [
+            "scene@a: segment 1",
+            "scene@a: segment 2",
+            "scene@b: segment 1",
+            "scene@b: segment 2",
+            "scene@c",
+        ]
 
     def test_no_audio_input_leaves_sample_fields_none(self):
         result = concat_videos([frames(4), frames(3)])
@@ -670,15 +710,17 @@ class TestPairAudioShots:
         assert last["start_sample"] + last["num_samples"] == new_track.shape[1]
         assert sum(shot["num_samples"] for shot in paired.shots) == new_track.shape[1]
 
-    def test_no_frame_rate_clears_the_sample_side(self):
+    def test_no_frame_rate_measures_at_the_written_rate(self):
+        """Frames with no rate are written at 8 fps (#673), so the shots are
+        measured against that rate rather than left unmeasured."""
         shots = [shot_record("a", 0, 4, start_sample=1, num_samples=2)]
         video = AudioVideo(frames(4), None, None, fps=None, shots=shots)
         new_track = numpy.zeros((2, 100), dtype=numpy.float32)
 
         paired = pair_audio(video, new_track, sample_rate=100)
 
-        assert paired.shots[0]["start_sample"] is None
-        assert paired.shots[0]["num_samples"] is None
+        assert paired.shots[0]["start_sample"] == 0
+        assert paired.shots[0]["num_samples"] == 100
 
     def test_remeasured_shots_directly(self):
         """dw.shots.remeasured_shots in isolation, the function pair_audio calls."""
@@ -896,6 +938,24 @@ class TestRoundTrip:
         assert [shot["name"] for shot in artifact.shots] == [
             "video 1",
             "shot2d",
+        ]
+
+    def test_a_join_that_saves_nothing_still_names_its_shots(self):
+        """#680: music-video's `edit` has no `result` block, so step_shots
+        never saw it and each trimmed shot's inner `video 1` rode through to
+        the deliverable. The rename has to reach the artifact a later step
+        reads even when the join wrote no file."""
+        joined = concat_videos([audio_video(4, 1), audio_video(4, 2)], fps=4)
+        result = Result({})
+        result.add_result(joined)
+
+        name_unsaved_shots(
+            result, ["previous_result:trim@verse", "previous_result:trim@chorus"]
+        )
+
+        assert [shot["name"] for shot in result.get_artifacts()[0].shots] == [
+            "trim@verse",
+            "trim@chorus",
         ]
 
     def test_a_reference_still_renames_a_later_input_when_an_earlier_one_nests(
@@ -1218,3 +1278,30 @@ def test_carrying_commands_do_not_own_a_name_collision():
     assert carries_shots("interpolate_frames")
     assert not carries_shots("concat_videos")
     assert not carries_shots("dissolve_videos")
+
+
+def test_a_cut_inside_a_shot_drops_the_seam_that_opened_it():
+    """#674: a span cut out of a shot has no incoming seam of its own."""
+    from dw.shots import trimmed_shots
+
+    shots = [
+        {"name": "a", "start_frame": 0, "num_frames": 30},
+        {
+            "name": "b",
+            "start_frame": 30,
+            "num_frames": 40,
+            "hard_cut": True,
+            "trim_frames": 2,
+            "crossfade_ms": 80.0,
+            "seam_fade_ms": 10.0,
+        },
+    ]
+    inside = trimmed_shots(shots, 33, 31)[0]
+    assert inside["start_frame"] == 0
+    for key in ("hard_cut", "trim_frames", "crossfade_ms", "seam_fade_ms"):
+        assert key not in inside
+    at_start = trimmed_shots(shots, 30, 31)[0]
+    for key in ("hard_cut", "trim_frames", "crossfade_ms", "seam_fade_ms"):
+        assert key not in at_start
+    # No cut at the head: the first shot keeps what it had
+    assert trimmed_shots(shots, 0, 70)[1]["trim_frames"] == 2

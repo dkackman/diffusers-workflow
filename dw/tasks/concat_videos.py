@@ -127,6 +127,7 @@ def concat_videos(
     # they grow - never derived from the frame count, so a track that runs
     # long shows up here as the samples it actually took (#378)
     shots = []
+    first_shot = {}
 
     silence_channels = _silence_channels(waveforms)
     has_audio = silence_channels is not None
@@ -135,6 +136,7 @@ def concat_videos(
         start_frame = len(frames)
         start_sample = audio.shape[1] if audio is not None else 0
         frames.extend(clip[head_trim:])
+        first_shot[index] = len(shots)
         shots.extend(
             _shot_records_for(
                 video,
@@ -162,6 +164,7 @@ def concat_videos(
         if audio is None:
             audio = waveform
         else:
+            applied = {}
             audio = _join_seam(
                 audio,
                 waveform,
@@ -175,12 +178,43 @@ def concat_videos(
                 audio_bleed_ms,
                 audio_bleed_gain_db,
                 seam_fade_ms,
+                applied,
             )
+            if applied:
+                # The fade the join realized is the caller's own edit:
+                # recorded beside hard_cut so analyze_seams can tell a
+                # requested dip from a fault (#659)
+                shots[first_shot[index]].update(applied)
+                if "audio_bleed_ms" in applied:
+                    # A bled seam is no butt join: it records the bleed it
+                    # got instead of hard_cut (#783)
+                    shots[first_shot[index]].pop("hard_cut", None)
         audio_native_rate = getattr(video, "sample_rate", None)
 
+    _warn_fps_override(videos, names, fps)
     audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _warn_fps_override(videos, names, fps):
+    """Say so when `fps` re-times an input that carries a different rate (#673):
+    that input plays faster or slower than it was written, with no other trace."""
+    if not fps:
+        return
+    for video, name in zip(videos, names):
+        own = getattr(video, "fps", None)
+        if own and abs(own - fps) > 0.01:
+            emit_warning(
+                f"concat_videos: 'fps' is {fps:g} but {name} carries its own "
+                f"{own:g} fps - it is re-timed to {fps:g} fps, so its picture "
+                f"plays {fps / own:.2f}x as fast as it was written",
+                kind="fps_overrides_input",
+                command="concat_videos",
+                video=name,
+                input_fps=own,
+                fps=fps,
+            )
 
 
 def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
@@ -194,7 +228,7 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
         "concat_videos", videos, names, _input_waveforms(videos), sample_rate
     )
     waveforms = level_waveforms(
-        "concat_videos", waveforms, match_levels, match_levels_dbfs
+        "concat_videos", waveforms, match_levels, match_levels_dbfs, names
     )
     return names, videos, clips, waveforms, sample_rate
 
@@ -346,6 +380,7 @@ def _join_seam(
     audio_bleed_ms,
     audio_bleed_gain_db,
     seam_fade_ms,
+    applied,
 ):
     """The joined track so far with the next input's track seamed on: a
     bleed at a plain cut, else an equal-power crossfade over what the trim
@@ -366,6 +401,7 @@ def _join_seam(
             native_sample_rate=audio_native_rate,
             seam=index,
             between=f"{names[index - 1]} -> {names[index]}",
+            applied=applied,
         )
     return equal_power_crossfade_join(
         audio,
@@ -375,6 +411,7 @@ def _join_seam(
         crossfade_ms,
         seam_fade_ms,
         seam=index,
+        applied=applied,
     )
 
 

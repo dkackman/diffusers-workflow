@@ -41,6 +41,85 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`dw/server/jobs.py` split into `pool` / `job_results` /
+  `worker_memory`; device ordinal and card as stored fields** (#693,
+  stages #776-#777), shipped 2026-10-08. The `slots[0]` shims are gone
+  (`running_job_id()` serves `/api/health`). `Job` and the history DB carry
+  `device_ordinal`/`device_card` (additive columns, SQL backfill), `device`
+  is derived from them, and `card_of`/`ordinal_of` are deleted. REST and
+  MCP are unchanged. Record, including what was deferred (history readers,
+  API fields, multi-card checks on lem): `complete/jobs-split-device-fields-complete.md`.
+- **H3 guides in the VRAM estimate** (#694, stages #778-#779), shipped
+  2026-10-08. An optional `vram_estimate.bytes_per_guide_voxel` (28.71 on the
+  H3 t2va templates and `chained-segments`, which also gained a `cost` and an
+  estimate) charges each guide's snapped frames on the canvas, plus a
+  `continuity: "guide"` chain's guide, probed alike at validate, admission and
+  run. Measured on lem: `h3-guide-vram.md`. Record, including what was cut or
+  deferred (`hold_audio` and refine terms, calibration margins, with their
+  triggers): `complete/h3-guide-vram-complete.md`.
+- **Task layer consolidation: one registration pattern, one coercion,
+  shared image ops** (#692, stages #773-#775, fix-forward #785), shipped 2026-10-08. A task's
+  domains, choices, static check and media arguments are declared on
+  `register_command`, and the old tables are derived views. Task numbers
+  are coerced by `whole_number`/`real_number`, and validate and run agree.
+  `crop_face_track` takes its grid from the workflow. Record:
+  `complete/task-layer-consolidation-complete.md`. The follow-up is #784.
+- **`h3_blocks.py` split into `h3_rules` / `h3_hold` / `h3_guides`, and the
+  H3 copies of diffusers pinned** (#691, stages #770-#771), shipped
+  2026-10-08. Drift tests pin the refine sigma grid to stock
+  `set_timesteps` and the guide chunk sizes to the H3 video VAE; the rules
+  module is torch-free. Record, including the cut catalog move of
+  `guide_frames`: `complete/h3-blocks-split-complete.md`.
+
+- **Enhancer presets ruled UI wiring, not model knowledge** (#696, stage
+  #781), shipped 2026-10-08. `PRESETS` stays in `dw/server/enhancers.py` as
+  the Enhance panel's menu; a new *Prompt enhancement* map row states the
+  rule and its trigger (a third preset moves the menu into builtin
+  metadata). Record, including the declined migration:
+  `complete/enhancer-presets-ruling-complete.md`.
+
+- **`window_video` and `join_windows` host memory: range reads and a uint8
+  join** (#695, stage #780), shipped 2026-10-08. A window reads only its
+  frame range and the soundtrack; the join no longer decodes the source's
+  picture or holds float32 copies. Record, including what was cut (the
+  file-backed `safe_get`, with its trigger):
+  `complete/window-memory-complete.md`.
+
+- **Finishing tasks: tonal controls in `grade`, `sharpen`, `film_grain`,
+  `apply_lut`** (#603, stages #633-#637), shipped 2026-10-07. Seven tonal
+  `grade` parameters, a seeded per-frame grain, a strict `.cube` parser
+  (and `.cube` uploads), a `palette` look built in memory, and an optional
+  look step in `series-episodes`. Record, including what was not built
+  (`make_lut`, a `.cube` output, the plugin version bump):
+  `complete/finishing-tasks-complete.md`.
+
+- **Script-adherence check: `check_script` and `templates/check-script`**
+  (#609, stages #643-#645), shipped 2026-10-07. A take's transcript aligned
+  to its expected lines, with shot-aware findings; the by-eye transcript
+  check is retired from the loop and the skills. Record, including what was
+  not built (an `assess_output` input, a wider per-shot clip rule):
+  `complete/check-script-complete.md`.
+
+- **H3 dialogue rules: probes and `minimax-h3/references/dialogue.md`**
+  (#608, stages #640-#642), shipped 2026-10-07. Fifteen probe rows on lem
+  (`audits/2026-10-h3-dialogue-probes.md`); one H3 rule confirmed, plus a
+  Music3 vocal-stem check. Record, including what was not built (the
+  `speech` validate warning, since H3 didn't clip; the prompt-length budget
+  and the negation lint, with their triggers):
+  `complete/h3-dialogue-rules-complete.md`.
+
+- **Overlap windowing for long video sources: `window_video`,
+  `join_windows` and `templates/ltx2/restore-long`** (#601, stages #628-#630
+  and #658), shipped 2026-10-06. Record, including what was deferred (the H3
+  grid, per-window audio, long refine/upscale templates, with their
+  triggers): `complete/overlap-windowing-complete.md`.
+
+- **Music-video timing stack: `analyze_beats`, `plan_cuts` and
+  pad-then-trim shots** (#600, stages #625-#627), shipped 2026-10-06. Record,
+  including what was deferred (per-shot `kind`/`singer`, stage D, and Q4's
+  optional `for_each` entry fields):
+  `complete/music-video-timing-complete.md`.
+
 - **Closing the xfail security tests** (#407, stages #409-#413), shipped
   2026-09-24. Record, including what was deferred (a UI Content-Security-Policy,
   Playwright in CI): `complete/xfail-security-tests-complete.md`.
@@ -75,6 +154,11 @@ remaining deferred fix is recorded in
   the source's soundtrack. Record, including what was deferred (probing
   the source at validate, source audio for the restore templates, the
   vendor's Refine-Details IC-LoRA): `complete/ltx2-upscale-clip-complete.md`.
+- **`fit_to_model` / `restore_to_source`, an exact size and frame-count
+  round trip for v2v** (#602, stages #631-#632), shipped 2026-10-06, with
+  `upscale-clip` and `refine-clip` rewired to letterbox and restore. Record,
+  including what was deferred (the pair in the restore templates, the blend,
+  the anchors in #613): `complete/fit-to-model-restore-complete.md`.
 - **One `wait_for_job` call that covers a long render** (#377, stage
   #546), shipped 2026-09-28: `DW_MCP_MAX_WAIT_SECONDS=1800` on lem's unit
   and one wait rule in the guide and skills, with no code change. Record,
@@ -94,6 +178,49 @@ remaining deferred fix is recorded in
   home. Record, including what was deferred (a multi-job bundle, an
   outputs-only zip, removing an export over MCP):
   `complete/job-export-bulk-download-complete.md`.
+- **Checking the lip-sync target** (#488, stage #617), shipped 2026-10-05
+  from shipped parts: `transcribe_audio` never emits a null `end`, an
+  `attribute-lines` template, a mixed-line `uncertain` rule in
+  `attribute_voices`, and the loop in `docs/TASKS.md`. Record, including
+  what was deferred (the VLM probe, anatomy and travel-direction checks, a
+  real two-singer round): `complete/lip-sync-target-check-complete.md`.
+- **H3 audio-hold and a refine pass after latent upscale** (#598, stages
+  #618-#621), shipped 2026-10-06. It adds `hold_audio` (opt-in: the
+  templates keep the audio reference after an A/B went against hold) and
+  `refine_strength` (opt-in engine surface). `templates/minimax/upscale-refine`
+  failed Don's gate: 11.53 min against 9.59 for a native 768p render, which
+  is sharper, so it was reverted (#664, 2026-10-07). Record, including what was deferred (a re-measure of hold, the
+  3-pass variant, #612's arm of the A/B):
+  `complete/h3-audio-hold-refine-complete.md`.
+- **`templates/ltx2/refine-in-place`, a same-size LTX refine with a
+  strength knob** (#606, stages #638-#639), shipped 2026-10-06. It adds the
+  `LTX2RefinePipeline` community pipeline and five lem-tuned sigma ladders
+  selected by `strength` 0-4. Record, including what was deferred
+  (per-segment strength decay in `chained-segments`, with its triggers):
+  `complete/ltx2-refine-in-place-complete.md`.
+- **Temporal face repair, `templates/ltx2/face-repair`** (#599, stages
+  #622-#624), shipped 2026-10-06. It adds the `crop_face_track` and
+  `paste_face_track` tasks (YuNet over tiles, one tracked face, a
+  distance gate, 8n+1 crops, feathered strength-scaled paste-back) and a
+  same-size LTX refine of the crop with five lem-tuned ladders. Record,
+  including what was deferred (rotation passes, landmark-affine paste,
+  multi-face tracking, with their triggers):
+  `complete/face-repair-complete.md`.
+- **H3 multi-frame guides, `guides` on `t2va`/`fl2va`** (#611, stages
+  #648-#650), shipped 2026-10-07. It adds the `guides` argument (clips of
+  1, 5 or 17m+5 frames at any frame 17j, up to 4), `"audio": true` on a
+  guide, and `continuity: "guide"` on `templates/minimax/chained-segments`
+  (opt-in; its A/B held the seams better than `last_frame` at ~40% more
+  wall time, and the default is Don's call). Record, including what was
+  deferred (persisted latents, stale-marking, guides on `ref2va`, a total
+  guide-frames cap, with their triggers): `complete/h3-guides-complete.md`.
+- **One job per GPU** (#462, stages #675-#678), shipped 2026-10-07.
+  `dw.serve --devices cuda:0,cuda:1` runs one pinned worker per card behind
+  one queue, with a VRAM-fit dispatcher, backfill, rerun and identity
+  affinity, per-card memory, and `device` on jobs. lem runs both 3090s.
+  Record, including what was deferred (a host-RAM gate, an overlap flag on
+  observed cost, per-card catalog cost, with their triggers):
+  `complete/multi-gpu-workers-complete.md`.
 
 ## Declined
 

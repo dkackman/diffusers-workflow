@@ -24,6 +24,19 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
+from .h3_guides import guide_audio_waveform, guide_frames_array, guides_refusal
+from .h3_hold import hold_audio_reference, holds_audio, refines
+from .h3_rules import (
+    GUIDES_INPUT,
+    GUIDE_LIMIT,
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HOLD_AUDIO_INPUT,
+    REFINE_STRENGTH_INPUT,
+    guide_frame_problem,
+    refine_problems,
+    snap_guide_length,
+)
 from .progress import reported_blocks, reported_progress_bars
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
@@ -37,6 +50,8 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
+from ..argument_media import fetch_video
+from ..tasks.video_utils import load_audio_video
 from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
@@ -134,6 +149,7 @@ class Pipeline:
         pipeline=None,
         output_dir=None,
         file_prefix=None,
+        base_dir=None,
     ):
         """
         Initialize pipeline with configuration and device settings.
@@ -148,6 +164,8 @@ class Pipeline:
                 with save_segments writes its segment files
             file_prefix: Naming prefix for those files, matching the step's
                 result naming (workflow id + step name)
+            base_dir: The workflow file's directory - what a relative media path
+                in a call argument resolves against at run time
         """
         self.pipeline_definition = _loading_copy(pipeline_definition)
         self.default_seed = default_seed
@@ -158,6 +176,7 @@ class Pipeline:
         self.pipeline = pipeline
         self.output_dir = output_dir
         self.file_prefix = file_prefix
+        self.base_dir = base_dir
         # What a chained run calls the segment it is on, so progress can say
         # which one the denoise counter belongs to - it restarts per segment
         self.segment_label = None
@@ -576,6 +595,9 @@ class Pipeline:
     def _call_pipeline(self, arguments, attn_backend):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
+        self._check_refine(arguments)
+        arguments = self._with_held_audio(arguments)
+        arguments = self._with_guides(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -599,6 +621,147 @@ class Pipeline:
                 )
 
             return self.pipeline(**arguments)
+
+    def _with_held_audio(self, arguments):
+        """`hold_audio` as the reference the H3 hold block takes, and the
+        held track asked for alongside `audio` (dw/pipeline_processors/h3_hold.py).
+
+        Raises:
+            ValueError: If this pipeline cannot hold audio, or the value is not audio
+        """
+        held = arguments.get(HOLD_AUDIO_INPUT)
+        if held is None:
+            return arguments
+        if not holds_audio(self.pipeline):
+            raise ValueError(
+                f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "
+                f"(t2va, fl2va or ref2va), and {type(self.pipeline).__name__} "
+                f"cannot hold a soundtrack"
+            )
+        arguments = dict(arguments)
+        arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held, self.base_dir)
+        output = arguments.get("output")
+        # A single output is written as a string; the held keys ride along
+        # only when the track itself is asked for
+        names = [output] if isinstance(output, str) else list(output or [])
+        if "audio" in names:
+            arguments["output"] = names + [HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
+        return arguments
+
+    def _with_guides(self, arguments):
+        """`guides` as the H3 guide layout takes them - each clip as uint8
+        frames cut to a whole-latent length (dw/pipeline_processors/h3_guides.py).
+        An empty list is no guides.
+
+        A guide with `"audio": true` also carries its video's soundtrack, as
+        `audio` and `sample_rate`; with `audio` false or absent it carries none.
+
+        Raises:
+            ValueError: If this pipeline cannot take guides, the step also passes
+                `references`, a guide is not `{video, frame, audio?}` with a video,
+                or `audio` is true on a video with no audio
+        """
+        guides = arguments.get(GUIDES_INPUT)
+        if guides is None:
+            return arguments
+        arguments = dict(arguments)
+        if isinstance(guides, (list, tuple)) and not guides:
+            del arguments[GUIDES_INPUT]
+            return arguments
+        where = f"Step '{self.name}': guides"
+        refusal = guides_refusal(self.pipeline)
+        if refusal:
+            raise ValueError(f"{where}: {refusal}")
+        if arguments.get("references") is not None:
+            raise ValueError(
+                f"{where} cannot be combined with references - ref2va lays out "
+                f"its own conditioning; use guides on t2va or fl2va"
+            )
+        if not isinstance(guides, (list, tuple)):
+            raise ValueError(
+                f"{where} must be a list of {{video, frame}}, got {type(guides).__name__}"
+            )
+        if len(guides) > GUIDE_LIMIT:
+            raise ValueError(
+                f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
+            )
+        prepared = []
+        for index, guide in enumerate(guides):
+            if not isinstance(guide, dict):
+                raise ValueError(
+                    f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
+                )
+            unknown = sorted(set(guide) - {"video", "frame", "audio"})
+            if unknown:
+                raise ValueError(
+                    f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
+                    f"{{video, frame}}, with an optional 'audio'"
+                )
+            if "video" not in guide or "frame" not in guide:
+                raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
+            problem = guide_frame_problem(guide["frame"])
+            if problem:
+                raise ValueError(f"{where}[{index}]: {problem}")
+            with_audio = guide.get("audio", False)
+            if not isinstance(with_audio, bool):
+                raise ValueError(
+                    f"{where}[{index}]: 'audio' must be true or false, got "
+                    f"{type(with_audio).__name__}"
+                )
+            video = guide["video"]
+            if isinstance(video, str) or (isinstance(video, dict) and with_audio):
+                # Read with its soundtrack only when the guide holds it
+                video = (
+                    load_audio_video(video, self.base_dir)
+                    if with_audio
+                    else fetch_video(video, self.base_dir)
+                )
+            try:
+                frames = guide_frames_array(video)
+                audio, sample_rate = (
+                    guide_audio_waveform(video) if with_audio else (None, None)
+                )
+            except ValueError as error:
+                raise ValueError(f"{where}[{index}]: {error}") from error
+            length = snap_guide_length(frames.shape[0])
+            if length != frames.shape[0]:
+                emit_warning(
+                    f"{where}[{index}]: a guide clip encodes to whole latents only at "
+                    f"1, 5 or 17m + 5 frames, so its {frames.shape[0]} frames are cut "
+                    f"to the first {length}"
+                )
+                frames = frames[:length]
+            prepared.append(
+                {
+                    "video": frames,
+                    "frame": guide["frame"],
+                    "audio": audio,
+                    "sample_rate": sample_rate,
+                }
+            )
+        arguments[GUIDES_INPUT] = prepared
+        return arguments
+
+    def _check_refine(self, arguments):
+        """Refuse a `refine_strength` the H3 refine block cannot run, before the
+        call (dw/pipeline_processors/h3_hold.py).
+
+        Raises:
+            ValueError: If this pipeline cannot refine, the strength or step count
+                is out of range, or the step passes no `latents` or `hold_audio`
+        """
+        strength = arguments.get(REFINE_STRENGTH_INPUT)
+        if strength is None:
+            return
+        where = f"Step '{self.name}': refine_strength"
+        if not refines(self.pipeline):
+            raise ValueError(
+                f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
+                f"{type(self.pipeline).__name__} cannot refine"
+            )
+        problems = refine_problems(arguments)
+        if problems:
+            raise ValueError(f"Step '{self.name}': {problems[0]}")
 
     def _takes_step_callback(self):
         """Whether this pipeline names `callback_on_step_end` in its own
@@ -772,10 +935,13 @@ def warn_if_safety_checker_blanked(output):
 
 # Where an audio pipeline's components record the rate they generate at, in
 # the order they are tried. LTX-2's vocoder names it output_sampling_rate,
-# AudioLDM2's vocoder and StableAudio's VAE name it sampling_rate
+# AudioLDM2's vocoder and StableAudio's VAE name it sampling_rate, and
+# Kandinsky 6's MMAudioVAE names it sample_rate (its vocoder carries none).
+# A vocoder's rate comes first: LTX-2's audio VAE works below it
 _SAMPLE_RATE_SOURCES = (
     ("vocoder", "output_sampling_rate"),
     ("vocoder", "sampling_rate"),
+    ("audio_vae", "sample_rate"),
     ("vae", "sampling_rate"),
 )
 

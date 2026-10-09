@@ -11,7 +11,8 @@ manifest entry carries them, and `get_gallery_metadata` reads them back.
 A shot is a dict:
 
 - `name` - which input it was: `shot@<key>` when the step named a `for_each`
-  member, else the path it was given, else `video N` / `segment N`
+  member, else the path it was given, else `video N` / `segment N`; a member
+  that nested several shots qualifies theirs: `shot@<key>: segment N` (#670)
 - `start_frame`, `num_frames` - its place on the joined picture. The shots
   partition the frames: the counts add up to the file's frame count
 - `start_sample`, `num_samples` - its place on the joined track, *measured*
@@ -26,10 +27,30 @@ A shot is a dict:
   a cut meant as a cut, which `seam_frame_jump` (`dw/assessment_rules.py`)
   reads to stay quiet there. A chained pipeline's inner segments leave it
   unset, since continuity is expected between them
+- `seam_fade_ms` - set beside `hard_cut` on the shot that opens a seam
+  `concat_videos` butt-joined with the caller's `seam_fade_ms` fade, as the fade `joins`
+  realized (clamped to the material, so it can be under the ask), so
+  `seam_hole` (`dw/assessment_rules.py`) does not blame content for the dip
+  that was asked for (#659). Absent where no fade was requested or applied
+- `audio_bleed_ms` - set on the shot that opens a seam `concat_videos` bled the
+  outgoing tail over, as realized (clamped to the material). Such a seam
+  carries it *instead of* `hard_cut`: the picture is still a cut, but the
+  audio is not a butt join (#783). `seam_frame_jump` stays quiet there too
+- `crossfade_ms`, `trim_frames` - set on each shot a chain's seam opens: the
+  head frames trimmed and the equal-power crossfade as realized (clamped to the
+  trimmed head's audio; absent when no audio was blended). `seam_hole` reads
+  `crossfade_ms` as it does `seam_fade_ms` (#660). `trimmed_shots` drops every
+  seam attribute from a shot its cut falls inside: that seam is not in the
+  kept span (#674)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
-track (`pair_audio`), or builds a video with no shots at all.
+track (`pair_audio`, and `join_windows`, which builds its frame side from the
+windows and puts the source's track back whole, #601), or builds a video with
+no shots at all (a decode, a face-track crop, or `window_video`'s one window
+of a longer source, #601), or clips the list to a kept span
+(`trim_video`, via `trimmed_shots(shots, head_trim, keep_frames)`, sample side
+cleared; a clip with no shots carries one spanning the kept frames, #627).
 `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
@@ -41,6 +62,7 @@ the manifest and on the artifact, not in the file.
 
 import copy
 
+from .for_each import is_member_name
 from .references import PREVIOUS_RESULT, ref_name
 
 
@@ -136,7 +158,18 @@ def remeasured_shots(shots, fps, sample_rate, total_samples):
     ]
 
 
-def trimmed_shots(shots, head_trim):
+# What a shot records about the seam that opens it
+_SEAM_KEYS = (
+    "hard_cut",
+    "seam_fade_ms",
+    "audio_bleed_ms",
+    "crossfade_ms",
+    "trim_frames",
+    "overlap_frames",
+)
+
+
+def trimmed_shots(shots, head_trim, keep_frames=None):
     """The shots of a video after dropping `head_trim` frames off its start.
 
     concat_videos trims the head of every video after the first before
@@ -146,24 +179,38 @@ def trimmed_shots(shots, head_trim):
     correctly. The crossfade drawn from the trimmed material makes the
     surviving samples' position in the joined track unmeasurable, so the
     sample side is cleared regardless of rate.
+
+    `keep_frames` also clips the tail (`trim_video`): only the frames
+    `[head_trim, head_trim + keep_frames)` remain, a shot wholly past them is
+    dropped and one straddling the end is cut short. The sample side is
+    cleared the same way.
     """
-    if not head_trim:
+    if not shots or (not head_trim and keep_frames is None):
         return shots
+    limit = None if keep_frames is None else head_trim + keep_frames
     clipped = []
     for shot in shots:
         end = shot["start_frame"] + shot["num_frames"]
-        if end <= head_trim:
-            continue
+        if limit is not None:
+            end = min(end, limit)
         start = max(shot["start_frame"], head_trim)
-        clipped.append(
-            {
-                **shot,
-                "start_frame": start - head_trim,
-                "num_frames": end - start,
-                "start_sample": None,
-                "num_samples": None,
-            }
-        )
+        if end <= start:
+            continue
+        record = {
+            **shot,
+            "start_frame": start - head_trim,
+            "num_frames": end - start,
+            "start_sample": None,
+            "num_samples": None,
+        }
+        if start > shot["start_frame"] or (head_trim and start == head_trim):
+            # The cut fell inside this shot or on its start, so the seam that
+            # opened it is at or before the cut, not in what is left: its
+            # attributes describe a join the kept span no longer contains
+            # (#674)
+            for key in _SEAM_KEYS:
+                record.pop(key, None)
+        clipped.append(record)
     return clipped
 
 
@@ -315,6 +362,11 @@ def named_shots(shots, names):
         name = names[index] if names and index < len(names) else None
         if name and counts.get(index) == 1:
             entry["name"] = name
+        elif is_member_name(name):
+            # a for_each member that nested several shots of its own: keep
+            # theirs, qualified by the member so two members' inner shots
+            # do not collide (#670)
+            entry["name"] = f"{name}: {entry['name']}"
         renamed.append(entry)
     return renamed
 
@@ -335,6 +387,23 @@ def _rename_in_place(shots, names):
     for shot, named in zip(shots, named_shots(shots, names)):
         shot["name"] = named["name"]
         shot.pop("source_index", None)
+
+
+def name_unsaved_shots(result, references):
+    """Name the shots of a joining step that wrote no file.
+
+    A join with no `result` block (music-video's `edit`) never reaches
+    `step_shots`, so the inner `video 1` its one-shot inputs carried survived
+    into the next step's output (#680). Only a step with a `videos` list of
+    references is a join, so anything else is left alone.
+    """
+    names = shot_reference_names(references)
+    if not names or getattr(result, "saved_shots", None):
+        return
+    for artifact in result.get_artifacts():
+        shots = getattr(artifact, "shots", None)
+        if shots:
+            _rename_in_place(shots, names)
 
 
 def step_shots(saved_shots, saved_files, references=None):

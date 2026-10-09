@@ -29,8 +29,8 @@ import types
 import numpy
 
 from .. import dsp
-from ..task_domains import check_arguments
-from .audio_utils import coerce_number, waveform_and_rate
+from ..task_domains import check_arguments, real_number, whole_number
+from .audio_utils import waveform_and_rate
 from .joins import (
     HARMONICITY_THRESHOLD,
     TONAL_FLATNESS_THRESHOLD,
@@ -73,6 +73,11 @@ TONAL_BLOCK_SECONDS = (0.1, 0.2)
 # A tick this close outside a window still counts against it: a window
 # ending on a click would put the click's edge at the loop's seam
 TICK_GUARD_PEAKS = 5
+# A window's median 1 ms peak is floored at half a 16-bit step before the
+# spike ratio: a bed near the LSB can have a median far below anything a
+# recording resolves, which makes any one-step blip read as an unbounded
+# ratio whatever max_spike_db is
+MEDIAN_PEAK_FLOOR = 2.0**-16
 
 REJECTION_RULES = ("too_loud", "silent", "spike", "tonal")
 
@@ -378,7 +383,8 @@ def _empty_finding(rejected, criteria):
             ),
             "spike": (
                 f"every quiet window holds a 1 ms peak more than "
-                f"{criteria['max_spike_db']:g} dB over its median - a tick "
+                f"{criteria['max_spike_db']:g} dB over its median (a median below half a 16-bit "
+                "step is counted as half a step) - a tick "
                 "that would recur once per lap; widen the range or raise "
                 "max_spike_db"
             ),
@@ -403,8 +409,8 @@ def _coerce_arguments(shots, **raw):
     their errors are reported in); `max_candidates` is the one integer.
     """
     values = {
-        name: coerce_number(
-            value, int if name == "max_candidates" else float, name, COMMAND
+        name: (whole_number if name == "max_candidates" else real_number)(
+            value, name, COMMAND
         )
         for name, value in raw.items()
     }
@@ -550,6 +556,7 @@ def _scan_windows(
         loud = ~crossing & ((loudest > bin_threshold) | (mean > mean_threshold))
         peak_windows = _sliding(peaks, length).reshape(windows.shape[0], -1)
         median = numpy.median(peak_windows, axis=1)
+        floored = numpy.maximum(median, MEDIAN_PEAK_FLOOR)
         # More than half the window's 1 ms peaks at zero is digital silence
         # with something in it, not room tone - and would read every
         # sample of that something as a tick
@@ -558,7 +565,7 @@ def _scan_windows(
             peak_windows.max(axis=1),
             numpy.maximum(before[: windows.shape[0]], after[length - 1 :]),
         )
-        ticked = ~crossing & ~loud & ~silent & (largest > spike_ratio * median)
+        ticked = ~crossing & ~loud & ~silent & (largest > spike_ratio * floored)
         any_tonal = numpy.zeros(windows.shape[0], dtype=bool)
         for block_bins, _, _, block_tonal in scales:
             inside = _sliding(block_tonal, length - block_bins + 1)
@@ -594,7 +601,7 @@ def _scan_windows(
                         "mean_dbfs": 10.0 * math.log10(float(mean[start])),
                         "max_bin_dbfs": 10.0 * math.log10(float(loudest[start])),
                         "spike_db": 20.0
-                        * math.log10(float(largest[start] / median[start])),
+                        * math.log10(float(largest[start] / floored[start])),
                         "flatness": flatness,
                         "harmonicity": harmonicity,
                     },

@@ -473,6 +473,24 @@ class TestEstimate:
         kept = plan(spec, arguments={"shots": same_text})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
 
+    def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
+        """#772: a windows list whose entries carry an `index` label priced
+        3 windows but went unknown at 4, because the new index looked like a
+        shifted cost field. A list the cost prices per entry extrapolates
+        both ways."""
+        spec = definition()
+        spec["cost"] = [
+            cost("mps", 12, {"variable": "shots", "minutes": 2, "entries": 3})
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": f"w{n}", "index": n, "prompt": "p"} for n in range(3)
+        ]
+        for count, minutes in ((2, 10.0), (4, 14.0), (5, 16.0)):
+            shots = [{"name": f"w{n}", "index": n, "prompt": "p"} for n in range(count)]
+            answer = plan(spec, arguments={"shots": shots})["estimate"]
+            assert (answer["minutes"], answer["basis"]) == (minutes, "other_device")
+
     def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
         """Only a declared cost_driver triggers the fallback - any other
         variable overridden away from its default is none of this rule's
@@ -1435,3 +1453,19 @@ class TestAnAdapterIsADownloadToo:
             "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
             "Lightricks/LTX-2.5-Diffusers",
         ]
+
+
+class TestUnpricedNamesTheChildren:
+    def test_an_unpriced_pure_composition_names_its_child(self, plan, tmp_path):
+        """#655: no number and no reason gave a caller nothing to act on."""
+        (tmp_path / "child.json").write_text(json.dumps({"id": "child", "steps": []}))
+        definition = {
+            "id": "parent",
+            "steps": [
+                {"name": "shot", "workflow": {"path": "child.json", "arguments": {}}}
+            ],
+        }
+        answer = plan(definition)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert answer["partial"] is False
+        assert [name for name in answer["unpriced"]] == ["child.json"]

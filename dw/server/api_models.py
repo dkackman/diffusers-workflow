@@ -69,15 +69,34 @@ def sometimes(description: str | None = None) -> Any:
 # ----------------------------------------------------------------- system
 
 
+class WorkerInfo(ApiModel):
+    device: str = Field(description="The card this worker is pinned to.")
+    name: str | None = Field(description="The card as a job record's device names it.")
+    vram_gb: float | None = Field(
+        description="What the card holds, in the GB a catalog cost entry is written in."
+    )
+    current_job: str | None
+    alive: bool
+    host_memory_rss_mb: float = sometimes(
+        "The worker process's resident host memory; absent while it is not running."
+    )
+
+
 class HealthInfo(ApiModel):
     status: str
     version: str
     worker_alive: bool = Field(
-        description="The worker is on-demand: false on an idle server that has not "
-        "run a job yet, or after a memory clear, is normal - no model process is "
-        "resident, not a fault."
+        description="Whether any worker is alive. Workers are on-demand: false on an "
+        "idle server that has not run a job yet, or after a memory clear, is normal - "
+        "no model process is resident, not a fault."
     )
-    current_job: str | None
+    current_job: str | None = Field(
+        description="The longest-running job; `workers` names every running one."
+    )
+    workers: list[WorkerInfo] = Field(
+        description="One entry per card the server runs a worker on (--devices), "
+        "each running its own job: one job per GPU."
+    )
     queued: int
     hostname: str = Field(description="Which machine answered.")
     device: str
@@ -159,11 +178,34 @@ class MemoryInfo(ApiModel):
     )
     reason: str | None = Field(description="Why the reading is not a live one.")
     age_seconds: int | float | None
+    device: str = sometimes("The card this reading is of, as `cuda:1`.")
+
+
+class CardMemory(MemoryInfo):
+    device: str = Field(description="The card this reading is of, as `cuda:1`.")
+
+
+class MemoryStatus(MemoryInfo):
+    workers: list[CardMemory] = sometimes(
+        "One reading per card; the top level repeats the first card's."
+    )
+
+
+class CardCleared(ApiModel):
+    device: str
+    cleared: bool = Field(description="False for a card left alone: it runs a job.")
+    info: MemoryDetail | None = sometimes()
+    reason: str = sometimes("Why the card was not cleared: `job_running`.")
+    job: str = sometimes("The job the card is running.")
 
 
 class MemoryCleared(ApiModel):
     cleared: bool
     info: MemoryDetail | None
+    device: str = sometimes("The card cleared, when the request named one.")
+    workers: list[CardCleared] = sometimes(
+        "Each card's outcome; a card running a job is left alone."
+    )
 
 
 class ModelRevision(ApiModel):
@@ -237,6 +279,8 @@ class DiffusersStatus(ApiModel):
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 OutputKind = Literal["image", "video", "audio", "text"]
+# An asset library entry may also be a .cube colour lookup table
+AssetKind = Literal["image", "video", "audio", "text", "lut"]
 
 
 class JobSummary(ApiModel):
@@ -259,6 +303,11 @@ class JobSummary(ApiModel):
     run_version: int | None = Field(
         description="That run's ordinal among the workflow's runs - the `v4` the "
         "gallery shows for its files. Null until the run opens, and for older rows."
+    )
+    device: str | None = Field(
+        default=None,
+        description="The card the job ran on, as ordinal then name - "
+        "'cuda:1 NVIDIA GeForce RTX 3090'. Null until it starts, and for older rows.",
     )
     acknowledged: Literal["none", "boolean", "bound"] = Field(
         description="Which form of cost acknowledgement queued the job: none (the "
@@ -326,7 +375,6 @@ class JobDetail(JobSummary):
         default=None,
         description="Where a running (or failed) job had got to; live jobs only.",
     )
-    spec: dict[str, Any] = sometimes("The submitted spec; history rows only.")
     output_kinds: dict[str, OutputKind | None] = sometimes(
         "Each output file's kind; null for a kind the gallery does not "
         "show. On GET /api/jobs/{id} only."
@@ -355,6 +403,7 @@ class JobWorkflow(ApiModel):
         description="The variable a new-seed rerun would draw into, null when the "
         "workflow has none - the cue for whether to offer that at all."
     )
+    note: str = sometimes("Present when `realized` is false: why, and what was folded.")
 
 
 class ExportedFile(ApiModel):
@@ -426,7 +475,9 @@ class PlanEstimate(ApiModel):
     unpriced: list[str] = Field(
         description="What contributed nothing to `minutes` when `partial` is true - "
         "the workflow's own id when its own steps went unpriced, else the path of "
-        "each composed child with no cost block. Empty when `partial` is false."
+        "each composed child with no cost block or observed history. When `minutes` is null "
+        "it still names the composed children that left it unpriced (`partial` is then "
+        "false); empty when nothing composed went unpriced."
     )
     runs: int | None
     cached_minutes: int | float | None
@@ -434,6 +485,10 @@ class PlanEstimate(ApiModel):
     observed_minutes: int | float = sometimes()
     curated_minutes: int | float = sometimes()
     low_confidence: bool = sometimes()
+    priced_for: str = sometimes(
+        "The card the run would be dispatched to, whose history the figure is - "
+        "as `cuda:1 NVIDIA GeForce RTX 3090`."
+    )
 
 
 class Plan(ApiModel):
@@ -445,13 +500,12 @@ class Plan(ApiModel):
     )
     list_entries: dict[str, int]
     cached_steps: int | None = Field(
-        description="How many steps the worker's step cache would serve; null when "
-        "the worker was busy or did not answer."
+        description="How many steps the step cache of the card the run would be "
+        "dispatched to would serve; null when that worker was busy or did not answer."
     )
     downloads_required: list[RequiredDownload]
     estimate: PlanEstimate
     workspace: str
-    output_dir: str | None
 
 
 class ValidationResult(ApiModel):
@@ -730,7 +784,7 @@ class AssetFile(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin = Field(
@@ -747,7 +801,7 @@ class ShadowedAsset(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin
@@ -798,6 +852,8 @@ class PipelineParameter(ApiModel):
     doc_type: str | None = sometimes("The type the docstring names.")
     description: str = sometimes()
     domain: Any = sometimes("The values a task argument may take.")
+    range: str = sometimes("The domain's bounds, in words.")
+    choices: list[str] = sometimes("The values a string task argument accepts.")
 
 
 class PipelineDescription(ApiModel):

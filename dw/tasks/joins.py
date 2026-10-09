@@ -146,10 +146,10 @@ def reconcile_sample_rates(command, videos, names, waveforms, sample_rate=None):
     ], sample_rate
 
 
-def level_waveforms(command, waveforms, measure=None, target_dbfs=None):
+def level_waveforms(command, waveforms, measure=None, target_dbfs=None, names=None):
     """Match the shots' levels when asked to, else warn when they are apart."""
     if measure:
-        return match_levels(waveforms, measure, target_dbfs, command)
+        return match_levels(waveforms, measure, target_dbfs, command, names)
     warn_on_level_spread(waveforms, command)
     return waveforms
 
@@ -233,12 +233,19 @@ def fit_audio_to_frames(audio, sample_rate, total_frames, fps, command):
     return audio
 
 
-def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
+def _declick_join(
+    previous, following, sample_rate, fade_ms=None, seam=None, applied=None
+):
     """Butt-join two waveforms with a fade on each side of the seam.
 
     The default is the few milliseconds that keep a butt-join from clicking.
     A longer fade is a deliberate edit - the graceful hard cut you want when
     neither a crossfade nor a bleed applies.
+
+    `applied`, when given, is a dict that gets `seam_fade_ms` set to the fade
+    realized on each side (ramp clamped to the material) when a caller's
+    fade_ms took effect - the one place that knows, so callers record it
+    rather than re-derive the decision (#659).
     """
     ramp = int((DECLICK_MS if fade_ms is None else fade_ms) / 1000.0 * sample_rate)
     ramp = min(ramp, previous.shape[1], following.shape[1])
@@ -248,6 +255,8 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
         following = following.copy()
         previous[:, -ramp:] *= fade_out  # cos: 1 down to ~0
         following[:, :ramp] *= fade_in  # sin: ~0 up to 1
+    if fade_ms is not None and ramp > 0 and applied is not None:
+        applied["seam_fade_ms"] = round(ramp / sample_rate * 1000, 1)
     if fade_ms is not None:
         # A deliberate fade leaves a trace; the default declick is not asked for
         where = "a seam" if seam is None else f"seam {seam}"
@@ -263,7 +272,14 @@ def _declick_join(previous, following, sample_rate, fade_ms=None, seam=None):
 
 
 def equal_power_crossfade_join(
-    previous, head, following, sample_rate, crossfade_ms, seam_fade_ms=None, seam=None
+    previous,
+    head,
+    following,
+    sample_rate,
+    crossfade_ms,
+    seam_fade_ms=None,
+    seam=None,
+    applied=None,
 ):
     """Join two segments' audio at a seam without changing the total duration.
 
@@ -275,7 +291,9 @@ def equal_power_crossfade_join(
 
     With no head material (nothing was trimmed), the seam gets a fade-out and
     fade-in in place instead, of seam_fade_ms - a few milliseconds by default,
-    just enough not to click.
+    just enough not to click. `applied` is passed to `_declick_join`, and gets
+    `crossfade_ms` - the blend as realized, clamped to the head material - when
+    the crossfade ran.
     """
     previous, head, following = matched_channels(previous, head, following)
 
@@ -286,10 +304,14 @@ def equal_power_crossfade_join(
     )
 
     if window == 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
+        return _declick_join(
+            previous, following, sample_rate, seam_fade_ms, seam, applied
+        )
 
     fade_out, fade_in = equal_power_ramps(window)
     blended = previous[:, -window:] * fade_out + head[:, -window:] * fade_in
+    if applied is not None:
+        applied["crossfade_ms"] = round(window / sample_rate * 1000, 1)
     return numpy.concatenate([previous[:, :-window], blended, following], axis=1)
 
 
@@ -316,6 +338,7 @@ def bleed_join(
     native_sample_rate=None,
     seam=None,
     between=None,
+    applied=None,
 ):
     """Butt-join two waveforms, ringing the outgoing tail on across the seam.
 
@@ -355,6 +378,10 @@ def bleed_join(
             already at its native rate
         seam: The seam's index, named in the log line and the tonal warning
         between: What the seam joins ("a -> b"), named beside the index
+        applied: A dict that gets `audio_bleed_ms` - the bleed as realized,
+            clamped to the material - when the bleed ran, or `seam_fade_ms`
+            when the no-material fallback applied the caller's fade (see
+            `_declick_join`)
 
     Returns:
         The two waveforms joined, of their full combined length
@@ -370,7 +397,9 @@ def bleed_join(
         following.shape[1],
     )
     if window <= 0:
-        return _declick_join(previous, following, sample_rate, seam_fade_ms, seam)
+        return _declick_join(
+            previous, following, sample_rate, seam_fade_ms, seam, applied
+        )
 
     tail = previous[:, ::-1][:, :window]
 
@@ -403,6 +432,8 @@ def bleed_join(
     gain = 10.0 ** (gain_db / 20.0) if gain_db else 1.0
     following = following.copy()
     following[:, :window] += tail * decay * gain
+    if applied is not None:
+        applied["audio_bleed_ms"] = round(window / sample_rate * 1000, 1)
     emit_log(
         f"audio_bleed: {window / sample_rate * 1000:.0f} ms of tail over {where}"
         f" at {gain_db:g} dB (asked {bleed_ms} ms)",
@@ -486,14 +517,17 @@ MATCH_NEAR_SILENT_DBFS = -40.0
 MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
-def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
+def match_levels(
+    waveforms, measure, target_dbfs=None, command="concat_videos", names=None
+):
     """Scale each waveform so its level sits at one shared target.
 
     Returns a new list in the same order and shape; a None entry (a video
     with no soundtrack) and a silent track pass through untouched, since
     neither has a level to move. A gain that would push the peak past
     MATCH_CEILING_DBFS is held there and said so in the log - the shot is
-    then quieter than the target rather than clipped.
+    then quieter than the target rather than clipped. `names` labels each
+    waveform in a warning; without them an input is "video N", counted from 1.
     """
     if measure not in LEVEL_MEASURES:
         raise ValueError(
@@ -508,6 +542,9 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
 
     matched = []
     for index, waveform in enumerate(waveforms):
+        label = names[index] if names else f"video {index + 1}"
+        if label == f"video {index + 1}":
+            label += " (counting from 1, in join order)"
         level = level_dbfs(waveform, measure)
         if level is None:
             matched.append(waveform)
@@ -525,7 +562,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
             # jump match_levels exists to remove (#214) - a caller reading
             # the job's warnings list is the one who can act on it (#82)
             emit_warning(
-                f"{command}: video {index + 1} would clip at the {measure} target "
+                f"{command}: {label} would clip at the {measure} target "
                 f"({peak + target_gain_db:+.1f} dBFS peak) - held to "
                 f"{MATCH_CEILING_DBFS} dBFS, {shortfall_db:.1f} dB short of target",
                 kind="match_levels_held",
@@ -543,7 +580,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
             # matching it up to the target passes that noise off as content -
             # a consumer reading job.warnings sees nothing was wrong
             emit_warning(
-                f"{command}: video {index + 1} {measure} {level:.1f} dBFS is "
+                f"{command}: {label} {measure} {level:.1f} dBFS is "
                 f"near-silent - matched up to the target with a {gain_db:+.1f} dB "
                 "gain, raising its noise floor rather than leveling content",
                 kind="match_levels_near_silent",
@@ -554,7 +591,7 @@ def match_levels(waveforms, measure, target_dbfs=None, command="concat_videos"):
                 gain_db=round(gain_db, 1),
             )
         emit_log(
-            f"{command}: video {index + 1} {measure} {level:.1f} dBFS, "
+            f"{command}: {label} {measure} {level:.1f} dBFS, "
             f"gain {gain_db:+.1f} dB{' (held)' if held else ''}",
             index=index,
             measure_dbfs=round(level, 1),

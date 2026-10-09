@@ -1,3 +1,4 @@
+import copy
 import logging
 from itertools import product
 
@@ -141,7 +142,7 @@ def get_previous_results(previous_results, previous_result_name):
     # Exact match: the whole reference is a known step name, no property.
     if previous_result_name in previous_results:
         logger.debug(f"Getting all artifacts from result {previous_result_name}")
-        return previous_results[previous_result_name].get_artifacts()
+        return _as_frame_lists(previous_results[previous_result_name].get_artifacts())
 
     if "." not in previous_result_name:
         raise _not_found(previous_results, previous_result_name)
@@ -164,7 +165,36 @@ def get_previous_results(previous_results, previous_result_name):
 
     property_name = previous_result_name[len(result_name) + 1 :]
     logger.debug(f"Getting property {property_name} from result {result_name}")
-    return previous_results[result_name].get_artifact_properties(property_name)
+    return _as_frame_lists(
+        previous_results[result_name].get_artifact_properties(property_name)
+    )
+
+
+def _as_frame_lists(artifacts):
+    """The artifacts a reference hands on, with a saved chain's frames as a list.
+
+    A chain step's video, once saved, holds a SavedFrames that decodes the
+    file it wrote only when a frame is asked for (#667). Every consumer
+    downstream - the video tasks' frame accessor, pair_audio, a pipeline's
+    `video` argument, encode_video - takes a list of frames, so this is the
+    one place the lazy sequence becomes one, on the way into the step that
+    names it. The stored result keeps its SavedFrames: a chain nobody reads
+    never decodes, and Result.retainable still sees what it was built from.
+    """
+    from .media_types import AudioVideo
+    from .pipeline_processors.chain import SavedFrames
+
+    handed = []
+    for artifact in artifacts:
+        if isinstance(artifact, SavedFrames):
+            artifact = list(artifact)
+        elif isinstance(artifact, AudioVideo) and isinstance(
+            artifact.frames, SavedFrames
+        ):
+            artifact = copy.copy(artifact)
+            artifact.frames = list(artifact.frames)
+        handed.append(artifact)
+    return handed
 
 
 def resolve_chain_prompts(step_action, previous_results):
@@ -191,6 +221,11 @@ def resolve_chain_prompts(step_action, previous_results):
     prompts = chain.get("prompts", None)
     if not prompts:
         return
+    if isinstance(prompts, str):
+        raise ValueError(
+            "chain 'prompts' must be a list with one prompt per segment, "
+            f"got the string {prompts!r}"
+        )
 
     resolved = []
     for entry in prompts:

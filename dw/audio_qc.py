@@ -172,8 +172,9 @@ def warn_if_written_above_full_scale(
         f"{name} decodes at {peak:+.2f} dBFS - above full scale, so it "
         f"clips on playback. {cause}, so the fix is more headroom before "
         f"the file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
-        f"ahead of the step that saves it. A mux into a video needs more "
-        f"of it than an audio file does.",
+        f"ahead of the step that saves it (a template's intermediate shot has "
+        f"no such step to edit: set the join's 'match_levels' instead). A "
+        f"mux into a video needs more of it than an audio file does.",
         kind="audio_clipped",
         file=name,
         peak_dbfs=round(peak, 2),
@@ -291,7 +292,8 @@ def remeasure_shots_after_mux(artifact, probed_info, output_path, video_fps):
         round(probed_info["audio_stream_seconds"] * probed_info["sample_rate"])
     )
     measured_num_samples(artifact.shots, written_samples)
-    frame_count = len(getattr(artifact, "frames", []) or [])
+    frames = getattr(artifact, "frames", None)
+    frame_count = 0 if frames is None else len(frames)
     fps = video_fps(artifact)
     if not (frame_count and fps):
         return
@@ -340,10 +342,12 @@ def written_peak_already_warned(content_type, consumed_by_normalizer, headroom_w
 
     Only a plain audio save suppresses the post-write check; a lossless one
     only when a normalizer consumed it, a lossy one also when the pre-write
-    warning fired. A video always gets the ground-truth check.
+    warning fired. A video gets the ground-truth check, unless a normalizer
+    or a level-matching join consumes it: that step resets the level it
+    ships at, so the file's own written peak is not the deliverable's (#671).
     """
     if not content_type.startswith("audio"):
-        return False
+        return consumed_by_normalizer
     if content_type not in LOSSY_AUDIO_CONTENT_TYPES:
         return consumed_by_normalizer
     return headroom_warned or consumed_by_normalizer
@@ -414,7 +418,16 @@ def check_written_media(
     # that predicted risk but measured merely close-but-clean says
     # nothing. That is the file's own ground truth, not a threshold
     # bug.
-    if is_video and headroom_warned and written_peak is None:
+    #
+    # A video a normalizer or level-matching join consumes skips both:
+    # that step resets the level it ships at, so neither the written
+    # peak nor the prediction is the deliverable's (#671)
+    if (
+        is_video
+        and headroom_warned
+        and not consumed_by_normalizer
+        and written_peak is None
+    ):
         warn_held_prediction(output_path, predicted_peak_dbfs)
     source_mean_dbfs = getattr(artifact, "source_mean_dbfs", None)
     warn_if_written_near_silent(

@@ -153,11 +153,10 @@ class CatalogTools:
         """List what the Hugging Face model cache holds, largest first."""
         return catalog.list_models(self.client)
 
-    def get_memory(
-        self,
-    ) -> dict:
-        """Get the worker's VRAM and RAM statistics. Check this first when a
-        job fails with an out-of-memory error.
+    def get_memory(self, device: str | None = None) -> dict:
+        """Get VRAM and RAM statistics. Check this first when a job fails
+        with an out-of-memory error. `workers` has one reading per card (the
+        top level repeats the first's); `device` ('cuda:1') asks for one.
 
         `gpu_*` is the card, `host_memory_*` the machine:
         `host_memory_rss_mb` is what the worker process holds and
@@ -181,42 +180,36 @@ class CatalogTools:
         means nothing has been measured because nothing is resident, and a
         populated `info` is a cached earlier reading - `reason` says why
         (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`)
-        and `age_seconds` how old it is. A cached reading is not this
-        moment's: one taken while a job is loading a model understates what
-        is resident by however much has loaded since, so ask again when the
-        server is idle rather than comparing it against a live figure.
+        and `age_seconds` how old it is. A cached reading taken while a job
+        loads a model understates what is resident, so ask again when the
+        card is idle rather than comparing it against a live figure.
 
         `info.step_cache` is the step cache's own accounting: `entries`,
         `retained_bytes` against `max_retained_bytes`."""
-        return catalog.get_memory(self.client)
+        return catalog.get_memory(self.client, device)
 
-    def clear_memory(
-        self,
-    ) -> dict:
-        """Drop every loaded pipeline and the step cache, freeing VRAM/RAM
-        immediately instead of waiting for the next job to evict one model
-        for another. Also drops the step cache, so a seeded workflow that
-        would otherwise reuse cached results regenerates on its next run.
-
-        Refused with a 409 while a job is running or queued - the queue is
-        FIFO, so wait for it to finish and retry rather than expecting this
-        call to block until it does. On an idle server with no model process
-        resident there is nothing loaded to clear, so it succeeds with a null
-        `info` rather than failing."""
-        return catalog.clear_memory(self.client)
+    def clear_memory(self, device: str | None = None) -> dict:
+        """Drop every loaded pipeline and the step cache on each idle card
+        (`device`'s alone when named), so a seeded workflow regenerates on
+        its next run. A card running a job is skipped (`workers` says
+        which); refused with a 409 when no card asked about is idle - wait
+        and retry. No model process resident succeeds with a null
+        `info`."""
+        return catalog.clear_memory(self.client, device)
 
     def get_health(
         self,
     ) -> dict:
         """Check that the server is alive, and see what answered: its
-        version and accelerator, whether a model process is currently
-        resident, the job running now and how many are queued.
+        version and accelerator and how many jobs are queued. The engine
+        runs one job per GPU: `workers` lists each card (`device`, `name`,
+        `vram_gb`, `alive`) with its `current_job`; the top-level
+        `current_job` is the longest-running.
 
         `worker_alive: false` on an otherwise healthy server (`status: ok`)
-        is the normal idle state, not a fault - the worker is an on-demand
-        subprocess that has not started yet because no job has run since
-        the server started or the last memory clear, and it starts with the
-        next job."""
+        is the normal idle state, not a fault - workers are on-demand
+        subprocesses that start with the next job, so none is resident
+        before the first run or after a memory clear."""
         return catalog.get_health(self.client)
 
     def get_server_info(
@@ -242,17 +235,18 @@ class CatalogTools:
         """List queued, running and recent jobs, newest first, with their
         status and queue position. The ids here are what `get_job`,
         `wait_for_job`, `get_job_events`, `cancel_job`, `rerun_job` and
-        `move_job` take - including jobs from before this session, so a run
-        someone started in the browser can be picked up here.
+        `move_job` take - including jobs started before this session or in
+        the browser.
 
         `limit` is the newest N (20 by default); `total` reports how many
-        matched, so a truncated answer says so rather than looking
-        complete. `status` narrows to one state or a comma-separated set of
-        them - queued, running, succeeded, failed, cancelled. `workspace`
-        lists one workspace's jobs; without it, a named workspace lists its
-        own and the default workspace lists every job the server holds,
-        whichever workspace ran it. Each job carries `acknowledged` - `none`,
-        `boolean` or `bound` - which form of cost acknowledgement queued it."""
+        matched, so truncation shows. `status` narrows to one state or a
+        comma-separated set of them - queued, running, succeeded, failed,
+        cancelled. `workspace` lists one workspace's jobs; without it, a
+        named workspace lists its own and the default lists every job on
+        the server. Each job carries `device`, the card it ran or runs on
+        (e.g. `cuda:1 NVIDIA GeForce RTX 3090`, null before multi-GPU), and
+        `acknowledged` (`none`, `boolean` or `bound`), the form of cost
+        acknowledgement that queued it."""
         return catalog.list_jobs(
             self.client, limit=limit, status=status, workspace=workspace
         )

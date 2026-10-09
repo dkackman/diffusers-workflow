@@ -634,6 +634,23 @@ def test_a_variable_inside_a_urls_list_needs_input_media():
     assert "needs-input-media" in meta["traits"]
 
 
+def test_a_variable_defaulting_to_a_step_of_its_own_needs_nothing_supplied():
+    """music-video's `song` is written by a step of its own unless the caller
+    hands one in - a default naming that step is media made here (#627)."""
+    steps = (
+        task_step("write", "generate_music", {}, content_type="audio/wav"),
+        task_step("slice", "slice_audio", {"audio": "variable:song"}),
+    )
+    made_here = derive_catalog_metadata(
+        definition(*steps, variables={"song": "previous_result:write"})
+    )
+    supplied = derive_catalog_metadata(
+        definition(*steps, variables={"song": "asset:song.wav"})
+    )
+    assert "needs-input-media" not in made_here["traits"]
+    assert "needs-input-media" in supplied["traits"]
+
+
 def test_a_literal_url_needs_nothing_supplied():
     meta = derive_catalog_metadata(
         definition(

@@ -10,6 +10,7 @@ patch targets are looked up.
 import json
 import logging
 import os
+from collections.abc import Sequence
 
 import numpy
 import soundfile
@@ -28,6 +29,10 @@ def _artifact_size(artifact):
     try:
         frames = getattr(artifact, "frames", None)
         if frames is not None:
+            # Segment-backed frames: len() counts files, not frames
+            counted = getattr(frames, "frame_count", None)
+            if counted is not None:
+                return f"{counted} frames"
             return f"{len(frames)} frames"
         if hasattr(artifact, "__len__") and not isinstance(artifact, (str, bytes)):
             return f"{len(artifact)} frames"
@@ -103,8 +108,17 @@ def frames_for_encoding(frames):
     result through a `previous_result:` reference, and the step cache
     retains it.
     """
+    if isinstance(frames, Sequence) and not isinstance(frames, (list, str)):
+        # A lazy frame sequence (a saved chain read back): encode_video only
+        # takes a real list of images, a tensor or an iterator of chunks
+        return list(frames)
     if not isinstance(frames, numpy.ndarray) or frames.size == 0:
         return frames
+    if frames.dtype == numpy.uint8:
+        # Pixel values already (join_windows' output, #695). Handed over as
+        # an array, encode_video would take one whose every value is 0 or 1
+        # - a black clip - for floats in [0, 1] and scale it by 255
+        return torch.from_numpy(frames)
     if not numpy.issubdtype(frames.dtype, numpy.floating):
         return frames
     if float(frames.min()) < 0.0 or float(frames.max()) > 1.0:

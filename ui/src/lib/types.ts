@@ -6,9 +6,10 @@ type Schemas = components['schemas']
 // (dw/server/api_models.py), so a field the server stops sending fails the
 // type check rather than reading undefined at runtime
 export type HealthInfo = Schemas['HealthInfo']
+export type WorkerInfo = Schemas['WorkerInfo']
 export type ServerAddress = Schemas['ServerAddress']
 export type ServerInfo = Schemas['ServerInfo']
-export type MemoryInfo = Schemas['MemoryInfo']
+export type MemoryInfo = Schemas['MemoryStatus']
 export type ModelRevision = Schemas['ModelRevision']
 export type ModelRepo = Schemas['ModelRepo']
 export type ModelCache = Schemas['ModelCache']

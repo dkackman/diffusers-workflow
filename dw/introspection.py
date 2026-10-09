@@ -6,15 +6,17 @@ no code change here), and a pipeline's argument schema comes from its
 __call__ signature and docstring. Nothing here executes a pipeline.
 
 Only bare class names resolved against the diffusers namespace - plus an
-explicit allowlist of companion packages (sdnq) - are accepted from callers;
-never arbitrary dotted import paths, which would let an HTTP client import
-any module on the system.
+explicit allowlist of companion packages (sdnq) and the modules shipped in
+`dw/community_pipelines/` - are accepted from callers; never arbitrary dotted
+import paths, which would let an HTTP client import any module on the system.
 """
 
 import re
+import ast
 import inspect
 import math
 import logging
+from pathlib import Path
 from . import references
 
 logger = logging.getLogger("dw")
@@ -32,6 +34,40 @@ _DOC_PARAM_PATTERN = re.compile(r"^(\*{0,2}[A-Za-z_]\w*)(?: \((.+?)\))?:\s*(.*)$
 # Companion packages whose classes workflows commonly name. Extending this
 # is a deliberate act; nothing else outside diffusers ever resolves.
 ALLOWED_MODULES = ("sdnq",)
+
+# The pipelines this repo ships, which a workflow names by dotted path
+# ('dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline'). The
+# allowed modules are exactly the files in that directory, so no caller-chosen
+# name reaches an import.
+COMMUNITY_PIPELINES_PACKAGE = "dw.community_pipelines"
+_COMMUNITY_PIPELINES_DIR = Path(__file__).parent / "community_pipelines"
+
+
+def community_pipeline_modules():
+    """Dotted names of the modules in dw/community_pipelines/."""
+    return sorted(
+        f"{COMMUNITY_PIPELINES_PACKAGE}.{path.stem}"
+        for path in _COMMUNITY_PIPELINES_DIR.glob("pipeline_*.py")
+    )
+
+
+def community_pipelines():
+    """Dotted names of the pipeline classes dw/community_pipelines/ defines.
+
+    Read from each module's syntax tree rather than by importing it, so the
+    listing stays as cheap as the diffusers one.
+    """
+    names = []
+    for module_name in community_pipeline_modules():
+        path = _COMMUNITY_PIPELINES_DIR / f"{module_name.rpartition('.')[2]}.py"
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        names += [
+            f"{module_name}.{node.name}"
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name.endswith("Pipeline")
+        ]
+    return sorted(names)
+
 
 # from_pretrained is **kwargs-based on ModelMixin, so these generic loading
 # knobs are curated rather than discovered - merged with whatever a
@@ -78,12 +114,15 @@ def _filtered_exports(predicate):
 
 
 def list_pipelines():
-    """Names of every pipeline class the installed diffusers exports.
+    """Names of every pipeline class the installed diffusers exports, then
+    the dotted names of dw's community pipelines.
 
     Reads the export list without importing each pipeline's module -
     diffusers is lazy and enumerating hundreds of classes must stay cheap.
     """
-    return _filtered_exports(lambda name: name.endswith("Pipeline"))
+    return _filtered_exports(lambda name: name.endswith("Pipeline")) + (
+        community_pipelines()
+    )
 
 
 def list_classes(kind):
@@ -113,14 +152,19 @@ def list_classes(kind):
 
 def load_allowed_class(name):
     """Resolve a class name: bare against diffusers, or module.Class where
-    the module is on the explicit allowlist.
+    the module is on the explicit allowlist or is one of dw's community
+    pipeline modules.
 
     Raises:
         ValueError: for a malformed name, a module outside the allowlist,
             or a name the module does not export
     """
     module_name, _, class_name = (name or "").rpartition(".")
-    if module_name and module_name not in ALLOWED_MODULES:
+    if (
+        module_name
+        and module_name not in ALLOWED_MODULES
+        and module_name not in community_pipeline_modules()
+    ):
         raise ValueError(f"Module {module_name!r} is not on the allowlist")
     if not CLASS_NAME_PATTERN.match(class_name):
         raise ValueError(f"Not a valid class name: {name!r}")
@@ -134,8 +178,17 @@ def load_allowed_class(name):
     try:
         cls = getattr(module, class_name)
     except AttributeError:
+        hint = ""
+        if not module_name:
+            matches = [
+                dotted
+                for dotted in community_pipelines()
+                if dotted.rpartition(".")[2] == class_name
+            ]
+            if matches:
+                hint = f"; did you mean {' or '.join(repr(m) for m in matches)}?"
         raise ValueError(
-            f"{module_name or 'diffusers'} exports no class named {class_name!r}"
+            f"{module_name or 'diffusers'} exports no class named {class_name!r}{hint}"
         )
     if not isinstance(cls, type):
         raise ValueError(f"{name!r} is not a class")
@@ -298,6 +351,60 @@ def _callable_parameters(target_callable):
     return parameters, accepts_kwargs
 
 
+def _modular_block_parameters(cls):
+    """A modular pipeline's call arguments, read from its default block graph.
+
+    A modular pipeline's __call__ is `(state, output, **kwargs)`: what it
+    takes is whatever its blocks declare as inputs, so those are the honest
+    answer. The graph is built without weights (`init_pipeline()` with no
+    repository), and carries dw's own blocks - the H3 audio hold and guides
+    (dw/pipeline_processors/h3_hold.py, h3_guides.py) - as a loaded one does. Empty for
+    a class with no default blocks, the bare `ModularPipeline` among them.
+    """
+    blocks_name = getattr(cls, "default_blocks_name", None)
+    if not isinstance(blocks_name, str):
+        return []
+    import importlib
+
+    from .pipeline_processors.h3_guides import insert_guides
+    from .pipeline_processors.h3_hold import insert_audio_hold
+
+    blocks_class = getattr(importlib.import_module(cls.__module__), blocks_name, None)
+    if blocks_class is None:
+        import diffusers
+
+        blocks_class = getattr(diffusers, blocks_name, None)
+    if not isinstance(blocks_class, type):
+        return []
+    try:
+        pipeline = blocks_class().init_pipeline()
+        insert_audio_hold(pipeline)
+        insert_guides(pipeline)
+        block_inputs = pipeline._blocks.inputs
+    except Exception as error:
+        # The signature still answers without them
+        logger.debug(f"Could not read {blocks_name}'s inputs: {error}")
+        return []
+    parameters = []
+    for block_input in block_inputs:
+        if not block_input.name:
+            continue
+        parameters.append(
+            {
+                "name": block_input.name,
+                "required": bool(block_input.required),
+                "default": _json_safe_default(block_input.default),
+                "annotation": (
+                    None
+                    if block_input.type_hint is None
+                    else str(block_input.type_hint)
+                ),
+                "description": block_input.description or "",
+            }
+        )
+    return parameters
+
+
 def describe_class(name, target="call"):
     """The argument schema of a class, for form generation.
 
@@ -320,6 +427,14 @@ def describe_class(name, target="call"):
         raise ValueError(f"Unknown inspection target: {target!r}")
 
     parameters, accepts_kwargs = _callable_parameters(target_callable)
+
+    if target == "call":
+        named = {parameter["name"] for parameter in parameters}
+        parameters += [
+            parameter
+            for parameter in _modular_block_parameters(cls)
+            if parameter["name"] not in named
+        ]
 
     if target == "load":
         named = {parameter["name"] for parameter in parameters}
@@ -518,13 +633,21 @@ def describe_task(command):
     # the parameter it constrains - an agent reading get_task saw
     # 'annotation: null' and no domain at all, and wrote the negative frame
     # count validation now refuses (dw/task_domains.py, #139, #140)
-    from .task_domains import TASK_ARGUMENT_DOMAINS
+    from .task_domains import TASK_ARGUMENT_CHOICES, TASK_ARGUMENT_DOMAINS, domain_text
 
     domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+    # A string argument's accepted values, the same way (#602)
+    choices = TASK_ARGUMENT_CHOICES.get(command, {})
     for parameter in parameters:
         domain = domains.get(parameter["name"])
         if domain is not None:
             parameter["domain"] = domain
+            # The kind's name alone does not say its bounds - "unit" and
+            # "closed_unit" differ only in where they start (#603)
+            parameter["range"] = domain_text(domain)
+        accepted = choices.get(parameter["name"])
+        if accepted is not None:
+            parameter["choices"] = list(accepted)
 
     parameter_descriptions = info.get("parameter_descriptions") or {}
     for parameter in parameters:

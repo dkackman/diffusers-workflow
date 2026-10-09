@@ -1,0 +1,132 @@
+{
+    "id": "Kandinsky6SR",
+    "description": "Kandinsky 6.0 Lite-distill, then super-resolution: the clip and its soundtrack at twice the size, 1728x960. Kandinsky6SRPipeline re-denoises the clip in overlapping tiles (two PiFlow steps each on the distilled VSR checkpoint), so it adds detail rather than resizing; it takes frames only, so pair_audio puts the generated soundtrack back on. Its attention is flex with a sparse block mask, which only fits in memory compiled, so the SR transformer's repeated blocks are compiled - CUDA only, and the first run pays the compile. To fit 24GB the tiles are held to the trained 512x512 (the default also picks 512x768, whose decode needs about 26GB) and the scale to 2: measured on an RTX 3090 at a 19.3GiB peak, the upscale alone about 6 minutes.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 9.2}
+    ],
+    "cost_drivers": ["num_frames", "width", "height"],
+    "variables": {
+        "prompt": "prompt:kandinsky6/mountain_steam_train",
+        "width": 864,
+        "height": 480,
+        "num_frames": 121,
+        "frame_rate": 24.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a width not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "Kandinsky 6.0's pipeline refuses a height not divisible by 16 (the VAE's 8x spatial compression times the transformer's 2x patch) outright, so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 4,
+            "remainder": 1,
+            "min_frames": 5,
+            "max_frames": 509,
+            "reason": "Kandinsky 6.0's video VAE encodes 4 * n + 1 frames, and the pipeline floors an off-grid count rather than refusing it - a shorter clip than the one asked for - so it is refused here instead. 509 is the transformer's rotary table (128 latent frames); every checkpoint is trained at 121 frames, five seconds at 24 fps"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_video",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Kandinsky6TI2VAPipeline",
+                    "offload": "model",
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+                    "revision": "e056a84f34d9617e86b3ae47c792fe626cbe53f8",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": "variable:frame_rate",
+                    "num_inference_steps": 10,
+                    "guidance_scale": 1.0,
+                    "sample_audio": true,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "upscale",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "Kandinsky6SRPipeline",
+                    "offload": "model",
+                    "components": {
+                        "transformer": {
+                            "compile": {
+                                "repeated_blocks": true,
+                                "fullgraph": true
+                            }
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+                    "revision": "627b5841176ffd408540d2892c3eea4acf2bf2d6",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "Kandinsky6SRTransformer3DModel"
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "kandinskylab/Kandinsky-6.0-VSR-distilled2steps-5s-Diffusers",
+                        "subfolder": "transformer",
+                        "revision": "627b5841176ffd408540d2892c3eea4acf2bf2d6",
+                        "torch_dtype": "torch.bfloat16",
+                        "tile_sizes": [[512, 512]]
+                    }
+                },
+                "arguments": {
+                    "video": "previous_result:text_to_video.frames",
+                    "resolution_scale": 2,
+                    "num_inference_steps": 2,
+                    "output_type": "{np}"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "save": false
+            }
+        },
+        {
+            "name": "with_audio",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:upscale",
+                    "audio": "previous_result:text_to_video",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:frame_rate",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

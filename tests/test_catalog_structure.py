@@ -112,8 +112,11 @@ EXPECTED_SHAPES = {
 # Templates that genuinely are utilities - processing with no generation.
 # Anything else that derives 'utility' is a rule that missed.
 UTILITIES = {
+    "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
+    "workflows/templates/check-script.json",
     "workflows/templates/image-processors.json",
+    "workflows/templates/minimax/music-video-cuts.json",
     "workflows/templates/recenter-crop.json",
     "workflows/templates/segment.json",
     "workflows/templates/transcribe-audio.json",
@@ -279,12 +282,16 @@ QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
 # sub-workflow's argument, a step argument, a chain field or a result field.
 # One line per entry saying what the name actually is.
 LEGITIMATE_MENTIONS = {
+    # attribute_voices' argument, fed the transcript rather than passed
+    "workflows/templates/attribute-lines.json": {"lines"},
     # the argument the composed image-to-video workflow receives
     "workflows/templates/compose-workflows.json": {"image"},
     # a 'result' field, and the point is that this workflow omits it
     "workflows/templates/generate-speech.json": {"sample_rate"},
     # arguments of the image_to_text step, edited into the file rather than passed
     "workflows/templates/image-to-text.json": {"model_name", "prompt"},
+    # a field of the step's 'chain' block, which this workflow writes inline
+    "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
     # a field of the step's 'chain' block
     "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
     # fields of a 'shots' list entry, not this workflow's own variables
@@ -293,6 +300,10 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
+    # pair_audio's 'fit' argument, and the per-entry 'num_frames' of a shot
+    "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
+    # fields of the plan's entries, which music-video's shots then take
+    "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
 }
 
 
@@ -415,7 +426,48 @@ def test_no_stale_entry_in_the_allowlist():
 # at 9_052 before its curated `cost` (about 15 tokens more): the latent-refine
 # route to 2x for a clip the caller brings, kept beside upscale-clip because
 # the two trade differently (source latents vs. an IC-LoRA re-render).
-COMPACT_BUDGET = 9_150
+# Then to 9_200 for `templates/attribute-lines` (#617, 2026-10-05), measured
+# at 9_180: about 30 tokens, the transcribe -> attribute_voices chain a
+# lip-sync target check starts from (#488).
+# Then to 9_400 for `templates/minimax/music-video-cuts` (#600), measured at
+# 9_296: about 115 tokens, the transcribe -> analyze_beats -> plan_cuts chain
+# that plans a music video's shots from its lyrics.
+# Then to 9_550 for `templates/ltx2/refine-in-place` (#639), measured at
+# 9_460: about 65 tokens, the only same-size refine of a clip the caller
+# brings, and the only LTX template with a strength knob (`strength` 0-4).
+# Then to 9_700 for `templates/ltx2/restore-long` (#601, stage #630,
+# 2026-10-06), measured at 9_638: about 180 tokens over 9_460 (its own
+# description and summary, its `windows` list and `overlap`/`curve` as
+# compact `variable_names`), the only catalog route through a source longer
+# than one LTX-2.5 bucket.
+# Then to 9_850 for `templates/minimax/upscale-refine` (#598, stage #621,
+# 2026-10-06), measured at 9_823: about 185 tokens, more than the plan's 100,
+# because it names a base and a refine checkpoint and so carries three
+# `base_` variables beside the H3 template's usual eleven - the catalog's only
+# route to 1344x768 through a 544p take, held behind its A/B.
+# Then to 10_000 for `templates/ltx2/face-repair` (#599, stage #624,
+# 2026-10-06), measured at 9_981: about 160 tokens, its tuned `padding` and
+# `gate_full`/`gate_zero` exposed beside `strength` and `crop_size` - the
+# catalog's only repair of one region of a clip, leaving the rest as it came.
+# Then to 10_050 for `templates/ltx2/restore-long`'s measured `cost` (#601,
+# stage #658, 2026-10-06), measured at 10_016: about 35 tokens, its total and
+# a `per_entry` rate over `windows`, so a longer source is quoted per window.
+# Then to 10_450 for `templates/kandinsky6/text-to-video`, `image-to-video`
+# and `generate-and-upscale` (#663, 2026-10-06), measured at 10_407 with their
+# curated `cost`: about 130 tokens each, a new family's first three templates -
+# the catalog's only 3B video-with-audio route, and its only tiled
+# super-resolution of a generated clip.
+# Then to 10_550 for `templates/check-script` (#609, stage #645, 2026-10-07),
+# measured at 10_498: about 50 tokens, the catalog's only check that a take
+# speaks its script, replacing a transcribe-and-read-by-eye procedure.
+# Then back to 10_400 when `templates/minimax/upscale-refine` was reverted
+# (#598, stage #664, 2026-10-07): its gate came out no, so the 150 raised
+# for it is given back.
+# Then to 10_550 for the H3 templates' `width`/`height` multiple-of-32 rule
+# (#789, 2026-10-08), measured at 10_543: about 143 tokens across the
+# nineteen templates, the rule the pipeline otherwise raises on only after
+# the weights have loaded.
+COMPACT_BUDGET = 10_550
 FILTERED_BUDGET = 1_500
 
 
@@ -563,11 +615,87 @@ class TestLtxTwoStage:
         assert not _step(definition, "base").get("release_pipeline", False)
 
 
+class TestLtxRefineInPlace:
+    """refine-clip's route without the 2x: one `strength` index picks a
+    preserve-to-reinterpret ladder of three-sigma schedules, and the source's
+    own soundtrack is read first so a silent source fails before any load."""
+
+    def _definition(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "ltx2", "refine-in-place.json"
+        )
+        return json.load(open(path, encoding="utf-8"))
+
+    def _ladder(self):
+        step = _step(self._definition(), "ladder")
+        assert step["task"]["command"] == "select"
+        return step["task"]["arguments"]
+
+    def test_the_ladder_is_an_index_select_over_the_strength_variable(self):
+        arguments = self._ladder()
+
+        assert arguments["rule"] == "index"
+        assert arguments["index"] == "variable:strength"
+        assert 3 <= len(arguments["candidates"]) <= 5
+        assert len(arguments["scores"]) == len(arguments["candidates"])
+
+    def test_each_rung_renoises_at_its_first_sigma_over_three_falling_sigmas(self):
+        for rung in self._ladder()["candidates"]:
+            sigmas = rung["sigmas"]
+
+            assert rung["noise_scale"] == sigmas[0]
+            assert len(sigmas) == 3
+            assert all(s > 0 for s in sigmas)
+            assert all(a > b for a, b in zip(sigmas, sigmas[1:]))
+
+    def test_the_rungs_run_from_preserve_to_reinterpret(self):
+        firsts = [rung["sigmas"][0] for rung in self._ladder()["candidates"]]
+
+        assert all(a < b for a, b in zip(firsts, firsts[1:]))
+
+    def test_strength_defaults_to_the_middle_rung(self):
+        count = len(self._ladder()["candidates"])
+        default = self._definition()["variables"]["strength"]
+
+        assert isinstance(default, int) and not isinstance(default, bool)
+        assert 0 <= default < count
+        assert default == count // 2
+
+    def test_the_refine_step_reads_the_fitted_clip_and_the_chosen_rung(self):
+        refine = _step(self._definition(), "refine")
+        arguments = refine["pipeline"]["arguments"]
+
+        assert (
+            refine["pipeline"]["configuration"]["component_type"]
+            == "dw.community_pipelines.pipeline_ltx2_refine.LTX2RefinePipeline"
+        )
+        assert arguments["video"] == "previous_result:fitted.video"
+        assert arguments["noise_scale"] == "previous_result:ladder.noise_scale"
+        assert arguments["sigmas"] == "previous_result:ladder.sigmas"
+        assert refine["result"]["subfolder"] == "intermediate"
+
+    def test_the_source_soundtrack_is_read_before_the_pipeline_loads(self):
+        steps = self._definition()["steps"]
+        names = [step["name"] for step in steps]
+
+        assert _step(self._definition(), "source_audio")["task"]["command"] == (
+            "normalize_audio"
+        )
+        assert names.index("source_audio") < names.index("refine")
+
+    def test_the_last_step_pairs_the_source_audio_into_final(self):
+        last = self._definition()["steps"][-1]
+
+        assert last["task"]["command"] == "pair_audio"
+        assert last["result"]["subfolder"] == "final"
+
+
 class TestLtxRefineClip:
     """two-stage's refine pass fed a clip dw did not make (#543): the latent
-    upsampler encodes the source itself (its `video` argument), so the refine
-    starts from the source's own latents, and the soundtrack is the source's,
-    read first so a silent source fails before any pipeline loads."""
+    upsampler encodes the source itself (its `video` argument, fitted to the
+    working size first, #602), so the refine starts from the source's own
+    latents, and the soundtrack is the source's, read first so a silent source
+    fails before any pipeline loads."""
 
     def _definition(self):
         path = os.path.join(
@@ -589,21 +717,28 @@ class TestLtxRefineClip:
             == "constant:diffusers.pipelines.ltx2.utils.STAGE_2_DISTILLED_SIGMA_VALUES"
         )
 
-    def test_the_upsampler_encodes_the_source_and_refine_reads_its_latents(self):
+    def test_the_upsampler_encodes_the_fitted_source_and_refine_reads_its_latents(
+        self,
+    ):
         definition = self._definition()
         upscale = _step(definition, "upscale")["pipeline"]
         refine = _step(definition, "refine")["pipeline"]
 
-        trim = _step(definition, "source_frames")["task"]
+        fit = _step(definition, "fit")["task"]
 
         # The upsampler encodes every frame it is handed (num_frames is
-        # overwritten by len(video)), so the source is trimmed first (#549)
-        assert trim["command"] == "loop_frames"
-        assert trim["arguments"] == {
+        # overwritten by len(video)), so the source is fitted to the working
+        # size and length first (#549, #602)
+        assert fit["command"] == "fit_to_model"
+        assert fit["arguments"] == {
             "video": "variable:source_video",
+            "width": "variable:width",
+            "height": "variable:height",
             "num_frames": "variable:num_frames",
+            "mode": "variable:fit",
         }
-        assert upscale["arguments"]["video"] == "previous_result:source_frames"
+        assert definition["variables"]["fit"] == "letterbox"
+        assert upscale["arguments"]["video"] == "previous_result:fit.video"
         assert upscale["arguments"]["output_type"] == "{latent}"
         assert refine["arguments"]["latents"] == "previous_result:upscale.frames"
         # No audio latents: the source's track is paired back instead
@@ -611,21 +746,21 @@ class TestLtxRefineClip:
         assert upscale["configuration"]["shared_components"] == ["vae"]
         assert refine["configuration"]["reused_components"] == ["vae"]
 
-    def test_the_trim_keeps_the_sources_opening_frames_in_order(self):
+    def test_the_fit_keeps_the_sources_opening_frames_in_order(self):
         # The short arm of #549's bounce: a 130-frame source asked for 97
         # must reach the upsampler as its first 97 frames, not all 130
         import numpy
 
-        from dw.tasks.video_utils import loop_frames
+        from dw.tasks.fit import fit_to_model
 
         source = numpy.arange(130, dtype=numpy.uint8)[:, None, None, None]
         source = numpy.broadcast_to(source, (130, 4, 4, 3)).copy()
 
-        trimmed = loop_frames(source, 97)
+        fitted = fit_to_model(source, 4, 4, 97, mode="stretch")["video"]
 
-        assert trimmed.shape == (97, 4, 4, 3)
+        assert fitted.shape == (97, 4, 4, 3)
         assert numpy.array_equal(
-            (trimmed[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
+            (fitted[:, 0, 0, 0] * 255).round().astype(numpy.uint8),
             numpy.arange(97, dtype=numpy.uint8),
         )
 
@@ -638,7 +773,7 @@ class TestLtxRefineClip:
         assert first["task"]["arguments"]["audio"] == "variable:source_video"
         assert first["task"]["arguments"]["peak_dbfs"] == -3.0
         assert final["task"]["command"] == "pair_audio"
-        assert final["task"]["arguments"]["video"] == "previous_result:refine"
+        assert final["task"]["arguments"]["video"] == "previous_result:restore"
         assert final["task"]["arguments"]["audio"] == (
             f"previous_result:{first['name']}"
         )
@@ -695,3 +830,36 @@ def test_the_cut_templates_quote_a_measured_cost(path, minutes):
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"
     assert entry["minutes"] == minutes
+
+
+def _ltx2_chain_after_substitution(**overrides):
+    """The ltx2 chained template's chain block, as the engine sees it after variables resolve."""
+    import json
+    from pathlib import Path
+
+    from dw.variables import replace_variables
+
+    path = (
+        Path(__file__).parent.parent / "workflows/templates/ltx2/chained-segments.json"
+    )
+    workflow = json.loads(path.read_text())
+    variables = {**workflow["variables"], **overrides}
+    step = replace_variables(workflow["steps"][0], variables)
+    return step["pipeline"]["chain"]
+
+
+def test_ltx2_chained_segments_prompts_variable_reaches_the_chain():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    lines = ["She says hello.", "She nods and leaves."]
+    chain = _ltx2_chain_after_substitution(prompts=lines, segments=2)
+    config = ChainConfig(chain, {"prompt": "x"})
+    assert config.prompts == lines
+
+
+def test_ltx2_chained_segments_prompts_absent_falls_back_to_prompt():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2)
+    config = ChainConfig(chain, {"prompt": "x"})
+    assert not config.prompts

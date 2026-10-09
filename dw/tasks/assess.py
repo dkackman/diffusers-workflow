@@ -252,9 +252,10 @@ def _whole_file_shot(media):
     }
 
 
-def _sample_span(shot, media):
+def sample_span(shot, media):
     """A shot's (start, count, source) on the soundtrack: recorded, else
-    derived from its frames."""
+    derived from its frames. `media` needs only `fps` and `sample_rate`;
+    `check_script` places its shots with this too."""
     start = shot.get("start_sample")
     count = shot.get("num_samples")
     if start is not None and count is not None:
@@ -483,7 +484,7 @@ def shots_answer(media, records, source):
 
     measured = []
     for shot in records:
-        start, count, samples_source = _sample_span(shot, media)
+        start, count, samples_source = sample_span(shot, media)
         window = _clip(media, start, start + count) if start is not None else None
         peak = _db(dsp.peak(window))
         rms = _db(dsp.rms(window))
@@ -562,7 +563,7 @@ def _band_shares(window, sample_rate):
 
 def _shot_rms(media, shot):
     """A shot's RMS level over its whole sample span, in dBFS, or None."""
-    start, count, _source = _sample_span(shot, media)
+    start, count, _source = sample_span(shot, media)
     if start is None:
         return None
     return _db(dsp.rms(_clip(media, start, start + count)))
@@ -680,7 +681,9 @@ def analyze_seams(video, shots=None):
     Args:
         video: A video file's path, or the video an earlier step returned
         shots: Shot records to measure by, overriding any the video carries.
-            A shot marked `hard_cut: true` opens a seam meant as a cut
+            A shot marked `hard_cut: true` opens a seam meant as a cut;
+            one with `audio_bleed_ms` a cut with the tail bled on;
+            one with `seam_fade_ms` or `crossfade_ms` opens a seam faded on request
 
     Returns:
         {seams: [{seam, between, seconds, kind, level_step_db,
@@ -705,6 +708,7 @@ def seams_answer(media, records, source):
         )
 
     seams = []
+    blended = set()
     findings = _shot_span_findings("analyze_seams", records, media)
     for index in range(1, len(records)):
         previous, shot = records[index - 1], records[index]
@@ -719,9 +723,15 @@ def seams_answer(media, records, source):
             "kind": "dissolve" if fade else "cut",
             "hard_cut": bool(shot.get("hard_cut")),
         }
+        if shot.get("seam_fade_ms") is not None:
+            record["seam_fade_ms"] = shot["seam_fade_ms"]
+        if shot.get("audio_bleed_ms") is not None:
+            record["audio_bleed_ms"] = shot["audio_bleed_ms"]
+        if shot.get("crossfade_ms") is not None:
+            record["crossfade_ms"] = shot["crossfade_ms"]
         skip = set()
         if media.audio is not None and media.sample_rate:
-            start, _count, _source = _sample_span(shot, media)
+            start, _count, _source = sample_span(shot, media)
             if start is not None:
                 fade_samples = (
                     int(round(fade / media.fps * media.sample_rate))
@@ -748,8 +758,13 @@ def seams_answer(media, records, source):
             skip.add("seam_hole")
         if media.thumbs is not None:
             record.update(_seam_video(media, previous, shot, fade))
-        if record["hard_cut"]:
+        if record["hard_cut"] or "audio_bleed_ms" in record:
+            # A bled seam is still a picture cut (#783)
             skip.add("seam_frame_jump")
+        if "seam_fade_ms" in record or "crossfade_ms" in record:
+            # A fade or chain crossfade dips the join by design (#659, #660)
+            skip.add("seam_hole")
+            blended.add(index)
         seams.append(record)
         findings.extend(
             _findings(
@@ -763,9 +778,19 @@ def seams_answer(media, records, source):
                 skip,
             )
         )
-    return _answer(
+    answer = _answer(
         "analyze_seams", {"seams": seams}, findings, source, shot_dependent=True
     )
+    if blended and "seam_hole" in answer["rules_applied"]:
+        # Skipped at those seams only, but say so (#660)
+        answer["rules_skipped"].append(
+            {
+                "rule": "seam_hole",
+                "reason": "seam carries its own fade/crossfade",
+                "seams": sorted(blended),
+            }
+        )
+    return answer
 
 
 def analyze_sync_drift(video, shots=None):

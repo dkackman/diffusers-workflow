@@ -333,6 +333,77 @@ class TestHardCut:
 
 
 # ---------------------------------------------------------------------------
+# 3c. a seam_fade_ms the caller asked for is recorded on the shot, and the
+# dip it makes is not reported as a hole in the content (#659)
+# ---------------------------------------------------------------------------
+
+
+class TestSeamFadeIsRecorded:
+    @staticmethod
+    def _joined(**kwargs):
+        rate, fps, frames = 8000, 10, 30
+        t = numpy.arange(rate * 3) / rate
+        tone = (0.3 * numpy.sin(2 * math.pi * 220 * t)).astype(numpy.float32)[None]
+        clips = [
+            AudioVideo(
+                make_frames(frames, base_grey=100, seed=seed), tone, rate, fps=fps
+            )
+            for seed in (1, 2)
+        ]
+        return concat_videos(clips, fps=fps, sample_rate=rate, **kwargs)
+
+    def test_the_faded_seam_carries_the_fade_and_no_hole_finding(self):
+        joined = self._joined(seam_fade_ms=1000)
+        assert "seam_fade_ms" not in joined.shots[0]
+        assert joined.shots[1]["seam_fade_ms"] == 1000
+
+        answer = analyze_seams(joined)
+        assert answer["seams"][0]["seam_fade_ms"] == 1000
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
+
+    def test_a_chain_crossfade_on_the_shot_is_no_hole_finding(self):
+        joined = self._joined(seam_fade_ms=1000)
+        shots = [
+            {k: v for k, v in shot.items() if k != "seam_fade_ms"}
+            for shot in joined.shots
+        ]
+        shots[1]["crossfade_ms"] = 80.0
+        answer = analyze_seams(joined, shots=shots)
+        assert answer["seams"][0]["crossfade_ms"] == 80.0
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
+        skipped = [r for r in answer["rules_skipped"] if r["rule"] == "seam_hole"]
+        assert skipped and skipped[0]["seams"] == [1]
+
+    def test_an_unrequested_hole_still_fires(self):
+        # Same material and the same dip, but the fade is only in the
+        # shot record's absence: the probe reads the record, not the audio
+        joined = self._joined(seam_fade_ms=1000)
+        shots = [
+            {k: v for k, v in shot.items() if k != "seam_fade_ms"}
+            for shot in joined.shots
+        ]
+        answer = analyze_seams(joined, shots=shots)
+        assert "seam_fade_ms" not in answer["seams"][0]
+        assert [f for f in answer["findings"] if f["rule"] == "seam_hole"]
+
+    def test_no_fade_is_recorded_when_none_was_asked_or_a_bleed_took_the_seam(self):
+        assert "seam_fade_ms" not in self._joined().shots[1]
+        bled = self._joined(seam_fade_ms=1000, audio_bleed_ms=100)
+        assert "seam_fade_ms" not in bled.shots[1]
+
+    def test_the_record_is_the_fade_the_join_applied(self):
+        # Each input holds 3 s; a 10 s ask is clamped to the material, and
+        # the record says what was applied
+        joined = self._joined(seam_fade_ms=10000)
+        assert joined.shots[1]["seam_fade_ms"] == 3000.0
+
+    def test_a_bleed_that_clamps_to_nothing_still_records_the_fade(self):
+        # bleed_ms rounds to 0 samples, so bleed_join falls back to the fade
+        joined = self._joined(seam_fade_ms=500, audio_bleed_ms=0.01)
+        assert joined.shots[1]["seam_fade_ms"] == 500.0
+
+
+# ---------------------------------------------------------------------------
 # 3b. concat_videos marks its own seam hard_cut, so a real join's jump is
 # suppressed while the same magnitude reached by a chain-style join (which
 # never sets hard_cut) still fires (#466)
@@ -362,6 +433,27 @@ class TestConcatVideosMarksHardCut:
             f for f in answer["findings"] if f["rule"] == "seam_frame_jump"
         ]
         assert jump_findings == []
+
+    def test_a_bled_seam_records_the_bleed_not_a_hard_cut(self):
+        # #783: the bleed ran, so the seam is not a butt join
+        import numpy
+
+        fps, frames_per_shot, rate = 24, 24, 8000
+        clip_a, clip_b = self._clips(fps, frames_per_shot)
+        noise = numpy.random.default_rng(0).uniform(-0.1, 0.1, (1, rate))
+        for clip in (clip_a, clip_b):
+            clip.audio, clip.sample_rate = noise.astype("float32"), rate
+
+        joined = concat_videos(
+            [clip_a, clip_b], fps=fps, sample_rate=rate, audio_bleed_ms=200
+        )
+        assert "hard_cut" not in joined.shots[1]
+        assert joined.shots[1]["audio_bleed_ms"] == 200.0
+
+        answer = analyze_seams(joined)
+        assert answer["seams"][0]["hard_cut"] is False
+        assert answer["seams"][0]["audio_bleed_ms"] == 200.0
+        assert [f for f in answer["findings"] if f["rule"] == "seam_frame_jump"] == []
 
     def test_the_same_jump_without_a_concat_seam_still_fires(self):
         # A chain never marks hard_cut on its inner segments (dw/pipeline_processors/chain.py) -

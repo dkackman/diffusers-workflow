@@ -28,6 +28,13 @@ arguments; prompt format is MiniMax's, from its text not here.
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
+- **Pinned to a clip** (hold earlier footage): a `guides` argument on
+  `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
+  `frame` that is a multiple of 17; the VRAM ceiling charges each
+  guide's frames on the canvas. A guide holds look as well as motion: a full-length one
+  copies the take, and a style prompt does not restyle it. `"audio": true`
+  on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
+  section="H3: holding a clip with `guides`")`.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
@@ -42,7 +49,12 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
-  (last-frame continuity), `templates/minimax/chain-video-continuity`
+  (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
+  22 or 39 - default 22 - holds the last frames and voice as a guide instead.
+  The guide prefix is trimmed off again, so the deliverable carries no
+  repeated frames. `carry_audio` (default true, a chain-block setting the
+  template does not expose as a variable) is what brings the voice with the
+  guide. Not on the ref2va chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
   sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`
@@ -52,10 +64,13 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
-  (a song, one slice and one lip-synced shot per entry - `from_file` reuses
-  an existing cast portrait and skips drawing).
-  Before composing one, read `references/cuts.md`: the `shots` list,
-  cost per entry, scoring and one voice across cuts.
+  (a song, one slice and one lip-synced shot per entry, padded then trimmed
+  to its cut - `from_file` reuses an existing cast portrait and skips
+  drawing). Render rule: an entry's `num_frames` is
+  `max(124, next 17n+5 ≥ lead + cut)`, the smallest `17n + 5` at or above
+  `lead_frames + cut_frames`, at least 124; past 345, split the span.
+  Before composing one, read `references/cuts.md`: the `shots` list (a music
+  video's six fields, plan then render), cost per entry, scoring and one voice across cuts.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
@@ -102,9 +117,16 @@ read the `workflows` guide's authoring section.
 - Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
   terminal zero included, so `denoise_total_steps` reports 8. A null
   `lora_model_name` drops the LoRA; raise steps and shifts too.
-- Nothing carries between generations except a passed reference: no latent
-  memory, no extension mode. Identity rides on a picture, voice on an audio
-  clip, motion/camera on a video tail, score across cuts under concat.
+- Nothing carries between generations except a passed reference, a
+  held track or a `guides` clip: there is no latent memory (a diffusers
+  limit, not the model's). Identity rides on a picture, voice
+  timbre on an audio clip, motion/camera on a video tail, score across
+  cuts under concat.
+- Lip sync to supplied audio: pass the track as an audio reference, as
+  `music-video` and the `match_audio` chains do. `hold_audio` keeps the
+  track exact and draws picture to it, but measured on a sung track the
+  mouth followed it worse (open at 3 of 6 onsets vs 6 of 6); use it
+  opt-in, for picture that must fit audio exactly, not for singing.
 - H3 is guidance-distilled: no `guidance_scale` or negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
   H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.
@@ -132,6 +154,7 @@ the rules are MiniMax's:
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots and when a
 reference picture should fix identity but not framing, say so in the prompt -
 or every shot inherits the portrait's composition.
+Before writing lines, read `references/dialogue.md`: how long a line fits a clip, and what not to name.
 
 ## Run and judge
 
@@ -159,7 +182,8 @@ or every shot inherits the portrait's composition.
    everywhere), a portrait imposing its framing on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. It returns sound, not text; to confirm a
-   line, transcribe (`templates/transcribe-audio`, `get_output_text`). Dialogue gaps (`shot_dead_air`) need room tone:
+   take's lines, run `templates/check-script` with them as `lines` (markup
+   and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone:
    `find_loop_bed` the `output:` cut, then `slice_audio`->`loop_audio`->`mix_audio`
    its pick at its `gain`.
    Then `get_gallery_metadata` for duration/audio presence and hand the

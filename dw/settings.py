@@ -1,11 +1,11 @@
 """The standing settings, read from `~/.diffusers_helper/settings.json`.
 
-Keys: `device`, `workspace`, `output_layout`, `public_url`, `enable_tf32`,
+Keys: `device`, `devices`, `workspace`, `output_layout`, `public_url`, `enable_tf32`,
 `cudnn_benchmark`, `cudnn_deterministic`, `log_level`, `log_filename` and
 `log_to_console`. A missing or unreadable file means the defaults on `Settings`.
 
 A setting is the standing choice and each has something that overrides it for
-one run: `DW_DEVICE` for `device`; `--workspace` then `DW_WORKSPACE` for
+one run: `DW_DEVICE` for `device`; `dw.serve --devices` for `devices`; `--workspace` then `DW_WORKSPACE` for
 `workspace`; `--output-layout` / `DW_OUTPUT_LAYOUT` for `output_layout`;
 `DW_PUBLIC_URL` for `public_url`; a `log_level` passed to `startup()`. The
 three PyTorch keys have no override and are read when `startup()` configures
@@ -26,6 +26,11 @@ class Settings:
     # accelerator ('cuda:1') or force a backend ('cpu', 'mps'). The DW_DEVICE
     # environment variable overrides this for a single run.
     device: str = None
+
+    # The cards dw.serve runs workers on - "cuda:1", or "cuda:0,cuda:1" for one
+    # worker per card, each running one job at a time (#462); see dw/devices.py.
+    # `dw.serve --devices` overrides it. None leaves `device` in charge
+    devices: str = None
 
     # Directory holding this user's workflows, prompts, assets and outputs.
     # None resolves it - see dw/workspace.py for the order, which ends at the
@@ -66,6 +71,7 @@ def load_settings():
     settings.log_to_console = settings_dict.get("log_to_console", False)
 
     settings.device = settings_dict.get("device", None)
+    settings.devices = settings_dict.get("devices", None)
     settings.workspace = settings_dict.get("workspace", None)
     settings.output_layout = settings_dict.get("output_layout", "run")
 

@@ -1,7 +1,7 @@
 """Queue a run and work out what happened.
 
 Two rules shape this module. A run costs real GPU time on an engine that
-runs one job at a time, so `run_workflow` - and `rerun_job`, which queues
+runs one job per GPU, so `run_workflow` - and `rerun_job`, which queues
 the same work - refuses until the caller has acknowledged that. And a generation takes minutes, longer than any MCP
 client will hold a tool call open, so submitting returns immediately and
 progress is polled from the event log.
@@ -175,13 +175,16 @@ def get_job(client, job_id):
 def get_job_workflow(client, job_id):
     """The workflow a job ran. `realized: true` means every mutable input
     is pinned (arguments, seed, prompts, output:latest); false means the
-    job predates run tracking and this is the definition as submitted.
+    run's copy is gone (old job, or its run directory or workspace was
+    deleted) and `note` says what was folded from the recorded arguments.
     Pass it to save_workflow to rerun it by name, or edit it and pass it
     to run_workflow as inline_workflow."""
     body = client.get_json(api_path("api", "jobs", job_id, "workflow"))
+    extra = {"note": body["note"]} if body.get("note") else {}
     return {
         "job_id": job_id,
         "realized": bool(body.get("realized")),
+        **extra,
         "workflow": body.get("definition"),
         # Which variable rerun_job(new_seed=True) would draw into, null when
         # the workflow has none - see rerun_job on why that matters
@@ -221,6 +224,9 @@ _SLIM_KEYS = (
     # The run's ordinal - the 'v5' the gallery labels its files with - so
     # the caller can name the run it just waited on without another call
     "run_version",
+    # The card it ran on - 'cuda:1 NVIDIA GeForce RTX 3090' - so a slow run
+    # can be told apart from a run on the slower card
+    "device",
     "queue_position",
     "warnings",
     "error",
