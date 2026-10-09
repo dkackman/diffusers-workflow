@@ -36,7 +36,7 @@ from ..task_domains import (
     fit_mode_problem,
     whole_number,
 )
-from .video_utils import _frames_of, frames_as_array, load_audio_video
+from .video_utils import frames_of, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -55,7 +55,7 @@ def _float_frames(video, command):
     """The video's frames as one float32 (frames, height, width, 3) array in
     [0, 1], without a round trip through uint8 for frames already float."""
     try:
-        frames = _frames_of(video)
+        frames = frames_of(video)
     except TypeError:
         raise ValueError(
             f"{command} needs 'video' as a video, not {type(video).__name__}"

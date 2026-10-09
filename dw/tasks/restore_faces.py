@@ -43,7 +43,7 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
             "facexlib is required for face restoration. Install with: pip install facexlib"
         )
 
-    from .upscale import _resolve_model_path
+    from .upscale import resolve_model_path
 
     filename = kwargs.get("filename", None)
     upscale_factor = kwargs.get("upscale_factor", 1)
@@ -56,7 +56,7 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
 
     # Load the face restoration model via spandrel
     def load_descriptor():
-        model_path = _resolve_model_path(model_name, filename)
+        model_path = resolve_model_path(model_name, filename)
         result = _load_face_model(model_path, device)
         if device != "cpu" and result.supports_half:
             result.model.half()

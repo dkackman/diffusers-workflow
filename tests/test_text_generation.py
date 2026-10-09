@@ -6,7 +6,7 @@ from unittest.mock import patch, MagicMock
 from dw.tasks.text_generation import (
     generate_text,
     _DEFAULT_MODEL,
-    _DEFAULT_VISION_MODEL,
+    DEFAULT_VISION_MODEL,
     _VISION_REPETITION_PENALTY,
 )
 
@@ -141,7 +141,7 @@ class TestTextGenerationWithImage(unittest.TestCase):
 
         generate_text("describe it", device="cpu", image=self._make_image())
 
-        self.assertEqual(mock_pipeline.call_args[1]["model"], _DEFAULT_VISION_MODEL)
+        self.assertEqual(mock_pipeline.call_args[1]["model"], DEFAULT_VISION_MODEL)
 
     @patch("dw.tasks.text_generation.hf_pipeline")
     def test_vision_content_is_typed_parts(self, mock_pipeline):

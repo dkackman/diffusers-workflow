@@ -21,7 +21,7 @@ logger = logging.getLogger("dw")
 _DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 # Small enough to stand in for the old captioning default; override for
 # anything needing real detail
-_DEFAULT_VISION_MODEL = "HuggingFaceTB/SmolVLM-256M-Instruct"
+DEFAULT_VISION_MODEL = "HuggingFaceTB/SmolVLM-256M-Instruct"
 
 # Greedy decoding against a long, rigid format specification makes the vision
 # models loop - finishing the answer, then repeating its closing sections until
@@ -103,7 +103,7 @@ def generate_text(prompt, device="cpu", **kwargs):
         model_name = kwargs.get("model_name", _DEFAULT_MODEL)
     else:
         pipeline_task = "image-text-to-text"
-        model_name = kwargs.get("model_name", _DEFAULT_VISION_MODEL)
+        model_name = kwargs.get("model_name", DEFAULT_VISION_MODEL)
 
     dtype = preferred_task_dtype(device)
 
