@@ -1784,11 +1784,22 @@ class TestFramesForEncoding:
     def test_anything_that_is_not_a_float_array_is_passed_through(self):
         from dw.writers import frames_for_encoding
 
-        already_uint8 = numpy.zeros((1, 2, 2, 3), dtype=numpy.uint8)
-        assert frames_for_encoding(already_uint8) is already_uint8
         assert frames_for_encoding("frames") == "frames"
         tensor = torch.zeros((1, 2, 2, 3))
         assert frames_for_encoding(tensor) is tensor
+
+    def test_a_uint8_array_is_handed_over_as_pixel_values(self):
+        """join_windows' uint8 output (#695): as an array, encode_video would
+        read a near-black clip - every value 0 or 1 - as floats in [0, 1]
+        and scale it by 255, so it goes over as a tensor, unscaled."""
+        from dw.writers import frames_for_encoding
+
+        near_black = numpy.ones((1, 2, 2, 3), dtype=numpy.uint8)
+        encoded = frames_for_encoding(near_black)
+
+        assert isinstance(encoded, torch.Tensor)
+        assert encoded.dtype == torch.uint8
+        assert numpy.array_equal(encoded.numpy(), near_black)
 
     def test_a_muxed_save_converts_before_it_encodes(self):
         result = Result({"content_type": "video/mp4", "fps": 24})
@@ -2421,8 +2432,12 @@ class TestTheMusicTemplatesLeaveHeadroom:
                 "previous_result:generate_music",
                 -3.0,
             ),
-            # music-video reads its 'song' variable, which defaults to write_song
-            ("workflows/templates/minimax/music-video.json", "variable:song", -3.0),
+            # music-video reads the song pieces under its cuts (#788)
+            (
+                "workflows/templates/minimax/music-video.json",
+                "previous_result:song_cuts",
+                -3.0,
+            ),
         ],
     )
     def test_the_song_is_normalized_before_it_is_delivered(self, path, source, target):

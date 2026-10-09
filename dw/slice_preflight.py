@@ -162,8 +162,9 @@ def slice_past_end_warnings(
         warnings.append(
             f"{path_str}: slice_audio will run {padded_seconds:.2f} s past "
             f"the end of a {source_seconds:.2f} s source ({task_args.get('audio')}), "
-            f"so that much of the {requested_end:.2f} s "
-            f"requested will be digital silence{where}. If you meant to fill "
+            f"so that much of the {length / float(sample_rate):.2f} s "
+            f"requested (ending at {requested_end:.2f} s) will be digital "
+            f"silence{where}. If you meant to fill "
             f"a cut of this length, make a bed with the 'loop_audio' task "
             f"('target_frames' + 'fps' matches one exactly) and slice that; "
             f"if you meant the tail pad, nothing is wrong."

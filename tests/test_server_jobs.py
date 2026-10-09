@@ -454,7 +454,7 @@ class TestAWorkerThatDiesMidRequest:
             workflow_dir=str(tmp_path),
         )
         manager.worker_manager.worker_active = True
-        manager.last_memory = {"gpu_available": True, "used": 42}
+        manager.slots[0].last_memory = {"gpu_available": True, "used": 42}
         yield manager
         manager.shutdown()
 

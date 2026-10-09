@@ -36,6 +36,75 @@ reported as clean successes. The commands refuse the same values at run time,
 which is what catches one that arrived from a `variable:` or an earlier step
 rather than being written in the file.
 
+A numeric argument is read the same way by every command and by validation
+(`whole_number` and `real_number` in `dw/task_domains.py`, the only numeric
+coercion in `dw/tasks/`). A number may arrive as a JSON number or as a numeric
+string - a `variable:` resolved from the command line is text - so `3`, `3.0`,
+`"3"` and `"3.0"` are all the whole number 3, and `"23.976"` is a frame rate.
+A whole-number argument (a frame count, an index, a sample rate, a pixel size)
+refuses a fractional value such as `3.5` or `"22050.5"` rather than truncating
+it, naming the argument and saying "whole number". Every numeric argument
+refuses `true`/`false`, text that is no number (`"abc"`) and an infinite or NaN
+value. What validation refuses, the run refuses with the same sentence, and
+the reverse.
+`Task.run` reads every declared numeric argument before the command sees it
+(`coerce_arguments`), so a handler is handed a number, never the string it
+arrived as: `exposure: "0.5"` grades exactly as `0.5` does. An argument whose
+only rule is being a number, such as `grade`'s `exposure` or a gain in dB,
+declares the `finite` domain, so validation reads it too.
+
+## Adding a task
+
+A task is one function, registered with `@register_command` in
+`dw/tasks/registry.py`. Its signature is its argument schema, and everything
+validation knows about it beyond the signature is declared on the same
+decorator, so a new task cannot be half-registered (#692):
+
+```python
+from .registry import register_command
+from ..task_domains import NON_NEGATIVE, POSITIVE, my_task_errors
+
+
+@register_command(
+    "my_task",
+    domains={"num_frames": POSITIVE, "start_frame": NON_NEGATIVE},
+    choices={"mode": ("fast", "best")},
+    static_check=my_task_errors,
+    media_arguments=("source",),
+)
+def my_task(source, num_frames, start_frame=0, mode="fast"): ...
+```
+
+- `domains` - each numeric argument's domain (`dw/task_domains.py`'s
+  `POSITIVE`, `NON_NEGATIVE`, ...): refused at validation at
+  `steps[i].task.arguments.<name>`, and again at run time when the task calls
+  `check_arguments`.
+- `choices` - each argument's literal choices; `get_task` lists them.
+- `static_check` - a function of the step's `arguments` that returns
+  `(argument, message)` pairs for rules across arguments. It lives in
+  `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
+  command - or, when it needs the task's own parser, in the task's module
+  behind an import on use, as `attribute_voices`' does.
+- `whole_numbers` - the numeric arguments that take only a whole number; the
+  rest of `domains` take any real number. Validation refuses `3.5` for one
+  of these, as the task's own `whole_number` call does at run time.
+- `media_arguments` - an argument that reads a file under a name that does not
+  say so (`source`, `media`, `lut`, `clip`, `track`). Validation confines it as it does `image`
+  or `*_video`; an argument left out of it is not path-checked.
+
+`TASK_ARGUMENT_DOMAINS`, `TASK_ARGUMENT_CHOICES`, `TASK_STATIC_CHECKS`,
+`TASK_WHOLE_NUMBER_ARGUMENTS` and `TASK_MEDIA_ARGUMENTS` are read-only views of these declarations;
+`tests/test_task_registry_rules.py` pins them to the registry and every name in
+them to the command's signature.
+
+A new task is:
+
+1. a module in `dw/tasks/` holding the function and its decorator;
+2. one import line for that module in `dw/tasks/task.py` - the registry is
+   filled by importing `dw.tasks.task`, and modules are not discovered
+   automatically, so a module it does not import registers nothing;
+3. a section in this file.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
@@ -829,6 +898,12 @@ source's own frame boundaries (`frames_to_samples`, #401), so adjacent
 windows' strides tile the track exactly; the repeated frames carry silence of
 the length they would have had. A source with no track gives a silent window.
 
+Memory (#695): a file source (a path, `asset:` or `output:`) is never decoded
+whole - the window reads only the source frames it covers, from the keyframe
+before them, and the soundtrack on its own, so a window of a long source
+holds about one window of float32 frames plus the decoded track. An earlier
+step's video is already in memory and is cut from there.
+
 One step makes one window: a task cannot return a list of them, so drive it
 with `for_each` over `{name, index}` entries as above. It refuses an
 `overlap` that is not below `num_frames`, and a negative `overlap` or `index`
@@ -893,6 +968,11 @@ window's pad dropped. The incoming weight is `w(t)` at `t = (k + 1) /
 no seam frame is a bare copy of either side. The windows may be at a
 different size from the source (a 2x upscale); the output is at the windows'
 size.
+
+Memory (#695): the output is built as uint8, with only a seam's `overlap`
+frames blended in float32, so a join holds the output at one byte a channel
+plus the windows it was given - never the whole video in float32. A file
+`source` is read for its frame count and soundtrack only, never its picture.
 
 The window count must be exactly `ceil(source_frames / (num_frames -
 overlap))` - the rule has one home, `window_count` in `dw/task_domains.py`,
@@ -1005,14 +1085,25 @@ face-detail pass that needs the face large and still:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `clip` | Yes | The video - frames, an audio+video pair, or the path or URL of a video file. Named `clip` so the engine hands it over as read, with the shots it records |
-| `crop_size` | No | Side of every crop in pixels, a multiple of 32. Default `512` |
+| `crop_size` | No | Side of every crop in pixels, a multiple of `multiple`. Default `512` |
 | `padding` | No | Space added around the face on each side, as a fraction of its size, `0` to `3`. Default `0.6` |
 | `gate_full` | No | Face width over frame width at or below which strength is 1. Default `0.06` |
 | `gate_zero` | No | Face width over frame width at or above which strength is 0; must exceed `gate_full`. Default `0.12` |
 | `min_confidence` | No | Detections scoring below this are ignored; below `1`. Default `0.6` |
+| `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
+| `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
+| `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
 | `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
+
+`modulus`, `remainder` and `multiple` follow `plan_cuts`: the model's grid is
+the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
+32-pixel steps, so a workflow that names none gets the output it always did;
+the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
+explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+and a `crop_size` that is not a multiple of `multiple` are refused at
+validation.
 
 These defaults are the task's own. The `face-repair` template tunes them on
 lem for LTX-2.5 at `padding` 1.5, `gate_full` 0.03 and `gate_zero` 0.06: a
@@ -1030,7 +1121,7 @@ clip that records none, where the picture jumps: a sharp drop in its HSV
 colour histogram, or a spike in its difference from the previous frame (a cut
 between two framings of one picture keeps its colours). A padded square
 around the smoothed box is cut from every frame and resized to `crop_size`, then
-the crops are padded to 8n+1 frames with mirrored warm-up and cool-down frames.
+the crops are padded to `modulus * n + remainder` frames (8n+1 by default) with mirrored warm-up and cool-down frames.
 
 Each frame carries a strength from 0 to 1: how much a face-detail pass should
 change it. It is 1 when face width over frame width is at or below `gate_full`,
@@ -2024,7 +2115,8 @@ Every seam between shots, audio and picture:
 | `seams[].between` | `[previous shot name, next shot name]` |
 | `seams[].seconds` | Where the seam sits in the file |
 | `seams[].kind` | `cut` or `dissolve` (a dissolve has `overlap_frames`) |
-| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` |
+| `seams[].hard_cut` | Whether the incoming shot is marked `hard_cut: true` - `concat_videos` sets it on a shot opening a seam it butt-joined (a plain cut, or a cut with a `seam_fade_ms` fade). A seam that got an `audio_bleed_ms` bleed carries `audio_bleed_ms` instead of `hard_cut` |
+| `seams[].audio_bleed_ms` | The bleed the seam actually got (clamped to the material); absent where none ran. The picture is still a cut, so `seam_frame_jump` stays quiet |
 | `seams[].before_shot_rms_dbfs` / `after_shot_rms_dbfs` | RMS level of the whole shot either side of the seam |
 | `seams[].level_step_db` | The absolute difference between those two shot levels. Shot against shot, not the audio at the seam's edges: a take's own tail and head can sit 20 dB apart, which is not a step the cut made |
 | `seams[].before_rms_dbfs` / `after_rms_dbfs` | RMS level of the 0.25 s either side of the seam - what `seam_hole`'s both-sides-voiced guard reads |

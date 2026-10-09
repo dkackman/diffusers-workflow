@@ -77,6 +77,8 @@ ALLOWED_UPLOAD_EXTENSIONS = (
     | ALLOWED_AUDIO_EXTENSIONS
     | ALLOWED_LUT_EXTENSIONS
 )
+# The library holds LUTs too, so the listing shows them (#757)
+LUT_KINDS = {ext: "lut" for ext in ALLOWED_LUT_EXTENSIONS}
 MAX_UPLOAD_BYTES = 200 * 1024 * 1024  # 200MB - covers a short video clip
 
 
@@ -131,14 +133,18 @@ async def upload_media(
             status_code=413,
             detail=f"Upload too large: {declared} > {MAX_UPLOAD_BYTES}",
         )
-    body = await request.body()
+    # Counted as it arrives: a chunked body sends no Content-Length, and
+    # request.body() would hold all of it before any size check
+    body = bytearray()
+    async for chunk in request.stream():
+        body += chunk
+        if len(body) > MAX_UPLOAD_BYTES:
+            raise HTTPException(
+                status_code=413,
+                detail=f"Upload too large: more than {MAX_UPLOAD_BYTES} bytes",
+            )
     if not body:
         raise HTTPException(status_code=400, detail="Empty upload")
-    if len(body) > MAX_UPLOAD_BYTES:
-        raise HTTPException(
-            status_code=413,
-            detail=f"Upload too large: {len(body)} > {MAX_UPLOAD_BYTES}",
-        )
 
     # An upload is input and goes to an asset library; with none there is
     # nowhere for it to be, the same 409 keep and delete answer (it used to
@@ -214,7 +220,9 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
 
     def media_names(root):
         try:
-            files = list(iter_gallery_files(root, group_runs=False))
+            files = list(
+                iter_gallery_files(root, group_runs=False, extra_kinds=LUT_KINDS)
+            )
         except OSError:
             return []
         names = []

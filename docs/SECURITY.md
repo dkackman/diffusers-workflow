@@ -146,10 +146,13 @@ One policy now answers all of it, untrusted:
   cannot be used as a file-existence oracle. Validation finds a path by its
   argument's name (`image`, `*_video`, `location`, ...); a task argument
   that reads a file under a generic name, like `join_windows`' `source`, is
-  listed in `TASK_MEDIA_ARGUMENTS` so it is refused at the same moment
-  (#630), as are the finishing tasks' `media` and `apply_lut`'s `lut`
-  (#635). `lut` is only ever read from a file on the server, so an http(s)
-  URL there is refused as a URL (`LOCAL_ONLY_TASK_ARGUMENTS`).
+  declared on its registration (`@register_command(media_arguments=...)`,
+  read through `TASK_MEDIA_ARGUMENTS`, #692) so it is refused at the same moment
+  (#630), as are the finishing tasks' `media`, `apply_lut`'s `lut` (#635),
+  and the face-track and fit tasks' `clip`, `repaired`, `track` and `fit`
+  (#773). `lut`, `track` and `fit` are only ever read from a file on the
+  server, so an http(s) URL there is refused as a URL
+  (`LOCAL_ONLY_TASK_ARGUMENTS`).
 - **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
   validation and at the loader, whatever the trust posture. No loader opens
   one, but as a relative path it joined onto the workflow directory and
@@ -165,7 +168,7 @@ One policy now answers all of it, untrusted:
   **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
   that fetches media from another machine on your tailnet is refused unless
   it runs under `--trust-workflows`.
-- **Every redirect is re-checked.** A media fetch (`safe_get`) never lets the
+- **Every redirect is re-checked.** A media fetch (`safe_get` in `dw/outbound.py`) never lets the
   HTTP client follow a redirect on its own: it follows at most 5 hops
   (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
   host policy before it is dialed. A public URL answering `302` to
@@ -183,7 +186,10 @@ One policy now answers all of it, untrusted:
   (600 s) - the connection is closed at the deadline, so a server
   trickling its response headers or its body cannot hold the worker; a 303 (or a
   301/302 to a POST) is followed as a GET, as requests itself does; and
-  `remote_text_encoder` POSTs through the same path with a timeout.
+  `remote_text_encoder` POSTs through the same path with a timeout. Two limits
+  to know: a trusted run behind a SOCKS proxy is not deadline-bounded (SOCKS
+  brings its own connection classes), and the TLS handshake is bounded by the
+  per-operation timeout only.
 - **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
   attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
   endpoint elsewhere is still reachable; it just does not get the credential.
@@ -292,5 +298,5 @@ SecurityError
 ## Testing
 
 ```bash
-pytest tests/test_security.py tests/test_locations.py tests/test_workflow_trust.py -v
+pytest tests/test_security.py tests/test_locations.py tests/test_outbound.py tests/test_workflow_trust.py -v
 ```

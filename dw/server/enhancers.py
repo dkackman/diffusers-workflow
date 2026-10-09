@@ -5,6 +5,12 @@ inline workflow that the ordinary job queue runs, so progress streaming,
 cancellation, history and the worker's model cache all apply unchanged.
 The step saves its text result, which is how the enhanced prompt comes
 back: as the single file in the job's manifest.
+
+`PRESETS` is the Enhance panel's menu (label, curated LLMs, preselect
+hints); a preset's family-specific knowledge, its spec, lives in a builtin
+under `dw/workflows/`, never in Python. `t2i`'s generic, family-agnostic
+system prompt stays in Python. A third preset moves the menu into builtin
+metadata (#696).
 """
 
 import uuid

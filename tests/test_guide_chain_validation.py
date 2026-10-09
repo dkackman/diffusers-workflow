@@ -180,6 +180,7 @@ class TestOwnGuidesPlusTheChain:
         assert error["path"].endswith("continuity")
         assert "the chain adds one" in error["message"]
         assert "got 4" in error["message"]
+        assert "t2va or fl2va only" not in error["message"]
 
     def test_three_own_guides_leave_room(self):
         assert (
@@ -191,6 +192,37 @@ class TestOwnGuidesPlusTheChain:
             guide_chain_errors(definition(prompt="a cat", guides="variable:guides"))
             == []
         )
+
+    def test_a_one_segment_chain_adds_no_guide(self):
+        chain = {"segments": 1, "continuity": "guide"}
+        assert (
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(4))
+            )
+            == []
+        )
+
+    def test_a_one_segment_chain_with_five_guides_gets_no_chain_error(self):
+        # The count overflow is guides_errors' to report; the chain's "adds one
+        # of its own" reason does not apply to a chain that adds none
+        chain = {"segments": 1, "continuity": "guide"}
+        assert (
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(5))
+            )
+            == []
+        )
+
+    def test_a_two_segment_chain_still_adds_one(self):
+        chain = {"segments": 2, "continuity": "guide"}
+        error = one(definition(chain=chain, prompt="a cat", guides=self.guides(4)))
+        assert "the chain adds one" in error["message"]
+
+    def test_an_own_frame_0_guide_is_not_refused(self):
+        # The layout appends every guide as its own condition rows, so a
+        # frame-0 guide sits beside the chain's rather than colliding with it
+        guides = [{"video": "g.mp4", "frame": 0}]
+        assert guide_chain_errors(definition(prompt="a cat", guides=guides)) == []
 
     def test_last_frame_continuity_takes_the_full_four(self):
         chain = {"segments": 2, "continuity": "last_frame"}

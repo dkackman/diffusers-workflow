@@ -36,6 +36,14 @@ import re
 
 from ..variable_constraints import aligned, aligned_down
 from .registry import register_command
+from ..task_domains import (
+    NON_NEGATIVE,
+    POSITIVE,
+    cuts_errors,
+    real_number,
+    transcript_problem,
+    whole_number,
+)
 
 logger = logging.getLogger("dw")
 
@@ -53,31 +61,8 @@ TIME_PLACES = 4
 def _number(value, name, required=False):
     """A float from a number or numeric string; None stays None unless
     required."""
-    if value is None:
-        if required:
-            raise ValueError(f"{COMMAND} needs '{name}'")
-        return None
-    if isinstance(value, bool):
-        raise ValueError(f"{COMMAND} needs a number for '{name}', got {value!r}")
-    try:
-        number = float(value)
-    except (TypeError, ValueError) as error:
-        raise ValueError(
-            f"{COMMAND} needs a number for '{name}', got {value!r}"
-        ) from error
-    if not math.isfinite(number):
-        raise ValueError(f"{COMMAND} needs a finite number for '{name}'")
-    return number
-
-
-def _integer(value, name):
-    """An int from a whole number or numeric string; None stays None."""
-    number = _number(value, name)
-    if number is None:
-        return None
-    if number != int(number):
-        raise ValueError(f"{COMMAND} needs a whole number for '{name}', got {value!r}")
-    return int(number)
+    number = real_number(value, name, COMMAND, required=required)
+    return None if number is None else float(number)
 
 
 def _grid_up(frames, grid):
@@ -95,34 +80,6 @@ def _grid_down(frames, grid):
     if not grid["modulus"]:
         return frames
     return aligned_down(frames, grid)
-
-
-def transcript_problem(transcript):
-    """Why this transcript can't be planned from, or None. A bare string is
-    text without timings - the commonest mistake, so it is named."""
-    if isinstance(transcript, str):
-        return (
-            f"{COMMAND} needs a timestamped transcript - {{text, chunks: "
-            "[{start, end, text}]}, not plain text: run transcribe_audio with "
-            "'timestamps': \"segment\" (Whisper's return_timestamps), its "
-            "result's content_type application/json"
-        )
-    if isinstance(transcript, dict):
-        chunks = transcript.get("chunks")
-        if not isinstance(chunks, list):
-            return (
-                f"{COMMAND}'s 'transcript' has no 'chunks' list - run "
-                "transcribe_audio with 'timestamps' set (Whisper's "
-                "return_timestamps) for the {text, chunks} shape"
-            )
-        return None
-    if isinstance(transcript, list):
-        return None
-    return (
-        f"{COMMAND}'s 'transcript' is a {{text, chunks}} dict from "
-        "transcribe_audio with 'timestamps' set (Whisper's return_timestamps), "
-        f"not {type(transcript).__name__}"
-    )
 
 
 def _chunks(transcript, duration):
@@ -727,10 +684,10 @@ def plan_cuts(
         vocal_tail_s=_number(vocal_tail_s, "vocal_tail_s") or 0.0,
         min_gap_seconds=gap,
         include_instrumental_gaps=bool(include_instrumental_gaps),
-        modulus=_integer(modulus, "modulus"),
-        remainder=_integer(remainder, "remainder"),
-        min_frames=_integer(min_frames, "min_frames"),
-        max_frames=_integer(max_frames, "max_frames"),
+        modulus=whole_number(modulus, "modulus", COMMAND),
+        remainder=whole_number(remainder, "remainder", COMMAND),
+        min_frames=whole_number(min_frames, "min_frames", COMMAND),
+        max_frames=whole_number(max_frames, "max_frames", COMMAND),
         lead_s=_number(lead_s, "lead_s"),
     )
     check_arguments(
@@ -881,7 +838,27 @@ def plan_cuts(
     }
 
 
-@register_command(COMMAND, implementation="dw.tasks.cuts.plan_cuts", returns="json")
+@register_command(
+    COMMAND,
+    implementation="dw.tasks.cuts.plan_cuts",
+    returns="json",
+    domains={
+        "fps": POSITIVE,
+        "duration_s": POSITIVE,
+        "min_scene_s": NON_NEGATIVE,
+        "max_scene_s": POSITIVE,
+        "vocal_tail_s": NON_NEGATIVE,
+        "min_gap_seconds": NON_NEGATIVE,
+        "modulus": POSITIVE,
+        "remainder": NON_NEGATIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "lead_s": NON_NEGATIVE,
+    },
+    whole_numbers=("modulus", "remainder", "min_frames", "max_frames"),
+    choices={"segment_by": ("line", "stanza", "beat")},
+    static_check=cuts_errors,
+)
 def _handle_plan_cuts(task, arguments, previous_pipelines):
     """Plan a music video's cuts from a song's transcript, lyrics and beats"""
     logger.debug("Planning cuts")

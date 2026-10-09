@@ -1,6 +1,7 @@
 """MiniMax-H3 guides (#611): the aligned lengths, the guide rows spliced into the
 packed layout, the blocks dw inserts and the call-time checks on `guides`."""
 
+import math
 from types import SimpleNamespace
 
 import numpy as np
@@ -9,14 +10,10 @@ import torch
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.pipeline_processors import h3_blocks, pipeline as pipeline_module
-from dw.pipeline_processors.h3_blocks import (
-    GUIDE_AUDIO_BLOCK,
-    GUIDE_AUDIO_ROWS,
-    GUIDE_CONDITION_BLOCK,
-    GUIDE_LATENTS_BLOCK,
-    GUIDE_LIMIT,
-    RENDER_GRID,
+from dw.pipeline_processors import h3_guides, h3_hold, h3_rules
+from dw.pipeline_processors import pipeline as pipeline_module
+from dw.pipeline_processors.h3_guides import (
+    LAYOUT_ANCHORS,
     default_num_frames,
     fit_guide_frames,
     guide_audio_latents,
@@ -24,20 +21,30 @@ from dw.pipeline_processors.h3_blocks import (
     guide_audio_span,
     guide_audio_waveform,
     guide_blocks,
-    guide_end_problem,
-    guide_frame_problem,
     guide_frames_array,
-    guide_latent_frames,
     guide_position_ids,
     guides_refusal,
-    insert_audio_hold,
     insert_guides,
     layout_anchor_problem,
     pad_guide_audio,
-    snap_guide_length,
     splice_guide_audio_rows,
     splice_guide_rows,
     takes_guides,
+)
+from dw.pipeline_processors.h3_hold import insert_audio_hold
+from dw.pipeline_processors.h3_rules import (
+    GUIDE_AUDIO_BLOCK,
+    GUIDE_AUDIO_ROWS,
+    GUIDE_CONDITION_BLOCK,
+    GUIDE_FRAMES_PER_CHUNK,
+    GUIDE_LATENTS_BLOCK,
+    GUIDE_LATENTS_PER_CHUNK,
+    GUIDE_LIMIT,
+    RENDER_GRID,
+    guide_end_problem,
+    guide_frame_problem,
+    guide_latent_frames,
+    snap_guide_length,
 )
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.variable_constraints import aligned_down
@@ -132,6 +139,44 @@ class TestLengths:
     )
     def test_guide_latent_frames(self, n, latents):
         assert guide_latent_frames(n) == latents
+
+
+def vae_defaults():
+    """The H3 video VAE's config defaults, read off its signature - no weights."""
+    import inspect
+
+    from diffusers import AutoencoderKLMiniMaxH3
+
+    return {
+        name: param.default
+        for name, param in inspect.signature(
+            AutoencoderKLMiniMaxH3.__init__
+        ).parameters.items()
+    }
+
+
+class TestChunkDrift:
+    """The chunk sizes are copies of the installed VAE's temporal geometry."""
+
+    def test_frames_per_chunk_is_the_vae_clip_length(self):
+        assert GUIDE_FRAMES_PER_CHUNK == vae_defaults()["clip_length"]
+
+    def test_latents_per_chunk_is_the_vae_tokens_per_clip(self):
+        # The VAE's own derivation of `tokens_chunk_size`
+        config = vae_defaults()
+        ratio = math.prod(config["temporal_downsample_factors"])
+        assert GUIDE_LATENTS_PER_CHUNK == math.ceil(config["clip_length"] / ratio)
+
+    @pytest.mark.parametrize("chunks", [1, 2, 3, 7])
+    def test_guide_latent_frames_is_the_vae_encode_length(self, chunks):
+        # `_encode` pads to whole clips and drops `token_drop` trailing latents
+        config = vae_defaults()
+        ratio = math.prod(config["temporal_downsample_factors"])
+        n = config["clip_length"] * (chunks - 1) + 5
+        encoded = (
+            chunks * math.ceil(config["clip_length"] / ratio) - config["token_drop"]
+        )
+        assert guide_latent_frames(n) == encoded
 
     @pytest.mark.parametrize("frame", [0, 17, 34, 119])
     def test_aligned_frames_pass(self, frame):
@@ -292,7 +337,7 @@ def fresh(workflow=None):
 def names(pipeline):
     return [
         (prefix, list(sequence.sub_blocks))
-        for prefix, sequence in h3_blocks.core_denoise_sequences(pipeline)
+        for prefix, sequence in h3_hold.core_denoise_sequences(pipeline)
     ]
 
 
@@ -311,7 +356,7 @@ class TestInsert:
         condition = order.index(prefix + GUIDE_CONDITION_BLOCK)
         assert order[condition + 1] == prefix + "prepare_latents"
         assert order[condition + 2] == prefix + GUIDE_LATENTS_BLOCK
-        sequence = h3_blocks.core_denoise_sequences(pipeline)[0][1]
+        sequence = h3_hold.core_denoise_sequences(pipeline)[0][1]
         assert isinstance(
             sequence.sub_blocks[prefix + "prepare_layout"], guide_blocks()[0]
         )
@@ -325,9 +370,9 @@ class TestInsert:
         # hold writes the target rows after the guide's
         assert [n for n in order if n != prefix + GUIDE_AUDIO_BLOCK] == stock[0][1]
         audio = order.index(prefix + GUIDE_AUDIO_BLOCK)
-        assert order[audio + 1] == prefix + h3_blocks.HOLD_BLOCK
+        assert order[audio + 1] == prefix + h3_rules.HOLD_BLOCK
         assert order.index(prefix + "prepare_latents_fl2va") < audio
-        sequence = h3_blocks.core_denoise_sequences(pipeline)[0][1]
+        sequence = h3_hold.core_denoise_sequences(pipeline)[0][1]
         assert isinstance(
             sequence.sub_blocks[prefix + "prepare_layout"], guide_blocks()[0]
         )
@@ -346,7 +391,7 @@ class TestInsert:
         assert insert_guides(pipeline)
         kinds = [
             type(sequence.sub_blocks[prefix + "prepare_layout"]).__name__
-            for prefix, sequence in h3_blocks.core_denoise_sequences(pipeline)
+            for prefix, sequence in h3_hold.core_denoise_sequences(pipeline)
         ]
         assert kinds.count("DwH3GuideLayoutStep") == 2
         assert len(kinds) == 3
@@ -377,6 +422,12 @@ class TestAnchors:
         assert insert_guides(pipeline) is False
         assert names(pipeline) == before
         assert "_frame_position_grid" in guides_refusal(pipeline)
+
+    def test_the_audio_position_helper_is_anchored(self, monkeypatch):
+        # guide_audio_positions imports it from before_denoise
+        assert "_fill_audio_positions" in LAYOUT_ANCHORS
+        monkeypatch.delattr(before_denoise, "_fill_audio_positions")
+        assert layout_anchor_problem() == "_fill_audio_positions"
 
     def test_a_missing_nested_anchor(self, monkeypatch):
         monkeypatch.delattr(Stock, "build_packed_sequence")
@@ -548,9 +599,9 @@ class TestLayoutBlock:
 
     def make_block(self, monkeypatch, seen):
         # The block binds the encoder when the guide blocks are built
-        monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+        monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
         self.encoder(monkeypatch, seen)
-        return h3_blocks.guide_blocks()[0]
+        return h3_guides.guide_blocks()[0]
 
     def test_one_guide_adds_its_rows(self, monkeypatch):
         seen = []
@@ -563,7 +614,7 @@ class TestLayoutBlock:
                 layout_components(),
             )
         finally:
-            monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
         assert seen == [(1, 3, 22, SIDE, SIDE)]
         rows_per_frame = (SIDE // 16 // 2) ** 2
         guide_rows = 7 * rows_per_frame
@@ -592,7 +643,7 @@ class TestLayoutBlock:
             state.set("keyframe_anchors", ("first",))
             state = drive(block(), state, layout_components())
         finally:
-            monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
         latents = state.get("condition_latents")
         assert len(latents) == 2 and latents[0] is marker
         assert latents[1].abs().sum() == 0
@@ -609,7 +660,7 @@ class TestLayoutBlock:
                     layout_components(),
                 )
         finally:
-            monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
         assert seen == []
 
 
@@ -719,7 +770,7 @@ class TestGuideAudioLayout(TestLayoutBlock):
             encoded.append((tuple(waveform.shape), num_latents))
             return torch.full((2, num_latents, AUDIO_C), 5.0)
 
-        monkeypatch.setattr(h3_blocks, "encode_audio_span", encode_span)
+        monkeypatch.setattr(h3_hold, "encode_audio_span", encode_span)
         return self.make_block(monkeypatch, seen)
 
     def run_guides(self, monkeypatch, guides):
@@ -728,7 +779,7 @@ class TestGuideAudioLayout(TestLayoutBlock):
         try:
             state = drive(block(), layout_state(guides), audio_layout_components())
         finally:
-            monkeypatch.setattr(h3_blocks, "_GUIDE_BLOCKS", None)
+            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
         return state, encoded
 
     def test_audio_guide_adds_its_audio_rows(self, monkeypatch):

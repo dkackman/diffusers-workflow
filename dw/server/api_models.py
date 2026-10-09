@@ -279,6 +279,8 @@ class DiffusersStatus(ApiModel):
 
 JobStatus = Literal["queued", "running", "succeeded", "failed", "cancelled"]
 OutputKind = Literal["image", "video", "audio", "text"]
+# An asset library entry may also be a .cube colour lookup table
+AssetKind = Literal["image", "video", "audio", "text", "lut"]
 
 
 class JobSummary(ApiModel):
@@ -782,7 +784,7 @@ class AssetFile(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin = Field(
@@ -799,7 +801,7 @@ class ShadowedAsset(ApiModel):
     name: str
     reference: str
     folder: str
-    kind: OutputKind
+    kind: AssetKind
     size: int
     mtime: int | float
     origin: AssetOrigin
@@ -850,6 +852,8 @@ class PipelineParameter(ApiModel):
     doc_type: str | None = sometimes("The type the docstring names.")
     description: str = sometimes()
     domain: Any = sometimes("The values a task argument may take.")
+    range: str = sometimes("The domain's bounds, in words.")
+    choices: list[str] = sometimes("The values a string task argument accepts.")
 
 
 class PipelineDescription(ApiModel):

@@ -463,7 +463,11 @@ def test_no_stale_entry_in_the_allowlist():
 # Then back to 10_400 when `templates/minimax/upscale-refine` was reverted
 # (#598, stage #664, 2026-10-07): its gate came out no, so the 150 raised
 # for it is given back.
-COMPACT_BUDGET = 10_400
+# Then to 10_550 for the H3 templates' `width`/`height` multiple-of-32 rule
+# (#789, 2026-10-08), measured at 10_543: about 143 tokens across the
+# nineteen templates, the rule the pipeline otherwise raises on only after
+# the weights have loaded.
+COMPACT_BUDGET = 10_550
 FILTERED_BUDGET = 1_500
 
 

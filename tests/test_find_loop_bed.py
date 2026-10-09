@@ -170,6 +170,20 @@ class TestATick:
         )
         assert result["rejected"]["spike"] == 0
 
+    def test_sub_lsb_bed_with_one_step_blips_is_not_a_spike(self):
+        """A median 1 ms peak far below a 16-bit step must not turn a one-step
+        blip into an unbounded ratio that no max_spike_db clears."""
+        rng = numpy.random.default_rng(3)
+        rate = 16000
+        waveform = rng.normal(0.0, 1e-9, rate * 15)
+        blips = rng.choice(waveform.shape[0], size=400, replace=False)
+        waveform[blips] = 2.0**-15
+        result = find_loop_bed(track(waveform, rate), min_seconds=1.0, max_seconds=1.0)
+
+        assert result["rejected"]["spike"] == 0
+        assert result["candidates"]
+        assert result["candidates"][0]["spike_db"] < 12.0
+
     def test_lowering_max_bin_dbfs_below_the_bed_gives_no_candidates(self):
         waveform, _tick_time = self._fixture()
         result = find_loop_bed(track(waveform), max_bin_dbfs=-90.0)

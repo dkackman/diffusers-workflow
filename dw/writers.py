@@ -114,6 +114,11 @@ def frames_for_encoding(frames):
         return list(frames)
     if not isinstance(frames, numpy.ndarray) or frames.size == 0:
         return frames
+    if frames.dtype == numpy.uint8:
+        # Pixel values already (join_windows' output, #695). Handed over as
+        # an array, encode_video would take one whose every value is 0 or 1
+        # - a black clip - for floats in [0, 1] and scale it by 255
+        return torch.from_numpy(frames)
     if not numpy.issubdtype(frames.dtype, numpy.floating):
         return frames
     if float(frames.min()) < 0.0 or float(frames.max()) > 1.0:

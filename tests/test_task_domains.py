@@ -19,6 +19,7 @@ from dw.task_domains import (
     CHANNEL_LEVEL,
     SEED,
     CLOSED_UNIT,
+    FINITE,
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
@@ -78,6 +79,7 @@ class TestTheRegistryNamesRealArguments:
                 AT_LEAST_ONE,
                 CHANNEL_LEVEL,
                 SEED,
+                FINITE,
             }
 
 
@@ -455,6 +457,62 @@ class TestTheDomainIsVisibleOverTheApi:
         parameters = {p["name"]: p for p in describe_task("slice_audio")["parameters"]}
         assert parameters["num_frames"]["range"] == "above zero"
         assert "range" not in parameters["audio"]
+
+
+class TestFaceTrackGrid:
+    """crop_face_track's frame grid is the workflow's to declare (#775)."""
+
+    def test_the_default_multiple_keeps_todays_message(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(crop_size=500) == [
+            (
+                "crop_size",
+                "crop_face_track needs 'crop_size' as a multiple of 32, got 500 - "
+                "the crops feed a video model whose frame size moves in steps of 32",
+            )
+        ]
+
+    @pytest.mark.parametrize("multiple", [32.0, "32"])
+    def test_a_whole_multiple_prints_without_a_fraction(self, multiple):
+        from dw.task_domains import face_track_problems
+
+        [(_, message)] = face_track_problems(crop_size=48, multiple=multiple)
+        assert "multiple of 32," in message and "steps of 32" in message
+
+    def test_a_declared_multiple_replaces_the_default(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(crop_size=48, multiple=16) == []
+        assert face_track_problems(crop_size=48) != []
+
+    def test_remainder_must_be_below_modulus(self):
+        from dw.task_domains import face_track_problems
+
+        [(name, message)] = face_track_problems(modulus=4, remainder=4)
+        assert name == "remainder"
+        assert message == "crop_face_track needs 'remainder' (4) below 'modulus' (4)"
+        assert face_track_problems(modulus=16, remainder=0) == []
+
+    def test_what_the_domain_check_owns_is_skipped(self):
+        from dw.task_domains import face_track_problems
+
+        assert face_track_problems(modulus=0, remainder=3) == []
+        assert face_track_problems(modulus=8, remainder=-1) == []
+        assert face_track_problems(crop_size=48, multiple=0) == []
+
+
+def test_transcript_problem_lives_in_task_domains_and_names_plan_cuts():
+    from dw.task_domains import transcript_problem
+
+    assert transcript_problem({"chunks": []}) is None
+    assert transcript_problem("plain").startswith(
+        "plan_cuts needs a timestamped transcript - {text, chunks: "
+    )
+    assert transcript_problem({"text": "x"}).startswith(
+        "plan_cuts's 'transcript' has no 'chunks' list"
+    )
+    assert transcript_problem(3).endswith("not int")
 
 
 if __name__ == "__main__":

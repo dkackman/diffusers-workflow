@@ -29,8 +29,9 @@ arguments; prompt format is MiniMax's, from its text not here.
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
-  `t2va`/`fl2va` - up to 4 clips, each at a `frame` that is a
-  multiple of 17. A guide holds look as well as motion: a full-length one
+  `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
+  `frame` that is a multiple of 17; the VRAM ceiling charges each
+  guide's frames on the canvas. A guide holds look as well as motion: a full-length one
   copies the take, and a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
@@ -48,9 +49,12 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
-  (last-frame continuity; `continuity: "guide"`, `guide_frames` 22 or 39,
-  holds the last frames and voice as a guide instead - not on the ref2va
-  chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
+  (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
+  22 or 39 - default 22 - holds the last frames and voice as a guide instead.
+  The guide prefix is trimmed off again, so the deliverable carries no
+  repeated frames. `carry_audio` (default true, a chain-block setting the
+  template does not expose as a variable) is what brings the voice with the
+  guide. Not on the ref2va chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
   sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`

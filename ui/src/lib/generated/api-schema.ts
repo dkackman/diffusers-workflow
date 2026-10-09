@@ -1713,7 +1713,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */
@@ -2695,6 +2695,11 @@ export interface components {
             /** Annotation */
             annotation: string | null;
             /**
+             * Choices
+             * @description The values a string task argument accepts.
+             */
+            choices?: string[];
+            /**
              * Default
              * @description Null when there is none; see `required`.
              */
@@ -2713,6 +2718,11 @@ export interface components {
             domain?: unknown;
             /** Name */
             name: string;
+            /**
+             * Range
+             * @description The domain's bounds, in words.
+             */
+            range?: string;
             /** Required */
             required: boolean;
         };
@@ -2960,7 +2970,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "image" | "video" | "audio" | "text";
+            kind: "image" | "video" | "audio" | "text" | "lut";
             /** Mtime */
             mtime: number;
             /** Name */

@@ -4,6 +4,12 @@ The `jobs` table has a `workspace` column; a database that predates it gets
 the column added and every existing row backfilled to `default`, since
 history that cannot say which workspace a job ran in stops making sense once
 there are two.
+
+The card a job ran on is three columns: `device`, the label every reader
+returns (`"cuda:1 NVIDIA GeForce RTX 3090"`), and `device_ordinal`/
+`device_card`, the same card as the two fields rerun affinity and observed
+cost read (#693). A database that predates the two gets them backfilled from
+`device` in SQL when it is first opened, so no reader parses the label.
 """
 
 import json
@@ -114,6 +120,27 @@ class JobHistory:
             # card has been swapped
             if "device" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN device TEXT")
+            # The same card as two fields - its ordinal ("cuda:1") and its
+            # name ("NVIDIA GeForce RTX 3090") - so rerun affinity and
+            # observed cost read them rather than parse `device` (#693).
+            # `device` stays the label every reader returns. Rows before the
+            # columns are backfilled from it once, in SQL: an ordinal never
+            # holds a space, so the label splits at its first one, and a
+            # label with none (`cpu`, `mps`) is all ordinal with no card
+            if "device_ordinal" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN device_ordinal TEXT")
+            if "device_card" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN device_card TEXT")
+            if "device_ordinal" not in columns or "device_card" not in columns:
+                connection.execute(
+                    "UPDATE jobs SET"
+                    " device_ordinal = CASE WHEN INSTR(device, ' ') > 0"
+                    " THEN SUBSTR(device, 1, INSTR(device, ' ') - 1)"
+                    " ELSE device END,"
+                    " device_card = CASE WHEN INSTR(device, ' ') > 0"
+                    " THEN SUBSTR(device, INSTR(device, ' ') + 1) END"
+                    " WHERE device IS NOT NULL"
+                )
 
     def _connect(self):
         # WAL mode lets a reader (the web UI polling job status, an MCP
@@ -136,8 +163,9 @@ class JobHistory:
                 " started_at, finished_at, arguments, spec, manifest, warnings,"
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb, run_version, device) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " host_memory_job_peak_rss_mb, run_version, device,"
+                " device_ordinal, device_card) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -164,6 +192,8 @@ class JobHistory:
                     getattr(job, "host_memory_job_peak_rss_mb", None),
                     getattr(job, "run_version", None),
                     getattr(job, "device", None),
+                    getattr(job, "device_ordinal", None),
+                    getattr(job, "device_card", None),
                 ),
             )
 
@@ -228,6 +258,15 @@ class JobHistory:
             ).fetchone()
         return self._to_detail(row) if row else None
 
+    def device_ordinal(self, job_id):
+        """The ordinal of the card a finished job ran on ('cuda:1'), or None
+        for a job that never ran or that history has never seen."""
+        with self._lock, self._connect() as connection:
+            row = connection.execute(
+                "SELECT device_ordinal FROM jobs WHERE id = ?", (job_id,)
+            ).fetchone()
+        return row[0] if row else None
+
     def watermark(self):
         """How far the table has got - what a derived figure caches against.
 
@@ -272,8 +311,8 @@ class JobHistory:
                 "SELECT workflow_name, workspace, started_at, finished_at,"
                 " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb, device"
-                " FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
+                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb, device,"
+                " device_ordinal, device_card FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
             ).fetchall()
@@ -290,6 +329,8 @@ class JobHistory:
             peak_rss_mb,
             job_peak_rss_mb,
             device,
+            ordinal,
+            card,
         ) in rows:
             key = (workspace or DEFAULT_WORKSPACE_NAME, name)
             grouped.setdefault(key, []).append(
@@ -304,6 +345,8 @@ class JobHistory:
                     "host_memory_peak_rss_mb": peak_rss_mb,
                     "host_memory_job_peak_rss_mb": job_peak_rss_mb,
                     "device": device,
+                    "device_ordinal": ordinal,
+                    "device_card": card,
                 }
             )
         return grouped

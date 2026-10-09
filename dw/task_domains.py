@@ -30,8 +30,10 @@ it is not a bolder version of the effect, just an unmodelled one (#349).
 """
 
 import logging
+import math
 import numbers
 import re
+from fractions import Fraction
 
 from .references import (
     DEFERRED,
@@ -41,6 +43,7 @@ from .references import (
     is_ref,
     render_path,
 )
+from .tasks.registry import RegistryTable
 
 logger = logging.getLogger("dw")
 
@@ -71,6 +74,10 @@ CHANNEL_LEVEL = "channel_level"
 # whole number at or above zero, so anything else would fail the run after
 # it was queued (#634)
 SEED = "seed"
+# Any finite number - grade's exposure, a gain in dB. No range is the
+# command's documented rule, but the value is still a number, so it is read
+# and refused by the same rule as every other numeric argument (#774)
+FINITE = "finite"
 
 _DOMAIN_TEXT = {
     POSITIVE: "above zero",
@@ -81,6 +88,7 @@ _DOMAIN_TEXT = {
     AT_LEAST_ONE: "1 or above",
     CHANNEL_LEVEL: "between 0 and 255",
     SEED: "a whole number, 0 or above",
+    FINITE: "a finite number",
 }
 
 _SCALE_REASON = (
@@ -98,206 +106,32 @@ _DEFAULT_REASON = (
     "documented range"
 )
 
-# command -> argument -> domain. Every entry here is pinned to a real command
-# and a real parameter of it by tests/test_task_domains.py, so a renamed
-# argument cannot leave a domain checking nothing
-TASK_ARGUMENT_DOMAINS = {
-    "slice_audio": {
-        "start_seconds": NON_NEGATIVE,
-        "duration_seconds": POSITIVE,
-        "start_frame": NON_NEGATIVE,
-        "lead_frames": SEED,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "gain_audio": {
-        "start_seconds": NON_NEGATIVE,
-        "duration_seconds": POSITIVE,
-        "start_frame": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "resample_audio": {
-        "target_sample_rate": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "loop_audio": {
-        "duration_seconds": POSITIVE,
-        "target_frames": POSITIVE,
-        "fps": POSITIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "find_loop_bed": {
-        "start_seconds": NON_NEGATIVE,
-        "end_seconds": POSITIVE,
-        "min_seconds": POSITIVE,
-        "max_seconds": POSITIVE,
-        "max_bin_dbfs": NON_POSITIVE,
-        "max_mean_dbfs": NON_POSITIVE,
-        "max_spike_db": NON_NEGATIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "loop_seconds": POSITIVE,
-        "target_bed_dbfs": NON_POSITIVE,
-        "max_candidates": POSITIVE,
-        "fps": POSITIVE,
-    },
-    "fade_audio": {
-        "fade_in_ms": NON_NEGATIVE,
-        "fade_out_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "normalize_audio": {
-        "sample_rate": POSITIVE,
-        "target_lufs": NON_POSITIVE,
-    },
-    "crossfade_audio": {
-        "crossfade_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "mix_audio": {"gains": NON_NEGATIVE, "sample_rate": POSITIVE},
-    "pair_audio": {"sample_rate": POSITIVE},
-    "concat_videos": {
-        "trim_frames": NON_NEGATIVE,
-        "crossfade_ms": NON_NEGATIVE,
-        "audio_bleed_ms": NON_NEGATIVE,
-        "seam_fade_ms": NON_NEGATIVE,
-        "fps": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "join_into_song": {
-        "cue_seconds": NON_NEGATIVE,
-        "duck_delay_ms": NON_NEGATIVE,
-        "duck_db": NON_POSITIVE,
-        "duck_ramp_ms": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "loop_frames": {"num_frames": POSITIVE},
-    "window_video": {
-        "index": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "overlap": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "trim_video": {
-        "start_frame": NON_NEGATIVE,
-        "num_frames": POSITIVE,
-        "fps": POSITIVE,
-    },
-    "join_windows": {"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
-    "fit_to_model": {
-        "width": POSITIVE,
-        "height": POSITIVE,
-        "num_frames": POSITIVE,
-        "downscale": POSITIVE,
-    },
-    "upscale_h3_latents": {"width": POSITIVE, "height": POSITIVE},
-    "frame_grid": {"count": POSITIVE, "columns": POSITIVE, "tile_width": POSITIVE},
-    "ingredients_grid": {
-        "width": POSITIVE,
-        "height": POSITIVE,
-        "gap": NON_NEGATIVE,
-        "max_images": POSITIVE,
-    },
-    "dissolve_videos": {
-        "dissolve_frames": NON_NEGATIVE,
-        "fade_in_frames": NON_NEGATIVE,
-        "fade_out_frames": NON_NEGATIVE,
-        "fps": POSITIVE,
-    },
-    "compress_audio": {
-        "ratio": POSITIVE,
-        "attack_ms": NON_NEGATIVE,
-        "release_ms": NON_NEGATIVE,
-        "sample_rate": POSITIVE,
-    },
-    "filter_audio": {
-        "cutoff_hz": POSITIVE,
-        "sample_rate": POSITIVE,
-    },
-    "analyze_audio": {"sample_rate": POSITIVE},
-    "attribute_voices": {
-        "window_seconds": POSITIVE,
-        "min_reference_seconds": POSITIVE,
-    },
-    "check_script": {"similarity": UNIT},
-    "grade": {
-        "contrast": NON_NEGATIVE,
-        "saturation": NON_NEGATIVE,
-        "temperature": CLOSED_UNIT,
-        "tint": CLOSED_UNIT,
-        "highlights": CLOSED_UNIT,
-        "shadows": CLOSED_UNIT,
-        "whites": CLOSED_UNIT,
-        "blacks": CLOSED_UNIT,
-        "clarity": CLOSED_UNIT,
-        "vignette": CLOSED_UNIT,
-        "fade": UNIT,
-    },
-    "sharpen": {
-        "amount": NON_NEGATIVE,
-        "radius": POSITIVE,
-        "threshold": CHANNEL_LEVEL,
-    },
-    "apply_lut": {"strength": UNIT},
-    "film_grain": {
-        "amount": UNIT,
-        "size": AT_LEAST_ONE,
-        "chroma": UNIT,
-        "seed": SEED,
-    },
-    "crop_face_track": {
-        "crop_size": POSITIVE,
-        "padding": NON_NEGATIVE,
-        "gate_full": POSITIVE,
-        "gate_zero": POSITIVE,
-        "min_confidence": POSITIVE,
-    },
-    "paste_face_track": {
-        "feather": NON_NEGATIVE,
-    },
-    "analyze_beats": {
-        "sample_rate": POSITIVE,
-        "tempo_bpm": POSITIVE,
-        "min_bpm": POSITIVE,
-        "max_bpm": POSITIVE,
-    },
-    "plan_cuts": {
-        "fps": POSITIVE,
-        "duration_s": POSITIVE,
-        "min_scene_s": NON_NEGATIVE,
-        "max_scene_s": POSITIVE,
-        "vocal_tail_s": NON_NEGATIVE,
-        "min_gap_seconds": NON_NEGATIVE,
-        "modulus": POSITIVE,
-        "remainder": NON_NEGATIVE,
-        "min_frames": POSITIVE,
-        "max_frames": POSITIVE,
-        "lead_s": NON_NEGATIVE,
-    },
-}
+# command -> argument -> domain, declared on each command's registration
+# (`register_command(domains=...)`, dw/tasks/registry.py) and read here as a
+# view. Every entry is pinned to a real command and a real parameter of it by
+# tests/test_task_domains.py, so a renamed argument cannot leave a domain
+# checking nothing
+TASK_ARGUMENT_DOMAINS = RegistryTable("domains")
 
 
-# command -> argument -> the literal values it accepts. Owned here so the
-# command's run-time refusal and the static pass read one list
+# The literal values an argument accepts, for the commands whose run-time
+# refusal and static pass read one list
 INGREDIENTS_LAYOUTS = ("auto", "rows", "panels")
 INGREDIENTS_FITS = ("contain", "cover")
 # How fit_to_model puts a source into the model's frame (#602)
 FIT_MODES = ("letterbox", "stretch", "crop")
 JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
-TASK_ARGUMENT_CHOICES = {
-    "fit_to_model": {"mode": FIT_MODES},
-    "join_windows": {"curve": JOIN_WINDOWS_CURVES},
-    "ingredients_grid": {
-        "layout": INGREDIENTS_LAYOUTS,
-        "fit": INGREDIENTS_FITS,
-    },
-    "plan_cuts": {
-        "segment_by": ("line", "stanza", "beat"),
-    },
-}
+# Declared on each registration (`register_command(choices=...)`)
+TASK_ARGUMENT_CHOICES = RegistryTable("choices")
+# command -> its cross-argument check, `arguments -> [(argument, message)]`
+# (`register_command(static_check=...)`) - the rules below, which
+# task_argument_errors runs on each step of the command
+TASK_STATIC_CHECKS = RegistryTable("static_check")
+# command -> the arguments it reads as whole numbers
+# (`register_command(whole_numbers=...)`); every other argument with a domain
+# is a real number. `whole_number` and `real_number` below read each kind at
+# run time, and the static pass refuses what they would
+TASK_WHOLE_NUMBER_ARGUMENTS = RegistryTable("whole_numbers")
 INGREDIENTS_DEFAULT_MAX_IMAGES = 12
 
 
@@ -361,17 +195,27 @@ def ingredients_grid_errors(arguments):
 
 
 # crop_face_track's rules past a plain domain. The crop feeds a video model
-# whose latent grid is 32 pixels, the padding is a multiple of the face's own
-# size added on each side, and the gate is a ramp from gate_full to gate_zero,
-# so the two must be in that order. Owned here so the static pass and the
-# command's run-time refusal read one rule
+# whose frame size and count move on a grid the workflow declares (modulus,
+# remainder and multiple; the defaults are LTX's 8n+1 and 32 pixels), the
+# padding is a multiple of the face's own size added on each side, and the gate
+# is a ramp from gate_full to gate_zero, so the two must be in that order.
+# Owned here so the static pass and the command's run-time refusal read one rule
+FACE_CROP_MODULUS = 8
+FACE_CROP_REMAINDER = 1
 FACE_CROP_MULTIPLE = 32
 FACE_PADDING_MAX = 3.0
 FACE_DETECTOR_SUFFIX = ".onnx"
 
 
 def face_track_problems(
-    crop_size=None, padding=None, gate_full=None, gate_zero=None, min_confidence=None
+    crop_size=None,
+    padding=None,
+    gate_full=None,
+    gate_zero=None,
+    min_confidence=None,
+    modulus=FACE_CROP_MODULUS,
+    remainder=FACE_CROP_REMAINDER,
+    multiple=FACE_CROP_MULTIPLE,
 ):
     """[(argument, message)] for each crop_face_track rule these values break.
 
@@ -380,17 +224,36 @@ def face_track_problems(
     """
     problems = []
     size = as_number(crop_size)
-    if size is not None and size > 0:
-        if size != int(size) or int(size) % FACE_CROP_MULTIPLE:
+    step = as_number(multiple)
+    if step is not None and (step <= 0 or step != int(step)):
+        step = None
+    if size is not None and size > 0 and step is not None:
+        step = int(step)
+        if size != int(size) or int(size) % step:
             problems.append(
                 (
                     "crop_size",
                     f"crop_face_track needs 'crop_size' as a multiple of "
-                    f"{FACE_CROP_MULTIPLE}, got {crop_size!r} - the crops feed a "
+                    f"{step}, got {crop_size!r} - the crops feed a "
                     f"video model whose frame size moves in steps of "
-                    f"{FACE_CROP_MULTIPLE}",
+                    f"{step}",
                 )
             )
+    mod, rem = as_number(modulus), as_number(remainder)
+    if (
+        mod is not None
+        and rem is not None
+        and mod == int(mod)
+        and rem == int(rem)
+        and 0 < mod <= rem
+    ):
+        problems.append(
+            (
+                "remainder",
+                f"crop_face_track needs 'remainder' ({int(rem)}) below "
+                f"'modulus' ({int(mod)})",
+            )
+        )
     pad = as_number(padding)
     if pad is not None and pad > FACE_PADDING_MAX:
         problems.append(
@@ -471,12 +334,23 @@ def check_face_detector_source(repo, filename):
 
 def face_track_errors(arguments):
     """[(argument, message)] for the crop_face_track rules a literal workflow
-    can break before it runs: the crop, padding and gate rules, and a detector
-    source that is not a Hub repo and an .onnx file."""
+    can break before it runs: the crop, padding, gate and frame-grid rules, and
+    a detector source that is not a Hub repo and an .onnx file."""
+    # A deferred value is passed through, not dropped: as_number reads it as
+    # no number, so its rules are skipped instead of run against a default
     literal = {
-        name: arguments.get(name)
-        for name in ("crop_size", "padding", "gate_full", "gate_zero", "min_confidence")
-        if not is_ref(DEFERRED, arguments.get(name))
+        name: arguments[name]
+        for name in (
+            "crop_size",
+            "padding",
+            "gate_full",
+            "gate_zero",
+            "min_confidence",
+            "modulus",
+            "remainder",
+            "multiple",
+        )
+        if name in arguments
     }
     errors = face_track_problems(**literal)
     from .locations import validate_hub_repo_id, validate_weight_name
@@ -615,6 +489,34 @@ def beats_errors(arguments):
     return beats_problems(**literal)
 
 
+def transcript_problem(transcript):
+    """Why this transcript can't be planned from, or None. A bare string is
+    text without timings - the commonest mistake, so it is named."""
+    if isinstance(transcript, str):
+        return (
+            "plan_cuts needs a timestamped transcript - {text, chunks: "
+            "[{start, end, text}]}, not plain text: run transcribe_audio with "
+            "'timestamps': \"segment\" (Whisper's return_timestamps), its "
+            "result's content_type application/json"
+        )
+    if isinstance(transcript, dict):
+        chunks = transcript.get("chunks")
+        if not isinstance(chunks, list):
+            return (
+                "plan_cuts's 'transcript' has no 'chunks' list - run "
+                "transcribe_audio with 'timestamps' set (Whisper's "
+                "return_timestamps) for the {text, chunks} shape"
+            )
+        return None
+    if isinstance(transcript, list):
+        return None
+    return (
+        "plan_cuts's 'transcript' is a {text, chunks} dict from "
+        "transcribe_audio with 'timestamps' set (Whisper's return_timestamps), "
+        f"not {type(transcript).__name__}"
+    )
+
+
 def cuts_problems(
     transcript=None,
     segment_by=None,
@@ -629,11 +531,8 @@ def cuts_problems(
     """[(argument, message)] for each plan_cuts rule these values break: a
     transcript that is plain text (no timings), a scene range that is empty,
     cutting by beat with no beats, and a render grid (modulus, remainder,
-    min_frames, max_frames) that is not whole numbers, has a remainder with no
-    modulus or past it, or leaves no length a shot could render at. A
+    min_frames, max_frames) that has a remainder with no modulus or past it, or leaves no length a shot could render at. A
     reference is skipped - only the run has its value."""
-    from .tasks.cuts import transcript_problem
-
     problems = []
     if transcript is not None and not is_ref(DEFERRED, transcript):
         problem = transcript_problem(transcript)
@@ -661,7 +560,8 @@ def cuts_problems(
 
 def grid_problems(modulus, remainder, min_frames, max_frames):
     """[(argument, message)] for the plan_cuts render grid rules these values
-    break. A value that is absent or not a number is skipped."""
+    break. A value that is absent or not a whole number is skipped -
+    `domain_violation` refuses the second."""
     problems = []
     whole = {}
     modulus_given = modulus is not None
@@ -671,17 +571,9 @@ def grid_problems(modulus, remainder, min_frames, max_frames):
         ("min_frames", min_frames),
         ("max_frames", max_frames),
     ):
+        # A fractional value is the shared whole-number check's to report
         number = as_number(value)
-        if number is None:
-            continue
-        if number != int(number):
-            problems.append(
-                (
-                    name,
-                    f"plan_cuts needs a whole number of frames for '{name}', got {value!r}",
-                )
-            )
-        else:
+        if number is not None and number == int(number):
             whole[name] = int(number)
     modulus, remainder = whole.get("modulus"), whole.get("remainder")
     low, high = whole.get("min_frames"), whole.get("max_frames")
@@ -880,30 +772,123 @@ def in_domain(value, domain):
         return 0.0 <= number <= 255.0
     if domain == SEED:
         return number >= 0 and number.is_integer()
+    if domain == FINITE:
+        return True
     return number >= 0
 
 
 def as_number(value):
-    """A value as a float if it is one, else None.
+    """A value as a float if it is a finite number, else None.
 
     A workflow variable declared null carries no type, so a number supplied
     for it on the command line arrives as a string - the tasks coerce those
-    (`coerce_number` in audio_utils), so this reads them too. Booleans are not
-    numbers here whatever Python thinks, and a `variable:`/`item:`/
-    `previous_result:` string is somebody else's complaint.
+    (`whole_number` and `real_number` below), so this reads them too.
+    Booleans are not numbers here whatever Python thinks, inf and nan are not
+    measurable, and a `variable:`/`item:`/`previous_result:` string is
+    somebody else's complaint.
     """
     if isinstance(value, bool) or value is None:
         return None
     # numbers.Real rather than (int, float): an fps is coerced to a Fraction
     # before it is checked, so an exact 24000/1001 stays exact
     if isinstance(value, numbers.Real):
-        return float(value)
-    if isinstance(value, str):
+        number = float(value)
+    elif isinstance(value, str):
         try:
-            return float(value)
+            number = float(value)
         except ValueError:
             return None
+    else:
+        return None
+    return number if math.isfinite(number) else None
+
+
+# The one numeric coercion in dw/tasks/ (#692). Before it there were five
+# idioms that disagreed: plan_cuts took "3.0" for a frame count where
+# window_video, trim_video and fit_to_model refused 3.0, slice_audio's let
+# True through as 1, and analyze_beats truncated a sample_rate of "3.5" to 3.
+# `number_problem` is the rule; the two readers raise it at run time, and the
+# static pass (`domain_violation`) reports it, so the two cannot disagree.
+
+
+def number_problem(value, name, command, whole=False):
+    """The refusal sentence for a value that is not a number of its kind, or
+    None - None for a value that is one, for None itself (an argument left
+    out), and for a reference string, which is resolved before the run.
+
+    A number is an int, a float or a numeric string, finite, and not a bool.
+    A whole number is one with an integral value: 3, 3.0, "3" and "3.0", but
+    not 3.5, "3.5" or True.
+    """
+    if value is None or (isinstance(value, str) and is_ref(DEFERRED, value)):
+        return None
+    kind = "a whole number" if whole else "a number"
+    refusal = f"{command} needs {kind} for '{name}', got {value!r}"
+    if isinstance(value, bool):
+        return refusal
+    if isinstance(value, numbers.Real):
+        number = value
+    elif isinstance(value, str):
+        try:
+            number = float(value)
+        except ValueError:
+            return refusal
+    else:
+        return refusal
+    if not math.isfinite(number):
+        return (
+            f"{command} needs a finite whole number for '{name}', got {value!r}"
+            if whole
+            else f"{command} needs a finite number for '{name}', got {value!r}"
+        )
+    if whole and number != int(number):
+        return refusal
     return None
+
+
+def _required(value, name, command, kind):
+    if value is None:
+        raise ValueError(f"{command} needs {kind} for '{name}', got None")
+
+
+def whole_number(value, name, command, required=False):
+    """A whole-number task argument as an int; None stays None unless
+    `required`. Raises ValueError, naming the argument, for anything
+    `number_problem` refuses."""
+    if required:
+        _required(value, name, command, "a whole number")
+    if value is None:
+        return None
+    problem = number_problem(value, name, command, whole=True)
+    if problem is not None:
+        raise ValueError(problem)
+    if isinstance(value, numbers.Integral):
+        return int(value)
+    if isinstance(value, str):
+        try:
+            return int(value)
+        except ValueError:
+            return int(float(value))
+    return int(value)
+
+
+def real_number(value, name, command, required=False, exact=False):
+    """A real-number task argument; None stays None unless `required`.
+
+    A number is handed back as it came - an int stays an int - and a numeric
+    string as a float, or with `exact` as a Fraction, so a frame rate written
+    "23.976" keeps its decimal value. Raises ValueError, naming the argument,
+    for anything `number_problem` refuses."""
+    if required:
+        _required(value, name, command, "a number")
+    if value is None:
+        return None
+    problem = number_problem(value, name, command)
+    if problem is not None:
+        raise ValueError(problem)
+    if isinstance(value, str):
+        return Fraction(value) if exact else float(value)
+    return value
 
 
 def _is_literal_text(value):
@@ -931,21 +916,30 @@ def domain_text(domain):
     return _DOMAIN_TEXT[domain]
 
 
-def domain_violation(command, name, value, domain):
-    """(index, message) for the first out-of-domain element, or None if all
-    are fine. index is None when the argument itself is the scalar checked
-    rather than one entry of a list.
+def domain_violation(command, name, value, domain, whole=False):
+    """(index, message) for the first element that is not a number of its
+    kind (`number_problem`, a whole one when `whole`) or is out of domain, or
+    None if all are fine. index is None when the argument itself is the
+    scalar checked rather than one entry of a list.
 
     Shared by the static pass and the commands' own run-time guards so the
     two cannot word the same refusal differently.
     """
     for index, item in _domain_candidates(value):
         label = f"{name}[{index}]" if index is not None else name
-        if _is_literal_text(item):
+        # FINITE has no range to name, so number_problem's sentence says it
+        if (
+            domain != FINITE
+            and _is_literal_text(item)
+            and not _is_non_finite_text(item)
+        ):
             return index, (
                 f"{command} needs '{label}' to be a number "
                 f"({_DOMAIN_TEXT[domain]}), got {item!r}."
             )
+        problem = number_problem(item, label, command, whole)
+        if problem is not None:
+            return index, problem
         if in_domain(item, domain):
             continue
         reason = _DOMAIN_REASON.get(domain, _DEFAULT_REASON)
@@ -956,9 +950,18 @@ def domain_violation(command, name, value, domain):
     return None
 
 
-def domain_error(command, name, value, domain):
+def _is_non_finite_text(value):
+    """ "inf" or "nan" - a number to float(), and refused as not a finite one
+    rather than as not a number at all."""
+    try:
+        return not math.isfinite(float(value))
+    except (TypeError, ValueError):
+        return False
+
+
+def domain_error(command, name, value, domain, whole=False):
     """The message for one out-of-domain argument, or None if it is fine."""
-    violation = domain_violation(command, name, value, domain)
+    violation = domain_violation(command, name, value, domain, whole)
     return None if violation is None else violation[1]
 
 
@@ -972,9 +975,59 @@ def check_argument(command, name, value):
     domain = TASK_ARGUMENT_DOMAINS.get(command, {}).get(name)
     if domain is None:
         return
-    message = domain_error(command, name, value, domain)
+    whole = name in TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
+    message = domain_error(command, name, value, domain, whole)
     if message is not None:
         raise ValueError(message)
+
+
+def _read_number(value, name, command, whole):
+    """One argument (or one list entry) read as its kind: what Task.run
+    hands the command instead of a numeric string."""
+    if isinstance(value, str) and is_ref(DEFERRED, value):
+        return value
+    if whole:
+        return whole_number(value, name, command)
+    if not isinstance(value, str):
+        return real_number(value, name, command)
+    # A string reads as the number it spells: "24" is the int 24 (a
+    # sample_rate some readers need as an int), and a frame rate stays
+    # exact - "23.976" is 2997/125, not the float nearest it
+    number = real_number(value, name, command, exact=True)
+    if number.denominator == 1:
+        return int(number)
+    return number if name == "fps" else float(number)
+
+
+def coerce_arguments(command, arguments):
+    """The arguments with every one that has a declared domain read as its
+    kind - `whole_number` for the command's whole-number arguments,
+    `real_number` for the rest, a list one entry at a time - so a numeric
+    string from an untyped variable reaches the command as a number.
+
+    Run by Task.run before the command's handler, so no handler has to
+    remember to coerce; it raises the static pass's own refusal for a value
+    that is no number of its kind. A reference string is left for the
+    command (it is resolved before the run). The range is not checked here:
+    that stays with each command's `check_arguments`.
+    """
+    domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+    if not domains:
+        return arguments
+    wholes = TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
+    coerced = dict(arguments)
+    for name, value in arguments.items():
+        if name not in domains or value is None:
+            continue
+        whole = name in wholes
+        if isinstance(value, list):
+            coerced[name] = [
+                _read_number(item, f"{name}[{index}]", command, whole)
+                for index, item in enumerate(value)
+            ]
+        else:
+            coerced[name] = _read_number(value, name, command, whole)
+    return coerced
 
 
 def check_arguments(command, **values):
@@ -1007,8 +1060,10 @@ def task_argument_errors(workflow_definition, source_indices=None):
         arguments = task.get("arguments")
         if not isinstance(command, str) or not isinstance(arguments, dict):
             continue
-        domains = TASK_ARGUMENT_DOMAINS.get(command)
-        if not domains:
+        domains = TASK_ARGUMENT_DOMAINS.get(command, {})
+        wholes = TASK_WHOLE_NUMBER_ARGUMENTS.get(command, ())
+        static_check = TASK_STATIC_CHECKS.get(command)
+        if not domains and static_check is None:
             continue
         source = author_index(source_indices, index)
         name = step.get("name")
@@ -1020,7 +1075,9 @@ def task_argument_errors(workflow_definition, source_indices=None):
         for key, domain in domains.items():
             if key not in arguments:
                 continue
-            violation = domain_violation(command, key, arguments[key], domain)
+            violation = domain_violation(
+                command, key, arguments[key], domain, key in wholes
+            )
             if violation is None:
                 continue
             element_index, message = violation
@@ -1030,27 +1087,17 @@ def task_argument_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(path),
-                    "message": f"{message}{where}.",
+                    "message": f"{message.rstrip('.')}{where}.",
                 }
             )
-        extra = {
-            "ingredients_grid": ingredients_grid_errors,
-            "crop_face_track": face_track_errors,
-            "paste_face_track": paste_face_track_errors,
-            "analyze_beats": beats_errors,
-            "plan_cuts": cuts_errors,
-            "window_video": window_video_errors,
-            "join_windows": join_windows_errors,
-            "fit_to_model": fit_to_model_errors,
-            "slice_audio": slice_audio_errors,
-            "apply_lut": lut_errors,
-            "check_script": script_lines_errors,
-        }.get(command)
-        if extra is not None:
-            for key, message in extra(arguments):
+        if static_check is not None:
+            for key, message in static_check(arguments):
                 path = ("steps", source, "task", "arguments", key)
                 errors.append(
-                    {"path": render_path(path), "message": f"{message}{where}."}
+                    {
+                        "path": render_path(path),
+                        "message": f"{message.rstrip('.')}{where}.",
+                    }
                 )
     return errors
 
@@ -1137,16 +1184,16 @@ def window_video_errors(arguments, command="window_video"):
     break before it runs: an overlap that is not below the window length.
     Whether `index` falls inside the source needs the source's frame count,
     which is the run's to measure."""
-    num_frames = arguments.get("num_frames")
-    overlap = arguments.get("overlap")
-    for value in (num_frames, overlap):
-        if (
-            isinstance(value, bool)
-            or not isinstance(value, numbers.Integral)
-            or value < 0
-        ):
+    counts = []
+    for name in ("num_frames", "overlap"):
+        value = arguments.get(name)
+        if number_problem(value, name, command, whole=True) or is_ref(DEFERRED, value):
             return []
-    problem = window_overlap_problem(num_frames, overlap, command)
+        number = as_number(value)
+        if number is None or number < 0:
+            return []
+        counts.append(int(number))
+    problem = window_overlap_problem(*counts, command)
     return [] if problem is None else [("overlap", problem)]
 
 
@@ -1224,22 +1271,10 @@ def fit_downscale_problem(width, height, downscale):
 
 def fit_to_model_errors(arguments):
     """[(argument, message)] for the fit_to_model rules a literal workflow
-    can break before it runs: an unknown `mode`, a size, frame count or
-    downscale that is a number but not a whole one (the domains catch zero
-    and negatives), and a size the downscale does not divide."""
+    can break before it runs: an unknown `mode` and a size the downscale does
+    not divide. A size, frame count or downscale that is not a whole number
+    is the shared whole-number check's (`domain_violation`) to refuse."""
     errors = choice_errors("fit_to_model", arguments)
-    for name in ("width", "height", "num_frames", "downscale"):
-        value = arguments.get(name)
-        number = as_number(value)
-        if (
-            number is not None
-            and number > 0
-            and not number.is_integer()
-            and not is_ref(DEFERRED, value)
-        ):
-            errors.append(
-                (name, f"fit_to_model needs '{name}' as a whole number, got {value!r}")
-            )
     sizes = [as_number(arguments.get(name)) for name in ("width", "height")]
     downscale = as_number(arguments.get("downscale", 1))
     if not errors and all(

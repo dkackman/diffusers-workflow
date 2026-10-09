@@ -185,6 +185,10 @@ def concat_videos(
                 # recorded beside hard_cut so analyze_seams can tell a
                 # requested dip from a fault (#659)
                 shots[first_shot[index]].update(applied)
+                if "audio_bleed_ms" in applied:
+                    # A bled seam is no butt join: it records the bleed it
+                    # got instead of hard_cut (#783)
+                    shots[first_shot[index]].pop("hard_cut", None)
         audio_native_rate = getattr(video, "sample_rate", None)
 
     _warn_fps_override(videos, names, fps)

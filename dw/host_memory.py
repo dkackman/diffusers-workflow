@@ -25,6 +25,7 @@ __all__ = [
     "release_host_caches",
     "pinned_host_memory_fields",
     "process_rss_mb",
+    "rss_split_mb",
 ]
 
 _MB = 1024.0 * 1024.0
@@ -169,15 +170,46 @@ FIELD_NAMES = {
 }
 
 
+SPLIT_FIELD_NAMES = {
+    "anon_mb": "host_memory_rss_anon_mb",
+    "file_mb": "host_memory_rss_file_mb",
+}
+
+
+def rss_split_mb(status_path="/proc/self/status"):
+    """This process's resident set split into `anon_mb` (heap and tensors the
+    process owns - committed memory) and `file_mb` (pages of mapped files,
+    such as memory-mapped safetensors, which the kernel can drop and re-read).
+    Only Linux says; elsewhere, or on a kernel without the split, {}.
+
+    `rss_mb` is the sum of the two, so a loader that starts mapping the
+    checkpoint instead of copying it raises `rss_mb` and the peak by the size
+    of the weights while committed memory does not move (#709)."""
+    wanted = {"RssAnon:": "anon_mb", "RssFile:": "file_mb"}
+    split = {}
+    try:
+        with open(status_path, "r") as f:
+            for line in f:
+                parts = line.split()
+                if len(parts) >= 2 and parts[0] in wanted:
+                    split[wanted[parts[0]]] = int(parts[1]) / 1024.0
+    except (OSError, ValueError):
+        return {}
+    return split
+
+
 def host_memory_fields():
     """host_memory_stats under the names the memory payload reports, with
     the readings this platform cannot take left out rather than sent as
     null - a key that is absent says "not measurable here", where a null
     would read as "measured, and nothing"."""
     stats = host_memory_stats()
-    return {
+    fields = {
         FIELD_NAMES[key]: value for key, value in stats.items() if value is not None
     }
+    for key, value in rss_split_mb().items():
+        fields[SPLIT_FIELD_NAMES[key]] = value
+    return fields
 
 
 def trim_host_memory():

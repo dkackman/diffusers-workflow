@@ -253,7 +253,14 @@ def resample_waveform(waveform, sample_rate, target_sample_rate):
         f"Resampled {waveform.shape[1]} samples at {sample_rate}Hz "
         f"to {target_sample_rate}Hz"
     )
-    return numpy.concatenate(converted, axis=1).astype(numpy.float32)
+    out = numpy.concatenate(converted, axis=1).astype(numpy.float32)
+    # The resampler's flush rounds the length up, so a track of n samples came
+    # back one sample longer than n * target / rate, and a downstream
+    # 'fit' then reported a 1-sample trim on a clean run (#716)
+    expected = int(round(waveform.shape[1] * target_sample_rate / sample_rate))
+    if out.shape[1] > expected:
+        out = out[:, :expected]
+    return out
 
 
 def as_channels_samples(audio):

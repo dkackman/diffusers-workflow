@@ -691,3 +691,45 @@ def _values_under(node, key):
         for item in node:
             found.extend(_values_under(item, key))
     return found
+
+
+class TestH3SizeIsMultipleOf32:
+    """#789: the pipeline refuses an off-grid size after the weights load."""
+
+    def test_every_h3_template_with_a_size_declares_the_grid(self):
+        declared = {
+            (path, variable)
+            for path, variable, rule in declared_in_the_catalog()
+            if "minimax" in path
+            and variable in ("width", "height")
+            and rule["modulus"] == 32
+        }
+        for path in glob.glob(
+            os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "*.json")
+        ):
+            with open(path, encoding="utf-8") as handle:
+                variables = json.load(handle).get("variables", {})
+            for name in ("width", "height"):
+                if name in variables:
+                    assert (path, name) in {
+                        (os.path.join(REPO_ROOT, p) if not os.path.isabs(p) else p, n)
+                        for p, n in declared
+                    } or any(
+                        p.endswith(os.path.basename(path)) and n == name
+                        for p, n in declared
+                    ), (path, name)
+
+    def test_music_video_refuses_272_before_a_run(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        errors = constraint_errors(
+            definition, {"height": 272, "width": 480}, supplied=("height", "width")
+        )
+        assert [e["path"] for e in errors] == ["arguments.height"]
+        errors = constraint_errors(
+            definition, {"height": 288, "width": 480}, supplied=("height", "width")
+        )
+        assert errors == []

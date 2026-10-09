@@ -310,7 +310,7 @@ def static_files_for(state, root):
     return files
 
 
-def iter_gallery_files(root, group_runs=True):
+def iter_gallery_files(root, group_runs=True, extra_kinds=None):
     """Every media file under a directory tree. Yields (relative_name,
     folder, subfolder, kind, path) - relative_name always uses '/' so
     it round-trips through a URL the same way on every platform.
@@ -332,13 +332,17 @@ def iter_gallery_files(root, group_runs=True):
 
     A file symlink resolving outside root is skipped: os.walk lists it
     among the names, and the entry would carry the target's size and
-    mtime. A linked directory is never descended (os.walk's default)."""
+    mtime. A linked directory is never descended (os.walk's default).
+
+    `extra_kinds` maps further extensions to a kind, for a listing that shows
+    more than the gallery does (the asset library's .cube LUTs)."""
+    kinds = {**MEDIA_KINDS, **(extra_kinds or {})}
     for current, _dirs, names in os.walk(root):
         rel_root = os.path.relpath(current, root)
         directory = "" if rel_root == "." else rel_root.replace(os.sep, "/")
         for name in names:
             extension = os.path.splitext(name)[1].lower()
-            kind = MEDIA_KINDS.get(extension)
+            kind = kinds.get(extension)
             if kind is None:
                 continue
             path = os.path.join(current, name)

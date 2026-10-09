@@ -290,10 +290,37 @@ class TestPadding:
             (30, (1, 2)),
         ],
     )
-    def test_padding_to_8n1(self, count, expected):
-        before, after = ft.padding_to_8n1(count)
+    def test_padding_to_grid_8n1(self, count, expected):
+        before, after = ft.padding_to_grid(count, 8, 1)
         assert (before, after) == expected
         assert (count + before + after - 1) % 8 == 0
+
+    @pytest.mark.parametrize("modulus,remainder", [(16, 0), (17, 5), (1, 0), (4, 3)])
+    @pytest.mark.parametrize("count", [1, 3, 5, 6, 16, 17, 21, 22, 40])
+    def test_padding_to_grid_is_the_next_grid_count(self, count, modulus, remainder):
+        before, after = ft.padding_to_grid(count, modulus, remainder)
+        total = count + before + after
+        assert total >= count and total % modulus == remainder
+        # the smallest such count, split evenly
+        assert total - count < modulus
+        assert before == (total - count) // 2
+
+    def test_padding_to_grid_leaves_a_count_already_on_it(self):
+        assert ft.padding_to_grid(21, 16, 5) == (0, 0)
+        assert ft.padding_to_grid(32, 16, 0) == (0, 0)
+        # below the remainder: pad up to it
+        assert ft.padding_to_grid(2, 17, 5) == (1, 2)
+
+    @pytest.mark.parametrize("modulus,remainder", [(8, 1), (16, 0), (17, 5)])
+    @pytest.mark.parametrize("count", [0, 1, 2, 9, 21, 40])
+    def test_padding_to_grid_rounds_through_the_constraint_owner(
+        self, count, modulus, remainder
+    ):
+        from dw.variable_constraints import aligned
+
+        before, after = ft.padding_to_grid(count, modulus, remainder)
+        grid = {"modulus": modulus, "remainder": remainder}
+        assert count + before + after == aligned(count, grid)
 
     def test_pad_frames_mirrors_the_ends(self):
         crops = list(range(10, 15))  # 5 frames
@@ -354,6 +381,15 @@ class TestCropFaceTrack:
         assert len(result["crops"].frames) == 9
         assert [d["kind"] for _, d in warnings_seen] == ["no_face_found"]
 
+    def test_the_declared_grid_sets_the_crop_count(self, stub_detector):
+        clip = clip_of([make_frame((100, 80, 16))] * 5)
+        result = ft.crop_face_track(
+            clip, crop_size=48, modulus=16, remainder=0, multiple=16
+        )
+        assert len(result["crops"].frames) == 16
+        assert result["track"]["crop_frames"] == 16
+        assert result["crops"].frames[0].size == (48, 48)
+
     def test_bad_arguments_are_refused_at_run_time(self, stub_detector):
         clip = clip_of([make_frame((100, 80, 16))])
         with pytest.raises(ValueError, match="crop_size"):
@@ -362,6 +398,10 @@ class TestCropFaceTrack:
             ft.crop_face_track(clip, gate_full=0.2, gate_zero=0.1)
         with pytest.raises(ValueError, match="gate_zero"):
             ft.crop_face_track(clip, gate_full=0.1, gate_zero=0.1)
+        with pytest.raises(ValueError, match="remainder"):
+            ft.crop_face_track(clip, remainder=8)
+        with pytest.raises(ValueError, match="multiple of 16"):
+            ft.crop_face_track(clip, crop_size=520, multiple=16)
 
 
 class TestDetectorSource:
@@ -402,6 +442,13 @@ class TestStaticValidation:
             ({"clip": "v.mp4", "crop_size": 500}, "crop_size"),
             ({"clip": "v.mp4", "gate_full": 0.2, "gate_zero": 0.1}, "gate_zero"),
             ({"clip": "v.mp4", "gate_full": 0.1, "gate_zero": 0.1}, "gate_zero"),
+            ({"clip": "v.mp4", "crop_size": 48}, "crop_size"),
+            ({"clip": "v.mp4", "modulus": 0}, "modulus"),
+            ({"clip": "v.mp4", "remainder": -1}, "remainder"),
+            ({"clip": "v.mp4", "remainder": 8}, "remainder"),
+            ({"clip": "v.mp4", "modulus": 4, "remainder": 4}, "remainder"),
+            ({"clip": "v.mp4", "multiple": 0}, "multiple"),
+            ({"clip": "v.mp4", "multiple": 2.5}, "multiple"),
             ({"clip": "v.mp4", "padding": 4}, "padding"),
             ({"clip": "v.mp4", "padding": -1}, "padding"),
             ({"clip": "v.mp4", "detector_repo": "../x"}, "detector_repo"),
@@ -430,6 +477,32 @@ class TestStaticValidation:
         }
         assert task_argument_errors(workflow(args)) == []
 
+    def test_a_declared_grid_is_accepted(self):
+        args = {"clip": "v.mp4", "crop_size": 48, "multiple": 16, "modulus": 16}
+        assert task_argument_errors(workflow({**args, "remainder": 0})) == []
+        assert task_argument_errors(workflow({**args, "remainder": 15})) == []
+
+    @pytest.mark.parametrize(
+        "arguments",
+        [
+            {"crop_size": 48, "multiple": "previous_result:x.m"},
+            {"crop_size": 48, "multiple": "variable:m"},
+            {"remainder": 12, "modulus": "variable:m"},
+            {"remainder": "variable:r", "modulus": 4},
+        ],
+    )
+    def test_a_deferred_grid_value_skips_its_rule(self, arguments):
+        assert task_argument_errors(workflow({"clip": "v.mp4", **arguments})) == []
+
+    def test_the_task_describes_its_grid_defaults(self):
+        from dw.introspection import describe_task
+
+        found = {p["name"]: p for p in describe_task("crop_face_track")["parameters"]}
+        defaults = [found[n]["default"] for n in ("modulus", "remainder", "multiple")]
+        assert defaults == [8, 1, 32]
+        for name in ("modulus", "remainder", "multiple"):
+            assert found[name]["description"]
+
     def test_variable_references_are_not_judged(self):
         args = {
             name: f"variable:{name}"
@@ -438,6 +511,9 @@ class TestStaticValidation:
                 "padding",
                 "gate_full",
                 "gate_zero",
+                "modulus",
+                "remainder",
+                "multiple",
                 "detector_repo",
                 "detector_file",
             )
@@ -669,6 +745,12 @@ class TestPasteFaceTrack:
         from_file = ft.paste_face_track(clip, crops, str(path))
         for a, b in zip(from_dict.frames, from_file.frames):
             assert np.array_equal(np.asarray(a), np.asarray(b))
+
+    def test_track_path_with_traversal_is_refused(self, stub_detector):
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays)
+        with pytest.raises(SecurityError):
+            ft.paste_face_track(clip, crops, "../track.json")
 
     def test_refusals(self, stub_detector):
         arrays = self.frames()

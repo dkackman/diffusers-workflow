@@ -473,6 +473,24 @@ class TestEstimate:
         kept = plan(spec, arguments={"shots": same_text})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
 
+    def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
+        """#772: a windows list whose entries carry an `index` label priced
+        3 windows but went unknown at 4, because the new index looked like a
+        shifted cost field. A list the cost prices per entry extrapolates
+        both ways."""
+        spec = definition()
+        spec["cost"] = [
+            cost("mps", 12, {"variable": "shots", "minutes": 2, "entries": 3})
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": f"w{n}", "index": n, "prompt": "p"} for n in range(3)
+        ]
+        for count, minutes in ((2, 10.0), (4, 14.0), (5, 16.0)):
+            shots = [{"name": f"w{n}", "index": n, "prompt": "p"} for n in range(count)]
+            answer = plan(spec, arguments={"shots": shots})["estimate"]
+            assert (answer["minutes"], answer["basis"]) == (minutes, "other_device")
+
     def test_an_undeclared_variable_shift_is_not_a_driver_shift(self, plan):
         """Only a declared cost_driver triggers the fallback - any other
         variable overridden away from its default is none of this rule's

@@ -41,6 +41,50 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`dw/server/jobs.py` split into `pool` / `job_results` /
+  `worker_memory`; device ordinal and card as stored fields** (#693,
+  stages #776-#777), shipped 2026-10-08. The `slots[0]` shims are gone
+  (`running_job_id()` serves `/api/health`). `Job` and the history DB carry
+  `device_ordinal`/`device_card` (additive columns, SQL backfill), `device`
+  is derived from them, and `card_of`/`ordinal_of` are deleted. REST and
+  MCP are unchanged. Record, including what was deferred (history readers,
+  API fields, multi-card checks on lem): `complete/jobs-split-device-fields-complete.md`.
+- **H3 guides in the VRAM estimate** (#694, stages #778-#779), shipped
+  2026-10-08. An optional `vram_estimate.bytes_per_guide_voxel` (28.71 on the
+  H3 t2va templates and `chained-segments`, which also gained a `cost` and an
+  estimate) charges each guide's snapped frames on the canvas, plus a
+  `continuity: "guide"` chain's guide, probed alike at validate, admission and
+  run. Measured on lem: `h3-guide-vram.md`. Record, including what was cut or
+  deferred (`hold_audio` and refine terms, calibration margins, with their
+  triggers): `complete/h3-guide-vram-complete.md`.
+- **Task layer consolidation: one registration pattern, one coercion,
+  shared image ops** (#692, stages #773-#775, fix-forward #785), shipped 2026-10-08. A task's
+  domains, choices, static check and media arguments are declared on
+  `register_command`, and the old tables are derived views. Task numbers
+  are coerced by `whole_number`/`real_number`, and validate and run agree.
+  `crop_face_track` takes its grid from the workflow. Record:
+  `complete/task-layer-consolidation-complete.md`. The follow-up is #784.
+- **`h3_blocks.py` split into `h3_rules` / `h3_hold` / `h3_guides`, and the
+  H3 copies of diffusers pinned** (#691, stages #770-#771), shipped
+  2026-10-08. Drift tests pin the refine sigma grid to stock
+  `set_timesteps` and the guide chunk sizes to the H3 video VAE; the rules
+  module is torch-free. Record, including the cut catalog move of
+  `guide_frames`: `complete/h3-blocks-split-complete.md`.
+
+- **Enhancer presets ruled UI wiring, not model knowledge** (#696, stage
+  #781), shipped 2026-10-08. `PRESETS` stays in `dw/server/enhancers.py` as
+  the Enhance panel's menu; a new *Prompt enhancement* map row states the
+  rule and its trigger (a third preset moves the menu into builtin
+  metadata). Record, including the declined migration:
+  `complete/enhancer-presets-ruling-complete.md`.
+
+- **`window_video` and `join_windows` host memory: range reads and a uint8
+  join** (#695, stage #780), shipped 2026-10-08. A window reads only its
+  frame range and the soundtrack; the join no longer decodes the source's
+  picture or holds float32 copies. Record, including what was cut (the
+  file-backed `safe_get`, with its trigger):
+  `complete/window-memory-complete.md`.
+
 - **Finishing tasks: tonal controls in `grade`, `sharpen`, `film_grain`,
   `apply_lut`** (#603, stages #633-#637), shipped 2026-10-07. Seven tonal
   `grade` parameters, a seeded per-frame grain, a strict `.cube` parser

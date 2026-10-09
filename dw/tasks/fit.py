@@ -23,18 +23,20 @@ The sizes stay template variables rather than being picked here, so
 validation's 32n and 8n+1 rules and the cost quote still see them.
 """
 
-import json
 import logging
-import numbers
 
 import numpy
 import torch
 import torch.nn.functional as F
 
 from ..media_types import AudioVideo, FittedVideo, JsonRecord
-from ..task_domains import check_arguments, fit_downscale_problem, fit_mode_problem
-from .audio_utils import coerce_number
-from .video_utils import _frames_of, frames_as_array, load_audio_video
+from ..task_domains import (
+    check_arguments,
+    fit_downscale_problem,
+    fit_mode_problem,
+    whole_number,
+)
+from .video_utils import frames_of, frames_as_array, load_audio_video
 
 logger = logging.getLogger("dw")
 
@@ -49,19 +51,11 @@ _RECORD_INTS = (
 )
 
 
-def _whole(value, name, command):
-    """A whole-number argument as an int, or the command's refusal."""
-    value = coerce_number(value, int, name, command)
-    if isinstance(value, bool) or not isinstance(value, numbers.Integral):
-        raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
-    return int(value)
-
-
 def _float_frames(video, command):
     """The video's frames as one float32 (frames, height, width, 3) array in
     [0, 1], without a round trip through uint8 for frames already float."""
     try:
-        frames = _frames_of(video)
+        frames = frames_of(video)
     except TypeError:
         raise ValueError(
             f"{command} needs 'video' as a video, not {type(video).__name__}"
@@ -132,10 +126,10 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         {x, y, w, h}}
     """
     command = "fit_to_model"
-    width = _whole(width, "width", command)
-    height = _whole(height, "height", command)
-    num_frames = _whole(num_frames, "num_frames", command)
-    downscale = _whole(downscale, "downscale", command)
+    width = whole_number(width, "width", command, required=True)
+    height = whole_number(height, "height", command, required=True)
+    num_frames = whole_number(num_frames, "num_frames", command, required=True)
+    downscale = whole_number(downscale, "downscale", command, required=True)
     check_arguments(
         command,
         width=width,
@@ -206,18 +200,9 @@ def _read_fit(fit):
     """The fit record, from the dict a step handed on or its saved .json,
     checked field by field."""
     if isinstance(fit, str):
-        from ..locations import validate_media_path
-        from ..security import (
-            ALLOWED_JSON_EXTENSIONS,
-            validate_file_extension,
-            validate_json_size,
-        )
+        from ..locations import load_json_record
 
-        path = validate_media_path(fit, None, "a fit argument")
-        validate_file_extension(path, ALLOWED_JSON_EXTENSIONS)
-        validate_json_size(path)
-        with open(path, encoding="utf-8") as handle:
-            fit = json.load(handle)
+        fit = load_json_record(fit, None, "a fit argument")
 
     def refuse(detail):
         return ValueError(

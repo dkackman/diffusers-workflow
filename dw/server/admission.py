@@ -112,6 +112,7 @@ def admit(
     supplied=True,
     plan_for=None,
     capacity_gb=None,
+    capacity_label=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
@@ -172,7 +173,11 @@ def admit(
             # context expands lazily, inside validation_errors' gates, so an
             # expansion failure is still answered there as a finding
             context = validation.workflow_context(
-                candidate, checked, ceiling_index=ceiling_index, capacity_gb=capacity_gb
+                candidate,
+                checked,
+                ceiling_index=ceiling_index,
+                capacity_gb=capacity_gb,
+                capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
         except Exception as e:
@@ -227,7 +232,15 @@ def _vram_need(candidate, context, arguments):
             definition = None
         if not isinstance(definition, dict):
             definition = candidate.workflow_definition
-        return required_vram_gb(definition, arguments, get_device_type())
+        # The context's memoized probe counts each guide clip's frames, as
+        # validate just did (#694)
+        return required_vram_gb(
+            definition,
+            arguments,
+            get_device_type(),
+            base_dir=context.base_dir,
+            probe=context.probe,
+        )
     except Exception as e:
         logger.debug(f"Could not compute the job's VRAM need: {e}")
         return None
@@ -376,25 +389,28 @@ class JobRequest(BaseModel):
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
-def pool_capacity_gb(state):
-    """The pool's largest card, for a declared vram_estimate's ceiling - or
-    None, which leaves workflow_context on the process's own device: a
-    state without a manager (validate-only embeddings) or a pool where no
-    card's size could be read (no torch, or the probe failed)."""
+def pool_capacity(state):
+    """(GB, label) of the pool's largest card, for a declared vram_estimate's
+    ceiling; the label is what a refusal calls it. (None, None) leaves
+    workflow_context on the process's own device: a state without a manager
+    (validate-only embeddings) or a pool where no card's size could be read
+    (no torch, or the probe failed)."""
     manager = getattr(state, "job_manager", None)
-    if manager is None or not hasattr(manager, "largest_ceiling_gb"):
-        return None
-    return manager.largest_ceiling_gb()
+    if manager is None or not hasattr(manager, "largest_ceiling"):
+        return None, None
+    return manager.largest_ceiling()
 
 
 def admit_for(state, workspace, **request):
     """`admit()` with this server's view of `workspace` - the asset and
     prompt search paths and the catalog's VRAM ceilings, which live on the
     app's state rather than in the request."""
+    capacity_gb, capacity_label = pool_capacity(state)
     return admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
-        capacity_gb=pool_capacity_gb(state),
+        capacity_gb=capacity_gb,
+        capacity_label=capacity_label,
         asset_library=resolution_library(state, workspace),
         prompt_library=server_prompt_library(state),
         **request,

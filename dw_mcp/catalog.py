@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import api_path, project
+from dw_mcp.client import DwApiError, api_path, project
 
 
 def list_workflows(
@@ -96,10 +96,22 @@ def get_workflow(client, name, variables_only=False):
     read one integer (2026-09-11). Long defaults come back cut to their
     first 200 characters, with the names of the cut ones in `truncated`,
     including strings inside a list default, named like `shots[0].prompt`.
+
+    The full form also carries `observed` when this box has run the
+    workflow (#786): the definition endpoint serves the file as stored, so
+    the block is read from the variables route and added alongside.
     """
+    variables_path = api_path("api", "workflows", name, "variables")
     if variables_only:
-        return client.get_json(api_path("api", "workflows", name, "variables"))
-    return client.get_json(api_path("api", "workflows", name))
+        return client.get_json(variables_path)
+    try:
+        observed = client.get_json(variables_path).get("observed")
+    except DwApiError:
+        observed = None
+    definition = client.get_json(api_path("api", "workflows", name))
+    if observed and isinstance(definition, dict):
+        definition["observed"] = observed
+    return definition
 
 
 def get_schema(client, section=None):

@@ -292,7 +292,8 @@ def remeasure_shots_after_mux(artifact, probed_info, output_path, video_fps):
         round(probed_info["audio_stream_seconds"] * probed_info["sample_rate"])
     )
     measured_num_samples(artifact.shots, written_samples)
-    frame_count = len(getattr(artifact, "frames", []) or [])
+    frames = getattr(artifact, "frames", None)
+    frame_count = 0 if frames is None else len(frames)
     fps = video_fps(artifact)
     if not (frame_count and fps):
         return

@@ -1,7 +1,7 @@
 """A `hold_audio` argument, checked before the run when it can be.
 
 `hold_audio` is the MiniMax-H3 soundtrack a step generates its video to
-(dw/pipeline_processors/h3_blocks.py). Only an H3 core-denoise pipeline has the
+(dw/pipeline_processors/h3_hold.py). Only an H3 core-denoise pipeline has the
 blocks that take it, and only audio can be held - so both are refused here,
 where the answer is knowable without loading anything, rather than after a
 checkpoint load:
@@ -23,22 +23,20 @@ rides on the same blocks and is checked beside it: refused on a step that is not
 H3, when it is not a number in (0, 1), when the step passes no `latents` to refine
 or no `hold_audio` to keep its soundtrack, and when `num_inference_steps` is
 below 2 - the refine schedule is that many points, so one point is no step.
-Those per-argument rules are `h3_blocks.refine_problems`, which the run-time
+Those per-argument rules are `h3_rules.refine_problems`, which the run-time
 check calls too; only the H3 test is here.
 """
 
 from . import references
-from .adapter_compatibility import FROM_PRETRAINED_KEY, H3_WORKFLOWS, WORKFLOW_KEY
 from .argument_media import is_media_reference
 from .for_each import MEMBER_SEPARATOR, render_path
-from .pipeline_processors.h3_blocks import (
+from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
+    not_h3,
     refine_problems,
 )
 from .security import ALLOWED_AUDIO_EXTENSIONS
-
-MODULAR_PIPELINE = "ModularPipeline"
 
 
 def _not_audio(value):
@@ -77,32 +75,6 @@ def _not_audio(value):
     )
 
 
-def _not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
-    """Why this step's pipeline cannot take `argument` - one of the H3 block
-    arguments - or None when it can or cannot be told before the load."""
-    configuration = pipeline.get("configuration")
-    component_type = (
-        configuration.get("component_type") if isinstance(configuration, dict) else None
-    )
-    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
-    workflow = (
-        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
-    )
-    holds = (
-        f"{argument} is a MiniMax-H3 argument, taken by its "
-        f"{', '.join(sorted(H3_WORKFLOWS))} workflows"
-    )
-    if (
-        isinstance(component_type, str)
-        and not references.is_ref(references.UNRESOLVED, component_type)
-        and component_type.rsplit(".", 1)[-1] != MODULAR_PIPELINE
-    ):
-        return f"{holds}, and this step loads {component_type}"
-    if isinstance(workflow, str) and workflow not in H3_WORKFLOWS:
-        return f"{holds}, and this step loads the '{workflow}' workflow"
-    return None
-
-
 def hold_audio_errors(workflow_definition, source_indices=None):
     """Every `hold_audio` argument refused before the run, as [{path, message}].
 
@@ -133,7 +105,7 @@ def hold_audio_errors(workflow_definition, source_indices=None):
             else ""
         )
         path = render_path(("steps", source, "pipeline", "arguments", HOLD_AUDIO_INPUT))
-        for problem in (_not_h3(pipeline), _not_audio(arguments[HOLD_AUDIO_INPUT])):
+        for problem in (not_h3(pipeline), _not_audio(arguments[HOLD_AUDIO_INPUT])):
             if problem is not None:
                 errors.append({"path": path, "message": f"{problem}{where}"})
     return errors
@@ -169,8 +141,8 @@ def refine_strength_errors(workflow_definition, source_indices=None):
         path = render_path(
             ("steps", source, "pipeline", "arguments", REFINE_STRENGTH_INPUT)
         )
-        not_h3 = _not_h3(pipeline, REFINE_STRENGTH_INPUT)
-        problems = ([not_h3] if not_h3 else []) + refine_problems(arguments)
+        h3_problem = not_h3(pipeline, REFINE_STRENGTH_INPUT)
+        problems = ([h3_problem] if h3_problem else []) + refine_problems(arguments)
         for problem in problems:
             errors.append({"path": path, "message": f"{problem}{where}"})
     return errors

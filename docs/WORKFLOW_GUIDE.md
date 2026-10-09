@@ -485,6 +485,18 @@ template's. A pipeline the catalog declares no ceiling for gets no warning -
 silence there is not a clearance - and H3's `t2va` and `ref2va` are
 different identities with different ceilings.
 
+The projection is `base_gb`, plus `bytes_per_voxel` times the product of
+the `voxel_variables`, plus `gb_per_reference` per non-null reference, plus
+`bytes_per_guide_voxel` times each guide's frames times the canvas (every
+voxel variable but `num_frames`). The guides counted are the step's own
+`guides` with a non-null `video`, at their snapped length, and the one a
+`continuity: "guide"` chain appends (`guide_frames`, 22 or 39). A guide
+clip is probed at validate, at admission and at run; one that cannot be
+probed before the run (a `previous_result:` clip) is charged at the step's
+`num_frames`, and the message says it was charged at the worst case. H3's
+`t2va` and `fl2va` templates declare the guide term, so a guided step is
+judged by what its guides add rather than passing on the clip alone.
+
 ### Remote code is refused by default
 
 A server started without `--trust-workflows` refuses any
@@ -1691,7 +1703,7 @@ declared variable, so reference a `guides` variable or edit the argument.
 | `frame` | a multiple of 17 (a VAE chunk boundary): 0, 17, 34, ... |
 | clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
 | extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
-| count | at most 4 guides per step (a VRAM limit: each guide frame adds attention rows); `guides: []` is the same as none |
+| count | at most 4 guides per step (a VRAM limit: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas); `guides: []` is the same as none |
 | where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
 
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
@@ -1735,14 +1747,14 @@ a few dB.
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
 keyframe: `"chain": {"segments": 3, "continuity": "guide", "guide_frames": 22}`. Every
 segment after the first gets the previous segment's last P = `guide_frames` frames as a
-guide at frame 0 (appended to the step's own `guides`), with `"audio": true` when
+guide at frame 0 (appended to the step's own `guides`; the carried clip counts as a guide, so a step
+that also writes its own `guides` may list at most three of them with
+`continuity: "guide"` - validation says so before the run rather than after the first
+segment), with `"audio": true` when
 `carry_audio` is (the default), so motion and voice run on across the seam rather than
 restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
 next segment opens with a near-copy of those P frames, so P frames are trimmed from its
 head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 is 328.
-The chain's carried clip is itself a guide, so a step that also writes its own
-`guides` may list at most three of them with `continuity: "guide"` - validation
-says so before the run rather than after the first segment.
 
 | Rule | Value |
 |---|---|

@@ -62,7 +62,6 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
-from .tasks.voice_attribution import voices_errors
 from .type_references import component_name_errors, component_type_errors
 from .variable_constraints import (
     ConstraintReferenceError,
@@ -131,6 +130,9 @@ class ValidationContext:
         # tests patch them
         device_type=None,
         capacity_gb=None,
+        # What `capacity_gb` is called in a refusal, when it is not this
+        # process's own device
+        capacity_label=None,
         # The catalog's VRAM ceilings, for inherited_vram_warnings
         ceiling_index=None,
         expand=None,
@@ -141,6 +143,7 @@ class ValidationContext:
         self.composing = tuple(composing or ())
         self.device_type = device_type
         self.capacity_gb = capacity_gb
+        self.capacity_label = capacity_label
         self.ceiling_index = ceiling_index
         self._expand = expand
         self._expanded = expanded
@@ -363,8 +366,11 @@ ERROR_CHECKS = [
             supplied=c.supplied,
             device_type=c.device_type,
             capacity_gb=c.capacity_gb,
+            capacity_label=c.capacity_label,
             source_indices=c.source_indices,
             written=c.definition,
+            base_dir=c.base_dir,
+            probe=c.probe,
         ),
     ),
     # A bare object description whose media resolved null - realize_args
@@ -382,14 +388,13 @@ ERROR_CHECKS = [
             supplied=c.supplied,
         ),
     ),
-    # A number outside a task argument's declared domain (dw/task_domains.py,
-    # #139, #140)
+    # A number outside a task argument's declared domain, and a command's
+    # registered cross-argument check - attribute_voices' `voices` among them
+    # (dw/task_domains.py, #139, #140, #494)
     Check(
         "task_argument_domains",
         lambda c: task_argument_errors(c.expanded, c.source_indices),
     ),
-    # An attribute_voices `voices` it would refuse (#494)
-    Check("voices", lambda c: voices_errors(c.expanded, c.source_indices)),
     # A dissolve_videos overlap wider than a statically-resolvable input's
     # real frame count (dw/dissolve_frame_errors.py, #400)
     Check(
@@ -630,8 +635,11 @@ WARNING_CHECKS = [
                 supplied=c.supplied,
                 device_type=c.device_type,
                 capacity_gb=c.capacity_gb,
+                capacity_label=c.capacity_label,
                 source_indices=c.source_indices,
                 written=c.definition,
+                base_dir=c.base_dir,
+                probe=c.probe,
             )
         ),
     ),
@@ -654,14 +662,19 @@ def warning_check(name):
 
 
 def workflow_context(
-    workflow, arguments=None, composing=(), ceiling_index=None, capacity_gb=None
+    workflow,
+    arguments=None,
+    composing=(),
+    ceiling_index=None,
+    capacity_gb=None,
+    capacity_label=None,
 ):
     """One validation request's ValidationContext: the expansion over
     `arguments` (lazy and memoized, so the error pass and the warning
     pass share it), where relative paths resolve from, the device the
     request is checked against (its own capacity, or `capacity_gb` when
     the caller knows a larger card the job may land on - the server's
-    worker pool) and the catalog's VRAM ceilings
+    worker pool, which `capacity_label` names in a refusal) and the catalog's VRAM ceilings
     (`ceiling_index`, for inherited_vram_warnings). Built per request
     and never stored on the Workflow, so its probe cache cannot serve a
     replaced file stale.
@@ -688,6 +701,7 @@ def workflow_context(
         composing=composing,
         device_type=get_device_type(),
         capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
+        capacity_label=capacity_label,
         ceiling_index=ceiling_index,
         expand=expand,
     )

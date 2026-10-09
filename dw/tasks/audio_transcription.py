@@ -26,7 +26,7 @@ from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
 
-_DEFAULT_ASR_MODEL = "openai/whisper-base"
+WHISPER_DEFAULT_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000
 # Public: dw/scalar_result_validation.py checks a literal `timestamps`
 # argument against this same tuple to catch a `result.content_type` that
@@ -86,7 +86,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
             0
         ]
 
-    model_name = kwargs.get("model_name", _DEFAULT_ASR_MODEL)
+    model_name = kwargs.get("model_name", WHISPER_DEFAULT_MODEL)
     dtype = preferred_task_dtype(device)
 
     def load_pipe():

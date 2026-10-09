@@ -23,7 +23,7 @@ from ..media_frames import (
     grid_tile,
 )
 from ..media_types import AudioVideo, FittedVideo, fit_codec_padding
-from ..task_domains import frame_size_error
+from ..task_domains import frame_size_error, whole_number
 
 logger = logging.getLogger("dw")
 
@@ -51,9 +51,12 @@ class VideoFileReference:
     clip - built by dw/arguments.py's _realize_lazy_frame_arguments so
     get_frame can seek to the one frame it needs instead of decoding the
     whole file (#367), and so an assessment probe streams the file, soundtrack
-    and all (#387), and so window_video reads its source with the audio it
-    cuts (#601). Not a public shape; nothing else constructs or consumes
-    one."""
+    and all (#387), and so window_video reads its source a range of frames
+    at a time, with the soundtrack decoded on its own (#601, #695). Not a
+    public shape: only _realize_lazy_frame_arguments builds one, for a
+    task's 'video' argument, and the tasks that take a file-based 'video' -
+    get_frame and its kin, the probes, trim_video, find_loop_bed and
+    window_video - read it."""
 
     __slots__ = ("path",)
 
@@ -93,12 +96,12 @@ def extract_frame(video, index):
         The frame as a PIL image. Frames that already are PIL images are
         returned as-is, not copied.
     """
-    return _to_pil(_frames_of(video)[index])
+    return _to_pil(frames_of(video)[index])
 
 
 def frame_count(video):
     """Number of frames in a video of any supported shape."""
-    return len(_frames_of(video))
+    return len(frames_of(video))
 
 
 def check_same_frame_size(clips, task_name):
@@ -133,7 +136,7 @@ def frames_as_pil_list(video):
     Frames that already are PIL images are carried over by identity; array and
     tensor frames are converted the way extract_frame converts them.
     """
-    return [_to_pil(frame) for frame in _frames_of(video)]
+    return [_to_pil(frame) for frame in frames_of(video)]
 
 
 def frames_as_array(video):
@@ -148,7 +151,7 @@ def frames_as_array(video):
     operation; anything else goes through the same per-frame conversion
     extract_frame uses.
     """
-    frames = _frames_of(video)
+    frames = frames_of(video)
     # The source's own rate rides on the array: a bare array carries none, and
     # a later pair_audio or the writer would fall back to 8 fps (#673). The
     # source's shots do not survive - an array has nowhere to hold them
@@ -204,23 +207,13 @@ def loop_frames(video, num_frames):
         [0, 255] and refuses a float frame when `crf` is set -
         `frames_as_array` is the shape for that
     """
-    if isinstance(num_frames, str):
-        try:
-            num_frames = int(num_frames)
-        except ValueError:
-            raise ValueError(
-                f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
-            )
-    if not isinstance(num_frames, int) or isinstance(num_frames, bool):
-        raise ValueError(
-            f"loop_frames needs 'num_frames' as a whole number, got {num_frames!r}"
-        )
+    num_frames = whole_number(num_frames, "num_frames", "loop_frames", required=True)
     if num_frames < 1:
         raise ValueError(
             f"loop_frames needs 'num_frames' of at least 1, got {num_frames}"
         )
 
-    # A lone still is the Ingredients case, and `_frames_of` does not take
+    # A lone still is the Ingredients case, and `frames_of` does not take
     # one - a reference sheet is an image, not a one-frame video
     frames = frames_as_array([video] if _is_frame(video) else video)
     if len(frames) == 0:
@@ -276,15 +269,7 @@ def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
 
 
 def _positive_int(value, command, name):
-    if isinstance(value, str):
-        try:
-            value = int(value)
-        except ValueError:
-            raise ValueError(
-                f"{command} needs '{name}' as a whole number, got {value!r}"
-            )
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(f"{command} needs '{name}' as a whole number, got {value!r}")
+    value = whole_number(value, name, command, required=True)
     if value < 1:
         raise ValueError(f"{command} needs '{name}' of at least 1, got {value}")
     return value
@@ -305,10 +290,10 @@ def is_video(value):
     return False
 
 
-def _frames_of(video):
+def frames_of(video):
     """Unwrap containers until an indexable run of frames remains."""
     if isinstance(video, AudioVideo):
-        return _frames_of(video.frames)
+        return frames_of(video.frames)
 
     # A bare still - e.g. a {"media_type": "image", ...} reference fetch_video
     # now loads as a plain PIL image (#443) - is a one-frame video, the same
@@ -320,7 +305,7 @@ def _frames_of(video):
         # A one-video batch - [[frame, ...]] or [ndarray] - unwraps to the video;
         # a single-frame video - [frame] - is already the frames
         if len(video) == 1 and not _is_frame(video[0]):
-            return _frames_of(video[0])
+            return frames_of(video[0])
         return video
 
     if isinstance(video, numpy.ndarray):
@@ -428,8 +413,7 @@ def load_audio_video(location, base_dir=None):
         join of a file that is itself an earlier join's output can see the
         seams inside it (#399); a URL carries none.
     """
-    from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
-    from ..locations import safe_get, validate_media_path
+    from ..outbound import safe_get
 
     if isinstance(location, dict):
         location = location["location"]
@@ -446,14 +430,29 @@ def load_audio_video(location, base_dir=None):
         handle = io.BytesIO(response.content)
         return _decode_audio_video(handle)
 
-    validated_path = validate_media_path(location, base_dir, "a video argument")
-    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    validated_path = local_video_path(location, base_dir)
     logger.debug(f"Reading video from {validated_path}")
     video = _decode_audio_video(validated_path)
     from ..runs import shots_beside
 
     video.shots = shots_beside(validated_path)
     return video
+
+
+def local_video_path(location, base_dir=None):
+    """The validated local path a video location names, or None for a URL -
+    the check `load_audio_video` makes before it reads a file, for a caller
+    that reads the file some other way (join_windows' source, #695)."""
+    from ..security import ALLOWED_VIDEO_EXTENSIONS, validate_file_extension
+    from ..locations import validate_media_path
+
+    if isinstance(location, dict):
+        location = location["location"]
+    if _URL_SCHEME.match(location):
+        return None
+    validated_path = validate_media_path(location, base_dir, "a video argument")
+    validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
+    return validated_path
 
 
 def is_video_location(value):

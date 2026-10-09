@@ -11,6 +11,7 @@ from PIL import Image
 
 from dw.media_types import AudioVideo, FittedVideo, JsonRecord
 from dw.result import Result
+from dw.security import SecurityError
 from dw.task_domains import task_argument_errors
 from dw.tasks.fit import fit_to_model, restore_to_source
 from dw.tasks.video_utils import FrameList
@@ -105,6 +106,11 @@ class TestBoxes:
 
 
 class TestRestore:
+    def test_fit_path_with_traversal_is_refused(self):
+        result = fit()
+        with pytest.raises(SecurityError):
+            restore_to_source(result["video"], "../fit.json")
+
     @pytest.mark.parametrize("mode", ["letterbox", "stretch"])
     def test_one_x_comes_back_at_the_source_size(self, mode):
         result = fit(mode=mode)

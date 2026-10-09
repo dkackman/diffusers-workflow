@@ -1,7 +1,7 @@
 """A `guides` argument, checked before the run when it can be.
 
 `guides` (`[{"video": ..., "frame": ..., "audio": true?}]`) lays clips of an existing video into a
-MiniMax-H3 generation at chosen frames (dw/pipeline_processors/h3_blocks.py).
+MiniMax-H3 generation at chosen frames (dw/pipeline_processors/h3_guides.py).
 The rules that need no model are refused here rather than after a checkpoint
 load, with the helpers the run-time check calls (`guide_frame_problem`,
 `snap_guide_length`, `guide_end_problem`) so the two cannot drift:
@@ -33,18 +33,20 @@ from .adapter_compatibility import (
     WORKFLOW_KEY,
 )
 from .for_each import MEMBER_SEPARATOR, render_path
-from .hold_audio import _not_h3
-from .pipeline_processors.h3_blocks import (
+from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.h3_rules import (
     CHAIN_CONTINUITY_MODES,
+    GUIDE_CHAIN_DEFAULT,
+    GUIDE_CHAIN_FRAMES,
+    GUIDES_INPUT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
-    GUIDES_INPUT,
     RENDER_GRID,
-    default_num_frames,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
+    not_h3,
     snap_guide_length,
 )
 from .probe_paths import resolve_probe_path
@@ -96,12 +98,12 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
 
 def _takes_guides_problem(pipeline, arguments):
     """Why this step cannot take guides, or None: it is not MiniMax-H3
-    (`hold_audio._not_h3`), or it loads ref2va or passes `references`. The one
+    (`h3_rules.not_h3`), or it loads ref2va or passes `references`. The one
     step rule for both a `guides` argument and a guide chain. A pipeline or
     workflow that is not literal is left to the run."""
-    not_h3 = _not_h3(pipeline, GUIDES_INPUT)
-    if not_h3:
-        return not_h3
+    h3_problem = not_h3(pipeline, GUIDES_INPUT)
+    if h3_problem:
+        return h3_problem
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
     workflow = (
         from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
@@ -267,15 +269,22 @@ def guide_chain_errors(workflow_definition, source_indices=None):
         # The chain adds a guide of its own at frame 0 for every segment
         # after the first (chain.py GuideContinuity), and the run's cap
         # counts it - so the step's written guides get one slot fewer. An
-        # unresolved value is the run's to count.
+        # unresolved value is the run's to count. A one-segment chain has no
+        # segment after the first, so it adds none. An own guide at frame 0 is
+        # not refused: the layout appends every guide as its own condition rows
+        # (h3_guides DwH3GuideLayoutStep), so it sits beside the chain's.
         arguments = pipeline.get("arguments")
         own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
-        if isinstance(own, (list, tuple)) and len(own) + 1 > GUIDE_LIMIT:
+        segments = chain.get("segments")
+        added = 0 if segments == 1 and not isinstance(segments, bool) else 1
+        # With no chain guide, an overflow is the guide count's own error
+        # (guides_errors); the chain's reason would not apply.
+        if added and isinstance(own, (list, tuple)) and len(own) + added > GUIDE_LIMIT:
             errors.append(
                 {
                     "path": render_path(base + ("chain", "continuity")),
                     "message": (
-                        f"{GUIDE_CHAIN_RULE}: guides takes at most {GUIDE_LIMIT} "
+                        f"guides takes at most {GUIDE_LIMIT} "
                         f"clips and the chain adds one of its own, so a guide "
                         f"chain leaves room for {GUIDE_LIMIT - 1} - got {len(own)}"
                     ),
@@ -288,4 +297,31 @@ def guide_chain_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["guide_chain_errors", "guides_errors"]
+def guide_lengths(pipeline, base_dir=None, probe=None):
+    """The snapped frame count of every guide a step lays in, for the VRAM
+    projection (dw/vram_estimate.py, #694): its own `guides`, an entry whose
+    `video` is null dropped as the step's null references are, then the guide a
+    `continuity: "guide"` chain appends to every segment after the first, at its
+    `guide_frames`. A clip `_clip_frames` cannot count - a `previous_result:`,
+    an unreadable header, no probe at all - is None, for the caller to charge
+    at the most a guide can hold."""
+    if not isinstance(pipeline, dict):
+        return []
+    arguments = pipeline.get("arguments")
+    own = arguments.get(GUIDES_INPUT) if isinstance(arguments, dict) else None
+    lengths = []
+    for guide in own if isinstance(own, (list, tuple)) else ():
+        if not isinstance(guide, dict) or guide.get("video") is None:
+            continue
+        _, count = _clip_frames(guide["video"], base_dir, probe)
+        lengths.append(None if count is None else snap_guide_length(count))
+    chain = pipeline.get("chain")
+    if isinstance(chain, dict) and chain.get("continuity") == GUIDE_CONTINUITY:
+        segments = chain.get("segments")
+        if not (segments == 1 and not isinstance(segments, bool)):
+            frames = chain.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+            lengths.append(frames if frames in GUIDE_CHAIN_FRAMES else None)
+    return lengths
+
+
+__all__ = ["guide_chain_errors", "guide_lengths", "guides_errors"]

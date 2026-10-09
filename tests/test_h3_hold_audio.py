@@ -14,13 +14,8 @@ from dw.hold_audio import hold_audio_errors
 from dw.introspection import describe_pipeline
 from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
-from dw.pipeline_processors import h3_blocks
-from dw.pipeline_processors.h3_blocks import (
-    HELD_AUDIO_OUTPUT,
-    HELD_AUDIO_RATE_OUTPUT,
-    HELD_ROWS,
-    HOLD_BLOCK,
-    RELEASE_BLOCK,
+from dw.pipeline_processors import h3_rules
+from dw.pipeline_processors.h3_hold import (
     as_channels_samples,
     blocks,
     core_denoise_sequences,
@@ -30,9 +25,16 @@ from dw.pipeline_processors.h3_blocks import (
     holds_audio,
     insert_audio_hold,
 )
+from dw.pipeline_processors.h3_rules import (
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HELD_ROWS,
+    HOLD_BLOCK,
+    RELEASE_BLOCK,
+)
 from dw.pipeline_processors.pipeline import Pipeline
 from dw.workflow import workflow_from_definition
-from tests.test_locations import (  # noqa: F401
+from tests.test_outbound import (  # noqa: F401
     _EchoHandler,
     _scripted,
     local_server,
@@ -699,6 +701,15 @@ class TestWithHeldAudio:
         arguments = {"prompt": "x", "output": ["videos", "audio"]}
         assert Pipeline._with_held_audio(ns(object()), arguments) is arguments
 
+    def test_a_list_output_of_only_audio_gains_the_held_keys(self):
+        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+        insert_audio_hold(pipeline)
+        reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
+        result = Pipeline._with_held_audio(
+            ns(pipeline), {"hold_audio": reference, "output": ["audio"]}
+        )
+        assert result["output"] == ["audio", HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
+
     def test_a_non_h3_pipeline_refuses(self):
         with pytest.raises(ValueError, match="MiniMax-H3"):
             Pipeline._with_held_audio(ns(object()), {"hold_audio": "t.wav"})
@@ -820,5 +831,5 @@ class TestModularArtifacts:
 
 
 def test_module_exports_stay_in_sync():
-    assert h3_blocks.HOLD_BEFORE == "set_timesteps"
-    assert h3_blocks.RELEASE_BEFORE == "after_denoise"
+    assert h3_rules.HOLD_BEFORE == "set_timesteps"
+    assert h3_rules.RELEASE_BEFORE == "after_denoise"

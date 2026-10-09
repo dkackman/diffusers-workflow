@@ -192,9 +192,12 @@ class TestTheTemplateItself:
         steps = {s["name"]: s for s in definition["steps"]}
         assert "soundtrack" not in steps, "the hardcoded 496-frame slice is gone"
         arguments = steps["music_video"]["task"]["arguments"]
-        # The whole song, by way of the gain step that gives the mux headroom (#159)
+        # The song pieces the shots sang (#788), by way of the gain step that
+        # gives the mux headroom (#159)
         assert arguments["audio"] == "previous_result:balanced"
-        assert steps["balanced"]["task"]["arguments"]["audio"] == "variable:song"
+        assert steps["balanced"]["task"]["arguments"]["audio"] == (
+            "previous_result:song_cuts"
+        )
         assert definition["variables"]["song"] == "previous_result:write_song"
         assert arguments["fit"] == "video"
 
@@ -248,8 +251,8 @@ def test_video_frames_chain_keeps_the_source_rate():
     frames = frames_as_array(source)
     assert frames.dtype == numpy.uint8
     assert frames.fps == 24
-    from dw.tasks.task import _per_frame
+    from dw.tasks.image_ops import per_frame
 
-    resized = _per_frame(frames, lambda image: image.resize((4, 4)))
+    resized = per_frame(frames, lambda image: image.resize((4, 4)))
     assert resized.fps == 24
     assert pair_audio(resized, song(1.0), sample_rate=SAMPLE_RATE).fps == 24

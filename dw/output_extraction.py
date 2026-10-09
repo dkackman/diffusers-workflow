@@ -9,7 +9,7 @@ import numpy
 import torch
 
 from .media_types import AudioTrack, AudioVideo
-from .pipeline_processors.h3_blocks import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
+from .pipeline_processors.h3_rules import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
 
 logger = logging.getLogger("dw")
 

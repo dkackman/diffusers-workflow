@@ -9,6 +9,7 @@ from ..task_domains import (
     INGREDIENTS_LAYOUTS,
     check_arguments,
     ingredients_background,
+    whole_number,
 )
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
@@ -833,10 +834,12 @@ def ingredients_grid(
     Returns:
         One RGB PIL image of exactly width x height
     """
-    width = _grid_whole_number(width, "width")
-    height = _grid_whole_number(height, "height")
-    gap = _grid_whole_number(gap, "gap")
-    max_images = _grid_whole_number(max_images, "max_images")
+    width = whole_number(width, "width", "ingredients_grid", required=True)
+    height = whole_number(height, "height", "ingredients_grid", required=True)
+    gap = whole_number(gap, "gap", "ingredients_grid", required=True)
+    max_images = whole_number(
+        max_images, "max_images", "ingredients_grid", required=True
+    )
     check_arguments(
         "ingredients_grid", width=width, height=height, gap=gap, max_images=max_images
     )
@@ -879,21 +882,6 @@ def ingredients_grid(
     for source, (x, y, w, h) in zip(sources, cells):
         canvas.paste(_grid_fit_to_cell(source, w, h, fit, color), (gap + x, gap + y))
     return canvas
-
-
-def _grid_whole_number(value, name):
-    if isinstance(value, str):
-        try:
-            value = int(value)
-        except ValueError:
-            raise ValueError(
-                f"ingredients_grid needs '{name}' as a whole number, got {value!r}"
-            )
-    if not isinstance(value, int) or isinstance(value, bool):
-        raise ValueError(
-            f"ingredients_grid needs '{name}' as a whole number, got {value!r}"
-        )
-    return value
 
 
 def _grid_load(images):

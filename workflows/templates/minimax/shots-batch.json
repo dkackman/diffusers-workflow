@@ -14,11 +14,21 @@
             }
         }
     ],
-    "cost_drivers": ["shots", "num_inference_steps", "width", "height"],
+    "cost_drivers": [
+        "shots",
+        "num_inference_steps",
+        "width",
+        "height"
+    ],
     "vram_estimate": {
         "base_gb": 16.3,
         "bytes_per_voxel": 28.71,
-        "voxel_variables": ["width", "height", "num_frames"],
+        "bytes_per_guide_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
         "reason": "the transformer's peak activation memory scales with the token count the video and audio streams produce, which is proportional to width * height * num_frames"
     },
     "variables": {
@@ -70,6 +80,16 @@
             "max_frames": 345,
             "snap": "up",
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
         }
     },
     "seed": "variable:seed",
@@ -81,12 +101,16 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
-                    "pre_load_modules": ["sdnq"],
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
                             "transformer": {
-                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
                                 "arguments": {
                                     "weights_dtype": "variable:weights_dtype",
                                     "quantization_device": "cuda",
@@ -107,17 +131,24 @@
                                 }
                             },
                             "text_encoder": {
-                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
                                 "arguments": {
                                     "weights_dtype": "variable:weights_dtype",
                                     "quantization_device": "cuda",
                                     "return_device": "cpu",
                                     "dequantize_fp32": false,
-                                    "modules_to_not_convert": [".model.visual", "lm_head"]
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
                                 }
                             },
                             "vae": {
-                                "configuration": {"config_type": "sdnq.SDNQConfig"},
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
                                 "arguments": {
                                     "weights_dtype": "{int8}",
                                     "quant_conv": true,
@@ -139,13 +170,27 @@
                                 "low_cpu_mem_usage": true
                             }
                         },
-                        "text_encoder": {"remove_modules": ["lm_head"]},
-                        "text_encoder.model": {
-                            "truncate_layers": {"language_model.layers": 51},
-                            "group_offload": {"offload_type": "leaf_level"}
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
                         },
-                        "vae": {"device": "cuda", "residency": "on_demand"},
-                        "audio_vae": {"device": "cuda", "residency": "on_demand"}
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
                     }
                 },
                 "from_pretrained_arguments": {
@@ -161,15 +206,23 @@
                         "alpha": "variable:lora_alpha"
                     }
                 ],
-                "scheduler": {"shift": "variable:video_shift"},
-                "audio_scheduler": {"shift": "variable:audio_shift"},
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
                 "arguments": {
                     "prompt": "item:prompt",
                     "num_frames": "item:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_inference_steps": "variable:num_inference_steps",
-                    "output": ["videos", "audio", "sampling_rate"]
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
                 }
             },
             "result": {

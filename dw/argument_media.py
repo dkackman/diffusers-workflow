@@ -17,7 +17,8 @@ from .security import (
     ALLOWED_IMAGE_EXTENSIONS,
     ALLOWED_VIDEO_EXTENSIONS,
 )
-from .locations import is_http_url, safe_get, validate_media_path
+from .locations import is_http_url, validate_media_path
+from .outbound import safe_get
 
 logger = logging.getLogger("dw")
 
@@ -114,7 +115,15 @@ def _fetch_audio_video(video_spec, base_dir=None):
     return video_spec
 
 
-def fetch_image(img_spec, base_dir=None):
+def _rgb_keeping_alpha(image):
+    """RGBA when the file carries transparency (an alpha band, or a palette
+    or greyscale image's transparency key), plain RGB otherwise."""
+    if "A" in image.getbands() or "transparency" in image.info:
+        return image.convert("RGBA")
+    return image.convert("RGB")
+
+
+def fetch_image(img_spec, base_dir=None, keep_alpha=False):
     """
     Load image from file path or URL with security validation.
 
@@ -122,6 +131,10 @@ def fetch_image(img_spec, base_dir=None):
         img_spec: Image specification (file path, URL, dict with 'location' key, PIL Image, or list of any of these)
         base_dir: Directory relative file paths are resolved against - the
             workflow file's directory. Defaults to the process working directory
+        keep_alpha: Load a file with transparency as RGBA instead of
+            flattening it to RGB. A pipeline input wants RGB; the finishing
+            commands (grade, sharpen, film_grain, apply_lut) put the alpha
+            back after their op, so a cutout stays a cutout (#775)
 
     Returns:
         Loaded PIL Image, list of PIL Images, or None if img_spec is None
@@ -136,7 +149,7 @@ def fetch_image(img_spec, base_dir=None):
     # Handle lists of images (recursively process each)
     if isinstance(img_spec, list):
         logger.debug(f"Loading list of {len(img_spec)} images")
-        return [fetch_image(img, base_dir) for img in img_spec]
+        return [fetch_image(img, base_dir, keep_alpha) for img in img_spec]
 
     # If already a PIL Image, return as-is (allows multiple realize_args calls)
     if hasattr(img_spec, "mode") and hasattr(img_spec, "size"):
@@ -160,6 +173,7 @@ def fetch_image(img_spec, base_dir=None):
         return img_spec
 
     logger.debug(f"Loading image from: {img_spec}")
+    convert_method = _rgb_keeping_alpha if keep_alpha else None
 
     try:
         # Check if it's a URL
@@ -170,7 +184,7 @@ def fetch_image(img_spec, base_dir=None):
             # without re-checking them; load_image still does the EXIF
             # transpose and RGB conversion on the decoded result
             response = safe_get(img_spec, "an image argument", timeout=60)
-            return load_image(Image.open(io.BytesIO(response.content)))
+            return load_image(Image.open(io.BytesIO(response.content)), convert_method)
         else:
             # Treat as file path, relative to the workflow file, and confined
             # to the directories this workflow may read (dw/locations.py)
@@ -184,7 +198,7 @@ def fetch_image(img_spec, base_dir=None):
                     f"Image file extension not allowed: {ext} - a video file "
                     "must go through video_frames first"
                 )
-            return load_image(validated_path)
+            return load_image(validated_path, convert_method)
 
     except SecurityError:
         raise

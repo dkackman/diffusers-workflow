@@ -2,6 +2,25 @@
     "id": "MiniMaxH3I2VChained",
     "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. Set `continuity` to 'guide' to carry motion and voice rather than a still: each segment's last `guide_frames` frames (22 or 39) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again - 'trim_frames' and the crossfade then do not apply. Guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode.",
     "summary": "A long H3 clip from a supplied still, chained by last frame past the model's fixed clip length.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 10.0
+        }
+    ],
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 28.71,
+        "bytes_per_guide_voxel": 28.71,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "each segment is one H3 run, so the ceiling is a segment's: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames - plus, under 'guide' continuity, the guide each segment after the first is given, which is encoded on the target canvas and costs about as much per voxel as the clip itself (docs/proposals/h3-guide-vram.md, #694)"
+    },
     "cost_drivers": [
         "segments",
         "num_frames",
@@ -40,6 +59,16 @@
             "max_frames": 345,
             "snap": "up",
             "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
         }
     },
     "seed": "variable:seed",
