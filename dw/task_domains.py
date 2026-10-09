@@ -43,6 +43,7 @@ from .references import (
     is_ref,
     render_path,
 )
+from .script_lines import parse_lines, parse_shots, shot_names_error
 from .tasks.registry import RegistryTable
 
 logger = logging.getLogger("dw")
@@ -730,8 +731,6 @@ def script_lines_errors(arguments):
     line naming a shot a literal `shots` lacks. A reference is left to the
     run, which refuses one that resolves to no list, and so is a shot map the
     take carries: only the run can read it."""
-    from .tasks.script_check import parse_lines, parse_shots, shot_names_error
-
     errors = []
     parsed_lines = parsed_shots = None
     if "lines" in arguments and not is_ref(DEFERRED, arguments["lines"]):
