@@ -1,5 +1,11 @@
 import { describe, expect, it } from 'vitest'
-import { formatBytes, formatMtime, gbFromBytes, gbFromMb } from './format'
+import {
+  formatBytes,
+  formatDuration,
+  formatMtime,
+  gbFromBytes,
+  gbFromMb,
+} from './format'
 
 it('formats sub-megabyte sizes in whole KB, rounded up to at least 1', () => {
   expect(formatBytes(500)).toBe('1 KB')
@@ -29,5 +35,14 @@ describe('GB figures', () => {
     expect(gbFromMb(1536)).toBe('1.5')
     expect(gbFromBytes(1610612736)).toBe('1.5')
     expect(gbFromMb(0)).toBe('0.0')
+  })
+})
+
+describe('formatDuration', () => {
+  it('reads seconds, then minutes, then hours', () => {
+    expect(formatDuration(0)).toBe('0.0s')
+    expect(formatDuration(12.34)).toBe('12.3s')
+    expect(formatDuration(243)).toBe('4m 03s')
+    expect(formatDuration(3725)).toBe('1h 02m')
   })
 })

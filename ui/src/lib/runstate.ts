@@ -87,3 +87,52 @@ export function activeMember(events: JobEvent[]): string | undefined {
   }
   return undefined
 }
+
+/** When each finished top-level step started and ended, in seconds since
+ * the job started, keyed by the engine's name for it (`base@open` for a
+ * for_each member).
+ *
+ * Every event carries `at` (JobRecord.add_event), so a step's span is its
+ * `step_start` and `step_end` - nothing new is recorded for it. A
+ * sub-workflow's inner steps are left out for the reason `finishedNodes`
+ * gives: the composed step has its own start and end, and that is the
+ * node's time. */
+function stepSpans(events: JobEvent[]): Map<string, [number, number]> {
+  const started = new Map<string, number>()
+  const spans = new Map<string, [number, number]>()
+  for (const event of events) {
+    if (event.parent_step || typeof event.at !== 'number') continue
+    const step = event.step as string
+    if (event.event === 'step_start') started.set(step, event.at)
+    else if (event.event === 'step_end' && started.has(step))
+      spans.set(step, [started.get(step)!, event.at])
+  }
+  return spans
+}
+
+/** How long each finished top-level step took, in seconds - the member
+ * chips' figures. */
+export function stepDurations(events: JobEvent[]): Record<string, number> {
+  return Object.fromEntries(
+    [...stepSpans(events)].map(([step, [start, end]]) => [step, end - start]),
+  )
+}
+
+/** Each finished flow node's time: a plain step's own, and a for_each
+ * group's from its first member starting to its last ending - the wall
+ * time the group held the run, which is not the members' sum when they
+ * share a load. */
+export function nodeDurations(events: JobEvent[]): Record<string, number> {
+  const nodes = new Map<string, [number, number]>()
+  for (const [step, [start, end]] of stepSpans(events)) {
+    const node = flowNodeName(step)!
+    const span = nodes.get(node)
+    nodes.set(
+      node,
+      span ? [Math.min(span[0], start), Math.max(span[1], end)] : [start, end],
+    )
+  }
+  return Object.fromEntries(
+    [...nodes].map(([node, [start, end]]) => [node, end - start]),
+  )
+}

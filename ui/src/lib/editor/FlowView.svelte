@@ -1,5 +1,6 @@
 <script lang="ts">
   import { dataFlowGraph, type FlowNode } from '../flow'
+  import { formatDuration } from '../format'
 
   let {
     workflow,
@@ -8,6 +9,8 @@
     doneSteps = [],
     activeMember = undefined,
     doneMembers = [],
+    nodeTimes = {},
+    memberTimes = {},
   }: {
     workflow: Record<string, any>
     onselect?: (stepName: string) => void
@@ -21,6 +24,10 @@
     activeMember?: string
     /** The for_each members that run has already finished, engine names. */
     doneMembers?: string[]
+    /** Seconds each finished node took, from the run's own event clocks. */
+    nodeTimes?: Record<string, number>
+    /** Seconds each finished for_each member took, engine names. */
+    memberTimes?: Record<string, number>
   } = $props()
 
   const showsRun = $derived(activeStep !== undefined || doneSteps.length > 0)
@@ -81,6 +88,7 @@
   const CHIP_H = 15
   const CHIP_STEP = 19
   const CHIP_CHARS = 26
+  const CHIP_CHARS_TIMED = 17 // a finished chip's run time takes the right end
   const CHIP_TOP = BOX_H - 2
   // The gap ROW_H left between fixed-height boxes, kept for the
   // height-aware stacking below
@@ -283,6 +291,11 @@
                 )}</text
               >
               <text x="10" y="37" class="stepkind">{kindLabel(node.kind)}</text>
+              {#if stateOf(node.name) === 'done' && nodeTimes[node.name] !== undefined}
+                <text x={BOX_W - 8} y="37" class="steptime" text-anchor="end"
+                  >{formatDuration(nodeTimes[node.name])}</text
+                >
+              {/if}
               {#if node.detail}
                 <text x="10" y="52" class="stepdetail"
                   >{fit(node.detail, DETAIL_CHARS, 'tail')}</text
@@ -300,6 +313,8 @@
                 {#each node.members as key, i (i)}
                   {@const full = `${node.name}@${key}`}
                   {@const state = memberStateOf(full)}
+                  {@const took =
+                    state === 'done' ? memberTimes[full] : undefined}
                   <g
                     class="member"
                     class:done={state === 'done'}
@@ -318,8 +333,21 @@
                     <text
                       x="15"
                       y={CHIP_TOP + i * CHIP_STEP + 11}
-                      class="chiplabel">{fit(key, CHIP_CHARS, 'head')}</text
+                      class="chiplabel"
+                      >{fit(
+                        key,
+                        took === undefined ? CHIP_CHARS : CHIP_CHARS_TIMED,
+                        'head',
+                      )}</text
                     >
+                    {#if took !== undefined}
+                      <text
+                        x={BOX_W - 15}
+                        y={CHIP_TOP + i * CHIP_STEP + 11}
+                        class="steptime"
+                        text-anchor="end">{formatDuration(took)}</text
+                      >
+                    {/if}
                   </g>
                 {/each}
               {:else if node.forEach}
@@ -424,6 +452,12 @@
     text-transform: none;
   }
   .stepdetail {
+    font-size: 10px;
+    fill: var(--muted);
+    font-family: var(--font-mono);
+  }
+  /* a finished step's run time, read off the event clocks */
+  .steptime {
     font-size: 10px;
     fill: var(--muted);
     font-family: var(--font-mono);

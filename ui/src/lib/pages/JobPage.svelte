@@ -9,7 +9,10 @@
     finishedMembers,
     finishedNodes,
     flowNodeName,
+    nodeDurations,
+    stepDurations,
   } from '../runstate'
+  import { formatDuration } from '../format'
   import { estimateEta, nextStepTimes, stepProgress } from '../progress'
   import FlowView from '../editor/FlowView.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
@@ -123,11 +126,23 @@
     steps.includes(currentStep ?? '') ? currentStep : activeNode,
   )
   const finishedSteps = $derived(finishedNodes(events as JobEvent[], steps))
+  // run times off the events' own clocks; a historical job streams none,
+  // so its graph shows only the header's total
+  const nodeTimes = $derived(nodeDurations(events as JobEvent[]))
+  const memberTimes = $derived(stepDurations(events as JobEvent[]))
   // Scoped to the step now running: its phase, and its own denoise counter
   const progress = $derived(stepProgress(events as JobEvent[]))
   const denoise = $derived(progress.denoise)
+  // each line led by its clock - seconds since the job started, which every
+  // event carries - so the log says where the time went
   const logs = $derived(
-    events.filter((e) => e.event === 'log').map((e) => e.message as string),
+    events
+      .filter((e) => e.event === 'log')
+      .map((e) =>
+        typeof e.at === 'number'
+          ? `${('+' + formatDuration(e.at)).padStart(8)}  ${e.message}`
+          : (e.message as string),
+      ),
   )
   const seed = $derived(
     events.find((e) => e.event === 'workflow_start')?.seed as
@@ -244,6 +259,8 @@
         doneSteps={finishedSteps}
         activeMember={activeMemberStep}
         doneMembers={finishedMemberSteps}
+        {nodeTimes}
+        {memberTimes}
       />
       {#if showJson}
         <div class="json">
