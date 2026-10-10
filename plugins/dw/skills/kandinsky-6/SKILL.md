@@ -96,7 +96,7 @@ version of the same instructions). No template uses it yet.
    takes about 9 minutes. Get the go-ahead, then `run_workflow` with `acknowledged_cost`
    set to the plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, `timeout_seconds` = estimate plus margin. Call again
-   while `still_running`.
+   while `still_running`. If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`.
 4. A saving step carries a `subfolder`: the one shown to the user is
    `final`, the rest `intermediate`. `list_gallery(subfolder="final")` lists
    only deliverables, so keep both in anything you compose.

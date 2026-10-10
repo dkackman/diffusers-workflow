@@ -168,7 +168,7 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
    (`timeout_capped` says the server's cap cut it; call again while
-   `still_running`), then `get_job` for the manifest. A cancelled H3 job runs
+   `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
    to its next step boundary. Silence is no hang: `denoise_step` is null
    through the reference encode (~90 s; 629 s for a video reference on a
    3090) and the block cache makes later steps uneven -

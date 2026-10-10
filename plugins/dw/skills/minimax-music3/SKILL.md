@@ -158,7 +158,7 @@ Control" section.
    `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
    (`timeout_capped` says the server's cap cut it; call again while
-   `still_running`), then `get_job` for the manifest. Each manifest entry
+   `still_running`). If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`. Then `get_job` for the manifest. Each manifest entry
    carries `subfolder`: `templates/minimax/music-video` puts the cut in
    `final` and the song, the singer's portrait and each shot in
    `intermediate`, and `list_gallery(subfolder="final")` lists only

@@ -213,3 +213,19 @@ class TestRuntimeWarnings:
         assert job.warnings == ["unknown argument 'fsp'", "a spread"]
         # the spec is what a rerun is built from - appending must not edit it
         assert job.spec["warnings"] == ["unknown argument 'fsp'"]
+
+
+def test_a_running_job_reports_finished_steps_mid_run():
+    """#799: a step's files are named as soon as it ends, not at job end."""
+    job = running_job(
+        {"event": "step_start", "step": "shot1"},
+        {"event": "step_end", "step": "shot1", "files": ["a.mp4"], "subfolder": "final"},
+        {"event": "step_start", "step": "shot2"},
+    )
+
+    slim = slim_job(job.detail())
+
+    assert slim["finished_steps"] == [
+        {"step": "shot1", "files": ["a.mp4"], "subfolder": "final"}
+    ]
+    assert "manifest" not in slim

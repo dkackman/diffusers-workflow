@@ -135,7 +135,7 @@ caption spec, verbatim from the pipeline, which the caption must follow.
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, `timeout_seconds` = estimate plus margin;
    `timeout_applied_seconds` is what you got (`timeout_capped`: the cap cut
-   it). Call again while `still_running`.
+   it). Call again while `still_running`. If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`.
 4. Writing costs on a long chain: `"result": {"save": false}` on every step
    not worth keeping, as `two-stage` does for `base` and `upscale`; a miss
    is silent. A saving step carries a `subfolder` - the one shown to the user
