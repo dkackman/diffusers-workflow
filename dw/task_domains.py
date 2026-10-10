@@ -38,9 +38,8 @@ from fractions import Fraction
 from .references import (
     DEFERRED,
     GATHER,
-    MEMBER_SEPARATOR,
-    author_index,
     is_ref,
+    iter_steps,
     render_path,
 )
 from .script_lines import parse_lines, parse_shots, shot_names_error
@@ -1044,17 +1043,10 @@ def task_argument_errors(workflow_definition, source_indices=None):
     wrote, and the member is named in the message - the convention
     subfolder_errors and reference_limit_errors both follow.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict):
-            continue
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
         command = task.get("command")
         arguments = task.get("arguments")
         if not isinstance(command, str) or not isinstance(arguments, dict):
@@ -1064,13 +1056,6 @@ def task_argument_errors(workflow_definition, source_indices=None):
         static_check = TASK_STATIC_CHECKS.get(command)
         if not domains and static_check is None:
             continue
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         for key, domain in domains.items():
             if key not in arguments:
                 continue

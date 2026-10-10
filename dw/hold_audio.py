@@ -29,7 +29,7 @@ check calls too; only the H3 test is here.
 
 from . import references
 from .argument_media import is_media_reference
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
@@ -83,27 +83,13 @@ def hold_audio_errors(workflow_definition, source_indices=None):
     back to the one the author wrote, and a path inside a `for_each` member
     names the member.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
         arguments = pipeline.get("arguments")
         if not isinstance(arguments, dict) or arguments.get(HOLD_AUDIO_INPUT) is None:
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         path = render_path(("steps", source, "pipeline", "arguments", HOLD_AUDIO_INPUT))
         for problem in (not_h3(pipeline), _not_audio(arguments[HOLD_AUDIO_INPUT])):
             if problem is not None:
@@ -114,30 +100,16 @@ def hold_audio_errors(workflow_definition, source_indices=None):
 def refine_strength_errors(workflow_definition, source_indices=None):
     """Every `refine_strength` argument refused before the run, as
     [{path, message}] - walked the way `hold_audio_errors` walks."""
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
         arguments = pipeline.get("arguments")
         if (
             not isinstance(arguments, dict)
             or arguments.get(REFINE_STRENGTH_INPUT) is None
         ):
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         path = render_path(
             ("steps", source, "pipeline", "arguments", REFINE_STRENGTH_INPUT)
         )

@@ -19,6 +19,7 @@ from dw.references import (
     VARIABLE,
     author_index,
     is_ref,
+    iter_steps,
     make_ref,
     ref_name,
     render_path,
@@ -75,6 +76,38 @@ def test_author_index_maps_an_expanded_step_back_to_its_template(
     source_indices, index, expected
 ):
     assert author_index(source_indices, index) == expected
+
+
+def test_iter_steps_yields_each_dict_step_with_its_author_index_and_member():
+    steps = [
+        {"name": "shot@a", "task": {"command": "x"}},
+        "not a step",
+        {"name": "plain", "pipeline": {}},
+        {"name": "shot@b", "task": None},
+    ]
+    sites = list(iter_steps(steps, [0, 1, 2, 0]))
+    assert [(index, source, where) for index, _, _, source, where in sites] == [
+        (0, 0, " in member 'shot@a'"),
+        (2, 2, ""),
+        (3, 0, " in member 'shot@b'"),
+    ]
+    assert all(block is None for _, _, block, _, _ in sites)
+
+
+def test_iter_steps_with_a_key_keeps_only_steps_whose_block_is_a_dict():
+    steps = [
+        {"name": "a", "task": {"command": "x"}},
+        {"name": "b", "pipeline": {}},
+        {"name": "c", "task": "variable:t"},
+    ]
+    assert [
+        (index, block) for index, _, block, _, _ in iter_steps(steps, key="task")
+    ] == [(0, {"command": "x"})]
+
+
+@pytest.mark.parametrize("steps", [None, {}, "steps", 3])
+def test_iter_steps_over_anything_but_a_list_yields_nothing(steps):
+    assert list(iter_steps(steps)) == []
 
 
 def test_references_imports_nothing_from_dw():

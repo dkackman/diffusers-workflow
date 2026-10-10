@@ -29,8 +29,8 @@ the probes' `returns`, the shape is not a property of the command alone -
 named at save time (`Result.save_artifact`).
 """
 
-from .for_each import MEMBER_SEPARATOR, render_path
-from .references import author_index
+from .for_each import render_path
+from .references import iter_steps
 from .tasks.task import task_command_info
 
 RESULT_KEY = "result"
@@ -67,17 +67,10 @@ def scalar_result_errors(workflow_definition, source_indices=None):
     the author can find in the file they wrote; the member is named in the
     message.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        result = step.get(RESULT_KEY)
-        if not isinstance(result, dict):
-            continue
+    for _, step, result, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, RESULT_KEY
+    ):
         task = step.get("task")
         if not isinstance(task, dict):
             continue
@@ -117,13 +110,6 @@ def scalar_result_errors(workflow_definition, source_indices=None):
         else:
             continue
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         errors.append(
             {
                 "path": render_path(("steps", source, RESULT_KEY)),

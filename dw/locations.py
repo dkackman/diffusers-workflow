@@ -656,11 +656,9 @@ def location_errors(definition, source_indices=None, base_dir=None):
         base_dir: The workflow file's directory
     """
     errors = []
-    steps = definition.get("steps") or []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = references.author_index(source_indices, index)
+    for _, step, _, source, _ in references.iter_steps(
+        definition.get("steps"), source_indices
+    ):
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_rules(step))
         _task_media_errors(step, f"steps[{source}]", base_dir, errors)
     return errors

@@ -30,10 +30,10 @@ rounding), so the two agree on the same padding for the same arguments.
 
 from fractions import Fraction
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
-from .references import author_index
+from .references import iter_steps
 from .task_domains import slice_padding, slice_region
 
 
@@ -108,16 +108,11 @@ def slice_past_end_warnings(
     `probe` defaults to the metadata-only `probe_metadata` (B9); see
     `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     warnings = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") != "slice_audio":
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") != "slice_audio":
             continue
         task_args = task.get("arguments")
         if not isinstance(task_args, dict):
@@ -151,13 +146,6 @@ def slice_past_end_warnings(
         source_seconds = total / float(sample_rate)
         requested_end = (start + length) / float(sample_rate)
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         path_str = render_path(("steps", source, "task", "arguments", "audio"))
         warnings.append(
             f"{path_str}: slice_audio will run {padded_seconds:.2f} s past "

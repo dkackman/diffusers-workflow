@@ -32,7 +32,7 @@ from .adapter_compatibility import (
     REFERENCE_WORKFLOWS,
     WORKFLOW_KEY,
 )
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.h3_rules import (
     CHAIN_CONTINUITY_MODES,
@@ -116,6 +116,53 @@ def _takes_guides_problem(pipeline, arguments):
     return None
 
 
+def _guide_problems(guide, render, base_dir, probe):
+    """[message] for one entry of a step's `guides`, in the order
+    `_step_problems` reports them; `render` is the step's literal render
+    length, or None."""
+    if not isinstance(guide, dict):
+        return [f"a guide must be {{video, frame}}, got {type(guide).__name__}"]
+    problems = []
+    unknown = sorted(set(guide) - set(GUIDE_KEYS))
+    if unknown:
+        problems.append(
+            f"unknown key(s) {unknown} - a guide is {{video, frame}}, with "
+            f"an optional 'audio'"
+        )
+    if "video" not in guide or "frame" not in guide:
+        problems.append("a guide needs both 'video' and 'frame'")
+        return problems
+    frame = guide["frame"]
+    frame_known = not (
+        isinstance(frame, str) and references.is_ref(references.UNRESOLVED, frame)
+    )
+    frame_ok = False
+    if frame_known:
+        problem = guide_frame_problem(frame)
+        if problem:
+            problems.append(problem)
+        else:
+            frame_ok = True
+    with_audio = guide.get("audio", False)
+    if isinstance(with_audio, str) and references.is_ref(
+        references.UNRESOLVED, with_audio
+    ):
+        with_audio = False
+    elif not isinstance(with_audio, bool):
+        problems.append(
+            f"'audio' must be true or false, got {type(with_audio).__name__}"
+        )
+        with_audio = False
+    problem, count = _clip_frames(guide["video"], base_dir, probe, with_audio)
+    if problem:
+        problems.append(problem)
+    elif frame_ok and count is not None and render is not None:
+        problem = guide_end_problem(frame, snap_guide_length(count), render)
+        if problem:
+            problems.append(problem)
+    return problems
+
+
 def _step_problems(pipeline, arguments, base_dir, probe):
     """[(index or None, message)] for one step's `guides`."""
     guides = arguments[GUIDES_INPUT]
@@ -139,54 +186,10 @@ def _step_problems(pipeline, arguments, base_dir, probe):
         )
     render = _render_length(arguments)
     for index, guide in enumerate(guides):
-        if not isinstance(guide, dict):
-            problems.append(
-                (index, f"a guide must be {{video, frame}}, got {type(guide).__name__}")
-            )
-            continue
-        unknown = sorted(set(guide) - set(GUIDE_KEYS))
-        if unknown:
-            problems.append(
-                (
-                    index,
-                    f"unknown key(s) {unknown} - a guide is {{video, frame}}, with "
-                    f"an optional 'audio'",
-                )
-            )
-        if "video" not in guide or "frame" not in guide:
-            problems.append((index, "a guide needs both 'video' and 'frame'"))
-            continue
-        frame = guide["frame"]
-        frame_known = not (
-            isinstance(frame, str) and references.is_ref(references.UNRESOLVED, frame)
+        problems.extend(
+            (index, message)
+            for message in _guide_problems(guide, render, base_dir, probe)
         )
-        frame_ok = False
-        if frame_known:
-            problem = guide_frame_problem(frame)
-            if problem:
-                problems.append((index, problem))
-            else:
-                frame_ok = True
-        with_audio = guide.get("audio", False)
-        if isinstance(with_audio, str) and references.is_ref(
-            references.UNRESOLVED, with_audio
-        ):
-            with_audio = False
-        elif not isinstance(with_audio, bool):
-            problems.append(
-                (
-                    index,
-                    f"'audio' must be true or false, got {type(with_audio).__name__}",
-                )
-            )
-            with_audio = False
-        problem, count = _clip_frames(guide["video"], base_dir, probe, with_audio)
-        if problem:
-            problems.append((index, problem))
-        elif frame_ok and count is not None and render is not None:
-            problem = guide_end_problem(frame, snap_guide_length(count), render)
-            if problem:
-                problems.append((index, problem))
     return problems
 
 
@@ -197,27 +200,13 @@ def guides_errors(workflow_definition, source_indices=None, base_dir=None, probe
     does. `probe` is the metadata-only probe (or the validation's memoizing
     wrapper); without one the clips themselves are not looked at.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
         arguments = pipeline.get("arguments")
         if not isinstance(arguments, dict) or arguments.get(GUIDES_INPUT) is None:
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         base = ("steps", source, "pipeline", "arguments", GUIDES_INPUT)
         for entry, message in _step_problems(pipeline, arguments, base_dir, probe):
             path = base if entry is None else base + (entry,)
@@ -229,14 +218,11 @@ def guide_chain_errors(workflow_definition, source_indices=None):
     """Every chain block refused for its continuity before the run, as
     [{path, message}]: an unknown mode (the schema lets a `variable:` through),
     and a `guide` chain its step or its own settings cannot run."""
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        pipeline = step.get("pipeline") if isinstance(step, dict) else None
-        chain = pipeline.get("chain") if isinstance(pipeline, dict) else None
+    for _, _, pipeline, source, _ in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
         if not isinstance(chain, dict):
             continue
         continuity = chain.get("continuity", "last_frame")
@@ -244,7 +230,7 @@ def guide_chain_errors(workflow_definition, source_indices=None):
             references.UNRESOLVED, continuity
         ):
             continue
-        base = ("steps", references.author_index(source_indices, index), "pipeline")
+        base = ("steps", source, "pipeline")
         if continuity not in CHAIN_CONTINUITY_MODES:
             errors.append(
                 {

@@ -22,7 +22,7 @@ itself accepts.
 
 from . import references
 from .argument_media import is_media_reference
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
 
@@ -101,21 +101,10 @@ def video_extension_errors(workflow_definition, source_indices=None):
     maps an expanded step back to the one the author wrote, and a path inside
     a `for_each` member names the member.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
         for path, value in _video_values(step, ()):
             problem = _extension_problem(value)
             if problem is None:

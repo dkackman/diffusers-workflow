@@ -12,12 +12,12 @@ in validation.py. Their only caller is the error registry there.
 
 from . import references
 from .arguments import names_no_media
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .references import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
     FROM_PREVIOUS_RESULT_KEY,
-    author_index,
+    iter_steps,
 )
 from .task_domains import (
     SELECT_RULES,
@@ -55,16 +55,11 @@ def fps_errors(workflow_definition, source_indices=None):
     several, and the path an error carries has to be one the author can
     find in the file they wrote; the member is named in the message.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        result = step.get("result")
-        if not isinstance(result, dict) or FPS_KEY not in result:
+    for _, _, result, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "result"
+    ):
+        if FPS_KEY not in result:
             continue
         value = result[FPS_KEY]
         # A prefix substitution resolves before this pass: one still spelled
@@ -72,13 +67,6 @@ def fps_errors(workflow_definition, source_indices=None):
         if references.is_ref(references.SUBSTITUTED, value):
             continue
 
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         message = None
         if isinstance(value, bool) or not isinstance(value, (int, float)):
             message = f"Invalid fps: {value!r} - fps is a number of frames per second"
@@ -150,25 +138,13 @@ def null_media_errors(workflow_definition, source_indices=None):
     wrote, and the member is named in the message - the same convention
     reference_limit_errors uses.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
+    for _, _, pipeline, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
         if not isinstance(arguments, dict):
             continue
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         step_errors = []
         for key, value in arguments.items():
             _walk(
@@ -205,14 +181,6 @@ def _select_problem_key(rule):
     if rule not in SELECT_RULES:
         return "rule"
     return "threshold" if rule in SELECT_THRESHOLD_RULES else "index"
-
-
-def _select_where(name):
-    return (
-        f" in member '{name}'"
-        if isinstance(name, str) and MEMBER_SEPARATOR in name
-        else ""
-    )
 
 
 def _is_gather(value):
@@ -253,6 +221,44 @@ def _written_candidate_count(written_steps, source, candidates):
     return len(candidates)
 
 
+def _select_rule_errors(rule, arguments, candidate_count, add):
+    """What select_errors refuses about `rule` and the arguments it reads,
+    through `add(key, message)`."""
+    # What the run itself refuses, in its own sentence - at most one,
+    # keyed to the argument it is about
+    problems = {
+        _select_problem_key(rule): problem
+        for problem in select_rule_problems(
+            rule,
+            arguments.get("threshold"),
+            arguments.get("index"),
+            # The range is refused here, in the run's own sentence,
+            # when the count is the author's
+            candidate_count,
+        )
+    }
+    if "rule" in problems:
+        add("rule", problems["rule"])
+        return
+    # Beside it, what the run ignores and validation refuses
+    # anyway: an argument this rule does not read
+    if "threshold" in problems:
+        add("threshold", problems["threshold"])
+    elif rule not in SELECT_THRESHOLD_RULES and "threshold" in arguments:
+        add(
+            "threshold",
+            f"select: 'threshold' is only meaningful for rule "
+            f"'first_above'/'first_below', not {rule!r}",
+        )
+    if "index" in problems:
+        add("index", problems["index"])
+    elif rule != "index" and "index" in arguments:
+        add(
+            "index",
+            f"select: 'index' is only meaningful for rule 'index', not {rule!r}",
+        )
+
+
 def select_errors(workflow_definition, source_indices=None, written=None):
     """Every select step whose arguments cannot be right, as [{path, message}].
 
@@ -265,19 +271,12 @@ def select_errors(workflow_definition, source_indices=None, written=None):
     written_steps = (workflow_definition if written is None else written).get("steps")
 
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") != "select":
+    for _, _, task, source, where in iter_steps(steps, source_indices, "task"):
+        if task.get("command") != "select":
             continue
         arguments = task.get("arguments")
         if not isinstance(arguments, dict):
             continue
-
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = _select_where(name)
 
         def add(key, message):
             path = render_path(("steps", source, "task", "arguments", key))
@@ -286,40 +285,12 @@ def select_errors(workflow_definition, source_indices=None, written=None):
         candidates = arguments.get("candidates")
         rule = arguments.get("rule")
         if isinstance(rule, str):
-            # What the run itself refuses, in its own sentence - at most one,
-            # keyed to the argument it is about
-            problems = {
-                _select_problem_key(rule): problem
-                for problem in select_rule_problems(
-                    rule,
-                    arguments.get("threshold"),
-                    arguments.get("index"),
-                    # The range is refused here, in the run's own sentence,
-                    # when the count is the author's
-                    _written_candidate_count(written_steps, source, candidates),
-                )
-            }
-            if "rule" in problems:
-                add("rule", problems["rule"])
-            else:
-                # Beside it, what the run ignores and validation refuses
-                # anyway: an argument this rule does not read
-                if "threshold" in problems:
-                    add("threshold", problems["threshold"])
-                elif rule not in SELECT_THRESHOLD_RULES and "threshold" in arguments:
-                    add(
-                        "threshold",
-                        f"select: 'threshold' is only meaningful for rule "
-                        f"'first_above'/'first_below', not {rule!r}",
-                    )
-                if "index" in problems:
-                    add("index", problems["index"])
-                elif rule != "index" and "index" in arguments:
-                    add(
-                        "index",
-                        f"select: 'index' is only meaningful for rule 'index', "
-                        f"not {rule!r}",
-                    )
+            _select_rule_errors(
+                rule,
+                arguments,
+                _written_candidate_count(written_steps, source, candidates),
+                add,
+            )
 
         scores = arguments.get("scores")
         if "candidates" in arguments and "scores" in arguments:
@@ -352,17 +323,13 @@ def select_errors(workflow_definition, source_indices=None, written=None):
 
 def chain_prompts_errors(workflow_definition, source_indices=None):
     """Every chain whose resolved 'prompts' is a string, as [{path, message}]."""
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        pipeline = step.get("pipeline") if isinstance(step, dict) else None
-        chain = pipeline.get("chain") if isinstance(pipeline, dict) else None
+    for _, _, pipeline, source, _ in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
         if not isinstance(chain, dict) or not isinstance(chain.get("prompts"), str):
             continue
-        source = references.author_index(source_indices, index)
         path = render_path(("steps", source, "pipeline", "chain", "prompts"))
         errors.append(
             {

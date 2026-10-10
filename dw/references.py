@@ -10,8 +10,10 @@ module, and no other module spells a prefix
 (`scripts/arch_metrics.py` counts any that do).
 
 It also holds how a reference's location is written: the separator in a
-for_each member's name (`<group>@<entry>`) and a JSON path to a value
-(`steps[3].task.arguments.videos[1]`).
+for_each member's name (`<group>@<entry>`), a JSON path to a value
+(`steps[3].task.arguments.videos[1]`), and the walk over an expanded
+definition's steps that finds each one's author index and member
+(`iter_steps`).
 
 This module imports nothing from dw, so every module can import it.
 """
@@ -99,6 +101,48 @@ def author_index(source_indices, index):
 
 # A for_each member is named `<group>@<entry>`
 MEMBER_SEPARATOR = "@"
+
+
+def member_suffix(name):
+    """The `" in member '<name>'"` a message ends with when its step is a
+    for_each member, else "".
+
+    A path is reported at the step the author wrote (`author_index`), which
+    every member of one group shares, so the message says which member it
+    was."""
+    if isinstance(name, str) and MEMBER_SEPARATOR in name:
+        return f" in member '{name}'"
+    return ""
+
+
+def iter_steps(steps, source_indices=None, key=None):
+    """Every dict step in `steps`, as `(index, step, block, source, where)`.
+
+    The walk each validation pass over a substituted, expanded definition
+    makes: `steps` is the definition's "steps" (anything but a list yields
+    nothing), a step that is not a dict is skipped, and with `key` ("pipeline",
+    "task", "result", ...) so is one whose `step[key]` is not a dict - `block`
+    is that dict, or None without a `key`. `source` is the step's
+    `author_index` and `where` its `member_suffix`, so an error lands at a
+    path in the file the author wrote and names the member. One walk rather
+    than a copy per pass (#790)."""
+    if not isinstance(steps, list):
+        return
+    for index, step in enumerate(steps):
+        if not isinstance(step, dict):
+            continue
+        block = None
+        if key is not None:
+            block = step.get(key)
+            if not isinstance(block, dict):
+                continue
+        yield (
+            index,
+            step,
+            block,
+            author_index(source_indices, index),
+            member_suffix(step.get("name")),
+        )
 
 
 def render_path(path):
