@@ -27,7 +27,7 @@ from .variables import (
     resolve_variable_values,
     set_variables,
 )
-from .pipeline_processors.pipeline import Pipeline
+from .pipeline_processors.pipeline import Pipeline, apply_runtime_settings
 from .tasks.task import Task
 from . import get_device
 from .pipeline_ownership import (
@@ -730,7 +730,7 @@ class Workflow:
         # Pipelines are cached by what they load, not what step loads them
         ownership = self.pipeline_ownership
         cache_key = ownership.load_key(step_definition)
-        ownership.record(step_name, cache_key)
+        ownership.record(step_name, cache_key, step_definition["pipeline"])
         get_context().touch_pipeline(cache_key)
 
         if cache_hit and cache_key not in previous_pipelines:
@@ -798,6 +798,12 @@ class Workflow:
                 "earlier pipeline step in this run (or it was released)"
             )
         previous_pipeline = previous_pipelines[referenced_key]
+        # Steps whose pipelines differ only in scale, alpha or shift share
+        # one model, and the last of them to run left its values on it: put
+        # the referenced step's own back
+        referenced_definition = self.pipeline_ownership.definition_for(reference_name)
+        if referenced_definition is not None:
+            apply_runtime_settings(referenced_definition, previous_pipeline.pipeline)
         return Pipeline(
             pipeline_reference,
             default_seed,

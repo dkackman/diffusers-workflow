@@ -112,6 +112,10 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
+Two steps whose pipelines differ only in a LoRA's `scale` or `alpha` or a scheduler's
+`shift` share one warm model, and a reference always runs at the referenced step's own
+values; `release_pipeline` on either step frees the shared model, as it does for two
+identical steps.
 See [workflows/templates/community-pipeline.json](../workflows/templates/community-pipeline.json) for a full example.
 
 ### Task Steps

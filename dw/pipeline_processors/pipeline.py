@@ -141,6 +141,22 @@ def _loading_copy(pipeline_definition):
     return copied
 
 
+def apply_runtime_settings(pipeline_definition, model):
+    """Set what a pipeline definition states that changes no weights -
+    scheduler and audio_scheduler shift, LoRA scales and alphas - on a model
+    that already holds those weights.
+
+    Takes the definition as the workflow holds it, never a Pipeline's
+    loading copy: load_loras pops each entry's model_name from that copy,
+    and an entry without one reads as switched off and would be skipped.
+    """
+    apply_scheduler_shift(pipeline_definition.get("scheduler"), model)
+    apply_scheduler_shift(
+        pipeline_definition.get("audio_scheduler"), model, "audio_scheduler"
+    )
+    apply_adapter_settings(pipeline_definition.get("loras"), model)
+
+
 class Pipeline:
     """
     Manages pipeline initialization, configuration, and execution.
@@ -314,14 +330,9 @@ class Pipeline:
         scheduler and audio_scheduler shift, LoRA scales and alphas. The
         pipeline cache keys on weights_identity, so a hit can carry any of
         these at a new value; load() applies the same values on its way
-        through, so a cold load and a hit end in the same state."""
-        apply_scheduler_shift(self.pipeline_definition.get("scheduler"), self.pipeline)
-        apply_scheduler_shift(
-            self.pipeline_definition.get("audio_scheduler"),
-            self.pipeline,
-            "audio_scheduler",
-        )
-        apply_adapter_settings(self.pipeline_definition.get("loras"), self.pipeline)
+        through, so a cold load and a hit end in the same state. Only for a
+        wrapper that has not loaded (a hit): load() pops from this copy."""
+        apply_runtime_settings(self.pipeline_definition, self.pipeline)
 
     def load(self, shared_components):
         """

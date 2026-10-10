@@ -1188,3 +1188,73 @@ def test_a_step_borrowing_a_pipeline_hits_when_the_source_runtime_settings_hold(
         tmp_path, _pipeline_reference_with_runtime_settings(), [arguments, arguments]
     )
     assert order == ["A", "B"]
+
+
+def test_a_pipeline_reference_runs_with_the_referenced_steps_runtime_settings(
+    tmp_path,
+):
+    """A and B differ only in scale and shift, so they share one warm model;
+    B's hit applies its own values to it. C references A and must run at
+    A's values, not at whatever B left on the shared model."""
+    step_cache.clear()
+
+    def pipeline(scale, shift):
+        return {
+            "configuration": {"component_type": "{MockPipeline}"},
+            "from_pretrained_arguments": {"model_name": "model-a"},
+            "loras": [{"model_name": "a/b", "scale": scale}],
+            "scheduler": {"shift": shift},
+            "arguments": {"prompt": "p"},
+        }
+
+    definition = {
+        "id": "test_pipeline_reference_runtime_settings",
+        "seed": 42,
+        "steps": [
+            {"name": "A", "pipeline": pipeline(1.0, 6.0)},
+            # Saves, so elision keeps it though nothing reads its result
+            {
+                "name": "B",
+                "pipeline": pipeline(0.5, 9.0),
+                "result": {"content_type": "image/jpeg"},
+            },
+            {
+                "name": "C",
+                "pipeline_reference": {
+                    "reference_name": "A",
+                    "arguments": {"prompt": "q"},
+                },
+            },
+        ],
+    }
+    workflow = Workflow(definition, str(tmp_path), "test.json")
+    seen = {}
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        model = step_action.pipeline
+        seen[self.name] = (
+            model.set_adapters.call_args,
+            model.scheduler.set_shift.call_args,
+        )
+        return FakeResult()
+
+    patchers = [
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ]
+    for p in patchers:
+        p.start()
+    try:
+        workflow.run({})
+    finally:
+        for p in patchers:
+            p.stop()
+
+    assert workflow.pipeline_ownership.key_for(
+        "A"
+    ) == workflow.pipeline_ownership.key_for("B")
+    adapters, shift = seen["B"]
+    assert adapters.args == (["0"], [0.5]) and shift.args == (9.0,)
+    adapters, shift = seen["C"]
+    assert adapters.args == (["0"], [1.0])
+    assert shift.args == (6.0,)
