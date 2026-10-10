@@ -2758,13 +2758,23 @@ export interface components {
              * Basis
              * @enum {string}
              */
-            basis: "per_entry" | "catalog" | "derived" | "other_device" | "unknown" | "observed";
+            basis: "per_entry" | "catalog" | "derived" | "other_device" | "unknown" | "observed" | "inherited";
             /** Cached Minutes */
             cached_minutes: number | null;
             /** Curated Minutes */
             curated_minutes?: number;
             /** Device */
             device: string;
+            /**
+             * Differs
+             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.
+             */
+            differs?: string[];
+            /**
+             * Inherited From
+             * @description With basis `inherited`: the catalog template whose runs of the same pipeline (component_type, model_name, workflow) priced this workflow.
+             */
+            inherited_from?: string;
             /** Low Confidence */
             low_confidence?: boolean;
             /** Measured On */

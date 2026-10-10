@@ -27,8 +27,10 @@ always wins. There is no run-time backstop - the worker has no catalog, and
 the pre-queue check covers every server submission.
 """
 
+import json
+
 from .vram_estimate import KEY as ESTIMATE_KEY
-from .vram_estimate import pipeline_identity, vram_estimate_errors
+from .vram_estimate import _resolved, pipeline_identity, vram_estimate_errors
 
 KIND = "vram_projection_inherited"
 
@@ -47,6 +49,48 @@ def template_identity(definition):
     if len(identities) != 1 or None in identities:
         return None
     return identities.pop()
+
+
+def _found(node, key, variables):
+    """Every value `key` carries anywhere under `node`, a `variable:`
+    reference resolved against `variables`, as sorted JSON text."""
+    values = set()
+    if isinstance(node, dict):
+        for name, value in node.items():
+            if name == key:
+                values.add(json.dumps(_resolved(value, variables), sort_keys=True))
+            values |= _found(value, key, variables)
+    elif isinstance(node, list):
+        for item in node:
+            values |= _found(item, key, variables)
+    return values
+
+
+# What changes a pipeline's cost without changing its identity (#797):
+# (label, key) pairs read wherever a step sets them
+_COST_SETTINGS = (
+    ("offload", "offload"),
+    ("quantization", "quantization_config"),
+    ("frame count", "num_frames"),
+)
+
+
+def inherited_differences(definition, template, arguments=None):
+    """What `definition` sets differently from `template` among the things
+    that move a pipeline's cost without changing which pipeline it is -
+    offload, quantization, frame count - as short phrases (#797). A figure
+    inherited from `template` is an approximation to the extent these
+    differ. `arguments` (the caller's) override `definition`'s variables."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    template_variables = template.get("variables") or {}
+    differs = []
+    for label, key in _COST_SETTINGS:
+        mine = _found(definition.get("steps"), key, variables)
+        theirs = _found(template.get("steps"), key, template_variables)
+        if mine != theirs:
+            differs.append(label)
+    return differs
 
 
 def declarations(catalog):

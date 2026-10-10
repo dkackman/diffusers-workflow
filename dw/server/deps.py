@@ -13,7 +13,8 @@ from typing import Optional
 from fastapi import HTTPException, Request
 
 from ..security import SecurityError
-from ..vram_inheritance import build_index
+from ..vram_inheritance import build_index, inherited_differences, template_identity
+from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
     DEFAULT_WORKSPACE_NAME,
@@ -126,35 +127,101 @@ def sources_for(state, ws):
     return library_path("workflows", ws, state.examples_dirs)
 
 
-def ceiling_index(state, ws):
-    """The catalog's VRAM ceilings by pipeline identity, as this
-    workspace's search path lists them (`dw/vram_inheritance.py`, #502).
-    A file that cannot be read contributes nothing.
-
-    One index per distinct listing, kept on the app (`state.ceiling_indexes`)
-    - keyed by every file's path and mtime, so an edited, added or removed
-    template rebuilds it and nothing else does."""
+def _catalog_listing(state, ws):
+    """Every readable (name, definition, writable) of this workspace's
+    search path, rebuilt only when a file's path or mtime changes - one
+    parse of the catalog shared by the VRAM-ceiling index and the
+    pipeline-identity cost lookup. A file that cannot be read contributes
+    nothing."""
     paths = []
     for name, source in sources_for(state, ws).entries()[0].items():
         path = os.path.join(source.root, f"{name}.json")
         try:
-            paths.append((name, path, os.path.getmtime(path)))
+            paths.append((name, path, os.path.getmtime(path), source.writable))
         except OSError:
             continue
     signature = tuple(paths)
-    cached = state.ceiling_indexes.get(ws.name)
+    cached = state.catalog_listings.get(ws.name)
     if cached and cached[0] == signature:
         return cached[1]
     catalog = []
-    for name, path, _ in paths:
+    for name, path, _, writable in paths:
         try:
             with open(path, "r") as file:
-                catalog.append((name, json.load(file)))
+                catalog.append((name, json.load(file), writable))
         except (OSError, ValueError):
             continue
-    index = build_index(catalog)
-    state.ceiling_indexes[ws.name] = (signature, index)
+    state.catalog_listings[ws.name] = (signature, catalog)
+    return catalog
+
+
+def ceiling_index(state, ws):
+    """The catalog's VRAM ceilings by pipeline identity, as this
+    workspace's search path lists them (`dw/vram_inheritance.py`, #502).
+
+    One index per distinct listing, kept on the app (`state.ceiling_indexes`)
+    - keyed by the listing's identity, so an edited, added or removed
+    template rebuilds it and nothing else does."""
+    catalog = _catalog_listing(state, ws)
+    cached = state.ceiling_indexes.get(ws.name)
+    if cached and cached[0] is catalog:
+        return cached[1]
+    index = build_index([(name, definition) for name, definition, _ in catalog])
+    state.ceiling_indexes[ws.name] = (catalog, index)
     return index
+
+
+def inherited_observed(state, ws, definition, arguments=None, *, card=None):
+    """An inline workflow's `observed` block, priced by pipeline identity
+    (#797): this box's runs of the catalog template that loads the same
+    pipeline (`component_type` + `model_name` + `workflow`, the key
+    `dw/vram_inheritance.py` matches on), when the workflow itself has no
+    catalog name to look history up by.
+
+    The block carries `inherited_from` (the template) and `differs` (what
+    the inline pipeline sets differently from it - see `inherited_differences`),
+    so the plan reports it as an approximation. Of several matching
+    templates the one with the most cold runs wins, then the name. None when
+    the workflow holds more than one pipeline identity or nothing matches."""
+    identity = template_identity(definition)
+    if identity is None:
+        return None
+    arguments = arguments or {}
+    variables = definition.get("variables")
+    variables = variables if isinstance(variables, dict) else {}
+    best = None
+    for name, template, writable in _catalog_listing(state, ws):
+        if not isinstance(template, dict) or template_identity(template) != identity:
+            continue
+        # The template's drivers (num_frames, a shot list) take the inline
+        # workflow's own value where it has that variable, else the template's
+        # default - so the bucket is the one the inline run would fall in
+        drivers = {
+            driver: arguments.get(driver, variables[driver])
+            for driver in declared_drivers(template)
+            if driver in arguments or driver in variables
+        }
+        block = observed_for_name(
+            state,
+            name,
+            template,
+            drivers,
+            workspace=ws.name if writable else None,
+            card=card,
+        )
+        if not block or not block.get("cold_runs"):
+            continue
+        key = (-block["cold_runs"], name)
+        if best is None or key < best[0]:
+            best = (key, name, template, block)
+    if best is None:
+        return None
+    _, name, template, block = best
+    return {
+        **block,
+        "inherited_from": name,
+        "differs": inherited_differences(definition, template, arguments),
+    }
 
 
 def server_prompt_library(state):

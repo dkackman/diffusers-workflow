@@ -52,6 +52,7 @@ from ..catalog import (
     resolve_workflow_reference,
 )
 from ..deps import (
+    inherited_observed,
     internal_error,
     observed_for_name,
     selected_workspace,
@@ -759,7 +760,12 @@ def _validation_plan(
                     )
                 )
                 if catalog_name
-                else None
+                # An inline workflow has no name to look history up by:
+                # price it by pipeline identity, the way the VRAM ceiling
+                # is inherited (#797)
+                else lambda arguments: inherited_observed(
+                    state, workspace, definition, arguments, card=card.ordinal()
+                )
             ),
             observed_for_child=observed_for_child,
         )
@@ -909,6 +915,7 @@ def validate_workflow(
         # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
         answer["plan"]["workspace"] = workspace.name
         answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
+        answer["warnings"] += _inherited_cost_warnings(answer["plan"]["estimate"])
         if catalog_name:
             answer["warnings"] += _host_memory_warnings(
                 state,
@@ -918,6 +925,24 @@ def validate_workflow(
                 workspace=workspace.name if source.writable else None,
             )
     return answer
+
+
+def _inherited_cost_warnings(estimate):
+    """A price inherited from a catalog template's runs (#797) is an
+    approximation; say so, and name what this workflow sets differently
+    from the template. Warns and never refuses."""
+    if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
+        return []
+    differs = estimate.get("differs") or []
+    return [
+        f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "
+        "(same pipeline), not of this workflow"
+        + (
+            f"; its {', '.join(differs)} differ from that template, so the real cost may too"
+            if differs
+            else ""
+        )
+    ]
 
 
 def _host_memory_warnings(state, name, definition, list_entries, *, workspace=None):

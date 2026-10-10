@@ -249,6 +249,7 @@ PER_ENTRY = "per_entry"
 DERIVED = "derived"
 OTHER_DEVICE = "other_device"
 OBSERVED = "observed"
+INHERITED = "inherited"
 
 # #301: a single run is not the same statistical basis as a dozen. Below
 # this many observed runs, an "observed" figure is tempered rather than
@@ -710,7 +711,7 @@ def _observed(observed, device):
         return None
     if observed.get("device") not in (None, device):
         return None
-    return {
+    estimate = {
         "minutes": round(float(minutes), 1),
         "basis": OBSERVED,
         "device": device,
@@ -719,6 +720,14 @@ def _observed(observed, device):
         "unpriced": [],
         "runs": runs,
     }
+    inherited_from = observed.get("inherited_from")
+    if inherited_from:
+        # History of the catalog template with this workflow's pipeline,
+        # not of this workflow - an approximation (#797)
+        estimate["basis"] = INHERITED
+        estimate["inherited_from"] = inherited_from
+        estimate["differs"] = list(observed.get("differs") or [])
+    return estimate
 
 
 def _sub_workflow_paths(expanded):

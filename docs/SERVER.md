@@ -402,7 +402,13 @@ The editor's forms come from these; they are just as usable from scripts:
   changed - an estimate, not a measurement), `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
-  so there is nothing honest to extrapolate along); a composed child's
+  so there is nothing honest to extrapolate along) or `inherited` (an
+  inline workflow has no catalog name, so its price is this server's
+  `observed` runs of the catalog template that loads the same pipeline -
+  `component_type` + `model_name` + `workflow`, as the VRAM ceiling is
+  inherited - with `inherited_from` naming it and `differs` listing what the
+  workflow sets differently among offload, quantization and frame count;
+  validate warns when it does, and never refuses); a composed child's
   cost is added to a curated figure and `partial` is true when a child has
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false. `plan` is `null` when

@@ -135,6 +135,7 @@ def test_the_estimate_bases_are_the_planners():
         plan.DERIVED,
         plan.OTHER_DEVICE,
         plan.UNKNOWN,
+        plan.INHERITED,
     }
     assert _listed(
         _text(AuthoringTools.validate_workflow), r"`basis` \((.*?) - how"

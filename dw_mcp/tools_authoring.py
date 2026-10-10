@@ -73,7 +73,7 @@ class AuthoringTools:
 
         A valid answer carries `plan`: what will execute for these
         arguments - `estimate.minutes` and its `basis` (`observed`,
-        `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
+        `per_entry`, `catalog`, `derived`, `inherited`, `other_device` or `unknown` -
         how to quote each is WORKFLOW_GUIDE's "The loop", step 4), each
         `downloads_required` entry as its own cost line, and
         `steps`/`list_entries` for how many members the list produced.

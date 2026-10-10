@@ -2856,7 +2856,8 @@
               "derived",
               "other_device",
               "unknown",
-              "observed"
+              "observed",
+              "inherited"
             ],
             "title": "Basis",
             "type": "string"
@@ -2888,6 +2889,19 @@
           },
           "device": {
             "title": "Device",
+            "type": "string"
+          },
+          "differs": {
+            "description": "With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Differs",
+            "type": "array"
+          },
+          "inherited_from": {
+            "description": "With basis `inherited`: the catalog template whose runs of the same pipeline (component_type, model_name, workflow) priced this workflow.",
+            "title": "Inherited From",
             "type": "string"
           },
           "low_confidence": {

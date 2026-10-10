@@ -687,7 +687,10 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a measured per-entry rate re-priced for your list; `catalog` is a
    measured total for a run whose lists are the ones it was measured with;
    `derived` is that total extrapolated over a list you changed the length
-   of - say it is an estimate; `other_device` is a figure from another
+   of - say it is an estimate; `inherited` is an inline workflow priced
+   from this box's runs of the catalog template with the same pipeline
+   (`inherited_from`) - say it is an approximation, and relay the warning
+   if offload, quantization or frame count differ; `other_device` is a figure from another
    accelerator - say so too; `unknown` is no figure at all. `gb` on a
    `downloads_required` entry is null when the hub could not be asked, and
    `steps`/`list_entries` say how many members the list actually produced.
