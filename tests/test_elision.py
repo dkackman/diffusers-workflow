@@ -414,9 +414,11 @@ class TestTheMusicVideoSinger:
         for entry in definition["variables"]["shots"]:
             entry["singer"] = crop
         expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
-        assert [e["step"] for e in elide_definition(expanded, written)] == [
-            "draw_singer"
-        ]
+        elided = elide_definition(expanded, written)
+        assert [e["step"] for e in elided] == ["draw_singer"]
+        # #809: singer_reference was not passed, so the entries' field is named
+        assert elided[0]["overridden_by"] == "item:singer"
+        assert "singer_reference" not in elided[0]["reason"]
 
         definition["variables"]["shots"][1].pop("singer")
         expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
@@ -625,3 +627,39 @@ class TestCarryReleaseOnMalformedPipelines:
         elided = {"name": "b", "release_models": True}
         assert _carry_release(elided, kept) is True
         assert kept[0]["release_models"] is True
+
+
+class TestAnItemFieldIsNotASuppliedVariable:
+    """#809: when every for_each entry carries the optional item field, the
+    default `variable:` is never used - the reason must not say the caller
+    passed that variable."""
+
+    def written(self):
+        return {
+            "id": "w",
+            "variables": {"singer_reference": {"from_previous_result": "draw_singer"}},
+            "steps": [
+                task("draw_singer"),
+                step(
+                    "shot",
+                    task={
+                        "command": "fade_audio",
+                        "arguments": {
+                            "audio": {
+                                "item": "singer",
+                                "default": "variable:singer_reference",
+                            }
+                        },
+                    },
+                    result={"content_type": "video/mp4"},
+                ),
+            ],
+        }
+
+    def test_the_item_field_is_named(self):
+        written = self.written()
+        elided = elide_definition(copy.deepcopy(written), written)
+        assert len(elided) == 1
+        assert elided[0]["overridden_by"] == "item:singer"
+        assert "singer_reference" not in elided[0]["reason"]
+        assert "'singer'" in elided[0]["reason"]

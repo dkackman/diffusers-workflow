@@ -169,7 +169,7 @@ def _carry_release(elided, kept):
     return carried
 
 
-def overriding_variables(written, substituted_steps):
+def overriding_variables(written, substituted_steps, substituted_variables=None):
     """{step name: variable name} for every step the workflow as *written*
     reads only through a variable whose value no longer names it.
 
@@ -182,7 +182,10 @@ def overriding_variables(written, substituted_steps):
 
     `written` is the definition as the author wrote it - before substitution,
     so the defaults are still there; `substituted_steps` is the expanded step
-    list elision is about to judge.
+    list elision is about to judge. `substituted_variables` is the variables
+    block after substitution: a variable whose value still reads the step was
+    not supplied, so when only an entry's optional item field kept its
+    default from being read, that field is named instead (#809).
     """
     variables = (written or {}).get("variables")
     if not isinstance(variables, dict):
@@ -201,8 +204,52 @@ def overriding_variables(written, substituted_steps):
         for name in referenced_result_names([value]):
             if any(reference_resolves_to(read, name) for read in still_read):
                 continue
-            overridden.setdefault(name, variable)
+            field = None
+            if isinstance(substituted_variables, dict) and any(
+                reference_resolves_to(read, name)
+                for read in referenced_result_names(
+                    [substituted_variables.get(variable)]
+                )
+            ):
+                field = _only_read_as_item_default(written_steps, variable)
+            overridden.setdefault(
+                name,
+                references.make_ref(references.ITEM, field) if field else variable,
+            )
     return overridden
+
+
+def _only_read_as_item_default(tree, name):
+    """The entry field when every read of 'variable:<name>' in `tree` is the
+    default of an optional `{"item": field, "default": ...}`, else None.
+
+    Such a variable is not what removed the step: the entries' own field
+    replaced its default, whether or not the caller passed the variable (#809).
+    """
+    from .for_each import _optional_item
+
+    found = []
+    total = [0]
+
+    def walk(node, in_default):
+        if isinstance(node, str):
+            if node == references.make_ref(references.VARIABLE, name):
+                total[0] += 1
+                if in_default:
+                    found.append(in_default)
+        elif isinstance(node, list):
+            for value in node:
+                walk(value, in_default)
+        elif isinstance(node, dict):
+            optional = _optional_item(node)
+            if optional is not None:
+                walk(optional[2], optional[0])
+                return
+            for value in node.values():
+                walk(value, in_default)
+
+    walk(tree, None)
+    return found[0] if found and len(found) == total[0] else None
 
 
 def _reads_variable(tree, name):
@@ -249,11 +296,16 @@ def elide_unreferenced_steps(steps, overridden=None):
             if _needed_by(step, kept[index + 1 :]):
                 continue
             variable = (overridden or {}).get(step.get("name"))
-            reason = (
-                f"'{variable}' was supplied, so nothing reads its result"
-                if variable
-                else "nothing after it reads its result and it saves no file"
-            )
+            if variable and references.is_ref(references.ITEM, variable):
+                field = references.ref_name(references.ITEM, variable)
+                reason = (
+                    f"every entry carries its own '{field}', so the default "
+                    "that read its result is never used"
+                )
+            elif variable:
+                reason = f"'{variable}' was supplied, so nothing reads its result"
+            else:
+                reason = "nothing after it reads its result and it saves no file"
             if _carry_release(step, kept[:index]):
                 reason += "; its release was carried onto the step before it"
             entry = {"step": step.get("name"), "reason": reason}
@@ -286,7 +338,11 @@ def elide_definition(workflow_def, written=None):
     """
     steps = workflow_def.get("steps")
     overridden = (
-        overriding_variables(written, steps if isinstance(steps, list) else [])
+        overriding_variables(
+            written,
+            steps if isinstance(steps, list) else [],
+            workflow_def.get("variables"),
+        )
         if written
         else None
     )
