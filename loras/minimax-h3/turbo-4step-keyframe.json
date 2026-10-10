@@ -27,6 +27,14 @@
     {
       "note": "960x544x345, 4 steps: ~7.3 min warm-autotune vs 14.6 min for the 8-step reference (9e41d8de9518)",
       "job": "d038264721bf"
+    },
+    {
+      "note": "image-to-video template, 960x544x124, native attention: 18.4 s/step, 4.4 min; first frame holds the input, clean motion and detail",
+      "job": "f2806a3c2aa4"
+    },
+    {
+      "note": "first-and-last-frame template, 544x544x124, native attention: 10.2 s/step, 5.1 min with a ~106 s first-step autotune at the new canvas; holds both keyframes. Audio hot (-0.2 dBFS peak, -9 LUFS) - no 8-step run to compare",
+      "job": "9e368f105fd5"
     }
   ],
   "license": "apache-2.0",
