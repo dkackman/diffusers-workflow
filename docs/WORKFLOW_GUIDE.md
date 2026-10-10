@@ -574,6 +574,17 @@ differs by shot, with `from_previous_result` and `asset:` strings inside
 it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
 is a literal string.
 
+A field an entry may leave out is read with the object form
+`{"item": "singer", "default": "variable:singer_reference"}` (the field's bare
+name, not `item:singer`). An entry that carries `singer` gets its value; one
+that does not gets the default, spliced in whole. An object with no `default`
+is the plain required read. The object must have exactly those keys, and it
+means something only inside a `for_each` step. `music-video` uses it so a shot
+can condition on its own picture (`singer`) and the rest fall back to
+`singer_reference`; the audio slice stays in the template. If every entry
+supplies the field and the default's step is read nowhere else, that step is
+elided like any unread one.
+
 An entry may name another variable: `"from_file": "variable:character_a_voice"`
 inside a `references` entry is that variable's value by the time the member
 exists, so one variable sets a voice in every shot the character speaks in

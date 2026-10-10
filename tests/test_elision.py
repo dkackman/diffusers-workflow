@@ -401,6 +401,27 @@ class TestTheMusicVideoSinger:
         assert [e["step"] for e in elided] == ["draw_singer"]
         assert elided[0]["overridden_by"] == "singer_reference"
 
+    def test_every_entry_naming_its_own_singer_elides_the_portrait(self):
+        """#801: with a `singer` on every entry nothing reads the default, so
+        the portrait is not drawn; one entry without it falls back to the
+        portrait and keeps the step."""
+        written = self.definition()
+        crop = {
+            "reference_type": "variable:image_reference_type",
+            "from_file": "asset:cast/crop.jpg",
+        }
+        definition = copy.deepcopy(written)
+        for entry in definition["variables"]["shots"]:
+            entry["singer"] = crop
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+        assert [e["step"] for e in elide_definition(expanded, written)] == [
+            "draw_singer"
+        ]
+
+        definition["variables"]["shots"][1].pop("singer")
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+        assert elide_definition(expanded, written) == []
+
 
 class TestDialogueShort:
     """The case that raised it."""
@@ -512,9 +533,10 @@ class TestMusicVideo:
             "from_previous_result": "draw_singer",
         }
         shot = next(s for s in definition["steps"] if s["name"] == "shot")
-        assert shot["pipeline"]["arguments"]["references"][0] == (
-            "variable:singer_reference"
-        )
+        assert shot["pipeline"]["arguments"]["references"][0] == {
+            "item": "singer",
+            "default": "variable:singer_reference",
+        }
 
     def test_the_portrait_saves_nothing(self):
         """Same role as dialogue-short's draw steps, so the same rule: a
