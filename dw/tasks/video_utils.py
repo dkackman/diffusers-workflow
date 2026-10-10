@@ -96,12 +96,12 @@ def extract_frame(video, index):
         The frame as a PIL image. Frames that already are PIL images are
         returned as-is, not copied.
     """
-    return _to_pil(_frames_of(video)[index])
+    return _to_pil(frames_of(video)[index])
 
 
 def frame_count(video):
     """Number of frames in a video of any supported shape."""
-    return len(_frames_of(video))
+    return len(frames_of(video))
 
 
 def check_same_frame_size(clips, task_name):
@@ -136,7 +136,7 @@ def frames_as_pil_list(video):
     Frames that already are PIL images are carried over by identity; array and
     tensor frames are converted the way extract_frame converts them.
     """
-    return [_to_pil(frame) for frame in _frames_of(video)]
+    return [_to_pil(frame) for frame in frames_of(video)]
 
 
 def frames_as_array(video):
@@ -151,7 +151,7 @@ def frames_as_array(video):
     operation; anything else goes through the same per-frame conversion
     extract_frame uses.
     """
-    frames = _frames_of(video)
+    frames = frames_of(video)
     # The source's own rate rides on the array: a bare array carries none, and
     # a later pair_audio or the writer would fall back to 8 fps (#673). The
     # source's shots do not survive - an array has nowhere to hold them
@@ -213,7 +213,7 @@ def loop_frames(video, num_frames):
             f"loop_frames needs 'num_frames' of at least 1, got {num_frames}"
         )
 
-    # A lone still is the Ingredients case, and `_frames_of` does not take
+    # A lone still is the Ingredients case, and `frames_of` does not take
     # one - a reference sheet is an image, not a one-frame video
     frames = frames_as_array([video] if _is_frame(video) else video)
     if len(frames) == 0:
@@ -290,10 +290,10 @@ def is_video(value):
     return False
 
 
-def _frames_of(video):
+def frames_of(video):
     """Unwrap containers until an indexable run of frames remains."""
     if isinstance(video, AudioVideo):
-        return _frames_of(video.frames)
+        return frames_of(video.frames)
 
     # A bare still - e.g. a {"media_type": "image", ...} reference fetch_video
     # now loads as a plain PIL image (#443) - is a one-frame video, the same
@@ -305,7 +305,7 @@ def _frames_of(video):
         # A one-video batch - [[frame, ...]] or [ndarray] - unwraps to the video;
         # a single-frame video - [frame] - is already the frames
         if len(video) == 1 and not _is_frame(video[0]):
-            return _frames_of(video[0])
+            return frames_of(video[0])
         return video
 
     if isinstance(video, numpy.ndarray):

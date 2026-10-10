@@ -62,7 +62,8 @@ decorator, so a new task cannot be half-registered (#692):
 
 ```python
 from .registry import register_command
-from ..task_domains import NON_NEGATIVE, POSITIVE, my_task_errors
+from ..task_domains import NON_NEGATIVE, POSITIVE
+from ..task_problems import my_task_errors
 
 
 @register_command(
@@ -82,7 +83,8 @@ def my_task(source, num_frames, start_frame=0, mode="fast"): ...
 - `choices` - each argument's literal choices; `get_task` lists them.
 - `static_check` - a function of the step's `arguments` that returns
   `(argument, message)` pairs for rules across arguments. It lives in
-  `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
+  `dw/task_problems.py` (or, for the media-timing rules - window, slice, fit -
+  `dw/task_domains.py`), named `*_errors`, and is registered to exactly one
   command - or, when it needs the task's own parser, in the task's module
   behind an import on use, as `attribute_voices`' does.
 - `whole_numbers` - the numeric arguments that take only a whole number; the

@@ -30,10 +30,10 @@ An `overlap` that is not below `num_frames` is `join_windows_errors`' to
 report, so it is skipped here rather than reported twice.
 """
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
-from .references import author_index
+from .references import iter_steps
 from .task_domains import whole_number, window_count_problem
 
 
@@ -71,16 +71,11 @@ def window_count_errors(
     names the member. `probe` is the metadata-only `probe_metadata` or the
     validation's memoizing wrapper of it - see `dissolve_frame_errors`.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") != "join_windows":
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") != "join_windows":
             continue
         arguments = task.get("arguments")
         if not isinstance(arguments, dict):
@@ -102,13 +97,6 @@ def window_count_errors(
         if problem is None:
             continue
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         errors.append(
             {
                 "path": render_path(("steps", source)),

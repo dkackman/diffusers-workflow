@@ -446,24 +446,9 @@ def run_chain(pipeline, chain_definition, arguments):
 
     try:
         for segment in config.plan:
-            segment_arguments = dict(arguments)
-
-            if config.prompts:
-                segment_arguments["prompt"] = config.prompts[
-                    min(segment.index, len(config.prompts) - 1)
-                ]
-
-            if config.source_audio is not None:
-                segment_arguments["num_frames"] = segment.num_frames
-                if config.holds_audio:
-                    segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
-                else:
-                    segment_arguments["references"] = _sliced_references(
-                        config, segment, arguments["references"]
-                    )
-
-            if segment.index > 0:
-                continuity.inject(segment_arguments, carry, config.segment_argument)
+            segment_arguments = _segment_arguments(
+                arguments, config, segment, continuity, carry
+            )
 
             logger.info(
                 f"Chain segment {segment.index + 1}/{len(config.plan)}"
@@ -522,22 +507,7 @@ def run_chain(pipeline, chain_definition, arguments):
                     applied,
                 )
                 if segment.index > 0:
-                    # The seam's own blend, so assess_output can tell it from a
-                    # dropout in the content (#660)
-                    shots[-1]["trim_frames"] = segment.head_trim
-                    if "crossfade_ms" in applied:
-                        shots[-1]["crossfade_ms"] = applied["crossfade_ms"]
-                    emit_log(
-                        f"Chain seam {segment.index}/{len(config.plan) - 1}: trimmed "
-                        f"{segment.head_trim} head frame(s), crossfade "
-                        + (
-                            f"{applied['crossfade_ms']} ms"
-                            if "crossfade_ms" in applied
-                            else "none (the guide held the audio)"
-                            if config.guide_holds_audio
-                            else "none (no head material)"
-                        )
-                    )
+                    _record_seam(shots[-1], segment, config, applied)
 
             shots[-1]["num_samples"] = (
                 audio.shape[1] if audio is not None else 0
@@ -555,14 +525,7 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.segment_label = None
 
     if spill is not None:
-        # match_audio overshoots by design - the tail trim happens as the
-        # lazy frames replay, so the files themselves stay whole
-        frames = SegmentedFrames(
-            spill.paths,
-            config.total_frames if config.source_audio is not None else None,
-            config.keep_segments,
-            spill.frame_count,
-        )
+        frames = _spilled_frames(config, spill)
 
     if config.source_audio is not None:
         # The video matches the track's duration; the original, unsliced audio
@@ -580,6 +543,62 @@ def run_chain(pipeline, chain_definition, arguments):
     if audio is None:
         shots = without_samples(shots)
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
+
+
+def _spilled_frames(config, spill):
+    """A spilled chain's frames, replayed lazily from its segment files.
+
+    match_audio overshoots by design - the tail trim happens as the lazy
+    frames replay, so the files themselves stay whole."""
+    return SegmentedFrames(
+        spill.paths,
+        config.total_frames if config.source_audio is not None else None,
+        config.keep_segments,
+        spill.frame_count,
+    )
+
+
+def _segment_arguments(arguments, config, segment, continuity, carry):
+    """One segment's arguments: the step's, with this segment's prompt, its
+    slice of a match_audio track, and the previous segment's carry."""
+    segment_arguments = dict(arguments)
+
+    if config.prompts:
+        segment_arguments["prompt"] = config.prompts[
+            min(segment.index, len(config.prompts) - 1)
+        ]
+
+    if config.source_audio is not None:
+        segment_arguments["num_frames"] = segment.num_frames
+        if config.holds_audio:
+            segment_arguments[HOLD_AUDIO_INPUT] = _audio_slice(config, segment)
+        else:
+            segment_arguments["references"] = _sliced_references(
+                config, segment, arguments["references"]
+            )
+
+    if segment.index > 0:
+        continuity.inject(segment_arguments, carry, config.segment_argument)
+    return segment_arguments
+
+
+def _record_seam(shot, segment, config, applied):
+    """Record a seam's own blend on its shot, so assess_output can tell it
+    from a dropout in the content (#660), and say so in the job log."""
+    shot["trim_frames"] = segment.head_trim
+    if "crossfade_ms" in applied:
+        shot["crossfade_ms"] = applied["crossfade_ms"]
+    emit_log(
+        f"Chain seam {segment.index}/{len(config.plan) - 1}: trimmed "
+        f"{segment.head_trim} head frame(s), crossfade "
+        + (
+            f"{applied['crossfade_ms']} ms"
+            if "crossfade_ms" in applied
+            else "none (the guide held the audio)"
+            if config.guide_holds_audio
+            else "none (no head material)"
+        )
+    )
 
 
 def _check_guide_chain(pipeline, arguments, chain_definition, config):

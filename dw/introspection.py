@@ -818,12 +818,8 @@ def task_signature_errors(
     no arguments of its own can treat it as caller input rather than a
     defect in the document.
     """
-    from .for_each import MEMBER_SEPARATOR, render_path
+    from .for_each import render_path
     from .tasks.task import task_command_info
-
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
 
     written_steps = (
         (written_definition or {}).get("steps") or []
@@ -837,25 +833,15 @@ def task_signature_errors(
     )
 
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict):
-            continue
+    for _, _, task, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
         command = task.get("command")
         # 'inputs' is a list template rather than a named-argument dict -
         # the command consumes it whole, so there is no name to miss
         arguments = task.get("arguments")
         if not isinstance(command, str):
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
 
         try:
             task_command_info(command)

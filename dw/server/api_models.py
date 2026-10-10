@@ -375,7 +375,6 @@ class JobDetail(JobSummary):
         default=None,
         description="Where a running (or failed) job had got to; live jobs only.",
     )
-    spec: dict[str, Any] = sometimes("The submitted spec; history rows only.")
     output_kinds: dict[str, OutputKind | None] = sometimes(
         "Each output file's kind; null for a kind the gallery does not "
         "show. On GET /api/jobs/{id} only."
@@ -507,7 +506,6 @@ class Plan(ApiModel):
     downloads_required: list[RequiredDownload]
     estimate: PlanEstimate
     workspace: str
-    output_dir: str | None
 
 
 class ValidationResult(ApiModel):

@@ -656,11 +656,9 @@ def location_errors(definition, source_indices=None, base_dir=None):
         base_dir: The workflow file's directory
     """
     errors = []
-    steps = definition.get("steps") or []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = references.author_index(source_indices, index)
+    for _, step, _, source, _ in references.iter_steps(
+        definition.get("steps"), source_indices
+    ):
         _walk(step, f"steps[{source}]", base_dir, errors, _weight_rules(step))
         _task_media_errors(step, f"steps[{source}]", base_dir, errors)
     return errors
@@ -717,59 +715,74 @@ def _walk(node, path, base_dir, errors, weight_rules=(None, True, False)):
     if isinstance(node, dict):
         for key, value in node.items():
             here = f"{path}.{key}"
-            if key == "model_name" and isinstance(value, str):
-                message = _model_name_message(value, base_dir, weight_rules[2])
-                if message:
-                    errors.append({"path": here, "message": message})
+            if _named_value_errors(key, value, here, base_dir, errors, weight_rules):
                 continue
-            if key == WEIGHT_NAME_KEY and isinstance(value, str):
-                if not _deferred(value):
-                    suffixes, subfolders, _ = weight_rules
-                    message = _refusal(
-                        validate_weight_name,
-                        value,
-                        suffixes,
-                        WEIGHT_NAME_KEY,
-                        subfolders,
-                    )
-                    if message:
-                        errors.append({"path": here, "message": message})
-                continue
-            if key == "remote_text_encoder" and isinstance(value, dict):
-                url = value.get("url")
-                if isinstance(url, str) and not _deferred(url):
-                    message = _refusal(validate_remote_encoder_url, url)
-                    if message:
-                        errors.append({"path": f"{here}.url", "message": message})
-                continue
-            if key == GLOB_ARGUMENT and isinstance(value, str):
-                message = _glob_message(value, base_dir)
-                if message:
-                    errors.append({"path": here, "message": message})
-                continue
-            if _is_media_key(key):
-                for sub_path, item in _each(value, here):
-                    message = _check(item, base_dir, f"'{key}'")
-                    if message:
-                        errors.append({"path": sub_path, "message": message})
-            if key == "voices" and isinstance(value, dict):
-                # attribute_voices maps a voice's name to its reference, and
-                # a string reference is a clip it reads - the key is the
-                # voice's name, not a media key, so it is checked here or
-                # only when the run reaches it (#494)
-                for name, item in value.items():
-                    message = _check(item, base_dir, f"voice '{name}'")
-                    if message:
-                        errors.append({"path": f"{here}.{name}", "message": message})
-            if key == "urls" and isinstance(value, list):
-                for sub_path, item in _each(value, here):
-                    message = _check(item, base_dir, f"'{key}'")
-                    if message:
-                        errors.append({"path": sub_path, "message": message})
+            _media_value_errors(key, value, here, base_dir, errors)
             _walk(value, here, base_dir, errors, weight_rules)
     elif isinstance(node, list):
         for index, item in enumerate(node):
             _walk(item, f"{path}[{index}]", base_dir, errors, weight_rules)
+
+
+def _named_value_errors(key, value, here, base_dir, errors, weight_rules):
+    """Check a key whose value is one name - a model, a weight file, a remote
+    encoder's URL or a glob - and say whether it was one, which ends the walk
+    down it."""
+    if key == "model_name" and isinstance(value, str):
+        message = _model_name_message(value, base_dir, weight_rules[2])
+        if message:
+            errors.append({"path": here, "message": message})
+        return True
+    if key == WEIGHT_NAME_KEY and isinstance(value, str):
+        if not _deferred(value):
+            suffixes, subfolders, _ = weight_rules
+            message = _refusal(
+                validate_weight_name,
+                value,
+                suffixes,
+                WEIGHT_NAME_KEY,
+                subfolders,
+            )
+            if message:
+                errors.append({"path": here, "message": message})
+        return True
+    if key == "remote_text_encoder" and isinstance(value, dict):
+        url = value.get("url")
+        if isinstance(url, str) and not _deferred(url):
+            message = _refusal(validate_remote_encoder_url, url)
+            if message:
+                errors.append({"path": f"{here}.url", "message": message})
+        return True
+    if key == GLOB_ARGUMENT and isinstance(value, str):
+        message = _glob_message(value, base_dir)
+        if message:
+            errors.append({"path": here, "message": message})
+        return True
+    return False
+
+
+def _media_value_errors(key, value, here, base_dir, errors):
+    """Check the media a key's value names: a media key's, a voice map's
+    references, and a `urls` list's."""
+    if _is_media_key(key):
+        for sub_path, item in _each(value, here):
+            message = _check(item, base_dir, f"'{key}'")
+            if message:
+                errors.append({"path": sub_path, "message": message})
+    if key == "voices" and isinstance(value, dict):
+        # attribute_voices maps a voice's name to its reference, and
+        # a string reference is a clip it reads - the key is the
+        # voice's name, not a media key, so it is checked here or
+        # only when the run reaches it (#494)
+        for name, item in value.items():
+            message = _check(item, base_dir, f"voice '{name}'")
+            if message:
+                errors.append({"path": f"{here}.{name}", "message": message})
+    if key == "urls" and isinstance(value, list):
+        for sub_path, item in _each(value, here):
+            message = _check(item, base_dir, f"'{key}'")
+            if message:
+                errors.append({"path": sub_path, "message": message})
 
 
 def _each(value, path):

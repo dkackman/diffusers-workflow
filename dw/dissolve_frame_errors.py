@@ -31,10 +31,10 @@ its window to the shortest side (`crossfade_concat`) - a different, and
 already silent, shape of problem with no run-time error to move earlier.
 """
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
-from .references import author_index
+from .references import iter_steps
 from .task_domains import dissolve_shortfalls
 
 
@@ -63,16 +63,11 @@ def dissolve_frame_errors(
     a memoizing wrapper so a file referenced by more than one check is
     probed once per validation rather than once per check.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") != "dissolve_videos":
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") != "dissolve_videos":
             continue
         arguments = task.get("arguments")
         if not isinstance(arguments, dict):
@@ -96,13 +91,6 @@ def dissolve_frame_errors(
         if not problems:
             continue
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         errors.append(
             {
                 "path": render_path(

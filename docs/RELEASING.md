@@ -7,37 +7,142 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
-### Next
+### 0.10.0
 
-- Kandinsky 6.0 (#663): `templates/kandinsky6/` text-to-video, image-to-video
-  and generate-and-upscale (Lite-distill + tiled SR, 24GB), the `kandinsky-6`
+<!-- Drafted from v0.9.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.10.0 --notes-file ... -->
+
+A large range: the server runs one worker per GPU, the task library grows
+by a dozen finishing, face, window and music-video commands, MiniMax H3
+gains held audio, guide clips and refinement, Kandinsky 6.0 is onboarded,
+and the task registry owns argument domains and coercion. One upgrade-order
+note: restart the server after `update_diffusers`, and Kandinsky 6 needs
+diffusers from git `main`.
+
+**Multi-GPU servers** (docs/WORKER_GUIDE.md, docs/SERVER.md)
+
+- `--devices` starts a persistent worker per card; a VRAM-aware dispatcher
+  with backfill and cache affinity routes each job, and a declared
+  `vram_estimate` is admitted against the pool's largest card (#675, #676,
+  #677, #685).
+- `get_health` and `get_memory` name the workers per card; `get_memory` and
+  `clear_memory` take a `device`; a job records its device ordinal and card
+  in `get_job`, `list_jobs` and the UI (#677, #678, #682, #777).
+- A cancel sent between dispatch and the worker's start lands, and a
+  cancelled queued job leaves no bookkeeping behind.
+- `get_memory` splits host RSS into anonymous and file-mapped pages (#709).
+
+**New tasks** (docs/TASKS.md)
+
+- Finishing: `grade` tonal controls, `sharpen`, `film_grain`, `apply_lut`
+  from a strictly parsed `.cube` (uploadable, listed as kind `lut`) or an
+  in-memory palette, with alpha kept through every one (#633, #634, #635,
+  #636, #775).
+- Faces: `crop_face_track` follows one face and records its track;
+  `paste_face_track` pastes a repaired crop back, feathered (#622, #623).
+- Long video: `window_video` and `join_windows` process a clip in
+  overlapping fixed-length windows, range-read with a uint8 join;
+  `fit_to_model` and `restore_to_source` take a clip to a model's grid and
+  back (#628, #629, #631, #632, #780).
+- Music video: `analyze_beats` (onset/DP tracking with anchor calibration),
+  `plan_cuts` (a cut list from lyrics and beats on the render grid),
+  `trim_video`, `separate_stems` (htdemucs) and `ingredients_grid` (#604,
+  #607, #625, #626, #627).
+- `check_script` compares a take's transcript to its expected lines,
+  shot-aware, discarding words heard over silence and Whisper repetition
+  loops; `templates/check-script` retires the by-eye check (#643, #644,
+  #645).
+- `transcribe_audio` resumes after a mid-clip stop and trims word bounds to
+  waveform energy; `attribute_voices` handles zero-length and split lines
+  (#617, #661, #672).
+
+**MiniMax H3**
+
+- `hold_audio` generates video to a held soundtrack; the music-video and
+  `match_audio` chains hold their track instead of referencing it (#618,
+  #619).
+- `guides`: clips held as condition rows on t2va/fl2va, with `"audio": true`
+  and guide continuity across chains; guides are charged in the VRAM
+  projection (#648, #649, #650, #779).
+- A refine schedule block with `refine_strength`, its sigma grid and VAE
+  chunk sizes pinned to diffusers (#620, #770). Width and height declare
+  their multiple-of-32 constraint (#789).
+- The dialogue-probe audit (docs/audit) refuted the five H3 dialogue rules
+  it tested (#640).
+
+**LTX-2.5**
+
+- `LTX2RefinePipeline` and `templates/ltx2/refine-in-place` with lem-tuned
+  strength ladders; `face-repair` and `restore-long` templates; both 2x
+  templates fit and restore (#624, #630, #632, #638, #639).
+
+**Kandinsky 6.0** (#663)
+
+- `templates/kandinsky6/` text-to-video, image-to-video and
+  generate-and-upscale (Lite-distill + tiled SR, 24GB), the `kandinsky-6`
   plugin skill. Needs diffusers from git `main` (`Kandinsky6*` is in no
-  release yet); not on Apple Silicon (the VAE decode keeps MPS memory per tile).
-- `update_diffusers` / `POST /api/system/diffusers/update` now really replaces
-  a git install whose dev version string is unchanged (it used to report
-  success and keep the old commit); install.sh/.ps1 do the same. Restart the
-  server after an update: admission still checks class names against the
-  server process's old import.
+  release yet); not on Apple Silicon (the VAE decode keeps MPS memory per
+  tile).
+- `update_diffusers` / `POST /api/system/diffusers/update` now really
+  replaces a git install whose dev version string is unchanged; install.sh
+  and install.ps1 do the same. Restart the server after an update: admission
+  still checks class names against the server process's old import.
 - A completed model download on huggingface_hub 1.33 is no longer reported
   `failed`.
-- Security: media and remote-encoder requests from a workflow are dialed at
-  the address the host policy checked (DNS rebinding closed), every redirect
-  is re-validated, a POST follows the same path as a GET, and the
-  HuggingFace token is dropped on a redirect that leaves the host or
-  downgrades to http.
+
+**Validation and the task registry**
+
+- `@register_command` declares a task's argument domains, choices, static
+  checks and media arguments; `whole_number` and `real_number` are the one
+  numeric coercion in `dw/tasks/`, so a value is refused at validate and at
+  run or at neither (#773, #774, #775).
+- Literal `ingredients_grid`, `select`, `film_grain`, `join_windows`,
+  `apply_lut`, `plan_cuts` and `check_script` arguments are refused at
+  validate at their argument path (#639, #646, #657, #785).
+- `validate_workflow` names an unpriced composition's children, and a
+  `per_entry` list's index fields no longer make its estimate unknown
+  (#655, #772).
+
+**Security**
+
+- Media and remote-encoder requests from a workflow are dialed at the
+  address the host policy checked (DNS rebinding closed), every redirect is
+  re-validated, a POST follows the same path as a GET, and the HuggingFace
+  token is dropped on a redirect that leaves the host or downgrades to
+  http (#683, #686, #690).
 - Untrusted (the default), a URL whose host does not resolve or is
   percent-encoded is refused at validation rather than left to the fetch;
-  `--trust-workflows` keeps the old behaviour.
+  `--trust-workflows` keeps the old behaviour. A `file://` URL is refused as
+  a media location at validate and at the loader (#618).
 - A fetched body is capped at 1 GiB and a fetch at 10 minutes end to end;
-  use `upload_asset` for larger media.
-- Multi-card servers: a declared `vram_estimate` is admitted against the
-  largest card in the pool, not the first.
-- A cancel sent between dispatch and the worker's start now lands; a
-  cancelled queued job no longer leaves dispatch bookkeeping behind.
-- H3: `hold_audio` with `"output": "audio"` returns the held track;
-  validation refuses four own `guides` plus `continuity: "guide"` before the
-  run; `plan_cuts` treats `min_gap_seconds: 0` as zero and `null` as the 2.0
-  default.
+  a chunked upload is counted as it streams (#689). Use `upload_asset` for
+  larger media.
+- No response carries the server's absolute paths: job warnings, log lines
+  and phase details name an input by its `asset:` or `output:` reference,
+  `get_job` no longer returns a history row's `spec`, and the validate
+  plan's `output_dir` is gone - `plan.workspace` names the same place.
+
+**Fixes**
+
+- Chains: seams record their trim and realized crossfade, a saved
+  segment-backed video hands downstream its frames, a bare string for chain
+  prompts is refused, and the segment label clears on a failed run (#651,
+  #653, #660, #662, #667).
+- Shots: a `for_each` member's inner shot names are qualified, a cut inside
+  a shot drops the seam attributes that opened it, and a join that saves
+  nothing still names its shots (#670, #674, #680).
+- Audio: a shot consumed by `match_levels` draws no headroom warning,
+  `resample_waveform` returns exactly the rounded count, `video_frames`
+  keeps the source fps, and the music-video soundtrack is built from the
+  song pieces under each cut (#671, #673, #716, #788).
+- uint8 frames are no longer colour-inverted by `export_to_video` (#679);
+  `get_job_workflow` folds recorded arguments on an unrealized job (#647);
+  lazy diffusers type resolution is serialized across threads (#787).
+
+**Plugin**
+
+- `kandinsky-6` skill; `minimax-h3` gains `references/dialogue.md`, the
+  guides and music-video render rules; `series-episodes` takes an optional
+  look step (palette, `apply_lut`, `film_grain`) (#637, #642, #665, #762).
 
 ### 0.9.0
 

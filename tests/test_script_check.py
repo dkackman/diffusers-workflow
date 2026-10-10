@@ -11,7 +11,15 @@ from unittest.mock import patch
 import numpy
 
 from dw.introspection import list_tasks
-from dw.task_domains import script_lines_errors, task_argument_errors
+from dw.task_domains import task_argument_errors
+from dw.task_problems import script_lines_errors
+from dw.script_lines import (
+    normalize_words,
+    parse_lines,
+    parse_shots,
+    shot_names_error,
+    strip_markup,
+)
 from dw.tasks import script_check
 from dw.tasks.script_check import (
     align,
@@ -19,13 +27,8 @@ from dw.tasks.script_check import (
     check_script,
     guard_words,
     line_similarity,
-    normalize_words,
     overlapping_shot,
-    parse_lines,
-    parse_shots,
-    shot_names_error,
     shot_spans,
-    strip_markup,
     tail_level,
     word_level,
 )

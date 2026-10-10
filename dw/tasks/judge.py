@@ -17,11 +17,11 @@ is no sampling here for a step seed to thread through.
 import logging
 import re
 
-from .text_generation import generate_text, _DEFAULT_VISION_MODEL
+from .text_generation import generate_text, DEFAULT_VISION_MODEL
 
 logger = logging.getLogger("dw")
 
-_DEFAULT_MODEL = _DEFAULT_VISION_MODEL
+_DEFAULT_MODEL = DEFAULT_VISION_MODEL
 
 _NUMBER_PATTERN = re.compile(r"-?\d+(?:\.\d+)?")
 

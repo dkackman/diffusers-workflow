@@ -35,6 +35,9 @@ def test_a_reading_that_cannot_be_taken_is_absent_rather_than_null(monkeypatch):
     monkeypatch.setattr(host_memory, "_psutil_stats", lambda: {"rss_mb": None})
     monkeypatch.setattr(host_memory, "_proc_stats", lambda: {"rss_mb": None})
     monkeypatch.setattr(host_memory, "_peak_rss_mb", lambda: None)
+    # the Linux-only anon/file split reads /proc directly (#709); without the
+    # stub the test is green on macOS and red on CI
+    monkeypatch.setattr(host_memory, "rss_split_mb", lambda: {})
     assert host_memory.host_memory_fields() == {}
 
 

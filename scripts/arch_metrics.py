@@ -61,7 +61,8 @@ REFERENCE_PREFIXES = frozenset(
 )
 # Modules allowed to spell a reference prefix: the one owner (Phase 2a)
 PREFIX_OWNERS = frozenset({"dw/references.py"})
-EXCLUDED = ("community_pipelines", "node_modules", "venv", ".git")
+# .claude: agent worktrees live under .claude/worktrees, each a full checkout
+EXCLUDED = ("community_pipelines", "node_modules", "venv", ".git", ".claude")
 PACKAGES = ("dw", "dw_mcp")
 REFERENCES_MODULE = "dw/references.py"
 FALLBACK_REFERENCE_NAMES = frozenset(

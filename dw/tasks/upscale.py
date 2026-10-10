@@ -47,7 +47,7 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
     tile_overlap = kwargs.get("tile_overlap", 32)
 
     def load_descriptor():
-        model_path = _resolve_model_path(model_name, filename)
+        model_path = resolve_model_path(model_name, filename)
 
         logger.info(f"Loading upscale model from {model_path}")
         loader = ModelLoader(device=torch.device(device))
@@ -101,7 +101,7 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
     return result
 
 
-def _resolve_model_path(model_name, filename=None):
+def resolve_model_path(model_name, filename=None):
     """Resolve a model name to a local file path.
 
     Supports:

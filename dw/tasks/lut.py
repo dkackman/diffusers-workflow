@@ -238,7 +238,7 @@ PALETTE_LUT_SIZE = 33
 
 def _palette_colours(palette):
     """The palette as a (n, 3) float array in 0..1, refused if malformed."""
-    from ..task_domains import check_lut_source
+    from ..task_problems import check_lut_source
 
     check_lut_source(palette=palette)
     return np.array(
@@ -284,7 +284,7 @@ def palette_table(palette, size=PALETTE_LUT_SIZE):
 def lookup_for(lut=None, palette=None):
     """The Pillow lookup filter for exactly one of a .cube `lut` or a
     `palette`, refusing both or neither."""
-    from ..task_domains import check_lut_source
+    from ..task_problems import check_lut_source
 
     check_lut_source(lut, palette)
     if palette is not None:

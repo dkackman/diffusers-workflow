@@ -2139,13 +2139,6 @@ export interface components {
              * @description That run's ordinal among the workflow's runs - the `v4` the gallery shows for its files. Null until the run opens, and for older rows.
              */
             run_version: number | null;
-            /**
-             * Spec
-             * @description The submitted spec; history rows only.
-             */
-            spec?: {
-                [key: string]: unknown;
-            };
             /** Started At */
             started_at: number | null;
             /**
@@ -2754,8 +2747,6 @@ export interface components {
             list_entries: {
                 [key: string]: number;
             };
-            /** Output Dir */
-            output_dir: string | null;
             /** Steps */
             steps: number;
             /** Workspace */

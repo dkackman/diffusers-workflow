@@ -21,7 +21,7 @@ later `output:` reference.
 """
 
 from . import references
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .security import (
     InvalidInputError,
     validate_file_base_name,
@@ -62,24 +62,10 @@ def subfolder_errors(workflow_definition, source_indices=None):
     several, and the path an error carries has to be one the author can
     find in the file they wrote; the member is named in the message.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        result = step.get("result")
-        if not isinstance(result, dict):
-            continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
+    for _, _, result, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "result"
+    ):
         for key, check in (
             (SUBFOLDER_KEY, validate_subfolder),
             (FILE_BASE_NAME_KEY, validate_file_base_name),

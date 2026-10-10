@@ -22,7 +22,6 @@ const base: Plan = {
     cached_minutes: 42,
   },
   workspace: 'default',
-  output_dir: '/ws/outputs',
 }
 
 describe('describePlan', () => {

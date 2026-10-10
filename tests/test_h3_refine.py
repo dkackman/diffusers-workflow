@@ -16,9 +16,7 @@ from dw.pipeline_processors.h3_hold import (
     blocks,
     core_denoise_sequences,
     insert_audio_hold,
-    refine_sigmas,
     refines,
-    shifted_sigma_grid,
 )
 from dw.pipeline_processors.h3_rules import (
     HOLD_BLOCK,
@@ -36,6 +34,10 @@ from diffusers.modular_pipelines.minimax_h3.before_denoise import (  # noqa: E40
 )
 from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
 from diffusers.utils.torch_utils import randn_tensor  # noqa: E402
+from dw.pipeline_processors.h3_hold_steps import (  # noqa: E402
+    refine_sigmas,
+    shifted_sigma_grid,
+)
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 WORKFLOWS = ("t2va", "fl2va", "ref2va")

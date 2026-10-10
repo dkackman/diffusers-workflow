@@ -25,7 +25,7 @@ separator and not `..`, and containment is still `validate_path`'s; a name
 """
 
 from . import references
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .security import (
     InvalidInputError,
     validate_asset_reference,
@@ -62,21 +62,10 @@ def reference_name_errors(workflow_definition, source_indices=None):
     error inside a `for_each` member carries a path in their file and names
     the member.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
         for path, value in _strings(step, ("steps", source)):
             problem = reference_fault(value)
             if problem is not None:
