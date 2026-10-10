@@ -101,11 +101,59 @@ def active_loras(loras):
     ]
 
 
+def adapter_settings(loras):
+    """(adapter_names, adapter_weights, alphas) for the active entries of
+    `loras`. An adapter is named by its own adapter_name or its ORIGINAL
+    index - a nulled entry keeps its slot, so the name a hit re-applies to
+    is the name the load gave. Reads the entries, never pops them.
+
+    `or` on adapter_name, because a variable nulled by the caller arrives as
+    a present None; float() on scale, because the schema takes a 'variable:'
+    reference there, and a variable declared as a string default substitutes
+    as one."""
+    names, weights, alphas = [], [], {}
+    for i, lora in enumerate(loras or []):
+        if not isinstance(lora, dict) or lora.get("model_name") is None:
+            continue
+        name = lora.get("adapter_name") or str(i)
+        names.append(name)
+        scale = lora.get("scale")
+        weights.append(1.0 if scale is None else float(scale))
+        if lora.get("alpha") is not None:
+            alphas[name] = lora["alpha"]
+    return names, weights, alphas
+
+
+def apply_adapter_settings(loras, pipeline):
+    """Set each active LoRA's alpha, then every scale, on a pipeline that
+    already holds the adapters. Alpha first: set_adapters is what recomputes
+    each layer's scaling from it. No-op with no active entry."""
+    names, weights, alphas = adapter_settings(loras)
+    if not names:
+        return
+    for name, alpha in alphas.items():
+        set_adapter_alpha(pipeline, name, alpha)
+    logger.info(f"Setting adapter weights: {list(zip(names, weights))}")
+    # Positionally - diffusers' mixin calls the second parameter 'adapter_weights'
+    # while custom pipelines that delegate to the model (ostris/Krea2OstrisEdit)
+    # call it 'weights'
+    pipeline.set_adapters(names, weights)
+
+
 def load_loras(loras, pipeline):
-    """Load and configure LoRA models."""
-    adapter_names = []
-    adapter_weights = []
-    alphas = {}
+    """Load and configure LoRA models.
+
+    Names, scales and alphas come from adapter_settings, read before the
+    entries are popped, so a load and a later cache hit's
+    apply_adapter_settings set the same values on the same names."""
+    # A snapshot of each entry's runtime keys, taken before the pops below
+    settings = [
+        {k: lora.get(k) for k in ("model_name", "adapter_name", "scale", "alpha")}
+        if isinstance(lora, dict)
+        else lora
+        for lora in loras or []
+    ]
+    names = iter(adapter_settings(settings)[0])
 
     for i, lora in enumerate(loras or []):
         if isinstance(lora, dict) and lora.get("model_name") is None:
@@ -117,40 +165,15 @@ def load_loras(loras, pipeline):
         logger.info(f"Loading LoRA: {model_name}")
         emit_phase("loading", detail=f"LoRA: {model_name}")
 
-        # Use provided adapter_name or generate from index - `or`, because a
-        # variable nulled by the caller arrives as a present None
-        adapter_name = lora.pop("adapter_name", None) or str(i)
-        adapter_names.append(adapter_name)
-
-        # Extract scale for adapter weights - float() because the schema takes a
-        # 'variable:' reference here, and a variable declared as a string default
-        # substitutes as one
-        scale = lora.pop("scale", None)
-        scale = 1.0 if scale is None else float(scale)
-        adapter_weights.append(scale)
-
         # Popped before the load: everything left in the dict is a keyword
-        # argument to load_lora_weights, and the alpha is applied to the layers
-        # afterwards rather than passed to it
-        alpha = lora.pop("alpha", None)
-        if alpha is not None:
-            alphas[adapter_name] = alpha
+        # argument to load_lora_weights; the scale and alpha are applied to
+        # the layers afterwards rather than passed to it
+        for key in ("adapter_name", "scale", "alpha"):
+            lora.pop(key, None)
 
-        # Load the LoRA with the adapter name
-        pipeline.load_lora_weights(model_name, adapter_name=adapter_name, **lora)
+        pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora)
 
-    for adapter_name, alpha in alphas.items():
-        set_adapter_alpha(pipeline, adapter_name, alpha)
-
-    # Set adapter weights for all loaded LoRAs
-    if adapter_names:
-        logger.info(
-            f"Setting adapter weights: {list(zip(adapter_names, adapter_weights))}"
-        )
-        # Positionally - diffusers' mixin calls the second parameter 'adapter_weights'
-        # while custom pipelines that delegate to the model (ostris/Krea2OstrisEdit)
-        # call it 'weights'
-        pipeline.set_adapters(adapter_names, adapter_weights)
+    apply_adapter_settings(settings, pipeline)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):

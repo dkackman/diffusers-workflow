@@ -121,26 +121,62 @@ def component_names(pipeline_definition, key):
     return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
 
 
+RUNTIME_LORA_KEYS = ("scale", "alpha")
+
+
+def weights_identity(pipeline_definition):
+    """The pipeline definition with every runtime-mutable setting removed.
+
+    A LoRA's scale and alpha (set_adapters / set_adapter_alpha) and a
+    scheduler's shift (set_shift) change nothing about what is loaded, so a
+    run that only moves one of them must hit the warm pipeline and re-apply
+    the value (Pipeline.apply_runtime_settings), not reload the stack.
+    Everything else - the model, the LoRA files, quantization, placement,
+    the scheduler type - still changes the key. Returns a new dict; the
+    definition is the workflow's and is not edited.
+    """
+    identity = {
+        k: v
+        for k, v in pipeline_definition.items()
+        if k not in ("arguments", "seed", "chain")
+    }
+    loras = identity.get("loras")
+    if isinstance(loras, list):
+        identity["loras"] = [
+            {k: v for k, v in lora.items() if k not in RUNTIME_LORA_KEYS}
+            if isinstance(lora, dict)
+            else lora
+            for lora in loras
+        ]
+    for name in ("scheduler", "audio_scheduler"):
+        scheduler = identity.get(name)
+        if isinstance(scheduler, dict):
+            identity[name] = {k: v for k, v in scheduler.items() if k != "shift"}
+    return identity
+
+
 def pipeline_cache_key(pipeline_definition):
     """Stable identity for a loaded pipeline.
 
-    Hashes everything that shapes loading - configuration, components,
-    quantization, loras - and excludes what varies per call (arguments, seed,
-    chain), so a cache hit means "this exact model stack is already loaded".
-    Keying the cache by identity instead of step name means two workflows
-    whose steps happen to share a name can no longer collide, and a rerun of
-    an edited workflow keeps every pipeline whose definition did not change.
+    Hashes the weights identity - everything that shapes loading:
+    configuration, components, quantization, the LoRA files, the scheduler
+    type - and excludes what varies per call (arguments, seed, chain), so a
+    cache hit means "this exact model stack is already loaded". A LoRA's
+    scale and alpha and a scheduler's shift are excluded too: each is set in
+    place on the loaded model, and a hit re-applies them
+    (Pipeline.apply_runtime_settings), so nudging one between runs costs no
+    reload. Keying the cache by identity instead of step name means two
+    workflows whose steps happen to share a name can no longer collide, and
+    a rerun of an edited workflow keeps every pipeline whose definition did
+    not change.
 
     Computed after variable substitution but the excluded keys keep realized
     per-run values (images, generators) out of the hash; realized types and
     dtypes stringify stably via default=str.
     """
-    load_definition = {
-        k: v
-        for k, v in pipeline_definition.items()
-        if k not in ("arguments", "seed", "chain")
-    }
-    serialized = json.dumps(load_definition, sort_keys=True, default=str)
+    serialized = json.dumps(
+        weights_identity(pipeline_definition), sort_keys=True, default=str
+    )
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 

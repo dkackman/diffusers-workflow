@@ -286,6 +286,10 @@ def wrap_resident(
             new_pipeline_wrapper.pipeline_definition.get("seed", default_seed)
         )
 
+    # The key the hit matched on is the weights identity: a scale, alpha or
+    # shift may differ from the values the resident model last ran with
+    new_pipeline_wrapper.apply_runtime_settings()
+
     # A cache hit and a cold load look identical from the outside -
     # same step, same dot - and they differ by minutes
     emit_phase("cached", detail=new_pipeline_wrapper.name)

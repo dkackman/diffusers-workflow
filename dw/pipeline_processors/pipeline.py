@@ -9,8 +9,14 @@ from .config_objects import (
     get_quantization_configuration,
     get_cache_configuration,
 )
-from .adapters import active_loras, load_ip_adapter, load_loras
+from .adapters import (
+    active_loras,
+    apply_adapter_settings,
+    load_ip_adapter,
+    load_loras,
+)
 from .components import (
+    apply_scheduler_shift,
     apply_sdnq_optimizations,
     configure_components,
     enable_cache_on_transformer,
@@ -302,6 +308,20 @@ class Pipeline:
             elif isinstance(value, list):
                 for entry in value:
                     Pipeline._check_trusted_block(entry, key)
+
+    def apply_runtime_settings(self):
+        """Re-apply what a run may have changed without changing the weights:
+        scheduler and audio_scheduler shift, LoRA scales and alphas. The
+        pipeline cache keys on weights_identity, so a hit can carry any of
+        these at a new value; load() applies the same values on its way
+        through, so a cold load and a hit end in the same state."""
+        apply_scheduler_shift(self.pipeline_definition.get("scheduler"), self.pipeline)
+        apply_scheduler_shift(
+            self.pipeline_definition.get("audio_scheduler"),
+            self.pipeline,
+            "audio_scheduler",
+        )
+        apply_adapter_settings(self.pipeline_definition.get("loras"), self.pipeline)
 
     def load(self, shared_components):
         """
