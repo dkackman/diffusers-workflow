@@ -29,7 +29,6 @@ import numpy
 from av.audio.resampler import AudioResampler
 from PIL import Image
 
-
 from .dsp import SILENCE_DBFS, dbfs, integrated_lufs, layout_name, true_peak_dbfs
 
 logger = logging.getLogger("dw")

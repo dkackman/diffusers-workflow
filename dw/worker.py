@@ -678,8 +678,8 @@ class WorkflowWorker:
         # Clear pipeline cache and any models task handlers cached
         kept = {k: v for k, v in self.loaded_pipelines.items() if k in keep}
         dropped = len(self.loaded_pipelines) - len(kept)
-        # Rebuilt rather than cleared in place: the dict object is shared with
-        # nothing, and a kept entry must keep its identity
+        # Cleared and refilled in place, so the kept entries keep their
+        # identity
         self.loaded_pipelines.clear()
         self.loaded_pipelines.update(kept)
         # Every run republishes shared components from the pipelines it hits

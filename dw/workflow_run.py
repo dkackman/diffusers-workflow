@@ -503,7 +503,10 @@ def pipeline_keys(workflow, arguments):
     this before releasing the previous workflow's models, so a model the
     next workflow loads anyway stays warm. A sub-workflow step loads its
     own pipelines later and is not in the set; an unseeded workflow still
-    answers, since warmth does not depend on the step cache.
+    answers, since warmth does not depend on the step cache. The probe
+    realizes the steps because the run keys on the realized definition, at
+    the price of loading step media once per switch (the price cache_hits
+    already pays).
     """
     output_root_token = activate_output_root(workflow.output_dir)
     try:
@@ -512,7 +515,9 @@ def pipeline_keys(workflow, arguments):
         workflow_def, _, _ = prepare_definition(
             workflow, workflow_def, arguments or {}, base_dir
         )
-        return set(step_pipeline_keys(workflow_def.get("steps", [])).values())
+        steps = workflow_def.get("steps", [])
+        realize_args(steps, base_dir)
+        return set(step_pipeline_keys(steps).values())
     finally:
         deactivate_output_root(output_root_token)
 

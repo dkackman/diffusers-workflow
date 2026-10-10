@@ -21,7 +21,9 @@ when a release ships.
   (was 20) and the prompt-weighting schnell workflow runs 4 steps at guidance
   0 (was 20).
 - The six 9-step minimax ref2va templates drop a dead `first_block` cache,
-  and minimax/shots-batch drops a no-op `release_pipeline`.
+  and minimax/shots-batch drops its `release_pipeline`: a no-op inside the
+  run, but it unloaded H3 at job end, so H3 now stays resident after a
+  shots-batch job, which is the win.
 
 ### 0.11.0
 

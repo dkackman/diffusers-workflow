@@ -1332,7 +1332,8 @@ step cache will not retain it.
 What keeps a pipeline warm: the server's worker keeps a pipeline loaded across runs for as
 long as what it *loads* is unchanged. A LoRA's `scale` and `alpha` and a scheduler's (or
 `audio_scheduler`'s) `shift` are applied in place on the warm pipeline, so iterating on
-them costs no reload. Changing a LoRA's `model_name` or `weight_name`, the quantization,
+them costs no reload; removing (nulling) an alpha or a shift reloads, so the checkpoint
+default comes back. Changing a LoRA's `model_name` or `weight_name`, the quantization,
 the placement or the scheduler type reloads it.
 
 #### Releasing task models mid-workflow
