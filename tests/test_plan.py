@@ -473,6 +473,21 @@ class TestEstimate:
         kept = plan(spec, arguments={"shots": same_text})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
 
+    def test_a_lengthened_list_with_a_shifted_field_is_unknown_not_derived(self, plan):
+        """#796: the derived basis scaled by entry count and skipped the #593
+        field check, so 6 shots with one at 345 frames was quoted confidently."""
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(5)
+        ]
+        same = [{"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(10)]
+        kept = plan(spec, arguments={"shots": same})["estimate"]
+        assert (kept["minutes"], kept["basis"]) == (20.0, "derived")
+        long = same[:9] + [{"name": "z", "prompt": "p", "num_frames": 345}]
+        moved = plan(spec, arguments={"shots": long})["estimate"]
+        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+
     def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
         """#772: a windows list whose entries carry an `index` label priced
         3 windows but went unknown at 4, because the new index looked like a

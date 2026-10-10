@@ -414,11 +414,15 @@ def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
 def _own_price(definition, expanded, list_entries, device, measured_entries):
     """The workflow's own price, reset to unknown when a scalar driver moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
-    if own["basis"] in (CATALOG, OTHER_DEVICE) and _scalar_driver_shifted(
-        definition,
-        expanded,
-        list_entries,
-        _per_entry_variable(definition.get("cost"), device),
+    # `derived` and `per_entry` are re-priced by entry count alone, so a
+    # per-entry num_frames outside the measured values needs the same check (#796)
+    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY) and (
+        _scalar_driver_shifted(
+            definition,
+            expanded,
+            list_entries,
+            _per_entry_variable(definition.get("cost"), device),
+        )
     ):
         # A scalar cost_driver (H3's num_frames, say) moved away from the
         # value the curated cost was measured against, and _repriced only
