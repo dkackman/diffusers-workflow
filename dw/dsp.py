@@ -703,6 +703,35 @@ def onset_envelope(mono, sample_rate):
     return flux.mean(axis=0), sample_rate / hop
 
 
+def envelope_lag(envelope, reference, rate, max_lag_seconds):
+    """(lag in seconds, correlation) of `envelope` against `reference`.
+
+    Both are onset envelopes at the same frame rate. The lag is positive when
+    `envelope` shows an event later than `reference` does: sliding the
+    reference that far later lines the two up. The correlation is the
+    normalised (Pearson) coefficient at that lag, 1 for the same envelope and
+    near 0 for unrelated ones. (None, 0.0) when either envelope is flat, which
+    has no shape to line up, or too short to hold the lag searched.
+    """
+    envelope = numpy.asarray(envelope, dtype=numpy.float64)
+    reference = numpy.asarray(reference, dtype=numpy.float64)
+    if envelope.size < 2 or reference.size < 2:
+        return None, 0.0
+    envelope = envelope - envelope.mean()
+    reference = reference - reference.mean()
+    norm = math.sqrt(float(envelope @ envelope) * float(reference @ reference))
+    if norm <= 1e-12:
+        return None, 0.0
+    # full[k] pairs envelope[n + lag] with reference[n], lag = k - (len(ref) - 1)
+    full = scipy.signal.correlate(envelope, reference, mode="full", method="fft")
+    zero = reference.size - 1
+    reach = int(round(max_lag_seconds * rate))
+    low, high = max(zero - reach, 0), min(zero + reach, full.size - 1)
+    window = full[low : high + 1]
+    best = int(numpy.argmax(window))
+    return (low + best - zero) / rate, float(window[best] / norm)
+
+
 def fold_bpm(bpm, min_bpm, max_bpm, centre=TEMPO_PRIOR_BPM):
     """bpm moved by octaves into [min_bpm, max_bpm], the octave nearest
     `centre` when more than one fits; None when none does."""

@@ -1860,6 +1860,36 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
 
+### measure_sync
+
+Measure how far a shot's audio sits from the source slice it should match. `analyze_sync_drift` counts samples against frames, so it cannot see audio whose samples line up but whose content is shifted - a lip-sync model that re-sings the reference late. This cross-correlates the onset envelopes of the two. One call measures one shot; the result is JSON and nothing is built:
+
+```json
+{
+    "name": "sync",
+    "task": {
+        "command": "measure_sync",
+        "arguments": {
+            "audio": "previous_result:shot",
+            "reference": "asset:song-slice.wav",
+            "max_lag_seconds": 3
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The shot's audio: a path, `asset:`/`output:` reference of an audio or video file, a waveform, or an earlier step's generated audio or video |
+| `reference` | Yes | The slice of the source it should match, in the same forms. A shot with no slice has nothing to measure and is refused |
+| `max_lag_seconds` | No | The largest lag searched, either way (default `2`). A lag at this edge may be larger still, and warns |
+| `threshold_seconds` | No | A lag longer than this, either way, is an `audio_out_of_sync` finding (default `0.1`) |
+| `min_confidence` | No | A correlation under this is a `sync_low_confidence` finding and the lag is not to be trusted (default `0.3`) |
+| `sample_rate` | With a waveform | Rate of a directly passed waveform (files carry their own) |
+
+Returns `{lag_seconds, confidence, max_lag_seconds, audio_seconds, reference_seconds, findings, warnings}`. **`lag_seconds` is positive when the audio is late** - its events fall that many seconds after the reference's - and negative when early. `confidence` is the normalised correlation at that lag, 0 to 1. A silent or flat audio or reference gives `lag_seconds: null` and a `sync_unmeasurable` finding. Each finding is `{rule, severity, at, value, threshold, says}`. It is not part of `assess_output`.
+
 ### analyze_beats
 
 Find where a song's beats fall, to cut picture to them - a Music 3 song
