@@ -124,20 +124,64 @@ def adapter_settings(loras):
     return names, weights, alphas
 
 
-def apply_adapter_settings(loras, pipeline):
+def set_adapter_scales(pipeline, names, weights):
+    """Set each named adapter's scale on every loaded layer that carries it,
+    without re-activating the adapters.
+
+    The warm-pipeline path. diffusers' set_adapters() activates as well as
+    scales, and activation goes through peft's set_adapter(), which sets
+    requires_grad on the adapter weights - after a run under model offload
+    those are inference tensors, and torch refuses ("Setting requires_grad=True
+    on inference tensor outside InferenceMode" - seen on a 3090 the first time
+    a scale changed on a warm Flux pipeline, 2026-10-10).
+    A pipeline that already ran holds the adapters active, so a hit only
+    needs each layer's set_scale(), which recomputes scale * alpha / rank and
+    touches no tensor.
+
+    Raises:
+        ValueError: if an adapter is carried by no loaded layer - a scale
+            that applied to nothing would silently run the old value
+    """
+    touched = {name: 0 for name in names}
+    for module in _lora_layers(pipeline):
+        scaling = getattr(module, "scaling", None)
+        if not isinstance(scaling, dict):
+            continue
+        for name, weight in zip(names, weights):
+            if name in scaling:
+                module.set_scale(name, weight)
+                touched[name] += 1
+    missing = [name for name, count in touched.items() if not count]
+    if missing:
+        raise ValueError(
+            f"Cannot set the scale of adapter(s) {missing} - no loaded layer "
+            "carries them. Nothing would have been scaled."
+        )
+
+
+def apply_adapter_settings(loras, pipeline, activate=False):
     """Set each active LoRA's alpha, then every scale, on a pipeline that
-    already holds the adapters. Alpha first: set_adapters is what recomputes
-    each layer's scaling from it. No-op with no active entry."""
+    already holds the adapters. Alpha first: the scale pass is what recomputes
+    each layer's scaling from it. No-op with no active entry.
+
+    `activate` is the cold path, right after load_lora_weights: diffusers'
+    set_adapters() activates the adapters and sets their scales in one call.
+    A warm pipeline (a cache hit) has them active already and takes the
+    scale-only path - see set_adapter_scales for why it must.
+    """
     names, weights, alphas = adapter_settings(loras)
     if not names:
         return
     for name, alpha in alphas.items():
         set_adapter_alpha(pipeline, name, alpha)
     logger.info(f"Setting adapter weights: {list(zip(names, weights))}")
-    # Positionally - diffusers' mixin calls the second parameter 'adapter_weights'
-    # while custom pipelines that delegate to the model (ostris/Krea2OstrisEdit)
-    # call it 'weights'
-    pipeline.set_adapters(names, weights)
+    if activate:
+        # Positionally - diffusers' mixin calls the second parameter
+        # 'adapter_weights' while custom pipelines that delegate to the model
+        # (ostris/Krea2OstrisEdit) call it 'weights'
+        pipeline.set_adapters(names, weights)
+    else:
+        set_adapter_scales(pipeline, names, weights)
 
 
 def load_loras(loras, pipeline):
@@ -173,7 +217,7 @@ def load_loras(loras, pipeline):
 
         pipeline.load_lora_weights(model_name, adapter_name=next(names), **lora)
 
-    apply_adapter_settings(settings, pipeline)
+    apply_adapter_settings(settings, pipeline, activate=True)
 
 
 def load_ip_adapter(ip_adapter_definition, pipeline):

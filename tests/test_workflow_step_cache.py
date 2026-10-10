@@ -19,6 +19,18 @@ from dw import workflow_run as workflow_run_module
 from dw.workflow import Workflow
 
 
+@pytest.fixture(autouse=True)
+def _scales_through_the_mock():
+    """The warm path sets LoRA scales layer by layer (set_adapter_scales);
+    the mocked models here have no peft layers, so route it to the mock's
+    set_adapters, which is what these tests read back."""
+    with patch(
+        "dw.pipeline_processors.adapters.set_adapter_scales",
+        lambda model, names, weights: model.set_adapters(names, weights),
+    ):
+        yield
+
+
 def _mock_pipeline_load(self, shared_components):
     self.pipeline = MagicMock()
 
