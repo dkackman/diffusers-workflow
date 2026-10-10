@@ -127,14 +127,22 @@ private class UnconfinedPath extends Path::PathNormalization::Range {
  * own `os.path.realpath` / `os.path.exists` of the value it is in the
  * middle of checking. This is the "trusted rather than checked" half of
  * the trade described at the top of this file, and it is scoped to the
- * definitions in `dw/security.py`.
+ * definitions in `dw/security.py`, plus `validate_media_path` in
+ * `dw/locations.py`: it confines against several roots at once (the
+ * workflow directory, the asset libraries, the output root - so even with
+ * no base directory it confines), a check the query cannot see, and its
+ * own existence test of the confined path was reported as an access.
+ * tests/test_locations.py is where that containment is established.
  */
 private class ValidatorParameter extends PathInjection::Sanitizer {
   ValidatorParameter() {
     exists(Function validator |
-      pathValidatorName(validator.getName()) or nameValidatorName(validator.getName())
+      (pathValidatorName(validator.getName()) or nameValidatorName(validator.getName())) and
+      validator.getLocation().getFile().getRelativePath() = "dw/security.py"
+      or
+      validator.getName() = "validate_media_path" and
+      validator.getLocation().getFile().getRelativePath() = "dw/locations.py"
     |
-      validator.getLocation().getFile().getRelativePath() = "dw/security.py" and
       this.asExpr() = validator.getArg(_)
     )
   }
