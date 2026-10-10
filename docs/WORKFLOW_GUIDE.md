@@ -732,7 +732,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
    `get_output_frames` looks at a video and `get_output_audio` listens to a
-   soundtrack.
+   soundtrack. A text-only client reads levels and clipping from
+   `get_gallery_metadata` instead (`media` peak and mean, `findings`;
+   `envelope=true` for where).
 
    To confirm the words a clip speaks - a text-only client can't consume the
    `AudioContent` block `get_output_audio` returns - run

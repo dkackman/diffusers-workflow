@@ -66,8 +66,9 @@ class MediaTools:
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
         says what was cut. To *see* a video, `get_output_frames`. A
-        text-only client confirms the *words* an output speaks by
-        transcribing it instead: WORKFLOW_GUIDE's "The loop", step 6, in
+        text-only client checks levels and clipping in
+        `get_gallery_metadata` (`media`, `findings`, `envelope=true`),
+        and the *words* by transcribing: "The loop", step 6, in
         `get_guide("workflows", section="Authoring a workflow from an
         agent")`.
 
