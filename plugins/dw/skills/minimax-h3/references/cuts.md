@@ -53,3 +53,5 @@ and `cut_frames` equal to `num_frames`, or shorter with `num_frames` sized by
 the same rule.
 `music-video`'s `song` variable defaults to the song it writes; pass
 `asset:...` to cut to an existing one and skip writing.
+
+Mouths and the pasted-over song (#795): `pair_audio` lays the original song over shots whose mouths follow H3's own audio. With the slice as a reference alone, H3 was seen re-singing it shifted by whole beats (up to 1.8 s), so the mouth lands off the song. The `hold_audio` variable (default null, no hold) holds the slice as well: set it to `previous_result:slice` on `music-video`, or an audio file on the `match_audio` chains, and keep the reference. #619 measured hold with image-only references (3 of 6 sung onsets, against 6 of 6 reference-only); hold plus reference is one field report, not yet measured. Check a cut with `measure_sync`.

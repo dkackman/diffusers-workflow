@@ -35,6 +35,7 @@
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "weights_dtype": "{int4}",
+        "hold_audio": null,
         "seed": null
     },
     "variable_constraints": {
@@ -199,6 +200,7 @@
                             "from_file": "variable:voice"
                         }
                     ],
+                    "hold_audio": "variable:hold_audio",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

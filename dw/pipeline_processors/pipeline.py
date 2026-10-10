@@ -631,7 +631,11 @@ class Pipeline:
         """
         held = arguments.get(HOLD_AUDIO_INPUT)
         if held is None:
-            return arguments
+            if HOLD_AUDIO_INPUT not in arguments:
+                return arguments
+            # A template's null `hold_audio` variable is no hold at all, the
+            # same call as one that never named the argument
+            return {k: v for k, v in arguments.items() if k != HOLD_AUDIO_INPUT}
         if not holds_audio(self.pipeline):
             raise ValueError(
                 f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "

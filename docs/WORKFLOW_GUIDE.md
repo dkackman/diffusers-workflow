@@ -1657,13 +1657,20 @@ dict; a run refuses a pipeline with no hold blocks or a value that is not audio.
 `hold_audio` the output is unchanged.
 
 Hold is opt-in: the catalog's audio-driven templates (`music-video` and the `match_audio`
-chains) pass the track as a `MiniMaxH3AudioReference` instead. Measured on lem (#619:
-`chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm), a held track
-kept the soundtrack exact but the mouth was open at about 3 of 6 sung-word onsets, and
-closed through much of the second segment, against 6 of 6 with the reference; the
-held arm read as speech to camera rather than singing. Both arms took about the same
+chains) pass the track as a `MiniMaxH3AudioReference` and declare a `hold_audio` variable,
+null by default (a null hold is no hold), to add it. On `music-video` set it to
+`previous_result:slice` to hold each shot's own slice; on the chains, to an audio file.
+Measured on lem (#619: `chain-matched-to-audio`, a 10 s sung track, seed 42, one run per
+arm), a held track with image-only references kept the soundtrack exact but the mouth was
+open at about 3 of 6 sung-word onsets, and closed through much of the second segment,
+against 6 of 6 with the reference alone; the held arm read as speech to camera rather
+than singing. That A/B never tried hold *and* reference together, and a field report
+(#795) found reference-only re-sings the track shifted by whole beats (up to 1.8 s), so
+the mouth follows H3's own audio and lands off the original song; holding the slice
+while keeping the reference fixed it. That is one report, not a measurement: the
+three-arm A/B on several seeds and tracks is open in #795. Both arms took about the same
 time (19.8 and 18.3 min). Hold is for picture that must fit audio exactly, such as
-motion cut to music, not yet for lip sync. `refine_strength` also uses hold, to keep the
+motion cut to music; for lip sync, hold plus reference is untested (above). `refine_strength` also uses hold, to keep the
 base pass's own audio, which was generated jointly with that video - a different case from
 lip sync to supplied audio (see the refine section below).
 
@@ -2025,7 +2032,7 @@ Refine re-denoises the video only. The audio rows have to be held, so pass the b
 pass's track as `hold_audio` (`previous_result:base.audio`) and the step's `audio` is that
 track. This is a different use of hold from the one above: it keeps the audio the base pass
 generated jointly with that video, rather than fitting picture to supplied audio. For lip
-sync to supplied audio, the per-shot audio reference was the better arm in #619's A/B.
+sync to supplied audio see the hold section above (#619, #795).
 
 ```json
 {

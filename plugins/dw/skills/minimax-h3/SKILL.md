@@ -122,11 +122,9 @@ read the `workflows` guide's authoring section.
   limit, not the model's). Identity rides on a picture, voice
   timbre on an audio clip, motion/camera on a video tail, score across
   cuts under concat.
-- Lip sync to supplied audio: pass the track as an audio reference, as
-  `music-video` and the `match_audio` chains do. `hold_audio` keeps the
-  track exact and draws picture to it, but measured on a sung track the
-  mouth followed it worse (open at 3 of 6 onsets vs 6 of 6); use it
-  opt-in, for picture that must fit audio exactly, not for singing.
+- Lip sync to supplied audio: an audio reference, as `music-video` and
+  the `match_audio` chains do, can sing shifted beats off the track;
+  their `hold_audio` variable adds a hold (`references/cuts.md`, #795).
 - H3 is guidance-distilled: no `guidance_scale` or negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
   H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.

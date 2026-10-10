@@ -465,7 +465,7 @@ class TestAudioDrivenTemplates:
         steps = h3_steps(template("minimax", name))
 
         assert len(steps) == 1
-        assert "hold_audio" not in steps[0]["pipeline"]["arguments"]
+        assert template("minimax", name)["variables"]["hold_audio"] is None
         assert "MiniMaxH3AudioReference" in json.dumps(template("minimax", name))
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
@@ -474,6 +474,26 @@ class TestAudioDrivenTemplates:
         h3_steps(definition)[0]["pipeline"]["arguments"]["hold_audio"] = "asset:t.wav"
 
         assert hold_errors(definition) == []
+
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_hold_audio_is_a_declared_variable_that_defaults_to_no_hold(self, name):
+        """`run_workflow` can set only a declared variable (#795)."""
+        definition = template("minimax", name)
+
+        assert definition["variables"]["hold_audio"] is None
+        arguments = h3_steps(definition)[0]["pipeline"]["arguments"]
+        assert arguments["hold_audio"] == "variable:hold_audio"
+        assert hold_errors(definition) == []
+
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_the_hold_variable_set_validates_beside_the_reference(self, name):
+        definition = copy.deepcopy(template("minimax", name))
+        definition["variables"]["hold_audio"] = (
+            "previous_result:slice" if name == "music-video.json" else "asset:t.wav"
+        )
+
+        assert hold_errors(definition) == []
+        assert "MiniMaxH3AudioReference" in json.dumps(definition)
 
     def test_music_video_still_drops_the_whole_song_over_the_edit(self):
         definition = template("minimax", "music-video.json")
@@ -702,6 +722,13 @@ class TestWithHeldAudio:
     def test_no_hold_audio_leaves_the_arguments_alone(self):
         arguments = {"prompt": "x", "output": ["videos", "audio"]}
         assert Pipeline._with_held_audio(ns(object()), arguments) is arguments
+
+    def test_a_null_hold_audio_is_dropped_from_the_call(self):
+        arguments = {"prompt": "x", "hold_audio": None, "output": ["audio"]}
+
+        result = Pipeline._with_held_audio(ns(object()), arguments)
+
+        assert result == {"prompt": "x", "output": ["audio"]}
 
     def test_a_list_output_of_only_audio_gains_the_held_keys(self):
         pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
