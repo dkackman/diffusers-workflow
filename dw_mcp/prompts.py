@@ -55,7 +55,10 @@ def get_prompt_schema(client):
 
 def save_prompt(client, name, prompt):
     """Write a prompt into the library, overwriting any prompt of that name.
-    The server validates before it writes."""
+    The server validates before it writes. A plain string that does not look
+    like a JSON object is the prompt text itself, saved as {"text": ...}."""
+    if isinstance(prompt, str) and not prompt.lstrip().startswith("{"):
+        prompt = {"text": prompt}
     prompt = coerce_json_object(prompt, "prompt")
     return client.put_json(api_path("api", "prompts", name), {"prompt": prompt})
 

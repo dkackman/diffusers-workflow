@@ -51,7 +51,7 @@ let the family template draw its own portrait. This is the step that goes
 missing silently - nothing validates "the same character looks the same"
 across separately generated shots, so it has to be deliberate.
 
-Large `run_workflow` arguments: `save_prompt` each shot prompt under a
+Large `run_workflow` arguments: `save_prompt(name, {"text": ...})` each shot prompt under a
 script-prefixed name (the library is shared across workspaces) and pass
 `prompt:<script>/<shot>` references in the list; they resolve in nested
 arguments.

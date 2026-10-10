@@ -65,7 +65,7 @@ described the same way in episode 6 as in episode 1 is a reference rather
 than a paragraph retyped - which is the drift this skill exists to stop.
 
 The same goes for a long shot list: a `run_workflow` call carrying 26 prompts
-is ~50 KB. `save_prompt` each shot under a series-prefixed name (the library
+is ~50 KB. `save_prompt(name, {"text": ...})` each shot under a series-prefixed name (the library
 is shared across workspaces) and pass `prompt:<series>/<shot>` references in
 the list; they resolve in nested arguments.
 
