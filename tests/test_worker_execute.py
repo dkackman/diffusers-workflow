@@ -109,7 +109,52 @@ def test_workflow_switch_evicts_cache_and_untouched_keys_dropped():
             StubWorkflow(),
             command=snapshot_command("/w/other.json"),
         )
-    cleanup.assert_called_once()
+    cleanup.assert_called_once_with(keep=set())
+
+
+def test_workflow_switch_keeps_pipelines_the_new_workflow_loads():
+    class TouchesShared(StubWorkflow):
+        def run(self, arguments, previous_pipelines=None, context=None, **kwargs):
+            # The new workflow uses the warm pipeline, so the post-run
+            # eviction of untouched keys leaves it alone
+            assert "shared-key" in previous_pipelines
+            context.touch_pipeline("shared-key")
+            return []
+
+    worker = _make_worker()
+    _execute(worker, StubWorkflow())
+    worker.loaded_pipelines["shared-key"] = object()
+    worker.loaded_pipelines["old-only-key"] = object()
+
+    with patch("dw.worker.workflow_run.pipeline_keys", return_value={"shared-key"}):
+        messages = _execute(
+            worker, TouchesShared(), command=snapshot_command("/w/other.json")
+        )
+
+    assert "shared-key" in worker.loaded_pipelines
+    assert "old-only-key" not in worker.loaded_pipelines
+    outputs = [m["message"] for m in messages if m["type"] == "output"]
+    assert any("keeping 1 warm" in m for m in outputs)
+
+
+def test_workflow_switch_falls_back_to_a_full_release_when_keys_cannot_be_taken():
+    worker = _make_worker()
+    _execute(worker, StubWorkflow())
+    worker.loaded_pipelines["shared-key"] = object()
+
+    with patch(
+        "dw.worker.workflow_run.pipeline_keys", side_effect=ValueError("bad variable")
+    ):
+        _execute(worker, StubWorkflow(), command=snapshot_command("/w/other.json"))
+
+    assert worker.loaded_pipelines == {}
+
+
+def test_full_cleanup_keep_spares_named_keys_only():
+    worker = _make_worker()
+    worker.loaded_pipelines = {"a": object(), "b": object()}
+    worker._cleanup_all(keep={"a"})
+    assert set(worker.loaded_pipelines) == {"a"}
 
 
 def test_inline_workflow_definition_executes(tmp_path):

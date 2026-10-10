@@ -62,6 +62,7 @@ from .step_cache import (
     reference_resolves_to,
     referenced_result_names,
     step_cache,
+    step_definition_keys,
     step_pipeline_keys,
 )
 from .subfolders import step_subfolder
@@ -138,6 +139,9 @@ class StepLoop:
     hits: set = field(default_factory=set)
     # Final result is the workflow return value
     last_result: object = None
+    # step_definition_keys of `steps`, taken before any step loaded - what
+    # the step cache folds in for a borrowed pipeline (cache_lookup)
+    definition_keys: dict = field(default_factory=dict)
 
 
 def run_base_dir(workflow):
@@ -367,14 +371,16 @@ def cache_lookup(
     step_seed,
     hits_this_run,
     cache_enabled,
-    pipeline_keys,
+    definition_keys,
 ):
     """Whether the step cache serves step `index`, as (cached_result or
     None, the step_data snapshot the entry is keyed on or None, whether
     a later step still reads this one's result, the names later steps
     still reference). Shared by run() and cache_hits() - see
-    prepare_definition for why. `pipeline_keys` is step_pipeline_keys
-    of `steps`, taken before the first step ran.
+    prepare_definition for why. `definition_keys` is step_definition_keys
+    of `steps`, taken before the first step ran - not the pipeline
+    ownership table, whose keys leave out a source's LoRA scale, alpha and
+    shift, each of which changes what a borrowing step produces.
     """
     # What later steps still read, which decides both whether this
     # step's result has to be kept alive after the step (release_unreferenced_results
@@ -411,7 +417,7 @@ def cache_lookup(
             # model - only the source step's does - so without this a
             # source model change would leave the borrowing step's
             # snapshot unchanged and serve a stale hit
-            borrowed = borrowed_pipeline_keys(steps, index, pipeline_keys)
+            borrowed = borrowed_pipeline_keys(steps, index, definition_keys)
             if borrowed:
                 step_data_snapshot["__borrowed_pipelines__"] = borrowed
         except Exception as ex:
@@ -465,7 +471,7 @@ def cache_hits(workflow, arguments):
         realize_args(steps, base_dir)
         # The same table run() takes at the same point, so a borrowed
         # key here is the key the run stored its entry under
-        pipeline_keys = step_pipeline_keys(steps)
+        definition_keys = step_definition_keys(steps)
         hits_this_run = set()
         hits = []
         for index, step_data in enumerate(steps):
@@ -479,12 +485,39 @@ def cache_hits(workflow, arguments):
                 step_seed,
                 hits_this_run,
                 True,
-                pipeline_keys,
+                definition_keys,
             )
             if cached_result is not None:
                 hits_this_run.add(step_data["name"])
                 hits.append(step_data["name"])
         return hits
+    finally:
+        deactivate_output_root(output_root_token)
+
+
+def pipeline_keys(workflow, arguments):
+    """The set of pipeline cache keys a run of `workflow` with `arguments`
+    loads its steps under - the table run() and cache_hits() take
+    (step_pipeline_keys over the prepared definition). Prepares the
+    definition exactly as a run does and executes nothing: the worker asks
+    this before releasing the previous workflow's models, so a model the
+    next workflow loads anyway stays warm. A sub-workflow step loads its
+    own pipelines later and is not in the set; an unseeded workflow still
+    answers, since warmth does not depend on the step cache. The probe
+    realizes the steps because the run keys on the realized definition, at
+    the price of loading step media once per switch (the price cache_hits
+    already pays).
+    """
+    output_root_token = activate_output_root(workflow.output_dir)
+    try:
+        workflow_def = copy.deepcopy(workflow.workflow_definition)
+        base_dir = run_base_dir(workflow)
+        workflow_def, _, _ = prepare_definition(
+            workflow, workflow_def, arguments or {}, base_dir
+        )
+        steps = workflow_def.get("steps", [])
+        realize_args(steps, base_dir)
+        return set(step_pipeline_keys(steps).values())
     finally:
         deactivate_output_root(output_root_token)
 
@@ -678,6 +711,7 @@ def begin_steps(workflow, prepared, previous_pipelines, run_context):
         prepared.cache_enabled,
         run_context,
         pipelines,
+        definition_keys=step_definition_keys(steps),
     )
 
 
@@ -875,7 +909,7 @@ def run_step(workflow, loop, index, step_data, record):
         step_seed,
         loop.hits,
         loop.cache_enabled,
-        workflow.pipeline_ownership.running,
+        loop.definition_keys,
     )
     # The last step of a composed child whose parent does the
     # saving (#92) - its files are written once, by the parent

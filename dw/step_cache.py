@@ -121,26 +121,101 @@ def component_names(pipeline_definition, key):
     return list(pipeline_definition.get(key, [])) + list(configuration.get(key, []))
 
 
+RUNTIME_LORA_KEYS = ("scale", "alpha")
+
+
+def weights_identity(pipeline_definition):
+    """The pipeline definition with every runtime-mutable setting removed.
+
+    A LoRA's scale and alpha (set_adapters / set_adapter_alpha) and a
+    scheduler's shift (set_shift) change nothing about what is loaded, so a
+    run that only moves one of them must hit the warm pipeline and re-apply
+    the value (Pipeline.apply_runtime_settings), not reload the stack.
+    Everything else - the model, the LoRA files, quantization, placement,
+    the scheduler type - still changes the key. Returns a new dict; the
+    definition is the workflow's and is not edited.
+
+    An alpha's or a shift's *presence* stays in the identity (as True, never
+    the value). A hit re-applies only what the definition states, and nothing
+    sets an alpha or shift back to the checkpoint's own: a run that drops one
+    (or nulls the variable behind it) must reload to get the default back,
+    where 16 -> 8 just re-applies. A scale needs no marker - an absent scale
+    re-applies as 1.0.
+    """
+    identity = {
+        k: v
+        for k, v in pipeline_definition.items()
+        if k not in ("arguments", "seed", "chain")
+    }
+    loras = identity.get("loras")
+    if isinstance(loras, list):
+        identity["loras"] = [
+            _without_runtime(lora, RUNTIME_LORA_KEYS, "alpha")
+            if isinstance(lora, dict)
+            else lora
+            for lora in loras
+        ]
+    for name in ("scheduler", "audio_scheduler"):
+        scheduler = identity.get(name)
+        if isinstance(scheduler, dict):
+            identity[name] = _without_runtime(scheduler, ("shift",), "shift")
+    return identity
+
+
+def _without_runtime(block, runtime_keys, marked):
+    """`block` without its runtime keys, but with `marked` as True when the
+    block states it - see weights_identity for why its presence counts."""
+    stripped = {k: v for k, v in block.items() if k not in runtime_keys}
+    if block.get(marked) is not None:
+        stripped[marked] = True
+    return stripped
+
+
+def pipeline_definition_key(pipeline_definition):
+    """A hash of everything in a pipeline definition but what varies per call
+    (arguments, seed, chain) - runtime settings included, unlike
+    pipeline_cache_key.
+
+    The step cache keys a borrowing step on this, not on the pipeline cache
+    key: a step that runs on another step's pipeline (pipeline_reference,
+    reused_components) produces a different result when only its source's
+    LoRA scale or shift moves, though the loaded weights - and so the warm
+    pipeline - are the same.
+    """
+    serialized = json.dumps(
+        {
+            k: v
+            for k, v in pipeline_definition.items()
+            if k not in ("arguments", "seed", "chain")
+        },
+        sort_keys=True,
+        default=str,
+    )
+    return hashlib.sha256(serialized.encode()).hexdigest()
+
+
 def pipeline_cache_key(pipeline_definition):
     """Stable identity for a loaded pipeline.
 
-    Hashes everything that shapes loading - configuration, components,
-    quantization, loras - and excludes what varies per call (arguments, seed,
-    chain), so a cache hit means "this exact model stack is already loaded".
-    Keying the cache by identity instead of step name means two workflows
-    whose steps happen to share a name can no longer collide, and a rerun of
-    an edited workflow keeps every pipeline whose definition did not change.
+    Hashes the weights identity - everything that shapes loading:
+    configuration, components, quantization, the LoRA files, the scheduler
+    type - and excludes what varies per call (arguments, seed, chain), so a
+    cache hit means "this exact model stack is already loaded". A LoRA's
+    scale and alpha and a scheduler's shift are excluded too: each is set in
+    place on the loaded model, and a hit re-applies them
+    (Pipeline.apply_runtime_settings), so nudging one between runs costs no
+    reload. Keying the cache by identity instead of step name means two
+    workflows whose steps happen to share a name can no longer collide, and
+    a rerun of an edited workflow keeps every pipeline whose definition did
+    not change.
 
     Computed after variable substitution but the excluded keys keep realized
     per-run values (images, generators) out of the hash; realized types and
     dtypes stringify stably via default=str.
     """
-    load_definition = {
-        k: v
-        for k, v in pipeline_definition.items()
-        if k not in ("arguments", "seed", "chain")
-    }
-    serialized = json.dumps(load_definition, sort_keys=True, default=str)
+    serialized = json.dumps(
+        weights_identity(pipeline_definition), sort_keys=True, default=str
+    )
     return hashlib.sha256(serialized.encode()).hexdigest()
 
 
@@ -170,14 +245,34 @@ def step_pipeline_keys(steps):
     loaded - a deferred cache hit, or the cache_hits probe. A key that has to
     agree across those cases is read from this table, not re-hashed.
     """
+    return _closure_keys(steps, pipeline_cache_key)
+
+
+def step_definition_keys(steps):
+    """Step name -> effective definition key for every pipeline step, taken
+    before any step runs: step_pipeline_keys over pipeline_definition_key.
+
+    What the step cache folds in for a borrowed pipeline
+    (borrowed_pipeline_keys), so a source step whose only change is a LoRA
+    scale, alpha or shift - the same warm pipeline, a different result - is
+    a miss for the steps that borrow it. Pipeline ownership keeps to
+    step_pipeline_keys.
+    """
+    return _closure_keys(steps, pipeline_definition_key)
+
+
+def _closure_keys(steps, own_key_of):
+    """Step name -> the step's own key (`own_key_of` its pipeline
+    definition), or, for a step that reuses components, the hash of the
+    sorted own keys over its reuse closure - see step_pipeline_keys."""
     keys = {}
-    # Step name -> the own pipeline_cache_keys of its reuse closure
+    # Step name -> the own keys of its reuse closure
     closures = {}
     for index, step_data in enumerate(steps):
         if "pipeline" not in step_data:
             continue
         pipeline_definition = step_data["pipeline"]
-        own_key = pipeline_cache_key(pipeline_definition)
+        own_key = own_key_of(pipeline_definition)
         closure = {own_key}
         reused = component_names(pipeline_definition, "reused_components")
         for name in reused:
@@ -215,10 +310,15 @@ def borrowed_pipeline_keys(steps, index, pipeline_keys):
     step's model changes - its own definition never names the model. Folding
     the source steps' keys into the lookup snapshot makes a source model
     change a miss here too, rather than a stale hit that republishes a
-    now-wrong pipeline. The keys are effective keys (step_pipeline_keys), so
-    a change further up a borrow chain than the direct source is a miss too.
+    now-wrong pipeline. The keys are effective keys, so a change further up
+    a borrow chain than the direct source is a miss too.
 
-    The keys come from `pipeline_keys` (step_pipeline_keys), computed from
+    The step cache passes step_definition_keys, which also moves with a
+    source's LoRA scale, alpha or shift - a change that keeps the warm
+    pipeline but changes what the borrower produces. Callers that only need
+    which steps are borrowed may pass step_pipeline_keys.
+
+    The keys come from `pipeline_keys` (one of those tables), computed from
     the definition before any step ran, never from `steps[:index]` as they
     stand now: a load edits its own definition in place, and a source step
     that loaded before this lookup (a cold run) and one that did not (a

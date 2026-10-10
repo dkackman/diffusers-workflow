@@ -112,6 +112,10 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
+Two steps whose pipelines differ only in a LoRA's `scale` or `alpha` or a scheduler's
+`shift` share one warm model, and a reference always runs at the referenced step's own
+values; `release_pipeline` on either step frees the shared model, as it does for two
+identical steps.
 See [workflows/templates/community-pipeline.json](../workflows/templates/community-pipeline.json) for a full example.
 
 ### Task Steps
@@ -1324,6 +1328,13 @@ offload on everything:
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
 saved. A later `pipeline_reference` to a released step is an error, and the process-wide
 step cache will not retain it.
+
+What keeps a pipeline warm: the server's worker keeps a pipeline loaded across runs for as
+long as what it *loads* is unchanged. A LoRA's `scale` and `alpha` and a scheduler's (or
+`audio_scheduler`'s) `shift` are applied in place on the warm pipeline, so iterating on
+them costs no reload; removing (nulling) an alpha or a shift reloads, so the checkpoint
+default comes back. Changing a LoRA's `model_name` or `weight_name`, the quantization,
+the placement or the scheduler type reloads it.
 
 #### Releasing task models mid-workflow
 

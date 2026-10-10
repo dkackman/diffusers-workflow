@@ -9,8 +9,14 @@ from .config_objects import (
     get_quantization_configuration,
     get_cache_configuration,
 )
-from .adapters import active_loras, load_ip_adapter, load_loras
+from .adapters import (
+    active_loras,
+    apply_adapter_settings,
+    load_ip_adapter,
+    load_loras,
+)
 from .components import (
+    apply_scheduler_shift,
     apply_sdnq_optimizations,
     configure_components,
     enable_cache_on_transformer,
@@ -133,6 +139,22 @@ def _loading_copy(pipeline_definition):
         else:
             copied[key] = copy_containers(value)
     return copied
+
+
+def apply_runtime_settings(pipeline_definition, model):
+    """Set what a pipeline definition states that changes no weights -
+    scheduler and audio_scheduler shift, LoRA scales and alphas - on a model
+    that already holds those weights.
+
+    Takes the definition as the workflow holds it, never a Pipeline's
+    loading copy: load_loras pops each entry's model_name from that copy,
+    and an entry without one reads as switched off and would be skipped.
+    """
+    apply_scheduler_shift(pipeline_definition.get("scheduler"), model)
+    apply_scheduler_shift(
+        pipeline_definition.get("audio_scheduler"), model, "audio_scheduler"
+    )
+    apply_adapter_settings(pipeline_definition.get("loras"), model)
 
 
 class Pipeline:
@@ -302,6 +324,15 @@ class Pipeline:
             elif isinstance(value, list):
                 for entry in value:
                     Pipeline._check_trusted_block(entry, key)
+
+    def apply_runtime_settings(self):
+        """Re-apply what a run may have changed without changing the weights:
+        scheduler and audio_scheduler shift, LoRA scales and alphas. The
+        pipeline cache keys on weights_identity, so a hit can carry any of
+        these at a new value; load() applies the same values on its way
+        through, so a cold load and a hit end in the same state. Only for a
+        wrapper that has not loaded (a hit): load() pops from this copy."""
+        apply_runtime_settings(self.pipeline_definition, self.pipeline)
 
     def load(self, shared_components):
         """

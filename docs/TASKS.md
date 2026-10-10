@@ -2632,7 +2632,7 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 | `eye_dist_threshold` | No | Skip faces with eye distance below this (default: 5) |
 | `upsample_img` | No | Pre-upscaled background image (e.g., from a prior upscale step) |
 
-Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license).
+Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license). The detector and parser are loaded once per settings/device and reused across frames; `release_models` drops them with the restorer.
 
 **Example:** [restore-faces.json](../workflows/templates/restore-faces.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
 

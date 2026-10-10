@@ -67,10 +67,6 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.1
-                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {

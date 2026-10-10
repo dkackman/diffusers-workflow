@@ -62,6 +62,11 @@ class PipelineOwnership:
         # pipeline_reference still address pipelines by the step that made
         # them
         self.keys_by_step = {}
+        # Step name -> the step's pipeline definition as the workflow holds
+        # it (never a loading copy), so a pipeline_reference can put the
+        # referenced step's own scale, alpha and shift back on a model a
+        # step differing only in those shares with it
+        self.definitions_by_step = {}
         # Step name -> _Deferred for each cache hit whose pipeline was not
         # resident and so was not loaded
         self.deferred = {}
@@ -92,9 +97,16 @@ class PipelineOwnership:
             )
         return self.running[step_name]
 
-    def record(self, step_name, key):
-        """Record which cache key a step's pipeline lives under this run."""
+    def record(self, step_name, key, pipeline_definition=None):
+        """Record which cache key a step's pipeline lives under this run,
+        and the definition it was loaded or wrapped from."""
         self.keys_by_step[step_name] = key
+        if pipeline_definition is not None:
+            self.definitions_by_step[step_name] = pipeline_definition
+
+    def definition_for(self, step_name):
+        """The pipeline definition `step_name` recorded this run, or None."""
+        return self.definitions_by_step.get(step_name)
 
     def key_for(self, step_name):
         """The cache key `step_name` recorded this run, or None."""
@@ -285,6 +297,10 @@ def wrap_resident(
         ).manual_seed(
             new_pipeline_wrapper.pipeline_definition.get("seed", default_seed)
         )
+
+    # The key the hit matched on is the weights identity: a scale, alpha or
+    # shift may differ from the values the resident model last ran with
+    new_pipeline_wrapper.apply_runtime_settings()
 
     # A cache hit and a cold load look identical from the outside -
     # same step, same dot - and they differ by minutes
