@@ -155,7 +155,9 @@ def level_findings(media):
             # already clips; the fix is warn_if_written_above_full_scale's
             "says": "at or above full scale, so it clips on playback - a "
             "'normalize_audio' step at 'peak_dbfs: -3' ahead of the step that "
-            "saves it; a mux into a video needs more headroom than that",
+            "saves it; a mux into a video needs more headroom than that. For a "
+            "file already written, run the 'relevel-clip' template on it: no "
+            "re-render",
         }
         found.append(finding(rule, peak, None))
     if mean is not None and mean < audio_qc.NEAR_SILENT_WARN_DBFS:

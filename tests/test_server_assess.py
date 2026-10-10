@@ -297,6 +297,8 @@ class TestMetadataLevelFindings:
         # playback, and the fix is audio_qc's - -3 dB, more for a mux
         assert "clips on playback" in found[0]["says"]
         assert "peak_dbfs: -3" in found[0]["says"]
+        # and for the file already written, the template that re-levels it
+        assert "relevel-clip" in found[0]["says"]
 
     def test_near_silent_with_real_peaks_is_info(self):
         from dw.server.assess import level_findings

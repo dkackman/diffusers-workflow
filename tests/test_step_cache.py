@@ -840,6 +840,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
     },
     "recenter-crop.json": {},
+    "relevel-clip.json": {},
     "restore-faces.json": {
         "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
     },

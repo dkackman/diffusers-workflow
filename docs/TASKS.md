@@ -3227,6 +3227,7 @@ Canny edge detection followed by ControlNet generation:
 - [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Spandrel upscale of an existing image
 - [upscale-diffusion.json](../workflows/templates/upscale-diffusion.json) — Diffusion upscale of an existing image
 - [audio-trim-fade.json](../workflows/templates/audio-trim-fade.json) — Trim a generated track and fade its tail
+- [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
