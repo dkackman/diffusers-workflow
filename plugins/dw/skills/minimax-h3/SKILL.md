@@ -114,19 +114,18 @@ read the `workflows` guide's authoring section.
   24 GB ceiling on the `17n+5` grid drops with each reference: 243 frames at
   one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
   the largest `for_each` shot over budget.
-- Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
-  terminal zero included, so `denoise_total_steps` reports 8. A null
-  `lora_model_name` drops the LoRA; raise steps and shifts too.
+- Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
+  8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
+  reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip: there is no latent memory (a diffusers
   limit, not the model's). Identity rides on a picture, voice
   timbre on an audio clip, motion/camera on a video tail, score across
   cuts under concat.
-- Lip sync to supplied audio: pass the track as an audio reference, as
-  `music-video` and the `match_audio` chains do. `hold_audio` keeps the
-  track exact and draws picture to it, but measured on a sung track the
-  mouth followed it worse (open at 3 of 6 onsets vs 6 of 6); use it
-  opt-in, for picture that must fit audio exactly, not for singing.
+- Lip sync to supplied audio: an audio reference alone, as the
+  `match_audio` chains pass it, can sing shifted beats off the track; `music-video`
+  holds each slice as well by default, and the chains' `hold_audio` variable adds a
+  hold (`references/cuts.md`, #795, #808).
 - H3 is guidance-distilled: no `guidance_scale` or negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
   H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.
@@ -151,9 +150,8 @@ the rules are MiniMax's:
    built-in enhancer writes the format from those guides. Its `idea` is
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
-Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots and when a
-reference picture should fix identity but not framing, say so in the prompt -
-or every shot inherits the portrait's composition.
+Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
+Several characters: one cropped reference each, never a group picture, which imposes its framing on every shot (`references/per-character.md`).
 Before writing lines, read `references/dialogue.md`: how long a line fits a clip, and what not to name.
 
 ## Run and judge
@@ -168,11 +166,11 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
    (`timeout_capped` says the server's cap cut it; call again while
-   `still_running`), then `get_job` for the manifest. A cancelled H3 job runs
+   `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
    to its next step boundary. Silence is no hang: `denoise_step` is null
    through the reference encode (~90 s; 629 s for a video reference on a
    3090) and the block cache makes later steps uneven -
-   two-minute gaps are healthy. `phase_stall` in `get_job_events` narrates
+   two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
    `intermediate` the scratch.

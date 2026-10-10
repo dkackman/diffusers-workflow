@@ -20,10 +20,8 @@ import math
 import types
 
 from .registry import register_command
-from ..task_domains import (
-    POSITIVE,
-    beats_errors,
-)
+from ..task_domains import POSITIVE
+from ..task_problems import beats_errors
 
 logger = logging.getLogger("dw")
 
@@ -59,11 +57,11 @@ def _parse_anchors(anchors, duration):
 
 def _coerce_arguments(sample_rate, tempo_bpm, min_bpm, max_bpm, anchors):
     from ..task_domains import (
-        beats_problems,
         check_arguments,
         real_number,
         whole_number,
     )
+    from ..task_problems import beats_problems
 
     values = {
         "sample_rate": whole_number(sample_rate, "sample_rate", COMMAND),

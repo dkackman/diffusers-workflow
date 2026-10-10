@@ -429,33 +429,8 @@ def check(
     duration = len(mono) / sample_rate if sample_rate else 0.0
     findings = []
 
-    def heard_shot(word):
-        if spans is None:
-            return None
-        return shot_at(spans, (word["start"] + word["end"]) / 2)
-
     if not parsed_lines:
-        if heard:
-            findings.append(
-                finding(
-                    SPEECH_WHERE_SILENT,
-                    len(heard),
-                    _at(None, heard[0], shot=heard_shot(heard[0])),
-                )
-            )
-        return {
-            "findings": findings,
-            "lines": [],
-            "discarded": discarded,
-            "unmatched": [_heard_entry(word) for word in heard],
-            "shots": _shots_entry(spans),
-            "shots_source": shots_source,
-            "rules_applied": list(SILENT_RULES),
-            "rules_skipped": [
-                {"rule": rule, "reason": "lines is [] - no speech was expected"}
-                for rule in LINE_RULES + SHOT_RULES
-            ],
-        }
+        return _silent_take(heard, discarded, spans, shots_source)
 
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
@@ -517,28 +492,12 @@ def check(
 
         if own:
             tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
-            clipped = _clipped_tail(mono, sample_rate, end, tails)
-            if clipped is not None:
-                at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}
-                if clipped[0] is not None or shot is not None:
-                    at["shot"] = clipped[0] or shot
-                findings.append(finding(CLIPPED_AT_END, _round(clipped[1], 2), at))
+            findings.extend(
+                _clipped_findings(mono, sample_rate, tails, index, own, shot)
+            )
             previous_end = end
 
-    for j, neighbours in unassigned:
-        word = heard[j]
-        for index in neighbours:
-            if word["word"] in set(parsed_lines[index]["tokens"]) - set(
-                expected[index]
-            ):
-                findings.append(
-                    finding(
-                        TAG_SPOKEN,
-                        word["word"],
-                        _at(index, word, shot=heard_shot(word)),
-                    )
-                )
-                break
+    findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
 
     rules_applied = list(LINE_RULES)
     rules_skipped = [
@@ -548,21 +507,7 @@ def check(
     no_shot = _no_shot_reason(shots_source, spans, parsed_lines)
     if no_shot is None:
         rules_applied.extend(SHOT_RULES)
-        named = {line["shot"] for line in parsed_lines if line["shot"]}
-        for span in spans:
-            if span["name"] in named:
-                continue
-            inside = [
-                word
-                for j, word in enumerate(heard)
-                if heard_shot(word) == span["name"]
-                and claimed.get(j) in (None, span["name"])
-            ]
-            if inside:
-                at = _at(None, inside[0], shot=span["name"])
-                # A word straddling the cut into this shot is placed at the cut
-                at["seconds"] = max(at["seconds"], _round(span["start"]))
-                findings.append(finding(SPEECH_IN_SILENT_SHOT, len(inside), at))
+        findings.extend(_silent_shot_findings(spans, parsed_lines, heard, claimed))
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
 
@@ -577,6 +522,96 @@ def check(
         "rules_applied": rules_applied,
         "rules_skipped": rules_skipped,
     }
+
+
+def _heard_shot(spans, word):
+    """The shot a heard word's midpoint falls in, None when no shots are known."""
+    if spans is None:
+        return None
+    return shot_at(spans, (word["start"] + word["end"]) / 2)
+
+
+def _silent_take(heard, discarded, spans, shots_source):
+    """check's result for `lines: []`: any speech at all is the finding, and
+    the line and shot rules have nothing to compare against."""
+    findings = []
+    if heard:
+        findings.append(
+            finding(
+                SPEECH_WHERE_SILENT,
+                len(heard),
+                _at(None, heard[0], shot=_heard_shot(spans, heard[0])),
+            )
+        )
+    return {
+        "findings": findings,
+        "lines": [],
+        "discarded": discarded,
+        "unmatched": [_heard_entry(word) for word in heard],
+        "shots": _shots_entry(spans),
+        "shots_source": shots_source,
+        "rules_applied": list(SILENT_RULES),
+        "rules_skipped": [
+            {"rule": rule, "reason": "lines is [] - no speech was expected"}
+            for rule in LINE_RULES + SHOT_RULES
+        ],
+    }
+
+
+def _clipped_findings(mono, sample_rate, tails, index, own, shot):
+    """line_clipped_at_end for one heard line, as a list of zero or one
+    finding: its last word ends in a voiced tail of its shot or the file."""
+    end = own[-1]["end"]
+    clipped = _clipped_tail(mono, sample_rate, end, tails)
+    if clipped is None:
+        return []
+    at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}
+    if clipped[0] is not None or shot is not None:
+        at["shot"] = clipped[0] or shot
+    return [finding(CLIPPED_AT_END, _round(clipped[1], 2), at)]
+
+
+def _unassigned_tags(heard, unassigned, parsed_lines, expected, spans):
+    """tag_spoken for the heard words align left unassigned: a markup token
+    of a neighbouring line, spoken aloud between lines."""
+    findings = []
+    for j, neighbours in unassigned:
+        word = heard[j]
+        for index in neighbours:
+            if word["word"] in set(parsed_lines[index]["tokens"]) - set(
+                expected[index]
+            ):
+                findings.append(
+                    finding(
+                        TAG_SPOKEN,
+                        word["word"],
+                        _at(index, word, shot=_heard_shot(spans, word)),
+                    )
+                )
+                break
+    return findings
+
+
+def _silent_shot_findings(spans, parsed_lines, heard, claimed):
+    """speech_in_silent_shot: words heard inside a shot no line names, other
+    than those a line in another shot claimed."""
+    findings = []
+    named = {line["shot"] for line in parsed_lines if line["shot"]}
+    for span in spans:
+        if span["name"] in named:
+            continue
+        inside = [
+            word
+            for j, word in enumerate(heard)
+            if _heard_shot(spans, word) == span["name"]
+            and claimed.get(j) in (None, span["name"])
+        ]
+        if inside:
+            at = _at(None, inside[0], shot=span["name"])
+            # A word straddling the cut into this shot is placed at the cut
+            at["seconds"] = max(at["seconds"], _round(span["start"]))
+            findings.append(finding(SPEECH_IN_SILENT_SHOT, len(inside), at))
+    return findings
 
 
 def _heard_entry(word):

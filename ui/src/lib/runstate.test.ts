@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
+  nodeDurations,
+  stepDurations,
   activeMember,
   finishedMembers,
   finishedNodes,
@@ -110,5 +112,39 @@ describe('activeMember', () => {
 
   it('has nothing before the run has started anything', () => {
     expect(activeMember([])).toBeUndefined()
+  })
+})
+
+describe('step and node durations', () => {
+  const ev = (event: string, step: string, at: number, extra = {}) =>
+    ({ seq: 0, event, step, at, ...extra }) as JobEvent
+  const events = [
+    ev('step_start', 'prep', 0.5),
+    ev('step_end', 'prep', 2.0),
+    ev('step_start', 'base@open', 2.0),
+    // a sub-workflow's inner step: not a node of this graph
+    ev('step_start', 'inner', 3.0, { parent_step: 'base@open' }),
+    ev('step_end', 'inner', 9.0, { parent_step: 'base@open' }),
+    ev('step_end', 'base@open', 10.0),
+    ev('step_start', 'base@reveal', 10.0),
+    ev('step_end', 'base@reveal', 14.5),
+    ev('step_start', 'film', 14.5),
+  ]
+
+  it('times each finished step from its start to its end', () => {
+    expect(stepDurations(events)).toEqual({
+      prep: 1.5,
+      'base@open': 8,
+      'base@reveal': 4.5,
+    })
+  })
+
+  it('times a for_each group from first start to last end; a running step has none', () => {
+    expect(nodeDurations(events)).toEqual({ prep: 1.5, base: 12.5 })
+  })
+
+  it('an event without a clock is skipped, not read as zero', () => {
+    const bare = { seq: 0, event: 'step_start', step: 'x' } as JobEvent
+    expect(stepDurations([bare, ev('step_end', 'x', 3)])).toEqual({})
   })
 })

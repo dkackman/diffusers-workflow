@@ -233,37 +233,7 @@ def get_output_frames(
     downscaled_to = body.get("downscaled_to")
     audio_truncated = False
     if hear is not None:
-        span = float(hear)
-        # The tiles already spent part of the one response budget
-        audio_bytes_so_far = sum(len(tile["data"]) for tile in tiles)
-        budget_exceeded = False
-        for tile in tiles:
-            if budget_exceeded:
-                tile["audio_error"] = "skipped - would exceed the response size budget"
-                audio_truncated = True
-                continue
-            start = max(0.0, float(tile["seconds"]) - span / 2)
-            try:
-                audio = get_output_audio(
-                    client, name, start=start, duration=span, workspace=workspace
-                )
-            except DwApiError as e:
-                tile["audio_error"] = str(e)
-                continue
-            # A per-tile cap (get_output_audio's own MAX_RETURNED_BYTES check)
-            # bounds one excerpt; this is the whole response's cap, tiles
-            # included, on top of - not instead of - the per-tile one.
-            if audio_bytes_so_far + len(audio["data"]) > MAX_RETURNED_BYTES:
-                tile["audio_error"] = "skipped - would exceed the response size budget"
-                audio_truncated = True
-                budget_exceeded = True
-                continue
-            audio_bytes_so_far += len(audio["data"])
-            tile["audio"] = {
-                "data": audio["data"],
-                "mime_type": audio["mime_type"],
-                "excerpt": audio["excerpt"],
-            }
+        audio_truncated = _hear_tiles(client, name, tiles, float(hear), workspace)
     return {
         "name": name,
         "frame_count": body.get("frame_count"),
@@ -274,6 +244,44 @@ def get_output_frames(
         "audio_truncated": audio_truncated,
         "crop": body.get("crop"),
     }
+
+
+def _hear_tiles(client, name, tiles, span, workspace):
+    """Attach `span` seconds of soundtrack around each tile's moment, within
+    the one response budget the tiles already spent part of. True when an
+    excerpt was skipped for that budget."""
+    audio_truncated = False
+    # The tiles already spent part of the one response budget
+    audio_bytes_so_far = sum(len(tile["data"]) for tile in tiles)
+    budget_exceeded = False
+    for tile in tiles:
+        if budget_exceeded:
+            tile["audio_error"] = "skipped - would exceed the response size budget"
+            audio_truncated = True
+            continue
+        start = max(0.0, float(tile["seconds"]) - span / 2)
+        try:
+            audio = get_output_audio(
+                client, name, start=start, duration=span, workspace=workspace
+            )
+        except DwApiError as e:
+            tile["audio_error"] = str(e)
+            continue
+        # A per-tile cap (get_output_audio's own MAX_RETURNED_BYTES check)
+        # bounds one excerpt; this is the whole response's cap, tiles
+        # included, on top of - not instead of - the per-tile one.
+        if audio_bytes_so_far + len(audio["data"]) > MAX_RETURNED_BYTES:
+            tile["audio_error"] = "skipped - would exceed the response size budget"
+            audio_truncated = True
+            budget_exceeded = True
+            continue
+        audio_bytes_so_far += len(audio["data"])
+        tile["audio"] = {
+            "data": audio["data"],
+            "mime_type": audio["mime_type"],
+            "excerpt": audio["excerpt"],
+        }
+    return audio_truncated
 
 
 def get_output_text(

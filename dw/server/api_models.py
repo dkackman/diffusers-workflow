@@ -467,7 +467,13 @@ class RequiredDownload(ApiModel):
 class PlanEstimate(ApiModel):
     minutes: int | float | None
     basis: Literal[
-        "per_entry", "catalog", "derived", "other_device", "unknown", "observed"
+        "per_entry",
+        "catalog",
+        "derived",
+        "other_device",
+        "unknown",
+        "observed",
+        "inherited",
     ]
     device: str
     measured_on: str | None
@@ -485,6 +491,15 @@ class PlanEstimate(ApiModel):
     observed_minutes: int | float = sometimes()
     curated_minutes: int | float = sometimes()
     low_confidence: bool = sometimes()
+    inherited_from: str = sometimes(
+        "With basis `inherited`: the catalog template whose runs of the same "
+        "pipeline (component_type, model_name, workflow) priced this workflow."
+    )
+    differs: list[str] = sometimes(
+        "With basis `inherited`: what this workflow sets differently from "
+        "`inherited_from` among offload, quantization and frame count; empty "
+        "when nothing does."
+    )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
         "as `cuda:1 NVIDIA GeForce RTX 3090`."
@@ -815,6 +830,8 @@ class AssetList(ApiModel):
     assets: list[AssetFile]
     folders: list[str]
     shadowed: list[ShadowedAsset]
+    total: int = sometimes("Assets matching the prefix, before `limit` cut them")
+    shadowed_total: int = sometimes("Shadowed names matching, before `limit`")
 
 
 class Uploaded(ApiModel):

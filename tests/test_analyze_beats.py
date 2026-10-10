@@ -6,7 +6,8 @@ import numpy
 import pytest
 
 from dw import dsp
-from dw.task_domains import beats_problems, task_argument_errors
+from dw.task_domains import task_argument_errors
+from dw.task_problems import beats_problems
 from dw.tasks.beats import QUIET_DBFS, analyze_beats
 
 SR = 44100

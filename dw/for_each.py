@@ -12,6 +12,9 @@ reference checker never learn a new reference kind.
 Inside a member:
   - 'item:'       is the whole entry; 'item:field' one field of an object
                   entry, spliced in whole whatever its type
+  - {"item": "field", "default": X}
+                  the same field, optional: an entry without it gets X (an
+                  object with only "item" is the plain required read)
   - a reference to another for_each group over the SAME list resolves to
     the member with the same key ('slice' inside 'shot@open' -> 'slice@open')
 Outside (or inside, for any other group):
@@ -37,6 +40,9 @@ from .step_cache import reference_resolves_to
 from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
+# {"item": "<field>", "default": <value>}: a field an entry may leave out
+OPTIONAL_ITEM_KEY = "item"
+OPTIONAL_DEFAULT_KEY = "default"
 # Each entry is a full generation. Stated against the step cache's bound
 # (DEFAULT_MAX_ENTRIES = 128): a run whose expanded steps exceed the cache
 # evicts its own earlier members, so this is kept well under it
@@ -182,6 +188,20 @@ def _rewrite(value, path, groups, member):
     group, key and entry of the member being built.
     """
     if isinstance(value, dict):
+        optional = _optional_item(value)
+        if optional is not None:
+            if member is None:
+                raise ForEachError(
+                    render_path(path),
+                    "an optional item field is only meaningful inside a for_each step",
+                )
+            field, has_default, default = optional
+            entry = member["entry"]
+            if isinstance(entry, dict) and field in entry:
+                return _copy_leaf(entry[field])
+            if has_default:
+                return _rewrite(default, path + (OPTIONAL_DEFAULT_KEY,), groups, member)
+            return _item(references.make_ref(references.ITEM, field), path, member)
         rebuilt = {}
         for key, item in value.items():
             if key == FROM_PREVIOUS_RESULT_KEY and isinstance(item, str):
@@ -218,6 +238,45 @@ def _rewrite(value, path, groups, member):
     # would multiply the media a run holds. The 'input untouched' contract
     # still holds because nothing here ever mutates a leaf
     return _copy_leaf(value) if member is not None else value
+
+
+def _optional_item(value):
+    """(field, has_default, default) when `value` is the optional item form
+    {"item": "<field>", "default": ...}, else None. An object with other keys
+    is an ordinary object that happens to carry an 'item' key."""
+    if (
+        isinstance(value, dict)
+        and isinstance(value.get(OPTIONAL_ITEM_KEY), str)
+        and value[OPTIONAL_ITEM_KEY] != ""
+        and set(value) <= {OPTIONAL_ITEM_KEY, OPTIONAL_DEFAULT_KEY}
+    ):
+        return (
+            value[OPTIONAL_ITEM_KEY],
+            OPTIONAL_DEFAULT_KEY in value,
+            value.get(OPTIONAL_DEFAULT_KEY),
+        )
+    return None
+
+
+def _item_fields(value):
+    """Every entry field a JSON value reads ('' for the whole entry), with
+    whether the read is optional (it carries a default). The for_each key
+    itself is skipped."""
+    if isinstance(value, str):
+        if references.is_ref(references.ITEM, value):
+            yield references.ref_name(references.ITEM, value), False
+    elif isinstance(value, list):
+        for item in value:
+            yield from _item_fields(item)
+    elif isinstance(value, dict):
+        optional = _optional_item(value)
+        if optional is not None:
+            yield optional[0], optional[1]
+            yield from _item_fields(optional[2])
+            return
+        for key, item in value.items():
+            if key != FOR_EACH_KEY:
+                yield from _item_fields(item)
 
 
 def _copy_leaf(value):
@@ -326,10 +385,7 @@ def list_fields(definition):
         variable = references.ref_name(references.VARIABLE, target)
         entry = found.setdefault(variable, {"fields": set(), "steps": []})
         entry["steps"].append(step.get("name"))
-        for value in _strings(step):
-            if not references.is_ref(references.ITEM, value):
-                continue
-            field = references.ref_name(references.ITEM, value)
+        for field, _ in _item_fields(step):
             if field == "":
                 entry["fields"] = None
             elif entry["fields"] is not None:
@@ -387,17 +443,3 @@ def entry_field_warnings(definition, arguments=None):
                 f"entries of '{variable}' take: {', '.join(fields)}"
             )
     return warnings
-
-
-def _strings(value):
-    """Every string anywhere inside a JSON value, except the for_each key
-    itself."""
-    if isinstance(value, str):
-        yield value
-    elif isinstance(value, list):
-        for item in value:
-            yield from _strings(item)
-    elif isinstance(value, dict):
-        for key, item in value.items():
-            if key != FOR_EACH_KEY:
-                yield from _strings(item)

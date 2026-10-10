@@ -1,4 +1,5 @@
 <script lang="ts">
+  import { formatDuration } from '../format'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
@@ -76,7 +77,7 @@
   const duration = (job: JobSummary) => {
     if (!job.started_at) return ''
     const end = job.finished_at ?? Date.now() / 1000
-    return `${(end - job.started_at).toFixed(0)}s`
+    return formatDuration(end - job.started_at)
   }
 </script>
 

@@ -1,16 +1,25 @@
 /* Contact sheet.
  *
- * This app's whole output is pictures, so the chrome is achromatic on
- * purpose: any chroma in the surfaces around an image biases how you read
+ * This app's whole output is pictures, so the surfaces are achromatic on
+ * purpose: any chroma in the panels around an image biases how you read
  * the colour the model actually produced. Greys here are equal-RGB rather
  * than the usual blue-tinted slate, and the generated images are meant to
- * be the only saturated thing on screen.
+ * be the only saturated thing in the content area.
  *
- * Colour therefore means one thing: machine state. `--live` (a darkroom
- * safelight amber) marks what is running, where focus is, and when VRAM is
- * under pressure. It is never decoration. Interactive elements are ink -
- * the primary button is a solid ink fill, links are ink with an underline -
- * so nothing in the chrome competes with the work.
+ * Colour is therefore spent on three meanings and nothing else:
+ *
+ * - `--live` (a darkroom safelight amber) is machine state: what is
+ *   running and when VRAM is under pressure.
+ * - `--select` (a cool blue) is the user's place: the open workspace, the
+ *   active nav section and the focus ring. It stays in the chrome - the
+ *   sidebar and focus - never in a surface behind an image.
+ * - a workspace's own dot (`wsColor()` in src/lib/wsColor.ts) identifies
+ *   it in the sidebar and breadcrumb. It is identity, not state.
+ *
+ * Where `--live` and `--select` may appear is held by
+ * scripts/design-rules.test.ts. Interactive elements are ink - the primary
+ * button is a solid ink fill, links are ink with an underline - so nothing
+ * in the chrome competes with the work.
  *
  * Type carries the other rule: anything the ENGINE reads literally (a
  * workflow name, a `variable:` reference, a path, a seed, a run id, a
@@ -33,6 +42,7 @@
   --accent: #1c1c1c;
   --accent-ink: #ffffff;
   --live: #a85b00;
+  --select: #2b5fb4;
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
@@ -51,6 +61,7 @@
     --accent: #e8e8e8;
     --accent-ink: #131313;
     --live: #e8a33d;
+    --select: #82aaf0;
     --good: #6fbf87;
     --bad: #e3796a;
     --warn: #e8a33d;
@@ -68,6 +79,7 @@
   --accent: #e8e8e8;
   --accent-ink: #131313;
   --live: #e8a33d;
+  --select: #82aaf0;
   --good: #6fbf87;
   --bad: #e3796a;
   --warn: #e8a33d;
@@ -84,6 +96,7 @@
   --accent: #1c1c1c;
   --accent-ink: #ffffff;
   --live: #a85b00;
+  --select: #2b5fb4;
   --good: #2f6b3f;
   --bad: #a33224;
   --warn: #a85b00;
@@ -148,11 +161,11 @@ textarea,
     filter 0.15s ease,
     opacity 0.15s ease;
 }
-/* Focus is machine state - where the keyboard is - so it gets the signal
-   colour rather than the interactive ink, which would be invisible against
-   an ink button. */
+/* Focus is the user's place - where the keyboard is - so it takes the
+   selection colour rather than the interactive ink, which would be
+   invisible against an ink button. */
 :focus-visible {
-  outline: 2px solid var(--live);
+  outline: 2px solid var(--select);
   outline-offset: 1px;
 }
 
@@ -293,7 +306,7 @@ select {
 }
 input:focus,
 textarea:focus {
-  outline: 2px solid var(--live);
+  outline: 2px solid var(--select);
   outline-offset: -1px;
 }
 /* A checkbox or radio left alone paints in the browser's own blue, which is

@@ -134,7 +134,7 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 
@@ -186,7 +186,7 @@ Compile a component once it is fully configured - the graph captures final dtype
 
 Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks with the caches above. Notes:
 
-- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
+- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation. A new session still retraces, but the kernels it built come back from the on-disk cache, which dw keeps across reboots (`TORCHINDUCTOR_CACHE_DIR`, see [Environment Defaults](#environment-defaults)).
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
 - **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
@@ -272,13 +272,14 @@ Device-level settings, read once at startup from `~/.diffusers_helper/settings.j
 
 ## Environment Defaults
 
-Set automatically at import unless already present in the environment (export your own value to override):
+Set automatically at import unless already present in the environment (export your own value to override, or put it in a `.env` file in the directory dw starts from - [.env.example](../.env.example) lists these and the other knobs worth knowing: the Hub, diffusers, transformers and SDNQ):
 
 | Variable | Default | Effect |
 | -------- | ------- | ------ |
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Lets the CUDA allocator grow segments instead of fragmenting fixed-size ones. Multi-step workflows churn differently-shaped allocations (generate, upscale, interpolate); fragmentation is what OOMs a card that nominally has room. |
 | `HF_ENABLE_PARALLEL_LOADING` | `true` | Loads sharded checkpoints in parallel - faster cold starts. |
 | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` | `0.0` | MPS only - use all available unified memory. |
+| `TORCHINDUCTOR_CACHE_DIR` | `$XDG_CACHE_HOME/dw/torchinductor` (`~/.cache/dw/torchinductor`) | Keeps `torch.compile`'s on-disk cache across reboots - Inductor's own default is under `/tmp`. A new worker still retraces, but a cache hit skips codegen and kernel builds, the bulk of a cold compile. Entries are per shape, so a new size or frame count compiles once more. |
 
 For faster model downloads, optionally `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`. Not enabled automatically - it bypasses the Python HTTP stack and breaks some proxy setups.
 

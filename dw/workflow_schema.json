@@ -197,7 +197,7 @@
                     "type": "string"
                 },
                 "for_each": {
-                    "description": "Run this step once per entry of a list. A list, or a 'variable:' reference to one. Inside the step, 'item:' is the entry and 'item:field' one of its fields; a later step reads every member's result with 'gather:<step name>'. Members are named '<step name>@<entry name>' (or '@<index>' for an entry without a name), so '@' is reserved in step names.",
+                    "description": "Run this step once per entry of a list. A list, or a 'variable:' reference to one. Inside the step, 'item:' is the entry and 'item:field' one of its fields (or {\"item\": \"field\", \"default\": X}, the field with X for an entry that omits it); a later step reads every member's result with 'gather:<step name>'. Members are named '<step name>@<entry name>' (or '@<index>' for an entry without a name), so '@' is reserved in step names.",
                     "type": ["array", "string"],
                     "pattern": "^variable:",
                     "minItems": 1,

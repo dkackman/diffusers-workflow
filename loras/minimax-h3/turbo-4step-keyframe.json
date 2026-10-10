@@ -9,8 +9,8 @@
     "t2va",
     "fl2va"
   ],
-  "description": "4-step v1.2 turbo, keyframe partition, 768p - a draft path",
-  "use_when": "A faster draft render (~25% faster); set num_inference_steps 5. Keep 8-step for finals",
+  "description": "4-step v1.2 turbo, keyframe partition, trained at 1344x768 on shift 6/3; runs at 960x544 on the same shift. Records alpha 8 (v1.0/v1.1 record 128) - leave lora_alpha unset",
+  "use_when": "The default for every T2VA/FL2VA template since 2026-10-10: num_inference_steps 5, video_shift 6, audio_shift 3. The 8-step files are the slower alternative",
   "scale": {
     "default": 1.0
   },
@@ -19,6 +19,22 @@
     {
       "note": "7.1 min vs 9.5 min, faces good; 8-step possibly slightly better",
       "issue": 585
+    },
+    {
+      "note": "960x544x124, shift 6/3, steps 5, sage_hub: 13.2 s/step, clean video, audio tracks the action; 8-step was 13.8 s/step x 8",
+      "job": "974f0bedf1f8"
+    },
+    {
+      "note": "960x544x345, 4 steps: ~7.3 min warm-autotune vs 14.6 min for the 8-step reference (9e41d8de9518)",
+      "job": "d038264721bf"
+    },
+    {
+      "note": "image-to-video template, 960x544x124, native attention: 18.4 s/step, 4.4 min; first frame holds the input, clean motion and detail",
+      "job": "f2806a3c2aa4"
+    },
+    {
+      "note": "first-and-last-frame template, 544x544x124, native attention: 10.2 s/step, 5.1 min with a ~106 s first-step autotune at the new canvas; holds both keyframes. Audio hot (-0.2 dBFS peak, -9 LUFS) - no 8-step run to compare",
+      "job": "9e368f105fd5"
     }
   ],
   "license": "apache-2.0",

@@ -62,7 +62,8 @@ decorator, so a new task cannot be half-registered (#692):
 
 ```python
 from .registry import register_command
-from ..task_domains import NON_NEGATIVE, POSITIVE, my_task_errors
+from ..task_domains import NON_NEGATIVE, POSITIVE
+from ..task_problems import my_task_errors
 
 
 @register_command(
@@ -82,7 +83,8 @@ def my_task(source, num_frames, start_frame=0, mode="fast"): ...
 - `choices` - each argument's literal choices; `get_task` lists them.
 - `static_check` - a function of the step's `arguments` that returns
   `(argument, message)` pairs for rules across arguments. It lives in
-  `dw/task_domains.py`, named `*_errors`, and is registered to exactly one
+  `dw/task_problems.py` (or, for the media-timing rules - window, slice, fit -
+  `dw/task_domains.py`), named `*_errors`, and is registered to exactly one
   command - or, when it needs the task's own parser, in the task's module
   behind an import on use, as `attribute_voices`' does.
 - `whole_numbers` - the numeric arguments that take only a whole number; the
@@ -1858,6 +1860,36 @@ scale as `rms_dbfs` (their powers sum to it), so the loudest band sits near
 `threshold_dbfs`. A silent track, or a band with no content at the track's
 sample rate, reads as `null` rather than `-inf`.
 
+### measure_sync
+
+Measure how far a shot's audio sits from the source slice it should match. `analyze_sync_drift` counts samples against frames, so it cannot see audio whose samples line up but whose content is shifted - a lip-sync model that re-sings the reference late. This cross-correlates the onset envelopes of the two. One call measures one shot; the result is JSON and nothing is built:
+
+```json
+{
+    "name": "sync",
+    "task": {
+        "command": "measure_sync",
+        "arguments": {
+            "audio": "previous_result:shot",
+            "reference": "asset:song-slice.wav",
+            "max_lag_seconds": 3
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The shot's audio: a path, `asset:`/`output:` reference of an audio or video file, a waveform, or an earlier step's generated audio or video |
+| `reference` | Yes | The slice of the source it should match, in the same forms. A shot with no slice has nothing to measure and is refused |
+| `max_lag_seconds` | No | The largest lag searched, either way (default `2`). A lag at this edge may be larger still, and warns |
+| `threshold_seconds` | No | A lag longer than this, either way, is an `audio_out_of_sync` finding (default `0.1`) |
+| `min_confidence` | No | A correlation under this is a `sync_low_confidence` finding and the lag is not to be trusted (default `0.3`) |
+| `sample_rate` | With a waveform | Rate of a directly passed waveform (files carry their own) |
+
+Returns `{lag_seconds, confidence, max_lag_seconds, audio_seconds, reference_seconds, findings, warnings}`. **`lag_seconds` is positive when the audio is late** - its events fall that many seconds after the reference's - and negative when early. `confidence` is the normalised correlation at that lag, 0 to 1. A silent or flat audio or reference gives `lag_seconds: null` and a `sync_unmeasurable` finding. Each finding is `{rule, severity, at, value, threshold, says}`. It is not part of `assess_output`.
+
 ### analyze_beats
 
 Find where a song's beats fall, to cut picture to them - a Music 3 song
@@ -2013,11 +2045,14 @@ How the plan is made:
   last.
 - A shot over `max_scene_s` splits evenly, each cut on its nearest beat when
   there are beats, and a sung shot split this way is warned about by its
-  lyric, which every piece carries; one under `min_scene_s` merges into its
+  lyric. Given `lyrics`, each piece holds only the words heard inside it
+  (the lyric's words aligned to the transcript's); a piece where no word is
+  heard has no lyric and is warned about. When no word of the lyrics was
+  heard, or with no `lyrics`, every piece carries the whole lyric. One under `min_scene_s` merges into its
   shorter neighbour.
   A shot still outside the range is warned about by name.
 - A shot whose render would pass `max_frames` is split, on a beat when
-  there is one, and warned about.
+  there is one, and warned about; its lyric is divided as above.
 - `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
   and leaves the cuts where the lines put them.
 - Every boundary is rounded once, from its absolute time, so the frame counts
@@ -2895,7 +2930,7 @@ The result needs no `sample_rate`. A generated track carries the rate its model 
 
 ### Generating a voice to condition on
 
-The role this earns its place in is voice *timbre reference*, not the track a mouth follows. A `MiniMaxH3AudioReference` is audio H3 reads, not audio it plays: it takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line, and a mouth asked to follow a whole track through a reference follows it loosely. That reference is still the better lip sync: `music-video` and the `match_audio` chain templates pass each shot's slice as one. Holding the track with `hold_audio` (the `workflows` guide, "H3: generating to a held soundtrack") keeps it exact, but on a sung track the mouth followed it less well than the reference (#619's A/B, measured in that section), so hold is opt-in. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
+The role this earns its place in is voice *timbre reference*, not the track a mouth follows. A `MiniMaxH3AudioReference` is audio H3 reads, not audio it plays: it takes a few seconds of a voice to fix timbre, pitch and delivery while H3 still generates the line, and a mouth asked to follow a whole track through a reference follows it loosely. `music-video` and the `match_audio` chain templates pass each shot's slice as one, and a reference alone can re-sing the track shifted by whole beats (#795). Holding the track with `hold_audio` (the `workflows` guide, "H3: generating to a held soundtrack") keeps it exact: `music-video` holds each slice by default, the chains leave it null. #619 found hold with image-only references worse than the reference alone on a sung track; #808 measured hold plus the reference at 0.00 s offset on every shot against up to 1.37 s for the reference alone, audio only, mouth onsets not counted. Build the reference with `from_previous_result` and the clip's own sample rate comes across with it:
 
 ```json
 "references": [
@@ -3225,6 +3260,7 @@ Canny edge detection followed by ControlNet generation:
 - [upscale-spandrel.json](../workflows/templates/upscale-spandrel.json) — Spandrel upscale of an existing image
 - [upscale-diffusion.json](../workflows/templates/upscale-diffusion.json) — Diffusion upscale of an existing image
 - [audio-trim-fade.json](../workflows/templates/audio-trim-fade.json) — Trim a generated track and fade its tail
+- [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio

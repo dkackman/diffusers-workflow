@@ -1,6 +1,6 @@
 """
 Unit tests for crop_face_track (dw/tasks/face_track.py) and its rules in
-dw/task_domains.py. The YuNet detector is stubbed: a coloured square drawn
+dw/task_problems.py. The YuNet detector is stubbed: a coloured square drawn
 into synthetic frames is the "face", and the stub finds that colour's bounding
 box in whatever array it is handed (the whole frame or an enlarged tile).
 """

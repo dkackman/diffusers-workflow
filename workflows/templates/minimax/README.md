@@ -64,23 +64,31 @@ checkpoint comes with the canvas it was trained at, the sigma shift it was
 distilled against and the alpha it is meant to run at, and changing one means
 changing all of them. That is why `video_shift`, `audio_shift` and `lora_alpha`
 are variables on every template here - a checkpoint swap is arguments rather
-than a new file. Three combinations are known good:
+than a new file. Four combinations are known good:
 
 | Checkpoint | Canvas | Shift (video/audio) | Alpha | Steps | Where |
 | --- | --- | --- | --- | --- | --- |
-| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | the text- and frame-conditioned templates |
-| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | the file's own 8 | 9 | [video-with-audio-768p.json](video-with-audio-768p.json) |
+| `minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16` | 960x544 or 1344x768 | **6** / 3 | the file's own 8 | 5 | every text- and frame-conditioned template (the default since 2026-10-10) |
+| `minimax_h3_fl2v_turbo_8step_v1.0_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | the slower 544p alternative |
+| `minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16` | 1344x768 | **6** / 3 | the file's own 8 | 9 | the slower 768p alternative |
 | `minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16` | 960x544 | 12 / 3 | the file's own 8 | 9 | every `ref2va` template |
+
+The 4-step file is trained at 1344x768; at 960x544 it runs on its own shift of 6
+and held up on the one prompt it was measured on - about half the denoising time
+of the 544p 8-step file. lightx2v's 544p 4-step v0.1 file renders noise, and there
+is no tested 4-step Ref2VA file, so the reference templates stay on 8 steps.
 
 The shift differs between the two 768p LoRAs; do not generalise from one to the
 other. The alpha is the one number that does not move: peft scales an adapter
 by `scale * alpha / rank`, and all three files record the alpha they were
 trained at - `alpha: 8` at rank 128 - in their `__metadata__`, which diffusers
 honors, so `lora_alpha` stays unset. Upstream's `--lora-alpha 128` belongs to
-the 4-step 768p file, which records 128 itself; the 768p template once stated
+the v1.0 and v1.1 4-step 768p files, which record 128 themselves (v1.2 went
+back to 8); the 768p template once stated
 128 for the 8-step file and ran it at sixteen times its trained strength
 (the ComfyUI twin reads `training_scale: 0.0625`). Set `lora_alpha` only for a
-file whose own figure is wrong, and read its header first. Nine steps rather than eight because the scheduler counts
+file whose own figure is wrong, and read its header first. Steps are one more than the
+file's model passes (5 for 4-step, 9 for 8-step) because the scheduler counts
 sigma grid points and the terminal zero is one of them.
 
 Never put an FL2VA LoRA on a reference template: a `ref2va` step holds

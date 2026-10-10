@@ -73,7 +73,7 @@ class AuthoringTools:
 
         A valid answer carries `plan`: what will execute for these
         arguments - `estimate.minutes` and its `basis` (`observed`,
-        `per_entry`, `catalog`, `derived`, `other_device` or `unknown` -
+        `per_entry`, `catalog`, `derived`, `inherited`, `other_device` or `unknown` -
         how to quote each is WORKFLOW_GUIDE's "The loop", step 4), each
         `downloads_required` entry as its own cost line, and
         `steps`/`list_entries` for how many members the list produced.
@@ -188,12 +188,12 @@ class PromptTools:
 
     def save_prompt(self, name: str, prompt: dict | str) -> dict:
         """Save a prompt to the library, overwriting any prompt of that
-        name. Its `text` may not itself begin with a reference prefix
-        (variable:, previous_result:, constant:, asset:, output:, prompt:)
-        - the server refuses that to prevent a reference resolving twice.
-        The library is shared by every workspace on this server. `prompt`
-        may also be a JSON-encoded string; a parse failure is reported as
-        invalid JSON, not a type mismatch."""
+        name. `prompt` is an object like {"text": "..."}; a plain string
+        is saved as its `text`, one starting `{` is parsed as JSON. `text`
+        may not begin with a reference prefix (variable:, previous_result:,
+        constant:, asset:, output:, prompt:) - the server refuses it so a
+        reference never resolves twice. The library is shared by every
+        workspace on this server."""
         return prompts.save_prompt(self.client, name, prompt)
 
     def delete_prompt(self, name: str) -> dict:

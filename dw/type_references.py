@@ -13,7 +13,7 @@ import re
 from . import references
 from .argument_media import is_media_reference
 from .arguments import fetch_constant, is_constant_reference
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .introspection import (
     CLASS_NAME_PATTERN,
     list_classes,
@@ -159,21 +159,10 @@ def component_type_errors(workflow_definition, source_indices=None):
     matching task_signature_errors; source_indices maps each expanded step
     back to the step the author wrote.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
         found = []
         # The whole step, since realize_args loads a type or a constant
         # wherever one sits in it - a task's arguments as much as a pipeline
@@ -211,17 +200,10 @@ def component_name_errors(workflow_definition, source_indices=None):
     matching component_type_errors; source_indices maps each expanded step
     back to the step the author wrote.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
+    for _, step, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
         configuration = pipeline.get("configuration")
         if not isinstance(configuration, dict):
             continue
@@ -238,13 +220,6 @@ def component_name_errors(workflow_definition, source_indices=None):
         unknown = unknown_pipeline_components(component_type, component_names)
         if not unknown:
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         for component_name in unknown:
             errors.append(
                 {

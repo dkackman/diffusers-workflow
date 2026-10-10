@@ -157,19 +157,7 @@ def extract_audio(path, start=None, duration=None):
         # about 1.5 s: the wrong audio, silently.
         anchor = stream.start_time if stream.start_time is not None else 0
         if start > 0:
-            # Seek to the keyframe at or before `start`, less one packet of
-            # pre-roll: the first packet a decoder sees after a seek is its
-            # warm-up, and for AAC and mp3 the samples it yields come out
-            # attenuated or silent - so an excerpt at 2.5 s opened with a
-            # gap that is not in the file. Landing a packet early hands that
-            # warm-up to samples the pts-based trim below drops anyway.
-            frame_size = int(stream.codec_context.frame_size or 0)
-            preroll = frame_size / rate if frame_size else 0.1
-            container.seek(
-                int(max(0.0, start - preroll) / stream.time_base) + anchor,
-                stream=stream,
-                backward=True,
-            )
+            _seek_with_preroll(container, stream, start, rate, anchor)
 
         pieces = []
         seen = 0  # samples decoded so far - the clock for a frame with no pts
@@ -218,14 +206,7 @@ def extract_audio(path, start=None, duration=None):
         # Flush the resampler whatever ended the loop: it may still hold
         # samples that belong before `stop`. Anything past `stop` is cut.
         held = sum(p.shape[0] for p in pieces)
-        for chunk in resampler.resample(None):
-            samples = chunk.to_ndarray().reshape(-1, channels)
-            if stop is not None:
-                room = max(0, int(round((stop - start) * rate)) - held)
-                samples = samples[:room]
-            if samples.shape[0]:
-                pieces.append(samples)
-                held += samples.shape[0]
+        pieces.extend(_flushed(resampler, channels, rate, start, stop, held))
 
     pcm = numpy.concatenate(pieces) if pieces else numpy.zeros((0, channels), "<i2")
     buffer = io.BytesIO()
@@ -244,6 +225,37 @@ def extract_audio(path, start=None, duration=None):
         "start": start,
         "excerpt": excerpt,
     }
+
+
+def _seek_with_preroll(container, stream, start, rate, anchor):
+    """Seek to the keyframe at or before `start`, less one packet of
+    pre-roll: the first packet a decoder sees after a seek is its warm-up,
+    and for AAC and mp3 the samples it yields come out attenuated or silent -
+    so an excerpt at 2.5 s opened with a gap that is not in the file. Landing
+    a packet early hands that warm-up to samples extract_audio's pts-based
+    trim drops anyway."""
+    frame_size = int(stream.codec_context.frame_size or 0)
+    preroll = frame_size / rate if frame_size else 0.1
+    container.seek(
+        int(max(0.0, start - preroll) / stream.time_base) + anchor,
+        stream=stream,
+        backward=True,
+    )
+
+
+def _flushed(resampler, channels, rate, start, stop, held):
+    """The samples a resampler still holds once decoding ends, cut at `stop`
+    given the `held` samples already kept."""
+    pieces = []
+    for chunk in resampler.resample(None):
+        samples = chunk.to_ndarray().reshape(-1, channels)
+        if stop is not None:
+            room = max(0, int(round((stop - start) * rate)) - held)
+            samples = samples[:room]
+        if samples.shape[0]:
+            pieces.append(samples)
+            held += samples.shape[0]
+    return pieces
 
 
 def decode_soundtrack(path):

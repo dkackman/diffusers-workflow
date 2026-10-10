@@ -118,6 +118,7 @@ UTILITIES = {
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
     "workflows/templates/recenter-crop.json",
+    "workflows/templates/relevel-clip.json",
     "workflows/templates/segment.json",
     "workflows/templates/transcribe-audio.json",
     "workflows/templates/upscale-spandrel.json",
@@ -467,7 +468,10 @@ def test_no_stale_entry_in_the_allowlist():
 # (#789, 2026-10-08), measured at 10_543: about 143 tokens across the
 # nineteen templates, the rule the pipeline otherwise raises on only after
 # the weights have loaded.
-COMPACT_BUDGET = 10_550
+# Then to 10_650 for the `relevel-clip` utility template (#794), measured at
+# 10_632: a new catalog entry, the CPU-only fix for a rendered clip that
+# clips, where the only other route was a full GPU re-render.
+COMPACT_BUDGET = 10_650
 FILTERED_BUDGET = 1_500
 
 

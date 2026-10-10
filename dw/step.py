@@ -32,6 +32,7 @@ class Step:
         default_seed,
         workflow_definition=None,
         consumed_by_normalizer=False,
+        audio_replaced_downstream=False,
     ):
         """Initialize step with its configuration and seed value.
 
@@ -42,10 +43,14 @@ class Step:
 
         consumed_by_normalizer is whether a later step resets this result's
         level (normalize_audio/match_levels) before anything ships it - see
-        step_cache.normalized_downstream and audio_qc.py's headroom checks."""
+        step_cache.normalized_downstream and audio_qc.py's headroom checks.
+
+        audio_replaced_downstream is whether a later pair_audio replaces this
+        result's audio track (step_cache.audio_replaced_downstream, #800)."""
         self.step_definition = step_definition
         self.workflow_definition = workflow_definition
         self.consumed_by_normalizer = consumed_by_normalizer
+        self.audio_replaced_downstream = audio_replaced_downstream
         self.iteration = None
 
         # Get step-specific seed or use default if not specified
@@ -107,33 +112,22 @@ class Step:
                 return result
 
             run_context = get_context()
-            for i, arguments in enumerate(iterations, 1):
-                run_context.check_cancelled()
-                logger.debug(
-                    f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"
+            outer_replaced = run_context.audio_replaced_downstream
+            run_context.audio_replaced_downstream = self.audio_replaced_downstream
+            try:
+                self._run_iterations(
+                    run_context,
+                    step_name,
+                    step_action,
+                    iterations,
+                    previous_pipelines,
+                    result,
                 )
-                run_context.emit(
-                    "iteration_start",
-                    step=step_name,
-                    iteration=i,
-                    total_iterations=len(iterations),
-                )
-                self.iteration = i
-                # A required argument that never arrived - because it was left
-                # out, or because a variable or an earlier step resolved to
-                # nothing - used to reach Python and come back as
-                # "resample_audio() missing 1 required positional argument:
-                # 'audio'", which names the calling convention rather than the
-                # workflow. The static pass in validation_errors refuses the
-                # literal case first; this is the backstop it cannot see (#141)
-                if isinstance(step_action, Task):
-                    _check_required_arguments(step_action.command, arguments)
-                iteration_result = step_action.run(arguments, previous_pipelines)
-                result.add_result(iteration_result)
+            finally:
+                run_context.audio_replaced_downstream = outer_replaced
 
             logger.debug(f"Successfully completed step: {step_name}")
             return result
-
         except WorkflowCancelled:
             logger.info(f"Step {self.name} cancelled")
             raise
@@ -148,6 +142,40 @@ class Step:
                 exc_info=True,
             )
             raise
+
+    def _run_iterations(
+        self,
+        run_context,
+        step_name,
+        step_action,
+        iterations,
+        previous_pipelines,
+        result,
+    ):
+        """Run the action once per argument set, adding each to `result`."""
+        for i, arguments in enumerate(iterations, 1):
+            run_context.check_cancelled()
+            logger.debug(
+                f"Running iteration {i}/{len(iterations)} with arguments: {arguments}"
+            )
+            run_context.emit(
+                "iteration_start",
+                step=step_name,
+                iteration=i,
+                total_iterations=len(iterations),
+            )
+            self.iteration = i
+            # A required argument that never arrived - because it was left
+            # out, or because a variable or an earlier step resolved to
+            # nothing - used to reach Python and come back as
+            # "resample_audio() missing 1 required positional argument:
+            # 'audio'", which names the calling convention rather than the
+            # workflow. The static pass in validation_errors refuses the
+            # literal case first; this is the backstop it cannot see (#141)
+            if isinstance(step_action, Task):
+                _check_required_arguments(step_action.command, arguments)
+            iteration_result = step_action.run(arguments, previous_pipelines)
+            result.add_result(iteration_result)
 
     def _collect_metadata(self):
         """Collect step metadata for embedding in saved images."""

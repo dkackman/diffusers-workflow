@@ -16,11 +16,8 @@ from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
 from dw.pipeline_processors import h3_rules
 from dw.pipeline_processors.h3_hold import (
-    as_channels_samples,
     blocks,
     core_denoise_sequences,
-    fit_latents,
-    fit_samples,
     hold_audio_reference,
     holds_audio,
     insert_audio_hold,
@@ -43,6 +40,11 @@ from tests.test_outbound import (  # noqa: F401
 
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
+from dw.pipeline_processors.h3_hold_steps import (  # noqa: E402
+    as_channels_samples,
+    fit_latents,
+    fit_samples,
+)
 from diffusers.modular_pipelines.minimax_h3.modular_pipeline import (  # noqa: E402
     MINIMAX_H3_AUDIO_LATENTS_PER_SECOND,
 )
@@ -454,16 +456,21 @@ def h3_steps(definition):
 
 
 class TestAudioDrivenTemplates:
-    """The templates that follow supplied audio keep it as an audio reference:
-    #619's lip-sync A/B measured hold worse on a sung track, so the plan's
-    fallback applies and hold is opt-in."""
+    """The templates that follow supplied audio keep it as an audio reference.
+    `music-video` also holds each shot's slice by default (#808: 0.00 s offset
+    on every shot against up to 1.37 s for the reference alone); the chains
+    have no per-shot slice to name, so hold stays opt-in there."""
+
+    DEFAULT_HOLD = {"music-video.json": "previous_result:slice"}
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
-    def test_the_h3_step_references_the_track_and_does_not_hold_it(self, name):
+    def test_the_h3_step_references_the_track_and_holds_it_where_measured(self, name):
         steps = h3_steps(template("minimax", name))
 
         assert len(steps) == 1
-        assert "hold_audio" not in steps[0]["pipeline"]["arguments"]
+        assert template("minimax", name)["variables"]["hold_audio"] == (
+            self.DEFAULT_HOLD.get(name)
+        )
         assert "MiniMaxH3AudioReference" in json.dumps(template("minimax", name))
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
@@ -472,6 +479,26 @@ class TestAudioDrivenTemplates:
         h3_steps(definition)[0]["pipeline"]["arguments"]["hold_audio"] = "asset:t.wav"
 
         assert hold_errors(definition) == []
+
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_hold_audio_is_a_declared_variable_with_its_measured_default(self, name):
+        """`run_workflow` can set only a declared variable (#795)."""
+        definition = template("minimax", name)
+
+        assert definition["variables"]["hold_audio"] == self.DEFAULT_HOLD.get(name)
+        arguments = h3_steps(definition)[0]["pipeline"]["arguments"]
+        assert arguments["hold_audio"] == "variable:hold_audio"
+        assert hold_errors(definition) == []
+
+    @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
+    def test_the_hold_variable_set_validates_beside_the_reference(self, name):
+        definition = copy.deepcopy(template("minimax", name))
+        definition["variables"]["hold_audio"] = (
+            "previous_result:slice" if name == "music-video.json" else "asset:t.wav"
+        )
+
+        assert hold_errors(definition) == []
+        assert "MiniMaxH3AudioReference" in json.dumps(definition)
 
     def test_music_video_still_drops_the_whole_song_over_the_edit(self):
         definition = template("minimax", "music-video.json")
@@ -700,6 +727,13 @@ class TestWithHeldAudio:
     def test_no_hold_audio_leaves_the_arguments_alone(self):
         arguments = {"prompt": "x", "output": ["videos", "audio"]}
         assert Pipeline._with_held_audio(ns(object()), arguments) is arguments
+
+    def test_a_null_hold_audio_is_dropped_from_the_call(self):
+        arguments = {"prompt": "x", "hold_audio": None, "output": ["audio"]}
+
+        result = Pipeline._with_held_audio(ns(object()), arguments)
+
+        assert result == {"prompt": "x", "output": ["audio"]}
 
     def test_a_list_output_of_only_audio_gains_the_held_keys(self):
         pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()

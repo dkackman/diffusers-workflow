@@ -23,7 +23,7 @@ import inspect
 import logging
 
 from . import references
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 
 logger = logging.getLogger("dw")
 
@@ -174,25 +174,13 @@ def reference_limit_errors(workflow_definition, source_indices=None):
     wrote, and the member is named in the message - the same convention
     subfolder_errors uses.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        arguments = pipeline.get("arguments") if isinstance(pipeline, dict) else None
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
         if not isinstance(arguments, dict):
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         for key, value in arguments.items():
             found = _kinds(value)
             if found is None:

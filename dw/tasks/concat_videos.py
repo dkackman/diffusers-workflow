@@ -131,7 +131,7 @@ def concat_videos(
 
     silence_channels = _silence_channels(waveforms)
     has_audio = silence_channels is not None
-    for index, (video, clip) in enumerate(zip(videos, clips)):
+    for index, (video, clip, waveform) in enumerate(zip(videos, clips, waveforms)):
         head_trim = trim_frames if index > 0 else 0
         start_frame = len(frames)
         start_sample = audio.shape[1] if audio is not None else 0
@@ -153,13 +153,7 @@ def concat_videos(
         if not has_audio:
             continue
         waveform = _input_waveform(
-            waveforms[index],
-            video,
-            clip,
-            names[index],
-            fps,
-            sample_rate,
-            silence_channels,
+            waveform, video, clip, names[index], fps, sample_rate, silence_channels
         )
         if audio is None:
             audio = waveform
@@ -180,21 +174,26 @@ def concat_videos(
                 seam_fade_ms,
                 applied,
             )
-            if applied:
-                # The fade the join realized is the caller's own edit:
-                # recorded beside hard_cut so analyze_seams can tell a
-                # requested dip from a fault (#659)
-                shots[first_shot[index]].update(applied)
-                if "audio_bleed_ms" in applied:
-                    # A bled seam is no butt join: it records the bleed it
-                    # got instead of hard_cut (#783)
-                    shots[first_shot[index]].pop("hard_cut", None)
+            _record_seam_fade(shots[first_shot[index]], applied)
         audio_native_rate = getattr(video, "sample_rate", None)
 
     _warn_fps_override(videos, names, fps)
     audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
     logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
     return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _record_seam_fade(shot, applied):
+    """Record on a seam's first shot the fade its join realized: the caller's
+    own edit, recorded beside hard_cut so analyze_seams can tell a requested
+    dip from a fault (#659)."""
+    if not applied:
+        return
+    shot.update(applied)
+    if "audio_bleed_ms" in applied:
+        # A bled seam is no butt join: it records the bleed it got instead of
+        # hard_cut (#783)
+        shot.pop("hard_cut", None)
 
 
 def _warn_fps_override(videos, names, fps):

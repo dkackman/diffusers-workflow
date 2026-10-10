@@ -66,8 +66,9 @@ class MediaTools:
         large is refused; ask for a part with `start`/`duration` in
         seconds, per `get_gallery_metadata`'s envelope. The text part
         says what was cut. To *see* a video, `get_output_frames`. A
-        text-only client confirms the *words* an output speaks by
-        transcribing it instead: WORKFLOW_GUIDE's "The loop", step 6, in
+        text-only client checks levels and clipping in
+        `get_gallery_metadata` (`media`, `findings`, `envelope=true`),
+        and the *words* by transcribing: "The loop", step 6, in
         `get_guide("workflows", section="Authoring a workflow from an
         agent")`.
 
@@ -285,19 +286,28 @@ class AssetTools:
     def __init__(self, client):
         self.client = client
 
-    def list_assets(self, detail: bool = False, workspace: str | None = None) -> dict:
-        """List the input media on the server, each with the `asset:`
-        reference a workflow argument carries. Look here before asking for
-        a file: what a workflow needs may already be there. Entries carry
-        name, reference, kind, size and origin only - for duration, frame
-        count, fps, sample rate or channels, pass the reference to
-        `get_gallery_metadata`, which reads inputs as well as outputs. Pass
-        detail=true for each entry's folder, mtime and url too, needed
-        before naming a shared library's writable/read-only roots or
-        opening the file's preview URL.
+    def list_assets(
+        self,
+        detail: bool = False,
+        workspace: str | None = None,
+        limit: int | None = 50,
+        prefix: str | None = None,
+    ) -> dict:
+        """List input media on the server, each with the `asset:` reference
+        a workflow argument carries. Look here before asking for a file.
+        Entries: name, reference, kind, size and origin; for duration,
+        fps, sample rate or channels pass the reference to
+        `get_gallery_metadata`. detail=true adds folder, mtime, url.
 
-        `workspace` scopes this one call without changing the session pin."""
-        return assets.list_assets(self.client, detail=detail, workspace=workspace)
+        Newest first, `limit` default 50 (`total` = all matched); `prefix`
+        keeps names starting with it, e.g. 'cast/'. `workspace` scopes one call."""
+        return assets.list_assets(
+            self.client,
+            detail=detail,
+            workspace=workspace,
+            limit=limit,
+            prefix=prefix,
+        )
 
     def upload_asset(
         self,

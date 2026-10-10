@@ -109,6 +109,29 @@ def test_save_prompt_puts_the_definition_under_its_name():
     assert result["name"] == "duke"
 
 
+def test_save_prompt_takes_a_plain_string_as_the_text():
+    client, seen = recording(httpx.Response(200, json={"name": "shot1"}))
+
+    prompts.save_prompt(client, "shot1", "A lighthouse keeper climbs at dusk.")
+
+    assert seen["body"] == {"prompt": {"text": "A lighthouse keeper climbs at dusk."}}
+
+
+def test_save_prompt_still_parses_a_json_encoded_object():
+    client, seen = recording(httpx.Response(200, json={"name": "shot1"}))
+
+    prompts.save_prompt(client, "shot1", '{"text": "hi"}')
+
+    assert seen["body"] == {"prompt": {"text": "hi"}}
+
+
+def test_save_prompt_reports_malformed_json_object_as_json():
+    client, _ = recording(httpx.Response(200, json={}))
+
+    with pytest.raises(DwApiError, match="not valid JSON"):
+        prompts.save_prompt(client, "shot1", '{"text": "hi"')
+
+
 # ---------------------------------------------------------------- enhancer
 
 

@@ -182,6 +182,19 @@ class Job:
                 named = f"{self.step_name}: {message}" if self.step_name else message
                 if named not in self.warnings:
                     self.warnings.append(named)
+        elif kind == "step_end":
+            # A finished step's files are on disk now; the manifest a poll
+            # reads should name them mid-run, not only once the job ends.
+            # record_manifest replaces this with the run's own at the end
+            # (#799)
+            if event.get("files"):
+                self.manifest.append(
+                    {
+                        "step": event.get("step"),
+                        "files": event["files"],
+                        "subfolder": event.get("subfolder") or "",
+                    }
+                )
         elif kind == "step_start":
             self.step_name = event.get("step")
             # A sub-workflow counts its own steps from zero; what a caller

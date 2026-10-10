@@ -6,7 +6,7 @@ from . import references
 from .arguments import (
     build_objects,
 )
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .step_cache import reference_resolves_to
 
 logger = logging.getLogger("dw")
@@ -380,30 +380,20 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
     the path an error carries has to be one the author can find in the file
     they wrote.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
     seen = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
+    # `where` names which expansion it was: the source path alone points at
+    # the one step the author wrote, and every member reports the same path
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
         name = step.get("name")
         found = {}
         _collect_reference_paths(step, (), found)
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
-            source = references.author_index(source_indices, index)
             location = render_path(("steps", source) + path)
-            # Which expansion it was: the source path alone points at the one
-            # step the author wrote, and every member reports the same path
-            where = (
-                f" in member '{name}'"
-                if isinstance(name, str) and MEMBER_SEPARATOR in name
-                else ""
-            )
             errors.append(
                 {
                     "path": location,

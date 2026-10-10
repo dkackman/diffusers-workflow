@@ -96,7 +96,7 @@ version of the same instructions). No template uses it yet.
    takes about 9 minutes. Get the go-ahead, then `run_workflow` with `acknowledged_cost`
    set to the plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job`, `timeout_seconds` = estimate plus margin. Call again
-   while `still_running`.
+   while `still_running`. If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`.
 4. A saving step carries a `subfolder`: the one shown to the user is
    `final`, the rest `intermediate`. `list_gallery(subfolder="final")` lists
    only deliverables, so keep both in anything you compose.
@@ -104,7 +104,8 @@ version of the same instructions). No template uses it yet.
    - `get_output_frames(count=12)` for the clip's shape, and `at` 0 against
      the still for an image-to-video run, which should match it.
    - `seams=true` at each join of clips you cut together.
-   - `get_output_audio` for the soundtrack. The model follows the audio
+   - `get_output_audio` for the soundtrack (text-only client: `get_gallery_metadata` with `envelope=true`
+     for its level, `check-script` for speech). The model follows the audio
      sentence loosely: a sound asked for twice may come once.
    - Then `get_job` for the manifest and its warnings, and give the user the
      gallery `url`.

@@ -98,6 +98,8 @@ TRAINED_SHIFT = {
     "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors": 12.0,
     "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors": 6.0,
     "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors": 12.0,
+    # Trained at 1344x768; the 544p templates run it on its own shift too
+    "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors": 6.0,
 }
 
 
@@ -144,6 +146,9 @@ RECORDED_ALPHA = {
     "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors": 8,
     "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
     "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
+    # Read 2026-10-10. v1.0 and v1.1 of the 4-step 768p file record 128 (the
+    # figure upstream's --lora-alpha 128 is for); v1.2 went back to 8
+    "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors": 8,
 }
 
 
@@ -194,6 +199,29 @@ def test_a_step_count_is_one_more_than_the_adapters_nfe():
     scheduler = MiniMaxH3Scheduler()
     scheduler.set_timesteps(num_inference_steps=9, device="cpu")
     assert len(scheduler.timesteps) == 8
+    scheduler.set_timesteps(num_inference_steps=5, device="cpu")
+    assert len(scheduler.timesteps) == 4
+
+
+# The model passes each turbo file was distilled for
+DISTILLED_NFE = {
+    "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors": 8,
+    "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
+    "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors": 8,
+    "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors": 4,
+}
+
+
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_each_template_steps_its_adapters_nfe(path):
+    """A checkpoint swap moves the step count with it: a 4-step file left on
+    9 steps runs past its distilled schedule, an 8-step one on 5 under it."""
+    definition = load(path)
+    variables = definition.get("variables", {})
+    if "lora_weight_name" not in variables:
+        pytest.skip("no adapter on this template")
+    nfe = DISTILLED_NFE[variables["lora_weight_name"]]
+    assert variables["num_inference_steps"] == nfe + 1, os.path.basename(path)
 
 
 @pytest.mark.parametrize("path", H3_TEMPLATES)

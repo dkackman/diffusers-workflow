@@ -483,5 +483,69 @@
       ]
     },
     "flagged": []
+  },
+  {
+    "name": "optional_item_default_variable",
+    "workflow": {
+      "id": "optional_item_default_variable",
+      "variables": {
+        "fallback": "x"
+      },
+      "steps": [
+        {
+          "name": "g",
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ],
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                {
+                  "item": "singer",
+                  "default": "variable:fallback"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": []
+  },
+  {
+    "name": "optional_item_default_missing_variable",
+    "workflow": {
+      "id": "optional_item_default_missing_variable",
+      "variables": {
+        "fallback": "x"
+      },
+      "steps": [
+        {
+          "name": "g",
+          "for_each": [
+            {
+              "name": "a"
+            }
+          ],
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                {
+                  "item": "singer",
+                  "default": "variable:nope"
+                }
+              ]
+            }
+          }
+        }
+      ]
+    },
+    "flagged": [
+      "variable:nope"
+    ]
   }
 ]

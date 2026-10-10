@@ -17,7 +17,7 @@ finding (`dw/assessment_rules.py`).
 
 import json
 
-from .. import audio_qc
+from .. import audio_qc, dsp
 from ..assessment_rules import finding, sort_findings
 from ..tasks.assess import (
     read_media,
@@ -82,6 +82,18 @@ def _not_applicable(kind, media, records):
     return reasons
 
 
+LEVEL_RULES = ("full_scale", "near_silent")
+
+
+def _file_level(media):
+    """The peak and mean (rms) dBFS of a Media's whole soundtrack, as
+    `level_findings` reads them from the gallery's probe."""
+    return {
+        "peak_dbfs": dsp.level_dbfs(media.audio, "peak"),
+        "mean_dbfs": dsp.level_dbfs(media.audio, "rms"),
+    }
+
+
 def assess(path, kind, shots, probe=None, detail=False):
     """Run the applicable probes over one file.
 
@@ -111,16 +123,20 @@ def assess(path, kind, shots, probe=None, detail=False):
         for name, run in PROBES.items()
         if name not in reasons
     }
+    # The whole-file level rules (full_scale, near_silent) are the gallery's
+    # too (#807); a file with no soundtrack has no level to read
+    level = media is not None and media.audio is not None
+    level_found = level_findings(_file_level(media)) if level else []
     body = {
         "shots_source": source,
         "findings": sort_findings(
             _dedupe_findings(
-                found for answer in answers.values() for found in answer["findings"]
+                level_found
+                + [found for answer in answers.values() for found in answer["findings"]]
             )
         ),
-        "rules_applied": [
-            rule for answer in answers.values() for rule in answer["rules_applied"]
-        ],
+        "rules_applied": (list(LEVEL_RULES) if level else [])
+        + [rule for answer in answers.values() for rule in answer["rules_applied"]],
         "rules_skipped": [
             {"probe": name, **skipped}
             for name, answer in answers.items()
@@ -155,7 +171,9 @@ def level_findings(media):
             # already clips; the fix is warn_if_written_above_full_scale's
             "says": "at or above full scale, so it clips on playback - a "
             "'normalize_audio' step at 'peak_dbfs: -3' ahead of the step that "
-            "saves it; a mux into a video needs more headroom than that",
+            "saves it; a mux into a video needs more headroom than that. For a "
+            "file already written, run the 'relevel-clip' template on it: no "
+            "re-render",
         }
         found.append(finding(rule, peak, None))
     if mean is not None and mean < audio_qc.NEAR_SILENT_WARN_DBFS:

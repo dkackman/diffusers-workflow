@@ -621,6 +621,72 @@ class TestSameKeySiblings:
         ]
 
 
+class TestOptionalItem:
+    """#801: {"item": "field", "default": X} reads an entry field the entry
+    may leave out."""
+
+    OPTIONAL = {"item": "singer", "default": "FALLBACK"}
+
+    def expanded(self, entries, form=None):
+        return expand_for_each(
+            definition(
+                {
+                    "name": "shot",
+                    "for_each": entries,
+                    "pipeline": {"arguments": {"picture": form or self.OPTIONAL}},
+                }
+            )
+        )
+
+    def pictures(self, expanded):
+        return [s["pipeline"]["arguments"]["picture"] for s in expanded["steps"]]
+
+    def test_a_present_field_wins_and_an_absent_one_takes_the_default(self):
+        got = self.pictures(
+            self.expanded([{"name": "a", "singer": "CROP"}, {"name": "b"}])
+        )
+        assert got == ["CROP", "FALLBACK"]
+
+    def test_a_structured_default_is_copied_into_each_member(self):
+        default = {"reference_type": "T", "from_previous_result": "draw"}
+        got = self.pictures(
+            self.expanded(
+                [{"name": "a"}, {"name": "b"}], {"item": "singer", "default": default}
+            )
+        )
+        assert got == [default, default]
+        assert got[0] is not got[1]
+
+    def test_absent_without_a_default_is_the_current_error(self):
+        with pytest.raises(ForEachError) as e:
+            self.expanded([{"name": "a"}], {"item": "singer"})
+        assert "names no field of entry 'a'" in str(e.value)
+
+    def test_an_object_with_other_keys_is_not_the_form(self):
+        form = {"item": "singer", "default": "X", "extra": 1}
+        assert self.pictures(self.expanded([{"name": "a"}], form)) == [form]
+
+    def test_outside_a_for_each_step_it_is_refused(self):
+        with pytest.raises(ForEachError):
+            expand_for_each(
+                definition({"name": "s", "task": {"arguments": {"x": self.OPTIONAL}}})
+            )
+
+    def test_the_field_is_listed_and_an_entry_carrying_it_is_not_flagged(self):
+        from dw.for_each import entry_field_warnings
+
+        written = definition(
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": {"arguments": {"p": "item:prompt", "s": self.OPTIONAL}},
+            },
+            variables={"shots": [{"name": "a", "prompt": "p", "singer": "CROP"}]},
+        )
+        assert list_fields(written)["shots"]["fields"] == ["name", "prompt", "singer"]
+        assert entry_field_warnings(written) == []
+
+
 class TestMusicVideoTemplate:
     """music-video's slices, shots and trims are three for_each groups over
     one 'shots' list, paired by entry name: shot@closeup reads slice@closeup
@@ -645,6 +711,19 @@ class TestMusicVideoTemplate:
             + [f"song_cut@{k}" for k in self.KEYS]
             + ["song_cuts", "balanced", "music_video"]
         )
+
+    def test_an_entry_singer_replaces_the_picture_and_keeps_the_audio(self):
+        template = load_template("music-video.json")
+        template["variables"]["shots"][1]["singer"] = "CROP"
+        from dw.workflow import workflow_from_definition
+
+        expanded = workflow_from_definition(template, "outputs").expanded_definition()
+        got = steps_by_name(expanded)
+        closeup = got["shot@closeup"]["pipeline"]["arguments"]["references"]
+        other = got["shot@room"]["pipeline"]["arguments"]["references"]
+        assert closeup[0] == "CROP"
+        assert closeup[1]["from_previous_result"] == "slice@closeup"
+        assert other[0] != "CROP"
 
     def test_the_soundtrack_is_cut_to_the_edit_rather_than_to_a_constant(self):
         """There is no 'soundtrack' step: a slice of a fixed 496 frames was

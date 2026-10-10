@@ -77,7 +77,7 @@ from .variables import (
     set_variables,
     undeclared_variable_references,
 )
-from .video_extensions import video_extension_errors
+from .video_extensions import video_extension_errors, video_into_image_errors
 from .video_size_errors import video_size_errors
 from .window_count_errors import window_count_errors
 from .vram_estimate import vram_estimate_errors
@@ -314,7 +314,10 @@ ERROR_CHECKS = [
     # gate in the first seconds of the run (dw/video_extensions.py, #347)
     Check(
         "video_extensions",
-        lambda c: video_extension_errors(c.expanded, c.source_indices),
+        lambda c: (
+            video_extension_errors(c.expanded, c.source_indices)
+            + video_into_image_errors(c.expanded, c.source_indices)
+        ),
     ),
     # hold_audio on a pipeline with no H3 hold blocks, or holding something
     # that is not audio, costs a checkpoint load otherwise (dw/hold_audio.py)

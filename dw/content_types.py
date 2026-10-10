@@ -29,7 +29,7 @@ import logging
 import mimetypes
 
 from . import references
-from .references import MEMBER_SEPARATOR, render_path
+from .references import render_path
 from .security import InvalidInputError, validate_content_type
 
 logger = logging.getLogger("dw")
@@ -126,29 +126,17 @@ def content_type_errors(workflow_definition, source_indices=None):
     several, and the path an error carries has to be one the author can
     find in the file they wrote; the member is named in the message.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        result = step.get("result")
-        if not isinstance(result, dict) or CONTENT_TYPE_KEY not in result:
+    for _, _, result, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "result"
+    ):
+        if CONTENT_TYPE_KEY not in result:
             continue
         value = result[CONTENT_TYPE_KEY]
         # A prefix substitution resolves before this pass: one still spelled
         # out is the undeclared-variable pass's complaint, not a shape error
         if references.is_ref(references.SUBSTITUTED, value):
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         fault = content_type_fault(value)
         if fault is not None:
             errors.append(

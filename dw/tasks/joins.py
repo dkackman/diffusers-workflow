@@ -22,7 +22,7 @@ from ..dsp import (
     spectral_flatness,
 )
 from ..dsp import resample_waveform
-from ..events import emit_log, emit_warning
+from ..events import emit_log, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..task_domains import frames_to_samples
 from .video_utils import is_video_location, load_audio_video
@@ -613,7 +613,8 @@ def warn_on_level_spread(waveforms, command="concat_videos", measure="rms"):
     if len(levels) < 2:
         return None
     spread = max(levels) - min(levels)
-    if spread >= LEVEL_SPREAD_WARN_DB:
+    # A later pair_audio replaces this track, so the jump is never heard (#800)
+    if spread >= LEVEL_SPREAD_WARN_DB and not (get_context().audio_replaced_downstream):
         # emit_warning rather than logger.warning: this is a property of the
         # file the run is about to write, and the caller reading the job is
         # the one who can act on it (#82)

@@ -38,7 +38,7 @@ from PIL import Image
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo, JsonRecord
 from ..shots import carried_shots
-from ..task_domains import (
+from ..task_problems import (
     FACE_CROP_MODULUS,
     FACE_CROP_MULTIPLE,
     FACE_CROP_REMAINDER,

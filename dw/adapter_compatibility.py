@@ -30,7 +30,7 @@ names and the partition each one denoises against are diffusers' own, and
 import logging
 
 from . import references
-from .references import MEMBER_SEPARATOR, render_path
+from .references import render_path
 
 logger = logging.getLogger("dw")
 
@@ -109,13 +109,9 @@ def _lora_problems(steps, source_indices, written=None, supplied=()):
     """
     written_steps = (written or {}).get("steps")
     found = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        pipeline = step.get("pipeline")
-        if not isinstance(pipeline, dict):
-            continue
-        source = references.author_index(source_indices, index)
+    for _, _, pipeline, source, where in references.iter_steps(
+        steps, source_indices, "pipeline"
+    ):
         from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
         workflow = (
             from_pretrained.get(WORKFLOW_KEY)
@@ -127,12 +123,6 @@ def _lora_problems(steps, source_indices, written=None, supplied=()):
         loras = pipeline.get(LORAS_KEY)
         if not isinstance(loras, list):
             continue
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         for position, lora in enumerate(loras):
             if not isinstance(lora, dict):
                 continue
@@ -212,18 +202,12 @@ def _disabled_loras(steps, source_indices, written=None, supplied=()):
     engine's, and so is saying that it was used."""
     written_steps = (written or {}).get("steps")
     found = []
-    for index, step in enumerate(steps):
-        pipeline = step.get("pipeline") if isinstance(step, dict) else None
-        loras = pipeline.get(LORAS_KEY) if isinstance(pipeline, dict) else None
+    for _, _, pipeline, source, where in references.iter_steps(
+        steps, source_indices, "pipeline"
+    ):
+        loras = pipeline.get(LORAS_KEY)
         if not isinstance(loras, list):
             continue
-        source = references.author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         for position, lora in enumerate(loras):
             if not isinstance(lora, dict) or lora.get(MODEL_NAME_KEY) is not None:
                 continue

@@ -37,6 +37,7 @@ jobs:
       - name: Install torch (CPU)
         run: pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cpu
       - name: Install dependencies
+        id: install
         # requirements.txt resolves pyproject.toml's dependencies + server
         # extra; requirements-test.txt the dev extra. diffusers from git
         # goes on afterwards so the resolver doesn't replace it with a
@@ -44,16 +45,23 @@ jobs:
         run: |
           pip install -c constraints-openapi.txt -r requirements.txt -r requirements-test.txt
           pip install git+https://github.com/huggingface/diffusers
-      - name: Format check
-        run: ruff format --check dw dw_mcp tests scripts
-      - name: Lint
-        run: ruff check dw dw_mcp tests scripts
-      - name: Tests
-        run: pytest -q
+      # Each check below runs whenever the install succeeded, so one failing
+      # check never hides another: the ratchet was red for three days behind
+      # a failing test (#790)
       # Guards the architecture metrics against drifting past the committed
       # baseline (modules, size ceiling, cycles); see docs/stabilization/
       - name: Architecture ratchet
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
         run: python scripts/arch_metrics.py --check docs/stabilization/baseline.json
+      - name: Format check
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ruff format --check dw dw_mcp tests scripts
+      - name: Lint
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: ruff check dw dw_mcp tests scripts
+      - name: Tests
+        if: ${{ !cancelled() && steps.install.outcome == 'success' }}
+        run: pytest -q
 
   ui:
     runs-on: ubuntu-latest

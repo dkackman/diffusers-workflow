@@ -27,10 +27,10 @@ existing run-time check - silence there is correct, not a gap, since the
 size is not known until the step that produces it runs.
 """
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
-from .references import author_index
+from .references import iter_steps
 from .task_domains import frame_size_error
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
@@ -60,16 +60,11 @@ def video_size_errors(
     `probe` defaults to the metadata-only `probe_metadata` (B9); see
     `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     errors = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") not in _CHECKED_COMMANDS:
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") not in _CHECKED_COMMANDS:
             continue
         command = task["command"]
         arguments = task.get("arguments")
@@ -92,13 +87,6 @@ def video_size_errors(
         if sentence is None:
             continue
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         fit_width, fit_height = next(iter(sizes.values()))
         errors.append(
             {

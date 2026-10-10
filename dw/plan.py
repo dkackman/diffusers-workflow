@@ -249,6 +249,7 @@ PER_ENTRY = "per_entry"
 DERIVED = "derived"
 OTHER_DEVICE = "other_device"
 OBSERVED = "observed"
+INHERITED = "inherited"
 
 # #301: a single run is not the same statistical basis as a dozen. Below
 # this many observed runs, an "observed" figure is tempered rather than
@@ -358,6 +359,9 @@ def _numeric_fields(entries):
     return fields
 
 
+LIST_ENTRY_COST_FIELDS = ("num_frames",)
+
+
 def _list_entry_field_shifted(default_entries, effective_entries):
     """Whether a list driver's entries carry a numeric field (a per-shot
     `num_frames`, say) with a value none of the default entries had. The
@@ -366,7 +370,13 @@ def _list_entry_field_shifted(default_entries, effective_entries):
     list driver (#593)."""
     measured = _numeric_fields(default_entries)
     for field, values in _numeric_fields(effective_entries).items():
-        if field in measured and not values <= measured[field]:
+        # Only a field that sets how long a shot renders moves its cost; a
+        # start_frame or cut_frames is a position that moves with the count
+        if (
+            field in LIST_ENTRY_COST_FIELDS
+            and field in measured
+            and not values <= measured[field]
+        ):
             return True
     return False
 
@@ -411,14 +421,30 @@ def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
     return False
 
 
+def _entry_cost_field_shifted(definition, expanded):
+    """Whether any declared list driver carries a per-entry cost field outside
+    the values the default entries had."""
+    defaults = definition.get("variables") or {}
+    effective = expanded.get("variables") or {}
+    return any(
+        isinstance(defaults.get(name), list)
+        and _list_entry_field_shifted(defaults[name], effective.get(name))
+        for name in _declared_drivers(definition)
+    )
+
+
 def _own_price(definition, expanded, list_entries, device, measured_entries):
     """The workflow's own price, reset to unknown when a scalar driver moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
-    if own["basis"] in (CATALOG, OTHER_DEVICE) and _scalar_driver_shifted(
-        definition,
-        expanded,
-        list_entries,
-        _per_entry_variable(definition.get("cost"), device),
+    # `derived` and `per_entry` are re-priced by entry count alone, so a
+    # per-entry num_frames outside the measured values needs the same check (#796)
+    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY) and (
+        _scalar_driver_shifted(
+            definition,
+            expanded,
+            list_entries,
+            _per_entry_variable(definition.get("cost"), device),
+        )
     ):
         # A scalar cost_driver (H3's num_frames, say) moved away from the
         # value the curated cost was measured against, and _repriced only
@@ -657,6 +683,11 @@ def estimate(
     """
     measured = _observed(observed, device)
     own = _own_price(definition, expanded, list_entries, device, measured_entries)
+    if measured is not None and _entry_cost_field_shifted(definition, expanded):
+        # The history's drivers match on the list's length, not on what each
+        # entry renders, so a shot lengthened past anything it covered would
+        # be quoted at the shorter run's minutes (#796)
+        measured = None
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
         measured["cached_minutes"] = _cached_minutes(
@@ -706,7 +737,7 @@ def _observed(observed, device):
         return None
     if observed.get("device") not in (None, device):
         return None
-    return {
+    estimate = {
         "minutes": round(float(minutes), 1),
         "basis": OBSERVED,
         "device": device,
@@ -715,6 +746,14 @@ def _observed(observed, device):
         "unpriced": [],
         "runs": runs,
     }
+    inherited_from = observed.get("inherited_from")
+    if inherited_from:
+        # History of the catalog template with this workflow's pipeline,
+        # not of this workflow - an approximation (#797)
+        estimate["basis"] = INHERITED
+        estimate["inherited_from"] = inherited_from
+        estimate["differs"] = list(observed.get("differs") or [])
+    return estimate
 
 
 def _sub_workflow_paths(expanded):

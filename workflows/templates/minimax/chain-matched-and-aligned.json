@@ -34,6 +34,7 @@
         "video_shift": 12.0,
         "audio_shift": 3.0,
         "weights_dtype": "{int4}",
+        "hold_audio": null,
         "lora_scale": 1.0,
         "lora_alpha": null,
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
@@ -205,6 +206,7 @@
                             "from_file": "variable:voice"
                         }
                     ],
+                    "hold_audio": "variable:hold_audio",
                     "num_frames": "variable:num_frames",
                     "width": "variable:width",
                     "height": "variable:height",

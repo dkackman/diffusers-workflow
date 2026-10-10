@@ -1,10 +1,10 @@
 """The check_script `lines` and `shots` arguments, parsed (#609).
 
-Kept apart from `dw/tasks/script_check.py` so that `dw/task_domains.py`,
+Kept apart from `dw/tasks/script_check.py` so that `dw/task_problems.py`,
 which refuses a literal `lines` or `shots` at validation, can call the
 same parser the task runs without importing the task - that import closed
 a cycle through `tasks.assess`, `tasks.audio_utils` and `tasks.joins` back
-into `task_domains`. The task imports these names back, so a caller that
+into `task_domains` (where the check lived until #790). The task imports these names back, so a caller that
 reads them off `script_check` still finds them.
 """
 

@@ -11,7 +11,8 @@ from unittest.mock import patch
 import numpy
 
 from dw.introspection import list_tasks
-from dw.task_domains import script_lines_errors, task_argument_errors
+from dw.task_domains import task_argument_errors
+from dw.task_problems import script_lines_errors
 from dw.script_lines import (
     normalize_words,
     parse_lines,

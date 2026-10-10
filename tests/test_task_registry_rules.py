@@ -16,6 +16,7 @@ import sys
 import pytest
 
 import dw.task_domains as task_domains
+import dw.task_problems as task_problems
 import dw.tasks.task  # noqa: F401 - registers every command, as validation does
 from dw.introspection import describe_task
 from dw.locations import TASK_MEDIA_ARGUMENTS
@@ -76,17 +77,18 @@ def test_a_table_read_first_holds_the_self_registering_commands():
 
 
 def _static_check_functions():
-    """Every rule function in task_domains shaped as a static check: named
-    `*_errors`, taking a step's `arguments` first."""
+    """Every rule function in task_domains and task_problems shaped as a
+    static check: named `*_errors`, taking a step's `arguments` first."""
     found = []
-    for name, value in vars(task_domains).items():
-        if not (inspect.isfunction(value) and name.endswith("_errors")):
-            continue
-        if value.__module__ != task_domains.__name__:
-            continue
-        parameters = list(inspect.signature(value).parameters)
-        if parameters and parameters[0] == "arguments":
-            found.append(value)
+    for module in (task_domains, task_problems):
+        for name, value in vars(module).items():
+            if not (inspect.isfunction(value) and name.endswith("_errors")):
+                continue
+            if value.__module__ != module.__name__:
+                continue
+            parameters = list(inspect.signature(value).parameters)
+            if parameters and parameters[0] == "arguments":
+                found.append(value)
     return found
 
 

@@ -385,7 +385,7 @@ class TestSpeakerEmbeddingTensor(unittest.TestCase):
 
 
 class TestHandleSpeechGeneration(unittest.TestCase):
-    """Covers the task.py dispatch handler directly, since
+    """Covers the model_handlers.py dispatch handler directly, since
     test_task_discovery.py only introspects the command registry rather than
     running handlers."""
 

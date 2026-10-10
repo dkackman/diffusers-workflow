@@ -66,6 +66,30 @@ class TestListing:
         result = list_assets(client_over(handler))
         assert result["assets"][0]["reference"] == "asset:uploads/iris.png"
 
+    def test_limit_and_prefix_travel_and_truncation_is_reported(self):
+        """#798: the cut happens server-side; the caller learns of it."""
+        seen = {}
+
+        def handler(request):
+            seen["params"] = dict(request.url.params)
+            return httpx.Response(
+                200,
+                json={"assets": [{"name": "cast/a.png"}], "folders": [""], "total": 5},
+            )
+
+        result = list_assets(client_over(handler), limit=1, prefix="cast/")
+        assert seen["params"]["limit"] == "1"
+        assert seen["params"]["prefix"] == "cast/"
+        assert result["total"] == 5
+        assert result["truncated"] is True
+        assert "4 older" in result["next"]
+
+    def test_a_complete_answer_is_not_marked_truncated(self):
+        def handler(request):
+            return httpx.Response(200, json={"assets": [], "folders": [], "total": 0})
+
+        assert "truncated" not in list_assets(client_over(handler))
+
     def test_a_workspace_can_be_named_for_one_request(self):
         """#463: listing another workspace's library for one call must not
         depend on switching the session's own pin."""

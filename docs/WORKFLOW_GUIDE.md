@@ -574,6 +574,17 @@ differs by shot, with `from_previous_result` and `asset:` strings inside
 it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
 is a literal string.
 
+A field an entry may leave out is read with the object form
+`{"item": "singer", "default": "variable:singer_reference"}` (the field's bare
+name, not `item:singer`). An entry that carries `singer` gets its value; one
+that does not gets the default, spliced in whole. An object with no `default`
+is the plain required read. The object must have exactly those keys, and it
+means something only inside a `for_each` step. `music-video` uses it so a shot
+can condition on its own picture (`singer`) and the rest fall back to
+`singer_reference`; the audio slice stays in the template. If every entry
+supplies the field and the default's step is read nowhere else, that step is
+elided like any unread one.
+
 An entry may name another variable: `"from_file": "variable:character_a_voice"`
 inside a `references` entry is that variable's value by the time the member
 exists, so one variable sets a voice in every shot the character speaks in
@@ -687,7 +698,10 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a measured per-entry rate re-priced for your list; `catalog` is a
    measured total for a run whose lists are the ones it was measured with;
    `derived` is that total extrapolated over a list you changed the length
-   of - say it is an estimate; `other_device` is a figure from another
+   of - say it is an estimate; `inherited` is an inline workflow priced
+   from this box's runs of the catalog template with the same pipeline
+   (`inherited_from`) - say it is an approximation, and relay the warning
+   if offload, quantization or frame count differ; `other_device` is a figure from another
    accelerator - say so too; `unknown` is no figure at all. `gb` on a
    `downloads_required` entry is null when the hub could not be asked, and
    `steps`/`list_entries` say how many members the list actually produced.
@@ -732,7 +746,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
 6. `get_output_image` to look at what was actually made, and say whether it
    answers the request. Nothing before this step establishes that it does.
    `get_output_frames` looks at a video and `get_output_audio` listens to a
-   soundtrack.
+   soundtrack. A text-only client reads levels and clipping from
+   `get_gallery_metadata` instead (`media` peak and mean, `findings`;
+   `envelope=true` for where).
 
    To confirm the words a clip speaks - a text-only client can't consume the
    `AudioContent` block `get_output_audio` returns - run
@@ -1654,16 +1670,24 @@ extension is not `.wav`, `.mp3`, `.flac` or `.ogg`, and on any `{"media_type": .
 dict; a run refuses a pipeline with no hold blocks or a value that is not audio. Without
 `hold_audio` the output is unchanged.
 
-Hold is opt-in: the catalog's audio-driven templates (`music-video` and the `match_audio`
-chains) pass the track as a `MiniMaxH3AudioReference` instead. Measured on lem (#619:
-`chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm), a held track
-kept the soundtrack exact but the mouth was open at about 3 of 6 sung-word onsets, and
-closed through much of the second segment, against 6 of 6 with the reference; the
-held arm read as speech to camera rather than singing. Both arms took about the same
-time (19.8 and 18.3 min). Hold is for picture that must fit audio exactly, such as
-motion cut to music, not yet for lip sync. `refine_strength` also uses hold, to keep the
-base pass's own audio, which was generated jointly with that video - a different case from
-lip sync to supplied audio (see the refine section below).
+Hold plus the reference is the `music-video` default: the template passes each shot's slice
+as a `MiniMaxH3AudioReference` and its `hold_audio` variable defaults to
+`previous_result:slice`; set it to null for the reference alone. The `match_audio` chains
+(`chain-matched-to-audio`, `chain-matched-and-aligned`) keep `hold_audio` null by default,
+since a chain has no per-shot slice to name; set it to an audio file to hold. Measured on
+lem (#808: `music-video`, 4 shots of 124 frames, two seeds and so two songs, offset of each
+shot's own audio against its source slice by `measure_sync`), the reference alone put one of
+four shots 1.37 s late (seed 42) and another 0.18 s early (seed 7), with correlation 0.35 to
+0.96; reference plus hold measured 0.00 s on all eight shots, correlation 0.95 to 1.00. The
+earlier A/B (#619: `chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm)
+found a held track with *image-only* references kept the soundtrack exact but the mouth was
+open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, and read as
+speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
+so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
+is also for picture that must fit audio exactly, such as motion cut to music.
+`refine_strength` also uses hold, to keep the base pass's own audio, which was generated
+jointly with that video - a different case from lip sync to supplied audio (see the refine
+section below).
 
 ### H3: holding a clip with `guides`
 
@@ -2023,7 +2047,7 @@ Refine re-denoises the video only. The audio rows have to be held, so pass the b
 pass's track as `hold_audio` (`previous_result:base.audio`) and the step's `audio` is that
 track. This is a different use of hold from the one above: it keeps the audio the base pass
 generated jointly with that video, rather than fitting picture to supplied audio. For lip
-sync to supplied audio, the per-shot audio reference was the better arm in #619's A/B.
+sync to supplied audio see the hold section above (#619, #795).
 
 ```json
 {

@@ -149,7 +149,7 @@ def register_command(
             accepts, refused at validation and listed by `get_task`
         static_check: `arguments -> [(argument, message)]` - the command's
             cross-argument rules a literal workflow can break before it runs
-            (`task_domains.cuts_errors`), called by `task_argument_errors`
+            (`task_problems.cuts_errors`), called by `task_argument_errors`
             with the step's expanded arguments
         media_arguments: Names of arguments that name a file to read but not
             by the media-key convention (`dw/locations.py`) - confined like

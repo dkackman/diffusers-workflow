@@ -2001,6 +2001,8 @@ class TestNoHeadroom:
 
         assert [w["kind"] for w in warnings] == ["audio_no_headroom", "audio_clipped"]
         assert warnings[0]["peak_dbfs"] == 0.0
+        # the post-write warning names the fix for a file already written (#794)
+        assert "relevel-clip" in warnings[1]["message"]
         assert "normalize_audio" in warnings[0]["message"]
 
     def test_a_track_over_full_scale_warns(self):

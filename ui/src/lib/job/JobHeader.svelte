@@ -6,6 +6,7 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
+  import { formatDuration } from '../format'
   import { notify } from '../toast'
   import type { JobDetail } from '../types'
 
@@ -29,6 +30,21 @@
     cancelPending: boolean
     seedVariable: string | null
   } = $props()
+
+  // Start to finish off the job record's own clocks. A running job's
+  // figure counts up on a one-second tick; the record only changes when the
+  // status does, so it cannot drive the count itself
+  let now = $state(Date.now() / 1000)
+  $effect(() => {
+    if (!running) return
+    const tick = setInterval(() => (now = Date.now() / 1000), 1000)
+    return () => clearInterval(tick)
+  })
+  const took = $derived.by(() => {
+    if (!job?.started_at) return null
+    const end = job.finished_at ?? (running ? now : null)
+    return end === null ? null : end - job.started_at
+  })
 
   async function rerun(newSeed: boolean) {
     try {
@@ -119,6 +135,15 @@
         class="muted seed"
         title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
         >v{runVersion}</code
+      >
+    {/if}
+    {#if took !== null}
+      <code
+        class="muted seed"
+        title={job.finished_at
+          ? 'start to finish - excludes time queued'
+          : 'running for - excludes time queued'}
+        >{job.finished_at ? 'took' : 'running'} {formatDuration(took)}</code
       >
     {/if}
     {#if job.device}

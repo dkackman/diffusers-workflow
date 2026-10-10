@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from dw.task_domains import cuts_errors, task_argument_errors
+from dw.task_domains import task_argument_errors
+from dw.task_problems import cuts_errors
 from dw.tasks.cuts import plan_cuts
 
 FPS = 24
@@ -514,12 +515,12 @@ class TestBounceFixes:
             duration_s=20.0,
             max_scene_s=10.0,
         )
-        split = [
-            s
-            for s in result["shots"]
-            if s["lyric"] == "we were burning bright\nnever let it go"
-        ]
-        assert len(split) == 2
+        sung_shots = [s["lyric"] for s in result["shots"] if s["lyric"]]
+        # Each piece holds the words heard in it, not the whole stanza (#805)
+        assert "we were burning bright\nnever let it go" not in sung_shots
+        assert "\n".join(sung_shots[1:]).replace("\n", " ") == (
+            "we were burning bright never let it go"
+        )
         assert any(
             "we were burning bright / never let it go" in w and "max_scene_s" in w
             for w in result["warnings"]

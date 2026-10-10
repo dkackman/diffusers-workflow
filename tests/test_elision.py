@@ -401,6 +401,29 @@ class TestTheMusicVideoSinger:
         assert [e["step"] for e in elided] == ["draw_singer"]
         assert elided[0]["overridden_by"] == "singer_reference"
 
+    def test_every_entry_naming_its_own_singer_elides_the_portrait(self):
+        """#801: with a `singer` on every entry nothing reads the default, so
+        the portrait is not drawn; one entry without it falls back to the
+        portrait and keeps the step."""
+        written = self.definition()
+        crop = {
+            "reference_type": "variable:image_reference_type",
+            "from_file": "asset:cast/crop.jpg",
+        }
+        definition = copy.deepcopy(written)
+        for entry in definition["variables"]["shots"]:
+            entry["singer"] = crop
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+        elided = elide_definition(expanded, written)
+        assert [e["step"] for e in elided] == ["draw_singer"]
+        # #809: singer_reference was not passed, so the entries' field is named
+        assert elided[0]["overridden_by"] == "item:singer"
+        assert "singer_reference" not in elided[0]["reason"]
+
+        definition["variables"]["shots"][1].pop("singer")
+        expanded = Workflow(definition, "outputs", self.PATH).expanded_definition()
+        assert elide_definition(expanded, written) == []
+
 
 class TestDialogueShort:
     """The case that raised it."""
@@ -512,9 +535,10 @@ class TestMusicVideo:
             "from_previous_result": "draw_singer",
         }
         shot = next(s for s in definition["steps"] if s["name"] == "shot")
-        assert shot["pipeline"]["arguments"]["references"][0] == (
-            "variable:singer_reference"
-        )
+        assert shot["pipeline"]["arguments"]["references"][0] == {
+            "item": "singer",
+            "default": "variable:singer_reference",
+        }
 
     def test_the_portrait_saves_nothing(self):
         """Same role as dialogue-short's draw steps, so the same rule: a
@@ -603,3 +627,39 @@ class TestCarryReleaseOnMalformedPipelines:
         elided = {"name": "b", "release_models": True}
         assert _carry_release(elided, kept) is True
         assert kept[0]["release_models"] is True
+
+
+class TestAnItemFieldIsNotASuppliedVariable:
+    """#809: when every for_each entry carries the optional item field, the
+    default `variable:` is never used - the reason must not say the caller
+    passed that variable."""
+
+    def written(self):
+        return {
+            "id": "w",
+            "variables": {"singer_reference": {"from_previous_result": "draw_singer"}},
+            "steps": [
+                task("draw_singer"),
+                step(
+                    "shot",
+                    task={
+                        "command": "fade_audio",
+                        "arguments": {
+                            "audio": {
+                                "item": "singer",
+                                "default": "variable:singer_reference",
+                            }
+                        },
+                    },
+                    result={"content_type": "video/mp4"},
+                ),
+            ],
+        }
+
+    def test_the_item_field_is_named(self):
+        written = self.written()
+        elided = elide_definition(copy.deepcopy(written), written)
+        assert len(elided) == 1
+        assert elided[0]["overridden_by"] == "item:singer"
+        assert "singer_reference" not in elided[0]["reason"]
+        assert "'singer'" in elided[0]["reason"]

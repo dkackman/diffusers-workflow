@@ -1,0 +1,42 @@
+{
+  "id": "ReLevelClip",
+  "description": "Re-levels the soundtrack of a clip that is already rendered, without re-rendering it - the fix for a finished video flagged as clipping (an 'audio_clipped' warning or a 'full_scale' finding), on the CPU in seconds. 'clip' is the video: an 'output:' ref to a finished run's file or an 'asset:' ref. A first step normalizes the clip's own soundtrack so its loudest sample sits at 'peak_dbfs' (-3 leaves the headroom an AAC encode needs); give 'target_lufs' to gain it to that integrated loudness first, with 'peak_dbfs' still the ceiling. A second step muxes the leveled track back onto the same clip. The video stream is re-encoded, not copied: one generation of encode loss, the cost of not re-rendering. A clip with no audio fails at the first step.",
+  "summary": "Fix a clipping soundtrack on an already-rendered clip: normalize its audio and mux it back, CPU only.",
+  "variables": {
+    "clip": "asset:clip.mp4",
+    "peak_dbfs": -3.0,
+    "target_lufs": null
+  },
+  "steps": [
+    {
+      "name": "level",
+      "task": {
+        "command": "normalize_audio",
+        "arguments": {
+          "audio": "variable:clip",
+          "peak_dbfs": "variable:peak_dbfs",
+          "target_lufs": "variable:target_lufs"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "mux",
+      "task": {
+        "command": "pair_audio",
+        "arguments": {
+          "video": "variable:clip",
+          "audio": "previous_result:level",
+          "fit": "video"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

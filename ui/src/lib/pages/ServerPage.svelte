@@ -4,6 +4,8 @@
   import { api } from '../api'
   import CopyButton from '../CopyButton.svelte'
   import WorkerList from '../WorkerList.svelte'
+  import CardMemoryList from '../CardMemoryList.svelte'
+  import { cardReadings } from '../cardMemory'
   import {
     addressLabel,
     browserUrl,
@@ -12,11 +14,13 @@
     mcpAddCommand,
     mcpUrl,
   } from '../serverinfo'
-  import type { HealthInfo, ServerInfo } from '../types'
+  import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
 
   let info = $state<ServerInfo | null>(null)
   let error = $state('')
   let health = $state<HealthInfo | null>(null)
+  let memory = $state<MemoryInfo | null>(null)
+  const cards = $derived(cardReadings(memory))
 
   $effect(() => {
     api
@@ -32,11 +36,10 @@
   // status bar, fetched here so the worker/queue lines keep up on their own
   $effect(() => {
     return poll(async () => {
-      try {
-        health = await api.health()
-      } catch {
-        health = null
-      }
+      // settled apart: memory answers 503 while the worker is starting
+      const [h, m] = await Promise.allSettled([api.health(), api.memory()])
+      health = h.status === 'fulfilled' ? h.value : null
+      memory = m.status === 'fulfilled' ? m.value : null
     }, 5000)
   })
 
@@ -89,6 +92,8 @@
       </dd>
       <dt>Queue</dt>
       <dd>{health?.queued ?? 0} queued</dd>
+      <dt>Memory</dt>
+      <dd><CardMemoryList {cards} /></dd>
     </dl>
   </div>
 

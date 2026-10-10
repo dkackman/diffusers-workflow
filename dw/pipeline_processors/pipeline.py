@@ -631,7 +631,11 @@ class Pipeline:
         """
         held = arguments.get(HOLD_AUDIO_INPUT)
         if held is None:
-            return arguments
+            if HOLD_AUDIO_INPUT not in arguments:
+                return arguments
+            # A template's null `hold_audio` variable is no hold at all, the
+            # same call as one that never named the argument
+            return {k: v for k, v in arguments.items() if k != HOLD_AUDIO_INPUT}
         if not holds_audio(self.pipeline):
             raise ValueError(
                 f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "
@@ -685,60 +689,10 @@ class Pipeline:
             raise ValueError(
                 f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
             )
-        prepared = []
-        for index, guide in enumerate(guides):
-            if not isinstance(guide, dict):
-                raise ValueError(
-                    f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
-                )
-            unknown = sorted(set(guide) - {"video", "frame", "audio"})
-            if unknown:
-                raise ValueError(
-                    f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
-                    f"{{video, frame}}, with an optional 'audio'"
-                )
-            if "video" not in guide or "frame" not in guide:
-                raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
-            problem = guide_frame_problem(guide["frame"])
-            if problem:
-                raise ValueError(f"{where}[{index}]: {problem}")
-            with_audio = guide.get("audio", False)
-            if not isinstance(with_audio, bool):
-                raise ValueError(
-                    f"{where}[{index}]: 'audio' must be true or false, got "
-                    f"{type(with_audio).__name__}"
-                )
-            video = guide["video"]
-            if isinstance(video, str) or (isinstance(video, dict) and with_audio):
-                # Read with its soundtrack only when the guide holds it
-                video = (
-                    load_audio_video(video, self.base_dir)
-                    if with_audio
-                    else fetch_video(video, self.base_dir)
-                )
-            try:
-                frames = guide_frames_array(video)
-                audio, sample_rate = (
-                    guide_audio_waveform(video) if with_audio else (None, None)
-                )
-            except ValueError as error:
-                raise ValueError(f"{where}[{index}]: {error}") from error
-            length = snap_guide_length(frames.shape[0])
-            if length != frames.shape[0]:
-                emit_warning(
-                    f"{where}[{index}]: a guide clip encodes to whole latents only at "
-                    f"1, 5 or 17m + 5 frames, so its {frames.shape[0]} frames are cut "
-                    f"to the first {length}"
-                )
-                frames = frames[:length]
-            prepared.append(
-                {
-                    "video": frames,
-                    "frame": guide["frame"],
-                    "audio": audio,
-                    "sample_rate": sample_rate,
-                }
-            )
+        prepared = [
+            _prepared_guide(where, index, guide, self.base_dir)
+            for index, guide in enumerate(guides)
+        ]
         arguments[GUIDES_INPUT] = prepared
         return arguments
 
@@ -897,6 +851,59 @@ class Pipeline:
                 if torch_dtype is not None:
                     logger.debug(f"Setting {component_name} torch dtype: {torch_dtype}")
                     component.to(torch_dtype)
+
+
+def _prepared_guide(where, index, guide, base_dir):
+    """One `guides` entry checked and read: its clip as uint8 frames cut to
+    a whole-latent length, with its soundtrack when it asks for one."""
+    if not isinstance(guide, dict):
+        raise ValueError(
+            f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
+        )
+    unknown = sorted(set(guide) - {"video", "frame", "audio"})
+    if unknown:
+        raise ValueError(
+            f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
+            f"{{video, frame}}, with an optional 'audio'"
+        )
+    if "video" not in guide or "frame" not in guide:
+        raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
+    problem = guide_frame_problem(guide["frame"])
+    if problem:
+        raise ValueError(f"{where}[{index}]: {problem}")
+    with_audio = guide.get("audio", False)
+    if not isinstance(with_audio, bool):
+        raise ValueError(
+            f"{where}[{index}]: 'audio' must be true or false, got "
+            f"{type(with_audio).__name__}"
+        )
+    video = guide["video"]
+    if isinstance(video, str) or (isinstance(video, dict) and with_audio):
+        # Read with its soundtrack only when the guide holds it
+        video = (
+            load_audio_video(video, base_dir)
+            if with_audio
+            else fetch_video(video, base_dir)
+        )
+    try:
+        frames = guide_frames_array(video)
+        audio, sample_rate = guide_audio_waveform(video) if with_audio else (None, None)
+    except ValueError as error:
+        raise ValueError(f"{where}[{index}]: {error}") from error
+    length = snap_guide_length(frames.shape[0])
+    if length != frames.shape[0]:
+        emit_warning(
+            f"{where}[{index}]: a guide clip encodes to whole latents only at "
+            f"1, 5 or 17m + 5 frames, so its {frames.shape[0]} frames are cut "
+            f"to the first {length}"
+        )
+        frames = frames[:length]
+    return {
+        "video": frames,
+        "frame": guide["frame"],
+        "audio": audio,
+        "sample_rate": sample_rate,
+    }
 
 
 def warn_if_safety_checker_blanked(output):

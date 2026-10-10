@@ -7,6 +7,82 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.11.0
+
+<!-- Drafted from v0.10.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.11.0 --notes-file ... -->
+
+A short range. MiniMax H3's keyframe templates move to a 4-step turbo
+LoRA that halves a long take's render time, music videos hold each shot's
+audio slice by default and can give each entry its own singer, cost
+estimates reach inline workflows, and `torch.compile`'s kernel cache now
+survives a reboot. Under the hood, the #790 refactor brought every module
+and function back under the architecture ratchet.
+
+**MiniMax H3** (plugins/dw/skills/minimax-h3, workflows/templates)
+
+- The nine T2VA/FL2VA templates default to lightx2v's 4-step v1.2 turbo
+  (`num_inference_steps` 5, shift 6/3) at 960x544 and 1344x768: on a
+  345-frame take, ~7.3 min against 14.6 min for the 8-step file it
+  replaces. Ref2VA templates stay on 8 steps; there is no tested 4-step
+  Ref2VA file.
+
+**Music video and cuts** (docs/TASKS.md)
+
+- `music-video` holds each shot's audio slice by default; measured 0.00 s
+  sync offset on 8 of 8 shots against up to 1.37 s with the reference
+  alone (#808). `hold_audio` is declared (null) on it and the
+  `match_audio` chains (#795).
+- `for_each` items take an optional field with a default, so a
+  music-video entry may carry its own singer (#801, #809).
+- `plan_cuts` divides a split sung scene's lyric across its pieces by
+  aligned word times (#805).
+- New `measure_sync` task cross-correlates a shot's audio against its
+  source slice (#802); new `relevel-clip` utility template, named by the
+  clip warning (#794).
+- `assess_output` runs the whole-file level rules (`full_scale`,
+  `near_silent`) (#807); no `level_spread` warning when a later
+  `pair_audio` replaces the track (#800).
+
+**Planning and validation**
+
+- An inline workflow is priced by pipeline identity, inheriting the
+  catalog basis and warning where offload, quantization or frames differ
+  (#797); the field-shift check covers derived and per-entry estimates
+  (#796).
+- Validation refuses an `image`/`last_image` argument fed
+  `previous_result:` of an earlier video step (#813).
+
+**MCP and server**
+
+- `list_assets` takes `limit` (newest first), `prefix`, and reports
+  `total` (#798).
+- `save_prompt` accepts a plain string (#806); `wait_for_job` falls back
+  cleanly on a client timeout and a running job reports `finished_steps`
+  (#792, #799).
+
+**Acceleration** (docs/ACCELERATION.md)
+
+- `TORCHINDUCTOR_CACHE_DIR` defaults to `~/.cache/dw/torchinductor`, so
+  compiled kernels survive a reboot instead of living in `/tmp`.
+- `.env.example` documents the environment knobs dw reads; copy it to `.env`
+  (loaded at import, before torch) and restart the server after editing.
+
+**Web UI**
+
+- Per-card VRAM bars in the header, status popover and server page.
+- Step and job durations on the job page, the log and the jobs list.
+- The sidebar marks the open workspace; each workspace has its own hue.
+
+**Maintenance**
+
+- #790: `task.py` split by family, the H3 block classes moved to module
+  level, task argument rules moved to `dw/task_problems.py`, and one
+  `iter_steps` walk for every validation pass. CI runs the ratchet first
+  so a test failure can no longer hide it.
+- UI dependencies: vitest 5, monaco-editor 0.57; the lockfile update
+  clears the `source-map-js` and `postcss-selector-parser` Dependabot
+  alerts.
+
 ### 0.10.0
 
 <!-- Drafted from v0.9.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.10.0 --notes-file ... -->

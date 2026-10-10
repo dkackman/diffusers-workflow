@@ -154,6 +154,7 @@ def _store_serving(
     state.updater = diffusers_updater or DiffusersUpdater()
     # One index per distinct listing, per app (see deps.ceiling_index)
     state.ceiling_indexes = {}
+    state.catalog_listings = {}
 
 
 def _mount_mcp(app, mcp_asgi):

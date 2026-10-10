@@ -20,10 +20,10 @@ argument sourced from a `variable:`/`previous_result:`/`gather:` reference
 names no records yet and is left to the run-time check.
 """
 
-from .for_each import MEMBER_SEPARATOR, render_path
+from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
-from .references import author_index
+from .references import iter_steps
 
 PROBE_COMMANDS = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
 
@@ -57,16 +57,11 @@ def shot_span_warnings(
     `probe` defaults to the metadata-only `probe_metadata` (B9); see
     `dissolve_frame_errors` for why and for the memoizing-wrapper contract.
     """
-    steps = workflow_definition.get("steps")
-    if not isinstance(steps, list):
-        return []
-
     warnings = []
-    for index, step in enumerate(steps):
-        if not isinstance(step, dict):
-            continue
-        task = step.get("task")
-        if not isinstance(task, dict) or task.get("command") not in PROBE_COMMANDS:
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") not in PROBE_COMMANDS:
             continue
         task_args = task.get("arguments")
         if not isinstance(task_args, dict):
@@ -99,13 +94,6 @@ def shot_span_warnings(
         if not problems:
             continue
 
-        source = author_index(source_indices, index)
-        name = step.get("name")
-        where = (
-            f" in member '{name}'"
-            if isinstance(name, str) and MEMBER_SEPARATOR in name
-            else ""
-        )
         path_str = render_path(("steps", source, "task", "arguments", "shots"))
         warnings.append(
             f"{path_str}: {task['command']} will clip {'; '.join(problems)}{where} "

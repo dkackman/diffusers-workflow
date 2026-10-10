@@ -142,7 +142,13 @@ def _summarised_asset_entries(entries):
     ]
 
 
-def list_assets(client, detail=False, workspace=None):
+# Bounded by default, as list_jobs is: the unbounded listing was 66 KB
+DEFAULT_ASSET_LIMIT = 50
+
+
+def list_assets(
+    client, detail=False, workspace=None, limit=DEFAULT_ASSET_LIMIT, prefix=None
+):
     """The input media on the server, each with the 'asset:' reference a
     workflow argument carries.
 
@@ -165,8 +171,30 @@ def list_assets(client, detail=False, workspace=None):
     of KB otherwise for a question that is usually "what's available and
     under what name" (#249). Pass `detail=True` for each entry's `folder`,
     `mtime` and `url` too.
+
+    Newest first and bounded to `limit` (default 50; None for all), filtered
+    server-side by `prefix` (a name or folder start such as 'cast/'), so the
+    full listing never crosses the wire. `total` is what matched before the
+    cut; when it exceeds what came back, `truncated` and `next` say so.
     """
-    result = client.get_json("/api/assets", workspace=workspace)
+    params = {}
+    if limit is not None:
+        params["limit"] = limit
+    if prefix:
+        params["prefix"] = prefix
+    result = client.get_json("/api/assets", params=params or None, workspace=workspace)
+    returned = result.get("assets")
+    total = result.get("total")
+    if isinstance(returned, list) and isinstance(total, int) and total > len(returned):
+        result = {
+            **result,
+            "returned": len(returned),
+            "truncated": True,
+            "next": (
+                f"{total - len(returned)} older assets were not listed - raise "
+                "`limit`, or narrow with `prefix`."
+            ),
+        }
     if detail:
         return result
     assets = result.get("assets")

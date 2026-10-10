@@ -9,6 +9,7 @@ from dw.step_cache import (
     StepCache,
     deep_equal,
     reference_resolves_to,
+    audio_replaced_downstream,
     normalized_downstream,
     _result_bytes,
 )
@@ -598,6 +599,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # Four more were regenerated when #580 (9c708a12) moved embed-metadata,
 # lora, prompt-weighting and step-caching from model to sequential offload:
 # offload is part of how a pipeline is loaded, so its key moves with it.
+#
+# Nine minimax rows were regenerated when the T2VA/FL2VA templates moved from
+# the 8-step turbo LoRAs to the 4-step v1.2 file (2026-10-10): the adapter and
+# the scheduler shift are part of how the pipeline is loaded.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -757,7 +762,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "chained_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
     },
     "minimax/chained-segments.json": {
-        "chained_keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+        "chained_keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
     },
     "minimax/composable-references.json": {
         "video_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
@@ -772,23 +777,23 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot@tag": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
     },
     "minimax/enhance-prompt-with-image.json": {
-        "keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+        "keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
     },
     "minimax/enhance-prompt.json": {
-        "text_to_video_audio": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9"
+        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
     },
     "minimax/first-and-last-frame.json": {
-        "first_and_last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+        "first_and_last_frame_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
     },
     "minimax/generated-subject-reference.json": {
         "draw_subject": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600",
     },
     "minimax/image-to-video.json": {
-        "keyframe_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+        "keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
     },
     "minimax/last-frame-only.json": {
-        "last_frame_to_video_audio": "da965b4931829682072f59a5b91cdd0c212b39f585b445cc60b7b5c717cbe4e1"
+        "last_frame_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
@@ -806,11 +811,11 @@ TEMPLATE_PIPELINE_KEYS = {
         "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
     },
     "minimax/shots-batch.json": {
-        "shot@shot_1": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
-        "shot@shot_2": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
-        "shot@shot_3": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
-        "shot@shot_4": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
-        "shot@shot_5": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9",
+        "shot@shot_1": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
+        "shot@shot_2": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
+        "shot@shot_3": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
+        "shot@shot_4": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
+        "shot@shot_5": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
     },
     "minimax/storyboard.json": {
         "board_1_launch": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
@@ -819,10 +824,10 @@ TEMPLATE_PIPELINE_KEYS = {
         "voyage": "ee8e8884e8f049bf7de6aabe053a8c389ab6cd0c42108a04cc6fd1049e671300",
     },
     "minimax/video-with-audio-768p.json": {
-        "text_to_video_audio": "748d703dd1745057386c6a167578c2f1b31ddad3df102364a5ec5389bcc5b001"
+        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
     },
     "minimax/video-with-audio.json": {
-        "text_to_video_audio": "6995ccd88fcd70ede12ac1a10a3624fbbdb47eabe8714d9a191dcb393efa7ee9"
+        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
     },
     "minimax/voice-timbre-reference.json": {
         "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
@@ -840,6 +845,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
     },
     "recenter-crop.json": {},
+    "relevel-clip.json": {},
     "restore-faces.json": {
         "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
     },
@@ -958,3 +964,50 @@ def test_dialogue_short_shot_is_level_reset_with_variable_match_levels():
     assert not consumed(None)
     assert written_peak_already_warned("video/mp4", True, False)
     assert not written_peak_already_warned("video/mp4", False, False)
+
+
+def pair(name, video, audio):
+    return {
+        "name": name,
+        "task": {
+            "command": "pair_audio",
+            "arguments": {
+                "video": f"previous_result:{video}",
+                "audio": f"previous_result:{audio}",
+            },
+        },
+    }
+
+
+def test_audio_replaced_downstream_true_when_pair_audio_takes_it_as_video():
+    steps = [{"name": "other"}, pair("final", "edit", "score")]
+    assert audio_replaced_downstream(steps, "edit")
+
+
+def test_audio_replaced_downstream_false_when_it_is_the_audio_or_unread():
+    steps = [pair("final", "edit", "score")]
+    assert not audio_replaced_downstream(steps, "score")
+    assert not audio_replaced_downstream(steps, "other")
+
+
+def test_level_spread_warning_suppressed_when_audio_replaced(monkeypatch):
+    """The real warn_on_level_spread, run under a context the way Step.run
+    sets it: warns by default, silent when a pair_audio replaces the track."""
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.tasks.joins import warn_on_level_spread
+
+    loud = np.full(48000, 0.5, dtype=np.float32)
+    quiet = np.full(48000, 0.01, dtype=np.float32)
+    seen = []
+    for replaced in (False, True):
+        events = []
+        context = RunContext(on_event=lambda e: events.append(e))
+        context.audio_replaced_downstream = replaced
+        token = activate_context(context)
+        try:
+            warn_on_level_spread([loud, quiet])
+        finally:
+            deactivate_context(token)
+        seen.append(events)
+    assert any("level_spread" in str(e) for e in seen[0])
+    assert not any("level_spread" in str(e) for e in seen[1])

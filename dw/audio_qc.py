@@ -174,7 +174,9 @@ def warn_if_written_above_full_scale(
         f"the file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
         f"ahead of the step that saves it (a template's intermediate shot has "
         f"no such step to edit: set the join's 'match_levels' instead). A "
-        f"mux into a video needs more of it than an audio file does.",
+        f"mux into a video needs more of it than an audio file does. For a "
+        f"file already written, the 'relevel-clip' template re-levels it "
+        f"without a re-render.",
         kind="audio_clipped",
         file=name,
         peak_dbfs=round(peak, 2),

@@ -10,7 +10,7 @@
     "fl2va"
   ],
   "description": "8-step turbo for the keyframe partition (t2va/fl2va), 768p",
-  "use_when": "Any T2VA or FL2VA render at 768p; the 768p templates already load this file through lora_model_name/lora_weight_name (the 544p templates load minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors)",
+  "use_when": "An 8-step T2VA or FL2VA render at 768p, when the slower schedule is wanted over turbo-4step-keyframe (the templates' default): set lora_weight_name to this file and num_inference_steps 9 together",
   "scale": {
     "default": 1.0
   },

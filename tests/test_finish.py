@@ -439,14 +439,14 @@ class TestRgbaFileKeepsAlpha:
         assert numpy.array_equal(_array(result.getchannel("A")), alpha)
 
     def test_an_opaque_file_still_loads_rgb(self, tmp_path):
-        from dw.tasks.task import _load_media
+        from dw.tasks.finish_handlers import _load_media
 
         path = tmp_path / "opaque.png"
         Image.new("RGB", (8, 8), "red").save(path)
         assert _load_media(str(path)).mode == "RGB"
 
     def test_a_palette_file_with_transparency_loads_rgba(self, tmp_path):
-        from dw.tasks.task import _load_media
+        from dw.tasks.finish_handlers import _load_media
 
         path = tmp_path / "palette.png"
         image = Image.new("P", (8, 8), 0)
