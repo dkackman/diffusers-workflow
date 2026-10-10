@@ -222,7 +222,9 @@ Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card
 whose worker last ran the same workflow (the same file, or an inline
 definition's `id`) - that worker's pipelines and step cache are warm, and a
-worker frees both when the workflow changes. A busy preferred card is not
+worker's step cache and any model the next workflow does not load are freed
+when the workflow changes, while a model both workflows load (same weights
+identity) stays warm. `clear_memory` still empties the card by hand. A busy preferred card is not
 waited for. A validation's cache probe and its `plan.estimate` ask about the
 card the job would be dispatched to now, and the estimate names it in
 `priced_for`. Memory is per card: `GET /api/memory` and `POST

@@ -357,14 +357,37 @@ class WorkflowWorker:
         # what runs out of memory
         if identity != self.workflow_identity:
             if self.workflow_identity is not None:
-                self._reply(
-                    Output(message="Workflow changed - releasing cached models...")
-                )
-                self._reply(Output(message=self._cleanup_all()))
+                keep = self._keys_worth_keeping(command, job.workflow)
+                if keep:
+                    self._reply(
+                        Output(
+                            message=f"Workflow changed - keeping {len(keep)} warm "
+                            "model(s) the new workflow loads, releasing the rest..."
+                        )
+                    )
+                else:
+                    self._reply(
+                        Output(message="Workflow changed - releasing cached models...")
+                    )
+                self._reply(Output(message=self._cleanup_all(keep=keep)))
             self.workflow_identity = identity
 
         self._reply(WorkflowLoaded(workflow_name=job.workflow.name))
         self._reply(Output(message=f"Executing workflow: {job.workflow.name}"))
+
+    def _keys_worth_keeping(self, command, workflow):
+        """The resident pipeline keys the next workflow loads anyway. Any
+        failure to prepare the definition answers the empty set - the run
+        itself will report what is wrong, and a full release is the safe
+        default on a card that cannot hold two stacks."""
+        try:
+            wanted = workflow_run.pipeline_keys(
+                workflow, command.get("arguments") or {}
+            )
+        except Exception as e:
+            logger.debug(f"Could not take the next workflow's pipeline keys: {e}")
+            return set()
+        return wanted & set(self.loaded_pipelines)
 
     def _run_job(self, command: Dict[str, Any], job: "_Job"):
         """Phase 3: run the workflow, streaming its events, then reclaim."""
@@ -635,10 +658,11 @@ class WorkflowWorker:
 
         logger.debug("Inter-run cleanup complete")
 
-    def _cleanup_all(self):
+    def _cleanup_all(self, keep=frozenset()):
         """
         Complete cleanup - clear all cached models and components.
-        Called when workflow changes or on shutdown.
+        Called when workflow changes or on shutdown. Pipelines whose key is
+        in `keep` survive; with `keep` empty everything goes.
 
         Returns:
             One line saying what host memory looks like on the other side of
@@ -652,11 +676,20 @@ class WorkflowWorker:
         logger.info("Performing full cleanup")
 
         # Clear pipeline cache and any models task handlers cached
+        kept = {k: v for k, v in self.loaded_pipelines.items() if k in keep}
+        dropped = len(self.loaded_pipelines) - len(kept)
+        # Rebuilt rather than cleared in place: the dict object is shared with
+        # nothing, and a kept entry must keep its identity
         self.loaded_pipelines.clear()
+        self.loaded_pipelines.update(kept)
+        # Every run republishes shared components from the pipelines it hits
+        # (workflow.py: publish_shared_components on a cache hit)
         self.shared_components.clear()
-        # The keys addressed entries that are now gone; keeping them would
-        # have a later step chase a release that has already happened
-        self.prior_step_keys.clear()
+        # A step's prior key addresses an entry that is now gone - unless it
+        # was kept, in which case a redefinition next run still releases it
+        self.prior_step_keys = {
+            name: key for name, key in self.prior_step_keys.items() if key in kept
+        }
         clear_model_cache()
         # Drop cached step results too - stale results would otherwise
         # survive a memory clear and keep getting served for steps whose
@@ -703,9 +736,10 @@ class WorkflowWorker:
             f"Released cached models: host RSS {_mb(stats.get('rss_mb'))}, "
             f"{_mb(stats.get('available_mb'))} available"
             + (f" ({released:.0f} MB returned to the OS)" if released else "")
+            + (f", kept {len(kept)} warm" if kept else "")
         )
 
-        logger.info(f"Full cleanup complete. {summary}")
+        logger.info(f"Full cleanup complete ({dropped} pipeline(s) dropped). {summary}")
         return summary
 
     def _parent_is_dead(self) -> bool:

@@ -63,6 +63,7 @@ from .step_cache import (
     referenced_result_names,
     step_cache,
     step_definition_keys,
+    step_pipeline_keys,
 )
 from .subfolders import step_subfolder
 from .variable_constraints import apply_constraints
@@ -490,6 +491,28 @@ def cache_hits(workflow, arguments):
                 hits_this_run.add(step_data["name"])
                 hits.append(step_data["name"])
         return hits
+    finally:
+        deactivate_output_root(output_root_token)
+
+
+def pipeline_keys(workflow, arguments):
+    """The set of pipeline cache keys a run of `workflow` with `arguments`
+    loads its steps under - the table run() and cache_hits() take
+    (step_pipeline_keys over the prepared definition). Prepares the
+    definition exactly as a run does and executes nothing: the worker asks
+    this before releasing the previous workflow's models, so a model the
+    next workflow loads anyway stays warm. A sub-workflow step loads its
+    own pipelines later and is not in the set; an unseeded workflow still
+    answers, since warmth does not depend on the step cache.
+    """
+    output_root_token = activate_output_root(workflow.output_dir)
+    try:
+        workflow_def = copy.deepcopy(workflow.workflow_definition)
+        base_dir = run_base_dir(workflow)
+        workflow_def, _, _ = prepare_definition(
+            workflow, workflow_def, arguments or {}, base_dir
+        )
+        return set(step_pipeline_keys(workflow_def.get("steps", [])).values())
     finally:
         deactivate_output_root(output_root_token)
 
