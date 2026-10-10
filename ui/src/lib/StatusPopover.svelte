@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { gbFromMb } from './format'
+  import { cardReadings } from './cardMemory'
+  import CardMemoryList from './CardMemoryList.svelte'
   import type { HealthInfo, MemoryInfo } from './types'
   import Popover from './ui/Popover.svelte'
   import WorkerList from './WorkerList.svelte'
@@ -16,8 +17,7 @@
     memory: MemoryInfo | null
   } = $props()
 
-  const gb = gbFromMb
-  const info = $derived(memory?.info ?? null)
+  const cards = $derived(cardReadings(memory))
 </script>
 
 <Popover bind:open label="server status" {anchor}>
@@ -48,18 +48,7 @@
     <dd>{health?.queued ?? 0} queued</dd>
 
     <dt>Memory</dt>
-    <dd>
-      {#if info?.gpu_available}
-        {info.gpu_device_name} · {gb(info.gpu_memory_allocated_mb ?? 0)} GB allocated
-        {#if info.gpu_memory_total_mb}
-          of {gb(info.gpu_memory_total_mb)} GB
-        {:else}
-          <span class="muted">(this backend reports allocated only)</span>
-        {/if}
-      {:else}
-        <span class="muted">no reading yet</span>
-      {/if}
-    </dd>
+    <dd><CardMemoryList {cards} /></dd>
   </dl>
 </Popover>
 

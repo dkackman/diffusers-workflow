@@ -48,6 +48,24 @@ def _parallel_loading_default(platform):
 if "HF_ENABLE_PARALLEL_LOADING" not in os.environ:
     os.environ["HF_ENABLE_PARALLEL_LOADING"] = _parallel_loading_default(sys.platform)
 
+
+def _inductor_cache_dir_default(environ):
+    """Where torch.compile keeps its on-disk cache.
+
+    Inductor's own default is /tmp/torchinductor_<user>, which a reboot wipes.
+    A fresh worker always retraces, but a cache hit skips codegen and kernel
+    builds - most of a cold compile, about 90s of MiniMax-H3's first step on a
+    3090 - so the user's cache directory keeps that paid once per shape rather
+    than once per boot. An empty XDG_CACHE_HOME counts as unset, per the spec."""
+    base = environ.get("XDG_CACHE_HOME") or os.path.join(
+        os.path.expanduser("~"), ".cache"
+    )
+    return os.path.join(base, "dw", "torchinductor")
+
+
+if "TORCHINDUCTOR_CACHE_DIR" not in os.environ:
+    os.environ["TORCHINDUCTOR_CACHE_DIR"] = _inductor_cache_dir_default(os.environ)
+
 # Suppress all common library warnings before any imports
 warnings.filterwarnings("ignore", category=FutureWarning)
 warnings.filterwarnings("ignore", category=UserWarning)

@@ -2,6 +2,8 @@
   import { onMount, untrack } from 'svelte'
   import {
     BookCopy,
+    ChevronDown,
+    ChevronRight,
     Database,
     FolderOpen,
     Images,
@@ -30,6 +32,7 @@
   import { loadWorkspaces, workspace } from './workspace.svelte'
   import { createWorkspaceAndGo } from './workspaceActions'
   import { formatBytes } from './format'
+  import { wsColor } from './wsColor'
 
   let {
     collapsed,
@@ -47,10 +50,9 @@
   )
   // A switch is shown, not just repainted: the new workspace's sections
   // slide open where the old ones slid shut, and its name row settles from
-  // a surface tint to nothing - selection is the user's state, so it reads
-  // as ink and motion, never as a colour. The first render is not a switch,
-  // so the flash waits for `expanded` to change. Both honour the reduced-
-  // motion preference the way `.pulse-dot` does.
+  // a stronger --select tint to the block's resting one. The first render
+  // is not a switch, so the flash waits for `expanded` to change. Both
+  // honour the reduced-motion preference the way `.pulse-dot` does.
   let switched = $state(false)
   // the initial value on purpose: it is what a later change is compared to
   let seen = untrack(() => expanded)
@@ -138,12 +140,24 @@
 
   <nav>
     <div class="group" role="group" aria-label="workspaces">
+      {#if !collapsed}<span class="grouplabel muted">Workspaces</span>{/if}
       {#each workspace.names ?? [workspace.current] as name (name)}
         {#if name === expanded}
-          <div class="ws open" class:flash={switched}>
-            {#if !collapsed}
+          <!-- The open workspace is one block: a --select rail and tint
+               behind its name and sections, a guide line down its children,
+               so siblings read as outside it -->
+          <div
+            class="ws open"
+            class:flash={switched}
+            style:--ws-dot={wsColor(name)}
+          >
+            {#if collapsed}
+              <span class="dot solo" title={name}></span>
+            {:else}
               <span class="wsname" title={name}>
-                {name}
+                <ChevronDown size={13} class="chev" />
+                <span class="dot"></span>
+                <span class="name">{name}</span>
                 {#if workspace.usage[name]}
                   <span
                     class="num muted size"
@@ -169,8 +183,15 @@
             </div>
           </div>
         {:else if !collapsed}
-          <a class="plain ws shut" href={wsHref(name, 'overview')} title={name}>
-            <span class="wsname">{name}</span>
+          <a
+            class="plain ws shut"
+            href={wsHref(name, 'overview')}
+            title={name}
+            style:--ws-dot={wsColor(name)}
+          >
+            <ChevronRight size={13} class="chev" />
+            <span class="dot"></span>
+            <span class="name">{name}</span>
             {#if workspace.usage[name]}
               <span class="num muted size"
                 >{formatBytes(workspace.usage[name].bytes)}</span
@@ -256,8 +277,8 @@
   aside {
     display: flex;
     flex-direction: column;
-    width: 200px;
-    min-width: 200px;
+    width: 236px;
+    min-width: 236px;
     border-right: 1px solid var(--line);
     background: var(--panel);
     font-family: var(--font-mono);
@@ -310,27 +331,67 @@
   .wsname {
     display: flex;
     align-items: center;
-    justify-content: space-between;
     gap: var(--space-2);
-    padding: 0.35rem var(--space-4);
+    padding: 0.35rem var(--space-3) 0.35rem var(--space-2);
+    min-width: 0;
+  }
+  .name {
+    flex: 1;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+  .size {
+    flex: none;
+    font-size: var(--t-xs);
+  }
+  .ws :global(.chev) {
+    flex: none;
+    color: var(--muted);
+  }
+  /* identity, not state: the workspace's own hue, the same on every page */
+  .dot {
+    flex: none;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: var(--ws-dot);
+  }
+  .dot.solo {
+    align-self: center;
+    margin: var(--space-2) 0;
   }
   .ws.shut {
     color: var(--muted);
+    border-left: 3px solid transparent;
   }
   .ws.shut:hover {
     color: var(--ink);
     background: var(--panel-2);
   }
+  /* The user's place takes --select: a rail down the whole open block and
+     a faint tint behind it */
+  .ws.open {
+    display: flex;
+    flex-direction: column;
+    margin: var(--space-1) 0;
+    border-left: 3px solid var(--select);
+    background: color-mix(in srgb, var(--select) 7%, transparent);
+  }
   .ws.open .wsname {
     font-weight: 600;
     color: var(--ink);
+  }
+  .ws.open .wsname :global(.chev) {
+    color: var(--select);
   }
   .ws.open.flash .wsname {
     animation: dw-settle 400ms ease-out;
   }
   @keyframes dw-settle {
     from {
-      background: var(--panel-2);
+      background: color-mix(in srgb, var(--select) 25%, transparent);
     }
     to {
       background: transparent;
@@ -341,8 +402,16 @@
       animation: none;
     }
   }
-  .size {
-    font-size: var(--t-xs);
+  /* the guide line that makes the sections the workspace's children */
+  .sections {
+    display: flex;
+    flex-direction: column;
+    margin: 0 0 var(--space-1) calc(var(--space-2) + 6px);
+    border-left: 1px solid var(--line);
+  }
+  aside.collapsed .sections {
+    margin: 0 0 var(--space-1);
+    border-left: 0;
   }
   .item {
     display: flex;
@@ -356,19 +425,23 @@
     width: 100%;
     text-align: left;
   }
+  .ws.open .item {
+    padding-left: var(--space-3);
+    margin-left: -1px;
+  }
   aside.collapsed .item {
     padding: 0.45rem 0;
+    margin-left: 0;
     justify-content: center;
   }
   .item:hover {
     color: var(--ink);
     background: var(--panel-2);
   }
-  /* Selection is the user's state, not the machine's: a heavier ink edge,
-     never a colour */
   .item[aria-current='page'] {
     color: var(--ink);
-    border-left-color: var(--ink);
+    border-left-color: var(--select);
+    background: color-mix(in srgb, var(--select) 16%, transparent);
     font-weight: 600;
   }
   .newws {

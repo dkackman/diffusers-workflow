@@ -56,8 +56,16 @@ const health = vi.hoisted(() =>
     }),
   ),
 )
+// the worker answers 503 for memory until it has started
+const memory = vi.hoisted(() =>
+  vi.fn((): Promise<unknown> => Promise.reject(new Error('503'))),
+)
 vi.mock('../api', () => ({
-  api: { server: () => server(), health: () => health() },
+  api: {
+    server: () => server(),
+    health: () => health(),
+    memory: () => memory(),
+  },
 }))
 
 /** Render with a given payload and let the promises settle, returning the
@@ -174,4 +182,28 @@ it('lists each worker with its card, VRAM and a link to its job', async () => {
     a.getAttribute('href'),
   )
   expect(hrefs).toEqual(['#/jobs/job-a', '#/jobs/job-b'])
+})
+
+it('shows memory for every card, not just the first', async () => {
+  const card = (device: string, allocated: number) => ({
+    device,
+    live: device === 'cuda:0',
+    stale: device !== 'cuda:0',
+    reason: device === 'cuda:0' ? null : 'job_running',
+    age_seconds: device === 'cuda:0' ? 0 : 12,
+    info: {
+      gpu_available: true,
+      gpu_device_name: 'NVIDIA GeForce RTX 3090',
+      gpu_memory_allocated_mb: allocated,
+      gpu_memory_total_mb: 24576,
+    },
+  })
+  const first = card('cuda:0', 1024)
+  memory.mockResolvedValueOnce({
+    ...first,
+    workers: [first, card('cuda:1', 18636.8)],
+  })
+  const text = await show()
+  expect(text).toContain('cuda:0 1.0 / 24.0 GB')
+  expect(text).toContain('cuda:1 18.2 / 24.0 GB 12s ago')
 })

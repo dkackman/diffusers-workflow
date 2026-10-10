@@ -186,7 +186,7 @@ Compile a component once it is fully configured - the graph captures final dtype
 
 Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks with the caches above. Notes:
 
-- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation.
+- **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation. A new session still retraces, but the kernels it built come back from the on-disk cache, which dw keeps across reboots (`TORCHINDUCTOR_CACHE_DIR`, see [Environment Defaults](#environment-defaults)).
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
 - **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
@@ -279,6 +279,7 @@ Set automatically at import unless already present in the environment (export yo
 | `PYTORCH_CUDA_ALLOC_CONF` | `expandable_segments:True` | Lets the CUDA allocator grow segments instead of fragmenting fixed-size ones. Multi-step workflows churn differently-shaped allocations (generate, upscale, interpolate); fragmentation is what OOMs a card that nominally has room. |
 | `HF_ENABLE_PARALLEL_LOADING` | `true` | Loads sharded checkpoints in parallel - faster cold starts. |
 | `PYTORCH_MPS_HIGH_WATERMARK_RATIO` | `0.0` | MPS only - use all available unified memory. |
+| `TORCHINDUCTOR_CACHE_DIR` | `$XDG_CACHE_HOME/dw/torchinductor` (`~/.cache/dw/torchinductor`) | Keeps `torch.compile`'s on-disk cache across reboots - Inductor's own default is under `/tmp`. A new worker still retraces, but a cache hit skips codegen and kernel builds, the bulk of a cold compile. Entries are per shape, so a new size or frame count compiles once more. |
 
 For faster model downloads, optionally `pip install hf_transfer` and set `HF_HUB_ENABLE_HF_TRANSFER=1`. Not enabled automatically - it bypasses the Python HTTP stack and breaks some proxy setups.
 
