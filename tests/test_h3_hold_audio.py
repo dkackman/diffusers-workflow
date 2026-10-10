@@ -456,16 +456,21 @@ def h3_steps(definition):
 
 
 class TestAudioDrivenTemplates:
-    """The templates that follow supplied audio keep it as an audio reference:
-    #619's lip-sync A/B measured hold worse on a sung track, so the plan's
-    fallback applies and hold is opt-in."""
+    """The templates that follow supplied audio keep it as an audio reference.
+    `music-video` also holds each shot's slice by default (#808: 0.00 s offset
+    on every shot against up to 1.37 s for the reference alone); the chains
+    have no per-shot slice to name, so hold stays opt-in there."""
+
+    DEFAULT_HOLD = {"music-video.json": "previous_result:slice"}
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
-    def test_the_h3_step_references_the_track_and_does_not_hold_it(self, name):
+    def test_the_h3_step_references_the_track_and_holds_it_where_measured(self, name):
         steps = h3_steps(template("minimax", name))
 
         assert len(steps) == 1
-        assert template("minimax", name)["variables"]["hold_audio"] is None
+        assert template("minimax", name)["variables"]["hold_audio"] == (
+            self.DEFAULT_HOLD.get(name)
+        )
         assert "MiniMaxH3AudioReference" in json.dumps(template("minimax", name))
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
@@ -476,11 +481,11 @@ class TestAudioDrivenTemplates:
         assert hold_errors(definition) == []
 
     @pytest.mark.parametrize("name", AUDIO_DRIVEN_TEMPLATES)
-    def test_hold_audio_is_a_declared_variable_that_defaults_to_no_hold(self, name):
+    def test_hold_audio_is_a_declared_variable_with_its_measured_default(self, name):
         """`run_workflow` can set only a declared variable (#795)."""
         definition = template("minimax", name)
 
-        assert definition["variables"]["hold_audio"] is None
+        assert definition["variables"]["hold_audio"] == self.DEFAULT_HOLD.get(name)
         arguments = h3_steps(definition)[0]["pipeline"]["arguments"]
         assert arguments["hold_audio"] == "variable:hold_audio"
         assert hold_errors(definition) == []

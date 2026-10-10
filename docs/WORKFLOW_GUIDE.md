@@ -1670,23 +1670,24 @@ extension is not `.wav`, `.mp3`, `.flac` or `.ogg`, and on any `{"media_type": .
 dict; a run refuses a pipeline with no hold blocks or a value that is not audio. Without
 `hold_audio` the output is unchanged.
 
-Hold is opt-in: the catalog's audio-driven templates (`music-video` and the `match_audio`
-chains) pass the track as a `MiniMaxH3AudioReference` and declare a `hold_audio` variable,
-null by default (a null hold is no hold), to add it. On `music-video` set it to
-`previous_result:slice` to hold each shot's own slice; on the chains, to an audio file.
-Measured on lem (#619: `chain-matched-to-audio`, a 10 s sung track, seed 42, one run per
-arm), a held track with image-only references kept the soundtrack exact but the mouth was
-open at about 3 of 6 sung-word onsets, and closed through much of the second segment,
-against 6 of 6 with the reference alone; the held arm read as speech to camera rather
-than singing. That A/B never tried hold *and* reference together, and a field report
-(#795) found reference-only re-sings the track shifted by whole beats (up to 1.8 s), so
-the mouth follows H3's own audio and lands off the original song; holding the slice
-while keeping the reference fixed it. That is one report, not a measurement: the
-three-arm A/B on several seeds and tracks is open in #795. Both arms took about the same
-time (19.8 and 18.3 min). Hold is for picture that must fit audio exactly, such as
-motion cut to music; for lip sync, hold plus reference is untested (above). `refine_strength` also uses hold, to keep the
-base pass's own audio, which was generated jointly with that video - a different case from
-lip sync to supplied audio (see the refine section below).
+Hold plus the reference is the `music-video` default: the template passes each shot's slice
+as a `MiniMaxH3AudioReference` and its `hold_audio` variable defaults to
+`previous_result:slice`; set it to null for the reference alone. The `match_audio` chains
+(`chain-matched-to-audio`, `chain-matched-and-aligned`) keep `hold_audio` null by default,
+since a chain has no per-shot slice to name; set it to an audio file to hold. Measured on
+lem (#808: `music-video`, 4 shots of 124 frames, two seeds and so two songs, offset of each
+shot's own audio against its source slice by `measure_sync`), the reference alone put one of
+four shots 1.37 s late (seed 42) and another 0.18 s early (seed 7), with correlation 0.35 to
+0.96; reference plus hold measured 0.00 s on all eight shots, correlation 0.95 to 1.00. The
+earlier A/B (#619: `chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm)
+found a held track with *image-only* references kept the soundtrack exact but the mouth was
+open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, and read as
+speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
+so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
+is also for picture that must fit audio exactly, such as motion cut to music.
+`refine_strength` also uses hold, to keep the base pass's own audio, which was generated
+jointly with that video - a different case from lip sync to supplied audio (see the refine
+section below).
 
 ### H3: holding a clip with `guides`
 
