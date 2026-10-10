@@ -9,6 +9,7 @@ from dw.step_cache import (
     StepCache,
     deep_equal,
     reference_resolves_to,
+    audio_replaced_downstream,
     normalized_downstream,
     _result_bytes,
 )
@@ -959,3 +960,50 @@ def test_dialogue_short_shot_is_level_reset_with_variable_match_levels():
     assert not consumed(None)
     assert written_peak_already_warned("video/mp4", True, False)
     assert not written_peak_already_warned("video/mp4", False, False)
+
+
+def pair(name, video, audio):
+    return {
+        "name": name,
+        "task": {
+            "command": "pair_audio",
+            "arguments": {
+                "video": f"previous_result:{video}",
+                "audio": f"previous_result:{audio}",
+            },
+        },
+    }
+
+
+def test_audio_replaced_downstream_true_when_pair_audio_takes_it_as_video():
+    steps = [{"name": "other"}, pair("final", "edit", "score")]
+    assert audio_replaced_downstream(steps, "edit")
+
+
+def test_audio_replaced_downstream_false_when_it_is_the_audio_or_unread():
+    steps = [pair("final", "edit", "score")]
+    assert not audio_replaced_downstream(steps, "score")
+    assert not audio_replaced_downstream(steps, "other")
+
+
+def test_level_spread_warning_suppressed_when_audio_replaced(monkeypatch):
+    """The real warn_on_level_spread, run under a context the way Step.run
+    sets it: warns by default, silent when a pair_audio replaces the track."""
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.tasks.joins import warn_on_level_spread
+
+    loud = np.full(48000, 0.5, dtype=np.float32)
+    quiet = np.full(48000, 0.01, dtype=np.float32)
+    seen = []
+    for replaced in (False, True):
+        events = []
+        context = RunContext(on_event=lambda e: events.append(e))
+        context.audio_replaced_downstream = replaced
+        token = activate_context(context)
+        try:
+            warn_on_level_spread([loud, quiet])
+        finally:
+            deactivate_context(token)
+        seen.append(events)
+    assert any("level_spread" in str(e) for e in seen[0])
+    assert not any("level_spread" in str(e) for e in seen[1])

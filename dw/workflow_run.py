@@ -55,6 +55,7 @@ from .shots import (
 )
 from .step import Step
 from .step_cache import (
+    audio_replaced_downstream,
     borrowed_pipeline_keys,
     copy_containers,
     normalized_downstream,
@@ -846,6 +847,9 @@ def _start_step(workflow, loop, index, step_data):
         step_seed,
         workflow.workflow_definition,
         consumed_by_normalizer=normalized_downstream(
+            steps[index + 1 :], step_data["name"]
+        ),
+        audio_replaced_downstream=audio_replaced_downstream(
             steps[index + 1 :], step_data["name"]
         ),
     )

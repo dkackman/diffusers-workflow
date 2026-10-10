@@ -292,6 +292,29 @@ def normalized_downstream(steps, name):
     return False
 
 
+def audio_replaced_downstream(steps, name):
+    """Whether a later `pair_audio` takes result `name` as its `video`.
+
+    pair_audio lays a new track over the picture and drops the one the video
+    carried, so a warning about that track's level (the spread between joined
+    shots, #800) describes audio that never ships. Only the `video` argument
+    counts: a step that takes `name` as its `audio` keeps it.
+    """
+    for step in steps:
+        task = step.get("task") if isinstance(step, dict) else None
+        if not isinstance(task, dict) or task.get("command") != "pair_audio":
+            continue
+        arguments = task.get("arguments")
+        if not isinstance(arguments, dict) or "video" not in arguments:
+            continue
+        if any(
+            reference_resolves_to(ref, name)
+            for ref in referenced_result_names([{"video": arguments["video"]}])
+        ):
+            return True
+    return False
+
+
 def copy_containers(value):
     """A copy of `value` whose dicts, lists and tuples are its own and whose
     leaves are shared.

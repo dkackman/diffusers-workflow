@@ -54,6 +54,9 @@ class RunContext:
         # Pipeline cache keys this run resolved - the worker evicts entries a
         # run no longer touches, so an edited workflow drops stale models
         self.touched_pipelines = set()
+        # Whether the step running now has its audio replaced by a later
+        # pair_audio (set by Step.run) - a warning about that audio is stale
+        self.audio_replaced_downstream = False
         # Watchdog state. monotonic, not wall clock, since a stall is
         # measured in elapsed time, not affected by clock adjustments.
         self._last_event_at = time.monotonic()
