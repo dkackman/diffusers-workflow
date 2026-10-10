@@ -105,3 +105,82 @@ class TestTheValidationPass:
 
     def test_nothing_is_reported_for_a_definition_with_no_video_arguments(self):
         assert video_extension_errors({"steps": [{"name": "a", "task": {}}]}) == []
+
+
+class TestVideoIntoImage:
+    """#813: a for_each member's `image` fed an earlier member's video result."""
+
+    def _definition(self, shots):
+        return {
+            "id": "chain",
+            "variables": {"shots": shots},
+            "steps": [
+                {
+                    "name": "shot",
+                    "for_each": "variable:shots",
+                    "workflow": {
+                        "path": "templates/ltx2/image-to-video",
+                        "arguments": {"image": "item:image"},
+                    },
+                    "result": {"content_type": "video/mp4"},
+                }
+            ],
+        }
+
+    def test_a_member_fed_an_earlier_video_is_refused_before_the_run(self):
+        from dw.video_extensions import video_into_image_errors
+
+        expanded = {
+            "steps": [
+                {
+                    "name": "shot@a",
+                    "workflow": {"path": "t", "arguments": {"image": "asset:x.png"}},
+                    "result": {"content_type": "video/mp4"},
+                },
+                {
+                    "name": "shot@b",
+                    "workflow": {
+                        "path": "t",
+                        "arguments": {"image": "previous_result:shot@a"},
+                    },
+                    "result": {"content_type": "video/mp4"},
+                },
+            ]
+        }
+        errors = video_into_image_errors(expanded, [0, 0])
+        assert [e["path"] for e in errors] == ["steps[0].workflow.arguments.image"]
+        assert (
+            "shot@a" in errors[0]["message"]
+            and "get_last_frame" in errors[0]["message"]
+        )
+        assert "in member 'shot@b'" in errors[0]["message"]
+
+    def test_an_image_producer_is_fine(self):
+        from dw.video_extensions import video_into_image_errors
+
+        expanded = {
+            "steps": [
+                {
+                    "name": "still",
+                    "task": {"command": "x"},
+                    "result": {"content_type": "image/png"},
+                },
+                {
+                    "name": "go",
+                    "pipeline": {"arguments": {"image": "previous_result:still"}},
+                    "result": {"content_type": "video/mp4"},
+                },
+            ]
+        }
+        assert video_into_image_errors(expanded) == []
+
+    def test_the_real_validate_path_reports_it(self):
+        shots = [
+            {"name": "a", "image": "asset:a.png"},
+            {"name": "b", "image": "previous_result:shot@a"},
+        ]
+        workflow = workflow_from_definition(self._definition(shots), tempfile.mkdtemp())
+        problems = workflow.validation_errors()
+        assert any("declares a video result" in p["message"] for p in problems), (
+            problems
+        )

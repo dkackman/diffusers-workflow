@@ -18,6 +18,13 @@ extension survives that unchanged. A `previous_result:` (or any reference
 existing run-time check, and a URL is left alone too - `fetch_video` never
 gates a URL's extension, so refusing one here would refuse something the run
 itself accepts.
+
+`video_into_image_errors` is the neighbouring check (#813, after #509): a
+pipeline's or composed workflow's `image` / `last_image` argument fed
+`previous_result:<step>` where that earlier step declares a `video/*` result.
+It resolves to a video at run time and the pipeline refuses it - after the
+earlier members of a `for_each` have spent their GPU time. Only that literal,
+fully static shape is checked; tasks take a video per frame and are left alone.
 """
 
 from . import references
@@ -118,4 +125,53 @@ def video_extension_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["video_extension_errors"]
+IMAGE_KEYS = ("image", "last_image")
+
+
+def video_into_image_errors(workflow_definition, source_indices=None):
+    """Every pipeline or workflow-step `image`/`last_image` argument fed
+    `previous_result:<step>` of an earlier step whose `result.content_type` is
+    `video/*`, as [{path, message}]. Same walk and path convention as
+    `video_extension_errors`."""
+    errors = []
+    video_steps = set()
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
+        for block_key in ("pipeline", "workflow"):
+            block = step.get(block_key)
+            arguments = block.get("arguments") if isinstance(block, dict) else None
+            if not isinstance(arguments, dict):
+                continue
+            for key in IMAGE_KEYS:
+                value = arguments.get(key)
+                if not references.is_ref(references.PREVIOUS_RESULT, value):
+                    continue
+                name = references.ref_name(references.PREVIOUS_RESULT, value)
+                if name not in video_steps:
+                    continue
+                errors.append(
+                    {
+                        "path": render_path(
+                            ("steps", source, block_key, "arguments", key)
+                        ),
+                        "message": (
+                            f"'{key}' is fed '{value}'{where}, but step '{name}' "
+                            f"declares a video result and an image argument "
+                            f"cannot load a video - take a still from it with "
+                            f"get_last_frame (save: false) and reference that"
+                        ),
+                    }
+                )
+        result = step.get("result")
+        content_type = result.get("content_type") if isinstance(result, dict) else None
+        if (
+            isinstance(content_type, str)
+            and content_type.startswith("video/")
+            and isinstance(step.get("name"), str)
+        ):
+            video_steps.add(step["name"])
+    return errors
+
+
+__all__ = ["video_extension_errors", "video_into_image_errors"]
