@@ -21,8 +21,8 @@
                 },
                 "arguments": {
                     "prompt": "variable:prompt",
-                    "num_inference_steps": 20,
-                    "guidance_scale": 4.0,
+                    "num_inference_steps": 4,
+                    "guidance_scale": 0.0,
                     "height": 1280,
                     "width": 896
                 }
