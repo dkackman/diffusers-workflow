@@ -20,5 +20,11 @@
     "speed",
     "turbo",
     "distill"
+  ],
+  "evidence": [
+    {
+      "note": "960x544x124, shift 12/3 (the card's), steps 5, lora_alpha unset, sage_hub: 13.6 s/step; loads correctly (mixed rank 64/16, diffusers mirrors ranks into alphas - a stated lora_alpha would mis-scale its rank-16 AdaLN). Eagle beat smeared and a flatter audio envelope next to turbo-4step-keyframe on the same prompt and seed",
+      "job": "4102bd97eb1b"
+    }
   ]
 }

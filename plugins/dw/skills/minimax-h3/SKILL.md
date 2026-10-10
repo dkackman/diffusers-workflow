@@ -114,9 +114,9 @@ read the `workflows` guide's authoring section.
   24 GB ceiling on the `17n+5` grid drops with each reference: 243 frames at
   one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
   the largest `for_each` shot over budget.
-- Nine steps for an eight-step LoRA: the scheduler counts sigma grid points,
-  terminal zero included, so `denoise_total_steps` reports 8. A null
-  `lora_model_name` drops the LoRA; raise steps and shifts too.
+- Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
+  8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
+  reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip: there is no latent memory (a diffusers
   limit, not the model's). Identity rides on a picture, voice
@@ -170,7 +170,7 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
    to its next step boundary. Silence is no hang: `denoise_step` is null
    through the reference encode (~90 s; 629 s for a video reference on a
    3090) and the block cache makes later steps uneven -
-   two-minute gaps are healthy. `phase_stall` in `get_job_events` narrates
+   two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
    `intermediate` the scratch.

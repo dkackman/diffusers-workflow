@@ -212,12 +212,13 @@ class TestMiniMaxH3Skill:
         from diffusers import MiniMaxH3Scheduler
 
         scheduler = MiniMaxH3Scheduler(shift=12.0)
-        for requested, evaluations in ((9, 8), (20, 19)):
+        for requested, evaluations in ((5, 4), (9, 8), (20, 19)):
             scheduler.set_timesteps(requested)
             assert len(scheduler.timesteps) == evaluations
 
         text = skill_text(H3_SKILL)
-        assert "denoise_total_steps" in text and "reports 8" in text
+        # The 4-step default since 2026-10-10
+        assert "denoise_total_steps" in text and "reports 4" in text
 
     def test_the_canvas_rules_are_the_pipeline_s(self):
         import inspect
@@ -315,7 +316,8 @@ class TestMiniMaxH3Skill:
         assert variables["video_shift"] == 6.0
         assert variables["audio_shift"] == 3.0
         assert variables["lora_alpha"] is None
-        assert variables["num_inference_steps"] == 9
+        # The 4-step v1.2 file, trained at 768p (2026-10-10)
+        assert variables["num_inference_steps"] == 5
         assert "768p" in variables["lora_weight_name"]
 
     def test_the_skill_defers_prompt_format_to_minimax(self):
