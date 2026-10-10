@@ -1152,3 +1152,39 @@ def test_a_change_to_an_intermediate_borrower_misses_every_step_below_it(
         [{"model_b": "model-b"}, {"model_b": "model-b2"}],
     )
     assert executed[1] == ["B", "D"]
+
+
+def _pipeline_reference_with_runtime_settings():
+    definition = _pipeline_reference_workflow_def()
+    definition["variables"].update({"lora_scale": 1.0, "shift": 6.0})
+    source = definition["steps"][0]["pipeline"]
+    source["loras"] = [{"model_name": "a/b", "scale": "variable:lora_scale"}]
+    source["scheduler"] = {"shift": "variable:shift"}
+    return definition
+
+
+@pytest.mark.parametrize(
+    "changed", [{"lora_scale": 0.5}, {"shift": 9.0}], ids=["lora_scale", "shift"]
+)
+def test_a_step_borrowing_a_pipeline_misses_when_the_source_runtime_setting_changes(
+    tmp_path, changed
+):
+    """The source keeps its warm pipeline - its scale or shift is applied in
+    place - but what the borrower produces changes, so its entry must miss."""
+    first = {"lora_scale": 1.0, "shift": 6.0, "prompt_b": "x"}
+    order = _run_twice_recording_order(
+        tmp_path,
+        _pipeline_reference_with_runtime_settings(),
+        [first, {**first, **changed}],
+    )
+    assert order == ["A", "B", "A", "B"]
+
+
+def test_a_step_borrowing_a_pipeline_hits_when_the_source_runtime_settings_hold(
+    tmp_path,
+):
+    arguments = {"lora_scale": 0.5, "shift": 9.0, "prompt_b": "x"}
+    order = _run_twice_recording_order(
+        tmp_path, _pipeline_reference_with_runtime_settings(), [arguments, arguments]
+    )
+    assert order == ["A", "B"]

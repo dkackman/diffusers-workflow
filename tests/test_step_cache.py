@@ -609,7 +609,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # Thirty-eight rows across the minimax and ltx2 templates were regenerated
 # when the key moved to the weights identity (2026-10-10): a LoRA's scale
 # and alpha and a scheduler's shift are set in place on a warm pipeline, so
-# they left the hash, and every step that states one moved.
+# they left the hash, and every step that states one moved. Thirty of them
+# moved again the same day when an alpha's or a shift's presence (True,
+# never its value) went back in: a hit cannot restore a checkpoint default,
+# so dropping one has to reload.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -760,84 +763,84 @@ TEMPLATE_PIPELINE_KEYS = {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
     },
     "minimax/chain-matched-and-aligned.json": {
-        "audio_aligned_chained_reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "audio_aligned_chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chain-matched-to-audio.json": {
-        "chained_reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chain-video-continuity.json": {
-        "chained_reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chained-segments.json": {
-        "chained_keyframe_to_video_audio": "2803da40d778cf6e9bcd9061b92347215bcf5626a21d037fefbe786287881d49"
+        "chained_keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/composable-references.json": {
-        "video_reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "video_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/dialogue-short.json": {
         "draw_character_a": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "draw_character_b": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "shot@button": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@cold_open": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@deflect": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@react": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@tag": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
+        "shot@button": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@cold_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@deflect": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@react": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@tag": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
     },
     "minimax/enhance-prompt-with-image.json": {
-        "keyframe_to_video_audio": "2803da40d778cf6e9bcd9061b92347215bcf5626a21d037fefbe786287881d49"
+        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/enhance-prompt.json": {
-        "text_to_video_audio": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/first-and-last-frame.json": {
-        "first_and_last_frame_to_video_audio": "2803da40d778cf6e9bcd9061b92347215bcf5626a21d037fefbe786287881d49"
+        "first_and_last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/generated-subject-reference.json": {
         "draw_subject": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
     },
     "minimax/image-to-video.json": {
-        "keyframe_to_video_audio": "2803da40d778cf6e9bcd9061b92347215bcf5626a21d037fefbe786287881d49"
+        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/last-frame-only.json": {
-        "last_frame_to_video_audio": "2803da40d778cf6e9bcd9061b92347215bcf5626a21d037fefbe786287881d49"
+        "last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
         "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "shot@closeup": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@finale": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@room": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
-        "shot@wide_open": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f",
+        "shot@closeup": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@finale": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@room": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@wide_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "write_song": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
     },
     "minimax/music.json": {
         "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
     },
     "minimax/reference-to-video.json": {
-        "reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/shots-batch.json": {
-        "shot@shot_1": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd",
-        "shot@shot_2": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd",
-        "shot@shot_3": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd",
-        "shot@shot_4": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd",
-        "shot@shot_5": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd",
+        "shot@shot_1": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_2": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_3": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_4": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_5": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
     },
     "minimax/storyboard.json": {
         "board_1_launch": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "board_2_gutter": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
         "board_3_shore": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "voyage": "e3c59e36cc97fbce28329a98ef881198ba9e84a0a3a0d895a83ce2ffcfa4215a",
+        "voyage": "0f30a4f21253ffdec029b3e2523c077f68629579bb3ae57cc69c09b638665987",
     },
     "minimax/video-with-audio-768p.json": {
-        "text_to_video_audio": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/video-with-audio.json": {
-        "text_to_video_audio": "dfbfb100612941da2a73adfb13ebd2b5e49643645634a2d11eb9e78ebc5f5fbd"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/voice-timbre-reference.json": {
-        "reference_to_video_audio": "93df952246ceb93336d920d49d3de2cf6eff463ed337e60088fea8b66eded26f"
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "multi-image-reference.json": {
         "txt2img": "6e563b308f1508e0f24a660dcf25636774e2b70c4ccc723e8975421a7224b48d"
@@ -1080,3 +1083,42 @@ def test_weights_identity_leaves_the_definition_untouched():
     weights_identity(definition)
     assert definition["loras"][0]["scale"] == 1.0
     assert definition["scheduler"]["shift"] == 6.0
+
+
+def test_lora_alpha_value_change_keeps_the_pipeline_key():
+    a = _definition()
+    b = _definition(
+        loras=[{"model_name": "a/b", "weight_name": "x.safetensors", "alpha": 8}]
+    )
+    assert pipeline_cache_key(a) == pipeline_cache_key(b)
+
+
+def test_lora_alpha_removed_changes_the_pipeline_key():
+    """Nothing re-applies the checkpoint's own alpha on a hit, so dropping
+    the override has to reload."""
+    a = _definition()
+    b = _definition(
+        loras=[{"model_name": "a/b", "weight_name": "x.safetensors", "alpha": None}]
+    )
+    c = _definition(loras=[{"model_name": "a/b", "weight_name": "x.safetensors"}])
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+    assert pipeline_cache_key(b) == pipeline_cache_key(c)
+
+
+@pytest.mark.parametrize("scheduler", ["scheduler", "audio_scheduler"])
+def test_scheduler_shift_removed_changes_the_pipeline_key(scheduler):
+    a = _definition()
+    b = _definition(**{scheduler: {"shift": None}})
+    c = _definition(**{scheduler: {}})
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+    assert pipeline_cache_key(b) == pipeline_cache_key(c)
+
+
+def test_pipeline_definition_key_moves_with_runtime_settings():
+    from dw.step_cache import pipeline_definition_key
+
+    a = _definition()
+    b = _definition(scheduler={"shift": 12.0})
+    c = _definition(arguments={"prompt": "other"}, seed=7)
+    assert pipeline_definition_key(a) != pipeline_definition_key(b)
+    assert pipeline_definition_key(a) == pipeline_definition_key(c)
