@@ -170,11 +170,14 @@ Control" section.
    ceiling cut the track (raise it and rerun); well short of it means the
    song finished on its own. For loudness (`peak_dbfs`, `integrated_lufs`,
    matching a mix) read `references/loudness.md`. Then listen with
-   `get_output_audio` (a long track in `start`/`duration` excerpts) for the family's failure modes: a
+   `get_output_audio` (`start`/`duration` excerpts) for the family's failure modes. A text-only
+   client can't hear: take level and structure from `get_gallery_metadata`
+   (`envelope=true`) and `assess_output`, sung lines from `attribute_voices`
+   (Whisper invents words on music). The modes: a
    song gone instrumental (name the vocals in the caption), an ending
    cut mid-note (raise the ceiling, then trim), a structure ignoring the
    tags (fewer sections, plainer directions). Hand the user the gallery
-   `url` (`list_gallery`, or the manifest's file name).
+   `url`.
 5. To use the track in a later workflow, `keep_output` makes it an `asset:`;
    to trim it in the same run, chain `templates/audio-trim-fade` on the output.
    To cut picture to the song, `analyze_beats` on it returns its bpm and beat

@@ -144,7 +144,8 @@ caption spec, verbatim from the pipeline, which the caption must follow.
 5. Judge it yourself: `get_output_frames(count=12)` for a clip's shape,
    `seams=true` for a chained clip's joins, `at` near the end for a scene cut
    where the prompt contradicted the image or softness where the refine pass
-   was skipped, and `get_output_audio` for a near-silent soundtrack. Then
+   was skipped, and `get_output_audio` for a near-silent soundtrack (text-only client:
+   `get_gallery_metadata` with `envelope=true`; speech via `check-script`). Then
    `get_job` for the manifest and its warnings, `get_gallery_metadata` for
    duration, size and audio presence, and give the user the gallery `url`
    (`list_gallery`, or the manifest's file name).

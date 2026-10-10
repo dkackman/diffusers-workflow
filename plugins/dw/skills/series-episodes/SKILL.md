@@ -64,6 +64,11 @@ and reference it as `prompt:<series>/<character>` from every episode.
 described the same way in episode 6 as in episode 1 is a reference rather
 than a paragraph retyped - which is the drift this skill exists to stop.
 
+The same goes for a long shot list: a `run_workflow` call carrying 26 prompts
+is ~50 KB. `save_prompt` each shot under a series-prefixed name (the library
+is shared across workspaces) and pass `prompt:<series>/<shot>` references in
+the list; they resolve in nested arguments.
+
 Store each speaking character's voice description the same way, beside the
 portrait: `prompt:<series>/<character>-voice`. It is the written half of the
 voice clip, and the shot list's cast entry (`script-to-video` step 2) points at both.
@@ -138,7 +143,9 @@ One `assemble-and-score` run per episode; each episode's `total_frames` and
 ## Run and judge
 
 Judge a finished episode with `assess_output(name)` before listening end
-to end: it measures every seam and the shots' levels, and says where to look.
+to end (a text-only client can't hear: levels come from `get_gallery_metadata`
+with `envelope=true`, speech from `check-script`, sung lines from
+`attribute_voices`): it measures every seam and the shots' levels, and says where to look.
 A `shot_dead_air` finding is an H3 dialogue gap (0.5-2s of near-silence
 between lines) inside one shot, not a seam problem - see `minimax-h3`'s
 room-tone bed recipe (`find_loop_bed`, then `slice_audio` -> `loop_audio` ->
