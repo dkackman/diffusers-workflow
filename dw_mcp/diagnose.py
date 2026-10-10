@@ -245,11 +245,15 @@ def slim_job(job):
 
     The arguments of an H3 workflow are thousands of tokens of prompt text,
     repeated on every poll of a long render; get_job serves them once. The
-    manifest is kept only once the job is terminal, when it names files.
+    manifest is kept once the job is terminal, when it names every file; a
+    running job's carries the steps finished so far (#799), under
+    `finished_steps` so it is not read as the final list.
     """
     slim = {key: job.get(key) for key in _SLIM_KEYS if key in job}
     if job.get("status") in TERMINAL_STATUSES:
         slim["manifest"] = job.get("manifest")
+    elif job.get("manifest"):
+        slim["finished_steps"] = job["manifest"]
     return slim
 
 
@@ -272,7 +276,11 @@ def wait_for_job(client, job_id, timeout_seconds=20):
     than inferring it from wall clock. Returns as soon as the job's status
     is succeeded, failed or cancelled. If the timeout elapses first,
     returns the job's last-seen status with `still_running: true` instead
-    of hanging - call again to keep waiting. Returns a slim job - status,
+    of hanging - call again to keep waiting. If the call dies client-side
+    ("operation timed out") before the cap, the client's own timeout is
+    shorter: call again with `timeout_seconds` ~60 and loop; a short wait
+    still returns `progress`, which hand-polling `get_job` loses. A running
+    job also lists `finished_steps`, the manifest entries so far. Returns a slim job - status,
     warnings, error, and the manifest once finished - without the
     arguments; get_job has those.
 

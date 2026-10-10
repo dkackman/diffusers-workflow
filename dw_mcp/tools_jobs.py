@@ -137,7 +137,9 @@ class JobTools:
         budget one call per {cap}s of the job, and one call is enough when
         {cap} covers its runtime. Every reply says which happened:
         waited_seconds, timeout_requested_seconds, timeout_applied_seconds
-        and timeout_capped.
+        and timeout_capped. If the call dies client-side ("timed out"), call again
+        with timeout_seconds ~60 and loop; progress survives, get_job loses it.
+        A running job lists finished_steps.
 
         Returns a slim job - status, warnings, error, the manifest once
         finished - without the arguments (get_job has those). A running job
@@ -147,13 +149,9 @@ class JobTools:
         `denoise_step` has moved since a poll minutes ago, not by silence:
         a video reference's lead-in can run many minutes emitting nothing,
         and denoise gaps are uneven under a transformer block cache - both
-        normal. If you're also reading get_job_events, a `phase_stall`
-        entry there is the same silence being narrated, not a fault or a
-        sign of progress - it repeats every ~30s the phase stays quiet, so
-        neither seeing one nor watching its event_count climb tells you
-        anything `denoise_step` doesn't already say better. Full diagnosis,
-        and why `denoise_total_steps` can read one less than asked, in
-        WORKFLOW_GUIDE's "The loop", step 5."""
+        normal. A `phase_stall` entry in get_job_events is that silence
+        narrated, repeating every ~30s: not a fault, not progress. Full diagnosis
+        in WORKFLOW_GUIDE's "The loop", step 5."""
         return diagnose.wait_for_job(
             self.client, job_id, timeout_seconds=timeout_seconds
         )

@@ -85,7 +85,7 @@ must not do even when running unattended.
 
 Wait with `wait_for_job`, asking for the plan's estimate plus a margin as
 `timeout_seconds`; `timeout_capped` says the server's cap cut it short, and
-a `still_running` reply means call again. After the job completes, read `get_job_events` / `get_gallery_metadata` for
+a `still_running` reply means call again. If the call dies client-side ("timed out") first, call again with `timeout_seconds` 60 and loop; a running job lists `finished_steps`. After the job completes, read `get_job_events` / `get_gallery_metadata` for
 the warnings the engine already emits (`audio_no_headroom`, `audio_clipped`,
 an elision diagnostic) and `rerun_job(new_seed=True)` a shot that reads
 wrong - not by inventing a new heuristic, by reading what is already
