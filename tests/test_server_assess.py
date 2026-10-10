@@ -148,6 +148,26 @@ def test_a_stepped_cut_answers_the_seam_finding(server, tmp_path):
     assert "probes" not in body
 
 
+def test_a_hot_cut_raises_full_scale_naming_relevel_clip(server, tmp_path):
+    with server() as client:
+        write_run(tmp_path / "outputs", amplitudes=(1.0, 1.2, 1.0))
+        body = client.get(f"/api/gallery/{CUT}/assess").json()
+
+    hot = [f for f in body["findings"] if f["rule"] == "full_scale"]
+    assert len(hot) == 1
+    assert "relevel-clip" in hot[0]["says"]
+    assert {"full_scale", "near_silent"} <= set(body["rules_applied"])
+
+
+def test_a_cut_below_full_scale_applies_the_rule_without_a_finding(server, tmp_path):
+    with server() as client:
+        write_run(tmp_path / "outputs")
+        body = client.get(f"/api/gallery/{CUT}/assess").json()
+
+    assert "full_scale" in body["rules_applied"]
+    assert not [f for f in body["findings"] if f["rule"] == "full_scale"]
+
+
 def test_detail_adds_every_probes_full_body(server, tmp_path):
     with server() as client:
         write_run(tmp_path / "outputs")
