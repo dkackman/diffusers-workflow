@@ -10,6 +10,7 @@ workflow's offload, quantization or frame count differ.
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import dw.plan
 from dw.plan import build_plan
 from dw.server.observed_cost import observed_for
 from dw.server.routes.jobs import _inherited_cost_warnings
@@ -173,7 +174,7 @@ class TestThePlanReportsIt:
         candidate = workflow_from_definition(
             definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch("dw.plan.scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {"num_frames": 124},
