@@ -18,18 +18,20 @@ from .registry import register_command
 from ..task_domains import (
     FINITE,
     FIT_MODES,
-    INGREDIENTS_FITS,
-    INGREDIENTS_LAYOUTS,
     JOIN_WINDOWS_CURVES,
     NON_NEGATIVE,
     NON_POSITIVE,
     POSITIVE,
-    face_track_errors,
     fit_to_model_errors,
-    ingredients_grid_errors,
     join_windows_errors,
-    paste_face_track_errors,
     window_video_errors,
+)
+from ..task_problems import (
+    INGREDIENTS_FITS,
+    INGREDIENTS_LAYOUTS,
+    face_track_errors,
+    ingredients_grid_errors,
+    paste_face_track_errors,
 )
 
 logger = logging.getLogger("dw")

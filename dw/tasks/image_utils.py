@@ -3,13 +3,12 @@ from itertools import combinations
 from PIL import Image, ImageOps
 import numpy as np
 from ..argument_media import fetch_image
-from ..task_domains import (
+from ..task_domains import check_arguments, whole_number
+from ..task_problems import (
     INGREDIENTS_DEFAULT_MAX_IMAGES,
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
-    check_arguments,
     ingredients_background,
-    whole_number,
 )
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model

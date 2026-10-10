@@ -17,7 +17,8 @@ import logging
 
 from .image_ops import per_frame
 from .registry import register_command
-from ..task_domains import POSITIVE, UNIT, script_lines_errors
+from ..task_domains import POSITIVE, UNIT
+from ..task_problems import script_lines_errors
 
 logger = logging.getLogger("dw")
 

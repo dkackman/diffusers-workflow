@@ -23,8 +23,8 @@ from ..task_domains import (
     POSITIVE,
     SEED,
     UNIT,
-    lut_errors,
 )
+from ..task_problems import lut_errors
 
 logger = logging.getLogger("dw")
 

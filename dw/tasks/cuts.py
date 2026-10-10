@@ -39,10 +39,12 @@ from .registry import register_command
 from ..task_domains import (
     NON_NEGATIVE,
     POSITIVE,
-    cuts_errors,
     real_number,
-    transcript_problem,
     whole_number,
+)
+from ..task_problems import (
+    cuts_errors,
+    transcript_problem,
 )
 
 logger = logging.getLogger("dw")
@@ -608,7 +610,8 @@ def _parsed_arguments(transcript, beats, segment_by, **raw):
     planning starts."""
     import types
 
-    from ..task_domains import check_arguments, cuts_problems
+    from ..task_domains import check_arguments
+    from ..task_problems import cuts_problems
 
     # An explicit 0 is a value (every silence counts); only an absent gap takes 2.0.
     gap = _number(raw["min_gap_seconds"], "min_gap_seconds")

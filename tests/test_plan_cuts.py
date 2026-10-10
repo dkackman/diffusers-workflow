@@ -4,7 +4,8 @@ import json
 
 import pytest
 
-from dw.task_domains import cuts_errors, task_argument_errors
+from dw.task_domains import task_argument_errors
+from dw.task_problems import cuts_errors
 from dw.tasks.cuts import plan_cuts
 
 FPS = 24
