@@ -238,6 +238,16 @@
             "title": "Shadowed",
             "type": "array"
           },
+          "shadowed_total": {
+            "description": "Shadowed names matching, before `limit`",
+            "title": "Shadowed Total",
+            "type": "integer"
+          },
+          "total": {
+            "description": "Assets matching the prefix, before `limit` cut them",
+            "title": "Total",
+            "type": "integer"
+          },
           "workspace": {
             "title": "Workspace",
             "type": "string"
@@ -4397,9 +4407,46 @@
   "paths": {
     "/api/assets": {
       "get": {
-        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.",
+        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.",
         "operationId": "list_assets_api_assets_get",
         "parameters": [
+          {
+            "description": "Newest this many assets (by mtime); all when omitted",
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "minimum": 1,
+                  "type": "integer"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Newest this many assets (by mtime); all when omitted",
+              "title": "Limit"
+            }
+          },
+          {
+            "description": "Only assets whose name starts with this, e.g. a folder such as 'cast/'",
+            "in": "query",
+            "name": "prefix",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Only assets whose name starts with this, e.g. a folder such as 'cast/'",
+              "title": "Prefix"
+            }
+          },
           {
             "in": "query",
             "name": "workspace",

@@ -12,7 +12,7 @@ import uuid
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.concurrency import run_in_threadpool
 from pydantic import BaseModel, Field
 
@@ -193,7 +193,20 @@ async def upload_media(
 
 
 @router.get("/api/assets", response_model=AssetList, response_model_exclude_unset=True)
-def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
+def list_assets(
+    request: Request,
+    ws: Workspace = Depends(selected_workspace),
+    limit: Optional[int] = Query(
+        default=None,
+        ge=1,
+        description="Newest this many assets (by mtime); all when omitted",
+    ),
+    prefix: Optional[str] = Query(
+        default=None,
+        description="Only assets whose name starts with this, e.g. a folder "
+        "such as 'cast/'",
+    ),
+):
     """The asset library: the input media an 'asset:' reference names.
 
     Reported by reference rather than by path - 'asset:uploads/x.png' is
@@ -202,6 +215,10 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
     else on another machine. Empty, not an error, on a server with no
     library configured: nothing is wrong, there is just nowhere for an
     asset to be.
+
+    `prefix` keeps the assets (and shadowed names) whose name starts with
+    it; `limit` then keeps the newest that many. `total` is what matched
+    before the cut, so a caller can tell a bounded answer from a complete one.
     """
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
@@ -261,18 +278,28 @@ def list_assets(request: Request, ws: Workspace = Depends(selected_workspace)):
             asset_entry["absolute_url"] = absolute_url
         assets.append(asset_entry)
     assets.sort(key=lambda entry: entry["mtime"], reverse=True)
+    if prefix:
+        assets = [entry for entry in assets if entry["name"].startswith(prefix)]
     # The one producer of the field's name/origin/shadowed_by, plus the
     # media facts an asset entry carries
     shadowed = [
         {**summary(entry["name"], root), "shadowed_by": entry["shadowed_by"]}
         for entry, (_name, root, _winner) in zip(shadowed_listing(hidden), hidden)
     ]
+    if prefix:
+        shadowed = [entry for entry in shadowed if entry["name"].startswith(prefix)]
+    total, shadowed_total = len(assets), len(shadowed)
+    folders = sorted({entry["folder"] for entry in assets} | {""})
+    if limit is not None:
+        assets, shadowed = assets[:limit], shadowed[:limit]
     return {
         "workspace": ws.name,
         "libraries": library.describe(),
         "assets": assets,
-        "folders": sorted({entry["folder"] for entry in assets} | {""}),
+        "folders": folders,
         "shadowed": shadowed,
+        "total": total,
+        "shadowed_total": shadowed_total,
     }
 
 

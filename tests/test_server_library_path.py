@@ -269,6 +269,23 @@ class TestTheWorkspaceShadowsAnExample:
             a["origin"] for a in body["assets"] if a["name"] == "only-example.png"
         ] == [EXAMPLES_ORIGIN]
 
+    def test_limit_and_prefix_cut_server_side_and_total_counts_the_match(self, server):
+        """#798: the cut is made on the server, and `total` is pre-cut."""
+        with open(os.path.join(server.workspace.assets, "other.png"), "wb") as file:
+            file.write(b"x")
+        everything = server.client.get("/api/assets").json()
+        assert everything["total"] == len(everything["assets"]) >= 3
+
+        cut = server.client.get("/api/assets", params={"limit": 1}).json()
+        assert len(cut["assets"]) == 1
+        assert cut["total"] == everything["total"]
+        assert cut["assets"][0]["name"] == everything["assets"][0]["name"]
+
+        only = server.client.get("/api/assets", params={"prefix": "only-"}).json()
+        assert [a["name"] for a in only["assets"]] == ["only-example.png"]
+        assert only["total"] == 1
+        assert only["shadowed"] == []
+
 
 class TestWorkspaceRegistryNamesTheServersPrompts:
     def test_a_named_workspace_reports_the_servers_prompt_dir(

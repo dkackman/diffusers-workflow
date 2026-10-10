@@ -830,6 +830,8 @@ class AssetList(ApiModel):
     assets: list[AssetFile]
     folders: list[str]
     shadowed: list[ShadowedAsset]
+    total: int = sometimes("Assets matching the prefix, before `limit` cut them")
+    shadowed_total: int = sometimes("Shadowed names matching, before `limit`")
 
 
 class Uploaded(ApiModel):

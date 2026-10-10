@@ -21,6 +21,10 @@ export interface paths {
          *     else on another machine. Empty, not an error, on a server with no
          *     library configured: nothing is wrong, there is just nowhere for an
          *     asset to be.
+         *
+         *     `prefix` keeps the assets (and shadowed names) whose name starts with
+         *     it; `limit` then keeps the newest that many. `total` is what matched
+         *     before the cut, so a caller can tell a bounded answer from a complete one.
          */
         get: operations["list_assets_api_assets_get"];
         put?: never;
@@ -1755,6 +1759,16 @@ export interface components {
             libraries: components["schemas"]["AssetLibraryRoot"][];
             /** Shadowed */
             shadowed: components["schemas"]["ShadowedAsset"][];
+            /**
+             * Shadowed Total
+             * @description Shadowed names matching, before `limit`
+             */
+            shadowed_total?: number;
+            /**
+             * Total
+             * @description Assets matching the prefix, before `limit` cut them
+             */
+            total?: number;
             /** Workspace */
             workspace: string;
         };
@@ -3343,6 +3357,10 @@ export interface operations {
     list_assets_api_assets_get: {
         parameters: {
             query?: {
+                /** @description Newest this many assets (by mtime); all when omitted */
+                limit?: number | null;
+                /** @description Only assets whose name starts with this, e.g. a folder such as 'cast/' */
+                prefix?: string | null;
                 workspace?: string | null;
             };
             header?: never;
