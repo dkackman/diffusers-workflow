@@ -134,7 +134,7 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 
@@ -272,7 +272,7 @@ Device-level settings, read once at startup from `~/.diffusers_helper/settings.j
 
 ## Environment Defaults
 
-Set automatically at import unless already present in the environment (export your own value to override):
+Set automatically at import unless already present in the environment (export your own value to override, or put it in a `.env` file in the directory dw starts from - [.env.example](../.env.example) lists these and the other knobs worth knowing: the Hub, diffusers, transformers and SDNQ):
 
 | Variable | Default | Effect |
 | -------- | ------- | ------ |
