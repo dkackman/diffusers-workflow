@@ -270,26 +270,27 @@ def argument_reference_errors(
     is to answer before any bytes move.
     """
 
-    def _string_leaves(value, path):
-        """Every string in `value`, paired with the path it sits at.
-
-        `value` is walked the way a for_each entry is - a list or dict
-        of arbitrary nesting - so a reference inside `shots[2].
-        references[1].from_file` is found the same as one at the
-        argument's own top level."""
-        if isinstance(value, str):
-            yield path, value
-        elif isinstance(value, list):
-            for i, item in enumerate(value):
-                yield from _string_leaves(item, f"{path}[{i}]")
-        elif isinstance(value, dict):
-            for key, item in value.items():
-                yield from _string_leaves(item, f"{path}.{key}")
-
     if arguments is not None and not isinstance(arguments, dict):
         return []
     supplied = arguments if isinstance(arguments, dict) else {}
 
+    errors = []
+    for base_path, value in _effective_values(definition, supplied):
+        for path, leaf in _string_leaves(value, base_path):
+            try:
+                _resolve_reference(leaf, outputs, asset_library, prompt_library)
+            except Exception as e:
+                # Every resolver here raises with a message written for
+                # the person who wrote the reference - a traversal
+                # refusal from the security layer included
+                errors.append({"path": path, "message": str(e)})
+    return errors
+
+
+def _effective_values(definition, supplied):
+    """(path, value) for every value a run would use: each declared
+    `variables` default the caller did not override, the caller's own
+    arguments, and each step as written."""
     effective = []
     declared = definition.get("variables") if isinstance(definition, dict) else None
     if isinstance(declared, dict):
@@ -306,35 +307,46 @@ def argument_reference_errors(
     if isinstance(steps, list):
         for index, step in enumerate(steps):
             effective.append((f"steps[{index}]", step))
+    return effective
 
-    errors = []
-    for base_path, value in effective:
-        for path, leaf in _string_leaves(value, base_path):
-            try:
-                if is_asset_reference(leaf):
-                    if not asset_library.roots():
-                        # A server configured with no asset library has
-                        # no root to fail against: the resolver would
-                        # name no directory it searched
-                        name = references.ref_name(references.ASSET, leaf).strip()
-                        raise ValueError(
-                            f"Unknown asset {name!r}: "
-                            "this workspace has no asset library"
-                        )
-                    # One resolve over the whole path, the way a run does:
-                    # a miss names every library it looked in, the
-                    # workspace's own first
-                    resolve_asset_reference(leaf, library=asset_library)
-                elif references.is_ref(references.PROMPT, leaf):
-                    resolve_prompt_reference(leaf, library=prompt_library)
-                elif is_output_reference(leaf):
-                    resolve_output_reference(leaf, root=outputs)
-            except Exception as e:
-                # Every resolver here raises with a message written for
-                # the person who wrote the reference - a traversal
-                # refusal from the security layer included
-                errors.append({"path": path, "message": str(e)})
-    return errors
+
+def _string_leaves(value, path):
+    """Every string in `value`, paired with the path it sits at.
+
+    `value` is walked the way a for_each entry is - a list or dict
+    of arbitrary nesting - so a reference inside `shots[2].
+    references[1].from_file` is found the same as one at the
+    argument's own top level."""
+    if isinstance(value, str):
+        yield path, value
+    elif isinstance(value, list):
+        for i, item in enumerate(value):
+            yield from _string_leaves(item, f"{path}[{i}]")
+    elif isinstance(value, dict):
+        for key, item in value.items():
+            yield from _string_leaves(item, f"{path}.{key}")
+
+
+def _resolve_reference(leaf, outputs, asset_library, prompt_library):
+    """Resolve `leaf` when it is an asset, prompt or output reference,
+    raising the resolver's own error on a miss; any other string passes."""
+    if is_asset_reference(leaf):
+        if not asset_library.roots():
+            # A server configured with no asset library has
+            # no root to fail against: the resolver would
+            # name no directory it searched
+            name = references.ref_name(references.ASSET, leaf).strip()
+            raise ValueError(
+                f"Unknown asset {name!r}: this workspace has no asset library"
+            )
+        # One resolve over the whole path, the way a run does:
+        # a miss names every library it looked in, the
+        # workspace's own first
+        resolve_asset_reference(leaf, library=asset_library)
+    elif references.is_ref(references.PROMPT, leaf):
+        resolve_prompt_reference(leaf, library=prompt_library)
+    elif is_output_reference(leaf):
+        resolve_output_reference(leaf, root=outputs)
 
 
 class AcknowledgedCost(BaseModel):

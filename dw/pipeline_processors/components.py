@@ -563,18 +563,7 @@ def load_component(
     if components_manager is not None:
         from_pretrained_arguments["components_manager"] = components_manager
 
-    # MPS (Apple Silicon) has numerical instability with float16 matmul operations,
-    # producing NaN values that result in black images. The dtype is left as asked for -
-    # silently loading a model in a dtype the workflow did not request would be worse -
-    # so this only warns.
-    if (
-        get_device_type(device) == "mps"
-        and from_pretrained_arguments.get("torch_dtype") == torch.float16
-    ):
-        logger.warning(
-            f"{component_name} loads in float16 on MPS, which can produce NaN "
-            "values (black images) on Apple Silicon - bfloat16 is the usual fix"
-        )
+    _warn_float16_on_mps(component_name, from_pretrained_arguments, device)
 
     model_name = None
     try:
@@ -653,28 +642,54 @@ def load_component(
         # load failure, so no error log
         raise
     except Exception as e:
-        # 401/403 from the Hub means the account behind whatever token (or
-        # lack of one) HfApi is using cannot read this repo - almost always
-        # a gated model the user has not requested access to, or has not
-        # logged in for. A whole-pipeline load raises the HfHubHTTPError
-        # itself; a per-component load gets it wrapped in an EnvironmentError
-        # by diffusers' _get_model_file / transformers' cached_file, so the
-        # cause chain is searched. Every other error (a real outage, a bad
-        # repo id) is logged once with its traceback and re-raised unchanged
-        if _hub_auth_status(e) is not None:
-            repo = model_name or component_name
-            logger.error(
-                f"Hugging Face authentication required loading {component_name} "
-                f"({repo}): {e}",
-                exc_info=True,
-            )
-            raise RuntimeError(
-                f"Model '{repo}' requires Hugging Face authentication - run "
-                f"'huggingface-cli login', or request access at "
-                f"https://huggingface.co/{repo}"
-            ) from e
+        # Every error but a Hub auth refusal (a real outage, a bad repo id) is
+        # logged once with its traceback and re-raised unchanged
+        auth_error = _hub_auth_error(e, model_name, component_name)
+        if auth_error is not None:
+            raise auth_error from e
         logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
         raise
+
+
+def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):
+    """MPS (Apple Silicon) has numerical instability with float16 matmul operations,
+    producing NaN values that result in black images. The dtype is left as asked for -
+    silently loading a model in a dtype the workflow did not request would be worse -
+    so this only warns."""
+    if (
+        get_device_type(device) == "mps"
+        and from_pretrained_arguments.get("torch_dtype") == torch.float16
+    ):
+        logger.warning(
+            f"{component_name} loads in float16 on MPS, which can produce NaN "
+            "values (black images) on Apple Silicon - bfloat16 is the usual fix"
+        )
+
+
+def _hub_auth_error(error, model_name, component_name):
+    """The RuntimeError to raise for a Hub auth refusal, or None for any other
+    load failure. Called from load_component's except block, so the log line
+    carries the traceback.
+
+    401/403 from the Hub means the account behind whatever token (or lack of
+    one) HfApi is using cannot read this repo - almost always a gated model
+    the user has not requested access to, or has not logged in for. A
+    whole-pipeline load raises the HfHubHTTPError itself; a per-component load
+    gets it wrapped in an EnvironmentError by diffusers' _get_model_file /
+    transformers' cached_file, so the cause chain is searched."""
+    if _hub_auth_status(error) is None:
+        return None
+    repo = model_name or component_name
+    logger.error(
+        f"Hugging Face authentication required loading {component_name} "
+        f"({repo}): {error}",
+        exc_info=True,
+    )
+    return RuntimeError(
+        f"Model '{repo}' requires Hugging Face authentication - run "
+        f"'huggingface-cli login', or request access at "
+        f"https://huggingface.co/{repo}"
+    )
 
 
 def _hub_auth_status(error):

@@ -372,64 +372,75 @@ def _public(entry):
 def _tracker_class(manager, entry, cancel_event):
     """A tqdm stand-in snapshot_download instantiates per file; every update
     feeds the shared counters and honours cancellation."""
+    return type(
+        "Tracker",
+        (_Tracker,),
+        {"_manager": manager, "_entry": entry, "_cancel_event": cancel_event},
+    )
 
-    class Tracker:
-        def __init__(self, *args, **kwargs):
-            self.n = 0
-            self.total = kwargs.get("total")
-            # The xet transfer bar still ticks (cancellation works through
-            # it) but its network bytes stay out of the shared counters
-            self._counted = (
-                XET_TRANSFER_BAR_FORMAT is None
-                or kwargs.get("bar_format") != XET_TRANSFER_BAR_FORMAT
-            )
 
-        def update(self, n=1):
-            if cancel_event.is_set():
-                raise DownloadCancelled()
-            if n:
-                self.n += n
-                if self._counted:
-                    manager._add_progress(entry, n)
-            return True
+class _Tracker:
+    """The tqdm surface huggingface_hub drives; _tracker_class binds one to a
+    download's counters and cancel event."""
 
-        def close(self):
-            pass
+    _manager = None
+    _entry = None
+    _cancel_event = None
 
-        def refresh(self):
-            pass
+    def __init__(self, *args, **kwargs):
+        self.n = 0
+        self.total = kwargs.get("total")
+        # The xet transfer bar still ticks (cancellation works through
+        # it) but its network bytes stay out of the shared counters
+        self._counted = (
+            XET_TRANSFER_BAR_FORMAT is None
+            or kwargs.get("bar_format") != XET_TRANSFER_BAR_FORMAT
+        )
 
-        def set_description(self, *args, **kwargs):
-            pass
+    def update(self, n=1):
+        if self._cancel_event.is_set():
+            raise DownloadCancelled()
+        if n:
+            self.n += n
+            if self._counted:
+                self._manager._add_progress(self._entry, n)
+        return True
 
-        def set_description_str(self, *args, **kwargs):
-            pass
+    def close(self):
+        pass
 
-        def set_postfix(self, *args, **kwargs):
-            pass
+    def refresh(self):
+        pass
 
-        def set_postfix_str(self, *args, **kwargs):
-            pass
+    def set_description(self, *args, **kwargs):
+        pass
 
-        @property
-        def format_dict(self):
-            # What tqdm exposes for rate rendering; huggingface_hub reads
-            # 'rate' from it when composing the xet speed postfix
-            return {"n": self.n, "total": self.total, "elapsed": 0, "rate": None}
+    def set_description_str(self, *args, **kwargs):
+        pass
 
-        def __enter__(self):
-            return self
+    def set_postfix(self, *args, **kwargs):
+        pass
 
-        def __exit__(self, *exc):
-            self.close()
-            return False
+    def set_postfix_str(self, *args, **kwargs):
+        pass
 
-        @staticmethod
-        def get_lock():
-            return threading.RLock()
+    @property
+    def format_dict(self):
+        # What tqdm exposes for rate rendering; huggingface_hub reads
+        # 'rate' from it when composing the xet speed postfix
+        return {"n": self.n, "total": self.total, "elapsed": 0, "rate": None}
 
-        @staticmethod
-        def set_lock(lock):
-            pass
+    def __enter__(self):
+        return self
 
-    return Tracker
+    def __exit__(self, *exc):
+        self.close()
+        return False
+
+    @staticmethod
+    def get_lock():
+        return threading.RLock()
+
+    @staticmethod
+    def set_lock(lock):
+        pass
