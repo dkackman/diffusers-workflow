@@ -18,7 +18,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -51,7 +63,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -84,7 +108,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -117,7 +153,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -150,7 +198,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -183,7 +243,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -216,7 +288,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -249,7 +333,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -282,7 +378,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",
@@ -315,7 +423,19 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "FluxPipeline",
-                    "offload": "sequential"
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 1,
+                                "use_stream": true,
+                                "record_stream": true
+                            }
+                        },
+                        "text_encoder": { "device": "cuda" },
+                        "text_encoder_2": { "device": "cuda" },
+                        "vae": { "device": "cuda" }
+                    }
                 },
                 "from_pretrained_arguments": {
                     "model_name": "black-forest-labs/FLUX.1-dev",

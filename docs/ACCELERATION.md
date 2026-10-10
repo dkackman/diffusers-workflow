@@ -136,6 +136,18 @@ Select the attention implementation diffusers uses for the duration of each pipe
 
 Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
+The MiniMax-H3 baselines expose this as a variable: `attention_backend` on
+[video-with-audio.json](../workflows/templates/minimax/video-with-audio.json),
+[video-with-audio-768p.json](../workflows/templates/minimax/video-with-audio-768p.json),
+[image-to-video.json](../workflows/templates/minimax/image-to-video.json) and
+[reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), pinned
+on the transformer and `null` by default. Pass `attention_backend=sage_hub` to a box with
+the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS
+leave it null. The other H3 templates take the same key under `components.transformer`
+(`transformer_ref` for a ref2va workflow). LTX-2.5 cannot use it: its transformer
+passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
+for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
+
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 
 ```json
@@ -232,7 +244,11 @@ Three older per-component knobs, set in the pipeline `configuration` beside
 
 ## Memory Offloading
 
-`offload` (`"model"` or `"sequential"`) and `group_offload` trade speed for VRAM by streaming weights between system memory and the accelerator instead of keeping everything resident. `"model"` moves whole submodules and costs the least speed; `"sequential"` moves individual layers and is the slowest but uses the least memory; block/leaf-level `group_offload` sits between the two and is what a modular pipeline's self-loaded components use, since they aren't reachable in time for `offload`. Full configuration syntax is in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading). Omit both for the fastest run, when VRAM allows it.
+`offload` (`"model"` or `"sequential"`) and `group_offload` trade speed for VRAM by streaming weights between system memory and the accelerator instead of keeping everything resident. `"model"` moves whole submodules and costs the least speed; `"sequential"` moves individual layers and is the slowest but uses the least memory; block/leaf-level `group_offload` sits between the two and is what a modular pipeline's self-loaded components use, since they aren't reachable in time for `offload`. Full configuration syntax is in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#memory-offloading). Omit both for the fastest run, when VRAM allows it. Measured on an RTX 3090 (RECIPES_24GB.md): sequential
+offload costs about 6x per step on FLUX dev and 3.4x on Z-Image against model offload;
+a block-level, streamed `group_offload` of the transformer from pinned host memory
+matches the resident per-step cost while holding one block on the card, at ~22 GB of
+pinned host RAM per FLUX pipeline - the placement the unquantized FLUX templates use.
 
 `"residency": "on_demand"` on a component is the cheap case of the same trade: the model rests in system memory and is moved to the device whole around each of its own calls. That is a bad deal for anything called once per step, and a good one for a VAE called twice a run - it frees the VAE's VRAM for the denoise loop at the cost of two transfers, where group offloading the same VAE would restream it once per decode tile. See [On-demand components](WORKFLOW_GUIDE.md#on-demand-components).
 

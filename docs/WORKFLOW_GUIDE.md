@@ -1177,7 +1177,7 @@ Control how models use memory:
 ```
 
 - `"model"` — Moves entire models between CPU and GPU. Good balance of speed and memory.
-- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory. On MPS it is downgraded to `"model"` with a warning: with unified memory there is no separate pool to keep small, so the per-layer copies cost speed and save nothing.
+- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory (measured at 6x the per-step cost of model offload on FLUX dev and 3.4x on Z-Image; a streamed block-level `group_offload` of the transformer is the usual better answer - see [RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b)). On MPS it is downgraded to `"model"` with a warning: with unified memory there is no separate pool to keep small, so the per-layer copies cost speed and save nothing.
   `exclude_from_cpu_offload` names components the sweep should leave alone.
 - Omit for no offloading (fastest, requires enough VRAM).
 

@@ -9,6 +9,15 @@ when a release ships.
 
 ### Workflow speed
 
+- The unquantized FLUX templates stream the transformer block by block from
+  pinned host memory (`group_offload`) instead of `offload: "sequential"`:
+  the same per-step cost as a resident model, 6x faster than before, with
+  6 GB of VRAM to spare at 1024x1024 - and it holds ~22 GB of pinned host RAM
+  per loaded FLUX pipeline. Z-Image Turbo takes `offload: "model"` (3.4x).
+  Measurements in docs/RECIPES_24GB.md.
+- The four MiniMax-H3 family baselines expose `attention_backend` (null by
+  default; `sage_hub` measured about 30% faster per step on a 3090). LTX-2.5
+  cannot use sage attention (its attention mask is refused).
 - A LoRA `scale`/`alpha` change or a scheduler `shift` change re-applies on
   the warm pipeline instead of reloading it. Removing an alpha or shift still
   reloads, and a `pipeline_reference` runs at the referenced step's own values.

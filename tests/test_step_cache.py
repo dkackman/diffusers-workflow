@@ -602,6 +602,11 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # lora, prompt-weighting and step-caching from model to sequential offload:
 # offload is part of how a pipeline is loaded, so its key moves with it.
 #
+# Every unquantized FLUX row (fourteen templates) and the Z-Image portrait
+# steps of four minimax templates moved on 2026-10-10 when sequential offload
+# left the catalog: FLUX streams its transformer block by block from pinned
+# host memory, Z-Image takes model offload (docs/RECIPES_24GB.md).
+#
 # Nine minimax rows were regenerated when the T2VA/FL2VA templates moved from
 # the 8-step turbo LoRAs to the 4-step v1.2 file (2026-10-10): the adapter and
 # the scheduler shift were then part of how the pipeline is loaded.
@@ -636,16 +641,16 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "compose-workflows.json": {},
     "consistent-set.json": {
-        "base": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "first": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "second": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "third": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+        "base": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "first": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "second": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "third": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
     },
     "controlnet-component.json": {
         "main": "23e479d111c0c2883755e0d32ef48b686d89f8967b535524ed8c6cb6f863bb9d"
     },
     "controlnet.json": {
-        "FluxCanny": "cfe38a8a886222292666951457910698f54fb42d631de87009f4319e267bb6f4"
+        "FluxCanny": "d5e1abfe8058ed9b2235c2b93aef6e155faaaedfc6cb3de849911fd577ea0f5b"
     },
     "depth-marigold.json": {
         "depth": "9338475d3fb48eab6e3dc8eb53cb07a916470906e338bb02a71e3ed0416a447b"
@@ -653,30 +658,30 @@ TEMPLATE_PIPELINE_KEYS = {
     "describe-and-regenerate.json": {},
     "dissolve-between-shots.json": {},
     "embed-metadata.json": {
-        "generate": "5326e88c70c970b932201c47ab65899f5fd17a307d583f1add96a24792e17585"
+        "generate": "bfe2e09d70b6bf6e7799266cf735abd779e5a9e3c283b8287d962eab17d95425"
     },
     "expand-prompt.json": {},
     "generate-speech.json": {},
     "image-edit.json": {
-        "edit": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1"
+        "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
     },
     "image-processors.json": {},
     "image-to-image.json": {
-        "main": "bf8dcfe42d46a7031793e8aea4460cef13b511ca93b1a40cb78b50a98c50f4f8"
+        "main": "d94c9c21dc83d4781a92dfda09ef657d142f1a62e6cef1a2f26edd87d14d6480"
     },
     "image-to-text.json": {},
     "image-variation.json": {
-        "main": "eb340f983349eb499e6fe01e29c65baf3fefd807e1f6a6a74f561768225fc496",
+        "main": "1e30480fbe56f5c5c73f6f3f60876efceac5fbc2ecca4a3883e9e3a6b01dc876",
         "prior": "3253c892afe8ff8d02c464e2b175c519cfac4585fef0e9d2231683719db61a81",
     },
     "inpaint.json": {
-        "fill": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "fill": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "interpolate-frames.json": {
         "generate_video": "e35d0272e90c76b6730987d5c60a8dfda18290ef71276eb72246e1468ad16dfb"
     },
     "ip-adapter.json": {
-        "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
+        "main": "a67c769c0ee881e36aa15b62f8226a233c1e4b93542a8caaf5eab5715cb9f556"
     },
     "kandinsky6/generate-and-upscale.json": {
         "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a",
@@ -689,19 +694,19 @@ TEMPLATE_PIPELINE_KEYS = {
         "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a"
     },
     "lora-styles.json": {
-        "couple": "e0d4d24cbe4caec22ee9e2afc43e9cfd772971430ed633cd289ff362e8213816",
-        "font-design": "8f28fcccd557b862030508fa1db006f365afbf9b394f981488673df4c46eb548",
-        "home-decoration": "8f0b0e4608b143d62d89641cddb7a4ff8b97c0d3cd4ba476f973fe6701bc36cc",
-        "portrait-illustration": "23e72f3a1c737781910ef385cfc156730bfbe9ecc36a67c53249c70e5dbfa404",
-        "portrait-photography": "6fd461304bdd784ecd9e94aea9a2f06f66ef61426ff9dc6cb552bf08e69d0520",
-        "ppt-templates": "b03b08bd86d82d633a07ce1e62326223609340ba17db59b8aebaa9c43a9db8b5",
-        "sandstorm-visual-effect": "0ec17d1beaaa8edafcbc5df532db4bef528694619f398fdaaf19f772c0d44871",
-        "sparklers-visual-effect": "d7dec11561b3645b6c316159e06acd20c6ff84883712c5ba1b252c1de88424ae",
-        "storyboard": "25c647a6d3e2013861ffafc783d8e15232f344f0c8579030e9d46b94bc5383d4",
-        "visual-identity-design": "004a829d2a7c1d55b36f279ffc67057a165ecbf8a109da55f93f6acb09545afa",
+        "couple": "4ccc3e1cf80d2117f2be5a9b29c345a8d105cc901ef7f0e87330bd918d12c03b",
+        "font-design": "430a83558b5a8e37726837e558c55aeca8b0d97c977a33ab3c022072fccece86",
+        "home-decoration": "aa084137494a66c5ebbcb582451a439c46fb13a46ff18126ab3cf6718984aa71",
+        "portrait-illustration": "af0647ee216ae5223ee690d49d38279d12394721bb03acf43f3e56e350544e02",
+        "portrait-photography": "2abc410efe284258a9de41aa39bf5757e67dad6c120da66e3bcb77b4705c5acf",
+        "ppt-templates": "5e599c25436980f20285584ab53a625342ea5a23cfd7ffa0916140cd419608ec",
+        "sandstorm-visual-effect": "cfe11545ca180142a36773ecb86a8a0d9a879899ff55f7de5e23ff6d7e7a034f",
+        "sparklers-visual-effect": "1ae7ca40cbd46a32ca6d0d396ed2882fb578f3b6b50ec21f429350176734ec65",
+        "storyboard": "43728e3912d7dddffe8009e803c56c9b0885a9bc9ca524ad50df429dc11fcec7",
+        "visual-identity-design": "ed6bb9742190c26d75bf5444ddff876a3198c66a8ee114f484c3b0f9298bb2ff",
     },
     "lora.json": {
-        "txt2img": "45cddf5b7b38cd2ba06e7906368e45eec2db70ae11ad12edbee1f5604878094e"
+        "txt2img": "04031c5e01597b46f9ceb50f717e036013d5f6e6a497ae3aaef585f7121bcf4e"
     },
     "ltx2/chained-segments.json": {
         "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
@@ -778,8 +783,8 @@ TEMPLATE_PIPELINE_KEYS = {
         "video_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/dialogue-short.json": {
-        "draw_character_a": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "draw_character_b": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "draw_character_a": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "draw_character_b": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "shot@button": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "shot@cold_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "shot@deflect": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
@@ -796,7 +801,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "first_and_last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/generated-subject-reference.json": {
-        "draw_subject": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "draw_subject": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
     },
     "minimax/image-to-video.json": {
@@ -807,7 +812,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
-        "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "draw_singer": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "shot@closeup": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "shot@finale": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "shot@room": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
@@ -828,9 +833,9 @@ TEMPLATE_PIPELINE_KEYS = {
         "shot@shot_5": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
     },
     "minimax/storyboard.json": {
-        "board_1_launch": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "board_2_gutter": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "board_3_shore": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
+        "board_1_launch": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "board_2_gutter": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "board_3_shore": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "voyage": "0f30a4f21253ffdec029b3e2523c077f68629579bb3ae57cc69c09b638665987",
     },
     "minimax/video-with-audio-768p.json": {
@@ -846,10 +851,10 @@ TEMPLATE_PIPELINE_KEYS = {
         "txt2img": "6e563b308f1508e0f24a660dcf25636774e2b70c4ccc723e8975421a7224b48d"
     },
     "outpaint.json": {
-        "outpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "prompt-weighting.json": {
-        "txt2img": "74fd88b30ffbf3cd95b1b971e90ce8da33e7370a160e838478fc5d5a6d3bc9df"
+        "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"
     },
     "qr-code.json": {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
@@ -860,11 +865,11 @@ TEMPLATE_PIPELINE_KEYS = {
         "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
     },
     "segment-and-inpaint.json": {
-        "inpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "inpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "segment.json": {},
     "step-caching.json": {
-        "txt2img": "69c2b1c0bf23b291404b655919a94e7ed2b766d962dc209ca1e5df86f619a9dd"
+        "txt2img": "3e3ea6a2cb1d2d1b1abaec9de159758b137ac0bcd3197a1bac0f7bbcead7ac24"
     },
     "sub-workflow.json": {},
     "surface-normals.json": {
