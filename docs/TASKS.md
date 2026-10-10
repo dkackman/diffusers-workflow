@@ -2045,11 +2045,14 @@ How the plan is made:
   last.
 - A shot over `max_scene_s` splits evenly, each cut on its nearest beat when
   there are beats, and a sung shot split this way is warned about by its
-  lyric, which every piece carries; one under `min_scene_s` merges into its
+  lyric. Given `lyrics`, each piece holds only the words heard inside it
+  (the lyric's words aligned to the transcript's); a piece where no word is
+  heard has no lyric and is warned about. When no word of the lyrics was
+  heard, or with no `lyrics`, every piece carries the whole lyric. One under `min_scene_s` merges into its
   shorter neighbour.
   A shot still outside the range is warned about by name.
 - A shot whose render would pass `max_frames` is split, on a beat when
-  there is one, and warned about.
+  there is one, and warned about; its lyric is divided as above.
 - `snap_to_beats` moves every cut to its nearest beat; with no beats it warns
   and leaves the cuts where the lines put them.
 - Every boundary is rounded once, from its absolute time, so the frame counts
