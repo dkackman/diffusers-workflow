@@ -7,6 +7,22 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### Workflow speed
+
+- A LoRA `scale`/`alpha` change or a scheduler `shift` change re-applies on
+  the warm pipeline instead of reloading it. Removing an alpha or shift still
+  reloads, and a `pipeline_reference` runs at the referenced step's own values.
+- Switching workflows in the worker keeps the warm pipelines the next
+  workflow loads anyway, instead of releasing everything first.
+- `restore_faces` builds its face helper once per run instead of once per
+  frame, and picture frames decode with libav threading, so video inputs
+  process faster.
+- Catalog defaults corrected: compose-workflows video steps run 5 steps
+  (was 20) and the prompt-weighting schnell workflow runs 4 steps at guidance
+  0 (was 20).
+- The six 9-step minimax ref2va templates drop a dead `first_block` cache,
+  and minimax/shots-batch drops a no-op `release_pipeline`.
+
 ### 0.11.0
 
 <!-- Drafted from v0.10.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.11.0 --notes-file ... -->
