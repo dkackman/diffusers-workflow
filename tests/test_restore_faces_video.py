@@ -6,7 +6,7 @@ import pytest
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.tasks.task import _handle_restore_faces
+from dw.tasks.model_handlers import _handle_restore_faces
 
 
 def _task():
