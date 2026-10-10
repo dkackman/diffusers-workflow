@@ -8,4 +8,4 @@ Checks, from `ui/`: `npm run check`, `npm run lint`, `npm test`, and `npx playwr
 
 - Show the proof: a list of things that produce images shows the images.
 - Every token pair should pass WCAG AA in both themes.
-- `--live` marks machine state and nothing else; where it may appear is held by `scripts/design-rules.test.ts`.
+- `--live` marks machine state and `--select` the user's place (focus, the open workspace, the active section), each nothing else; where they may appear is held by `scripts/design-rules.test.ts`.

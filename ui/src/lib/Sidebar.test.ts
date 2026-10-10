@@ -144,3 +144,22 @@ it('the first render is not a switch; changing workspace marks the new one', asy
     ).toBe('#/ws/default/gallery'),
   )
 })
+
+it('marks the open workspace apart from its siblings', async () => {
+  const { container } = render(Sidebar, {
+    collapsed: false,
+    onToggle: () => {},
+  })
+  await waitFor(() => expect(screen.getByText('default')).toBeTruthy())
+  expect(screen.getByText('Workspaces')).toBeTruthy()
+  // one open block holding the name and the sections, the rest shut links
+  const open = container.querySelector('.ws.open')!
+  expect(open.querySelector('.name')?.textContent).toBe('studio')
+  expect(open.querySelector('.sections')).not.toBeNull()
+  expect(container.querySelector('.ws.shut .name')?.textContent).toBe('default')
+  // each carries its own identity hue
+  const hue = (el: Element | null) =>
+    (el as HTMLElement | null)?.style.getPropertyValue('--ws-dot')
+  expect(hue(open)).toMatch(/^oklch/)
+  expect(hue(container.querySelector('.ws.shut'))).not.toBe(hue(open))
+})

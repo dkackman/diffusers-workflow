@@ -3,26 +3,33 @@
   import { prefersReducedMotion } from 'svelte/motion'
   import { route } from './router.svelte'
   import { serverHref, sharedHref, wsHref } from './routes'
+  import { wsColor } from './wsColor'
 
   // group / section, each a link; the section's rest (a workflow or job
   // name) is the page's own h1, not the crumb's
-  const crumbs = $derived.by(() => {
-    const view = route.view
-    if (view.kind === 'ws')
+  const crumbs = $derived.by(
+    (): { label: string; href: string; dot?: string }[] => {
+      const view = route.view
+      if (view.kind === 'ws')
+        return [
+          {
+            label: view.workspace,
+            href: wsHref(view.workspace, 'overview'),
+            dot: wsColor(view.workspace),
+          },
+          { label: view.section, href: wsHref(view.workspace, view.section) },
+        ]
+      if (view.kind === 'shared')
+        return [
+          { label: 'shared', href: sharedHref('prompts') },
+          { label: view.section, href: sharedHref(view.section) },
+        ]
       return [
-        { label: view.workspace, href: wsHref(view.workspace, 'overview') },
-        { label: view.section, href: wsHref(view.workspace, view.section) },
+        { label: 'server', href: serverHref('status') },
+        { label: view.section, href: serverHref(view.section) },
       ]
-    if (view.kind === 'shared')
-      return [
-        { label: 'shared', href: sharedHref('prompts') },
-        { label: view.section, href: sharedHref(view.section) },
-      ]
-    return [
-      { label: 'server', href: serverHref('status') },
-      { label: view.section, href: serverHref(view.section) },
-    ]
-  })
+    },
+  )
 </script>
 
 <nav class="crumbs" aria-label="breadcrumb">
@@ -37,7 +44,8 @@
         class="plain"
         href={crumb.href}
         in:fade={{ duration: prefersReducedMotion.current ? 0 : 150 }}
-        >{crumb.label}</a
+        >{#if crumb.dot}<span class="dot" style:background={crumb.dot}
+          ></span>{/if}{crumb.label}</a
       >
     {/key}
   {/each}
@@ -53,6 +61,17 @@
   }
   .crumbs a {
     color: var(--muted);
+  }
+  .crumbs a {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+  }
+  /* the workspace's identity dot, as in the sidebar */
+  .dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
   }
   .crumbs a:last-child {
     color: var(--ink);

@@ -1,6 +1,6 @@
 <script lang="ts">
   import { poll } from './lib/poll'
-  import { gbFromMb } from './lib/format'
+  import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
     Braces,
@@ -80,8 +80,6 @@
     return poll(refreshStatus, 5000)
   })
 
-  const gb = gbFromMb
-
   type Theme = 'system' | 'light' | 'dark'
   let theme = $state<Theme>(
     (() => {
@@ -105,14 +103,11 @@
       /* fine - applies for this session */
     }
   }
-  const vramPct = $derived.by(() => {
-    const info = memory?.info
-    if (!info?.gpu_available || !info.gpu_memory_total_mb) return null
-    return Math.min(
-      100,
-      (100 * (info.gpu_memory_allocated_mb ?? 0)) / info.gpu_memory_total_mb,
-    )
-  })
+  // one meter bar per card, from the per-card readings; the top level of
+  // /api/memory is only the first card's
+  const metered = $derived(
+    cardReadings(memory).filter((c) => c.available && c.pct !== null),
+  )
 
   // storage.ts namespaces the key: this is localStorage 'dw-sidebar'
   let sidebarCollapsed = $state(storageGet<boolean>('sidebar', false))
@@ -190,30 +185,28 @@
               <span class="pulse-dot"></span>running
             </a>
           {/if}
-          {#if vramPct !== null}
+          {#if metered.length}
             <button
               class="bare vram"
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
-              title={memory?.info?.gpu_device_name
-                ? `${memory.info.gpu_device_name} - ${gb(memory.info.gpu_memory_allocated_mb ?? 0)} of ${gb(memory.info.gpu_memory_total_mb ?? 0)} GB allocated`
-                : 'VRAM allocated'}
+              title={meterTitle(metered) || 'VRAM allocated'}
               aria-label="server & worker status"
               aria-expanded={statusOpen}
             >
-              <span class="meter">
-                <span
-                  class="fill"
-                  class:hot={vramPct > 75}
-                  class:critical={vramPct > 92}
-                  style:width={vramPct + '%'}
-                ></span>
+              <span class="meters">
+                {#each metered as card, i (card.device ?? i)}
+                  <span class="meter">
+                    <span
+                      class="fill"
+                      class:hot={card.pct! > 75}
+                      class:critical={card.pct! > 92}
+                      style:width={card.pct + '%'}
+                    ></span>
+                  </span>
+                {/each}
               </span>
-              <span class="num vramtext"
-                >{gb(memory?.info?.gpu_memory_allocated_mb ?? 0)}/{gb(
-                  memory?.info?.gpu_memory_total_mb ?? 0,
-                )} GB</span
-              >
+              <span class="num vramtext">{meterText(metered)}</span>
             </button>
           {:else}
             <button
@@ -385,6 +378,11 @@
   .vramtext {
     font-size: var(--t-xs);
     white-space: nowrap;
+  }
+  .meters {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
   }
   .meter {
     display: block;
