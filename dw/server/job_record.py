@@ -192,7 +192,7 @@ class Job:
                     {
                         "step": event.get("step"),
                         "files": event["files"],
-                        "subfolder": event.get("subfolder"),
+                        "subfolder": event.get("subfolder") or "",
                     }
                 )
         elif kind == "step_start":

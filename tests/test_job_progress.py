@@ -10,6 +10,7 @@ it has been in it, and the denoise counter once that loop is running.
 
 import time
 
+from dw.server.api_models import ManifestEntry
 from dw.server.job_record import Job, RUNNING, QUEUED, SUCCEEDED
 from dw_mcp.diagnose import slim_job
 
@@ -219,7 +220,12 @@ def test_a_running_job_reports_finished_steps_mid_run():
     """#799: a step's files are named as soon as it ends, not at job end."""
     job = running_job(
         {"event": "step_start", "step": "shot1"},
-        {"event": "step_end", "step": "shot1", "files": ["a.mp4"], "subfolder": "final"},
+        {
+            "event": "step_end",
+            "step": "shot1",
+            "files": ["a.mp4"],
+            "subfolder": "final",
+        },
         {"event": "step_start", "step": "shot2"},
     )
 
@@ -229,3 +235,18 @@ def test_a_running_job_reports_finished_steps_mid_run():
         {"step": "shot1", "files": ["a.mp4"], "subfolder": "final"}
     ]
     assert "manifest" not in slim
+
+
+def test_a_mid_run_entry_for_a_step_with_no_subfolder_validates():
+    """A step_end with no subfolder must read as '' - the response model
+    types it as a string, and a None failed every POST /api/jobs whose
+    first step saved flat (#799's mid-run manifest)."""
+    job = running_job(
+        {"event": "step_start", "step": "shot1"},
+        {"event": "step_end", "step": "shot1", "files": ["a.png"]},
+    )
+
+    entry = job.manifest[0]
+
+    assert entry["subfolder"] == ""
+    ManifestEntry.model_validate(entry)
