@@ -16,11 +16,8 @@ from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
 from dw.pipeline_processors import h3_rules
 from dw.pipeline_processors.h3_hold import (
-    as_channels_samples,
     blocks,
     core_denoise_sequences,
-    fit_latents,
-    fit_samples,
     hold_audio_reference,
     holds_audio,
     insert_audio_hold,
@@ -43,6 +40,11 @@ from tests.test_outbound import (  # noqa: F401
 
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
+from dw.pipeline_processors.h3_hold_steps import (  # noqa: E402
+    as_channels_samples,
+    fit_latents,
+    fit_samples,
+)
 from diffusers.modular_pipelines.minimax_h3.modular_pipeline import (  # noqa: E402
     MINIMAX_H3_AUDIO_LATENTS_PER_SECOND,
 )

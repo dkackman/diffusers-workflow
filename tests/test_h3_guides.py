@@ -15,20 +15,12 @@ from dw.pipeline_processors import pipeline as pipeline_module
 from dw.pipeline_processors.h3_guides import (
     LAYOUT_ANCHORS,
     default_num_frames,
-    fit_guide_frames,
-    guide_audio_latents,
-    guide_audio_positions,
-    guide_audio_span,
     guide_audio_waveform,
     guide_blocks,
     guide_frames_array,
-    guide_position_ids,
     guides_refusal,
     insert_guides,
     layout_anchor_problem,
-    pad_guide_audio,
-    splice_guide_audio_rows,
-    splice_guide_rows,
     takes_guides,
 )
 from dw.pipeline_processors.h3_hold import insert_audio_hold
@@ -52,6 +44,17 @@ from dw.variable_constraints import aligned_down
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.minimax_h3 import before_denoise  # noqa: E402
 from diffusers.modular_pipelines.modular_pipeline import PipelineState  # noqa: E402
+from dw.pipeline_processors import h3_hold_steps  # noqa: E402
+from dw.pipeline_processors.h3_guide_steps import (  # noqa: E402
+    fit_guide_frames,
+    guide_audio_latents,
+    guide_audio_positions,
+    guide_audio_span,
+    guide_position_ids,
+    pad_guide_audio,
+    splice_guide_audio_rows,
+    splice_guide_rows,
+)
 
 Stock = before_denoise.MiniMaxH3PrepareLayoutStep
 
@@ -598,23 +601,19 @@ class TestLayoutBlock:
         return encode
 
     def make_block(self, monkeypatch, seen):
-        # The block binds the encoder when the guide blocks are built
-        monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
+        # The block reads the encoder off diffusers' module when it runs
         self.encoder(monkeypatch, seen)
         return h3_guides.guide_blocks()[0]
 
     def test_one_guide_adds_its_rows(self, monkeypatch):
         seen = []
         block = self.make_block(monkeypatch, seen)
-        try:
-            video = np.zeros((22, 32, 32, 3), np.uint8)
-            state = drive(
-                block(),
-                layout_state([{"video": video, "frame": 17}]),
-                layout_components(),
-            )
-        finally:
-            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
+        video = np.zeros((22, 32, 32, 3), np.uint8)
+        state = drive(
+            block(),
+            layout_state([{"video": video, "frame": 17}]),
+            layout_components(),
+        )
         assert seen == [(1, 3, 22, SIDE, SIDE)]
         rows_per_frame = (SIDE // 16 // 2) ** 2
         guide_rows = 7 * rows_per_frame
@@ -635,15 +634,12 @@ class TestLayoutBlock:
         seen = []
         block = self.make_block(monkeypatch, seen)
         marker = torch.full((1, 4, 1, SIDE // 16, SIDE // 16), 3.0)
-        try:
-            state = layout_state(
-                [{"video": np.zeros((1, 64, 64, 3), np.uint8), "frame": 0}],
-                condition_latents=[marker],
-            )
-            state.set("keyframe_anchors", ("first",))
-            state = drive(block(), state, layout_components())
-        finally:
-            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
+        state = layout_state(
+            [{"video": np.zeros((1, 64, 64, 3), np.uint8), "frame": 0}],
+            condition_latents=[marker],
+        )
+        state.set("keyframe_anchors", ("first",))
+        state = drive(block(), state, layout_components())
         latents = state.get("condition_latents")
         assert len(latents) == 2 and latents[0] is marker
         assert latents[1].abs().sum() == 0
@@ -651,16 +647,13 @@ class TestLayoutBlock:
     def test_past_the_end_raises(self, monkeypatch):
         seen = []
         block = self.make_block(monkeypatch, seen)
-        try:
-            video = np.zeros((22, 64, 64, 3), np.uint8)
-            with pytest.raises(ValueError, match="past the end"):
-                drive(
-                    block(),
-                    layout_state([{"video": video, "frame": 119 // 17 * 17 + 17}]),
-                    layout_components(),
-                )
-        finally:
-            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
+        video = np.zeros((22, 64, 64, 3), np.uint8)
+        with pytest.raises(ValueError, match="past the end"):
+            drive(
+                block(),
+                layout_state([{"video": video, "frame": 119 // 17 * 17 + 17}]),
+                layout_components(),
+            )
         assert seen == []
 
 
@@ -770,16 +763,13 @@ class TestGuideAudioLayout(TestLayoutBlock):
             encoded.append((tuple(waveform.shape), num_latents))
             return torch.full((2, num_latents, AUDIO_C), 5.0)
 
-        monkeypatch.setattr(h3_hold, "encode_audio_span", encode_span)
+        monkeypatch.setattr(h3_hold_steps, "encode_audio_span", encode_span)
         return self.make_block(monkeypatch, seen)
 
     def run_guides(self, monkeypatch, guides):
         seen, encoded = [], []
         block = self.make_audio_block(monkeypatch, seen, encoded)
-        try:
-            state = drive(block(), layout_state(guides), audio_layout_components())
-        finally:
-            monkeypatch.setattr(h3_guides, "_GUIDE_BLOCKS", None)
+        state = drive(block(), layout_state(guides), audio_layout_components())
         return state, encoded
 
     def test_audio_guide_adds_its_audio_rows(self, monkeypatch):
