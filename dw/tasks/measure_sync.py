@@ -12,15 +12,15 @@ after the same events in the reference. A negative lag is early.
 
 import logging
 
+from .beats import SILENT_DBFS
 from .registry import register_command
+from ..assessment_rules import finding
 from ..task_domains import NON_NEGATIVE, POSITIVE, UNIT
 
 logger = logging.getLogger("dw")
 
 COMMAND = "measure_sync"
 
-# Under this, a track has no content to line up
-SILENT_DBFS = -60.0
 # A lag past this many seconds is a finding
 LAG_THRESHOLD_SECONDS = 0.1
 # A correlation under this is a match too weak to trust the lag
@@ -30,15 +30,9 @@ TIME_PLACES = 4
 CONFIDENCE_PLACES = 3
 
 
-def _finding(rule, severity, at, value, threshold, says):
-    return {
-        "rule": rule,
-        "severity": severity,
-        "at": at,
-        "value": value,
-        "threshold": threshold,
-        "says": says,
-    }
+def _rule(name, threshold, says):
+    """A rule for `assessment_rules.finding()`; not in `RULES`, as this is not a probe"""
+    return {"name": name, "severity": "warn", "threshold": threshold, "says": says}
 
 
 def measure_sync(
@@ -121,13 +115,10 @@ def measure_sync(
         )
         warnings.append(message)
         findings.append(
-            _finding(
-                "sync_unmeasurable",
-                "warn",
-                {"silent": silent},
+            finding(
+                _rule("sync_unmeasurable", SILENT_DBFS, message),
                 None,
-                SILENT_DBFS,
-                message,
+                {"silent": silent},
             )
         )
     else:
@@ -143,35 +134,37 @@ def measure_sync(
             )
             warnings.append(message)
             findings.append(
-                _finding("sync_unmeasurable", "warn", {}, None, None, message)
+                finding(_rule("sync_unmeasurable", None, message), None, {})
             )
         else:
             answer["lag_seconds"] = round(float(lag), TIME_PLACES)
             answer["confidence"] = round(float(confidence), CONFIDENCE_PLACES)
             if confidence < values["min_confidence"]:
                 findings.append(
-                    _finding(
-                        "sync_low_confidence",
-                        "warn",
-                        {},
+                    finding(
+                        _rule(
+                            "sync_low_confidence",
+                            values["min_confidence"],
+                            "the audio and reference envelopes barely "
+                            "correlate, so the lag is not reliable - they may "
+                            "not be the same material",
+                        ),
                         answer["confidence"],
-                        values["min_confidence"],
-                        "the audio and reference envelopes barely correlate, "
-                        "so the lag is not reliable - they may not be the "
-                        "same material",
+                        {},
                     )
                 )
             elif abs(lag) > values["threshold_seconds"]:
                 findings.append(
-                    _finding(
-                        "audio_out_of_sync",
-                        "warn",
-                        {},
+                    finding(
+                        _rule(
+                            "audio_out_of_sync",
+                            values["threshold_seconds"],
+                            f"the audio is {abs(lag):.3f} s "
+                            f"{'late' if lag > 0 else 'early'} against its "
+                            "source slice",
+                        ),
                         answer["lag_seconds"],
-                        values["threshold_seconds"],
-                        f"the audio is {abs(lag):.3f} s "
-                        f"{'late' if lag > 0 else 'early'} against its source "
-                        "slice",
+                        {},
                     )
                 )
             if abs(lag) >= values["max_lag_seconds"] - 1.0 / frame_rate:
