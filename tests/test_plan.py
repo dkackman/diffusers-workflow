@@ -488,6 +488,32 @@ class TestEstimate:
         moved = plan(spec, arguments={"shots": long})["estimate"]
         assert (moved["minutes"], moved["basis"]) == (None, "unknown")
 
+    def test_position_fields_do_not_block_a_derived_figure(self, plan):
+        """#796: start_frame/cut_frames grow with the count; only num_frames
+        is a cost field, so an in-range lengthened list stays derived."""
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        make = lambda n: [  # noqa: E731
+            {"name": f"s{i}", "prompt": "p", "num_frames": 124, "start_frame": 124 * i}
+            for i in range(n)
+        ]
+        spec["variables"]["shots"] = make(5)
+        answer = plan(spec, arguments={"shots": make(10)})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+
+    def test_a_shifted_field_withholds_an_observed_figure(self, plan):
+        """#796: observed history matched on list length must not price a
+        list with a shot longer than any the default entries had."""
+        spec = definition()
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["shots"] = [
+            {"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(4)
+        ]
+        long = [dict(e) for e in spec["variables"]["shots"]]
+        long[3]["num_frames"] = 345
+        answer = plan(spec, arguments={"shots": long}, observed=observed())["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+
     def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
         """#772: a windows list whose entries carry an `index` label priced
         3 windows but went unknown at 4, because the new index looked like a

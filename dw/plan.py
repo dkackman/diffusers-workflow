@@ -359,6 +359,9 @@ def _numeric_fields(entries):
     return fields
 
 
+LIST_ENTRY_COST_FIELDS = ("num_frames",)
+
+
 def _list_entry_field_shifted(default_entries, effective_entries):
     """Whether a list driver's entries carry a numeric field (a per-shot
     `num_frames`, say) with a value none of the default entries had. The
@@ -367,7 +370,13 @@ def _list_entry_field_shifted(default_entries, effective_entries):
     list driver (#593)."""
     measured = _numeric_fields(default_entries)
     for field, values in _numeric_fields(effective_entries).items():
-        if field in measured and not values <= measured[field]:
+        # Only a field that sets how long a shot renders moves its cost; a
+        # start_frame or cut_frames is a position that moves with the count
+        if (
+            field in LIST_ENTRY_COST_FIELDS
+            and field in measured
+            and not values <= measured[field]
+        ):
             return True
     return False
 
@@ -410,6 +419,18 @@ def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
         if _driver_comparable(effective.get(name)) != _driver_comparable(default_value):
             return True
     return False
+
+
+def _entry_cost_field_shifted(definition, expanded):
+    """Whether any declared list driver carries a per-entry cost field outside
+    the values the default entries had."""
+    defaults = definition.get("variables") or {}
+    effective = expanded.get("variables") or {}
+    return any(
+        isinstance(defaults.get(name), list)
+        and _list_entry_field_shifted(defaults[name], effective.get(name))
+        for name in _declared_drivers(definition)
+    )
 
 
 def _own_price(definition, expanded, list_entries, device, measured_entries):
@@ -662,6 +683,11 @@ def estimate(
     """
     measured = _observed(observed, device)
     own = _own_price(definition, expanded, list_entries, device, measured_entries)
+    if measured is not None and _entry_cost_field_shifted(definition, expanded):
+        # The history's drivers match on the list's length, not on what each
+        # entry renders, so a shot lengthened past anything it covered would
+        # be quoted at the shorter run's minutes (#796)
+        measured = None
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
         measured["cached_minutes"] = _cached_minutes(
