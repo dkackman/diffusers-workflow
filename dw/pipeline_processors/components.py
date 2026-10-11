@@ -591,12 +591,25 @@ def load_component(
                 model_name = from_pretrained_arguments.pop("model_name")
                 logger.info(f"Loading {component_name} from model: {model_name}")
                 emit_phase("loading", detail=f"{component_name}: {model_name}")
-                with download_watch.watch(
-                    model_name, cache_dir=from_pretrained_arguments.get("cache_dir")
-                ):
-                    component = component_type.from_pretrained(
-                        model_name, **from_pretrained_arguments
-                    )
+
+                def from_pretrained():
+                    with download_watch.watch(
+                        model_name,
+                        cache_dir=from_pretrained_arguments.get("cache_dir"),
+                    ):
+                        return component_type.from_pretrained(
+                            model_name, **from_pretrained_arguments
+                        )
+
+                # A component an SDNQ config quantizes is read from the cache on
+                # a hit, and neither loads nor downloads (dw/quantized_cache.py)
+                component = quantized_cache.from_pretrained(
+                    component_name,
+                    component_type,
+                    model_name,
+                    from_pretrained_arguments,
+                    from_pretrained,
+                )
 
             # Load from single file
             elif "from_single_file" in from_pretrained_arguments:
