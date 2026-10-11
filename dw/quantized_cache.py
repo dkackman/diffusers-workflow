@@ -26,6 +26,12 @@ reader never sees half an entry and two workers saving the same key at once
 leave one. Pruning, `sdnq_optimize`, LoRAs and offload hooks all run after the
 save point, so an entry holds the untruncated component as quantized.
 
+**Two load paths** reach it, both from `load_component`
+(`dw/pipeline_processors/components.py`): a modular pipeline's
+`load_components()` (H3, `load_components` here), and one component's own
+`from_pretrained` (LTX-2.5, `from_pretrained` here). A hit is placed on the
+config's `return_device`, which a pre-quantized load would otherwise ignore.
+
 **Limits:** a save that would leave less free than `min(50 GiB, 10% of the
 volume)` is skipped, and the server-start sweep deletes every entry built
 against other package versions. Nothing else evicts; clearing is
@@ -47,6 +53,7 @@ import secrets
 import shutil
 import time
 from functools import lru_cache
+from types import SimpleNamespace
 
 from .events import get_context
 from .security import validate_path
@@ -666,45 +673,14 @@ def load_components(pipeline, arguments):
         if reason is not None:
             emit(candidate.name, "skipped", reason=reason)
             continue
-        commit = lookup_commit(
-            candidate.model_name,
-            candidate.subfolder,
-            candidate.revision,
-            candidate.cache_dir,
-        )
-        if commit is None:
-            # Not all on disk - the load downloads it, and the save after
-            # resolves the snapshot it ended up reading
-            misses.append((candidate, INCOMPLETE_SNAPSHOT))
-            continue
-        key = cache_key(candidate.inputs(commit))
-        started = time.monotonic()
-        try:
-            component = load_entry(
-                root,
-                key,
-                candidate.model_cls,
-                candidate.torch_dtype,
-                candidate.return_device,
-                candidate.config_arguments,
-            )
-        except Exception as e:
-            logger.warning(f"Quantized cache: lookup of {candidate.name} failed: {e}")
-            misses.append((candidate, f"{LOAD_FAILED}: {_error_name(e)}"))
-            continue
+        component, reason = _lookup(root, candidate)
         if component is None:
-            misses.append((candidate, NO_ENTRY))
+            misses.append((candidate, reason))
             continue
         if candidate.load_id is not None:
             # Keeps the spec update_components() would otherwise reset
             component._diffusers_load_id = candidate.load_id
         hits[candidate.name] = component
-        emit(
-            candidate.name,
-            "hit",
-            seconds=time.monotonic() - started,
-            nbytes=_safe_nbytes(component),
-        )
 
     if hits:
         pipeline.update_components(**hits)
@@ -727,6 +703,107 @@ def load_components(pipeline, arguments):
         if component is None:
             continue
         _save(root, candidate, component)
+
+
+# from_pretrained keywords a per-component load may carry and still be cached:
+# the ones the key covers, and the ones that only say where the files are read
+# from. Anything else could change the weights without changing the key
+_PER_COMPONENT_KEYWORDS = frozenset(
+    {
+        "subfolder",
+        "revision",
+        "variant",
+        "cache_dir",
+        "torch_dtype",
+        "dtype",
+        "quantization_config",
+        "token",
+        "local_files_only",
+        "low_cpu_mem_usage",
+    }
+)
+
+
+def from_pretrained(name, model_cls, model_name, arguments, load):
+    """`load()` - one component's `model_cls.from_pretrained(model_name,
+    **arguments)` - with an SDNQ-quantized component read from the cache
+    where an entry exists, so `load` (and the download it may start) never
+    runs, and saved to it where one does not. With the cache off, or a load
+    no SDNQ config quantizes, this is `load()` and nothing more."""
+    if not enabled() or not is_sdnq_config(arguments.get("quantization_config")):
+        return load()
+
+    try:
+        spec = SimpleNamespace(
+            pretrained_model_name_or_path=model_name,
+            type_hint=model_cls,
+            load_id=None,
+        )
+        candidate = _Candidate(name, spec, arguments)
+        reason = candidate.unsupported()
+        if reason is None and set(arguments) - _PER_COMPONENT_KEYWORDS:
+            reason = UNSUPPORTED
+    except Exception as e:
+        logger.warning(f"Quantized cache: could not key {name}: {e}")
+        return load()
+    if reason is not None:
+        emit(name, "skipped", reason=reason)
+        return load()
+
+    root = cache_root()
+    component, reason = _lookup(root, candidate)
+    if component is not None:
+        return component
+
+    started = time.monotonic()
+    component = load()
+    emit(
+        name,
+        "miss",
+        reason=reason,
+        seconds=time.monotonic() - started,
+        nbytes=_safe_nbytes(component),
+    )
+    _save(root, candidate, component)
+    return component
+
+
+def _lookup(root, candidate):
+    """(the cached component placed on its return device, None) on a hit,
+    emitting it; (None, why) on a miss, for the miss event to carry."""
+    commit = lookup_commit(
+        candidate.model_name,
+        candidate.subfolder,
+        candidate.revision,
+        candidate.cache_dir,
+    )
+    if commit is None:
+        # Not all on disk - the load downloads it, and the save after
+        # resolves the snapshot it ended up reading
+        return None, INCOMPLETE_SNAPSHOT
+    key = cache_key(candidate.inputs(commit))
+    started = time.monotonic()
+    try:
+        component = load_entry(
+            root,
+            key,
+            candidate.model_cls,
+            candidate.torch_dtype,
+            candidate.return_device,
+            candidate.config_arguments,
+        )
+    except Exception as e:
+        logger.warning(f"Quantized cache: lookup of {candidate.name} failed: {e}")
+        return None, f"{LOAD_FAILED}: {_error_name(e)}"
+    if component is None:
+        return None, NO_ENTRY
+    emit(
+        candidate.name,
+        "hit",
+        seconds=time.monotonic() - started,
+        nbytes=_safe_nbytes(component),
+    )
+    return component, None
 
 
 def _candidates(pipeline, arguments):

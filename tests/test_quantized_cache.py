@@ -1186,3 +1186,315 @@ class TestCallSites:
             serve.run(config)
 
         assert order == ["cache", "app", "run"]
+
+
+# 13. The per-component path (#827)
+
+
+class PlacedModule(nn.Linear):
+    """A loaded component that records where it was put."""
+
+    def __init__(self):
+        super().__init__(4, 4)
+        self.placed_on = []
+
+    def to(self, *args, **kwargs):
+        self.placed_on.append(args[0] if args else kwargs.get("device"))
+        return self
+
+
+class TestFromPretrained:
+    @pytest.fixture
+    def hub(self, tmp_path):
+        hub = tmp_path / "hub"
+        make_snapshot(hub, subfolder="transformer")
+        return hub
+
+    @pytest.fixture(autouse=True)
+    def _fakes(self, monkeypatch):
+        monkeypatch.setattr(qc.shutil, "disk_usage", disk(1000, 900))
+        monkeypatch.setattr(sdnq, "save_sdnq_model", fake_save)
+
+    def arguments(self, hub, **extra):
+        return {
+            "subfolder": "transformer",
+            "torch_dtype": torch.bfloat16,
+            "cache_dir": str(hub),
+            "quantization_config": SDNQConfig(
+                weights_dtype="uint4",
+                quantization_device="cuda",
+                return_device="cuda",
+                use_quantized_matmul=True,
+            ),
+            **extra,
+        }
+
+    def load(self, hub, loader, **extra):
+        return qc.from_pretrained(
+            "transformer", nn.Linear, "org/name", self.arguments(hub, **extra), loader
+        )
+
+    def test_cache_off_is_a_plain_passthrough(self, hub, events, tmp_path):
+        fresh = nn.Linear(4, 4)
+        loader = MagicMock(return_value=fresh)
+        assert self.load(hub, loader) is fresh
+        loader.assert_called_once_with()
+        assert events == []
+        assert not (tmp_path / "cache").exists()
+
+    def test_a_load_no_sdnq_config_quantizes_is_untouched(self, hub, events, cache_on):
+        fresh = nn.Linear(4, 4)
+        loader = MagicMock(return_value=fresh)
+        arguments = self.arguments(hub)
+        del arguments["quantization_config"]
+        assert (
+            qc.from_pretrained("vae", nn.Linear, "org/name", arguments, loader) is fresh
+        )
+        assert events == []
+
+    def test_a_miss_loads_and_saves(self, hub, events, cache_on):
+        fresh = nn.Linear(4, 4)
+        loader = MagicMock(return_value=fresh)
+        assert self.load(hub, loader) is fresh
+        loader.assert_called_once_with()
+        assert results(events) == [("transformer", "miss"), ("transformer", "saved")]
+        assert events[0]["reason"] == qc.NO_ENTRY
+        assert events[0]["bytes"] == qc.component_nbytes(fresh)
+        assert events[1]["bytes"] == 100
+        (entry,) = [n for n in os.listdir(cache_on) if qc._KEY_PATTERN.match(n)]
+        stored = qc.read_entry(str(cache_on / entry))
+        assert stored["model_name"] == "org/name"
+        assert stored["subfolder"] == "transformer"
+        assert stored["commit"] == COMMIT
+        assert "return_device" not in stored["quantizer"]["arguments"]
+
+    def test_a_hit_skips_the_load_and_is_placed_on_return_device(
+        self, hub, events, cache_on, monkeypatch
+    ):
+        self.load(hub, MagicMock(return_value=nn.Linear(4, 4)))
+        events.clear()
+
+        cached = PlacedModule()
+        sdnq_load = MagicMock(return_value=cached)
+        monkeypatch.setattr(sdnq, "load_sdnq_model", sdnq_load)
+        loader = MagicMock()
+        assert self.load(hub, loader) is cached
+
+        loader.assert_not_called()
+        assert results(events) == [("transformer", "hit")]
+        assert events[0]["bytes"] == qc.component_nbytes(cached)
+        kwargs = sdnq_load.call_args.kwargs
+        assert kwargs["model_cls"] is nn.Linear
+        assert kwargs["dtype"] is torch.bfloat16
+        assert kwargs["device"] == "cuda"
+        assert kwargs["use_quantized_matmul"] is True
+        assert cached.placed_on == ["cuda"]
+
+    def test_a_different_weights_dtype_misses(self, hub, events, cache_on):
+        self.load(hub, MagicMock(return_value=nn.Linear(4, 4)))
+        events.clear()
+        arguments = self.arguments(hub)
+        arguments["quantization_config"] = SDNQConfig(weights_dtype="int8")
+        qc.from_pretrained(
+            "transformer", nn.Linear, "org/name", arguments, lambda: nn.Linear(4, 4)
+        )
+        assert results(events) == [("transformer", "miss"), ("transformer", "saved")]
+
+    def test_a_corrupt_entry_falls_back_to_a_fresh_load(
+        self, hub, events, cache_on, monkeypatch
+    ):
+        self.load(hub, MagicMock(return_value=nn.Linear(4, 4)))
+        events.clear()
+        monkeypatch.setattr(
+            sdnq, "load_sdnq_model", MagicMock(side_effect=ValueError("corrupt"))
+        )
+        fresh = nn.Linear(4, 4)
+        assert self.load(hub, MagicMock(return_value=fresh)) is fresh
+        assert results(events) == [("transformer", "miss"), ("transformer", "saved")]
+        assert events[0]["reason"].startswith(qc.LOAD_FAILED)
+
+    def test_a_resharded_refs_main_with_missing_shards_gives_no_lookup(
+        self, tmp_path, events, cache_on, monkeypatch
+    ):
+        # The LTX-2.5 re-shard: refs/main names a commit whose index lists
+        # shards that are not on disk
+        hub = tmp_path / "hub"
+        folder = make_snapshot(
+            hub, subfolder="transformer", files=("m-1-of-2.safetensors",)
+        )
+        index = {
+            "weight_map": {"a": "m-1-of-2.safetensors", "b": "m-2-of-2.safetensors"}
+        }
+        (folder / "diffusion_pytorch_model.safetensors.index.json").write_text(
+            json.dumps(index)
+        )
+        sdnq_load = MagicMock()
+        monkeypatch.setattr(sdnq, "load_sdnq_model", sdnq_load)
+        lookup = MagicMock(wraps=qc.load_entry)
+        monkeypatch.setattr(qc, "load_entry", lookup)
+        fresh = nn.Linear(4, 4)
+
+        assert self.load(hub, MagicMock(return_value=fresh)) is fresh
+
+        lookup.assert_not_called()
+        sdnq_load.assert_not_called()
+        assert results(events) == [
+            ("transformer", "miss"),
+            ("transformer", "skipped"),
+        ]
+        assert events[0]["reason"] == qc.INCOMPLETE_SNAPSHOT
+        assert events[1]["reason"] == qc.UNPINNED_SNAPSHOT
+        assert not cache_on.exists() or os.listdir(cache_on) == []
+
+    def test_a_local_path_is_skipped(self, tmp_path, events, cache_on):
+        fresh = nn.Linear(4, 4)
+        result = qc.from_pretrained(
+            "transformer",
+            nn.Linear,
+            str(tmp_path),
+            self.arguments(tmp_path),
+            lambda: fresh,
+        )
+        assert result is fresh
+        assert results(events) == [("transformer", "skipped")]
+        assert events[0]["reason"] == qc.LOCAL_PATH
+
+    def test_a_keyword_the_key_does_not_cover_is_skipped(self, hub, events, cache_on):
+        fresh = nn.Linear(4, 4)
+        loader = MagicMock(return_value=fresh)
+        assert self.load(hub, loader, ignore_mismatched_sizes=True) is fresh
+        loader.assert_called_once_with()
+        assert results(events) == [("transformer", "skipped")]
+        assert events[0]["reason"] == qc.UNSUPPORTED
+
+    def test_a_variant_is_skipped(self, hub, events, cache_on):
+        self.load(hub, lambda: nn.Linear(4, 4), variant="fp16")
+        assert results(events) == [("transformer", "skipped")]
+        assert events[0]["reason"] == qc.UNSUPPORTED
+
+
+class TestPerComponentCallSite:
+    """load_component, the path load_optional_component takes, end to end."""
+
+    def configuration(self, component_type):
+        return {"component_type": component_type, "preserve_device_placement": True}
+
+    def test_download_watch_is_used_on_a_miss_and_skipped_on_a_hit(self, cache_on):
+        from dw.pipeline_processors import components
+
+        component_type = MagicMock()
+        component_type.__name__ = "MockTransformer"
+        component_type.from_pretrained.return_value = nn.Linear(4, 4)
+        cached = nn.Linear(4, 4)
+        lookups = iter([(None, qc.NO_ENTRY), (cached, None)])
+
+        with (
+            patch.object(components.download_watch, "watch") as watch,
+            patch.object(qc, "_lookup", side_effect=lambda *a: next(lookups)),
+            patch.object(qc, "_save"),
+            patch.object(qc, "is_local_path", return_value=False),
+        ):
+            for _ in range(2):
+                components.load_component(
+                    "transformer",
+                    self.configuration(component_type),
+                    {
+                        "model_name": "org/name",
+                        "subfolder": "transformer",
+                        "quantization_config": SDNQConfig(weights_dtype="uint4"),
+                    },
+                    "cpu",
+                )
+
+        # the miss loaded under the watch, the hit reached neither
+        watch.assert_called_once()
+        assert watch.call_args.args == ("org/name",)
+        component_type.from_pretrained.assert_called_once()
+
+    def test_the_cache_off_loads_under_the_watch(self):
+        from dw.pipeline_processors import components
+
+        component_type = MagicMock()
+        component_type.__name__ = "MockTransformer"
+        with patch.object(components.download_watch, "watch") as watch:
+            components.load_component(
+                "transformer",
+                self.configuration(component_type),
+                {
+                    "model_name": "org/name",
+                    "quantization_config": SDNQConfig(weights_dtype="uint4"),
+                },
+                "cpu",
+            )
+        watch.assert_called_once()
+        component_type.from_pretrained.assert_called_once_with(
+            "org/name", quantization_config=ANY_CONFIG
+        )
+
+    def test_a_real_component_misses_saves_then_hits_with_the_same_output(
+        self, tmp_path, cache_on, events
+    ):
+        # A real diffusers model in a real hub-cache layout, quantized by sdnq
+        # on the first load and read back from the cache on the second
+        from diffusers.models import UNet2DModel
+
+        from dw.pipeline_processors import components
+
+        hub = tmp_path / "hub"
+        folder = make_snapshot(hub, subfolder="unet", files=(), config=False)
+        UNet2DModel(
+            sample_size=8,
+            in_channels=3,
+            out_channels=3,
+            block_out_channels=(32, 64),
+            layers_per_block=1,
+            down_block_types=("DownBlock2D", "AttnDownBlock2D"),
+            up_block_types=("AttnUpBlock2D", "UpBlock2D"),
+            norm_num_groups=8,
+            attention_head_dim=8,
+        ).save_pretrained(folder)
+
+        def load():
+            return components.load_component(
+                "unet",
+                {"component_type": UNet2DModel},
+                {
+                    "model_name": "org/name",
+                    "subfolder": "unet",
+                    "cache_dir": str(hub),
+                    "local_files_only": True,
+                    "torch_dtype": torch.float32,
+                    "quantization_config": SDNQConfig(
+                        weights_dtype="int8",
+                        quant_conv=True,
+                        minimum_allowed_numel=256,
+                        minimum_allowed_channel_size=8,
+                        return_device="cpu",
+                    ),
+                },
+                "cpu",
+            )
+
+        first = load()
+        assert results(events) == [("unet", "miss"), ("unet", "saved")]
+        events.clear()
+        with patch.object(UNet2DModel, "from_pretrained") as fresh:
+            second = load()
+        fresh.assert_not_called()
+        assert results(events) == [("unet", "hit")]
+        assert any(p.dtype == torch.int8 for p in second.state_dict().values())
+
+        sample = torch.randn(1, 3, 8, 8, generator=torch.Generator().manual_seed(0))
+        step = torch.tensor([1])
+        with torch.no_grad():
+            expected = first(sample, step).sample
+            actual = second(sample, step).sample
+        assert torch.allclose(expected, actual, atol=1e-4)
+
+
+class _AnyConfig:
+    def __eq__(self, other):
+        return qc.is_sdnq_config(other)
+
+
+ANY_CONFIG = _AnyConfig()

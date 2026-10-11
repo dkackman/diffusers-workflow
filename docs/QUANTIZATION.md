@@ -153,7 +153,7 @@ examples use for their large transformers and text encoders:
 
 ### Cached on-the-fly (`DW_QUANTIZED_CACHE`)
 
-An on-the-fly load reads the bf16 weights and quantizes them on every cold load. With `DW_QUANTIZED_CACHE=1` the server keeps the result: the first cold load saves each quantized component to disk with sdnq's `save_sdnq_model` (safetensors plus JSON, no pickle), and a later load of the same key reads it back with `load_sdnq_model`, skipping the bf16 read and the quantize. Any other value leaves it off, with no events. It covers a modular pipeline's `load_components` with a `sdnq.SDNQConfig` `quantization_config` per component.
+An on-the-fly load reads the bf16 weights and quantizes them on every cold load. With `DW_QUANTIZED_CACHE=1` the server keeps the result: the first cold load saves each quantized component to disk with sdnq's `save_sdnq_model` (safetensors plus JSON, no pickle), and a later load of the same key reads it back with `load_sdnq_model`, skipping the bf16 read and the quantize. Any other value leaves it off, with no events. It covers both ways a component is quantized with a `sdnq.SDNQConfig` `quantization_config`: a modular pipeline's `load_components`, one config per component (MiniMax H3), and a component loaded on its own through its class's `from_pretrained` (LTX-2.5's transformer and Gemma text encoder). A hit is placed on the config's `return_device` (LTX's transformer goes straight to `cuda`) and loads with no download.
 
 The variables are read by the server and inherited by its workers, so set them in the server's environment (e.g. `.env`) and restart.
 
@@ -164,7 +164,7 @@ The variables are read by the server and inherited by its workers, so set them i
   | Reason | When |
   | ------ | ---- |
   | `local_path` | the model is a local path |
-  | `unsupported` | a `variant`, no type hint, or a single-file checkpoint |
+  | `unsupported` | a `variant`, no type hint, a single-file checkpoint, or a per-component load with a `from_pretrained` argument the key doesn't cover |
   | `unpinned_snapshot` | the snapshot isn't complete on disk, or the recorded commit disagrees with the one the hub refs name - a save is only ever made under the commit an identical later lookup reads |
   | `low_disk` | the save would leave free space below `min(50 GiB, 10% of the volume)` |
   | `save_failed: <ENOSPC or exception type>` | the save failed |
@@ -174,7 +174,7 @@ The variables are read by the server and inherited by its workers, so set them i
 - **What a hit holds**: the whole component as quantized. The save comes before pruning (`truncate_layers`, `remove_modules`), `sdnq_optimize`, LoRAs and offload, which all still apply after a hit
 - **At server start** (only when on): a sweep deletes leftover `*.tmp-*` directories and entries built against other package versions or with an unreadable `entry.json`, and logs the count and bytes freed. It then logs the root, bytes in use and free space, warning when free space is below the floor plus the largest entry already cached
 - **Clearing**: there is no other eviction. `rm -rf "$DW_QUANTIZED_CACHE_DIR"`
-- **Event**: a `quantized_cache` job event, `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`. A `miss`'s `seconds` is the time of the whole `load_components` batch, shared by the components it loaded
+- **Event**: a `quantized_cache` job event, `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`. A `miss`'s `seconds` is the time of the whole `load_components` batch, shared by the components it loaded; on the per-component path it is that one component's load
 
 The cache never fails a job; one that can't help steps aside.
 
