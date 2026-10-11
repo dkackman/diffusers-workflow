@@ -298,8 +298,18 @@ def test_unknown_cache_names_the_known_ones(name):
 # ----------------------------------------------------------------- routes
 
 
-@pytest.fixture
-def api(env, tmp_path):
+@pytest.fixture(params=[None])
+def api(env, tmp_path, request, monkeypatch):
+    # No UI unless a test asks for one: with ui/dist built, its StaticFiles
+    # mount at / answers a path no route matches, so a route test would
+    # depend on whether this checkout has built the UI
+    ui_dir = request.param
+    if ui_dir is None:
+        monkeypatch.setattr("dw.server.app.default_ui_dir", lambda: None)
+    else:
+        ui_dir = tmp_path / ui_dir
+        ui_dir.mkdir()
+        (ui_dir / "index.html").write_text("<!doctype html>")
     workflow_dir = tmp_path / "workflows"
     workflow_dir.mkdir()
     prompt_dir = tmp_path / "prompts"
@@ -314,6 +324,7 @@ def api(env, tmp_path):
         output_dir=str(tmp_path / "outputs"),
         job_manager=manager,
         prompt_dir=str(prompt_dir),
+        ui_dir=str(ui_dir) if ui_dir else None,
     )
     with TestClient(app, base_url="http://localhost") as client:
         client.manager = manager
@@ -404,13 +415,19 @@ class TestCacheRoutes:
         assert "inductor" in response.json()["detail"]
         assert "triton" in response.json()["detail"]
 
-    def test_traversal_name_touches_nothing(self, api, tmp_path):
+    # The decoded name has a "/", so no cache route matches: without a UI
+    # nothing does (404); with one, the UI's StaticFiles mount at / takes the
+    # path and refuses a DELETE (405). Either way the handler never runs.
+    @pytest.mark.parametrize(
+        "api, status", [(None, 404), ("ui", 405)], indirect=["api"]
+    )
+    def test_traversal_name_touches_nothing(self, api, tmp_path, status):
         root, _ = marked_root(tmp_path)
         before_root = tree(root)
         before_parent = tree(tmp_path)
 
         response = api.delete("/api/caches/..%2Fx")
 
-        assert response.status_code == 404
+        assert response.status_code == status
         assert tree(root) == before_root
         assert tree(tmp_path) == before_parent
