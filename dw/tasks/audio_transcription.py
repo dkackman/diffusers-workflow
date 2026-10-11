@@ -23,6 +23,7 @@ from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
 from ..dsp import loudest_window_dbfs, resample_waveform
+from ..script_lines import looped_texts, normalize_words
 from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
 
@@ -72,7 +73,8 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
                 A chunk that is probably invented carries a `suspect` reason
-                ("silent" or "long"), marked and never dropped (#822).
+                ("no_words", "repetition", "silent" or "long"), marked and
+                never dropped (#822).
 
     Returns:
         Transcribed text string, or (with timestamps set) a
@@ -151,27 +153,39 @@ LONG_WORD_SECONDS = 2.0
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
 
-    Marked, never removed. "silent": the chunk's loudest window sits at or
-    below the dead-air floor script_check guards with
-    (`DEAD_AIR_FLOOR_DBFS`, measured by `dsp.loudest_window_dbfs`) -
-    Whisper invents text over silence, a fade-out's end credits included.
+    Marked, never removed. The first reason that holds wins:
+    "no_words": the text has no word at all ('—', '♪', '...').
+    "repetition": a word of a repetition loop ('I'm sorry, I'm sorry, ...'),
+    found by `script_lines.looped_texts`, the detector check_script discards
+    loops with - Whisper's hallucination over music or a fade, however loud.
+    "silent": the chunk's loudest window sits at or below the dead-air floor
+    script_check guards with (`DEAD_AIR_FLOOR_DBFS`, measured by
+    `dsp.loudest_window_dbfs`) - Whisper invents text over silence, a
+    fade-out's end credits included.
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
-    since a segment is a line and runs long by nature). Silent wins.
+    since a segment is a line and runs long by nature).
     """
+    looped = looped_texts([chunk["text"] for chunk in chunks])
     marked = []
-    for chunk in chunks:
+    for index, chunk in enumerate(chunks):
         if not chunk["text"]:
             marked.append(chunk)
             continue
-        level = loudest_window_dbfs(
-            mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"], DEAD_AIR_WINDOW
-        )
-        if level is None or level <= DEAD_AIR_FLOOR_DBFS:
-            marked.append({**chunk, "suspect": "silent"})
-        elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
-            marked.append({**chunk, "suspect": "long"})
+        if not normalize_words(chunk["text"]):
+            reason = "no_words"
+        elif index in looped:
+            reason = "repetition"
         else:
-            marked.append(chunk)
+            level = loudest_window_dbfs(
+                mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"], DEAD_AIR_WINDOW
+            )
+            if level is None or level <= DEAD_AIR_FLOOR_DBFS:
+                reason = "silent"
+            elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
+                reason = "long"
+            else:
+                reason = None
+        marked.append({**chunk, "suspect": reason} if reason else chunk)
     return marked
 
 

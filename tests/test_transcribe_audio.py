@@ -370,6 +370,52 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual([c.get("suspect") for c in result["chunks"]], ["long", None])
 
     @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_repetition_loop_is_marked_however_loud(self, mock_pipeline):
+        # #822 bounce: Whisper's "I'm sorry, I'm sorry, ..." over a fade on
+        # the vocal stem, loud enough to pass the floor
+        waveform, rate = self._voiced(seconds=8.0)
+        waveform[0, int(5.2 * rate) :] = 0.0  # no tail for a resumed pass
+        loop = [
+            {"text": f" {word}", "timestamp": (2.0 + i * 0.2, 2.2 + i * 0.2)}
+            for i, word in enumerate(["I'm", "sorry,"] * 8)
+        ]
+        self._mock_pipe(
+            mock_pipeline,
+            "Union I'm sorry",
+            chunks=[{"text": " Union", "timestamp": (0.5, 1.0)}] + loop,
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        marks = [c.get("suspect") for c in result["chunks"]]
+        self.assertEqual(marks, [None] + ["repetition"] * 16)
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_chunk_with_no_word_is_marked_no_words(self, mock_pipeline):
+        # #822 bounce: '—' chunks over the intro, where the vocal stem's
+        # leakage keeps the span above the floor
+        waveform, rate = self._voiced(seconds=6.0)
+        waveform[0, int(3.5 * rate) :] = 0.0  # no tail for a resumed pass
+        self._mock_pipe(
+            mock_pipeline,
+            "— — Union",
+            chunks=[
+                {"text": " —", "timestamp": (0.0, 0.36)},
+                {"text": " —", "timestamp": (1.0, 1.0)},
+                {"text": " Union", "timestamp": (3.0, 3.5)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        marks = [c.get("suspect") for c in result["chunks"]]
+        self.assertEqual(marks, ["no_words", "no_words", None])
+
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_long_segment_is_not_marked_long(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=6.0)
         self._mock_pipe(

@@ -50,6 +50,9 @@ from ..task_domains import check_arguments
 from ..locations import is_http_url
 from ..script_lines import (
     COMMAND,
+    REPEAT_MAX_PERIOD,
+    REPEAT_RUN_MIN,
+    looped_texts,
     normalize_words,
     parse_lines,
     parse_shots,
@@ -78,13 +81,8 @@ GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
 # finished into a quiet tail
 CLIP_TAIL_SECONDS = 0.25
-# A run of heard words that repeats with a period of at most
-# REPEAT_MAX_PERIOD words, REPEAT_RUN_MIN or more times over, is discarded
-# as a decoding loop - Whisper's hallucination over music or room tone
-# ('Pre-pre-pre-...', 'thank you thank you ...'), loud enough to pass the
-# energy guard. Speech repeats a word a few times; it does not loop
-REPEAT_RUN_MIN = 6
-REPEAT_MAX_PERIOD = 4
+# REPEAT_RUN_MIN and REPEAT_MAX_PERIOD, the repetition-loop guard, live in
+# dw/script_lines.py beside the detector, which transcribe_audio shares
 
 THRESHOLDS = {
     "similarity": DEFAULT_SIMILARITY,
@@ -197,25 +195,6 @@ def _round(value, places=3):
     return None if value is None else round(float(value), places)
 
 
-def repetition_loops(keys):
-    """The indices of `keys` (heard words) that sit in a repetition loop: a stretch that
-    repeats with a period of 1 to REPEAT_MAX_PERIOD and spans at least
-    REPEAT_RUN_MIN periods."""
-    looped = set()
-    for period in range(1, REPEAT_MAX_PERIOD + 1):
-        k = period
-        while k < len(keys):
-            if keys[k] != keys[k - period]:
-                k += 1
-                continue
-            first = k - period
-            while k < len(keys) and keys[k] == keys[k - period]:
-                k += 1
-            if k - first >= REPEAT_RUN_MIN * period:
-                looped.update(range(first, k))
-    return looped
-
-
 def guard_words(chunks, mono, sample_rate):
     """Split transcribe_audio's word chunks into (heard, discarded).
 
@@ -224,15 +203,14 @@ def guard_words(chunks, mono, sample_rate):
     [{text, start, end, level_dbfs, reason}] for a chunk in a repetition loop
     (`reason` "repetition") or at or below the floor ("below_floor").
     """
-    spoken, sequence, owner = [], [], []
+    spoken = []
     for chunk in chunks:
         words = normalize_words(chunk.get("text", ""))
         if words:
-            owner.extend([len(spoken)] * len(words))
-            sequence.extend(words)
             spoken.append((chunk, words))
-    # Over words, not chunks: one chunk can hold a whole loop ('Pre-pre-pre')
-    looped = {owner[k] for k in repetition_loops(sequence)}
+    # The loop detector is script_lines' (shared with transcribe_audio's
+    # `suspect: "repetition"`); a chunk with no word is in no loop
+    looped = looped_texts([chunk.get("text", "") for chunk, _ in spoken])
 
     heard, discarded = [], []
     for index, (chunk, words) in enumerate(spoken):
