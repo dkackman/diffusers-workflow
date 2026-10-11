@@ -84,6 +84,11 @@ LOW_DISK = "low_disk"
 UNSUPPORTED = "unsupported"
 ALREADY_SAVED = "already saved by another worker"
 
+# Reasons a `miss` event carries: why the load found nothing to read
+INCOMPLETE_SNAPSHOT = "incomplete_snapshot"
+NO_ENTRY = "no_entry"
+LOAD_FAILED = "load_failed"
+
 _KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TMP_MARKER = ".tmp-"
@@ -225,16 +230,23 @@ def snapshot_complete(model_name, commit, subfolder=None, cache_dir=None):
     huggingface_hub finds each file; which files a component needs (each
     shard in the index's `weight_map`, or the unvarianted single file) is
     dw's own rule."""
+    from huggingface_hub.file_download import repo_folder_name
+
     hub = _hub_cache_dir(cache_dir)
 
     def present(name):
         return _cached_file(model_name, _in_folder(subfolder, name), commit, hub)
 
     try:
+        # contained in the repo's own folder, symlinks resolved: a repo
+        # folder linked out to another disk keeps its blobs beside it
+        repo = os.path.join(
+            hub, repo_folder_name(repo_id=str(model_name), repo_type="model")
+        )
         config = present("config.json")
         if config is None:
             return False
-        names = os.listdir(validate_path(os.path.dirname(config), hub))
+        names = os.listdir(validate_path(os.path.dirname(config), repo))
         indexes = [
             n for n in names if _is_unvarianted_weights(n, ".safetensors.index.json")
         ]
@@ -243,7 +255,7 @@ def snapshot_complete(model_name, commit, subfolder=None, cache_dir=None):
                 index_path = present(index)
                 if index_path is None:
                     return False
-                with open(validate_path(index_path, hub)) as f:
+                with open(validate_path(index_path, repo)) as f:
                     weight_map = json.load(f).get("weight_map", {})
                 if any(present(shard) is None for shard in set(weight_map.values())):
                     return False
@@ -278,19 +290,16 @@ def recorded_commit(component):
 
 def save_commit(component, model_name, subfolder=None, revision=None, cache_dir=None):
     """The commit to save a just-loaded component under, or None when no one
-    snapshot can be named: the recorded commit wins, but not over a hub cache
-    that now points elsewhere; without one, the snapshot must be complete."""
-    recorded = recorded_commit(component)
-    resolved = resolve_commit(model_name, revision, cache_dir, subfolder)
-    if recorded is not None:
-        if resolved is not None and resolved != recorded:
-            return None
-        return recorded
-    if resolved is None or not snapshot_complete(
-        model_name, resolved, subfolder, cache_dir
-    ):
+    snapshot can be named. It is the commit the same load's lookup would
+    name, so nothing is written that no later lookup reads; a recorded
+    commit that disagrees with it means the hub cache moved under the load."""
+    commit = lookup_commit(model_name, subfolder, revision, cache_dir)
+    if commit is None:
         return None
-    return resolved
+    recorded = recorded_commit(component)
+    if recorded is not None and recorded != commit:
+        return None
+    return commit
 
 
 # --- entries ----------------------------------------------------------------
@@ -344,13 +353,14 @@ def floor_bytes(total):
 
 def load_entry(root, key, model_cls, torch_dtype, device, config_arguments):
     """Load a hit, placed on `device`. None on a miss. An entry that fails to
-    load is deleted, so the fresh quantize that follows can replace it."""
+    load is deleted, so the fresh quantize that follows can replace it, and
+    the error is raised on for the miss to name."""
     path = entry_path(root, key)
     if not os.path.isdir(path):
         return None
-    from sdnq import load_sdnq_model
-
     try:
+        from sdnq import load_sdnq_model
+
         component = load_sdnq_model(
             path,
             model_cls=model_cls,
@@ -366,7 +376,7 @@ def load_entry(root, key, model_cls, torch_dtype, device, config_arguments):
             "- deleting it and quantizing fresh"
         )
         shutil.rmtree(path, ignore_errors=True)
-        return None
+        raise
     try:
         entry = read_entry(path)
         entry["last_hit"] = time.time()
@@ -636,7 +646,7 @@ def load_components(pipeline, arguments):
         if commit is None:
             # Not all on disk - the load downloads it, and the save after
             # resolves the snapshot it ended up reading
-            misses.append(candidate)
+            misses.append((candidate, INCOMPLETE_SNAPSHOT))
             continue
         key = cache_key(candidate.inputs(commit))
         started = time.monotonic()
@@ -651,9 +661,10 @@ def load_components(pipeline, arguments):
             )
         except Exception as e:
             logger.warning(f"Quantized cache: lookup of {candidate.name} failed: {e}")
-            component = None
+            misses.append((candidate, f"{LOAD_FAILED}: {_error_name(e)}"))
+            continue
         if component is None:
-            misses.append(candidate)
+            misses.append((candidate, NO_ENTRY))
             continue
         if candidate.load_id is not None:
             # Keeps the spec update_components() would otherwise reset
@@ -680,10 +691,10 @@ def load_components(pipeline, arguments):
     pipeline.load_components(**arguments)
     seconds = time.monotonic() - started
 
-    for candidate in misses:
+    for candidate, reason in misses:
         component = getattr(pipeline, candidate.name, None)
         nbytes = _safe_nbytes(component) if component is not None else None
-        emit(candidate.name, "miss", seconds=seconds, nbytes=nbytes)
+        emit(candidate.name, "miss", reason=reason, seconds=seconds, nbytes=nbytes)
         if component is None:
             continue
         _save(root, candidate, component)

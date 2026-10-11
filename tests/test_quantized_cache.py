@@ -261,6 +261,38 @@ class TestSnapshot:
         (tmp_path / "models--org--name" / "refs" / "main").write_text("garbage")
         assert qc.resolve_commit("org/name", None, tmp_path) is None
 
+    def test_repo_folder_linked_to_another_disk(self, tmp_path):
+        # a big repo moved off the hub's volume and symlinked back in
+        other = tmp_path / "other"
+        folder = make_snapshot(other, subfolder="transformer", files=())
+        index = {"weight_map": {"x": "a-1.safetensors", "y": "a-2.safetensors"}}
+        (folder / "diffusion_pytorch_model.safetensors.index.json").write_text(
+            json.dumps(index)
+        )
+        for shard in ("a-1.safetensors", "a-2.safetensors"):
+            (folder / shard).write_bytes(b"w")
+        hub = tmp_path / "hub"
+        hub.mkdir()
+        name = repo_folder_name(repo_id="org/name", repo_type="model")
+        os.symlink(other / name, hub / name)
+        assert qc.lookup_commit("org/name", "transformer", None, hub) == COMMIT
+        assert (
+            qc.save_commit(nn.Linear(1, 1), "org/name", "transformer", cache_dir=hub)
+            == COMMIT
+        )
+
+    def test_hub_root_linked_to_another_disk(self, tmp_path):
+        make_snapshot(tmp_path / "real", subfolder="vae")
+        os.symlink(tmp_path / "real", tmp_path / "hub")
+        assert qc.lookup_commit("org/name", "vae", None, tmp_path / "hub") == COMMIT
+
+    def test_blob_outside_the_repo_folder_is_not_complete(self, tmp_path):
+        folder = make_snapshot(tmp_path / "hub", files=())
+        blob = tmp_path / "elsewhere.json"
+        blob.write_text(json.dumps({"weight_map": {}}))
+        os.symlink(blob, folder / "model.safetensors.index.json")
+        assert qc.lookup_commit("org/name", None, None, tmp_path / "hub") is None
+
     def test_hub_cache_defaults_to_the_hub_constant(self, tmp_path, monkeypatch):
         from huggingface_hub import constants
 
@@ -287,13 +319,31 @@ class TestSaveCommit:
             == COMMIT
         )
 
-    def test_recorded_with_no_ref_is_used(self, tmp_path):
+    def test_recorded_with_no_ref_is_unpinned(self, tmp_path):
+        # no lookup could name it, so a save under it is never read
         assert (
-            qc.save_commit(self.loaded(COMMIT), "org/name", cache_dir=tmp_path)
-            == COMMIT
+            qc.save_commit(self.loaded(COMMIT), "org/name", cache_dir=tmp_path) is None
         )
 
+    def test_recorded_over_an_incomplete_snapshot_is_unpinned(self, tmp_path):
+        make_snapshot(tmp_path, files=())
+        assert (
+            qc.save_commit(self.loaded(COMMIT), "org/name", cache_dir=tmp_path) is None
+        )
+
+    @pytest.mark.parametrize("recorded", [True, False])
+    @pytest.mark.parametrize("complete", [True, False])
+    def test_a_save_is_always_one_a_lookup_reads(self, tmp_path, recorded, complete):
+        make_snapshot(
+            tmp_path, subfolder="vae", files=("model.safetensors",) if complete else ()
+        )
+        component = self.loaded(COMMIT) if recorded else nn.Linear(1, 1)
+        saved = qc.save_commit(component, "org/name", "vae", cache_dir=tmp_path)
+        looked_up = qc.lookup_commit("org/name", "vae", None, tmp_path)
+        assert saved is None or saved == looked_up
+
     def test_recorded_in_a_dict_config(self, tmp_path):
+        make_snapshot(tmp_path)
         component = SimpleNamespace(config={"_commit_hash": COMMIT})
         assert qc.save_commit(component, "org/name", cache_dir=tmp_path) == COMMIT
 
@@ -484,7 +534,8 @@ class TestLoadEntry:
         monkeypatch.setattr(
             sdnq, "load_sdnq_model", MagicMock(side_effect=ValueError("corrupt"))
         )
-        assert qc.load_entry(str(tmp_path), KEY, nn.Linear, None, "cpu", {}) is None
+        with pytest.raises(ValueError):
+            qc.load_entry(str(tmp_path), KEY, nn.Linear, None, "cpu", {})
         assert not (tmp_path / KEY).exists()
 
     def test_hit_passes_arguments_and_records_last_hit(self, tmp_path, monkeypatch):
@@ -775,7 +826,52 @@ class TestLoadComponents:
             ("vae", "miss"),
             ("text_encoder", "miss"),
         }
-        assert ("vae", "saved") in results(events)
+        misses = [e for e in events if e["result"] == "miss"]
+        assert {e["reason"] for e in misses} == {"load_failed: OSError"}
+        # the bad entry went, so the save is a fresh one, not a lost race
+        saved = [e for e in events if e["result"] == "saved"]
+        assert saved and all("reason" not in e for e in saved)
+
+    def test_a_miss_names_why_nothing_was_read(self, tmp_path, events, cache_on):
+        hub = tmp_path / "hub"
+        make_snapshot(hub, subfolder="vae")
+        make_snapshot(hub, subfolder="text_encoder", files=())
+        qc.load_components(self.pipeline(), self.arguments(hub))
+        reasons = {
+            e["component"]: e.get("reason") for e in events if e["result"] == "miss"
+        }
+        assert reasons == {"vae": "no_entry", "text_encoder": "incomplete_snapshot"}
+        assert ("text_encoder", "skipped") in results(events)
+
+    def test_a_repo_linked_off_the_hub_hits_on_the_second_load(
+        self, tmp_path, events, cache_on, monkeypatch
+    ):
+        # the bounce: run 1 saved under the recorded commit, and run 2's
+        # lookup, refused by the containment check, never read it
+        other = tmp_path / "other"
+        for sub in ("vae", "text_encoder"):
+            make_snapshot(other, subfolder=sub)
+        hub = tmp_path / "hub"
+        hub.mkdir()
+        name = repo_folder_name(repo_id="org/name", repo_type="model")
+        os.symlink(other / name, hub / name)
+
+        class Recording(FakePipeline):
+            def load_components(self, names=None, **kwargs):
+                super().load_components(names=names, **kwargs)
+                for name in self.loaded:
+                    getattr(self, name).config = SimpleNamespace(_commit_hash=COMMIT)
+
+        specs = [make_spec("vae"), make_spec("text_encoder")]
+        qc.load_components(Recording(specs), self.arguments(hub))
+        assert [r for r in results(events) if r[1] == "saved"] == [
+            ("vae", "saved"),
+            ("text_encoder", "saved"),
+        ]
+        events.clear()
+        monkeypatch.setattr(sdnq, "load_sdnq_model", lambda *a, **k: nn.Linear(4, 4))
+        qc.load_components(Recording(specs), self.arguments(hub))
+        assert results(events) == [("vae", "hit"), ("text_encoder", "hit")]
 
     def test_a_different_config_is_a_different_entry(
         self, hub, events, cache_on, monkeypatch
