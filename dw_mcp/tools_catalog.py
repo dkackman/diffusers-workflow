@@ -226,7 +226,8 @@ class CatalogTools:
         workspace. `trust_workflows` reports the posture a submitted
         workflow is read under: false - the default - means the file is
         untrusted input, so an out-of-ecosystem import, remote code, and a
-        media location outside the workspace's roots are all refused."""
+        media location outside the workspace's roots are all refused.
+        `caches` sizes dw's disk caches (cleared from the server page)."""
         return workspaces.server_info(self.client)
 
     def list_jobs(

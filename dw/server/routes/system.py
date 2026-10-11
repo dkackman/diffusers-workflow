@@ -20,6 +20,8 @@ from ..api_models import (
     PipelineNames,
     TaskList,
     DiffusersStatus,
+    DiskCacheCleared,
+    DiskCacheList,
     HealthInfo,
     MemoryCleared,
     MemoryStatus,
@@ -29,6 +31,7 @@ from ..api_models import (
     ModelDownloads,
     ServerInfo,
 )
+from ... import disk_caches
 from ...hub_cache import delete_model, scan_models
 from ...introspection import (
     describe_class,
@@ -253,6 +256,46 @@ def delete_cached_model(request: Request, repo: str):
         raise HTTPException(status_code=404, detail=str(e))
     logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
     return {"repo_id": repo, "deleted": True, "freed": freed}
+
+
+# ------------------------------------------------------ dw's disk caches
+
+
+@router.get(
+    "/api/caches", response_model=DiskCacheList, response_model_exclude_unset=True
+)
+def list_caches():
+    """dw's own disk caches (dw/disk_caches.py): each one's root, size, and
+    whether it can be cleared from here."""
+    return {"caches": disk_caches.scan_all()}
+
+
+@router.delete(
+    "/api/caches/{name}",
+    response_model=DiskCacheCleared,
+    response_model_exclude_unset=True,
+)
+def clear_cache(request: Request, name: str):
+    """Empty one cache's root, keeping the root and its marker.
+
+    Refused while a job is running or queued: a compile or autotune in
+    progress writes into the root, and a clear mid-write could leave a
+    truncated artifact a later lookup trusts."""
+    try:
+        disk_caches.get(name)
+    except disk_caches.UnknownCache as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    if request.app.state.job_manager.is_busy():
+        raise HTTPException(
+            status_code=409,
+            detail="A job is running or queued - clearing a cache it may be "
+            "writing would leave it a truncated artifact",
+        )
+    try:
+        result = disk_caches.clear(name)
+    except disk_caches.NotClearable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "cleared": True, **result}
 
 
 # ------------------------------------------------------ diffusers update

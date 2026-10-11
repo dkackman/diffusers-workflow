@@ -195,4 +195,30 @@ def server_info(client):
     # every request), so its directories are already this workspace's
     info = catalog.get_server_info(client)
     info["workspace"] = client.workspace
+    caches = _cache_sizes(client)
+    if caches is not None:
+        info["caches"] = caches
     return info
+
+
+# What get_server_info carries of each cache: enough to see what dw's disk use
+# is. The root, cost and last-used time stay in GET /api/caches, for the page
+# that clears them
+_CACHE_FIELDS = ("name", "bytes", "files", "enabled", "clearable", "disk_free")
+
+
+def _cache_sizes(client):
+    """dw's disk caches (#828), or None from a server without /api/caches -
+    the rest of get_server_info doesn't depend on them."""
+    try:
+        listing = client.get_json("/api/caches")
+    except DwApiError:
+        return None
+    caches = listing.get("caches") if isinstance(listing, dict) else None
+    if not isinstance(caches, list):
+        return None
+    return [
+        {field: cache.get(field) for field in _CACHE_FIELDS}
+        for cache in caches
+        if isinstance(cache, dict)
+    ]

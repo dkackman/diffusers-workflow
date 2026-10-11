@@ -255,6 +255,33 @@ class ModelDeleted(ApiModel):
     freed: int = Field(description="Bytes freed.")
 
 
+class DiskCacheInfo(ApiModel):
+    name: str
+    root: str
+    enabled: bool
+    bytes: int
+    files: int
+    last_used: float | None = Field(
+        description="The newest file's mtime (epoch seconds); null when empty."
+    )
+    clearable: bool
+    not_clearable_reason: str | None = None
+    cost_of_clearing: str
+    disk_free: int | None
+    disk_total: int | None
+
+
+class DiskCacheList(ApiModel):
+    caches: list[DiskCacheInfo]
+
+
+class DiskCacheCleared(ApiModel):
+    name: str
+    cleared: bool
+    freed: int = Field(description="Bytes freed.")
+    files: int
+
+
 class DiffusersInstall(ApiModel):
     version: str | None
     commit: str | None = Field(description="The git commit, for a git install.")

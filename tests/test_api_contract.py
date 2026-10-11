@@ -153,6 +153,8 @@ UI_READ_ROUTES = [
     ("get", "/api/models/downloads"),
     ("post", "/api/models/downloads/{download_id}/cancel"),
     ("delete", "/api/models"),
+    ("get", "/api/caches"),
+    ("delete", "/api/caches/{name}"),
     ("get", "/api/system/diffusers"),
     ("post", "/api/system/diffusers/update"),
     ("get", "/api/jobs"),

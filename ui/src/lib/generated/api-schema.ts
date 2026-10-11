@@ -124,6 +124,51 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/caches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Caches
+         * @description dw's own disk caches (dw/disk_caches.py): each one's root, size, and
+         *     whether it can be cleared from here.
+         */
+        get: operations["list_caches_api_caches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/caches/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear Cache
+         * @description Empty one cache's root, keeping the root and its marker.
+         *
+         *     Refused while a job is running or queued: a compile or autotune in
+         *     progress writes into the root, and a clear mid-write could leave a
+         *     truncated artifact a later lookup trusts.
+         */
+        delete: operations["clear_cache_api_caches__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classes": {
         parameters: {
             query?: never;
@@ -1872,6 +1917,53 @@ export interface components {
             /** Version */
             version: string | null;
         };
+        /** DiskCacheCleared */
+        DiskCacheCleared: {
+            /** Cleared */
+            cleared: boolean;
+            /** Files */
+            files: number;
+            /**
+             * Freed
+             * @description Bytes freed.
+             */
+            freed: number;
+            /** Name */
+            name: string;
+        };
+        /** DiskCacheInfo */
+        DiskCacheInfo: {
+            /** Bytes */
+            bytes: number;
+            /** Clearable */
+            clearable: boolean;
+            /** Cost Of Clearing */
+            cost_of_clearing: string;
+            /** Disk Free */
+            disk_free: number | null;
+            /** Disk Total */
+            disk_total: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /** Files */
+            files: number;
+            /**
+             * Last Used
+             * @description The newest file's mtime (epoch seconds); null when empty.
+             */
+            last_used: number | null;
+            /** Name */
+            name: string;
+            /** Not Clearable Reason */
+            not_clearable_reason?: string | null;
+            /** Root */
+            root: string;
+        };
+        /** DiskCacheList */
+        DiskCacheList: {
+            /** Caches */
+            caches: components["schemas"]["DiskCacheInfo"][];
+        };
         /** DiskUsage */
         DiskUsage: {
             /** Bytes */
@@ -3482,6 +3574,57 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["AssetDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_caches_api_caches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheList"];
+                };
+            };
+        };
+    };
+    clear_cache_api_caches__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheCleared"];
                 };
             };
             /** @description Validation Error */

@@ -245,13 +245,15 @@ class TestServerInfo:
                         },
                     },
                 )
+            if request.url.path == "/api/caches":
+                return httpx.Response(200, json={"caches": []})
             raise AssertionError(f"unexpected request {request.url.path}")
 
         client = DwClient(transport=httpx.MockTransport(handler))
         client.workspace = "shots"
         result = server_info(client)
 
-        assert seen == [("/api/server", "shots")]
+        assert seen == [("/api/server", "shots"), ("/api/caches", "shots")]
         assert result["workspace"] == "shots"
         assert result["directories"]["workflows"] == "/studio/shots/workflows"
         assert result["directories"]["prompts"] == "/home/user/prompts"
