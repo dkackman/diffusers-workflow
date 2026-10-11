@@ -629,6 +629,26 @@ The editor's forms come from these; they are just as usable from scripts:
   so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
+- `GET /api/caches`, `DELETE /api/caches/{name}` - dw's disk caches of derived
+  data (not the hub cache above): `inductor` (`torch.compile`'s kernels) and
+  `triton` (Triton's own cache, which holds SDNQ's `triton.jit`/autotune
+  kernels and is shared with any other Triton user on the machine). The GET
+  answers `{"caches": [...]}`, each with `name`, `root`, `enabled` (`triton`
+  is false where it is not installed, as on a Mac), `bytes`, `files`,
+  `last_used` (newest mtime, epoch seconds), `clearable`,
+  `not_clearable_reason` (only when not clearable), `cost_of_clearing`,
+  `disk_free` and `disk_total`. The DELETE answers
+  `{"name", "cleared": true, "freed", "files"}`; 404 for an unknown name (the
+  detail names the valid ones), 409 while a job is running or queued, 400
+  when the root is not clearable. It empties the root but keeps the root and
+  its `.dw-cache` marker: children are renamed into
+  `<root>/.clearing-<pid>-<rand>/`, then deleted. Clearing costs a recompile
+  or re-autotune on the next first step of each shape (100-300 s per shape on
+  MiniMax-H3 for `triton`). A populated root that an environment variable
+  points away from its default has no marker and is not clearable until you
+  create the `.dw-cache` file in it by hand (read per request, no restart);
+  see [SECURITY.md](SECURITY.md#disk-caches). Behind the bearer token like
+  every `/api/*` route
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress

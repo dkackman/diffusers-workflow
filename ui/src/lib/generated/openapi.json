@@ -571,6 +571,145 @@
         "title": "DiffusersStatus",
         "type": "object"
       },
+      "DiskCacheCleared": {
+        "additionalProperties": false,
+        "properties": {
+          "cleared": {
+            "title": "Cleared",
+            "type": "boolean"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "freed": {
+            "description": "Bytes freed.",
+            "title": "Freed",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "cleared",
+          "freed",
+          "files"
+        ],
+        "title": "DiskCacheCleared",
+        "type": "object"
+      },
+      "DiskCacheInfo": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "clearable": {
+            "title": "Clearable",
+            "type": "boolean"
+          },
+          "cost_of_clearing": {
+            "title": "Cost Of Clearing",
+            "type": "string"
+          },
+          "disk_free": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Free"
+          },
+          "disk_total": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Disk Total"
+          },
+          "enabled": {
+            "title": "Enabled",
+            "type": "boolean"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "last_used": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The newest file's mtime (epoch seconds); null when empty.",
+            "title": "Last Used"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "not_clearable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Clearable Reason"
+          },
+          "root": {
+            "title": "Root",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "root",
+          "enabled",
+          "bytes",
+          "files",
+          "last_used",
+          "clearable",
+          "cost_of_clearing",
+          "disk_free",
+          "disk_total"
+        ],
+        "title": "DiskCacheInfo",
+        "type": "object"
+      },
+      "DiskCacheList": {
+        "additionalProperties": false,
+        "properties": {
+          "caches": {
+            "items": {
+              "$ref": "#/components/schemas/DiskCacheInfo"
+            },
+            "title": "Caches",
+            "type": "array"
+          }
+        },
+        "required": [
+          "caches"
+        ],
+        "title": "DiskCacheList",
+        "type": "object"
+      },
       "DiskUsage": {
         "additionalProperties": false,
         "properties": {
@@ -4655,6 +4794,65 @@
           }
         },
         "summary": "Delete Asset"
+      }
+    },
+    "/api/caches": {
+      "get": {
+        "description": "dw's own disk caches (dw/disk_caches.py): each one's root, size, and\nwhether it can be cleared from here.",
+        "operationId": "list_caches_api_caches_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiskCacheList"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Caches"
+      }
+    },
+    "/api/caches/{name}": {
+      "delete": {
+        "description": "Empty one cache's root, keeping the root and its marker.\n\nRefused while a job is running or queued: a compile or autotune in\nprogress writes into the root, and a clear mid-write could leave a\ntruncated artifact a later lookup trusts.",
+        "operationId": "clear_cache_api_caches__name__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiskCacheCleared"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Clear Cache"
       }
     },
     "/api/classes": {

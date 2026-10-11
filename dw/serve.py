@@ -334,6 +334,12 @@ def run(config):
 
     configure_at_startup()
 
+    # Mark the cache roots dw may clear (dw/disk_caches.py) before a worker
+    # starts writing into a missing one
+    from .disk_caches import mark_roots
+
+    mark_roots()
+
     from .server.app import create_app
 
     from .server.app import default_ui_dir
