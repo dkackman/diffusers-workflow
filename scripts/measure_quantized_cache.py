@@ -206,23 +206,32 @@ def source_dir(spec):
     from huggingface_hub import snapshot_download
 
     prefix = f"{spec.subfolder}/" if spec.subfolder else ""
-    # only what a load reads: the weights, the config and the shard index
-    patterns = [
-        f"{prefix}*.safetensors",
-        f"{prefix}config.json",
-        f"{prefix}*.index.json",
-    ]
+    # only what a load reads: the config, the shard index, and the shards the
+    # index names - a folder can hold more than one shard set (LTX-2.5's
+    # transformer/ kept its 8-shard files after going back to 4), and asking
+    # for every *.safetensors under local_files_only demands the unused set
     snapshot = snapshot_download(
-        spec.repo, allow_patterns=patterns, local_files_only=True
+        spec.repo,
+        allow_patterns=[f"{prefix}config.json", f"{prefix}*.index.json"],
+        local_files_only=True,
     )
     path = Path(snapshot) / spec.subfolder
+    indexes = sorted(path.glob("*.index.json"))
+    if indexes:
+        with open(indexes[0]) as f:
+            shards = sorted(set(json.load(f)["weight_map"].values()))
+        weights = [f"{prefix}{name}" for name in shards]
+    else:
+        weights = [f"{prefix}*.safetensors"]
+    snapshot_download(spec.repo, allow_patterns=weights, local_files_only=True)
     if not any(path.glob("*.safetensors")):
         raise RuntimeError(f"no safetensors under {path}: download {spec.repo} first")
     return path
 
 
 def files_under(path):
-    # resolve() follows the HF cache's snapshot symlinks to the blobs
+    # resolve() follows the HF cache's snapshot symlinks to the blobs; a shard
+    # set the index does not name was never downloaded and is not a file here
     return [p.resolve() for p in sorted(Path(path).rglob("*")) if p.is_file()]
 
 
