@@ -7,17 +7,31 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
-### Workflow speed
+### 0.11.1
 
-- The unquantized FLUX templates stream the transformer block by block from
-  pinned host memory (`group_offload`) instead of `offload: "sequential"`:
-  the same per-step cost as a resident model, 6x faster than before, with
-  6 GB of VRAM to spare at 1024x1024 - and it holds ~22 GB of pinned host RAM
-  per loaded FLUX pipeline. Z-Image Turbo takes `offload: "model"` (3.4x).
-  Measurements in docs/RECIPES_24GB.md.
+<!-- Drafted from v0.11.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.11.1 --notes-file ... -->
+
+A speed release. The unquantized FLUX templates run about 3.5x faster on
+a 24 GB card, Z-Image Turbo about 2.6x, a LoRA scale or scheduler shift
+change no longer reloads the model, and switching workflows keeps the
+models the next one shares. Every number below was measured on an RTX 3090;
+the placement tables are in docs/RECIPES_24GB.md.
+
+**Workflow speed**
+
+- The 14 unquantized FLUX templates and `models/flux-krea` stream the
+  transformer block by block from pinned host memory (`group_offload`)
+  instead of `offload: "sequential"`: a 25-step 1024x1024 image takes 78 s
+  instead of 273 s (1.5 s/step against 10.8), with 6 GB of VRAM to spare -
+  enough for the 4-image batches `offload: "model"` runs out of memory on.
+  It holds ~22 GB of pinned host RAM per loaded FLUX pipeline.
+- Z-Image Turbo (`models/z-image` and the MiniMax portrait steps) takes
+  `offload: "model"`: four 960x544 images in 41 s instead of 107 s.
 - The four MiniMax-H3 family baselines expose `attention_backend` (null by
-  default; `sage_hub` measured about 30% faster per step on a 3090). LTX-2.5
-  cannot use sage attention (its attention mask is refused).
+  default; `sage_hub` measured about 30% faster per step on a 3090; it needs
+  the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, see
+  docs/ACCELERATION.md). LTX-2.5 cannot use sage attention (its attention
+  mask is refused).
 - A LoRA `scale`/`alpha` change or a scheduler `shift` change re-applies on
   the warm pipeline instead of reloading it. Removing an alpha or shift still
   reloads, and a `pipeline_reference` runs at the referenced step's own values.
