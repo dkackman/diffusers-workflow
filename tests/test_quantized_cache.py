@@ -953,6 +953,38 @@ class TestLoadComponents:
         pipeline.load_components.assert_called_once()
         assert events == []
 
+    def test_a_load_that_writes_into_its_config_still_hits_next_time(
+        self, hub, events, cache_on, monkeypatch
+    ):
+        # sdnq appends the modules it left unquantized to the config's own
+        # modules_to_not_convert as it loads, and which ones can vary by
+        # card: the key must be the config as the workflow gave it
+        class WritingPipeline(FakePipeline):
+            def __init__(self, specs, card):
+                super().__init__(specs)
+                self.card = card
+
+            def load_components(self, **kwargs):
+                config = kwargs["quantization_config"]
+                config.modules_to_not_convert.append(f"skipped_on_{self.card}")
+                super().load_components(**kwargs)
+
+        def load(card):
+            pipeline = WritingPipeline([make_spec("vae")], card)
+            qc.load_components(pipeline, self.arguments(hub))
+            return pipeline
+
+        monkeypatch.setattr(sdnq, "load_sdnq_model", lambda *a, **k: nn.Linear(4, 4))
+        load("cuda:0")
+        assert results(events) == [("vae", "miss"), ("vae", "saved")]
+        events.clear()
+
+        pipeline = load("cuda:1")
+        assert results(events) == [("vae", "hit")]
+        assert pipeline.loaded == []
+        entries = [n for n in os.listdir(cache_on) if qc._KEY_PATTERN.match(n)]
+        assert len(entries) == 1
+
     def test_a_failing_save_never_fails_the_load(
         self, hub, events, cache_on, monkeypatch
     ):
@@ -1001,12 +1033,17 @@ class TestRealRoundTrip:
             qc.quantizer_arguments(config),
             torch.float32,
         )
-        arguments = config.to_dict()
+        arguments = qc.config_snapshot(config)
         quantized = UNet2DModel.from_pretrained(
             source, quantization_config=config, torch_dtype=torch.float32
         )
         # the quantizer really ran: something is stored as int8
         assert any(p.dtype == torch.int8 for p in quantized.state_dict().values())
+        # and it wrote into the config it was given, which the key read
+        # before the load does not see
+        assert config.modules_to_not_convert
+        assert inputs["quantizer"]["arguments"]["modules_to_not_convert"] == []
+        assert qc.quantizer_arguments(config) != inputs["quantizer"]
 
         root = str(tmp_path / "cache")
         key = qc.cache_key(inputs)
