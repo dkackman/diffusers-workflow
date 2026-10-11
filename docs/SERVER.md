@@ -187,7 +187,11 @@ all-or-nothing. See [Workspaces](WORKSPACES.md#several-workspaces-on-one-server)
 The sidebar lists every workspace, and `+ new` there creates one; a
 workspace's own Overview page is where it is deleted. Server → Status shows
 the resolved directories and the `claude mcp add` line for connecting an
-agent from another machine, plus the queue across every workspace:
+agent from another machine, plus the queue across every workspace. Its
+Caches panel lists dw's disk caches (`GET /api/caches`: size, files, last
+used, the volume's free space) with a Clear button per cache that asks first,
+quoting what clearing costs, and shows the server's refusal when a job is
+running:
 
 ![The Server page before the sidebar: address picker, generated claude mcp add line, resolved directories — the workspace list it shows now lives in the sidebar](img/ui-server-dark.png)
 
@@ -647,8 +651,8 @@ The editor's forms come from these; they are just as usable from scripts:
   MiniMax-H3 for `triton`). A populated root that an environment variable
   points away from its default has no marker and is not clearable until you
   create the `.dw-cache` file in it by hand (read per request, no restart);
-  see [SECURITY.md](SECURITY.md#disk-caches). Behind the bearer token like
-  every `/api/*` route
+  see [SECURITY.md](SECURITY.md#disk-caches). The Server page's Caches panel
+  drives both. Behind the bearer token like every `/api/*` route
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress
