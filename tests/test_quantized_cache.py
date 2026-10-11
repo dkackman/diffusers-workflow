@@ -858,7 +858,7 @@ class TestLoadComponents:
             ("text_encoder", "miss"),
         }
         misses = [e for e in events if e["result"] == "miss"]
-        assert {e["reason"] for e in misses} == {"load_failed: OSError"}
+        assert {e["reason"] for e in misses} == {"load_failed: OSError: bad"}
         # the bad entry went, so the save is a fresh one, not a lost race
         saved = [e for e in events if e["result"] == "saved"]
         assert saved and all("reason" not in e for e in saved)
@@ -1311,7 +1311,7 @@ class TestFromPretrained:
         fresh = nn.Linear(4, 4)
         assert self.load(hub, MagicMock(return_value=fresh)) is fresh
         assert results(events) == [("transformer", "miss"), ("transformer", "saved")]
-        assert events[0]["reason"].startswith(qc.LOAD_FAILED)
+        assert events[0]["reason"] == f"{qc.LOAD_FAILED}: ValueError: corrupt"
 
     def test_a_resharded_refs_main_with_missing_shards_gives_no_lookup(
         self, tmp_path, events, cache_on, monkeypatch
@@ -1498,3 +1498,78 @@ class _AnyConfig:
 
 
 ANY_CONFIG = _AnyConfig()
+
+
+class TestTransformersRoundTrip:
+    """An entry is saved under the model's own tensor names, so a transformers
+    model with a weight conversion mapping loads back (#827: LTX-2.5's Gemma 4
+    text encoder saved in its checkpoint layout and failed every lookup)."""
+
+    @staticmethod
+    def gemma4():
+        transformers = pytest.importorskip("transformers")
+        if not hasattr(transformers, "Gemma4UnifiedForConditionalGeneration"):
+            pytest.skip("this transformers has no Gemma 4")
+        config = transformers.Gemma4UnifiedConfig(
+            text_config=dict(
+                hidden_size=64,
+                intermediate_size=128,
+                num_hidden_layers=2,
+                num_attention_heads=2,
+                num_key_value_heads=1,
+                head_dim=32,
+                global_head_dim=32,
+                vocab_size=512,
+                hidden_size_per_layer_input=16,
+                vocab_size_per_layer_input=512,
+                num_kv_shared_layers=0,
+            ),
+            vision_config=dict(
+                mm_embed_dim=64, mm_posemb_size=32, output_proj_dims=64, patch_size=4
+            ),
+            audio_config=dict(audio_embed_dim=32),
+        )
+        return transformers.Gemma4UnifiedForConditionalGeneration, config
+
+    def test_a_model_with_a_conversion_mapping_saves_and_loads_back(self, tmp_path):
+        model_cls, config = self.gemma4()
+        torch.manual_seed(0)
+        source = tmp_path / "source"
+        model_cls(config).to(torch.bfloat16).save_pretrained(source)
+        arguments = {
+            "weights_dtype": "int8",
+            "dequantize_fp32": False,
+            "modules_to_not_convert": ["embed_vision", "embed_audio", "lm_head"],
+            "minimum_allowed_numel": 256,
+            "minimum_allowed_channel_size": 8,
+        }
+        quantized = model_cls.from_pretrained(
+            source,
+            quantization_config=SDNQConfig(**arguments),
+            torch_dtype=torch.bfloat16,
+        )
+        root = tmp_path / "cache"
+        result, reason, _ = qc.save_entry(str(root), KEY, quantized, {})
+        assert (result, reason) == ("saved", None)
+        # the save left the model's own save_pretrained in place
+        assert "save_pretrained" not in vars(quantized)
+
+        loaded = qc.load_entry(
+            str(root), KEY, model_cls, torch.bfloat16, "cpu", arguments
+        )
+        expected = quantized.state_dict()
+        actual = loaded.state_dict()
+        assert set(actual) == set(expected)
+        assert any(t.dtype == torch.int8 for t in actual.values())
+        for name, tensor in expected.items():
+            assert torch.equal(actual[name], tensor), name
+
+    def test_a_load_failure_reason_carries_the_first_line_of_the_message(self):
+        error = RuntimeError("Error(s) in loading state_dict:\n\tMissing key(s)")
+        assert qc._error_detail(error) == (
+            "RuntimeError: Error(s) in loading state_dict:"
+        )
+        long = qc._error_detail(ValueError("x" * 500))
+        assert long.startswith("ValueError: x") and long.endswith("...")
+        assert len(long) == len("ValueError: ") + qc._REASON_DETAIL_CHARS
+        assert qc._error_detail(OSError()) == "OSError"
