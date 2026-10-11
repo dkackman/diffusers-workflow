@@ -35,6 +35,13 @@ the task model cache are still emptied, and if the incoming definition cannot
 be prepared everything is released. `clear_memory` (`POST /api/memory/clear`)
 remains the way to empty the card by hand.
 
+## Cold Loads
+
+With `DW_QUANTIZED_CACHE=1`, the first cold load of an SDNQ on-the-fly-quantized
+component pays the quantize and a save to disk. Later cold loads - a new worker,
+after a restart or after eviction - read the cached entry instead. See
+[QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache).
+
 ## Troubleshooting
 
 **Worker crashes**: `JobManager` detects it and starts a fresh worker on the
