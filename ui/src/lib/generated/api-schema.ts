@@ -548,10 +548,11 @@ export interface paths {
          *     is what says *where* in a track something is - whether a shot is
          *     still voiced at its last frame, how deep the hole at a seam goes.
          *     Opt-in: a ten-minute track is 600 numbers, and the default call has
-         *     to stay small. `interval_seconds` (default 1.0, at least 0.05) is
+         *     to stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is
          *     the bin width: 0.1 places a cut on a vocal onset. A track that
-         *     would need more than 2400 bins at that width is refused (422) with
-         *     the interval that fits (#823).
+         *     would need more than 2400 bins at a finer-than-default width is
+         *     refused (422) with the interval that fits; the default width is
+         *     never refused for length (#823).
          *
          *     `name` may also be an 'asset:' reference, and then it is the input
          *     asset of that name that is described rather than an output (#127).

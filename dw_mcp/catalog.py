@@ -311,8 +311,8 @@ def get_gallery_metadata(
     as well, which is what locates something in a track rather than only
     measuring the whole of it. Opt-in: it is one number per second per
     measure, and the default answer has to stay small. `interval_seconds`
-    (at least 0.05, default 1.0) narrows the bins; a track that would need
-    over 2400 of them is refused with the interval that fits."""
+    (0.05 to 3600, default 1.0) narrows the bins; a finer-than-default width
+    that would need over 2400 of them is refused with the interval that fits."""
     params = {"envelope": "true"} if envelope else None
     if envelope and interval_seconds is not None:
         params["interval_seconds"] = interval_seconds

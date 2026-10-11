@@ -57,7 +57,7 @@ from functools import lru_cache, partial
 from types import SimpleNamespace
 
 from .events import get_context
-from .security import validate_path
+from .security import validate_path, SecurityError
 
 logger = logging.getLogger("dw")
 
@@ -531,6 +531,21 @@ def _error_name(error):
 # --- server start -----------------------------------------------------------
 
 
+def _child_path(root, name):
+    """The validated path of one child of the root, or None - logged once -
+    when it resolves outside the root (a symlink to another disk): that
+    child is left alone rather than failing the sweep, and with it the
+    server's start."""
+    try:
+        return validate_path(os.path.join(root, name), root)
+    except SecurityError as e:
+        logger.warning(
+            f"Quantized cache entry {name} is skipped - it resolves outside "
+            f"the cache root: {e}"
+        )
+        return None
+
+
 def sweep(root):
     """Delete every entry built against other package versions or with no
     readable `entry.json`, and every leftover `*.tmp-*`. Returns (count,
@@ -540,7 +555,9 @@ def sweep(root):
     versions = installed_versions()
     count = freed = 0
     for name in os.listdir(root):
-        path = validate_path(os.path.join(root, name), root)
+        path = _child_path(root, name)
+        if path is None:
+            continue
         if _TMP_MARKER in name:
             stale = True
         elif _KEY_PATTERN.match(name) and os.path.isdir(path):
@@ -569,7 +586,9 @@ def _entry_sizes(root):
     for name in os.listdir(root):
         if not _KEY_PATTERN.match(name):
             continue
-        path = validate_path(os.path.join(root, name), root)
+        path = _child_path(root, name)
+        if path is None:
+            continue
         try:
             size = int(read_entry(path)["bytes"])
         except Exception:
@@ -616,7 +635,7 @@ def configure_at_startup():
             f"freed {freed / 2**30:.1f} GiB"
         )
         log_disk(root)
-    except OSError as e:
+    except (OSError, SecurityError) as e:
         logger.warning(f"Quantized cache at {root} is unusable: {e}")
 
 

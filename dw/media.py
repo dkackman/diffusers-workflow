@@ -655,7 +655,14 @@ def _stream_info(container, audio_stream_seconds=False):
 
 # The finest envelope bin, and the most bins one answer carries, so a long
 # track at a fine interval stays inside the MCP response budget (#823)
+DEFAULT_ENVELOPE_INTERVAL = 1.0
 MIN_ENVELOPE_INTERVAL = 0.05
+# One bin an hour: past this the bin-sample product overflows (so does an
+# infinite or NaN interval, which pydantic reads from a query string)
+MAX_ENVELOPE_INTERVAL = 3600.0
+# The bin count a finer-than-default envelope may reach. The default interval
+# is never refused by it: a track long enough to exceed it at 1.0 s answered
+# before the cap existed and still does (#823)
 MAX_ENVELOPE_BINS = 2400
 
 
@@ -772,10 +779,11 @@ def probe_media(path, envelope=False, interval_seconds=1.0):
     Args:
         path: The file to probe
         interval_seconds: The envelope's bin width, `MIN_ENVELOPE_INTERVAL`
-            (0.05 s) or more; 0.1 places a cut on a vocal onset where 1.0
-            cannot. A track that would take more than `MAX_ENVELOPE_BINS`
-            bins at that width raises ValueError naming the width that fits
-            (#823)
+            (0.05 s) to `MAX_ENVELOPE_INTERVAL` (3600 s); 0.1 places a cut on
+            a vocal onset where 1.0 cannot. A finer-than-default width that
+            would take more than `MAX_ENVELOPE_BINS` bins raises ValueError
+            naming the width that fits; the default width is never refused
+            for length (#823)
         envelope: Also report the per-second level of the soundtrack. A lossy
             codec's decode can run a fraction of a second past the file's
             reported duration - its own priming and padding - so samples past
@@ -999,14 +1007,24 @@ def _check_envelope_size(duration_seconds, interval_seconds):
             f"interval_seconds must be at least {MIN_ENVELOPE_INTERVAL}, "
             f"got {interval_seconds}"
         )
+    if not interval_seconds <= MAX_ENVELOPE_INTERVAL:
+        # Also catches inf and NaN, which no <= holds for
+        raise ValueError(
+            f"interval_seconds must be at most {MAX_ENVELOPE_INTERVAL:.0f}, "
+            f"got {interval_seconds}"
+        )
     if duration_seconds is None:
         return
     bins = math.ceil(duration_seconds / interval_seconds)
-    if bins > MAX_ENVELOPE_BINS:
-        fits = math.ceil(duration_seconds / MAX_ENVELOPE_BINS * 100) / 100
+    # Never fewer bins than the default interval gives
+    limit = max(
+        MAX_ENVELOPE_BINS, math.ceil(duration_seconds / DEFAULT_ENVELOPE_INTERVAL)
+    )
+    if bins > limit:
+        fits = math.ceil(duration_seconds / limit * 100) / 100
         raise ValueError(
             f"a {duration_seconds:.1f}s track at interval_seconds="
-            f"{interval_seconds} is {bins} bins, over the {MAX_ENVELOPE_BINS} "
+            f"{interval_seconds} is {bins} bins, over the {limit} "
             f"limit; use interval_seconds={fits} or more"
         )
 
