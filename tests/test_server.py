@@ -2418,6 +2418,14 @@ def test_gallery_metadata_envelope_takes_an_interval_and_refuses_a_bad_one(
         assert too_fine.status_code == 422
         assert "at least 0.05" in too_fine.json()["detail"]
 
+        # pydantic reads "inf" as a float; it must be a 422, not an
+        # OverflowError 500 in the binning
+        infinite = client.get(
+            url, params={"envelope": "true", "interval_seconds": "inf"}
+        )
+        assert infinite.status_code == 422
+        assert "at most 3600" in infinite.json()["detail"]
+
 
 def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
     """A track that opens fine but fails partway through decode (damage

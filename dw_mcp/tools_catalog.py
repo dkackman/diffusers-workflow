@@ -330,7 +330,7 @@ class CatalogTools:
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: a shot's last frame, a seam's hole, where a
         score goes quiet. Leave it off unless it's about position.
-        `interval_seconds` (default 1.0, min 0.05) is the bin width; 0.1
+        `interval_seconds` (default 1.0, 0.05-3600) is the bin width; 0.1
         places an onset. Over 2400 bins is refused.
 
         `findings` lists each level problem measured (full scale, near
