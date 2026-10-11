@@ -25,7 +25,8 @@ dw engine code - and reads the weights from the local Hugging Face cache only
 
 **Stop `dw.serve` first.** A running worker's resident models distort the
 page cache and the timings, and both cards share host RAM; the script refuses
-to run while `pgrep -f dw.serve` matches.
+to run while a process running `-m dw.serve` exists (this process and its
+ancestors excepted).
 
 Run it on lem from the repo root, with the venv active:
 
@@ -162,9 +163,30 @@ def default_specs():
     ]
 
 
+def ancestor_pids():
+    """This process's pid and every ancestor's, so the launching shell never matches."""
+    pids = set()
+    pid = os.getpid()
+    while pid > 0 and pid not in pids:
+        pids.add(pid)
+        result = subprocess.run(
+            ["ps", "-o", "ppid=", "-p", str(pid)], capture_output=True, text=True
+        )
+        try:
+            pid = int(result.stdout.strip())
+        except ValueError:
+            break
+    return pids
+
+
 def refuse_if_server_running():
-    result = subprocess.run(["pgrep", "-f", "dw.serve"], capture_output=True, text=True)
-    pids = [p for p in result.stdout.split() if p and int(p) != os.getpid()]
+    # the server's own invocation is `python -m dw.serve`; a bare "dw.serve" would
+    # also match any unrelated command line that merely mentions it
+    result = subprocess.run(
+        ["pgrep", "-f", "--", r"-m dw\.serve"], capture_output=True, text=True
+    )
+    skip = ancestor_pids()
+    pids = [p for p in result.stdout.split() if p.isdigit() and int(p) not in skip]
     if pids:
         sys.exit(
             f"dw.serve is running (pid {', '.join(pids)}). Stop it first: its resident models distort the page cache and timings."
@@ -183,8 +205,15 @@ def resolve_class(cls_path):
 def source_dir(spec):
     from huggingface_hub import snapshot_download
 
+    prefix = f"{spec.subfolder}/" if spec.subfolder else ""
+    # only what a load reads: the weights, the config and the shard index
+    patterns = [
+        f"{prefix}*.safetensors",
+        f"{prefix}config.json",
+        f"{prefix}*.index.json",
+    ]
     snapshot = snapshot_download(
-        spec.repo, allow_patterns=[f"{spec.subfolder}/*"], local_files_only=True
+        spec.repo, allow_patterns=patterns, local_files_only=True
     )
     path = Path(snapshot) / spec.subfolder
     if not any(path.glob("*.safetensors")):
@@ -201,6 +230,7 @@ def evict(paths):
     for path in paths:
         fd = os.open(path, os.O_RDONLY)
         try:
+            os.fsync(fd)  # DONTNEED does not drop dirty pages
             os.posix_fadvise(fd, 0, 0, os.POSIX_FADV_DONTNEED)
         finally:
             os.close(fd)
@@ -233,6 +263,31 @@ def device_args(sdnq_args, device):
     return args
 
 
+def touch_pages(model, torch):
+    """Read one byte per 4 KiB page of every CPU tensor, so lazily mmapped
+    safetensors are actually read inside the timed region."""
+    total = 0
+    for t in list(model.parameters()) + list(model.buffers()):
+        try:
+            if t.device.type != "cpu" or t.numel() == 0:
+                continue
+            flat = t.detach().reshape(-1).view(torch.uint8)
+            total += int(flat[::4096].sum())
+        except Exception:
+            # a quantized tensor subclass may not expose a plain view: read its
+            # inner tensors instead, else skip it
+            flatten = getattr(t, "__tensor_flatten__", None)
+            for name in flatten()[0] if flatten else ():
+                inner = getattr(t, name, None)
+                if isinstance(inner, torch.Tensor) and inner.device.type == "cpu":
+                    try:
+                        flat = inner.detach().reshape(-1).view(torch.uint8)
+                        total += int(flat[::4096].sum())
+                    except Exception:
+                        pass
+    return total
+
+
 def load_fresh(spec, cls, sdnq_args, torch):
     from sdnq import SDNQConfig
 
@@ -243,9 +298,11 @@ def load_fresh(spec, cls, sdnq_args, torch):
         dtype_kwarg: torch.bfloat16,
         "quantization_config": SDNQConfig(**sdnq_args),
     }
-    return cls.from_pretrained(
+    model = cls.from_pretrained(
         spec.repo, subfolder=spec.subfolder, local_files_only=True, **kwargs
     )
+    touch_pages(model, torch)
+    return model
 
 
 def load_cached(entry, cls, sdnq_args, torch):
@@ -260,7 +317,9 @@ def load_cached(entry, cls, sdnq_args, torch):
         dequantize_fp32=sdnq_args.get("dequantize_fp32"),
         use_quantized_matmul=sdnq_args.get("use_quantized_matmul"),
     )
-    return model.to(return_device)
+    model = model.to(return_device)
+    touch_pages(model, torch)
+    return model
 
 
 def timed(fn, torch):
