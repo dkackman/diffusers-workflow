@@ -134,6 +134,8 @@ and Host checks work unchanged behind the proxy because Caddy forwards the
 `Host` header as-is. nginx works the same way with `proxy_pass` and
 `proxy_set_header Host $host;` plus your own certificate.
 
+A token holder can also empty dw's disk caches (`DELETE /api/caches/{name}`), as they can delete models.
+
 The token is still the only authentication in either setup; a proxy or a
 VPN protects the transport, not the door.
 

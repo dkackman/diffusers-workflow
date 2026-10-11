@@ -271,6 +271,10 @@ SecurityError
   InvalidInputError  — input validation failure
 ```
 
+### Disk caches
+
+`DELETE /api/caches/{name}` (`dw/disk_caches.py`) empties a directory whose path comes from an environment variable, so it never trusts the root: only a root carrying a `.dw-cache` marker is cleared. `dw.serve` writes the marker at start into a root that is missing or empty (a missing `triton` root is never created), or into a populated root equal to the cache's default exactly (`~/.cache/dw/torchinductor` or its `$XDG_CACHE_HOME` form; `~/.triton/cache` only - a populated `$TRITON_HOME/.triton/cache` is not grandfathered). Any other populated root is listed with `clearable: false` ("root not created by dw (no .dw-cache marker)") and its clear is a 400, until someone creates the marker by hand; deleting the marker stops clearing. The clear refuses while a job is running or queued, and renames the root's children into `.clearing-*` before deleting them. Like model deletion, it needs only the bearer token.
+
 ## Rules
 
 - Always validate paths before file operations
