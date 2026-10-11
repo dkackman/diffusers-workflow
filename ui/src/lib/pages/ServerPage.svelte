@@ -5,6 +5,7 @@
   import CopyButton from '../CopyButton.svelte'
   import WorkerList from '../WorkerList.svelte'
   import CardMemoryList from '../CardMemoryList.svelte'
+  import CachesPanel from '../CachesPanel.svelte'
   import { cardReadings } from '../cardMemory'
   import {
     addressLabel,
@@ -305,6 +306,8 @@
       </dd>
     </dl>
   </div>
+
+  <CachesPanel />
 {:else if !error}
   <p class="muted">loading server details…</p>
 {/if}

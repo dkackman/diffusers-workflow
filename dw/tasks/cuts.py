@@ -34,18 +34,11 @@ import logging
 import math
 import re
 
+from ..script_lines import SUSPECT_LEFT_OUT, suspect_runs
 from ..variable_constraints import aligned, aligned_down
 from .registry import register_command
-from ..task_domains import (
-    NON_NEGATIVE,
-    POSITIVE,
-    real_number,
-    whole_number,
-)
-from ..task_problems import (
-    cuts_errors,
-    transcript_problem,
-)
+from ..task_domains import NON_NEGATIVE, POSITIVE, real_number, whole_number
+from ..task_problems import cuts_errors, transcript_problem
 
 logger = logging.getLogger("dw")
 
@@ -107,9 +100,10 @@ def _chunks(transcript, duration):
             end = chunk.get("end")
         start = _number(start, f"transcript chunks[{index}].start", required=True)
         end = _number(end, f"transcript chunks[{index}].end")
-        parsed.append(
-            {"start": start, "end": end, "text": str(chunk.get("text") or "").strip()}
-        )
+        row = {"start": start, "end": end, "text": str(chunk.get("text") or "").strip()}
+        if chunk.get("suspect"):
+            row["suspect"] = str(chunk["suspect"])
+        parsed.append(row)
     parsed.sort(key=lambda chunk: chunk["start"])
     for index, chunk in enumerate(parsed):
         if chunk["end"] is None:
@@ -118,6 +112,22 @@ def _chunks(transcript, duration):
         if chunk["end"] is not None and chunk["end"] < chunk["start"]:
             chunk["end"] = chunk["start"]
     return parsed
+
+
+def _suspect_warnings(chunks):
+    """One warning per run of chunks transcribe_audio marked with the same
+    `suspect` reason (#822), naming its span, size and text."""
+    return [
+        f"{COMMAND}: {len(run)} transcript chunk(s) {run[0]['start']:.2f}-"
+        f"{max(c['end'] or c['start'] for c in run):.2f} s "
+        f"{_clipped(' '.join(c['text'] for c in run))!r} marked suspect ({reason}); "
+        + ("left out of the lines" if reason in SUSPECT_LEFT_OUT else "still used")
+        for reason, run in suspect_runs(chunks)
+    ]
+
+
+def _clipped(text, limit=80):
+    return text if len(text) <= limit else text[: limit - 3] + "..."
 
 
 def _beats(beats):
@@ -626,18 +636,23 @@ def _joined(first, second):
 
 
 def _merge_empty(scenes, warnings, why):
-    index = 0
+    """Each scene of no length merged into the next (the last into the one
+    before), with one warning per run of lines squeezed out in one place."""
+    index, squeezed = 0, {}
     while index < len(scenes) and len(scenes) > 1:
-        scene = scenes[index]
-        if scene["end"] - scene["start"] > 1e-9:
+        if scenes[index]["end"] - scenes[index]["start"] > 1e-9:
             index += 1
             continue
-        if scene["lyrics"]:
-            warnings.append(
-                f"{COMMAND}: {why} left no time for "
-                f"{' / '.join(scene['lyrics'])!r}; it joins the next scene"
-            )
+        # Merged back to back at one index, the scene holds every line before it
+        if scenes[index]["lyrics"]:
+            squeezed[index] = scenes[index]["lyrics"]
         _merge_into(scenes, index, index + 1 if index + 1 < len(scenes) else index - 1)
+    for lines in squeezed.values():
+        more = f" / ... ({len(lines) - 3} more)" if len(lines) > 3 else ""
+        warnings.append(
+            f"{COMMAND}: {why} left no time for "
+            f"{_clipped(' / '.join(lines[:3])) + more!r}; it joins the next scene"
+        )
     return scenes
 
 
@@ -932,7 +947,9 @@ def plan_cuts(
     Args:
         transcript: transcribe_audio's result with 'timestamps' set - a
             {text, chunks} dict of {start, end, text} chunks in seconds. A
-            null 'end' runs to the next chunk's start, or the song's end
+            null 'end' runs to the next chunk's start, or the song's end. A
+            chunk marked `suspect` no_words, repetition or silent is left
+            out of the lines; every suspect run is warned about
         lyrics: The song's own lyrics - one line per line, a blank line or a
             lone section tag ("[Chorus]") between stanzas - or a list of
             lines. The shots carry these lines verbatim and in order; the
@@ -1008,6 +1025,8 @@ def plan_cuts(
     warnings = []
     duration, chunks = _song_length(args, transcript, beats, beats_duration, warnings)
     beat_times = [beat for beat in beat_times if 0.0 < beat < duration]
+    warnings.extend(_suspect_warnings(chunks))
+    chunks = [chunk for chunk in chunks if chunk.get("suspect") not in SUSPECT_LEFT_OUT]
 
     if lyrics is not None and not (isinstance(lyrics, str) and not lyrics.strip()):
         lines = _align_lyrics(

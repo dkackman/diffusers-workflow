@@ -193,3 +193,33 @@ class TestThePlanReportsIt:
 
     def test_an_observed_estimate_does_not_warn(self):
         assert _inherited_cost_warnings({"basis": "observed"}) == []
+
+
+class TestNotQuotedUnchangedWhenItScales:
+    """#821: the template's minutes are for one template-sized run."""
+
+    HISTORY = {"templates/t": [run(8 * MINUTE, {"num_frames": 124})]}
+
+    def test_several_steps_of_one_pipeline_are_not_priced_as_one_run(self):
+        inline = definition("inline")
+        inline["steps"] = [{**inline["steps"][0], "id": f"shot{n}"} for n in range(3)]
+        assert (
+            inherited(inline, [("templates/t", definition("t"))], self.HISTORY) is None
+        )
+
+    def test_a_literal_longer_frame_count_is_not_priced_as_the_templates(self):
+        inline = definition("inline")
+        inline["variables"] = {}
+        inline["steps"][0]["run"] = {"num_frames": 899}
+        assert (
+            inherited(inline, [("templates/t", definition("t"))], self.HISTORY) is None
+        )
+
+    def test_a_shared_driver_name_still_prices_its_bucket(self):
+        block = inherited(
+            definition("inline"),
+            [("templates/t", definition("t"))],
+            self.HISTORY,
+            {"num_frames": 124},
+        )
+        assert block["cold_minutes"] == 8.0

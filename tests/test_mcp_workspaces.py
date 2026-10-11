@@ -245,17 +245,95 @@ class TestServerInfo:
                         },
                     },
                 )
+            if request.url.path == "/api/caches":
+                return httpx.Response(200, json={"caches": []})
             raise AssertionError(f"unexpected request {request.url.path}")
 
         client = DwClient(transport=httpx.MockTransport(handler))
         client.workspace = "shots"
         result = server_info(client)
 
-        assert seen == [("/api/server", "shots")]
+        assert seen == [("/api/server", "shots"), ("/api/caches", "shots")]
         assert result["workspace"] == "shots"
         assert result["directories"]["workflows"] == "/studio/shots/workflows"
         assert result["directories"]["prompts"] == "/home/user/prompts"
         assert result["device"] == "cuda"
+
+    @staticmethod
+    def info_client(caches_response):
+        def handler(request):
+            if request.url.path == "/api/server":
+                return httpx.Response(200, json={"device": "cuda", "version": "0.1.0"})
+            if request.url.path == "/api/caches":
+                return caches_response
+            raise AssertionError(f"unexpected request {request.url.path}")
+
+        return DwClient(transport=httpx.MockTransport(handler))
+
+    def test_caches_carry_only_the_size_fields(self):
+        listing = {
+            "caches": [
+                {
+                    "name": "inductor",
+                    "root": "/home/user/.cache/dw/torchinductor",
+                    "enabled": True,
+                    "bytes": 1234,
+                    "files": 5,
+                    "last_used": 1700000000.0,
+                    "clearable": True,
+                    "cost_of_clearing": "recompiles",
+                    "disk_free": 99,
+                    "disk_total": 1000,
+                }
+            ]
+        }
+        client = self.info_client(httpx.Response(200, json=listing))
+
+        result = server_info(client)
+
+        assert result["caches"] == [
+            {
+                "name": "inductor",
+                "bytes": 1234,
+                "files": 5,
+                "enabled": True,
+                "clearable": True,
+                "disk_free": 99,
+            }
+        ]
+
+    def test_a_cache_with_entries_carries_only_their_count(self):
+        listing = {
+            "caches": [
+                {
+                    "name": "quantized",
+                    "bytes": 300,
+                    "files": 3,
+                    "enabled": True,
+                    "clearable": True,
+                    "disk_free": 99,
+                    "low_disk": False,
+                    "entries": [{"id": "a" * 64}, {"id": "b" * 64}],
+                }
+            ]
+        }
+        client = self.info_client(httpx.Response(200, json=listing))
+
+        [quantized] = server_info(client)["caches"]
+
+        assert quantized["entry_count"] == 2
+        assert "entries" not in quantized
+
+    @pytest.mark.parametrize("status", [404, 500])
+    def test_caches_omitted_when_the_listing_fails(self, status):
+        client = self.info_client(httpx.Response(status, json={"detail": "no"}))
+
+        result = server_info(client)
+
+        assert "caches" not in result
+        assert result["device"] == "cuda"
+        assert result["version"] == "0.1.0"
+        assert result["workspace"] == DEFAULT_WORKSPACE
 
 
 class TestPerCallPin:

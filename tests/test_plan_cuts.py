@@ -55,6 +55,95 @@ def plan(**kwargs):
     return plan_cuts(**kwargs)
 
 
+def test_suspect_chunks_become_warnings_naming_span_and_text():
+    # #822: transcribe_audio marks a chunk it doubts; plan_cuts says so
+    chunks = [dict(c) for c in CHUNKS]
+    chunks.append(
+        {"start": 26.0, "end": 29.0, "text": "Редактор субтитров", "suspect": "silent"}
+    )
+    chunks[0]["suspect"] = "long"
+    result = plan(transcript={"text": "x", "chunks": chunks})
+    suspect = [w for w in result["warnings"] if "suspect" in w]
+    assert len(suspect) == 2
+    assert any(
+        "26.00-29.00" in w and "Редактор субтитров" in w and "(silent)" in w
+        for w in suspect
+    )
+    assert any("4.00-7.00" in w and "(long)" in w for w in suspect)
+
+
+def test_a_hallucinated_intro_and_fade_are_left_out_of_the_lines():
+    # #822 bounce (s23): hundreds of '—' chunks over the intro and an
+    # "I'm sorry" loop over the fade were laid out as sung shots from frame 0,
+    # and the warnings named every chunk
+    intro = [
+        {"start": 0.0, "end": 0.36, "text": "—", "suspect": "no_words"},
+        {"start": 0.36, "end": 4.8, "text": "—", "suspect": "no_words"},
+    ] + [
+        {
+            "start": 4.8 + i * 0.1,
+            "end": 4.8 + i * 0.1,
+            "text": "—",
+            "suspect": "no_words",
+        }
+        for i in range(200)
+    ]
+    sung_lines = [
+        {"start": 30.0, "end": 33.0, "text": "Soyuz nerushimy"},
+        {"start": 34.0, "end": 37.0, "text": "respublik svobodnykh"},
+    ]
+    fade = [
+        {
+            "start": 40.0 + i * 0.2,
+            "end": 40.0 + i * 0.2,
+            "text": t,
+            "suspect": "repetition",
+        }
+        for i, t in enumerate(["I'm", "sorry,"] * 120)
+    ]
+    result = plan(
+        transcript={"text": "x", "chunks": intro + sung_lines + fade}, duration_s=90.0
+    )
+    lyrics = [s["lyric"] for s in result["shots"] if s["lyric"]]
+    assert lyrics == ["Soyuz nerushimy", "respublik svobodnykh"]
+    first_vocal = next(s for s in result["shots"] if s["kind"] == "vocal")
+    assert first_vocal["start_frame"] == 30 * FPS
+    suspect = [w for w in result["warnings"] if "suspect" in w]
+    assert len(suspect) == 2
+    assert any(
+        "202 transcript chunk(s) 0.00-" in w and "(no_words)" in w for w in suspect
+    )
+    assert any(
+        "240 transcript chunk(s) 40.00-" in w and "(repetition)" in w for w in suspect
+    )
+    assert all("left out of the lines" in w for w in suspect)
+    assert sum(len(w) for w in result["warnings"]) < 2000
+
+
+def test_a_long_word_is_still_sung():
+    chunks = [dict(c) for c in CHUNKS]
+    chunks[0]["suspect"] = "long"
+    result = plan(transcript={"text": "x", "chunks": chunks})
+    assert "Walking in the moonlight tonight" in sung(result)
+    assert any("(long); still used" in w for w in result["warnings"])
+
+
+def test_lines_squeezed_out_back_to_back_make_one_bounded_warning():
+    # #822 bounce: a run of zero-length lines warned once per line, each
+    # warning repeating every line before it - quadratic in the run
+    squeezed = [{"start": 10.0, "end": 10.0, "text": f"word{i}"} for i in range(150)]
+    chunks = CHUNKS[:1] + squeezed + CHUNKS[2:]
+    result = plan(transcript={"text": "x", "chunks": chunks})
+    no_time = [w for w in result["warnings"] if "left no time" in w]
+    assert len(no_time) == 1
+    assert "word0 / word1 / word2 / ... (147 more)" in no_time[0]
+    assert len(no_time[0]) < 300
+
+
+def test_unmarked_chunks_add_no_suspect_warning():
+    assert not any("suspect" in w for w in plan()["warnings"])
+
+
 def sung(result):
     return "\n".join(s["lyric"] for s in result["shots"] if s["lyric"]).split("\n")
 

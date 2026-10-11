@@ -4,6 +4,9 @@ import type {
   ClassList,
   Deleted,
   DiffusersStatus,
+  DiskCacheCleared,
+  DiskCacheEntryDeleted,
+  DiskCacheList,
   EnhancerPresets,
   GalleryList,
   GalleryMetadata,
@@ -251,6 +254,22 @@ export const api = {
     }),
   health: () => request<HealthInfo>('/api/health'),
   server: () => request<ServerInfo>('/api/server'),
+  /** dw's own disk caches (dw/disk_caches.py) - Inductor's and Triton's
+   * compiled kernels - with each one's size and whether it can be cleared. */
+  listCaches: () => request<DiskCacheList>('/api/caches'),
+  /** Empty one cache's root. 409 (an `ApiError`) while a job is running or
+   * queued; 400 when the root is not dw's to clear. */
+  clearCache: (name: string) =>
+    request<DiskCacheCleared>(`/api/caches/${encodeURIComponent(name)}`, {
+      method: 'DELETE',
+    }),
+  /** Delete one entry of a cache that has them (today `quantized`). 404 for
+   * an unknown entry; 409 (an `ApiError`) while a job or download is active. */
+  deleteCacheEntry: (name: string, entry: string) =>
+    request<DiskCacheEntryDeleted>(
+      `/api/caches/${encodeURIComponent(name)}/entries/${encodeURIComponent(entry)}`,
+      { method: 'DELETE' },
+    ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
   gallery: () => request<GalleryList>('/api/gallery?limit=100000'),

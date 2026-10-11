@@ -110,6 +110,25 @@ def rms(window):
     return math.sqrt(float(numpy.mean(numpy.square(window, dtype=numpy.float64))))
 
 
+def loudest_window_dbfs(mono, sample_rate, start, end, window_seconds):
+    """The loudest `window_seconds` window's rms over [start, end] seconds, in
+    dBFS, or None for silence. A span shorter than one window (a zero-length
+    word chunk) is measured as one window centred on it."""
+    window = max(1, int(round(window_seconds * sample_rate)))
+    first = int(round(start * sample_rate))
+    last = int(round(end * sample_rate))
+    if last - first < window:
+        middle = (first + last) // 2
+        first, last = middle - window // 2, middle - window // 2 + window
+    first, last = max(0, first), min(len(mono), last)
+    loudest = None
+    for offset in range(first, last, window):
+        level = rms(mono[offset : min(offset + window, last)])
+        if level is not None and (loudest is None or level > loudest):
+            loudest = level
+    return dbfs(loudest)
+
+
 def peak(window):
     """The largest absolute sample of a window, or None when it has none."""
     if window is None or window.size == 0:

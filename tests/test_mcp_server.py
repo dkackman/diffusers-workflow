@@ -771,6 +771,9 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
     # The full get_workflow also reads the variables route for `observed` (#786)
     if name == "get_workflow":
         seen = seen[-1:]
+    # get_server_info also reads /api/caches for `caches` (#828)
+    if name == "get_server_info":
+        seen = seen[:1]
     assert seen == [(method, path)]
     assert result.content
 
@@ -1562,6 +1565,10 @@ def test_the_stated_tool_count_is_the_registered_one():
 # ceiling moves to 14_265 with 10 of headroom.
 # 2026-10-07 (#682): get_job and list_jobs name a job's `device`, paid for by
 # trimming their own text - measured at 14_264.75; the ceiling stays.
+# 2026-10-11 (#828 stage A): get_server_info's one clause on `caches` (16
+# tokens) - measured 14_246.25 before and 14_262.25 after (9_281.75 /
+# 4_470.25 / 510.25). Text trimmed since 10-07 left room, so the ceiling
+# stays, 2.75 of headroom.
 SURFACE_BUDGET = 14_265
 
 

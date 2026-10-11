@@ -327,6 +327,19 @@ def run(config):
             config.host,
         )
 
+    # The quantized-component cache's root is pinned for the workers and swept
+    # here - after logging is up, so its lines reach the log, and before
+    # create_app spawns a worker that could be reading an entry it deletes
+    from .quantized_cache import configure_at_startup
+
+    configure_at_startup()
+
+    # Mark the cache roots dw may clear (dw/disk_caches.py) before a worker
+    # starts writing into a missing one
+    from .disk_caches import mark_roots
+
+    mark_roots()
+
     from .server.app import create_app
 
     from .server.app import default_ui_dir

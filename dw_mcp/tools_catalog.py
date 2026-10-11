@@ -226,7 +226,8 @@ class CatalogTools:
         workspace. `trust_workflows` reports the posture a submitted
         workflow is read under: false - the default - means the file is
         untrusted input, so an out-of-ecosystem import, remote code, and a
-        media location outside the workspace's roots are all refused."""
+        media location outside the workspace's roots are all refused.
+        `caches` sizes dw's disk caches (cleared from the server page)."""
         return workspaces.server_info(self.client)
 
     def list_jobs(
@@ -311,37 +312,43 @@ class CatalogTools:
         )
 
     def get_gallery_metadata(
-        self, name: str, envelope: bool = False, workspace: str | None = None
+        self,
+        name: str,
+        envelope: bool = False,
+        workspace: str | None = None,
+        interval_seconds: float | None = None,
     ) -> dict:
         """Get the metadata embedded in a generated file: the exact
-        workflow, arguments and seed that produced it - the definition,
-        not a summary, so a result can be reproduced or a failed run's
-        definition edited and re-run. Only an image embeds it; for audio
+        workflow, arguments and seed that produced it, so a result can be
+        reproduced or edited and re-run. Only an image embeds it; for audio
         and video `metadata` is null and `next` names
-        `get_job_workflow(job_id)` when known, else a kept asset has no
-        provenance. `media` itself carries duration, sample rate,
-        channels, fps, size and level - the checks an agent that cannot
-        listen makes on a deliverable; `media.shots` places a joined
+        `get_job_workflow(job_id)` when known. `media` carries duration,
+        sample rate, channels, fps, size and level - how an agent that
+        cannot listen checks a deliverable; `media.shots` places a joined
         video's shots.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: a shot's last frame, a seam's hole, where a
-        score goes quiet. Leave it off unless it's about position - a long
-        track is a long list.
+        score goes quiet. Leave it off unless it's about position.
+        `interval_seconds` (default 1.0, 0.05-3600) is the bin width; 0.1
+        places an onset. Over 2400 bins is refused.
 
-        `findings` lists each level problem the server measured - full
-        scale, near silence - with its threshold and the fix.
+        `findings` lists each level problem measured (full scale, near
+        silence) with its fix.
 
-        `name` may be an `asset:` reference instead of a gallery name, and
-        then it describes that input asset - how many frames a shot is,
-        whether two shots share an fps, whether a score reaches the length
-        of the cut it will lie under. Check before running: frame counts
-        and rates are arguments the caller supplies, and a wrong one is a
-        failed job or, worse, silence padded onto the end of a track.
+        `name` may be an `asset:` reference, and then it describes that
+        input asset - a shot's frame count, whether two shots share an fps,
+        whether a score reaches the cut's length. Check before running: a
+        wrong frame count or rate is a failed job or silence padded onto a
+        track.
 
         `workspace` pins this call to another workspace."""
         return catalog.get_gallery_metadata(
-            self.client, name, envelope=envelope, workspace=workspace
+            self.client,
+            name,
+            envelope=envelope,
+            workspace=workspace,
+            interval_seconds=interval_seconds,
         )
 
     def list_guides(

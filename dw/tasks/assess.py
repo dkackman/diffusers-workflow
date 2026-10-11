@@ -386,7 +386,7 @@ def _shot_span_findings(probe, records, media):
     span reaches past the file - clipped silently otherwise (#425)."""
     findings = []
     overrun_names = []
-    for shot in records or []:
+    for index, shot in enumerate(records or []):
         overrun = _span_overrun(media, shot)
         if overrun is None:
             continue
@@ -399,7 +399,11 @@ def _shot_span_findings(probe, records, media):
             {
                 "rule": "shot_span_overrun",
                 "severity": "warning",
-                "at": {"shot": shot.get("name")},
+                "at": {
+                    "shot": shot.get("name"),
+                    "index": index,
+                    "start_frame": shot.get("start_frame"),
+                },
                 "value": overrun,
                 "threshold": 0,
                 "says": f"shot {shot.get('name')!r} reaches {detail} past the file's end",
@@ -519,12 +523,18 @@ def shots_answer(media, records, source):
         loudest = max(voiced, key=lambda shot: shot["rms_dbfs"])
         quietest = min(voiced, key=lambda shot: shot["rms_dbfs"])
         rms_range = _round(loudest["rms_dbfs"] - quietest["rms_dbfs"])
-        at = {"between": [loudest["name"], quietest["name"]]}
+        # Names repeat once a cut re-joins earlier episodes, so the shots'
+        # positions in `shots` and their start frames say which is meant
+        at = {
+            "between": [loudest["name"], quietest["name"]],
+            "indices": [measured.index(loudest), measured.index(quietest)],
+            "start_frames": [loudest["start_frame"], quietest["start_frame"]],
+        }
     elif voiced:
         rms_range = 0.0
     answer = {"shots": measured, "rms_range_db": rms_range, "has_audio": True}
     dead_air_findings = []
-    for shot in measured:
+    for index, shot in enumerate(measured):
         # A shot that is quiet throughout, on purpose, holds no gap to find -
         # the same guard seam_hole applies to a seam's two sides (#465)
         quiet = shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
@@ -532,7 +542,12 @@ def shots_answer(media, records, source):
             _findings(
                 "analyze_shots",
                 shot,
-                {"shot": shot["name"], "seconds": shot["dead_air_at"]},
+                {
+                    "shot": shot["name"],
+                    "index": index,
+                    "start_frame": shot["start_frame"],
+                    "seconds": shot["dead_air_at"],
+                },
                 skip={"shot_dead_air"} if quiet else (),
             )
         )

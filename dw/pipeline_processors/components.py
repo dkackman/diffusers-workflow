@@ -13,6 +13,7 @@ from ..trust import (
 from .. import get_device_type, resolve_device
 from ..events import WorkflowCancelled, emit_phase
 from .. import download_watch
+from .. import quantized_cache
 from huggingface_hub.errors import HfHubHTTPError
 from .h3_guides import insert_guides
 from .h3_hold import insert_audio_hold
@@ -590,12 +591,25 @@ def load_component(
                 model_name = from_pretrained_arguments.pop("model_name")
                 logger.info(f"Loading {component_name} from model: {model_name}")
                 emit_phase("loading", detail=f"{component_name}: {model_name}")
-                with download_watch.watch(
-                    model_name, cache_dir=from_pretrained_arguments.get("cache_dir")
-                ):
-                    component = component_type.from_pretrained(
-                        model_name, **from_pretrained_arguments
-                    )
+
+                def from_pretrained():
+                    with download_watch.watch(
+                        model_name,
+                        cache_dir=from_pretrained_arguments.get("cache_dir"),
+                    ):
+                        return component_type.from_pretrained(
+                            model_name, **from_pretrained_arguments
+                        )
+
+                # A component an SDNQ config quantizes is read from the cache on
+                # a hit, and neither loads nor downloads (dw/quantized_cache.py)
+                component = quantized_cache.from_pretrained(
+                    component_name,
+                    component_type,
+                    model_name,
+                    from_pretrained_arguments,
+                    from_pretrained,
+                )
 
             # Load from single file
             elif "from_single_file" in from_pretrained_arguments:
@@ -636,7 +650,9 @@ def load_component(
                         f"{component_type.__name__} does not have it"
                     )
                 logger.info(f"Loading components for {component_name}")
-                component.load_components(**load_components_arguments)
+                # Before pruning, offload and sdnq_optimize, so a cached entry
+                # is the whole component as quantized (dw/quantized_cache.py)
+                quantized_cache.load_components(component, load_components_arguments)
 
             # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
             # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)

@@ -6,6 +6,11 @@ same parser the task runs without importing the task - that import closed
 a cycle through `tasks.assess`, `tasks.audio_utils` and `tasks.joins` back
 into `task_domains` (where the check lived until #790). The task imports these names back, so a caller that
 reads them off `script_check` still finds them.
+
+It also holds what the tasks that read a transcript's words share without
+importing each other (#822): the repetition-loop detector check_script
+discards with and transcribe_audio marks `suspect: "repetition"` with, and
+the run grouping plan_cuts warns about suspect chunks by.
 """
 
 import re
@@ -37,6 +42,67 @@ def normalize_words(text):
         if word:
             words.append(word)
     return words
+
+
+# A run of heard words that repeats with a period of at most
+# REPEAT_MAX_PERIOD words, REPEAT_RUN_MIN or more times over, is a decoding
+# loop - Whisper's hallucination over music or room tone ('Pre-pre-pre-...',
+# 'thank you thank you ...'), loud enough to pass the energy guard. Speech
+# repeats a word a few times; it does not loop. check_script discards such
+# words and transcribe_audio marks them `suspect: "repetition"` (#822)
+REPEAT_RUN_MIN = 6
+REPEAT_MAX_PERIOD = 4
+
+
+def repetition_loops(keys):
+    """The indices of `keys` (heard words) that sit in a repetition loop: a stretch that
+    repeats with a period of 1 to REPEAT_MAX_PERIOD and spans at least
+    REPEAT_RUN_MIN periods."""
+    looped = set()
+    for period in range(1, REPEAT_MAX_PERIOD + 1):
+        k = period
+        while k < len(keys):
+            if keys[k] != keys[k - period]:
+                k += 1
+                continue
+            first = k - period
+            while k < len(keys) and keys[k] == keys[k - period]:
+                k += 1
+            if k - first >= REPEAT_RUN_MIN * period:
+                looped.update(range(first, k))
+    return looped
+
+
+def looped_texts(texts):
+    """The indices of `texts` (transcript chunks' text, in order) holding a word
+    of a repetition loop. Over words, not chunks: one chunk can hold a whole
+    loop ('Pre-pre-pre'), and a chunk with no word is never in one."""
+    sequence, owner = [], []
+    for index, text in enumerate(texts):
+        words = normalize_words(text)
+        owner.extend([index] * len(words))
+        sequence.extend(words)
+    return {owner[k] for k in repetition_loops(sequence)}
+
+
+# transcribe_audio's `suspect` reasons whose chunk plan_cuts leaves out of the
+# sung lines: no word, a repetition loop, no voice under it. A "long" word is
+# real lyric, only mistimed, so it stays
+SUSPECT_LEFT_OUT = ("no_words", "repetition", "silent")
+
+
+def suspect_runs(chunks):
+    """[(reason, [chunk, ...])]: each run of consecutive chunks carrying the
+    same `suspect` reason, so a long hallucination is one run, not hundreds."""
+    runs, previous = [], None
+    for chunk in chunks:
+        reason = chunk.get("suspect")
+        if reason and reason == previous:
+            runs[-1][1].append(chunk)
+        elif reason:
+            runs.append((reason, [chunk]))
+        previous = reason
+    return runs
 
 
 def strip_markup(line):

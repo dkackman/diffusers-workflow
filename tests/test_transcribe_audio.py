@@ -5,6 +5,8 @@ from unittest.mock import patch, MagicMock
 
 import numpy
 
+from dw.tasks import audio_transcription
+
 from dw.tasks.audio_transcription import (
     transcribe_audio,
     WHISPER_DEFAULT_MODEL,
@@ -23,6 +25,14 @@ class TestTranscribeAudio(unittest.TestCase):
         samples = int(seconds * sample_rate)
         tone = numpy.zeros((channels, samples), dtype=numpy.float32)
         return tone, sample_rate
+
+    def _voiced(self, seconds=1.0, sample_rate=16000):
+        """A waveform loud throughout, so no chunk of it is marked silent."""
+        tone, rate = self._waveform(seconds=seconds, sample_rate=sample_rate)
+        tone[0] = 0.3 * numpy.sin(
+            2 * numpy.pi * 220 * numpy.arange(tone.shape[1]) / rate
+        )
+        return tone, rate
 
     def _mock_pipe(
         self, mock_pipeline, text="hello world", kind="seq2seq_whisper", chunks=None
@@ -182,7 +192,7 @@ class TestTranscribeAudio(unittest.TestCase):
                 {"text": " world", "timestamp": (0.5, 1.0)},
             ],
         )
-        waveform, rate = self._waveform()
+        waveform, rate = self._voiced()
 
         result = transcribe_audio(
             waveform, device="cpu", sample_rate=rate, timestamps="word"
@@ -280,7 +290,7 @@ class TestTranscribeAudio(unittest.TestCase):
             "hello world",
             chunks=[{"text": "hello world", "timestamp": (0.0, 1.0)}],
         )
-        waveform, rate = self._waveform()
+        waveform, rate = self._voiced()
 
         result = transcribe_audio(
             waveform, device="cpu", sample_rate=rate, timestamps="segment"
@@ -304,7 +314,7 @@ class TestTranscribeAudio(unittest.TestCase):
                 {"text": " cut off", "timestamp": (2.5, None)},
             ],
         )
-        waveform, rate = self._waveform(seconds=4.0)
+        waveform, rate = self._voiced(seconds=4.0)
 
         result = transcribe_audio(
             waveform, device="cpu", sample_rate=rate, timestamps="segment"
@@ -317,6 +327,108 @@ class TestTranscribeAudio(unittest.TestCase):
                 {"start": 2.5, "end": 4.0, "text": "cut off"},
             ],
         )
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_word_over_silence_is_marked_silent_not_dropped(self, mock_pipeline):
+        # #822: end credits Whisper invents over a fade. 3 s voiced, 3 s silent
+        waveform, rate = self._voiced(seconds=6.0)
+        waveform[0, 48000:] = 0.0
+        self._mock_pipe(
+            mock_pipeline,
+            "la credits",
+            chunks=[
+                {"text": " la", "timestamp": (0.5, 1.0)},
+                {"text": " credits", "timestamp": (4.0, 5.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        la, credits = result["chunks"]
+        self.assertNotIn("suspect", la)
+        self.assertEqual(credits["suspect"], "silent")
+        self.assertEqual(credits["text"], "credits")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_voiced_word_over_two_seconds_is_marked_long(self, mock_pipeline):
+        waveform, rate = self._voiced(seconds=6.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "Union fine",
+            chunks=[
+                {"text": " Union", "timestamp": (0.0, 4.0)},
+                {"text": " fine", "timestamp": (4.0, 5.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertEqual([c.get("suspect") for c in result["chunks"]], ["long", None])
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_repetition_loop_is_marked_however_loud(self, mock_pipeline):
+        # #822 bounce: Whisper's "I'm sorry, I'm sorry, ..." over a fade on
+        # the vocal stem, loud enough to pass the floor
+        waveform, rate = self._voiced(seconds=8.0)
+        waveform[0, int(5.2 * rate) :] = 0.0  # no tail for a resumed pass
+        loop = [
+            {"text": f" {word}", "timestamp": (2.0 + i * 0.2, 2.2 + i * 0.2)}
+            for i, word in enumerate(["I'm", "sorry,"] * 8)
+        ]
+        self._mock_pipe(
+            mock_pipeline,
+            "Union I'm sorry",
+            chunks=[{"text": " Union", "timestamp": (0.5, 1.0)}] + loop,
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        marks = [c.get("suspect") for c in result["chunks"]]
+        self.assertEqual(marks, [None] + ["repetition"] * 16)
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_chunk_with_no_word_is_marked_no_words(self, mock_pipeline):
+        # #822 bounce: '—' chunks over the intro, where the vocal stem's
+        # leakage keeps the span above the floor
+        waveform, rate = self._voiced(seconds=6.0)
+        waveform[0, int(3.5 * rate) :] = 0.0  # no tail for a resumed pass
+        self._mock_pipe(
+            mock_pipeline,
+            "— — Union",
+            chunks=[
+                {"text": " —", "timestamp": (0.0, 0.36)},
+                {"text": " —", "timestamp": (1.0, 1.0)},
+                {"text": " Union", "timestamp": (3.0, 3.5)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        marks = [c.get("suspect") for c in result["chunks"]]
+        self.assertEqual(marks, ["no_words", "no_words", None])
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_long_segment_is_not_marked_long(self, mock_pipeline):
+        waveform, rate = self._voiced(seconds=6.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "a line",
+            chunks=[{"text": "a line", "timestamp": (0.0, 5.0)}],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertNotIn("suspect", result["chunks"][0])
 
     @patch("dw.tasks.audio_transcription.hf_pipeline")
     def test_the_duration_is_the_clips_whatever_its_sample_rate(self, mock_pipeline):

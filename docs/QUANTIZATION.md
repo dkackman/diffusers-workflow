@@ -151,6 +151,33 @@ examples use for their large transformers and text encoders:
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json), [video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
 
+### Cached on-the-fly (`DW_QUANTIZED_CACHE`)
+
+An on-the-fly load reads the bf16 weights and quantizes them on every cold load. With `DW_QUANTIZED_CACHE=1` the server keeps the result: the first cold load saves each quantized component to disk with sdnq's `save_sdnq_model` (safetensors plus JSON, no pickle), and a later load of the same key reads it back with `load_sdnq_model`, skipping the bf16 read and the quantize. Any other value leaves it off, with no events. It covers both ways a component is quantized with a `sdnq.SDNQConfig` `quantization_config`: a modular pipeline's `load_components`, one config per component (MiniMax H3), and a component loaded on its own through its class's `from_pretrained` (LTX-2.5's transformer and Gemma text encoder). A hit is placed on the config's `return_device` (LTX's transformer goes straight to `cuda`) and loads with no download.
+
+The variables are read by the server and inherited by its workers, so set them in the server's environment (e.g. `.env`) and restart.
+
+- **Where**: `DW_QUANTIZED_CACHE_DIR`, default `<HF_HOME>/dw-quantized`. `dw.serve` resolves it to an absolute path at start and pins it for the workers. Each entry is `<root>/<sha256 key>/` with an `entry.json` (the key's inputs, size, created and last-hit times), written to a `.tmp-*` sibling and renamed into place
+- **The key**: repo, subfolder, snapshot commit, quantizer class and config (minus the devices, the quantized-matmul switches and `non_blocking`, which don't change the stored weights), `torch_dtype`, and the sdnq, diffusers, transformers and torch versions. A key that can't pin the weights isn't cached
+- **Not cached** (a `skipped` event with the reason):
+
+  | Reason | When |
+  | ------ | ---- |
+  | `local_path` | the model is a local path |
+  | `unsupported` | a `variant`, no type hint, a single-file checkpoint, or a per-component load with a `from_pretrained` argument the key doesn't cover |
+  | `unpinned_snapshot` | the snapshot isn't complete on disk, or the recorded commit disagrees with the one the hub refs name - a save is only ever made under the commit an identical later lookup reads |
+  | `low_disk` | the save would leave free space below `min(50 GiB, 10% of the volume)` |
+  | `save_failed: <ENOSPC or exception type>` | the save failed |
+
+- **Why a `miss`** (its `reason`): `no_entry` (nothing saved under the key yet), `incomplete_snapshot` (the snapshot isn't all on disk, so no lookup was made), or `load_failed: <exception type>: <first line of its message>` (the entry didn't load and was deleted; the save that follows replaces it)
+- **Concurrent workers**: two workers saving the same key leave one entry; the other reports `saved` ("already saved by another worker"). A corrupt entry is deleted and quantized fresh
+- **What a hit holds**: the whole component as quantized. The save comes before pruning (`truncate_layers`, `remove_modules`), `sdnq_optimize`, LoRAs and offload, which all still apply after a hit
+- **At server start** (only when on): a sweep deletes leftover `*.tmp-*` directories and entries built against other package versions or with an unreadable `entry.json`, and logs the count and bytes freed. It then logs the root, bytes in use and free space, warning when free space is below the floor plus the largest entry already cached
+- **Clearing**: there is no other eviction. Use the server page's Caches panel (the whole cache, or one entry from its expandable table), or `DELETE /api/caches/quantized` / `DELETE /api/caches/quantized/entries/{id}`. `GET /api/caches` lists the entries (model, subfolder, size, created, last hit) and `low_disk` (free space under the floor). Clearing is refused while a job is running or queued, and while a model download is active; an off cache still lists and clears what is on disk
+- **Event**: a `quantized_cache` job event, `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`. A `miss`'s `seconds` is the time of the whole `load_components` batch, shared by the components it loaded; on the per-component path it is that one component's load
+
+The cache never fails a job; one that can't help steps aside.
+
 ### Pre-quantized models
 
 Pre-quantized SDNQ repos load as complete pipelines. The `sdnq` module must be imported before loading so it can register with diffusers:

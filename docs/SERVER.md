@@ -28,6 +28,15 @@ The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
 
+### Environment
+
+The server reads these from its environment (e.g. `.env`) and its workers inherit them; changing one needs a restart.
+
+| Variable | Default | Effect |
+| -------- | ------- | ------ |
+| `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
+| `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
+
 ### Choosing the card
 
 `--devices cuda:1` runs the worker on that card. The worker is pinned to it
@@ -178,7 +187,12 @@ all-or-nothing. See [Workspaces](WORKSPACES.md#several-workspaces-on-one-server)
 The sidebar lists every workspace, and `+ new` there creates one; a
 workspace's own Overview page is where it is deleted. Server → Status shows
 the resolved directories and the `claude mcp add` line for connecting an
-agent from another machine, plus the queue across every workspace:
+agent from another machine, plus the queue across every workspace. Its
+Caches panel lists dw's disk caches (`GET /api/caches`: size, files, last
+used, the volume's free space; the quantized cache also expands into a table
+of its entries with a delete button each) with a Clear button per cache that asks first,
+quoting what clearing costs, and shows the server's refusal when a job is
+running:
 
 ![The Server page before the sidebar: address picker, generated claude mcp add line, resolved directories — the workspace list it shows now lives in the sidebar](img/ui-server-dark.png)
 
@@ -620,6 +634,37 @@ The editor's forms come from these; they are just as usable from scripts:
   so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
+- `GET /api/caches`, `DELETE /api/caches/{name}`, `DELETE /api/caches/{name}/entries/{entry}` - dw's disk caches of derived
+  data (not the hub cache above): `inductor` (`torch.compile`'s kernels),
+  `triton` (Triton's own cache, which holds SDNQ's `triton.jit`/autotune
+  kernels and is shared with any other Triton user on the machine) and
+  `quantized` (the SDNQ quantized-component cache, `DW_QUANTIZED_CACHE_DIR`;
+  `enabled` follows `DW_QUANTIZED_CACHE=1`, and an off cache still lists and clears).
+  A cache with entries (`quantized`) lists them inline as `entries` (`id`,
+  `bytes`, `files`, `unreadable`, `model`, `subfolder`, `component`, `created`,
+  `last_hit`; an entry with a missing or unreadable `entry.json` is
+  `unreadable: true` and deletable) plus `low_disk` (free space under
+  `min(50 GiB, 10% of the volume)`). The entry DELETE answers
+  `{"name", "entry", "deleted": true, "freed"}`; the id must match
+  `^[0-9a-f]{64}$` (else 400, before any path is built), 400 on a cache without
+  entries or an unmarked root, 404 for an unknown entry. For `quantized`, both
+  it and the whole-cache DELETE also 409 while a model download is active. The GET
+  answers `{"caches": [...]}`, each with `name`, `root`, `enabled` (`triton`
+  is false where it is not installed, as on a Mac), `bytes`, `files`,
+  `last_used` (newest mtime, epoch seconds), `clearable`,
+  `not_clearable_reason` (only when not clearable), `cost_of_clearing`,
+  `disk_free` and `disk_total`. The DELETE answers
+  `{"name", "cleared": true, "freed", "files"}`; 404 for an unknown name (the
+  detail names the valid ones), 409 while a job is running or queued, 400
+  when the root is not clearable. It empties the root but keeps the root and
+  its `.dw-cache` marker: children are renamed into
+  `<root>/.clearing-<pid>-<rand>/`, then deleted. Clearing costs a recompile
+  or re-autotune on the next first step of each shape (100-300 s per shape on
+  MiniMax-H3 for `triton`). A populated root that an environment variable
+  points away from its default has no marker and is not clearable until you
+  create the `.dw-cache` file in it by hand (read per request, no restart);
+  see [SECURITY.md](SECURITY.md#disk-caches). The Server page's Caches panel
+  drives all three. Behind the bearer token like every `/api/*` route
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress

@@ -273,7 +273,7 @@ def test_an_overrunning_shot_is_reported_once_not_per_probe(server, tmp_path):
 
     overrun = [f for f in body["findings"] if f["rule"] == "shot_span_overrun"]
     assert len(overrun) == 1
-    assert overrun[0]["at"] == {"shot": "s2"}
+    assert overrun[0]["at"]["shot"] == "s2"
 
 
 def test_a_path_outside_the_outputs_is_refused(server):

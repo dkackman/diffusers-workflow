@@ -2397,6 +2397,36 @@ def test_gallery_metadata_reports_a_level_envelope_on_request(server, tmp_path):
         )
 
 
+def test_gallery_metadata_envelope_takes_an_interval_and_refuses_a_bad_one(
+    server, tmp_path
+):
+    from tests.test_media_info import write_wav
+
+    with server(success_script) as client:
+        write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=3.0)
+        url = "/api/gallery/score-gen.0-0.0.wav/metadata"
+
+        fine = client.get(url, params={"envelope": "true", "interval_seconds": 0.1})
+        assert fine.json()["media"]["envelope"]["interval_seconds"] == pytest.approx(
+            0.1
+        )
+        assert len(fine.json()["media"]["envelope"]["rms_dbfs"]) == 30
+
+        too_fine = client.get(
+            url, params={"envelope": "true", "interval_seconds": 0.01}
+        )
+        assert too_fine.status_code == 422
+        assert "at least 0.05" in too_fine.json()["detail"]
+
+        # pydantic reads "inf" as a float; it must be a 422, not an
+        # OverflowError 500 in the binning
+        infinite = client.get(
+            url, params={"envelope": "true", "interval_seconds": "inf"}
+        )
+        assert infinite.status_code == 422
+        assert "at most 3600" in infinite.json()["detail"]
+
+
 def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
     """A track that opens fine but fails partway through decode (damage
     past the header) must not 500 the metadata route - it should fall back

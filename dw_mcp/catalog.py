@@ -282,7 +282,9 @@ def list_gallery(
     return client.get_json("/api/gallery", params=params, workspace=workspace)
 
 
-def get_gallery_metadata(client, name, envelope=False, workspace=None):
+def get_gallery_metadata(
+    client, name, envelope=False, workspace=None, interval_seconds=None
+):
     """Metadata embedded in a saved file: the full workflow that made it -
     the exact workflow, arguments and seed, so a result can be reproduced
     or a failed run's definition edited and re-run - plus the job that
@@ -308,10 +310,15 @@ def get_gallery_metadata(client, name, envelope=False, workspace=None):
     With envelope=True the soundtrack's level is reported second by second
     as well, which is what locates something in a track rather than only
     measuring the whole of it. Opt-in: it is one number per second per
-    measure, and the default answer has to stay small."""
+    measure, and the default answer has to stay small. `interval_seconds`
+    (0.05 to 3600, default 1.0) narrows the bins; a finer-than-default width
+    that would need over 2400 of them is refused with the interval that fits."""
+    params = {"envelope": "true"} if envelope else None
+    if envelope and interval_seconds is not None:
+        params["interval_seconds"] = interval_seconds
     body = client.get_json(
         api_path("api", "gallery", name, "metadata"),
-        params={"envelope": "true"} if envelope else None,
+        params=params,
         workspace=workspace,
     )
     media = body.get("media")

@@ -124,6 +124,69 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/caches": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Caches
+         * @description dw's own disk caches (dw/disk_caches.py): each one's root, size, and
+         *     whether it can be cleared from here.
+         */
+        get: operations["list_caches_api_caches_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/caches/{name}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Clear Cache
+         * @description Empty one cache's root, keeping the root and its marker. Refused
+         *     while anything may be writing into it (`_refuse_while_writing`).
+         */
+        delete: operations["clear_cache_api_caches__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/caches/{name}/entries/{entry}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Cache Entry
+         * @description Delete one entry of a cache that has entries (quantized). The id is
+         *     checked to be 64 hex before any path is built from it.
+         */
+        delete: operations["delete_cache_entry_api_caches__name__entries__entry__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/classes": {
         parameters: {
             query?: never;
@@ -485,7 +548,11 @@ export interface paths {
          *     is what says *where* in a track something is - whether a shot is
          *     still voiced at its last frame, how deep the hole at a seam goes.
          *     Opt-in: a ten-minute track is 600 numbers, and the default call has
-         *     to stay small.
+         *     to stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is
+         *     the bin width: 0.1 places a cut on a vocal onset. A track that
+         *     would need more than 2400 bins at a finer-than-default width is
+         *     refused (422) with the interval that fits; the default width is
+         *     never refused for length (#823).
          *
          *     `name` may also be an 'asset:' reference, and then it is the input
          *     asset of that name that is described rather than an output (#127).
@@ -1868,6 +1935,110 @@ export interface components {
             status: "idle" | "running" | "succeeded" | "failed";
             /** Version */
             version: string | null;
+        };
+        /** DiskCacheCleared */
+        DiskCacheCleared: {
+            /** Cleared */
+            cleared: boolean;
+            /** Files */
+            files: number;
+            /**
+             * Freed
+             * @description Bytes freed.
+             */
+            freed: number;
+            /** Name */
+            name: string;
+        };
+        /** DiskCacheEntry */
+        DiskCacheEntry: {
+            /** Bytes */
+            bytes: number;
+            /** Component */
+            component: string | null;
+            /**
+             * Created
+             * @description Epoch seconds.
+             */
+            created: number | null;
+            /** Files */
+            files: number;
+            /**
+             * Id
+             * @description The entry's 64-hex key: its directory name.
+             */
+            id: string;
+            /**
+             * Last Hit
+             * @description Epoch seconds of the last load that read it; null if none has.
+             */
+            last_hit: number | null;
+            /** Model */
+            model: string | null;
+            /** Subfolder */
+            subfolder: string | null;
+            /**
+             * Unreadable
+             * @description True when its entry.json is missing or unreadable; the fields below are then null, and it can still be deleted.
+             */
+            unreadable: boolean;
+        };
+        /** DiskCacheEntryDeleted */
+        DiskCacheEntryDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Entry */
+            entry: string;
+            /**
+             * Freed
+             * @description Bytes freed.
+             */
+            freed: number;
+            /** Name */
+            name: string;
+        };
+        /** DiskCacheInfo */
+        DiskCacheInfo: {
+            /** Bytes */
+            bytes: number;
+            /** Clearable */
+            clearable: boolean;
+            /** Cost Of Clearing */
+            cost_of_clearing: string;
+            /** Disk Free */
+            disk_free: number | null;
+            /** Disk Total */
+            disk_total: number | null;
+            /** Enabled */
+            enabled: boolean;
+            /**
+             * Entries
+             * @description For a cache with entries (quantized).
+             */
+            entries?: components["schemas"]["DiskCacheEntry"][] | null;
+            /** Files */
+            files: number;
+            /**
+             * Last Used
+             * @description The newest file's mtime (epoch seconds); null when empty.
+             */
+            last_used: number | null;
+            /**
+             * Low Disk
+             * @description For a cache with a free-space floor (quantized): the volume is under it, so new entries are not saved.
+             */
+            low_disk?: boolean | null;
+            /** Name */
+            name: string;
+            /** Not Clearable Reason */
+            not_clearable_reason?: string | null;
+            /** Root */
+            root: string;
+        };
+        /** DiskCacheList */
+        DiskCacheList: {
+            /** Caches */
+            caches: components["schemas"]["DiskCacheInfo"][];
         };
         /** DiskUsage */
         DiskUsage: {
@@ -3492,6 +3663,89 @@ export interface operations {
             };
         };
     };
+    list_caches_api_caches_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheList"];
+                };
+            };
+        };
+    };
+    clear_cache_api_caches__name__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheCleared"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_cache_entry_api_caches__name__entries__entry__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                entry: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheEntryDeleted"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     classes_api_classes_get: {
         parameters: {
             query: {
@@ -3902,6 +4156,7 @@ export interface operations {
         parameters: {
             query?: {
                 envelope?: boolean;
+                interval_seconds?: number;
                 workspace?: string | null;
             };
             header?: never;

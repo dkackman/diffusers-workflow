@@ -20,6 +20,9 @@ from ..api_models import (
     PipelineNames,
     TaskList,
     DiffusersStatus,
+    DiskCacheCleared,
+    DiskCacheEntryDeleted,
+    DiskCacheList,
     HealthInfo,
     MemoryCleared,
     MemoryStatus,
@@ -29,6 +32,7 @@ from ..api_models import (
     ModelDownloads,
     ServerInfo,
 )
+from ... import disk_caches
 from ...hub_cache import delete_model, scan_models
 from ...introspection import (
     describe_class,
@@ -253,6 +257,87 @@ def delete_cached_model(request: Request, repo: str):
         raise HTTPException(status_code=404, detail=str(e))
     logger.info(f"Deleted {repo} from the hub cache ({freed} bytes)")
     return {"repo_id": repo, "deleted": True, "freed": freed}
+
+
+# ------------------------------------------------------ dw's disk caches
+
+
+@router.get(
+    "/api/caches", response_model=DiskCacheList, response_model_exclude_unset=True
+)
+def list_caches():
+    """dw's own disk caches (dw/disk_caches.py): each one's root, size, and
+    whether it can be cleared from here."""
+    return {"caches": disk_caches.scan_all()}
+
+
+@router.delete(
+    "/api/caches/{name}",
+    response_model=DiskCacheCleared,
+    response_model_exclude_unset=True,
+)
+def clear_cache(request: Request, name: str):
+    """Empty one cache's root, keeping the root and its marker. Refused
+    while anything may be writing into it (`_refuse_while_writing`)."""
+    try:
+        disk_caches.get(name)
+    except disk_caches.UnknownCache as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    _refuse_while_writing(request, name)
+    try:
+        result = disk_caches.clear(name)
+    except disk_caches.NotClearable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "cleared": True, **result}
+
+
+@router.delete(
+    "/api/caches/{name}/entries/{entry}",
+    response_model=DiskCacheEntryDeleted,
+    response_model_exclude_unset=True,
+)
+def delete_cache_entry(request: Request, name: str, entry: str):
+    """Delete one entry of a cache that has entries (quantized). The id is
+    checked to be 64 hex before any path is built from it."""
+    try:
+        disk_caches.entry_cache(name, entry)
+    except disk_caches.UnknownCache as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except disk_caches.NoEntries as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    _refuse_while_writing(request, name)
+    try:
+        result = disk_caches.delete_entry(name, entry)
+    except disk_caches.UnknownEntry as e:
+        raise HTTPException(status_code=404, detail=str(e))
+    except disk_caches.NotClearable as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    return {"name": name, "entry": entry, "deleted": True, "freed": result["freed"]}
+
+
+# Caches that live beside the hub cache (under HF_HOME): changed only when no
+# download is writing there either, the rule DELETE /api/models follows
+_DOWNLOAD_SENSITIVE_CACHES = frozenset({"quantized"})
+
+
+def _refuse_while_writing(request, name):
+    """409 while a job is running or queued - a compile, autotune or
+    quantized save in progress writes into the root, and a delete mid-write
+    could leave a truncated artifact a later lookup trusts - and, for the
+    quantized cache, while a model download is active."""
+    state = request.app.state
+    if state.job_manager.is_busy():
+        raise HTTPException(
+            status_code=409,
+            detail="A job is running or queued - clearing a cache it may be "
+            "writing would leave it a truncated artifact",
+        )
+    if name in _DOWNLOAD_SENSITIVE_CACHES and state.downloads.is_active():
+        raise HTTPException(
+            status_code=409,
+            detail="A model download is in progress - the quantized cache "
+            "can't be changed until it finishes",
+        )
 
 
 # ------------------------------------------------------ diffusers update

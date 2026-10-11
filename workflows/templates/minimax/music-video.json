@@ -80,6 +80,7 @@
         "audio_bleed_gain_db": 0.0,
         "seam_fade_ms": null,
         "match_levels": null,
+        "match_levels_dbfs": null,
         "width": 960,
         "height": 544,
         "num_inference_steps": 9,
@@ -364,7 +365,8 @@
                     "audio_bleed_ms": "variable:audio_bleed_ms",
                     "audio_bleed_gain_db": "variable:audio_bleed_gain_db",
                     "seam_fade_ms": "variable:seam_fade_ms",
-                    "match_levels": "variable:match_levels"
+                    "match_levels": "variable:match_levels",
+                    "match_levels_dbfs": "variable:match_levels_dbfs"
                 }
             }
         },
