@@ -169,7 +169,7 @@ The variables are read by the server and inherited by its workers, so set them i
   | `low_disk` | the save would leave free space below `min(50 GiB, 10% of the volume)` |
   | `save_failed: <ENOSPC or exception type>` | the save failed |
 
-- **Why a `miss`** (its `reason`): `no_entry` (nothing saved under the key yet), `incomplete_snapshot` (the snapshot isn't all on disk, so no lookup was made), or `load_failed: <exception type>` (the entry didn't load and was deleted; the save that follows replaces it)
+- **Why a `miss`** (its `reason`): `no_entry` (nothing saved under the key yet), `incomplete_snapshot` (the snapshot isn't all on disk, so no lookup was made), or `load_failed: <exception type>: <first line of its message>` (the entry didn't load and was deleted; the save that follows replaces it)
 - **Concurrent workers**: two workers saving the same key leave one entry; the other reports `saved` ("already saved by another worker"). A corrupt entry is deleted and quantized fresh
 - **What a hit holds**: the whole component as quantized. The save comes before pruning (`truncate_layers`, `remove_modules`), `sdnq_optimize`, LoRAs and offload, which all still apply after a hit
 - **At server start** (only when on): a sweep deletes leftover `*.tmp-*` directories and entries built against other package versions or with an unreadable `entry.json`, and logs the count and bytes freed. It then logs the root, bytes in use and free space, warning when free space is below the floor plus the largest entry already cached

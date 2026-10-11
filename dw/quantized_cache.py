@@ -45,6 +45,7 @@ none of it can fail a job: a cache that cannot help steps aside.
 import errno
 import hashlib
 import importlib.metadata
+import inspect
 import json
 import logging
 import os
@@ -52,7 +53,7 @@ import re
 import secrets
 import shutil
 import time
-from functools import lru_cache
+from functools import lru_cache, partial
 from types import SimpleNamespace
 
 from .events import get_context
@@ -109,6 +110,8 @@ LOAD_FAILED = "load_failed"
 _KEY_PATTERN = re.compile(r"^[0-9a-f]{64}$")
 _COMMIT_PATTERN = re.compile(r"^[0-9a-f]{40}$")
 _TMP_MARKER = ".tmp-"
+# How much of a failed load's message a `load_failed` reason carries
+_REASON_DETAIL_CHARS = 200
 
 
 def enabled():
@@ -447,9 +450,7 @@ def save_entry(root, key, component, inputs):
         root,
     )
     try:
-        from sdnq import save_sdnq_model
-
-        save_sdnq_model(component, tmp)
+        _save_model(component, tmp)
         nbytes = _tree_bytes(tmp)
         now = time.time()
         _write_json(
@@ -471,6 +472,42 @@ def save_entry(root, key, component, inputs):
         )
         shutil.rmtree(tmp, ignore_errors=True)
         return "skipped", f"save_failed: {_error_name(e)}", None
+
+
+def _save_model(component, path):
+    """sdnq's `save_sdnq_model`, with a transformers model's tensors kept under
+    the names its own state_dict uses. transformers 5 saves in the checkpoint's
+    original layout by default (its weight conversion mapping run backwards),
+    while `load_sdnq_model` loads the names as they are, so a model with a
+    mapping - Gemma 4's vision tower, LTX-2.5's text encoder - saved that way
+    never loads back (#827). A diffusers model has no such switch."""
+    from sdnq import save_sdnq_model
+
+    save = getattr(component, "save_pretrained", None)
+    try:
+        own_names = "save_original_format" in inspect.signature(save).parameters
+    except (TypeError, ValueError):
+        own_names = False
+    if not own_names:
+        save_sdnq_model(component, path)
+        return
+    component.save_pretrained = partial(save, save_original_format=False)
+    try:
+        save_sdnq_model(component, path)
+    finally:
+        del component.save_pretrained
+
+
+def _error_detail(error):
+    """`<type>: <first line of the message>`, cut short, for a reason that has
+    to say why a load failed, not just that it did."""
+    lines = str(error).strip().splitlines()
+    if not lines:
+        return type(error).__name__
+    detail = lines[0]
+    if len(detail) > _REASON_DETAIL_CHARS:
+        detail = detail[: _REASON_DETAIL_CHARS - 3] + "..."
+    return f"{type(error).__name__}: {detail}"
 
 
 def _error_name(error):
@@ -794,7 +831,7 @@ def _lookup(root, candidate):
         )
     except Exception as e:
         logger.warning(f"Quantized cache: lookup of {candidate.name} failed: {e}")
-        return None, f"{LOAD_FAILED}: {_error_name(e)}"
+        return None, f"{LOAD_FAILED}: {_error_detail(e)}"
     if component is None:
         return None, NO_ENTRY
     emit(
