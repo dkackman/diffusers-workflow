@@ -5,6 +5,8 @@ from unittest.mock import patch, MagicMock
 
 import numpy
 
+from dw.tasks import audio_transcription
+
 from dw.tasks.audio_transcription import (
     transcribe_audio,
     WHISPER_DEFAULT_MODEL,
@@ -326,7 +328,7 @@ class TestTranscribeAudio(unittest.TestCase):
             ],
         )
 
-    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_word_over_silence_is_marked_silent_not_dropped(self, mock_pipeline):
         # #822: end credits Whisper invents over a fade. 3 s voiced, 3 s silent
         waveform, rate = self._voiced(seconds=6.0)
@@ -349,7 +351,7 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(credits["suspect"], "silent")
         self.assertEqual(credits["text"], "credits")
 
-    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_voiced_word_over_two_seconds_is_marked_long(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=6.0)
         self._mock_pipe(
@@ -367,7 +369,7 @@ class TestTranscribeAudio(unittest.TestCase):
 
         self.assertEqual([c.get("suspect") for c in result["chunks"]], ["long", None])
 
-    @patch("dw.tasks.audio_transcription.hf_pipeline")
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_long_segment_is_not_marked_long(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=6.0)
         self._mock_pipe(

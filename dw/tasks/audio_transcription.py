@@ -21,7 +21,9 @@ from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
 from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
-from ..dsp import resample_waveform
+from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
+from ..dsp import loudest_window_dbfs, resample_waveform
+from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
@@ -150,21 +152,21 @@ def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
 
     Marked, never removed. "silent": the chunk's loudest window sits at or
-    below script_check's dead-air floor (`word_level`, `GUARD_FLOOR_DBFS`) -
+    below the dead-air floor script_check guards with
+    (`DEAD_AIR_FLOOR_DBFS`, measured by `dsp.loudest_window_dbfs`) -
     Whisper invents text over silence, a fade-out's end credits included.
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
     since a segment is a line and runs long by nature). Silent wins.
     """
-    # script_check imports this module, so import it when called
-    from .script_check import GUARD_FLOOR_DBFS, word_level
-
     marked = []
     for chunk in chunks:
         if not chunk["text"]:
             marked.append(chunk)
             continue
-        level = word_level(mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"])
-        if level is None or level <= GUARD_FLOOR_DBFS:
+        level = loudest_window_dbfs(
+            mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"], DEAD_AIR_WINDOW
+        )
+        if level is None or level <= DEAD_AIR_FLOOR_DBFS:
             marked.append({**chunk, "suspect": "silent"})
         elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
             marked.append({**chunk, "suspect": "long"})

@@ -189,21 +189,8 @@ def shot_at(spans, seconds):
 
 def word_level(mono, sample_rate, start, end):
     """The loudest GUARD_WINDOW_SECONDS window's rms over [start, end], in
-    dBFS, or None for silence. A span shorter than one window (a zero-length
-    word chunk) is measured as one window centred on it."""
-    window = max(1, int(round(GUARD_WINDOW_SECONDS * sample_rate)))
-    first = int(round(start * sample_rate))
-    last = int(round(end * sample_rate))
-    if last - first < window:
-        middle = (first + last) // 2
-        first, last = middle - window // 2, middle - window // 2 + window
-    first, last = max(0, first), min(len(mono), last)
-    loudest = None
-    for offset in range(first, last, window):
-        level = dsp.rms(mono[offset : min(offset + window, last)])
-        if level is not None and (loudest is None or level > loudest):
-            loudest = level
-    return dsp.dbfs(loudest)
+    dBFS, or None for silence (`dsp.loudest_window_dbfs`)."""
+    return dsp.loudest_window_dbfs(mono, sample_rate, start, end, GUARD_WINDOW_SECONDS)
 
 
 def _round(value, places=3):
