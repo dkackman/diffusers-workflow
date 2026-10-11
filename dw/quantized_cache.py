@@ -179,25 +179,37 @@ def is_local_path(model_name):
     return os.path.isdir(str(model_name))
 
 
-def resolve_commit(model_name, revision=None, cache_dir=None):
-    """The commit `revision` names in the hub cache, read offline - a commit
-    hash names itself, a branch or tag is read from `refs/`. None when the
-    cache holds no such ref."""
-    revision = revision or "main"
-    if _COMMIT_PATTERN.match(revision):
-        return revision
-    hub = _hub_cache_dir(cache_dir)
+def _cached_file(model_name, filename, revision, cache_dir):
+    """The path of `filename` in the hub cache's snapshot for `revision`,
+    resolved offline by huggingface_hub (a branch or tag through `refs/`,
+    the blob behind the symlink checked present), or None."""
+    from huggingface_hub import try_to_load_from_cache
+
     try:
-        repo_dir = validate_path(
-            os.path.join(hub, f"models--{str(model_name).replace('/', '--')}"), hub
+        path = try_to_load_from_cache(
+            str(model_name),
+            filename,
+            cache_dir=_hub_cache_dir(cache_dir),
+            revision=revision,
         )
-        ref = validate_path(
-            os.path.join(repo_dir, "refs", revision), os.path.join(repo_dir, "refs")
-        )
-        with open(ref) as f:
-            commit = f.read().strip()
     except Exception:
         return None
+    return path if isinstance(path, str) else None
+
+
+def _in_folder(subfolder, name):
+    return f"{subfolder}/{name}" if subfolder else name
+
+
+def resolve_commit(model_name, revision=None, cache_dir=None, subfolder=None):
+    """The commit `revision` names in the hub cache, read offline: the
+    snapshot in which huggingface_hub finds `<subfolder>/config.json` for
+    it. None when the cache holds no such snapshot."""
+    filename = _in_folder(subfolder, "config.json")
+    path = _cached_file(model_name, filename, revision or "main", cache_dir)
+    if path is None:
+        return None
+    commit = os.path.basename(os.path.normpath(path[: -len(filename)]))
     return commit if _COMMIT_PATTERN.match(commit) else None
 
 
@@ -209,41 +221,35 @@ def _is_unvarianted_weights(name, suffix):
 
 def snapshot_complete(model_name, commit, subfolder=None, cache_dir=None):
     """Whether the snapshot at `commit` holds the component whole: its
-    `config.json` and every weight file it names, each present on disk (a
-    snapshot entry is a symlink to a blob, so a missing blob fails here)."""
+    `config.json` and every weight file it names, each present on disk.
+    huggingface_hub finds each file; which files a component needs (each
+    shard in the index's `weight_map`, or the unvarianted single file) is
+    dw's own rule."""
     hub = _hub_cache_dir(cache_dir)
+
+    def present(name):
+        return _cached_file(model_name, _in_folder(subfolder, name), commit, hub)
+
     try:
-        repo_dir = validate_path(
-            os.path.join(hub, f"models--{str(model_name).replace('/', '--')}"), hub
-        )
-        snapshot = validate_path(
-            os.path.join(repo_dir, "snapshots", commit),
-            os.path.join(repo_dir, "snapshots"),
-        )
-        folder = (
-            validate_path(os.path.join(snapshot, subfolder), snapshot)
-            if subfolder
-            else snapshot
-        )
-        if not os.path.isfile(os.path.join(folder, "config.json")):
+        config = present("config.json")
+        if config is None:
             return False
-        names = os.listdir(folder)
+        names = os.listdir(validate_path(os.path.dirname(config), hub))
         indexes = [
             n for n in names if _is_unvarianted_weights(n, ".safetensors.index.json")
         ]
         if indexes:
             for index in indexes:
-                with open(os.path.join(folder, index)) as f:
+                index_path = present(index)
+                if index_path is None:
+                    return False
+                with open(validate_path(index_path, hub)) as f:
                     weight_map = json.load(f).get("weight_map", {})
-                for shard in set(weight_map.values()):
-                    shard_path = validate_path(os.path.join(folder, shard), folder)
-                    if not os.path.isfile(shard_path):
-                        return False
+                if any(present(shard) is None for shard in set(weight_map.values())):
+                    return False
             return True
         singles = [n for n in names if _is_unvarianted_weights(n, ".safetensors")]
-        return bool(singles) and all(
-            os.path.isfile(os.path.join(folder, n)) for n in singles
-        )
+        return bool(singles) and all(present(n) is not None for n in singles)
     except Exception:
         return False
 
@@ -252,7 +258,7 @@ def lookup_commit(model_name, subfolder=None, revision=None, cache_dir=None):
     """The commit to look a load up under, or None when its snapshot is not
     complete on disk - the load is about to download or fail, and a key on
     that commit would name files nobody read."""
-    commit = resolve_commit(model_name, revision, cache_dir)
+    commit = resolve_commit(model_name, revision, cache_dir, subfolder)
     if commit is None or not snapshot_complete(
         model_name, commit, subfolder, cache_dir
     ):
@@ -275,7 +281,7 @@ def save_commit(component, model_name, subfolder=None, revision=None, cache_dir=
     snapshot can be named: the recorded commit wins, but not over a hub cache
     that now points elsewhere; without one, the snapshot must be complete."""
     recorded = recorded_commit(component)
-    resolved = resolve_commit(model_name, revision, cache_dir)
+    resolved = resolve_commit(model_name, revision, cache_dir, subfolder)
     if recorded is not None:
         if resolved is not None and resolved != recorded:
             return None
