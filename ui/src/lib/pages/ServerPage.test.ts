@@ -60,12 +60,62 @@ const health = vi.hoisted(() =>
 const memory = vi.hoisted(() =>
   vi.fn((): Promise<unknown> => Promise.reject(new Error('503'))),
 )
+const TRITON_COST =
+  'The next first step of each SDNQ or compiled shape re-autotunes. ' +
+  'This directory is shared with any other Triton user on this machine.'
+const cacheList = () => ({
+  caches: [
+    {
+      name: 'inductor',
+      root: '/home/don/.cache/dw/torchinductor',
+      enabled: true,
+      bytes: 273 * 1024 ** 2,
+      files: 1200,
+      last_used: 1760000000,
+      clearable: true,
+      cost_of_clearing: 'The next compiled run recompiles its kernels.',
+      disk_free: 400 * 1024 ** 3,
+      disk_total: 1000 * 1024 ** 3,
+    },
+    {
+      name: 'triton',
+      root: '/home/don/.triton/cache',
+      enabled: true,
+      bytes: Math.round(7.1 * 1024 ** 3),
+      files: 19683,
+      last_used: 1760000000,
+      clearable: true,
+      cost_of_clearing: TRITON_COST,
+      disk_free: 400 * 1024 ** 3,
+      disk_total: 1000 * 1024 ** 3,
+    },
+  ] as Record<string, unknown>[],
+})
+const listCaches = vi.hoisted(() =>
+  vi.fn((): Promise<unknown> => Promise.resolve({ caches: [] })),
+)
+const clearCache = vi.hoisted(() =>
+  vi.fn((name: string): Promise<unknown> =>
+    Promise.resolve({ name, cleared: true, freed: 0, files: 0 }),
+  ),
+)
+const confirmDialog = vi.hoisted(() =>
+  vi.fn((...args: [message: string, options?: unknown]): Promise<boolean> =>
+    Promise.resolve(args.length > 0),
+  ),
+)
 vi.mock('../api', () => ({
   api: {
     server: () => server(),
     health: () => health(),
     memory: () => memory(),
+    listCaches: () => listCaches(),
+    clearCache: (name: string) => clearCache(name),
   },
+}))
+vi.mock('../confirm.svelte', () => ({
+  confirmDialog: (message: string, options?: unknown) =>
+    confirmDialog(message, options),
 }))
 
 /** Render with a given payload and let the promises settle, returning the
@@ -88,6 +138,10 @@ beforeEach(() => {
 afterEach(() => {
   server.mockClear()
   health.mockClear()
+  listCaches.mockReset()
+  listCaches.mockResolvedValue({ caches: [] })
+  clearCache.mockClear()
+  confirmDialog.mockClear()
   localStorage.clear()
 })
 
@@ -206,4 +260,96 @@ it('shows memory for every card, not just the first', async () => {
   const text = await show()
   expect(text).toContain('cuda:0 1.0 / 24.0 GB')
   expect(text).toContain('cuda:1 18.2 / 24.0 GB 12s ago')
+})
+
+/** Render with the cache list given, returning the container. */
+async function showCaches(list = cacheList()) {
+  listCaches.mockResolvedValue(list)
+  state.info = base
+  state.fail = ''
+  const { container } = render(ServerPage)
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+  return container
+}
+const settle = async () => {
+  for (let i = 0; i < 5; i++) await new Promise((r) => setTimeout(r, 0))
+}
+const flat = (el: Element) => (el.textContent ?? '').replace(/\s+/g, ' ')
+const clearButton = (container: Element, name: string) =>
+  [...container.querySelectorAll('.caches tbody tr')]
+    .find((tr) => tr.querySelector('td')?.textContent === name)!
+    .querySelector('button') as HTMLButtonElement
+
+it('lists each cache with its root, size, files and the disk it is on', async () => {
+  const container = await showCaches()
+  const text = flat(container.querySelector('.caches')!)
+  expect(text).toContain('Caches')
+  expect(text).toContain('inductor')
+  expect(text).toContain('/home/don/.cache/dw/torchinductor')
+  expect(text).toContain('273.0 MB')
+  expect(text).toContain('1200')
+  expect(text).toContain('triton')
+  expect(text).toContain('/home/don/.triton/cache')
+  expect(text).toContain('7.10 GB')
+  expect(text).toContain('19683')
+  expect(text).toContain('400.0 / 1000.0 GB free')
+  // the bar is the used share of the volume
+  const bar = container.querySelector('.caches .diskbar > span') as HTMLElement
+  expect(bar.getAttribute('style')).toContain('width: 60%')
+})
+
+it('asks before clearing, quoting the cost and the shared-cache warning', async () => {
+  const container = await showCaches()
+  clearButton(container, 'triton').click()
+  await settle()
+  expect(confirmDialog).toHaveBeenCalledOnce()
+  const message = confirmDialog.mock.calls[0][0]
+  expect(message).toContain('triton')
+  expect(message).toContain('7.10 GB')
+  expect(message).toContain('re-autotunes')
+  expect(message).toContain('shared with any other Triton user')
+  expect(clearCache).toHaveBeenCalledWith('triton')
+  // the list is read again after the clear, so the size shown drops
+  expect(listCaches).toHaveBeenCalledTimes(2)
+})
+
+it('does not clear when the confirm is declined', async () => {
+  confirmDialog.mockResolvedValueOnce(false)
+  const container = await showCaches()
+  clearButton(container, 'inductor').click()
+  await settle()
+  expect(confirmDialog).toHaveBeenCalledOnce()
+  expect(clearCache).not.toHaveBeenCalled()
+})
+
+it('disables Clear with the reason when a cache is not clearable', async () => {
+  const list = cacheList()
+  list.caches[0] = {
+    ...list.caches[0],
+    clearable: false,
+    not_clearable_reason: 'root not created by dw (no .dw-cache marker)',
+  }
+  const container = await showCaches(list)
+  const button = clearButton(container, 'inductor')
+  expect(button.disabled).toBe(true)
+  expect(button.title).toBe('root not created by dw (no .dw-cache marker)')
+  expect(flat(container)).toContain(
+    'root not created by dw (no .dw-cache marker)',
+  )
+  expect(clearButton(container, 'triton').disabled).toBe(false)
+})
+
+it("shows the server's text when a clear is refused as busy", async () => {
+  const busy =
+    'A job is running or queued - clearing a cache it may be writing ' +
+    'would leave it a truncated artifact'
+  clearCache.mockRejectedValueOnce(
+    Object.assign(new Error(busy), { status: 409 }),
+  )
+  const container = await showCaches()
+  clearButton(container, 'inductor').click()
+  await settle()
+  expect(flat(container)).toContain(busy)
+  // and the sizes are re-read, unchanged
+  expect(flat(container)).toContain('273.0 MB')
 })

@@ -1,7 +1,16 @@
 <script lang="ts">
   import { poll } from '../poll'
-  import { Globe, Plug, ShieldCheck, TriangleAlert } from '@lucide/svelte'
+  import {
+    Globe,
+    HardDrive,
+    Plug,
+    ShieldCheck,
+    Trash2,
+    TriangleAlert,
+  } from '@lucide/svelte'
   import { api } from '../api'
+  import { confirmDialog } from '../confirm.svelte'
+  import { formatBytes, formatMtime, gbFromBytes } from '../format'
   import CopyButton from '../CopyButton.svelte'
   import WorkerList from '../WorkerList.svelte'
   import CardMemoryList from '../CardMemoryList.svelte'
@@ -14,7 +23,12 @@
     mcpAddCommand,
     mcpUrl,
   } from '../serverinfo'
-  import type { HealthInfo, MemoryInfo, ServerInfo } from '../types'
+  import type {
+    DiskCacheInfo,
+    HealthInfo,
+    MemoryInfo,
+    ServerInfo,
+  } from '../types'
 
   let info = $state<ServerInfo | null>(null)
   let error = $state('')
@@ -53,6 +67,54 @@
   )
   const port = $derived(info?.port ?? 0)
   const mcpPath = $derived(info?.mcp.path ?? '/mcp')
+
+  // dw's own disk caches: fetched once on load and again after a clear -
+  // each read walks the cache's tree, so it is not polled
+  let caches = $state<DiskCacheInfo[] | null>(null)
+  let cachesError = $state('')
+  let clearing = $state<string | null>(null)
+  let clearError = $state('')
+
+  async function refreshCaches() {
+    try {
+      caches = (await api.listCaches()).caches
+      cachesError = ''
+    } catch (e) {
+      cachesError = e instanceof Error ? e.message : String(e)
+    }
+  }
+  $effect(() => {
+    refreshCaches()
+  })
+
+  async function clear(cache: DiskCacheInfo) {
+    if (
+      !(await confirmDialog(
+        `Clear the ${cache.name} cache (${formatBytes(cache.bytes)}, ` +
+          `${cache.files} files) at ${cache.root}?\n${cache.cost_of_clearing}`,
+        { confirmLabel: 'Clear' },
+      ))
+    )
+      return
+    clearing = cache.name
+    clearError = ''
+    try {
+      await api.clearCache(cache.name)
+    } catch (e) {
+      // a 409 (a job running or queued) carries the server's reason
+      clearError = e instanceof Error ? e.message : String(e)
+    } finally {
+      clearing = null
+      await refreshCaches()
+    }
+  }
+
+  const usedPct = (cache: DiskCacheInfo) =>
+    cache.disk_total && cache.disk_free != null
+      ? Math.round(
+          (100 * (cache.disk_total - cache.disk_free)) / cache.disk_total,
+        )
+      : null
 </script>
 
 <div class="head">
@@ -305,6 +367,89 @@
       </dd>
     </dl>
   </div>
+
+  <div class="panel caches">
+    <h2><HardDrive size={15} />Caches</h2>
+    {#if cachesError}
+      <p class="warn">{cachesError}</p>
+    {:else if !caches}
+      <p class="muted">loading caches…</p>
+    {:else if caches.length === 0}
+      <p class="muted">No disk caches registered.</p>
+    {:else}
+      {#if clearError}
+        <p class="warn" role="alert"><TriangleAlert size={14} />{clearError}</p>
+      {/if}
+      <div class="tablewrap">
+        <table>
+          <thead>
+            <tr>
+              <th>cache</th>
+              <th>root</th>
+              <th>size</th>
+              <th>files</th>
+              <th>last used</th>
+              <th>enabled</th>
+              <th>disk</th>
+              <th></th>
+            </tr>
+          </thead>
+          <tbody>
+            {#each caches as cache (cache.name)}
+              {@const pct = usedPct(cache)}
+              <tr>
+                <td>{cache.name}</td>
+                <td><code>{cache.root}</code></td>
+                <td>{cache.bytes ? formatBytes(cache.bytes) : '0'}</td>
+                <td>{cache.files}</td>
+                <td class="muted">
+                  {cache.last_used ? formatMtime(cache.last_used) : '—'}
+                </td>
+                <td>{cache.enabled ? 'yes' : 'no'}</td>
+                <td>
+                  {#if pct != null}
+                    <span
+                      class="disk"
+                      title="disk holding the {cache.name} cache"
+                    >
+                      <span class="diskbar"
+                        ><span style="width: {pct}%"></span></span
+                      >
+                      {gbFromBytes(cache.disk_free ?? 0)} / {gbFromBytes(
+                        cache.disk_total ?? 0,
+                      )} GB free
+                    </span>
+                  {:else}
+                    <span class="muted">—</span>
+                  {/if}
+                </td>
+                <td>
+                  <button
+                    class="quiet withicon danger"
+                    disabled={!cache.clearable || clearing !== null}
+                    title={cache.clearable
+                      ? `clear the ${cache.name} cache`
+                      : (cache.not_clearable_reason ?? 'not clearable')}
+                    onclick={() => clear(cache)}
+                  >
+                    <Trash2 size={14} />
+                    {clearing === cache.name ? 'clearing…' : 'Clear'}
+                  </button>
+                </td>
+              </tr>
+              {#if !cache.clearable && cache.not_clearable_reason}
+                <tr class="reason">
+                  <td></td>
+                  <td colspan="7" class="muted">{cache.not_clearable_reason}</td
+                  >
+                </tr>
+              {/if}
+            {/each}
+          </tbody>
+        </table>
+      </div>
+    {/if}
+  </div>
 {:else if !error}
   <p class="muted">loading server details…</p>
 {/if}
@@ -402,5 +547,32 @@
   }
   tr.chosen code {
     color: var(--accent);
+  }
+  tr.reason td {
+    border-top: none;
+    padding-top: 0;
+    font-size: 0.8rem;
+  }
+  .disk {
+    display: inline-flex;
+    align-items: center;
+    gap: 0.4rem;
+    color: var(--muted);
+    font-size: 0.85rem;
+    white-space: nowrap;
+  }
+  .diskbar {
+    width: 90px;
+    height: 6px;
+    border-radius: 3px;
+    background: var(--line);
+    overflow: hidden;
+    display: inline-block;
+  }
+  .diskbar > span {
+    display: block;
+    height: 100%;
+    background: var(--muted);
+    opacity: 0.7;
   }
 </style>
