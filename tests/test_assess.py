@@ -156,6 +156,11 @@ class TestLevelStep:
         ]
         assert len(spread_findings) == 1
         assert shots_answer["rms_range_db"] >= 6.0
+        # The finding says which shots, by position and start frame, not name alone
+        at = spread_findings[0]["at"]
+        table = shots_answer["shots"]
+        assert [table[i]["name"] for i in at["indices"]] == at["between"]
+        assert at["start_frames"] == [table[i]["start_frame"] for i in at["indices"]]
 
         # JSON-serializable, per requirement 10
         json.dumps(seams)
@@ -978,7 +983,7 @@ class TestShotSpanOverrun:
 
         overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
         assert len(overrun) == 1
-        assert overrun[0]["at"] == {"shot": "b"}
+        assert overrun[0]["at"]["shot"] == "b"
         assert overrun[0]["value"]["frames"] == 176
 
         assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
@@ -991,7 +996,7 @@ class TestShotSpanOverrun:
 
         overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
         assert len(overrun) == 1
-        assert overrun[0]["at"] == {"shot": "b"}
+        assert overrun[0]["at"]["shot"] == "b"
         assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
         json.dumps(answer)
 
@@ -1001,7 +1006,7 @@ class TestShotSpanOverrun:
 
         overrun = [f for f in answer["findings"] if f["rule"] == "shot_span_overrun"]
         assert len(overrun) == 1
-        assert overrun[0]["at"] == {"shot": "b"}
+        assert overrun[0]["at"]["shot"] == "b"
         assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
         json.dumps(answer)
 
