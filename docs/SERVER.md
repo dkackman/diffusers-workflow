@@ -28,6 +28,15 @@ The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
 
+### Environment
+
+The server reads these from its environment (e.g. `.env`) and its workers inherit them; changing one needs a restart.
+
+| Variable | Default | Effect |
+| -------- | ------- | ------ |
+| `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
+| `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
+
 ### Choosing the card
 
 `--devices cuda:1` runs the worker on that card. The worker is pinned to it
