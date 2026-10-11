@@ -55,6 +55,27 @@ def plan(**kwargs):
     return plan_cuts(**kwargs)
 
 
+def test_suspect_chunks_become_warnings_naming_span_and_text():
+    # #822: transcribe_audio marks a chunk it doubts; plan_cuts says so
+    chunks = [dict(c) for c in CHUNKS]
+    chunks.append(
+        {"start": 26.0, "end": 29.0, "text": "Редактор субтитров", "suspect": "silent"}
+    )
+    chunks[0]["suspect"] = "long"
+    result = plan(transcript={"text": "x", "chunks": chunks})
+    suspect = [w for w in result["warnings"] if "suspect" in w]
+    assert len(suspect) == 2
+    assert any(
+        "26.00-29.00" in w and "Редактор субтитров" in w and "(silent)" in w
+        for w in suspect
+    )
+    assert any("4.00-7.00" in w and "(long)" in w for w in suspect)
+
+
+def test_unmarked_chunks_add_no_suspect_warning():
+    assert not any("suspect" in w for w in plan()["warnings"])
+
+
 def sung(result):
     return "\n".join(s["lyric"] for s in result["shots"] if s["lyric"]).split("\n")
 

@@ -69,6 +69,8 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 word with no audible energy keeps Whisper's bounds - the step's result
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
+                A chunk that is probably invented carries a `suspect` reason
+                ("silent" or "long"), marked and never dropped (#822).
 
     Returns:
         Transcribed text string, or (with timestamps set) a
@@ -134,7 +136,41 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
     chunks = _numeric_chunks(result.get("chunks", []), duration)
     if timestamps == "word":
         chunks = _trim_to_speech(chunks, mono)
+    chunks = _mark_suspect(chunks, mono, long_word=timestamps == "word")
     return {"text": text, "chunks": chunks}
+
+
+# A word (timestamps="word") lasting more than this is marked `suspect: "long"`:
+# sung or spoken words do not hold for seconds; a span that long is an
+# instrumental folded into the word, or an invented one (#822)
+LONG_WORD_SECONDS = 2.0
+
+
+def _mark_suspect(chunks, mono, long_word):
+    """Chunks with `suspect` set on those that are probably not speech (#822).
+
+    Marked, never removed. "silent": the chunk's loudest window sits at or
+    below script_check's dead-air floor (`word_level`, `GUARD_FLOOR_DBFS`) -
+    Whisper invents text over silence, a fade-out's end credits included.
+    "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
+    since a segment is a line and runs long by nature). Silent wins.
+    """
+    # script_check imports this module, so import it when called
+    from .script_check import GUARD_FLOOR_DBFS, word_level
+
+    marked = []
+    for chunk in chunks:
+        if not chunk["text"]:
+            marked.append(chunk)
+            continue
+        level = word_level(mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"])
+        if level is None or level <= GUARD_FLOOR_DBFS:
+            marked.append({**chunk, "suspect": "silent"})
+        elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
+            marked.append({**chunk, "suspect": "long"})
+        else:
+            marked.append(chunk)
+    return marked
 
 
 def _numeric_chunks(raw_chunks, duration):

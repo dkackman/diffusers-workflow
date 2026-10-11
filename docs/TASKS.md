@@ -1970,7 +1970,7 @@ Plan a music video's cuts from a song's lyrics and beats. `transcribe_audio`
 (with timestamps) says when each line is sung and `analyze_beats` says where
 the beats fall; this turns the two into shots - each a start frame and a
 length - that tile the song exactly, so one prompt per shot can be written and
-the list rendered. The result is JSON and nothing is built:
+the list rendered. A transcript chunk marked `suspect` by `transcribe_audio` is still used but adds a warning naming its span and text. The result is JSON and nothing is built:
 
 ```json
 {
@@ -2069,7 +2069,7 @@ without `beats`, `min_scene_s` above `max_scene_s`, and `fps`, `duration_s`,
 can't be known (no `duration_s`, no `beats` result, and no transcript to end
 on) and `lyrics` with no sung lines.
 [music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
-chains `transcribe_audio`, `analyze_beats` and `plan_cuts`, passing H3's
+chains `separate_stems`, `transcribe_audio` (of the vocal stem, so an instrumental intro is not folded into the first word), `analyze_beats` (of the full mix) and `plan_cuts`, passing H3's
 grid (`17`, `5`, `124`, `345`) and a `lead_s` variable (default `0.5`, 12
 frames at 24 fps). Its shots are what
 [music-video.json](../workflows/templates/minimax/music-video.json) renders:
@@ -2976,6 +2976,8 @@ Transcribe spoken audio to text with a local Whisper-class model. The word-corre
 Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcription, since that is what a Whisper-class model is trained on; the source audio itself is untouched. By default the result is plain text, read with MCP's `get_output_text`.
 
 Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
+
+A chunk that is probably not speech carries one more field, `suspect` (#822), and is never removed: `"silent"` when its loudest window sits at or below the dead-air floor [`check_script`](#script-check) discards words at (`GUARD_FLOOR_DBFS`) - Whisper invents text over silence, a fade-out's end credits included - and `"long"` when a `"word"` chunk lasts more than `LONG_WORD_SECONDS` (2 s), an instrumental folded into the word. `silent` wins when both hold; a `"segment"` chunk is never `long`. A clean input does not prevent a silent mark: transcribe a song's vocal stem ([`separate_stems`](#stem-separation)) so an instrumental intro is not counted as speech, and the marks catch what Whisper still invents over the stem's silence. [`plan_cuts`](#plan_cuts) warns on every suspect chunk, naming its span and text.
 
 To compare a take against the lines it was meant to speak, use [`check_script`](#script-check) rather than reading the transcript by eye.
 

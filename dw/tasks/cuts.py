@@ -107,9 +107,10 @@ def _chunks(transcript, duration):
             end = chunk.get("end")
         start = _number(start, f"transcript chunks[{index}].start", required=True)
         end = _number(end, f"transcript chunks[{index}].end")
-        parsed.append(
-            {"start": start, "end": end, "text": str(chunk.get("text") or "").strip()}
-        )
+        row = {"start": start, "end": end, "text": str(chunk.get("text") or "").strip()}
+        if chunk.get("suspect"):
+            row["suspect"] = str(chunk["suspect"])
+        parsed.append(row)
     parsed.sort(key=lambda chunk: chunk["start"])
     for index, chunk in enumerate(parsed):
         if chunk["end"] is None:
@@ -118,6 +119,22 @@ def _chunks(transcript, duration):
         if chunk["end"] is not None and chunk["end"] < chunk["start"]:
             chunk["end"] = chunk["start"]
     return parsed
+
+
+def _suspect_warnings(chunks):
+    """One warning per transcript chunk transcribe_audio marked `suspect`
+    (#822), naming its span and text; the chunk is still used."""
+    return [
+        f"{COMMAND}: transcript chunk {chunk['start']:.2f}-{chunk['end']:.2f} s "
+        f"{chunk['text']!r} is marked suspect ({chunk['suspect']}) - "
+        + (
+            "no audible voice in that span, so the text may be invented"
+            if chunk["suspect"] == "silent"
+            else "a word that long is probably not one word"
+        )
+        for chunk in chunks
+        if chunk.get("suspect") and chunk["end"] is not None
+    ]
 
 
 def _beats(beats):
@@ -1008,6 +1025,7 @@ def plan_cuts(
     warnings = []
     duration, chunks = _song_length(args, transcript, beats, beats_duration, warnings)
     beat_times = [beat for beat in beat_times if 0.0 < beat < duration]
+    warnings.extend(_suspect_warnings(chunks))
 
     if lyrics is not None and not (isinstance(lyrics, str) and not lyrics.strip()):
         lines = _align_lyrics(
