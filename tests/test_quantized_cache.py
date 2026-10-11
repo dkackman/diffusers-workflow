@@ -628,6 +628,28 @@ class TestSweep:
         assert sorted(os.listdir(tmp_path)) == sorted(["6" * 64, "notes.txt", "other"])
         assert (current / "w").exists()
 
+    def test_a_symlink_out_of_the_root_is_skipped_not_fatal(self, tmp_path):
+        """An entry linked to another disk resolves outside the root, which
+        validate_path refuses with a SecurityError - that one entry is left
+        alone and the sweep carries on, rather than the server never
+        starting."""
+        root = tmp_path / "root"
+        root.mkdir()
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        (root / ("1" * 64)).symlink_to(elsewhere)
+        stale = root / ("3" * 64)
+        entry_json(stale, versions={**VERSIONS, "torch": "old"})
+        (stale / "w").write_bytes(b"x" * 20)
+
+        count, freed = qc.sweep(str(root))
+
+        assert count == 1
+        assert freed >= 20
+        assert (root / ("1" * 64)).is_symlink()
+        assert elsewhere.exists()
+        assert qc._entry_sizes(str(root)) == []
+
 
 # 9. The switch and the directory
 
