@@ -447,6 +447,23 @@ def load_and_configure_scheduler(
             ),
         )
 
+    apply_scheduler_shift(scheduler_definition, pipeline, component_name)
+
+
+def apply_scheduler_shift(scheduler_definition, pipeline, component_name="scheduler"):
+    """Set the shift a scheduler definition names on an already-loaded
+    scheduler; nothing when the definition is None or names no shift.
+
+    A load sets it after any scheduler replacement, and a pipeline cache hit
+    sets it again (Pipeline.apply_runtime_settings), because the cache key
+    leaves the shift out - a run that only moves it reuses the warm pipeline.
+
+    Raises:
+        ValueError: if the scheduler is registered but not loaded, or has no
+            set_shift()
+    """
+    if scheduler_definition is None:
+        return
     shift = scheduler_definition.get("shift", None)
     if shift is None:
         return

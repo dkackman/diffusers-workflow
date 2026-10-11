@@ -112,6 +112,10 @@ inverted latents:
 ```
 
 `reference_name` must name a step earlier in the same workflow that has a `pipeline`.
+Two steps whose pipelines differ only in a LoRA's `scale` or `alpha` or a scheduler's
+`shift` share one warm model, and a reference always runs at the referenced step's own
+values; `release_pipeline` on either step frees the shared model, as it does for two
+identical steps.
 See [workflows/templates/community-pipeline.json](../workflows/templates/community-pipeline.json) for a full example.
 
 ### Task Steps
@@ -1173,7 +1177,7 @@ Control how models use memory:
 ```
 
 - `"model"` — Moves entire models between CPU and GPU. Good balance of speed and memory.
-- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory. On MPS it is downgraded to `"model"` with a warning: with unified memory there is no separate pool to keep small, so the per-layer copies cost speed and save nothing.
+- `"sequential"` — Moves individual layers. Slowest but uses least GPU memory (measured at 6x the per-step cost of model offload on FLUX dev and 3.4x on Z-Image; a streamed block-level `group_offload` of the transformer is the usual better answer - see [RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b)). On MPS it is downgraded to `"model"` with a warning: with unified memory there is no separate pool to keep small, so the per-layer copies cost speed and save nothing.
   `exclude_from_cpu_offload` names components the sweep should leave alone.
 - Omit for no offloading (fastest, requires enough VRAM).
 
@@ -1324,6 +1328,13 @@ offload on everything:
 The step-level `release_pipeline` flag unloads the step's pipeline after its results are
 saved. A later `pipeline_reference` to a released step is an error, and the process-wide
 step cache will not retain it.
+
+What keeps a pipeline warm: the server's worker keeps a pipeline loaded across runs for as
+long as what it *loads* is unchanged. A LoRA's `scale` and `alpha` and a scheduler's (or
+`audio_scheduler`'s) `shift` are applied in place on the warm pipeline, so iterating on
+them costs no reload; removing (nulling) an alpha or a shift reloads, so the checkpoint
+default comes back. Changing a LoRA's `model_name` or `weight_name`, the quantization,
+the placement or the scheduler type reloads it.
 
 #### Releasing task models mid-workflow
 

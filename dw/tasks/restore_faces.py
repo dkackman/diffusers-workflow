@@ -66,15 +66,25 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
         ("restore_faces", model_name, filename, str(device)), load_descriptor
     )
 
-    # Set up facexlib helper
-    face_helper = FaceRestoreHelper(
-        upscale_factor=upscale_factor,
-        face_size=face_size,
-        crop_ratio=(1, 1),
-        det_model="retinaface_resnet50",
-        use_parse=use_parse,
-        device=torch.device(device),
+    # facexlib's helper loads RetinaFace (and ParseNet with use_parse) in
+    # its constructor. per_frame calls this once per frame, so a video was
+    # reloading detector weights for every frame. The helper keeps per-image
+    # state between calls; clean_all() resets it before each read
+    def build_helper():
+        return FaceRestoreHelper(
+            upscale_factor=upscale_factor,
+            face_size=face_size,
+            crop_ratio=(1, 1),
+            det_model="retinaface_resnet50",
+            use_parse=use_parse,
+            device=torch.device(device),
+        )
+
+    face_helper = cached_model(
+        ("restore_faces_helper", upscale_factor, face_size, use_parse, str(device)),
+        build_helper,
     )
+    face_helper.clean_all()
 
     # Convert PIL to BGR numpy (facexlib format)
     input_bgr = np.array(image.convert("RGB"))[:, :, ::-1].copy()

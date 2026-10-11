@@ -28,6 +28,13 @@ The worker cleans up automatically between runs (garbage collection + GPU
 cache clearing). If memory grows unexpectedly, `GET /api/memory` reports the
 current reading and `POST /api/memory/clear` resets it.
 
+Switching to a different workflow releases only the models the next workflow
+does not load: the worker prepares the incoming definition, and a pipeline
+both workflows load (same weights identity) stays warm. The step cache and
+the task model cache are still emptied, and if the incoming definition cannot
+be prepared everything is released. `clear_memory` (`POST /api/memory/clear`)
+remains the way to empty the card by hand.
+
 ## Troubleshooting
 
 **Worker crashes**: `JobManager` detects it and starts a fresh worker on the

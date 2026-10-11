@@ -48,6 +48,10 @@ LoRA (Low-Rank Adaptation) models apply lightweight style or subject modificatio
 
 Any other property (e.g. `revision`) is forwarded as-is to the underlying `load_lora_weights()` call.
 
+`scale` and `alpha` are set in place on the loaded adapter, so a server run that changes
+only them reuses the warm pipeline instead of reloading it; changing `model_name` or
+`weight_name` reloads.
+
 ## Multiple LoRAs
 
 Stack multiple LoRAs. They are blended via weighted adapter composition:

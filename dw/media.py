@@ -33,6 +33,15 @@ from .dsp import SILENCE_DBFS, dbfs, integrated_lufs, layout_name, true_peak_dbf
 
 logger = logging.getLogger("dw")
 
+
+def _threaded(stream):
+    """A video stream set to decode on every core. libav defaults a
+    software h264 decode to one thread; AUTO lets it pick frame and
+    slice threading for the codec. Header-only reads do not call this."""
+    stream.thread_type = "AUTO"
+    return stream
+
+
 # The most a soundtrack may be as base64 before the gallery route refuses to
 # extract it whole - the twin of dw_mcp/media.py's MAX_RETURNED_BYTES (the
 # MCP package's cap on any inline payload). Two constants because dw_mcp
@@ -345,7 +354,7 @@ def video_shape(path):
         fps = float(stream.average_rate) if stream.average_rate else None
         count = int(stream.frames) if stream.frames else None
         if count is None:
-            count = sum(1 for _ in container.decode(stream))
+            count = sum(1 for _ in container.decode(_threaded(stream)))
         return {
             "frame_count": count,
             "fps": fps,
@@ -383,6 +392,8 @@ def read_frames(path, indexes, fit=None):
     wanted = sorted(set(int(i) for i in indexes))
     found = {}
     with av.open(path) as container:
+        # Not _threaded: frame threads hold frames in flight, and a backward
+        # seek after a decoded frame then yields stale ones (tests/test_media_decode_threads.py)
         stream = container.streams.video[0]
         fps = float(stream.average_rate) if stream.average_rate else None
         start_pts = stream.start_time if stream.start_time is not None else 0
@@ -479,6 +490,8 @@ def read_frame_range(path, start, stop):
         )
     out = None
     with av.open(path) as container:
+        # Not _threaded: frame threads hold frames in flight, and a backward
+        # seek after a decoded frame then yields stale ones (tests/test_media_decode_threads.py)
         stream = container.streams.video[0]
         fps = float(stream.average_rate) if stream.average_rate else None
         start_pts = stream.start_time if stream.start_time is not None else 0
@@ -513,7 +526,7 @@ def count_video_frames(path):
     """The picture frame count of `path`, by decoding every frame rather
     than reading the header. Nothing is held but the frame in hand."""
     with av.open(path) as container:
-        return sum(1 for _ in container.decode(container.streams.video[0]))
+        return sum(1 for _ in container.decode(_threaded(container.streams.video[0])))
 
 
 def decode_audio_video(handle):
@@ -531,7 +544,7 @@ def decode_audio_video(handle):
     sample_rate = None
 
     with av.open(handle) as container:
-        video_stream = container.streams.video[0]
+        video_stream = _threaded(container.streams.video[0])
         frame_rate = (
             float(video_stream.average_rate) if video_stream.average_rate else None
         )
@@ -559,7 +572,10 @@ def decode_rgb_frames(path):
     """Every picture frame of `path` as an (height, width, 3) uint8 array,
     in order."""
     with av.open(path) as container:
-        return [frame.to_ndarray(format="rgb24") for frame in container.decode(video=0)]
+        return [
+            frame.to_ndarray(format="rgb24")
+            for frame in container.decode(_threaded(container.streams.video[0]))
+        ]
 
 
 def read_thumbnails_and_track(path, thumb_width, thumb_height):
@@ -575,7 +591,9 @@ def read_thumbnails_and_track(path, thumb_width, thumb_height):
     thumbs = []
     chunks = []
     with av.open(path) as container:
-        video = container.streams.video[0] if container.streams.video else None
+        video = (
+            _threaded(container.streams.video[0]) if container.streams.video else None
+        )
         audio = container.streams.audio[0] if container.streams.audio else None
         if video is None and audio is None:
             raise ValueError(f"{path} has neither a video nor an audio stream")

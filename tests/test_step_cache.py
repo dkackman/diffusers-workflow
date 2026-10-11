@@ -12,6 +12,8 @@ from dw.step_cache import (
     audio_replaced_downstream,
     normalized_downstream,
     _result_bytes,
+    pipeline_cache_key,
+    weights_identity,
 )
 
 
@@ -600,9 +602,22 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # lora, prompt-weighting and step-caching from model to sequential offload:
 # offload is part of how a pipeline is loaded, so its key moves with it.
 #
+# Every unquantized FLUX row (fourteen templates) and the Z-Image portrait
+# steps of four minimax templates moved on 2026-10-10 when sequential offload
+# left the catalog: FLUX streams its transformer block by block from pinned
+# host memory, Z-Image takes model offload (docs/RECIPES_24GB.md).
+#
 # Nine minimax rows were regenerated when the T2VA/FL2VA templates moved from
 # the 8-step turbo LoRAs to the 4-step v1.2 file (2026-10-10): the adapter and
-# the scheduler shift are part of how the pipeline is loaded.
+# the scheduler shift were then part of how the pipeline is loaded.
+#
+# Thirty-eight rows across the minimax and ltx2 templates were regenerated
+# when the key moved to the weights identity (2026-10-10): a LoRA's scale
+# and alpha and a scheduler's shift are set in place on a warm pipeline, so
+# they left the hash, and every step that states one moved. Thirty of them
+# moved again the same day when an alpha's or a shift's presence (True,
+# never its value) went back in: a hit cannot restore a checkpoint default,
+# so dropping one has to reload.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -626,16 +641,16 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "compose-workflows.json": {},
     "consistent-set.json": {
-        "base": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "first": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "second": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
-        "third": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1",
+        "base": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "first": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "second": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
+        "third": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737",
     },
     "controlnet-component.json": {
         "main": "23e479d111c0c2883755e0d32ef48b686d89f8967b535524ed8c6cb6f863bb9d"
     },
     "controlnet.json": {
-        "FluxCanny": "cfe38a8a886222292666951457910698f54fb42d631de87009f4319e267bb6f4"
+        "FluxCanny": "d5e1abfe8058ed9b2235c2b93aef6e155faaaedfc6cb3de849911fd577ea0f5b"
     },
     "depth-marigold.json": {
         "depth": "9338475d3fb48eab6e3dc8eb53cb07a916470906e338bb02a71e3ed0416a447b"
@@ -643,30 +658,30 @@ TEMPLATE_PIPELINE_KEYS = {
     "describe-and-regenerate.json": {},
     "dissolve-between-shots.json": {},
     "embed-metadata.json": {
-        "generate": "5326e88c70c970b932201c47ab65899f5fd17a307d583f1add96a24792e17585"
+        "generate": "bfe2e09d70b6bf6e7799266cf735abd779e5a9e3c283b8287d962eab17d95425"
     },
     "expand-prompt.json": {},
     "generate-speech.json": {},
     "image-edit.json": {
-        "edit": "ee282369a48c066f07fd13d0e7fc77b54f0342b518d8d5927b7900d9f759b6c1"
+        "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
     },
     "image-processors.json": {},
     "image-to-image.json": {
-        "main": "bf8dcfe42d46a7031793e8aea4460cef13b511ca93b1a40cb78b50a98c50f4f8"
+        "main": "d94c9c21dc83d4781a92dfda09ef657d142f1a62e6cef1a2f26edd87d14d6480"
     },
     "image-to-text.json": {},
     "image-variation.json": {
-        "main": "eb340f983349eb499e6fe01e29c65baf3fefd807e1f6a6a74f561768225fc496",
+        "main": "1e30480fbe56f5c5c73f6f3f60876efceac5fbc2ecca4a3883e9e3a6b01dc876",
         "prior": "3253c892afe8ff8d02c464e2b175c519cfac4585fef0e9d2231683719db61a81",
     },
     "inpaint.json": {
-        "fill": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "fill": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "interpolate-frames.json": {
         "generate_video": "e35d0272e90c76b6730987d5c60a8dfda18290ef71276eb72246e1468ad16dfb"
     },
     "ip-adapter.json": {
-        "main": "d75dffe2b60f5b3b65ad094896aa982029a830d14d149c0eb099caa8acf78291"
+        "main": "a67c769c0ee881e36aa15b62f8226a233c1e4b93542a8caaf5eab5715cb9f556"
     },
     "kandinsky6/generate-and-upscale.json": {
         "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a",
@@ -679,19 +694,19 @@ TEMPLATE_PIPELINE_KEYS = {
         "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a"
     },
     "lora-styles.json": {
-        "couple": "e0d4d24cbe4caec22ee9e2afc43e9cfd772971430ed633cd289ff362e8213816",
-        "font-design": "8f28fcccd557b862030508fa1db006f365afbf9b394f981488673df4c46eb548",
-        "home-decoration": "8f0b0e4608b143d62d89641cddb7a4ff8b97c0d3cd4ba476f973fe6701bc36cc",
-        "portrait-illustration": "23e72f3a1c737781910ef385cfc156730bfbe9ecc36a67c53249c70e5dbfa404",
-        "portrait-photography": "6fd461304bdd784ecd9e94aea9a2f06f66ef61426ff9dc6cb552bf08e69d0520",
-        "ppt-templates": "b03b08bd86d82d633a07ce1e62326223609340ba17db59b8aebaa9c43a9db8b5",
-        "sandstorm-visual-effect": "0ec17d1beaaa8edafcbc5df532db4bef528694619f398fdaaf19f772c0d44871",
-        "sparklers-visual-effect": "d7dec11561b3645b6c316159e06acd20c6ff84883712c5ba1b252c1de88424ae",
-        "storyboard": "25c647a6d3e2013861ffafc783d8e15232f344f0c8579030e9d46b94bc5383d4",
-        "visual-identity-design": "004a829d2a7c1d55b36f279ffc67057a165ecbf8a109da55f93f6acb09545afa",
+        "couple": "4ccc3e1cf80d2117f2be5a9b29c345a8d105cc901ef7f0e87330bd918d12c03b",
+        "font-design": "430a83558b5a8e37726837e558c55aeca8b0d97c977a33ab3c022072fccece86",
+        "home-decoration": "aa084137494a66c5ebbcb582451a439c46fb13a46ff18126ab3cf6718984aa71",
+        "portrait-illustration": "af0647ee216ae5223ee690d49d38279d12394721bb03acf43f3e56e350544e02",
+        "portrait-photography": "2abc410efe284258a9de41aa39bf5757e67dad6c120da66e3bcb77b4705c5acf",
+        "ppt-templates": "5e599c25436980f20285584ab53a625342ea5a23cfd7ffa0916140cd419608ec",
+        "sandstorm-visual-effect": "cfe11545ca180142a36773ecb86a8a0d9a879899ff55f7de5e23ff6d7e7a034f",
+        "sparklers-visual-effect": "1ae7ca40cbd46a32ca6d0d396ed2882fb578f3b6b50ec21f429350176734ec65",
+        "storyboard": "43728e3912d7dddffe8009e803c56c9b0885a9bc9ca524ad50df429dc11fcec7",
+        "visual-identity-design": "ed6bb9742190c26d75bf5444ddff876a3198c66a8ee114f484c3b0f9298bb2ff",
     },
     "lora.json": {
-        "txt2img": "45cddf5b7b38cd2ba06e7906368e45eec2db70ae11ad12edbee1f5604878094e"
+        "txt2img": "04031c5e01597b46f9ceb50f717e036013d5f6e6a497ae3aaef585f7121bcf4e"
     },
     "ltx2/chained-segments.json": {
         "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
@@ -712,7 +727,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "ltx2/generative-upscale.json": {
         "low_resolution": "fab6e3ec8feb0909dc44660990636418bdccbbb045154e1a56b26f235435acf0",
-        "upscaled": "eb12a8878241511cecd56d4c41a168e9b59a11803656bef3948c704d18fba112",
+        "upscaled": "0e3eeb97dc88f6a3ab74ea3cc6439fd266ade29d55459af400b905751777d2c3",
     },
     "ltx2/image-to-video.json": {
         "image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
@@ -721,7 +736,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "keyframes_to_video": "ea27aeb8d07376a1295ea2d102ddc61a8d64fa70aeae26e02f6f48e825a6d9ee"
     },
     "ltx2/reference-sheet.json": {
-        "shot": "f561e8c08eb096c02bcd252244e6dc94c6eb82f133fea559221c4acce364b3f8"
+        "shot": "c3a7874569313ba50b184de0f22a52dc3f42f34fa5e53831c3586d948bf94372"
     },
     "ltx2/refine-clip.json": {
         "refine": "cdc51f4b605ee60ec9359390b4a9fb7f60762b419637699527f5a7b1457c1f22",
@@ -731,15 +746,15 @@ TEMPLATE_PIPELINE_KEYS = {
         "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
     },
     "ltx2/restore-deblur.json": {
-        "restored": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396"
+        "restored": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78"
     },
     "ltx2/restore-decompression.json": {
-        "restored": "afcb2e67a7c03447b5860bfe19f4785480e214eb54a39a61a53ccbf0e51717f6"
+        "restored": "ad261336e57932166606b7e3897163eb085ca8d85f6f855965b5def21950f581"
     },
     "ltx2/restore-long.json": {
-        "restore@w0": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
-        "restore@w1": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
-        "restore@w2": "46a91b9693a5d42b7e43229989cfff47d7f58c26cec910ed3d18afcb06257396",
+        "restore@w0": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78",
+        "restore@w1": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78",
+        "restore@w2": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78",
     },
     "ltx2/text-to-video.json": {
         "text_to_video": "c4da9234234392f4df1a76b9d3ffb2cbff735540e278709da11e43f9b4bc7313"
@@ -750,96 +765,96 @@ TEMPLATE_PIPELINE_KEYS = {
         "upscale": "caa78ea250fb765b6aff640c03219cfbc3a9c02366fd31997776520a20c8ee75",
     },
     "ltx2/upscale-clip.json": {
-        "upscaled": "0f0195201e3be833527a0bc1ef04d29a1dd048a8877678ab1769f663fd27575f"
+        "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
     },
     "minimax/chain-matched-and-aligned.json": {
-        "audio_aligned_chained_reference_to_video_audio": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8"
+        "audio_aligned_chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chain-matched-to-audio.json": {
-        "chained_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chain-video-continuity.json": {
-        "chained_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/chained-segments.json": {
-        "chained_keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
+        "chained_keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/composable-references.json": {
-        "video_reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+        "video_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/dialogue-short.json": {
-        "draw_character_a": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "draw_character_b": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "shot@button": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@cold_open": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@deflect": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@react": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@tag": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "draw_character_a": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "draw_character_b": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "shot@button": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@cold_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@deflect": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@react": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@tag": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
     },
     "minimax/enhance-prompt-with-image.json": {
-        "keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
+        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/enhance-prompt.json": {
-        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/first-and-last-frame.json": {
-        "first_and_last_frame_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
+        "first_and_last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/generated-subject-reference.json": {
-        "draw_subject": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600",
+        "draw_subject": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
     },
     "minimax/image-to-video.json": {
-        "keyframe_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
+        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/last-frame-only.json": {
-        "last_frame_to_video_audio": "2e770f1c5be668ab4af2174502107bf82cb2bcea5d500f31e5f231fe149cffe9"
+        "last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
-        "draw_singer": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "shot@closeup": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@finale": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@room": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
-        "shot@wide_open": "29913e317c4b9d427e617b120cec9213fc99a8b5c859f2d173372d11788a88e8",
+        "draw_singer": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "shot@closeup": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@finale": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@room": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@wide_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "write_song": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
     },
     "minimax/music.json": {
         "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
     },
     "minimax/reference-to-video.json": {
-        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "minimax/shots-batch.json": {
-        "shot@shot_1": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
-        "shot@shot_2": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
-        "shot@shot_3": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
-        "shot@shot_4": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
-        "shot@shot_5": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c",
+        "shot@shot_1": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_2": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_3": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_4": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_5": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
     },
     "minimax/storyboard.json": {
-        "board_1_launch": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "board_2_gutter": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "board_3_shore": "65e14c94aa1bfa3a41f44e1a278ac84b09804577b2cf78c1a5a066366db5e20f",
-        "voyage": "ee8e8884e8f049bf7de6aabe053a8c389ab6cd0c42108a04cc6fd1049e671300",
+        "board_1_launch": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "board_2_gutter": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "board_3_shore": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
+        "voyage": "0f30a4f21253ffdec029b3e2523c077f68629579bb3ae57cc69c09b638665987",
     },
     "minimax/video-with-audio-768p.json": {
-        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/video-with-audio.json": {
-        "text_to_video_audio": "26a7a9b6677e0dc8c5a8ed0a01c4e6017be2923f79b5ab016a620b7fa7a60d7c"
+        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
     },
     "minimax/voice-timbre-reference.json": {
-        "reference_to_video_audio": "1bce70dfbd9418b3dbe7ca8abd6f109dd8cdaffbdc802edce327454f36c3f600"
+        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
     },
     "multi-image-reference.json": {
         "txt2img": "6e563b308f1508e0f24a660dcf25636774e2b70c4ccc723e8975421a7224b48d"
     },
     "outpaint.json": {
-        "outpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "outpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "prompt-weighting.json": {
-        "txt2img": "74fd88b30ffbf3cd95b1b971e90ce8da33e7370a160e838478fc5d5a6d3bc9df"
+        "txt2img": "745df144eb83ac12caa01de34dc7238b8595b28b70db7c960f4d1c0366b2f2f4"
     },
     "qr-code.json": {
         "main": "f52e468931a9e9d546696cb9fccc365e7347b47e07730470b7a3ac419722fce5"
@@ -850,11 +865,11 @@ TEMPLATE_PIPELINE_KEYS = {
         "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
     },
     "segment-and-inpaint.json": {
-        "inpaint": "a52f958d8c596182fb83182bad33df3da491b63a3ad758ec5807103b401f92eb"
+        "inpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
     "segment.json": {},
     "step-caching.json": {
-        "txt2img": "69c2b1c0bf23b291404b655919a94e7ed2b766d962dc209ca1e5df86f619a9dd"
+        "txt2img": "3e3ea6a2cb1d2d1b1abaec9de159758b137ac0bcd3197a1bac0f7bbcead7ac24"
     },
     "sub-workflow.json": {},
     "surface-normals.json": {
@@ -1011,3 +1026,104 @@ def test_level_spread_warning_suppressed_when_audio_replaced(monkeypatch):
         seen.append(events)
     assert any("level_spread" in str(e) for e in seen[0])
     assert not any("level_spread" in str(e) for e in seen[1])
+
+
+def _definition(**overrides):
+    base = {
+        "configuration": {"component_type": "FluxPipeline"},
+        "from_pretrained_arguments": {"model_name": "black-forest-labs/FLUX.1-dev"},
+        "loras": [
+            {
+                "model_name": "a/b",
+                "weight_name": "x.safetensors",
+                "scale": 1.0,
+                "alpha": 16,
+            },
+        ],
+        "scheduler": {"shift": 6.0},
+        "audio_scheduler": {"shift": 3.0},
+        "arguments": {"prompt": "p"},
+    }
+    base.update(overrides)
+    return base
+
+
+def test_lora_scale_and_alpha_do_not_change_the_pipeline_key():
+    a = _definition()
+    b = _definition(
+        loras=[
+            {
+                "model_name": "a/b",
+                "weight_name": "x.safetensors",
+                "scale": 0.5,
+                "alpha": 8,
+            }
+        ]
+    )
+    assert pipeline_cache_key(a) == pipeline_cache_key(b)
+
+
+def test_scheduler_shift_does_not_change_the_pipeline_key():
+    a = _definition()
+    b = _definition(scheduler={"shift": 12.0}, audio_scheduler={"shift": 1.0})
+    assert pipeline_cache_key(a) == pipeline_cache_key(b)
+
+
+def test_lora_model_name_still_changes_the_pipeline_key():
+    a = _definition()
+    b = _definition(
+        loras=[{"model_name": "a/c", "weight_name": "x.safetensors", "scale": 1.0}]
+    )
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+
+
+def test_scheduler_type_still_changes_the_pipeline_key():
+    a = _definition(scheduler={"scheduler_type": "X", "shift": 6.0})
+    b = _definition(scheduler={"scheduler_type": "Y", "shift": 6.0})
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+
+
+def test_weights_identity_leaves_the_definition_untouched():
+    definition = _definition()
+    weights_identity(definition)
+    assert definition["loras"][0]["scale"] == 1.0
+    assert definition["scheduler"]["shift"] == 6.0
+
+
+def test_lora_alpha_value_change_keeps_the_pipeline_key():
+    a = _definition()
+    b = _definition(
+        loras=[{"model_name": "a/b", "weight_name": "x.safetensors", "alpha": 8}]
+    )
+    assert pipeline_cache_key(a) == pipeline_cache_key(b)
+
+
+def test_lora_alpha_removed_changes_the_pipeline_key():
+    """Nothing re-applies the checkpoint's own alpha on a hit, so dropping
+    the override has to reload."""
+    a = _definition()
+    b = _definition(
+        loras=[{"model_name": "a/b", "weight_name": "x.safetensors", "alpha": None}]
+    )
+    c = _definition(loras=[{"model_name": "a/b", "weight_name": "x.safetensors"}])
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+    assert pipeline_cache_key(b) == pipeline_cache_key(c)
+
+
+@pytest.mark.parametrize("scheduler", ["scheduler", "audio_scheduler"])
+def test_scheduler_shift_removed_changes_the_pipeline_key(scheduler):
+    a = _definition()
+    b = _definition(**{scheduler: {"shift": None}})
+    c = _definition(**{scheduler: {}})
+    assert pipeline_cache_key(a) != pipeline_cache_key(b)
+    assert pipeline_cache_key(b) == pipeline_cache_key(c)
+
+
+def test_pipeline_definition_key_moves_with_runtime_settings():
+    from dw.step_cache import pipeline_definition_key
+
+    a = _definition()
+    b = _definition(scheduler={"shift": 12.0})
+    c = _definition(arguments={"prompt": "other"}, seed=7)
+    assert pipeline_definition_key(a) != pipeline_definition_key(b)
+    assert pipeline_definition_key(a) == pipeline_definition_key(c)

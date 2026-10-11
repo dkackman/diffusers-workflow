@@ -97,7 +97,6 @@
         {
             "name": "shot",
             "for_each": "variable:shots",
-            "release_pipeline": true,
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",

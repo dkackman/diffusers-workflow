@@ -43,7 +43,8 @@
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "weights_dtype": "{int4}",
-        "seed": null
+        "seed": null,
+        "attention_backend": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -75,10 +76,6 @@
                     "pre_load_modules": [
                         "sdnq"
                     ],
-                    "cache": {
-                        "type": "first_block",
-                        "threshold": 0.1
-                    },
                     "load_components": {
                         "dtype": "torch.bfloat16",
                         "quantization_config": {
@@ -137,6 +134,7 @@
                     },
                     "components": {
                         "transformer_ref": {
+                            "attention_backend": "variable:attention_backend",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,

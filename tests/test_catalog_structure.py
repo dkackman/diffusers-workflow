@@ -471,7 +471,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_650 for the `relevel-clip` utility template (#794), measured at
 # 10_632: a new catalog entry, the CPU-only fix for a rendered clip that
 # clips, where the only other route was a full GPU re-render.
-COMPACT_BUDGET = 10_650
+# Then to 10_700 for the `attention_backend` variable on the four MiniMax-H3
+# family baselines (2026-10-10), measured at 10_676 with six: the knob behind the
+# measured 28-33% per-step gain from sage_hub, null by default.
+COMPACT_BUDGET = 10_700
 FILTERED_BUDGET = 1_500
 
 

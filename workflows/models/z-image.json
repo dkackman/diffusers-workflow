@@ -23,7 +23,7 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "ZImagePipeline",
-                    "offload": "sequential"
+                    "offload": "model"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "Tongyi-MAI/Z-Image-Turbo",

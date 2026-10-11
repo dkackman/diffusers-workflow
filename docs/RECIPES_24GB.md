@@ -12,23 +12,79 @@ The general recipe, in order of impact:
 
 ## Flux dev (12B)
 
-The bf16 transformer is ~24GB - it does not fit alongside the T5 encoder, and it does
-not fit alongside the VAE either: a resident bf16 transformer runs the denoise and then
-fails at decode. `offload: "model"` is what makes bf16 work on 24GB, and on an RTX 3090
-it is also the fastest configuration measured (1024x1024, 28 steps, pipeline loaded):
+The bf16 transformer is ~22 GB, so on 24 GB it cannot sit beside its own activations
+with any margin, and it cannot sit beside the T5 encoder or the VAE at all. Three
+placements, measured on an RTX 3090 (2026-10-10, cold load included):
 
-| Approach | Config | Measured on RTX 3090 |
-| -------- | ------ | -------------------- |
-| **bf16 + model offload** | [flux-dev.json](../workflows/models/flux-dev.json) | 55s per image (72s cold) |
-| **bf16 + model offload + compile** | [flux-dev-compile.json](../workflows/models/flux-dev-compile.json) - `compile: {repeated_blocks: true}` on the transformer | 52s per image (64s cold) |
-| **int8 TorchAO** | transformer `quant_type: "torchao.quantization.Int8WeightOnlyConfig"` + `compile`, with or without `cache: first_block` | over 60s per *denoising step* - do not use on Ampere |
-| **float8 TorchAO** (RTX 40-series+) | `Float8DynamicActivationFloat8WeightConfig` + `compile` | needs compute capability 8.9+ (Ada); unmeasured |
-| **GGUF Q8** | [flux-gguf.json](../workflows/models/flux-gguf.json) - `from_single_file` Q8_0 transformer + `offload: "model"` | unmeasured; smallest VRAM, best quality retention |
+| Placement | 1024x1024, 25 steps, 1 image, dev + LoRA | 768x768, 25 steps, 4 images, Krea | 1232x1632, 50 steps, Fill |
+| --------- | ----------------------------------------- | --------------------------------- | ------------------------- |
+| `offload: "sequential"` | 273 s (10.8 s/step) | not measured - same per-step cost | not measured |
+| `offload: "model"` | 61 s (1.7 s/step) at **23.3 GB reserved, 491 MB free** | **OOM** at 23.45 GiB | not attempted |
+| **transformer `group_offload`, block-level, streamed, pinned host copies** | 78 s (1.5 s/step), 17.7 GB peak reserved, 6 GB free | 131 s (3.2 s/step) | 152 s denoise (3.0 s/step), 1 s decode |
 
-Measured 2026-09-07. A number in this table came from a run on the named card; a row
-without one is a configuration that loads, not a speed claim.
+Model offload is the fastest placement that loads, and the one #580 (9c708a12) retired:
+at 1024x1024 it runs with a few hundred MB to spare and fails on anything larger -
+a batch, a second encoder resident for prompt weighting, a cache's state. Sequential
+offload is safe everywhere and 6x slower per step. The streamed group offload is both:
+the transformer's blocks are copied in one at a time from pinned host memory under a
+CUDA stream, so each step costs the same as the resident model's, and the card holds
+one block plus the activations. It is what every unquantized FLUX template now uses:
 
-**Examples:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
+```json
+"configuration": {
+    "component_type": "FluxPipeline",
+    "components": {
+        "transformer": {
+            "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true
+            }
+        },
+        "text_encoder": { "device": "cuda" },
+        "text_encoder_2": { "device": "cuda" },
+        "vae": { "device": "cuda" }
+    }
+}
+```
+
+Two things the shape depends on. The non-offloaded components are placed explicitly:
+with no pipeline-level `offload`, nothing else moves them, and a T5 or VAE left on the
+CPU costs a minute per prompt encode and per decode (measured: 70 s before the first
+step, 185 s decoding). And the host copies are pinned - diffusers' default,
+`low_cpu_mem_usage: false` - which holds ~22 GB of unswappable host memory per loaded
+FLUX pipeline and takes ~35 s once per load; with `low_cpu_mem_usage: true` the copies
+come from pageable memory at 8 s/step, barely ahead of sequential. A host with less
+than 32 GB free should take `offload: "sequential"` instead.
+
+Compile and caching stack on top as before: `compile: {repeated_blocks: true}` measured
+52 s vs 55 s per image on the old model-offload placement; `cache: first_block` is
+[step-caching.json](../workflows/templates/step-caching.json). TorchAO int8 is over 60 s
+per *denoising step* on Ampere - do not use it there; float8 needs compute capability
+8.9+ (Ada) and is unmeasured; GGUF Q8 ([flux-gguf.json](../workflows/models/flux-gguf.json))
+loads with the least VRAM and is unmeasured for speed.
+
+**Examples:** [lora.json](../workflows/templates/lora.json), [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-gguf.json](../workflows/models/flux-gguf.json), [step-caching.json](../workflows/templates/step-caching.json)
+
+## Z-Image Turbo (6B)
+
+Fits a 24 GB card in bf16 with model offload, and that is the configuration to use.
+Measured on an RTX 3090 (960x544, 9 steps, 4 images per prompt, cold load included,
+2026-10-10):
+
+| Offload | Load | Denoise | Decode | Total | Peak VRAM reserved |
+| ------- | ---- | ------- | ------ | ----- | ------------------ |
+| `sequential` | 18 s | 84 s | 2 s | 107 s | 1.1 GB |
+| **`model`** | 4 s | 25 s | 9 s | 41 s | 13.0 GB |
+| none (resident) | 11 s | 17 s | 2 s | 33 s | 23.7 GB, 95 MB free at decode |
+
+Sequential offload streams the transformer's layers every step and costs 3.4x on the
+denoise for a model that does not need the room. Resident is faster still but decodes
+four images with nothing to spare, so [z-image.json](../workflows/models/z-image.json)
+and the Z-Image portrait steps of the MiniMax templates use `"offload": "model"`. The
+decode's 9 s under model offload is the VAE swapping in; `vae.enable_slicing` would
+trade it for per-image decodes.
 
 ## Qwen-Image (20B)
 
