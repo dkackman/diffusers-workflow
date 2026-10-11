@@ -144,13 +144,23 @@ def quantizer_arguments(config):
     """The quantizer config as keyed: its class and every argument that shapes
     the stored weights. Read before the load - sdnq clears the device fields
     on the config it quantized with."""
-    arguments = config.to_dict()
+    arguments = config_snapshot(config)
     for name in UNKEYED_ARGUMENTS:
         arguments.pop(name, None)
     return {
         "class": f"{type(config).__module__}.{type(config).__qualname__}",
         "arguments": arguments,
     }
+
+
+def config_snapshot(config):
+    """A deep copy of `config.to_dict()` in plain JSON types. `to_dict()`
+    hands back the config's own lists and dicts, and sdnq's load writes into
+    them (it appends the modules it left unquantized to
+    `modules_to_not_convert`), so a shallow read taken before the load turns
+    into the config after it - the save's key then differs from the next
+    lookup's, and from one card's load to another's."""
+    return json.loads(json.dumps(config.to_dict(), sort_keys=True, default=str))
 
 
 def key_inputs(model_name, subfolder, commit, quantizer, torch_dtype):
@@ -599,7 +609,7 @@ class _Candidate:
         self.torch_dtype = kwargs.get("torch_dtype", kwargs.get("dtype"))
         # Read now: sdnq clears the devices on the config it quantized with
         self.return_device = getattr(config, "return_device", None) or "cpu"
-        self.config_arguments = config.to_dict()
+        self.config_arguments = config_snapshot(config)
         self.quantizer = quantizer_arguments(config)
 
     def unsupported(self):
