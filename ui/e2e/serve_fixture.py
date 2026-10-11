@@ -8,7 +8,11 @@ keeps every example the specs look for while confining what they write.
 The prompt directory is passed explicitly: the server would otherwise
 discover ./prompts in the working directory - the real library. The scratch
 directory is also the workspace, so the asset library the server creates and
-uploads into lands there rather than in the checkout.
+uploads into lands there rather than in the checkout. The settings root
+(DIFFUSERS_HELPER_ROOT) is scratch too: it holds the job history the plan
+prices from, and the developer's real one gave a box that had run a catalog
+model an inherited-cost warning CI never sees, so a spec expecting a clean
+validation passed in CI and failed locally.
 
 Extra arguments (--port ...) pass through to dw.serve. The process replaces
 itself with the server so Playwright's shutdown signal reaches it directly.
@@ -47,6 +51,8 @@ for run_id in ("20260906-101500-a1b2c3d4", "20260906-101612-ffffffff"):
     os.makedirs(run_dir)
     with open(os.path.join(run_dir, "still.png"), "wb") as handle:
         handle.write(ONE_PIXEL_PNG)
+
+os.environ["DIFFUSERS_HELPER_ROOT"] = os.path.join(scratch, "helper")
 
 os.chdir(root)
 os.execv(
