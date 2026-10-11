@@ -41,6 +41,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **On-disk cache of SDNQ on-the-fly-quantized components** (#815, stages
+  #825-#827), shipped 2026-10-11. Opt-in with `DW_QUANTIZED_CACHE=1`, rooted at
+  `DW_QUANTIZED_CACHE_DIR` (default `<HF_HOME>/dw-quantized`), on both the H3
+  modular path and the LTX-2.5 per-component path. Measured on lem: an H3 cold
+  load saves 63.5 s (page cache warm) to 93.9 s (cold). Record, including what
+  was cut or deferred (other backends, the LTX measurement rows, listing and
+  clearing in #828): `complete/quantized-cache-complete.md`.
 - **`dw/server/jobs.py` split into `pool` / `job_results` /
   `worker_memory`; device ordinal and card as stored fields** (#693,
   stages #776-#777), shipped 2026-10-08. The `slots[0]` shims are gone
