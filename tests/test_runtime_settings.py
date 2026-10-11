@@ -1,6 +1,6 @@
 """A cache hit re-applies LoRA scale/alpha and scheduler shift in place."""
 
-from unittest.mock import MagicMock, patch
+from unittest.mock import MagicMock
 
 import pytest
 
@@ -19,27 +19,6 @@ def test_adapter_settings_name_by_original_index_and_skip_nulled():
     assert weights == [0.5, 1.0]
     assert alphas == {"1": 8}
     assert loras[1]["scale"] == 0.5  # read, not popped
-
-
-def test_apply_adapter_settings_sets_alpha_then_scales():
-    pipeline = MagicMock()
-    calls = []
-    with patch(
-        "dw.pipeline_processors.adapters.set_adapter_alpha",
-        side_effect=lambda p, n, a: calls.append(("alpha", n, a)),
-    ):
-        with patch(
-            "dw.pipeline_processors.adapters.set_adapter_scales",
-            side_effect=lambda p, n, w: calls.append(("scales", n, w)),
-        ):
-            apply_adapter_settings(
-                [{"model_name": "a/b", "scale": 0.5, "alpha": 8}], pipeline
-            )
-    assert calls == [("alpha", "0", 8), ("scales", ["0"], [0.5])]
-    # The warm path never re-activates: diffusers' set_adapters goes through
-    # peft's set_adapter, which sets requires_grad on tensors that are
-    # inference tensors after a run under offload
-    pipeline.set_adapters.assert_not_called()
 
 
 def test_the_cold_path_activates_through_set_adapters():
@@ -84,6 +63,21 @@ def test_the_warm_path_sets_scales_without_touching_activation(monkeypatch):
     pipeline.set_adapters.assert_not_called()
 
 
+def test_the_warm_path_sets_alpha_before_the_scale(monkeypatch):
+    from dw.pipeline_processors import adapters as module
+
+    layer = _FakeLoraLayer(["0"], alpha=8.0, rank=16)
+    monkeypatch.setattr(module, "_lora_layers", lambda pipeline: iter([layer]))
+    pipeline = MagicMock()
+
+    apply_adapter_settings([{"model_name": "a/b", "scale": 0.5, "alpha": 4}], pipeline)
+
+    # The scale pass recomputes from the new alpha: 0.5 * 4 / 16, not 0.5 * 8 / 16
+    assert layer.lora_alpha["0"] == 4.0
+    assert layer.scaling["0"] == 0.125
+    pipeline.set_adapters.assert_not_called()
+
+
 def test_the_warm_path_refuses_an_adapter_no_layer_carries(monkeypatch):
     from dw.pipeline_processors import adapters as module
 
@@ -116,8 +110,12 @@ def test_apply_scheduler_shift_without_a_shift_touches_nothing():
     pipeline.scheduler.set_shift.assert_not_called()
 
 
-def test_wrap_resident_reapplies_runtime_settings():
+def test_wrap_resident_reapplies_runtime_settings(monkeypatch):
     from dw.pipeline_ownership import wrap_resident
+    from dw.pipeline_processors import adapters as module
+
+    layer = _FakeLoraLayer(["0"])
+    monkeypatch.setattr(module, "_lora_layers", lambda pipeline: iter([layer]))
 
     model = MagicMock()
     cached = MagicMock()
@@ -130,15 +128,11 @@ def test_wrap_resident_reapplies_runtime_settings():
             "scheduler": {"shift": 9},
         },
     }
-    scales = MagicMock()
-    with (
-        patch("dw.pipeline_ownership.emit_phase"),
-        patch("dw.pipeline_processors.adapters.set_adapter_scales", scales),
-    ):
-        wrapper = wrap_resident(cached, step_definition, 1, "cpu", "/out", "p")
+    wrapper = wrap_resident(cached, step_definition, 1, "cpu", "/out", "p")
     assert wrapper.pipeline is model
     model.scheduler.set_shift.assert_called_once_with(9.0)
-    scales.assert_called_once_with(model, ["0"], [0.25])
+    assert layer.scaling["0"] == 0.25 * 8.0 / 16
+    assert layer.activated == 0
     model.set_adapters.assert_not_called()
 
 
@@ -152,7 +146,6 @@ def test_wrap_resident_with_nothing_mutable_calls_nothing():
         "name": "s",
         "pipeline": {"configuration": {"component_type": "X", "no_generator": True}},
     }
-    with patch("dw.pipeline_ownership.emit_phase"):
-        wrap_resident(cached, step_definition, 1, "cpu", "/out", "p")
+    wrap_resident(cached, step_definition, 1, "cpu", "/out", "p")
     model.set_adapters.assert_not_called()
     model.scheduler.set_shift.assert_not_called()

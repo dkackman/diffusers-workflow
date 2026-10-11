@@ -126,7 +126,7 @@ def test_workflow_switch_keeps_pipelines_the_new_workflow_loads():
     worker.loaded_pipelines["shared-key"] = object()
     worker.loaded_pipelines["old-only-key"] = object()
 
-    with patch("dw.worker.workflow_run.pipeline_keys", return_value={"shared-key"}):
+    with patch.object(workflow_run, "pipeline_keys", return_value={"shared-key"}):
         messages = _execute(
             worker, TouchesShared(), command=snapshot_command("/w/other.json")
         )
@@ -142,8 +142,8 @@ def test_workflow_switch_falls_back_to_a_full_release_when_keys_cannot_be_taken(
     _execute(worker, StubWorkflow())
     worker.loaded_pipelines["shared-key"] = object()
 
-    with patch(
-        "dw.worker.workflow_run.pipeline_keys", side_effect=ValueError("bad variable")
+    with patch.object(
+        workflow_run, "pipeline_keys", side_effect=ValueError("bad variable")
     ):
         _execute(worker, StubWorkflow(), command=snapshot_command("/w/other.json"))
 

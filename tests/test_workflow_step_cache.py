@@ -13,6 +13,7 @@ import pytest
 from dw.events import RunContext
 from dw.step_cache import step_cache
 from dw.step import Step
+from dw.pipeline_processors import adapters
 from dw.pipeline_processors.config_objects import get_group_offload_configuration
 from dw.pipeline_processors.pipeline import Pipeline
 from dw import workflow_run as workflow_run_module
@@ -24,8 +25,9 @@ def _scales_through_the_mock():
     """The warm path sets LoRA scales layer by layer (set_adapter_scales);
     the mocked models here have no peft layers, so route it to the mock's
     set_adapters, which is what these tests read back."""
-    with patch(
-        "dw.pipeline_processors.adapters.set_adapter_scales",
+    with patch.object(
+        adapters,
+        "set_adapter_scales",
         lambda model, names, weights: model.set_adapters(names, weights),
     ):
         yield
