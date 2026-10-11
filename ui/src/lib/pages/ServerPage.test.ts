@@ -313,6 +313,17 @@ it('asks before clearing, quoting the cost and the shared-cache warning', async 
   expect(listCaches).toHaveBeenCalledTimes(2)
 })
 
+it('names an empty cache as 0 bytes in the confirm, not 1 KB', async () => {
+  const list = cacheList()
+  list.caches[0] = { ...list.caches[0], bytes: 0, files: 0 }
+  const container = await showCaches(list)
+  clearButton(container, 'inductor').click()
+  await settle()
+  const message = confirmDialog.mock.calls[0][0]
+  expect(message).toContain('(0 bytes, 0 files)')
+  expect(message).not.toContain('1 KB')
+})
+
 it('does not clear when the confirm is declined', async () => {
   confirmDialog.mockResolvedValueOnce(false)
   const container = await showCaches()

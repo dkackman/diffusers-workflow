@@ -87,10 +87,13 @@
     refreshCaches()
   })
 
+  // formatBytes floors at 1 KB, so an empty cache would read as 1 KB
+  const cacheSize = (bytes: number) => (bytes ? formatBytes(bytes) : '0 bytes')
+
   async function clear(cache: DiskCacheInfo) {
     if (
       !(await confirmDialog(
-        `Clear the ${cache.name} cache (${formatBytes(cache.bytes)}, ` +
+        `Clear the ${cache.name} cache (${cacheSize(cache.bytes)}, ` +
           `${cache.files} files) at ${cache.root}?\n${cache.cost_of_clearing}`,
         { confirmLabel: 'Clear' },
       ))
