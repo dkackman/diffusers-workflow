@@ -737,3 +737,17 @@ class TestEntryRoutes:
         api.app.state.downloads.is_active = lambda: True
 
         assert api.delete("/api/caches/inductor").status_code == 200
+
+
+def test_triton_default_created_after_start_is_clearable(env):
+    triton = disk_caches.get("triton")
+    disk_caches.mark_roots()
+    assert disk_caches.scan(triton)["clearable"] is False
+
+    # a compile creates the root after the server started
+    populate(env / ".triton" / "cache")
+
+    info = disk_caches.scan(triton)
+    assert info["clearable"] is True
+    assert info["files"] > 0
+    assert disk_caches.clear("triton")["files"] > 0

@@ -288,6 +288,19 @@ def _volume(path):
         return None
 
 
+def _reason(cache):
+    """Why `cache` can't be cleared now, or None. A root that came into being
+    after server start (Triton's, made by the first compile) is marked here
+    by the same rule mark_roots applies at startup."""
+    root = cache.root()
+    if os.path.isdir(root) and not _has_marker(root):
+        try:
+            mark_root(cache)
+        except (OSError, SecurityError) as e:
+            logger.warning(f"Could not mark the {cache.name} cache: {e}")
+    return _not_clearable_reason(root)
+
+
 def _not_clearable_reason(root):
     if not os.path.isdir(root) or os.path.islink(root):
         return "root does not exist (nothing to clear)"
@@ -302,7 +315,7 @@ def scan(cache):
     present = os.path.isdir(root) and not os.path.islink(root)
     total, files, newest = _walk(root) if present else (0, 0, None)
     usage = _volume(root)
-    reason = _not_clearable_reason(root)
+    reason = _reason(cache)
     info = {
         "name": cache.name,
         "root": root,
@@ -424,7 +437,7 @@ def delete_entry(name, entry):
     cache = entry_cache(name, entry)
     with _clear_lock:
         root = cache.root()
-        reason = _not_clearable_reason(root)
+        reason = _reason(cache)
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be changed: {reason}")
         root = validate_path(root)
@@ -445,7 +458,7 @@ def clear(name):
     cache = get(name)
     with _clear_lock:
         root = cache.root()
-        reason = _not_clearable_reason(root)
+        reason = _reason(cache)
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be cleared: {reason}")
         root = validate_path(root)
