@@ -119,14 +119,25 @@ def enabled():
     return os.environ.get(ENABLE_ENV_VAR) == "1"
 
 
+def default_root():
+    """The root with `DW_QUANTIZED_CACHE_DIR` unset: `HF_HOME/dw-quantized`."""
+    from huggingface_hub import constants
+
+    return os.path.abspath(os.path.join(constants.HF_HOME, DEFAULT_DIR_NAME))
+
+
 def cache_root():
     """The cache's root directory, absolute."""
     configured = os.environ.get(DIR_ENV_VAR)
     if configured:
         return os.path.abspath(os.path.expanduser(configured))
-    from huggingface_hub import constants
+    return default_root()
 
-    return os.path.abspath(os.path.join(constants.HF_HOME, DEFAULT_DIR_NAME))
+
+def is_key(name):
+    """Whether `name` has an entry key's shape (64 lowercase hex) - the check
+    to make before building any path from it."""
+    return isinstance(name, str) and bool(_KEY_PATTERN.match(name))
 
 
 @lru_cache(maxsize=1)
@@ -345,7 +356,7 @@ def save_commit(component, model_name, subfolder=None, revision=None, cache_dir=
 
 
 def entry_path(root, key):
-    if not _KEY_PATTERN.match(key):
+    if not is_key(key):
         raise ValueError(f"not a cache key: {key!r}")
     return validate_path(os.path.join(root, key), root)
 

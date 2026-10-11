@@ -568,6 +568,8 @@ def test_populated_quantized_default_is_grandfathered(env, tmp_path, monkeypatch
     assert disk_caches.mark_root(disk_caches.get("quantized")) is True
     assert (root / MARKER).is_file()
 
+    assert disk_caches.get("quantized").default_root() == str(root)
+
 
 def test_populated_non_default_quantized_root_is_not_marked(env, tmp_path):
     root = tmp_path / "quantized"
@@ -601,6 +603,10 @@ def test_malformed_id_refused_before_any_path_is_built(
     built = []
     monkeypatch.setattr(
         "dw.disk_caches.validate_path",
+        lambda *a, **k: built.append(a) or a[0],
+    )
+    monkeypatch.setattr(
+        "dw.quantized_cache.validate_path",
         lambda *a, **k: built.append(a) or a[0],
     )
     monkeypatch.setattr(
