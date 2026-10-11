@@ -171,6 +171,24 @@ def ceiling_index(state, ws):
     return index
 
 
+def _pipeline_steps(definition):
+    return sum(
+        1
+        for step in definition.get("steps") or []
+        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
+    )
+
+
+def _scales_past_template(definition, template, drivers, arguments):
+    """Whether `definition` runs the template's pipeline more times, or for
+    more frames, than the template run the bucket was measured on (#821)."""
+    if _pipeline_steps(definition) != _pipeline_steps(template):
+        return True
+    # The template as the bucket's drivers set it
+    bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
+    return "frame count" in inherited_differences(definition, bucket, arguments)
+
+
 def inherited_observed(state, ws, definition, arguments=None, *, card=None):
     """An inline workflow's `observed` block, priced by pipeline identity
     (#797): this box's runs of the catalog template that loads the same
@@ -210,6 +228,13 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
             card=card,
         )
         if not block or not block.get("cold_runs"):
+            continue
+        # A figure is quoted only for a run of the template's own size: the
+        # bucket above prices the drivers the inline workflow shares by
+        # name, and anything else that moves the frame count or repeats the
+        # pipeline in more steps (#821) is a multiple the template's
+        # minutes do not carry - withheld rather than quoted unchanged
+        if _scales_past_template(definition, template, drivers, arguments):
             continue
         key = (-block["cold_runs"], name)
         if best is None or key < best[0]:
