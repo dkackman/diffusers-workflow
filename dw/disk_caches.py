@@ -35,14 +35,13 @@ deleted. A writer racing the clear finds an empty cache and rebuilds; it never
 reads a half-deleted tree. An entry delete moves the one entry the same way. The
 routes refuse while a job is running or queued.
 
-**An entry id must be 64 lowercase hex** (`ENTRY_ID`) before any path is
-built from it.
+**An entry id must have a cache key's shape** (`quantized_cache.is_key`, 64
+lowercase hex) before any path is built from it.
 """
 
 import importlib.util
 import logging
 import os
-import re
 import secrets
 import shutil
 import threading
@@ -81,9 +80,6 @@ class NoEntries(ValueError):
 
 class UnknownEntry(ValueError):
     pass
-
-
-ENTRY_ID = re.compile(r"^[0-9a-f]{64}$")
 
 
 @dataclass(frozen=True)
@@ -134,14 +130,6 @@ def _triton_root():
     return _triton_default()
 
 
-def _quantized_default():
-    from huggingface_hub import constants
-
-    return os.path.abspath(
-        os.path.join(constants.HF_HOME, quantized_cache.DEFAULT_DIR_NAME)
-    )
-
-
 def _triton_installed():
     # find_spec on a top-level name looks for it without importing it. The
     # workers run in this interpreter's environment, so this is theirs too
@@ -178,7 +166,7 @@ CACHES = {
         DiskCache(
             name="quantized",
             root=quantized_cache.cache_root,
-            default_root=_quantized_default,
+            default_root=quantized_cache.default_root,
             enabled=quantized_cache.enabled,
             cost_of_clearing=(
                 "The next load of each SDNQ-quantized component reads its "
@@ -360,7 +348,7 @@ def scan_entries(root):
     entries = []
     with os.scandir(root) as children:
         for child in children:
-            if not ENTRY_ID.match(child.name) or not child.is_dir(
+            if not quantized_cache.is_key(child.name) or not child.is_dir(
                 follow_symlinks=False
             ):
                 continue
@@ -394,7 +382,7 @@ def entry_cache(name, entry):
     cache = get(name)
     if not cache.has_entries:
         raise NoEntries(f"The {name} cache has no entries - clear it whole")
-    if not isinstance(entry, str) or not ENTRY_ID.match(entry):
+    if not quantized_cache.is_key(entry):
         raise NoEntries(f"Not an entry id: {entry!r} (64 lowercase hex characters)")
     return cache
 
@@ -440,7 +428,7 @@ def delete_entry(name, entry):
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be changed: {reason}")
         root = validate_path(root)
-        path = validate_path(os.path.join(root, entry), base_dir=root)
+        path = quantized_cache.entry_path(root, entry)
         if os.path.islink(path) or not os.path.isdir(path):
             raise UnknownEntry(f"The {name} cache has no entry {entry}")
         freed, files = _stage_out(root, [path])
