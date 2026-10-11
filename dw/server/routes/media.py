@@ -72,6 +72,7 @@ def gallery_metadata(
     request: Request,
     name: str,
     envelope: bool = False,
+    interval_seconds: float = 1.0,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Generation metadata embedded in a saved image ('workflow' inside
@@ -88,7 +89,10 @@ def gallery_metadata(
     is what says *where* in a track something is - whether a shot is
     still voiced at its last frame, how deep the hole at a seam goes.
     Opt-in: a ten-minute track is 600 numbers, and the default call has
-    to stay small.
+    to stay small. `interval_seconds` (default 1.0, at least 0.05) is
+    the bin width: 0.1 places a cut on a vocal onset. A track that
+    would need more than 2400 bins at that width is refused (422) with
+    the interval that fits (#823).
 
     `name` may also be an 'asset:' reference, and then it is the input
     asset of that name that is described rather than an output (#127).
@@ -127,11 +131,14 @@ def gallery_metadata(
         job, run_id, version = job_provenance(request.app.state, name, ws)
     metadata = read_embedded_metadata(path)
     extension = os.path.splitext(path)[1].lower()
-    media = (
-        probe_media(path, envelope=envelope)
-        if MEDIA_KINDS.get(extension) in ("audio", "video")
-        else None
-    )
+    try:
+        media = (
+            probe_media(path, envelope=envelope, interval_seconds=interval_seconds)
+            if MEDIA_KINDS.get(extension) in ("audio", "video")
+            else None
+        )
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
     if media is not None and source == "output":
         # Where each shot of a joined video sits, as the run that wrote
         # it recorded (dw/shots.py) - null for a file not joined from shots

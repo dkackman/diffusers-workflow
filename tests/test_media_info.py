@@ -267,6 +267,38 @@ class TestEnvelope:
         assert len(envelope["rms_dbfs"]) == 4
         assert len(envelope["peak_dbfs"]) == 4
 
+    def test_a_finer_interval_gives_finer_bins(self, tmp_path):
+        self.write_gapped_wav(tmp_path / "score.wav", seconds=4.0)
+
+        envelope = probe_media(
+            str(tmp_path / "score.wav"), envelope=True, interval_seconds=0.1
+        )["envelope"]
+
+        assert envelope["interval_seconds"] == pytest.approx(0.1)
+        assert len(envelope["rms_dbfs"]) == 40
+        # the silent second (index 2) is ten silent 0.1 s bins
+        assert all(db == pytest.approx(-120.0) for db in envelope["rms_dbfs"][20:30])
+        assert envelope["rms_dbfs"][19] > -20.0
+
+    def test_an_interval_below_the_floor_is_refused(self, tmp_path):
+        write_wav(tmp_path / "score.wav", seconds=2.0)
+
+        with pytest.raises(ValueError, match="at least 0.05"):
+            probe_media(
+                str(tmp_path / "score.wav"), envelope=True, interval_seconds=0.01
+            )
+
+    def test_a_track_over_the_bin_cap_is_refused_with_the_interval_that_fits(
+        self, tmp_path, monkeypatch
+    ):
+        write_wav(tmp_path / "score.wav", seconds=4.0)
+        monkeypatch.setattr("dw.media.MAX_ENVELOPE_BINS", 20)
+
+        with pytest.raises(ValueError, match="interval_seconds=0.2 or more"):
+            probe_media(
+                str(tmp_path / "score.wav"), envelope=True, interval_seconds=0.1
+            )
+
     def test_it_finds_the_second_the_sound_stops_in(self, tmp_path):
         self.write_gapped_wav(tmp_path / "score.wav", seconds=4.0, silent_second=2)
 

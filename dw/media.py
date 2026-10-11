@@ -653,6 +653,12 @@ def _stream_info(container, audio_stream_seconds=False):
     return info, video, audio
 
 
+# The finest envelope bin, and the most bins one answer carries, so a long
+# track at a fine interval stays inside the MCP response budget (#823)
+MIN_ENVELOPE_INTERVAL = 0.05
+MAX_ENVELOPE_BINS = 2400
+
+
 class _AudioAccumulator:
     """A soundtrack's levels, gathered frame by frame as the file decodes.
 
@@ -665,13 +671,21 @@ class _AudioAccumulator:
     against, so the trailing-fragment merge is the fallback.
     """
 
-    def __init__(self, rate, channels, duration_seconds=None, envelope=False):
+    def __init__(
+        self,
+        rate,
+        channels,
+        duration_seconds=None,
+        envelope=False,
+        interval_seconds=1.0,
+    ):
         self.rate = rate
+        self.bin_samples = _bin_samples(rate, interval_seconds)
         self.channels = int(channels)
         self.peak = 0.0
         self.total = 0.0
         self.count = 0
-        # One bin per second of the soundtrack: [sum of squares, sample
+        # One bin per interval of the soundtrack: [sum of squares, sample
         # count, peak] - the same numbers the whole-track level is made of,
         # kept per second instead of once
         self.bins = [] if envelope else None
@@ -698,7 +712,7 @@ class _AudioAccumulator:
             else max(0, min(full_length, self.max_samples - self.elapsed))
         )
         if self.bins is not None:
-            _fill_envelope(self.bins, frame[:length], self.elapsed, self.rate)
+            _fill_envelope(self.bins, frame[:length], self.elapsed, self.bin_samples)
         if length > 0:
             self.chunks.append(frame[:length])
         # the frame's *full* length, so a later frame's position is measured
@@ -707,7 +721,7 @@ class _AudioAccumulator:
 
     def finish(self):
         if self.bins is not None and self.max_samples is None:
-            _merge_trailing_fragment(self.bins, self.rate)
+            _merge_trailing_fragment(self.bins, self.bin_samples)
         rms = math.sqrt(self.total / self.count) if self.count else 0.0
         full = numpy.concatenate(self.chunks, axis=0) if self.chunks else None
         levels = {
@@ -717,11 +731,11 @@ class _AudioAccumulator:
             "true_peak_dbfs": true_peak_dbfs(full),
         }
         if self.bins is not None:
-            levels["envelope"] = _as_envelope(self.bins)
+            levels["envelope"] = _as_envelope(self.bins, self.bin_samples / self.rate)
         return levels
 
 
-def probe_media(path, envelope=False):
+def probe_media(path, envelope=False, interval_seconds=1.0):
     """Duration, format and level of an audio or video file, or None.
 
     Video answers fps, frame_count, width and height, plus the soundtrack's
@@ -757,6 +771,11 @@ def probe_media(path, envelope=False):
 
     Args:
         path: The file to probe
+        interval_seconds: The envelope's bin width, `MIN_ENVELOPE_INTERVAL`
+            (0.05 s) or more; 0.1 places a cut on a vocal onset where 1.0
+            cannot. A track that would take more than `MAX_ENVELOPE_BINS`
+            bins at that width raises ValueError naming the width that fits
+            (#823)
         envelope: Also report the per-second level of the soundtrack. A lossy
             codec's decode can run a fraction of a second past the file's
             reported duration - its own priming and padding - so samples past
@@ -784,9 +803,15 @@ def probe_media(path, envelope=False):
         if not (need_frame_count or audio is not None):
             return info
 
+        if envelope and audio is not None:
+            _check_envelope_size(info.get("duration_seconds"), interval_seconds)
         accumulator = (
             _AudioAccumulator(
-                audio.rate, audio.channels, info.get("duration_seconds"), envelope
+                audio.rate,
+                audio.channels,
+                info.get("duration_seconds"),
+                envelope,
+                interval_seconds,
             )
             if audio is not None
             else None
@@ -903,12 +928,12 @@ def probe_metadata(path):
         return info
 
 
-def _fill_envelope(bins, frame, elapsed, rate):
+def _fill_envelope(bins, frame, elapsed, bin_samples):
     """Add a decoded audio frame's samples, as (samples, channels), to the
-    per-second bins.
+    envelope bins, each `bin_samples` long.
 
-    A bin covers one second of the track regardless of how the decoder
-    happened to chop it, so a frame straddling a second boundary is split
+    A bin covers one interval of the track regardless of how the decoder
+    happened to chop it, so a frame straddling a bin boundary is split
     across the two bins rather than counted in whichever one it started in.
     `elapsed` is how many samples of the track came before this frame; the
     caller has already cut away anything past the file's reported duration (a
@@ -917,11 +942,11 @@ def _fill_envelope(bins, frame, elapsed, rate):
     length = frame.shape[0]
     start = 0
     while start < length:
-        second = (elapsed + start) // rate
+        second = (elapsed + start) // bin_samples
         while len(bins) <= second:
             bins.append([0.0, 0, 0.0])
         # How much of this frame still belongs to the second it is in
-        room = int((second + 1) * rate - (elapsed + start))
+        room = int((second + 1) * bin_samples - (elapsed + start))
         stop = min(length, start + max(room, 1))
         piece = frame[start:stop]
         entry = bins[second]
@@ -931,7 +956,7 @@ def _fill_envelope(bins, frame, elapsed, rate):
         start = stop
 
 
-def _merge_trailing_fragment(bins, rate):
+def _merge_trailing_fragment(bins, bin_samples):
     """Fold a short trailing bin into the one before it, in place.
 
     Fallback for when the file's duration is unknown, so `_fill_envelope`
@@ -951,17 +976,45 @@ def _merge_trailing_fragment(bins, rate):
     if len(bins) < 2:
         return
     total, count, peak = bins[-1]
-    if count >= rate:
+    if count >= bin_samples:
         return
     prev_total, prev_count, prev_peak = bins[-2]
     bins[-2] = [prev_total + total, prev_count + count, max(prev_peak, peak)]
     bins.pop()
 
 
-def _as_envelope(bins):
-    """The per-second bins as the levels an agent reads."""
+def _bin_samples(rate, interval_seconds):
+    """Samples in one envelope bin: the interval, rounded to a whole sample."""
+    return max(1, int(round(interval_seconds * rate)))
+
+
+def _check_envelope_size(duration_seconds, interval_seconds):
+    """Refuse an envelope that is too fine or too long to come back whole.
+
+    Raises ValueError, which the route turns into a 422, naming the bin width
+    that fits and the window-free alternative of a coarser interval (#823).
+    """
+    if not interval_seconds >= MIN_ENVELOPE_INTERVAL:
+        raise ValueError(
+            f"interval_seconds must be at least {MIN_ENVELOPE_INTERVAL}, "
+            f"got {interval_seconds}"
+        )
+    if duration_seconds is None:
+        return
+    bins = math.ceil(duration_seconds / interval_seconds)
+    if bins > MAX_ENVELOPE_BINS:
+        fits = math.ceil(duration_seconds / MAX_ENVELOPE_BINS * 100) / 100
+        raise ValueError(
+            f"a {duration_seconds:.1f}s track at interval_seconds="
+            f"{interval_seconds} is {bins} bins, over the {MAX_ENVELOPE_BINS} "
+            f"limit; use interval_seconds={fits} or more"
+        )
+
+
+def _as_envelope(bins, interval_seconds=1.0):
+    """The bins as the levels an agent reads."""
     return {
-        "interval_seconds": 1.0,
+        "interval_seconds": interval_seconds,
         "rms_dbfs": [
             dbfs(math.sqrt(total / count) if count else 0.0, floor=SILENCE_DBFS)
             for total, count, _peak in bins
