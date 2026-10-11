@@ -1127,3 +1127,20 @@ def test_pipeline_definition_key_moves_with_runtime_settings():
     c = _definition(arguments={"prompt": "other"}, seed=7)
     assert pipeline_definition_key(a) != pipeline_definition_key(b)
     assert pipeline_definition_key(a) == pipeline_definition_key(c)
+
+
+@pytest.mark.parametrize("name", ["dialogue-short", "music-video"])
+def test_minimax_join_passes_match_levels_dbfs_through(name):
+    """#836: the join's RMS target is an argument, not the fixed -20 that
+    clip-holds every H3 shot."""
+    path = pathlib.Path("workflows/templates/minimax") / f"{name}.json"
+    definition = json.loads(path.read_text())
+    assert definition["variables"]["match_levels_dbfs"] is None
+    joins = [
+        s["task"]["arguments"]
+        for s in definition["steps"]
+        if "match_levels" in s.get("task", {}).get("arguments", {})
+    ]
+    assert joins
+    for args in joins:
+        assert args["match_levels_dbfs"] == "variable:match_levels_dbfs"
