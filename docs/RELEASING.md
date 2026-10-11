@@ -7,6 +7,68 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.12.0
+
+<!-- Drafted from v0.11.1..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.12.0 --notes-file ... -->
+
+A cold-start release. Opt in and a quantized model's second cold load
+skips the bf16 read and the quantize: MiniMax H3 loads in 19 s instead of
+113 s on an RTX 3090. The caches that build up on a server's disk now have
+a page, and the music-video cut planner stops treating Whisper's
+hallucinations as lyrics.
+
+**Quantized-component cache** (#815, #825, #826, #827)
+
+- `DW_QUANTIZED_CACHE=1` keeps each SDNQ on-the-fly-quantized component on
+  disk (safetensors plus JSON, under `<HF_HOME>/dw-quantized` or
+  `DW_QUANTIZED_CACHE_DIR`) and reads it back on the next load of the same
+  key. Measured on an RTX 3090: H3 cold 112.7 s -> 18.7 s, warm 67.5 s ->
+  4.0 s. An H3 configuration holds about 43 GB.
+- It covers a modular pipeline's `load_components` (H3) and a component
+  loaded on its own through `from_pretrained` (LTX-2.5's transformer and
+  its Gemma text encoder, saved under their own tensor names so they load
+  back). A hit is placed on the config's `return_device`.
+- The key pins the snapshot commit, the quantizer config and the sdnq,
+  diffusers, transformers and torch versions; a save is refused when it
+  would leave less than `min(50 GiB, 10%)` free, and a `quantized_cache`
+  job event names every hit, miss, save and skip with its reason. The cache
+  never fails a job. Off by default; docs/QUANTIZATION.md has the details.
+
+**Disk caches** (#828, #832, #833, #834, #837)
+
+- `GET /api/caches` lists dw's caches of derived data - `inductor`
+  (`torch.compile` kernels), `triton` (SDNQ's jit and autotune kernels)
+  and `quantized` - with size, files, last use and the volume's free
+  space; `DELETE /api/caches/{name}` clears one, refused while a job runs
+  or a download is active. The quantized cache lists its entries and
+  `DELETE /api/caches/quantized/entries/{id}` removes one.
+- The web UI's Server page has a Caches panel for the same, asking before
+  a clear and quoting what the clear costs. `get_server_info` carries the
+  list for an agent.
+
+**Transcription and cuts** (#822, #823)
+
+- `music-video-cuts` transcribes the vocal stem rather than the full mix,
+  so an instrumental intro no longer folds into the first word. Chunks
+  that are silent, overlong, wordless or a repetition loop are marked
+  suspect; `plan_cuts` leaves them out and warns once per run.
+- `get_gallery_metadata`'s envelope takes `interval_seconds` (0.05 to
+  3600, default 1.0) so an agent can place a cut to a frame. More than
+  2400 bins is refused unless the default interval would give more.
+
+**Fixes**
+
+- The inherited cost estimate is withheld when an inline workflow runs
+  more steps or frames than the template it came from, instead of
+  quoting the template's number (#821: a 7x under-quote).
+- `assess_output` shot findings carry `index` and `start_frame`, so a
+  repeated shot name is unambiguous (#835).
+- `dialogue-short` and `music-video` expose `match_levels_dbfs` (#836).
+- A default cache root that appears after the server starts is marked,
+  so `triton` stays clearable after the first run (#837).
+- `deploy.sh` restarts a `dw.serve` run as a loaded launchd daemon on
+  macOS.
+
 ### 0.11.1
 
 <!-- Drafted from v0.11.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.11.1 --notes-file ... -->
