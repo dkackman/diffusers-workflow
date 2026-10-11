@@ -20,7 +20,11 @@
 #      running job is the caller's own.
 #   4. restart. With the systemd user unit installed (scripts/dw-serve.service)
 #      that is `systemctl --user restart dw-serve` and the log is the journal.
-#      Without it: SIGTERM the running dw.serve (never SIGKILL; a stuck one is
+#      With a launchd daemon loaded (macOS, DW_LAUNCHD_LABEL): SIGTERM the
+#      running dw.serve and let launchd's KeepAlive start the new one - no
+#      second copy, which would race launchd's for the port and leave the
+#      loser crash-looping every few seconds. The daemon's plist owns the
+#      arguments and the log then, not this script. Otherwise: SIGTERM the running dw.serve (never SIGKILL; a stuck one is
 #      a bug to report, so after 30 s this fails loudly instead of
 #      escalating), then start the new server as its own window of the
 #      `dw-serve` screen session (created if absent), stdout+stderr appended
@@ -33,7 +37,9 @@
 #   DW_PORT (8765), DW_WORKSPACE (~/diffusers-workspace), DW_HOST (0.0.0.0),
 #   DW_MCP_MAX_WAIT_SECONDS (1800, the per-call wait_for_job cap),
 #   DW_NODE_BIN (the directory holding npm, when it is not on a
-#   non-interactive PATH and not in one of the places find_npm looks).
+#   non-interactive PATH and not in one of the places find_npm looks),
+#   DW_LAUNCHD_LABEL (com.local.dw, the system launchd daemon that may
+#   supervise dw.serve on macOS).
 set -euo pipefail
 
 DW_DIR="${DW_DIR:-$HOME/diffusers-workflow}"
@@ -45,6 +51,7 @@ DW_WORKSPACE="${DW_WORKSPACE:-$HOME/diffusers-workspace}"
 # default is 55). #377: one call covers a long render.
 DW_MCP_MAX_WAIT_SECONDS="${DW_MCP_MAX_WAIT_SECONDS:-1800}"
 LOG="$HOME/dw-serve.log"
+DW_LAUNCHD_LABEL="${DW_LAUNCHD_LABEL:-com.local.dw}"
 SCREEN_SESSION="dw-serve"
 HEALTH="http://localhost:$DW_PORT/api/health"
 
@@ -78,6 +85,37 @@ listener_pids() {
 }
 server_running() { pgrep -if 'python[0-9.]* -m dw\.serve' >/dev/null; }
 any_alive() { local p; for p in "$@"; do kill -0 "$p" 2>/dev/null && return 0; done; return 1; }
+# launchctl print reads a system daemon's state without root
+launchd_loaded() {
+  [ "$(uname -s)" = Darwin ] && launchctl print "system/$DW_LAUNCHD_LABEL" >/dev/null 2>&1
+}
+# The daemon's own stdout path, so a failed start points at the right log
+launchd_log() {
+  launchctl print "system/$DW_LAUNCHD_LABEL" 2>/dev/null \
+    | sed -n 's/^[[:space:]]*stdout path = //p' | head -n 1
+}
+
+# SIGTERM whatever listens on DW_PORT and wait for it to exit
+stop_server() {
+  local pids
+  pids="$(listener_pids)"
+  if [ -z "$pids" ]; then
+    say "no dw.serve running"
+    return 0
+  fi
+  say "stopping dw.serve (pid $pids)"
+  # shellcheck disable=SC2086  # one word per pid
+  kill -TERM $pids
+  for _ in $(seq 1 30); do
+    # shellcheck disable=SC2086
+    any_alive $pids || break
+    sleep 1
+  done
+  # shellcheck disable=SC2086
+  if any_alive $pids; then
+    say "dw.serve did not exit within 30 s of SIGTERM (pid $pids); not escalating - report this"; exit 1
+  fi
+}
 
 # `ssh lem deploy.sh` runs a non-interactive shell, and a per-user node
 # install is usually put on PATH by ~/.bashrc *after* its "not interactive,
@@ -154,26 +192,22 @@ if systemctl --user cat dw-serve >/dev/null 2>&1; then
   systemctl --user restart dw-serve
   LOG_HINT="journalctl --user -u dw-serve -n 200"
   tail_log() { journalctl --user -u dw-serve -n 20 --no-pager; }
+elif launchd_loaded; then
+  LOG_HINT="$(launchd_log)"; LOG_HINT="${LOG_HINT:-$LOG}"
+  tail_log() { tail -n 20 "$LOG_HINT"; }
+  say "restarting via launchd daemon system/$DW_LAUNCHD_LABEL (KeepAlive starts the new one)"
+  stop_server
+  # launchd respawns at once, or after its throttle interval (10 s default)
+  # for a job that ran briefly; the health loop below expects a process
+  for _ in $(seq 1 30); do
+    server_running && break
+    sleep 1
+  done
+  server_running || { say "launchd did not start dw.serve within 30 s of the stop; check: launchctl print system/$DW_LAUNCHD_LABEL"; exit 1; }
 else
 LOG_HINT="$LOG"
 tail_log() { tail -n 20 "$LOG"; }
-pids="$(listener_pids)"
-if [ -n "$pids" ]; then
-  say "stopping dw.serve (pid $pids)"
-  # shellcheck disable=SC2086  # one word per pid
-  kill -TERM $pids
-  for _ in $(seq 1 30); do
-    # shellcheck disable=SC2086
-    any_alive $pids || break
-    sleep 1
-  done
-  # shellcheck disable=SC2086
-  if any_alive $pids; then
-    say "dw.serve did not exit within 30 s of SIGTERM (pid $pids); not escalating - report this"; exit 1
-  fi
-else
-  say "no dw.serve running"
-fi
+stop_server
 
 # start the new one in its own screen window
 cmd="cd $DW_DIR && source venv/bin/activate && DW_MCP_MAX_WAIT_SECONDS=$DW_MCP_MAX_WAIT_SECONDS exec python -m dw.serve --host $DW_HOST --port $DW_PORT --mcp --token $DW_TOKEN --workspace $DW_WORKSPACE --examples-dir $DW_DIR/workflows >> $LOG 2>&1"
