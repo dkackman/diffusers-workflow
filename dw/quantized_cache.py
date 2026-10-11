@@ -77,6 +77,16 @@ UNKEYED_ARGUMENTS = (
     "non_blocking",
 )
 
+# Quantizer arguments that are sets of module names held as lists (or a dict
+# of them). SDNQConfig dedupes each through `list(set(...))`, so their order
+# follows the process's string-hash seed - one order per worker - and the key
+# sorts them, or each card would key the same config differently
+SET_ARGUMENTS = (
+    "modules_to_not_convert",
+    "modules_to_not_use_matmul",
+    "modules_dtype_dict",
+)
+
 # Reasons a `skipped` event carries
 LOCAL_PATH = "local_path"
 UNPINNED_SNAPSHOT = "unpinned_snapshot"
@@ -147,6 +157,15 @@ def quantizer_arguments(config):
     arguments = config_snapshot(config)
     for name in UNKEYED_ARGUMENTS:
         arguments.pop(name, None)
+    for name in SET_ARGUMENTS:
+        value = arguments.get(name)
+        if isinstance(value, list):
+            arguments[name] = sorted(value, key=str)
+        elif isinstance(value, dict):
+            arguments[name] = {
+                k: sorted(v, key=str) if isinstance(v, list) else v
+                for k, v in value.items()
+            }
     return {
         "class": f"{type(config).__module__}.{type(config).__qualname__}",
         "arguments": arguments,
