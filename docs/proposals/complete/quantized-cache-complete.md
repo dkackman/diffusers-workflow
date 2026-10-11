@@ -29,7 +29,8 @@ Cut, with what would bring each back:
 - **Cache-aware `plan.downloads_required`:** trigger: a run that downloads bf16
   weights a hit never reads.
 - **Listing and clearing over MCP, REST or the UI:** moved to #828 (Don,
-  decision 5). Until it lands, clearing is `rm -rf "$DW_QUANTIZED_CACHE_DIR"`.
+  decision 5). Shipped there: the server page's Caches panel and
+  `DELETE /api/caches/quantized[/entries/{id}]` (`disk-caches-complete.md`).
 - **Reordering pruning ahead of the cache (Q5):** stays no. The entry holds the
   untruncated component; a hit takes ~1-9 s, so time doesn't trigger a revisit.
 
