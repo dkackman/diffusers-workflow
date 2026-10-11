@@ -432,6 +432,9 @@ class TestCacheRoutes:
     )
     def test_traversal_name_touches_nothing(self, api, tmp_path, status):
         root, _ = marked_root(tmp_path)
+        victim = tmp_path / "x" / "victim.bin"
+        victim.parent.mkdir()
+        victim.write_bytes(b"x" * 8)
         before_root = tree(root)
         before_parent = tree(tmp_path)
 
@@ -439,7 +442,11 @@ class TestCacheRoutes:
 
         assert response.status_code == status
         assert tree(root) == before_root
-        assert tree(tmp_path) == before_parent
+        assert victim.read_bytes() == b"x" * 8
+        # The server's own workspace lives under tmp_path too (outputs, the
+        # job history's -shm/-wal), and it adds files there on its own
+        # schedule, so the parent is checked for losses, not for equality
+        assert set(before_parent) <= set(tree(tmp_path))
 
 
 # ------------------------------------------------------- quantized entries
