@@ -217,8 +217,13 @@ def _cache_sizes(client):
     caches = listing.get("caches") if isinstance(listing, dict) else None
     if not isinstance(caches, list):
         return None
-    return [
-        {field: cache.get(field) for field in _CACHE_FIELDS}
-        for cache in caches
-        if isinstance(cache, dict)
-    ]
+    return [_cache_summary(cache) for cache in caches if isinstance(cache, dict)]
+
+
+def _cache_summary(cache):
+    summary = {field: cache.get(field) for field in _CACHE_FIELDS}
+    # A cache with entries (quantized) is counted, not listed: the listing is
+    # GET /api/caches, for the page that deletes them
+    if isinstance(cache.get("entries"), list):
+        summary["entry_count"] = len(cache["entries"])
+    return summary

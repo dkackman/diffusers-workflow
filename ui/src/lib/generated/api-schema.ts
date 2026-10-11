@@ -157,13 +157,31 @@ export interface paths {
         post?: never;
         /**
          * Clear Cache
-         * @description Empty one cache's root, keeping the root and its marker.
-         *
-         *     Refused while a job is running or queued: a compile or autotune in
-         *     progress writes into the root, and a clear mid-write could leave a
-         *     truncated artifact a later lookup trusts.
+         * @description Empty one cache's root, keeping the root and its marker. Refused
+         *     while anything may be writing into it (`_refuse_while_writing`).
          */
         delete: operations["clear_cache_api_caches__name__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/caches/{name}/entries/{entry}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Cache Entry
+         * @description Delete one entry of a cache that has entries (quantized). The id is
+         *     checked to be 64 hex before any path is built from it.
+         */
+        delete: operations["delete_cache_entry_api_caches__name__entries__entry__delete"];
         options?: never;
         head?: never;
         patch?: never;
@@ -1931,6 +1949,53 @@ export interface components {
             /** Name */
             name: string;
         };
+        /** DiskCacheEntry */
+        DiskCacheEntry: {
+            /** Bytes */
+            bytes: number;
+            /** Component */
+            component: string | null;
+            /**
+             * Created
+             * @description Epoch seconds.
+             */
+            created: number | null;
+            /** Files */
+            files: number;
+            /**
+             * Id
+             * @description The entry's 64-hex key: its directory name.
+             */
+            id: string;
+            /**
+             * Last Hit
+             * @description Epoch seconds of the last load that read it; null if none has.
+             */
+            last_hit: number | null;
+            /** Model */
+            model: string | null;
+            /** Subfolder */
+            subfolder: string | null;
+            /**
+             * Unreadable
+             * @description True when its entry.json is missing or unreadable; the fields below are then null, and it can still be deleted.
+             */
+            unreadable: boolean;
+        };
+        /** DiskCacheEntryDeleted */
+        DiskCacheEntryDeleted: {
+            /** Deleted */
+            deleted: boolean;
+            /** Entry */
+            entry: string;
+            /**
+             * Freed
+             * @description Bytes freed.
+             */
+            freed: number;
+            /** Name */
+            name: string;
+        };
         /** DiskCacheInfo */
         DiskCacheInfo: {
             /** Bytes */
@@ -1945,6 +2010,11 @@ export interface components {
             disk_total: number | null;
             /** Enabled */
             enabled: boolean;
+            /**
+             * Entries
+             * @description For a cache with entries (quantized).
+             */
+            entries?: components["schemas"]["DiskCacheEntry"][] | null;
             /** Files */
             files: number;
             /**
@@ -1952,6 +2022,11 @@ export interface components {
              * @description The newest file's mtime (epoch seconds); null when empty.
              */
             last_used: number | null;
+            /**
+             * Low Disk
+             * @description For a cache with a free-space floor (quantized): the volume is under it, so new entries are not saved.
+             */
+            low_disk?: boolean | null;
             /** Name */
             name: string;
             /** Not Clearable Reason */
@@ -3625,6 +3700,38 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["DiskCacheCleared"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    delete_cache_entry_api_caches__name__entries__entry__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                name: string;
+                entry: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DiskCacheEntryDeleted"];
                 };
             };
             /** @description Validation Error */

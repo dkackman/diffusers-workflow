@@ -601,6 +601,129 @@
         "title": "DiskCacheCleared",
         "type": "object"
       },
+      "DiskCacheEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "bytes": {
+            "title": "Bytes",
+            "type": "integer"
+          },
+          "component": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Component"
+          },
+          "created": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds.",
+            "title": "Created"
+          },
+          "files": {
+            "title": "Files",
+            "type": "integer"
+          },
+          "id": {
+            "description": "The entry's 64-hex key: its directory name.",
+            "title": "Id",
+            "type": "string"
+          },
+          "last_hit": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Epoch seconds of the last load that read it; null if none has.",
+            "title": "Last Hit"
+          },
+          "model": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model"
+          },
+          "subfolder": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subfolder"
+          },
+          "unreadable": {
+            "description": "True when its entry.json is missing or unreadable; the fields below are then null, and it can still be deleted.",
+            "title": "Unreadable",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "bytes",
+          "files",
+          "unreadable",
+          "model",
+          "subfolder",
+          "component",
+          "created",
+          "last_hit"
+        ],
+        "title": "DiskCacheEntry",
+        "type": "object"
+      },
+      "DiskCacheEntryDeleted": {
+        "additionalProperties": false,
+        "properties": {
+          "deleted": {
+            "title": "Deleted",
+            "type": "boolean"
+          },
+          "entry": {
+            "title": "Entry",
+            "type": "string"
+          },
+          "freed": {
+            "description": "Bytes freed.",
+            "title": "Freed",
+            "type": "integer"
+          },
+          "name": {
+            "title": "Name",
+            "type": "string"
+          }
+        },
+        "required": [
+          "name",
+          "entry",
+          "deleted",
+          "freed"
+        ],
+        "title": "DiskCacheEntryDeleted",
+        "type": "object"
+      },
       "DiskCacheInfo": {
         "additionalProperties": false,
         "properties": {
@@ -642,6 +765,21 @@
             "title": "Enabled",
             "type": "boolean"
           },
+          "entries": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/DiskCacheEntry"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a cache with entries (quantized).",
+            "title": "Entries"
+          },
           "files": {
             "title": "Files",
             "type": "integer"
@@ -657,6 +795,18 @@
             ],
             "description": "The newest file's mtime (epoch seconds); null when empty.",
             "title": "Last Used"
+          },
+          "low_disk": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "For a cache with a free-space floor (quantized): the volume is under it, so new entries are not saved.",
+            "title": "Low Disk"
           },
           "name": {
             "title": "Name",
@@ -4817,7 +4967,7 @@
     },
     "/api/caches/{name}": {
       "delete": {
-        "description": "Empty one cache's root, keeping the root and its marker.\n\nRefused while a job is running or queued: a compile or autotune in\nprogress writes into the root, and a clear mid-write could leave a\ntruncated artifact a later lookup trusts.",
+        "description": "Empty one cache's root, keeping the root and its marker. Refused\nwhile anything may be writing into it (`_refuse_while_writing`).",
         "operationId": "clear_cache_api_caches__name__delete",
         "parameters": [
           {
@@ -4853,6 +5003,55 @@
           }
         },
         "summary": "Clear Cache"
+      }
+    },
+    "/api/caches/{name}/entries/{entry}": {
+      "delete": {
+        "description": "Delete one entry of a cache that has entries (quantized). The id is\nchecked to be 64 hex before any path is built from it.",
+        "operationId": "delete_cache_entry_api_caches__name__entries__entry__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "name",
+            "required": true,
+            "schema": {
+              "title": "Name",
+              "type": "string"
+            }
+          },
+          {
+            "in": "path",
+            "name": "entry",
+            "required": true,
+            "schema": {
+              "title": "Entry",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiskCacheEntryDeleted"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Delete Cache Entry"
       }
     },
     "/api/classes": {
