@@ -11,6 +11,8 @@ import errno
 import json
 import logging
 import os
+import subprocess
+import sys
 from collections import namedtuple
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
@@ -157,6 +159,35 @@ class TestKey:
         a = base_inputs(quantizer=qc.quantizer_arguments(plain))
         b = base_inputs(quantizer=qc.quantizer_arguments(placed))
         assert qc.cache_key(a) == qc.cache_key(b)
+
+    def test_the_key_does_not_follow_the_process_hash_seed(self):
+        # SDNQConfig dedupes modules_to_not_convert through a set, so each
+        # worker process holds it in its own order - H3's transformer keyed
+        # differently on each card until the key sorted it
+        script = (
+            "import json\n"
+            "from sdnq import SDNQConfig\n"
+            "import dw.quantized_cache as qc\n"
+            "config = SDNQConfig(weights_dtype='int4', use_quantized_matmul=True,"
+            " modules_to_not_convert=[f'block_{i}' for i in range(9)],"
+            " modules_dtype_dict={'int8': ['a', 'b', 'c', 'd']})\n"
+            "print(json.dumps([config.modules_to_not_convert,"
+            " qc.quantizer_arguments(config)]))\n"
+        )
+        orders, quantizers = set(), set()
+        for seed in ("1", "2", "3", "4"):
+            out = subprocess.run(
+                [sys.executable, "-c", script],
+                env={**os.environ, "PYTHONHASHSEED": seed},
+                capture_output=True,
+                text=True,
+                check=True,
+            ).stdout.splitlines()[-1]
+            order, quantizer = json.loads(out)
+            orders.add(tuple(order))
+            quantizers.add(json.dumps(quantizer, sort_keys=True))
+        assert len(orders) > 1, "the seeds did not reorder the list"
+        assert len(quantizers) == 1
 
     def test_quantizer_arguments_drop_only_the_unkeyed_ones(self):
         described = qc.quantizer_arguments(SDNQConfig(weights_dtype="int8"))
