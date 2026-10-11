@@ -5,6 +5,7 @@ import type {
   Deleted,
   DiffusersStatus,
   DiskCacheCleared,
+  DiskCacheEntryDeleted,
   DiskCacheList,
   EnhancerPresets,
   GalleryList,
@@ -262,6 +263,13 @@ export const api = {
     request<DiskCacheCleared>(`/api/caches/${encodeURIComponent(name)}`, {
       method: 'DELETE',
     }),
+  /** Delete one entry of a cache that has them (today `quantized`). 404 for
+   * an unknown entry; 409 (an `ApiError`) while a job or download is active. */
+  deleteCacheEntry: (name: string, entry: string) =>
+    request<DiskCacheEntryDeleted>(
+      `/api/caches/${encodeURIComponent(name)}/entries/${encodeURIComponent(entry)}`,
+      { method: 'DELETE' },
+    ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
   gallery: () => request<GalleryList>('/api/gallery?limit=100000'),

@@ -1,6 +1,7 @@
 """dw's disk-cache registry (dw/disk_caches.py) and its routes (#828)."""
 
 import builtins
+import json
 import os
 import sys
 
@@ -8,7 +9,13 @@ import pytest
 from fastapi.testclient import TestClient
 
 from dw import _inductor_cache_dir_default, disk_caches
-from dw.disk_caches import MARKER, NotClearable, UnknownCache
+from dw.disk_caches import (
+    MARKER,
+    NoEntries,
+    NotClearable,
+    UnknownCache,
+    UnknownEntry,
+)
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 
@@ -26,6 +33,8 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("TRITON_HOME", raising=False)
     monkeypatch.delenv("XDG_CACHE_HOME", raising=False)
     monkeypatch.setenv("TORCHINDUCTOR_CACHE_DIR", str(tmp_path / "inductor"))
+    monkeypatch.setenv("DW_QUANTIZED_CACHE_DIR", str(tmp_path / "quantized"))
+    monkeypatch.delenv("DW_QUANTIZED_CACHE", raising=False)
     monkeypatch.delitem(sys.modules, "triton", raising=False)
     return home
 
@@ -343,7 +352,7 @@ class TestCacheRoutes:
 
         assert response.status_code == 200
         caches = {c["name"]: c for c in response.json()["caches"]}
-        assert set(caches) == {"inductor", "triton"}
+        assert set(caches) == {"inductor", "triton", "quantized"}
         keys = {
             "name",
             "root",
@@ -431,3 +440,294 @@ class TestCacheRoutes:
         assert response.status_code == status
         assert tree(root) == before_root
         assert tree(tmp_path) == before_parent
+
+
+# ------------------------------------------------------- quantized entries
+
+KEY_A = "a" * 64
+KEY_B = "b" * 64
+
+
+def quantized_entry(root, key, sizes=(100, 200), entry=True, **fields):
+    """An entry directory as quantized_cache.save_entry leaves it."""
+    path = root / key
+    path.mkdir(parents=True)
+    for i, size in enumerate(sizes):
+        (path / f"model-{i}.safetensors").write_bytes(b"q" * size)
+    if entry is True:
+        record = {
+            "model_name": "MiniMaxAI/MiniMax-H3",
+            "subfolder": "vae",
+            "commit": "c" * 40,
+            "key": key,
+            "bytes": sum(sizes),
+            "created": 1700000000.0,
+            "last_hit": None,
+            **fields,
+        }
+        (path / "entry.json").write_text(json.dumps(record))
+    elif entry is not None:
+        (path / "entry.json").write_text(entry)
+    return path
+
+
+def quantized_root(tmp_path):
+    root = tmp_path / "quantized"
+    root.mkdir()
+    (root / MARKER).write_text("marked")
+    return root
+
+
+def test_quantized_root_and_enabled_follow_the_env(env, tmp_path, monkeypatch):
+    cache = disk_caches.get("quantized")
+    assert cache.root() == str(tmp_path / "quantized")
+    assert cache.enabled() is False
+    monkeypatch.setenv("DW_QUANTIZED_CACHE", "1")
+    assert cache.enabled() is True
+
+
+def test_entries_parsed_from_entry_json(env, tmp_path):
+    root = quantized_root(tmp_path)
+    quantized_entry(root, KEY_A, sizes=(100, 200), last_hit=1700000500.0)
+    quantized_entry(
+        root, KEY_B, sizes=(50,), subfolder="transformer", created=1700000900.0
+    )
+    (root / "not-a-key").mkdir()
+    (root / f"{KEY_A}.tmp-1-abcd").mkdir()
+
+    info = disk_caches.scan(disk_caches.get("quantized"))
+
+    by_id = {e["id"]: e for e in info["entries"]}
+    assert set(by_id) == {KEY_A, KEY_B}
+    # newest first
+    assert [e["id"] for e in info["entries"]] == [KEY_B, KEY_A]
+    a = by_id[KEY_A]
+    assert a["model"] == "MiniMaxAI/MiniMax-H3"
+    assert a["subfolder"] == "vae"
+    assert a["component"] == "vae"
+    assert a["created"] == 1700000000.0
+    assert a["last_hit"] == 1700000500.0
+    assert a["unreadable"] is False
+    # the files on disk, entry.json included
+    entry_json = (root / KEY_A / "entry.json").stat().st_size
+    assert a["bytes"] == 300 + entry_json
+    assert a["files"] == 3
+    assert by_id[KEY_B]["component"] == "transformer"
+
+
+@pytest.mark.parametrize("entry", [None, "{not json", "[1, 2]"])
+def test_unreadable_entry_is_listed_and_deletable(env, tmp_path, entry):
+    root = quantized_root(tmp_path)
+    quantized_entry(root, KEY_A, sizes=(40,), entry=entry)
+
+    [listed] = disk_caches.scan(disk_caches.get("quantized"))["entries"]
+
+    assert listed["id"] == KEY_A
+    assert listed["unreadable"] is True
+    assert listed["model"] is None
+    assert listed["component"] is None
+
+    result = disk_caches.delete_entry("quantized", KEY_A)
+
+    assert result["freed"] >= 40
+    assert not (root / KEY_A).exists()
+
+
+def test_off_cache_still_lists_and_clears(env, tmp_path):
+    root = quantized_root(tmp_path)
+    quantized_entry(root, KEY_A)
+
+    info = disk_caches.scan(disk_caches.get("quantized"))
+    assert info["enabled"] is False
+    assert [e["id"] for e in info["entries"]] == [KEY_A]
+    assert info["clearable"] is True
+
+    disk_caches.clear("quantized")
+
+    assert [p.name for p in root.iterdir()] == [MARKER]
+
+
+def test_missing_quantized_root_lists_no_entries_and_is_not_created(env, tmp_path):
+    disk_caches.mark_roots()
+
+    info = disk_caches.scan(disk_caches.get("quantized"))
+
+    assert info["entries"] == []
+    assert info["bytes"] == 0
+    assert not (tmp_path / "quantized").exists()
+
+
+def test_populated_quantized_default_is_grandfathered(env, tmp_path, monkeypatch):
+    from huggingface_hub import constants
+
+    monkeypatch.setattr(constants, "HF_HOME", str(tmp_path / "hf"))
+    monkeypatch.delenv("DW_QUANTIZED_CACHE_DIR")
+    root = tmp_path / "hf" / "dw-quantized"
+    quantized_entry(root, KEY_A)
+
+    assert disk_caches.mark_root(disk_caches.get("quantized")) is True
+    assert (root / MARKER).is_file()
+
+
+def test_populated_non_default_quantized_root_is_not_marked(env, tmp_path):
+    root = tmp_path / "quantized"
+    quantized_entry(root, KEY_A)
+
+    assert disk_caches.mark_root(disk_caches.get("quantized")) is False
+    with pytest.raises(NotClearable):
+        disk_caches.delete_entry("quantized", KEY_A)
+    assert (root / KEY_A).is_dir()
+
+
+def test_delete_entry_removes_only_that_entry(env, tmp_path):
+    root = quantized_root(tmp_path)
+    quantized_entry(root, KEY_A, sizes=(100,))
+    quantized_entry(root, KEY_B, sizes=(7,))
+
+    result = disk_caches.delete_entry("quantized", KEY_A)
+
+    assert result["freed"] >= 100
+    assert sorted(p.name for p in root.iterdir()) == sorted([MARKER, KEY_B])
+
+
+@pytest.mark.parametrize(
+    "entry",
+    ["abc", "A" * 64, "a" * 63, "a" * 65, "../" + "a" * 61, "g" * 64, "", None],
+)
+def test_malformed_id_refused_before_any_path_is_built(
+    env, tmp_path, monkeypatch, entry
+):
+    quantized_root(tmp_path)
+    built = []
+    monkeypatch.setattr(
+        "dw.disk_caches.validate_path",
+        lambda *a, **k: built.append(a) or a[0],
+    )
+    monkeypatch.setattr(
+        "dw.disk_caches.os.path.join", lambda *a: built.append(a) or "/nowhere"
+    )
+
+    with pytest.raises(NoEntries):
+        disk_caches.delete_entry("quantized", entry)
+    assert built == []
+
+
+def test_entry_ops_on_a_cache_without_entries(env, tmp_path):
+    marked_root(tmp_path)
+    with pytest.raises(NoEntries):
+        disk_caches.delete_entry("inductor", KEY_A)
+
+
+def test_unknown_entry(env, tmp_path):
+    quantized_root(tmp_path)
+    with pytest.raises(UnknownEntry):
+        disk_caches.delete_entry("quantized", KEY_A)
+
+
+@pytest.mark.parametrize("free, low", [(10 * 2**30, True), (60 * 2**30, False)])
+def test_low_disk_on_both_arms_of_the_floor(env, tmp_path, monkeypatch, free, low):
+    quantized_root(tmp_path)
+    total = 1000 * 2**30  # floor = min(50 GiB, 100 GiB) = 50 GiB
+    usage = disk_caches.shutil._ntuple_diskusage(total, total - free, free)
+    monkeypatch.setattr("dw.disk_caches.shutil.disk_usage", lambda path: usage)
+
+    info = disk_caches.scan(disk_caches.get("quantized"))
+
+    assert info["low_disk"] is low
+    assert "low_disk" not in disk_caches.scan(disk_caches.get("inductor"))
+
+
+def test_low_disk_reads_the_quantized_floor(env):
+    from dw import quantized_cache
+
+    assert disk_caches.get("quantized").low_disk_floor is quantized_cache.floor_bytes
+
+
+class TestEntryRoutes:
+    def test_list_carries_entries_and_low_disk(self, api, tmp_path):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A)
+
+        caches = {c["name"]: c for c in api.get("/api/caches").json()["caches"]}
+
+        quantized = caches["quantized"]
+        assert isinstance(quantized["low_disk"], bool)
+        [entry] = quantized["entries"]
+        assert entry["id"] == KEY_A
+        assert entry["component"] == "vae"
+        assert "entries" not in caches["inductor"]
+
+    def test_delete_entry(self, api, tmp_path):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A, sizes=(100,))
+
+        response = api.delete(f"/api/caches/quantized/entries/{KEY_A}")
+
+        assert response.status_code == 200
+        body = response.json()
+        assert body["name"] == "quantized"
+        assert body["entry"] == KEY_A
+        assert body["deleted"] is True
+        assert body["freed"] >= 100
+        assert not (root / KEY_A).exists()
+
+    @pytest.mark.parametrize("entry", ["abc", "A" * 64, "z" * 64])
+    def test_malformed_id_is_400(self, api, tmp_path, entry):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A)
+        before = tree(root)
+
+        response = api.delete(f"/api/caches/quantized/entries/{entry}")
+
+        assert response.status_code == 400
+        assert tree(root) == before
+
+    def test_cache_without_entries_is_400(self, api, tmp_path):
+        marked_root(tmp_path)
+        response = api.delete(f"/api/caches/inductor/entries/{KEY_A}")
+        assert response.status_code == 400
+
+    def test_unknown_entry_is_404(self, api, tmp_path):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A)
+        before = tree(root)
+
+        response = api.delete(f"/api/caches/quantized/entries/{KEY_B}")
+
+        assert response.status_code == 404
+        assert tree(root) == before
+
+    def test_unknown_cache_is_404(self, api, tmp_path):
+        response = api.delete(f"/api/caches/nope/entries/{KEY_A}")
+        assert response.status_code == 404
+
+    @pytest.mark.parametrize("path", [f"/entries/{KEY_A}", ""])
+    def test_refused_while_busy(self, api, tmp_path, path):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A)
+        before = tree(root)
+        api.manager.is_busy = lambda: True
+
+        response = api.delete(f"/api/caches/quantized{path}")
+
+        assert response.status_code == 409
+        assert tree(root) == before
+
+    @pytest.mark.parametrize("path", [f"/entries/{KEY_A}", ""])
+    def test_refused_while_a_download_is_active(self, api, tmp_path, path):
+        root = quantized_root(tmp_path)
+        quantized_entry(root, KEY_A)
+        before = tree(root)
+        api.app.state.downloads.is_active = lambda: True
+
+        response = api.delete(f"/api/caches/quantized{path}")
+
+        assert response.status_code == 409
+        assert "download" in response.json()["detail"]
+        assert tree(root) == before
+
+    def test_a_download_does_not_block_other_caches(self, api, tmp_path):
+        marked_root(tmp_path)
+        api.app.state.downloads.is_active = lambda: True
+
+        assert api.delete("/api/caches/inductor").status_code == 200

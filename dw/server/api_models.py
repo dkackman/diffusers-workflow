@@ -255,6 +255,23 @@ class ModelDeleted(ApiModel):
     freed: int = Field(description="Bytes freed.")
 
 
+class DiskCacheEntry(ApiModel):
+    id: str = Field(description="The entry's 64-hex key: its directory name.")
+    bytes: int
+    files: int
+    unreadable: bool = Field(
+        description="True when its entry.json is missing or unreadable; the "
+        "fields below are then null, and it can still be deleted."
+    )
+    model: str | None
+    subfolder: str | None
+    component: str | None
+    created: float | None = Field(description="Epoch seconds.")
+    last_hit: float | None = Field(
+        description="Epoch seconds of the last load that read it; null if none has."
+    )
+
+
 class DiskCacheInfo(ApiModel):
     name: str
     root: str
@@ -269,6 +286,14 @@ class DiskCacheInfo(ApiModel):
     cost_of_clearing: str
     disk_free: int | None
     disk_total: int | None
+    low_disk: bool | None = Field(
+        default=None,
+        description="For a cache with a free-space floor (quantized): the "
+        "volume is under it, so new entries are not saved.",
+    )
+    entries: list[DiskCacheEntry] | None = Field(
+        default=None, description="For a cache with entries (quantized)."
+    )
 
 
 class DiskCacheList(ApiModel):
@@ -280,6 +305,13 @@ class DiskCacheCleared(ApiModel):
     cleared: bool
     freed: int = Field(description="Bytes freed.")
     files: int
+
+
+class DiskCacheEntryDeleted(ApiModel):
+    name: str
+    entry: str
+    deleted: bool
+    freed: int = Field(description="Bytes freed.")
 
 
 class DiffusersInstall(ApiModel):

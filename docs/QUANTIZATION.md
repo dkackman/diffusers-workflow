@@ -173,7 +173,7 @@ The variables are read by the server and inherited by its workers, so set them i
 - **Concurrent workers**: two workers saving the same key leave one entry; the other reports `saved` ("already saved by another worker"). A corrupt entry is deleted and quantized fresh
 - **What a hit holds**: the whole component as quantized. The save comes before pruning (`truncate_layers`, `remove_modules`), `sdnq_optimize`, LoRAs and offload, which all still apply after a hit
 - **At server start** (only when on): a sweep deletes leftover `*.tmp-*` directories and entries built against other package versions or with an unreadable `entry.json`, and logs the count and bytes freed. It then logs the root, bytes in use and free space, warning when free space is below the floor plus the largest entry already cached
-- **Clearing**: there is no other eviction. `rm -rf "$DW_QUANTIZED_CACHE_DIR"`
+- **Clearing**: there is no other eviction. Use the server page's Caches panel (the whole cache, or one entry from its expandable table), or `DELETE /api/caches/quantized` / `DELETE /api/caches/quantized/entries/{id}`. `GET /api/caches` lists the entries (model, subfolder, size, created, last hit) and `low_disk` (free space under the floor). Clearing is refused while a job is running or queued, and while a model download is active; an off cache still lists and clears what is on disk
 - **Event**: a `quantized_cache` job event, `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`. A `miss`'s `seconds` is the time of the whole `load_components` batch, shared by the components it loaded; on the per-component path it is that one component's load
 
 The cache never fails a job; one that can't help steps aside.

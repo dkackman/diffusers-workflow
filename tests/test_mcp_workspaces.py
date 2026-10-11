@@ -302,6 +302,28 @@ class TestServerInfo:
             }
         ]
 
+    def test_a_cache_with_entries_carries_only_their_count(self):
+        listing = {
+            "caches": [
+                {
+                    "name": "quantized",
+                    "bytes": 300,
+                    "files": 3,
+                    "enabled": True,
+                    "clearable": True,
+                    "disk_free": 99,
+                    "low_disk": False,
+                    "entries": [{"id": "a" * 64}, {"id": "b" * 64}],
+                }
+            ]
+        }
+        client = self.info_client(httpx.Response(200, json=listing))
+
+        [quantized] = server_info(client)["caches"]
+
+        assert quantized["entry_count"] == 2
+        assert "entries" not in quantized
+
     @pytest.mark.parametrize("status", [404, 500])
     def test_caches_omitted_when_the_listing_fails(self, status):
         client = self.info_client(httpx.Response(status, json={"detail": "no"}))

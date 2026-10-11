@@ -1,6 +1,8 @@
 <script lang="ts">
   import { poll } from '../poll'
   import {
+    ChevronDown,
+    ChevronRight,
     Globe,
     HardDrive,
     Plug,
@@ -24,6 +26,7 @@
     mcpUrl,
   } from '../serverinfo'
   import type {
+    DiskCacheEntry,
     DiskCacheInfo,
     HealthInfo,
     MemoryInfo,
@@ -105,6 +108,41 @@
       await api.clearCache(cache.name)
     } catch (e) {
       // a 409 (a job running or queued) carries the server's reason
+      clearError = e instanceof Error ? e.message : String(e)
+    } finally {
+      clearing = null
+      await refreshCaches()
+    }
+  }
+
+  // caches whose entry table is expanded, by name
+  let expanded = $state<string[]>([])
+  const toggle = (name: string) =>
+    (expanded = expanded.includes(name)
+      ? expanded.filter((n) => n !== name)
+      : [...expanded, name])
+
+  const entryLabel = (e: DiskCacheEntry) =>
+    e.unreadable ? 'unreadable' : e.component || e.model || e.id.slice(0, 12)
+
+  async function deleteEntry(cache: DiskCacheInfo, entry: DiskCacheEntry) {
+    const what = entry.unreadable
+      ? `unreadable entry ${entry.id.slice(0, 12)}`
+      : `${entry.component} of ${entry.model}`
+    if (
+      !(await confirmDialog(
+        `Delete the ${cache.name} cache entry ${what} ` +
+          `(${cacheSize(entry.bytes)})?\n${cache.cost_of_clearing}`,
+        { confirmLabel: 'Delete' },
+      ))
+    )
+      return
+    clearing = `${cache.name}/${entry.id}`
+    clearError = ''
+    try {
+      await api.deleteCacheEntry(cache.name, entry.id)
+    } catch (e) {
+      // a 409 (a job or download active) carries the server's reason
       clearError = e instanceof Error ? e.message : String(e)
     } finally {
       clearing = null
@@ -440,6 +478,103 @@
                   </button>
                 </td>
               </tr>
+              {#if cache.low_disk}
+                <tr class="reason">
+                  <td></td>
+                  <td colspan="7" class="warn lowdisk">
+                    <TriangleAlert size={14} />volume under the {cache.name}
+                    cache's free-space floor - new entries are not saved
+                  </td>
+                </tr>
+              {/if}
+              {#if Array.isArray(cache.entries)}
+                {@const open = expanded.includes(cache.name)}
+                <tr class="reason">
+                  <td></td>
+                  <td colspan="7">
+                    <button
+                      class="quiet withicon entrytoggle"
+                      aria-expanded={open}
+                      onclick={() => toggle(cache.name)}
+                    >
+                      {#if open}<ChevronDown size={14} />{:else}<ChevronRight
+                          size={14}
+                        />{/if}
+                      {cache.entries.length}
+                      {cache.entries.length === 1 ? 'entry' : 'entries'}
+                    </button>
+                  </td>
+                </tr>
+                {#if open}
+                  <tr class="entries">
+                    <td></td>
+                    <td colspan="7">
+                      <div class="tablewrap">
+                        <table class="entrytable">
+                          <thead>
+                            <tr>
+                              <th>component</th>
+                              <th>model</th>
+                              <th>subfolder</th>
+                              <th>size</th>
+                              <th>created</th>
+                              <th>last hit</th>
+                              <th>id</th>
+                              <th></th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            {#each cache.entries as entry (entry.id)}
+                              <tr>
+                                <td class:muted={entry.unreadable}>
+                                  {entry.unreadable
+                                    ? 'unreadable'
+                                    : entry.component}
+                                </td>
+                                <td>{entry.model || '—'}</td>
+                                <td>{entry.subfolder || '—'}</td>
+                                <td>{cacheSize(entry.bytes)}</td>
+                                <td class="muted">
+                                  {entry.created
+                                    ? formatMtime(entry.created)
+                                    : '—'}
+                                </td>
+                                <td class="muted">
+                                  {entry.last_hit != null
+                                    ? formatMtime(entry.last_hit)
+                                    : '—'}
+                                </td>
+                                <td>
+                                  <code title={entry.id}
+                                    >{entry.id.slice(0, 12)}</code
+                                  >
+                                </td>
+                                <td>
+                                  <button
+                                    class="quiet withicon danger"
+                                    disabled={!cache.clearable ||
+                                      clearing !== null}
+                                    title={cache.clearable
+                                      ? `delete ${entryLabel(entry)} from the ${cache.name} cache`
+                                      : (cache.not_clearable_reason ??
+                                        'not clearable')}
+                                    onclick={() => deleteEntry(cache, entry)}
+                                  >
+                                    <Trash2 size={14} />
+                                    {clearing === `${cache.name}/${entry.id}`
+                                      ? 'deleting…'
+                                      : 'Delete'}
+                                  </button>
+                                </td>
+                              </tr>
+                            {/each}
+                          </tbody>
+                        </table>
+                      </div>
+                    </td>
+                  </tr>
+                {/if}
+              {/if}
               {#if !cache.clearable && cache.not_clearable_reason}
                 <tr class="reason">
                   <td></td>
@@ -555,6 +690,15 @@
     border-top: none;
     padding-top: 0;
     font-size: 0.8rem;
+  }
+  tr.entries > td {
+    border-top: none;
+  }
+  .entrytable {
+    font-size: 0.85rem;
+  }
+  .lowdisk {
+    display: table-cell;
   }
   .disk {
     display: inline-flex;

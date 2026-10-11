@@ -35,7 +35,7 @@ config's `return_device`, which a pre-quantized load would otherwise ignore.
 **Limits:** a save that would leave less free than `min(50 GiB, 10% of the
 volume)` is skipped, and the server-start sweep deletes every entry built
 against other package versions. Nothing else evicts; clearing is
-`rm -rf "$DW_QUANTIZED_CACHE_DIR"`.
+from the server page or `DELETE /api/caches/quantized` (see dw/disk_caches.py).
 
 Every lookup and save emits a `quantized_cache` job event,
 `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`, and

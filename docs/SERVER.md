@@ -189,7 +189,8 @@ workspace's own Overview page is where it is deleted. Server → Status shows
 the resolved directories and the `claude mcp add` line for connecting an
 agent from another machine, plus the queue across every workspace. Its
 Caches panel lists dw's disk caches (`GET /api/caches`: size, files, last
-used, the volume's free space) with a Clear button per cache that asks first,
+used, the volume's free space; the quantized cache also expands into a table
+of its entries with a delete button each) with a Clear button per cache that asks first,
 quoting what clearing costs, and shows the server's refusal when a job is
 running:
 
@@ -633,10 +634,21 @@ The editor's forms come from these; they are just as usable from scripts:
   so no multipart parser is needed for a single-file upload
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
-- `GET /api/caches`, `DELETE /api/caches/{name}` - dw's disk caches of derived
-  data (not the hub cache above): `inductor` (`torch.compile`'s kernels) and
+- `GET /api/caches`, `DELETE /api/caches/{name}`, `DELETE /api/caches/{name}/entries/{entry}` - dw's disk caches of derived
+  data (not the hub cache above): `inductor` (`torch.compile`'s kernels),
   `triton` (Triton's own cache, which holds SDNQ's `triton.jit`/autotune
-  kernels and is shared with any other Triton user on the machine). The GET
+  kernels and is shared with any other Triton user on the machine) and
+  `quantized` (the SDNQ quantized-component cache, `DW_QUANTIZED_CACHE_DIR`;
+  `enabled` follows `DW_QUANTIZED_CACHE=1`, and an off cache still lists and clears).
+  A cache with entries (`quantized`) lists them inline as `entries` (`id`,
+  `bytes`, `files`, `unreadable`, `model`, `subfolder`, `component`, `created`,
+  `last_hit`; an entry with a missing or unreadable `entry.json` is
+  `unreadable: true` and deletable) plus `low_disk` (free space under
+  `min(50 GiB, 10% of the volume)`). The entry DELETE answers
+  `{"name", "entry", "deleted": true, "freed"}`; the id must match
+  `^[0-9a-f]{64}$` (else 400, before any path is built), 400 on a cache without
+  entries or an unmarked root, 404 for an unknown entry. For `quantized`, both
+  it and the whole-cache DELETE also 409 while a model download is active. The GET
   answers `{"caches": [...]}`, each with `name`, `root`, `enabled` (`triton`
   is false where it is not installed, as on a Mac), `bytes`, `files`,
   `last_used` (newest mtime, epoch seconds), `clearable`,
@@ -652,7 +664,7 @@ The editor's forms come from these; they are just as usable from scripts:
   points away from its default has no marker and is not clearable until you
   create the `.dw-cache` file in it by hand (read per request, no restart);
   see [SECURITY.md](SECURITY.md#disk-caches). The Server page's Caches panel
-  drives both. Behind the bearer token like every `/api/*` route
+  drives all three. Behind the bearer token like every `/api/*` route
 - `POST /api/models/download` (`{"repo_id": ...}`), `GET /api/models/downloads`,
   `POST /api/models/downloads/{id}/cancel` — background snapshot downloads
   with byte-level progress

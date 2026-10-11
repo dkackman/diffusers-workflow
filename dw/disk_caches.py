@@ -13,6 +13,12 @@ Each cache is a `DiskCache` in `CACHES`, named by the REST routes
   `$TRITON_HOME/.triton/cache`, else `~/.triton/cache` - resolved here
   without importing triton. dw sets no `TRITON_*` variable and never creates
   that directory.
+- `quantized`: SDNQ components quantized once and saved (#815,
+  `dw/quantized_cache.py`), under `DW_QUANTIZED_CACHE_DIR`, enabled by
+  `DW_QUANTIZED_CACHE=1`. Its entries - one `<64-hex key>/` directory each,
+  described by its `entry.json` - are listed and can be deleted one at a time
+  (`DELETE /api/caches/quantized/entries/{entry}`). A cache that is off still
+  lists, and still clears, what is on disk.
 
 **Clearing never trusts the root.** A root comes from an env var, and one
 pointed at `~` by mistake must not be emptied. Only a root carrying the
@@ -26,19 +32,24 @@ refused, until someone marks it by hand.
 **Clear empties the root and keeps it and its marker:** every top-level child
 is renamed into one `<root>/.clearing-<pid>-<rand>/` directory, which is then
 deleted. A writer racing the clear finds an empty cache and rebuilds; it never
-reads a half-deleted tree. The route refuses while a job is running or queued.
+reads a half-deleted tree. An entry delete moves the one entry the same way. The
+routes refuse while a job is running or queued.
+
+**An entry id must be 64 lowercase hex** (`ENTRY_ID`) before any path is
+built from it.
 """
 
 import importlib.util
 import logging
 import os
+import re
 import secrets
 import shutil
 import threading
 from dataclasses import dataclass
 from typing import Callable
 
-from . import _inductor_cache_dir_default
+from . import _inductor_cache_dir_default, quantized_cache
 from .security import SecurityError, validate_path
 
 logger = logging.getLogger("dw")
@@ -63,6 +74,18 @@ class NotClearable(Exception):
     pass
 
 
+class NoEntries(ValueError):
+    """An entry operation on a cache that has no entries, or an entry id
+    that isn't one (a 400)."""
+
+
+class UnknownEntry(ValueError):
+    pass
+
+
+ENTRY_ID = re.compile(r"^[0-9a-f]{64}$")
+
+
 @dataclass(frozen=True)
 class DiskCache:
     name: str
@@ -72,10 +95,14 @@ class DiskCache:
     default_root: Callable[[], str]
     enabled: Callable[[], bool]
     cost_of_clearing: str
-    # Whether the cache lists entries of its own (none do yet)
+    # Whether the cache lists entries of its own: `<root>/<64-hex id>/`
+    # directories, each described by an `entry.json`
     has_entries: bool = False
     # Whether mark_roots may create a missing root
     create_root: bool = True
+    # The free space under which the cache's volume reads `low_disk`, from
+    # the volume's total - for a cache that refuses to write below a floor
+    low_disk_floor: Callable[[int], int] | None = None
 
 
 def _inductor_root():
@@ -105,6 +132,14 @@ def _triton_root():
             os.path.join(os.path.expanduser(home), ".triton", "cache")
         )
     return _triton_default()
+
+
+def _quantized_default():
+    from huggingface_hub import constants
+
+    return os.path.abspath(
+        os.path.join(constants.HF_HOME, quantized_cache.DEFAULT_DIR_NAME)
+    )
 
 
 def _triton_installed():
@@ -139,6 +174,22 @@ CACHES = {
             ),
             # A box without Triton gets no stray directory
             create_root=False,
+        ),
+        DiskCache(
+            name="quantized",
+            root=quantized_cache.cache_root,
+            default_root=_quantized_default,
+            enabled=quantized_cache.enabled,
+            cost_of_clearing=(
+                "The next load of each SDNQ-quantized component reads its "
+                "bf16 weights and quantizes them again (minutes per component "
+                "on MiniMax-H3), and saves a new entry while the cache is on."
+            ),
+            has_entries=True,
+            # configure_at_startup creates it when the cache is on; a server
+            # with it off gets no stray directory
+            create_root=False,
+            low_disk_floor=quantized_cache.floor_bytes,
         ),
     )
 }
@@ -278,11 +329,123 @@ def scan(cache):
     }
     if reason:
         info["not_clearable_reason"] = reason
+    if cache.low_disk_floor and usage:
+        info["low_disk"] = usage.free < cache.low_disk_floor(usage.total)
+    if cache.has_entries:
+        info["entries"] = scan_entries(root) if present else []
     return info
+
+
+def _entry_fields(path):
+    """What an entry's `entry.json` says of it, or None when it can't be
+    read. `component` falls back to the subfolder - the component's name in
+    a diffusers repo - since entry.json doesn't record it."""
+    try:
+        entry = quantized_cache.read_entry(path)
+    except (OSError, ValueError):
+        return None
+    return {
+        "model": entry.get("model_name"),
+        "subfolder": entry.get("subfolder"),
+        "component": entry.get("component") or entry.get("subfolder") or None,
+        "created": entry.get("created"),
+        "last_hit": entry.get("last_hit"),
+    }
+
+
+def scan_entries(root):
+    """Each `<64-hex id>/` directory under a cache root, newest first. An
+    entry whose `entry.json` is missing or unreadable is listed with
+    `unreadable: true`, so it can still be deleted."""
+    entries = []
+    with os.scandir(root) as children:
+        for child in children:
+            if not ENTRY_ID.match(child.name) or not child.is_dir(
+                follow_symlinks=False
+            ):
+                continue
+            total, files, newest = _walk(child.path)
+            fields = _entry_fields(child.path)
+            entry = {"id": child.name, "bytes": total, "files": files}
+            if fields is None:
+                entry.update(
+                    unreadable=True,
+                    model=None,
+                    subfolder=None,
+                    component=None,
+                    created=newest,
+                    last_hit=None,
+                )
+            else:
+                entry.update(unreadable=False, **fields)
+            entries.append(entry)
+    entries.sort(key=lambda e: e["created"] or 0, reverse=True)
+    return entries
 
 
 def scan_all():
     return [scan(cache) for cache in CACHES.values()]
+
+
+def entry_cache(name, entry):
+    """The cache an entry route names, after checking the id's shape - so
+    nothing builds a path from a malformed one. Raises UnknownCache, or
+    NoEntries for a cache without entries or an id that isn't 64 hex."""
+    cache = get(name)
+    if not cache.has_entries:
+        raise NoEntries(f"The {name} cache has no entries - clear it whole")
+    if not isinstance(entry, str) or not ENTRY_ID.match(entry):
+        raise NoEntries(f"Not an entry id: {entry!r} (64 lowercase hex characters)")
+    return cache
+
+
+def _stage_out(root, sources):
+    """Move `sources` (paths directly under `root`) into one fresh
+    `.clearing-*` directory and delete it. Returns (bytes, files) removed."""
+    staging = validate_path(
+        os.path.join(root, f"{_CLEARING_PREFIX}{os.getpid()}-{secrets.token_hex(4)}"),
+        base_dir=root,
+    )
+    os.mkdir(staging)
+    try:
+        for path in sources:
+            try:
+                source = validate_path(path, base_dir=root)
+                target = validate_path(
+                    os.path.join(staging, os.path.basename(path)), base_dir=root
+                )
+            except SecurityError:
+                # A name validate_path refuses (one holding "..") stays
+                continue
+            try:
+                os.rename(source, target)
+            except FileNotFoundError:
+                continue
+        freed, files, _ = _walk(staging)
+    finally:
+        shutil.rmtree(staging, ignore_errors=True)
+    return freed, files
+
+
+def delete_entry(name, entry):
+    """Delete one entry of a marked cache root. Returns `{freed, files}`.
+
+    Raises UnknownCache, NoEntries (no entries here, or a malformed id),
+    NotClearable for a root without the marker, or UnknownEntry - each
+    before anything is moved."""
+    cache = entry_cache(name, entry)
+    with _clear_lock:
+        root = cache.root()
+        reason = _not_clearable_reason(root)
+        if reason:
+            raise NotClearable(f"The {name} cache at {root} can't be changed: {reason}")
+        root = validate_path(root)
+        path = validate_path(os.path.join(root, entry), base_dir=root)
+        if os.path.islink(path) or not os.path.isdir(path):
+            raise UnknownEntry(f"The {name} cache has no entry {entry}")
+        freed, files = _stage_out(root, [path])
+    logger.info(f"Deleted {name} cache entry {entry} ({freed} bytes, {files} files)")
+    return {"freed": freed, "files": files}
 
 
 def clear(name):
@@ -298,33 +461,10 @@ def clear(name):
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be cleared: {reason}")
         root = validate_path(root)
-        staging = validate_path(
-            os.path.join(
-                root, f"{_CLEARING_PREFIX}{os.getpid()}-{secrets.token_hex(4)}"
-            ),
-            base_dir=root,
+        # A link is left alone: validate_path resolves it, so the rename
+        # would move its target, not the link
+        freed, files = _stage_out(
+            root, [entry.path for entry in _children(root) if not entry.is_symlink()]
         )
-        os.mkdir(staging)
-        try:
-            for entry in _children(root):
-                if entry.path == staging or entry.is_symlink():
-                    # A link is left alone: validate_path resolves it, so
-                    # the rename below would move its target, not the link
-                    continue
-                try:
-                    source = validate_path(entry.path, base_dir=root)
-                    target = validate_path(
-                        os.path.join(staging, entry.name), base_dir=root
-                    )
-                except SecurityError:
-                    # A name validate_path refuses (one holding "..") stays
-                    continue
-                try:
-                    os.rename(source, target)
-                except FileNotFoundError:
-                    continue
-            freed, files, _ = _walk(staging)
-        finally:
-            shutil.rmtree(staging, ignore_errors=True)
     logger.info(f"Cleared the {name} cache at {root} ({freed} bytes, {files} files)")
     return {"freed": freed, "files": files}
