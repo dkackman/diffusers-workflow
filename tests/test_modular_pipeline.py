@@ -679,6 +679,25 @@ class TestCompileComponents:
 
         pipeline.transformer.set_attention_backend.assert_called_once_with("flash_hub")
 
+    def test_attention_backend_pin_leaves_the_process_default_alone(self):
+        # diffusers' set_attention_backend also sets the process-wide active
+        # backend, which the persistent worker keeps for every later model -
+        # an H3 sage_hub pin crashed Music3's head_dim-256 decoder that way
+        from diffusers.models.attention_dispatch import _AttentionBackendRegistry
+
+        def leaky_pin(backend):
+            _AttentionBackendRegistry.set_active_backend(backend)
+
+        pipeline = MagicMock()
+        pipeline.transformer.set_attention_backend.side_effect = leaky_pin
+        before = _AttentionBackendRegistry._active_backend
+        try:
+            self.configure({"transformer": {"attention_backend": "sage_hub"}}, pipeline)
+
+            assert _AttentionBackendRegistry._active_backend == before
+        finally:
+            _AttentionBackendRegistry.set_active_backend(before)
+
     def test_component_device_override_governs_the_mps_skip(self, caplog):
         # The step may pin this component to another device than the pipeline's
         pipeline = MagicMock()
