@@ -17,6 +17,7 @@ from unittest.mock import MagicMock, patch
 
 import pytest
 import torch
+from huggingface_hub.file_download import repo_folder_name
 from torch import nn
 
 import dw.quantized_cache as qc
@@ -67,7 +68,7 @@ def make_snapshot(
     config=True,
     ref="main",
 ):
-    repo = hub / f"models--{model.replace('/', '--')}"
+    repo = hub / repo_folder_name(repo_id=model, repo_type="model")
     (repo / "refs").mkdir(parents=True, exist_ok=True)
     if ref:
         (repo / "refs" / ref).write_text(commit)
@@ -229,8 +230,26 @@ class TestSnapshot:
         make_snapshot(tmp_path, files=())
         assert qc.lookup_commit("org/name", None, None, tmp_path) is None
 
-    def test_forty_hex_revision_passes_through(self, tmp_path):
+    def test_commit_revision_names_its_snapshot(self, tmp_path):
+        make_snapshot(tmp_path, commit=OTHER_COMMIT, ref=None)
         assert qc.resolve_commit("org/name", OTHER_COMMIT, tmp_path) == OTHER_COMMIT
+        assert qc.resolve_commit("org/name", COMMIT, tmp_path) is None
+
+    def test_resolution_goes_through_huggingface_hub(self, tmp_path, monkeypatch):
+        import huggingface_hub
+
+        calls = []
+        real = huggingface_hub.try_to_load_from_cache
+
+        def spy(repo_id, filename, **kwargs):
+            calls.append((repo_id, filename, kwargs["revision"]))
+            return real(repo_id, filename, **kwargs)
+
+        monkeypatch.setattr(huggingface_hub, "try_to_load_from_cache", spy)
+        make_snapshot(tmp_path, subfolder="vae")
+        assert qc.lookup_commit("org/name", "vae", None, tmp_path) == COMMIT
+        assert ("org/name", "vae/config.json", "main") in calls
+        assert ("org/name", "vae/model.safetensors", COMMIT) in calls
 
     def test_unknown_ref_or_repo(self, tmp_path):
         assert qc.resolve_commit("org/name", "main", tmp_path) is None
