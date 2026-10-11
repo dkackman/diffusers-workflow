@@ -13,6 +13,7 @@ from ..trust import (
 from .. import get_device_type, resolve_device
 from ..events import WorkflowCancelled, emit_phase
 from .. import download_watch
+from .. import quantized_cache
 from huggingface_hub.errors import HfHubHTTPError
 from .h3_guides import insert_guides
 from .h3_hold import insert_audio_hold
@@ -636,7 +637,9 @@ def load_component(
                         f"{component_type.__name__} does not have it"
                     )
                 logger.info(f"Loading components for {component_name}")
-                component.load_components(**load_components_arguments)
+                # Before pruning, offload and sdnq_optimize, so a cached entry
+                # is the whole component as quantized (dw/quantized_cache.py)
+                quantized_cache.load_components(component, load_components_arguments)
 
             # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
             # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)

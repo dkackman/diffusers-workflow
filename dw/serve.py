@@ -327,6 +327,13 @@ def run(config):
             config.host,
         )
 
+    # The quantized-component cache's root is pinned for the workers and swept
+    # here - after logging is up, so its lines reach the log, and before
+    # create_app spawns a worker that could be reading an entry it deletes
+    from .quantized_cache import configure_at_startup
+
+    configure_at_startup()
+
     from .server.app import create_app
 
     from .server.app import default_ui_dir
