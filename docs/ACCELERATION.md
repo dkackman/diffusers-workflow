@@ -200,6 +200,7 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks wit
 
 - **First run pays the compile cost.** The [server](SERVER.md)'s persistent worker keeps compiled pipelines loaded between runs, so the cost is paid once per session rather than once per generation. A new session still retraces, but the kernels it built come back from the on-disk cache, which dw keeps across reboots (`TORCHINDUCTOR_CACHE_DIR`, see [Environment Defaults](#environment-defaults)).
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
+- **Quantize-on-load time is a separate cost.** An SDNQ on-the-fly component re-reads and re-quantizes its bf16 weights on every cold load; `DW_QUANTIZED_CACHE=1` saves the quantized result and reads it back instead - see [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache).
 - **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
 - **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
 - **TorchAO quantization needs compile to be fast** - see [QUANTIZATION.md](QUANTIZATION.md#torchao).
