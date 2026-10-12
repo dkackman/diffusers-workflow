@@ -5,6 +5,7 @@
   import VariablesForm from '../editor/VariablesForm.svelte'
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
+  import { leafOf } from '../grouping'
   import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
@@ -75,6 +76,9 @@
   function newFrom() {
     if (!workflow) return
     sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
+    // what the draft started from, and a file name to start with
+    sessionStorage.setItem('dw-editor-import-from', name)
+    sessionStorage.setItem('dw-editor-import-name', leafOf(name))
     goWs('edit')
   }
 

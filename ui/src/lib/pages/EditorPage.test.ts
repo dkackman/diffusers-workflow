@@ -40,6 +40,10 @@ vi.mock('../api', () => ({
       writable: true,
     }),
     listPrompts: vi.fn().mockResolvedValue({ prompts: [], details: {} }),
+    listWorkspaces: vi.fn().mockResolvedValue({
+      workspaces: [{ name: 'default' }, { name: 'studio' }],
+      workspace_root: '/w',
+    }),
     validate: vi.fn().mockResolvedValue({
       valid: true,
       error: null,
@@ -192,5 +196,83 @@ describe('EditorPage step list', () => {
       'generate-2',
       'process',
     ])
+  })
+})
+
+describe('EditorPage new workflow origin', () => {
+  // one example beside one of the workspace's own
+  const withExample = {
+    workflows: ['templates/tti', 'mine'],
+    details: {
+      'templates/tti': { writable: false, origin: 'examples' },
+      mine: { writable: true, origin: 'workspace' },
+    },
+    libraries: [{ origin: 'workspace', root: 'workflows', writable: true }],
+    shadowed: [],
+  }
+  const startFrom = () =>
+    screen.getByLabelText('start from') as HTMLSelectElement
+  const fileName = () => screen.getByLabelText('file name') as HTMLInputElement
+
+  afterEach(() => {
+    sessionStorage.clear()
+    location.hash = ''
+  })
+
+  it('offers blank or an example, and starting from one loads it and names it', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+
+    await waitFor(() =>
+      expect([...startFrom().options].map((option) => option.value)).toEqual([
+        '',
+        'templates/tti',
+      ]),
+    )
+    expect(startFrom().value).toBe('')
+    await fireEvent.change(startFrom(), { target: { value: 'templates/tti' } })
+
+    await waitFor(() => expect(startFrom().value).toBe('templates/tti'))
+    expect(api.getWorkflow).toHaveBeenCalledWith('templates/tti')
+    expect(fileName().value).toBe('tti')
+    expect(
+      (screen.getByLabelText('workflow id') as HTMLInputElement).value,
+    ).toBe('ZImage')
+  })
+
+  it('takes up what a New from handed over', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    sessionStorage.setItem(
+      'dw-editor-import',
+      JSON.stringify({
+        id: 'Tti',
+        steps: [{ name: 'generate', pipeline: {} }],
+      }),
+    )
+    sessionStorage.setItem('dw-editor-import-from', 'templates/tti')
+    sessionStorage.setItem('dw-editor-import-name', 'tti')
+    render(EditorPage, { name: '' })
+
+    await waitFor(() => expect(startFrom().value).toBe('templates/tti'))
+    expect(fileName().value).toBe('tti')
+  })
+
+  it('moves the draft to another workspace without losing it', async () => {
+    vi.mocked(api.listWorkflows).mockResolvedValue(withExample as never)
+    render(EditorPage, { name: '' })
+    const picker = () => screen.getByLabelText('workspace') as HTMLSelectElement
+    await waitFor(() =>
+      expect([...picker().options].map((option) => option.value)).toEqual([
+        'default',
+        'studio',
+      ]),
+    )
+    await fireEvent.input(fileName(), { target: { value: 'Keep' } })
+
+    await fireEvent.change(picker(), { target: { value: 'studio' } })
+
+    await waitFor(() => expect(location.hash).toBe('#/ws/studio/edit'))
+    await waitFor(() => expect(picker().value).toBe('studio'))
+    expect(fileName().value).toBe('Keep')
   })
 })
