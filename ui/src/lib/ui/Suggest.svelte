@@ -148,3 +148,76 @@
     </Combobox.Portal>
   {/if}
 </Combobox.Root>
+
+<style>
+  /* The list is portalled to the body, outside this component's scope, so
+     its rules are global - kept here beside the markup they style */
+  :global(.ui-suggest) {
+    position: relative;
+    z-index: var(--layer-popover);
+    /* as wide as the field it suggests for, which Bits exposes */
+    width: var(--bits-combobox-anchor-width);
+    min-width: 12rem;
+    max-height: min(320px, 50vh);
+    overflow-y: auto;
+    padding: var(--space-1) 0;
+    font-family: var(--font-mono);
+    font-size: 0.8rem;
+  }
+  :global(.ui-suggest [data-combobox-item]) {
+    /* Bits lays the list out as a flex column: rows keep their height and
+       the list scrolls, rather than every row shrinking to fit */
+    flex-shrink: 0;
+    padding: var(--space-1) var(--space-3);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    cursor: pointer;
+  }
+  :global(.ui-suggest [data-combobox-item][data-highlighted]) {
+    background: var(--panel-2);
+  }
+  /* A row with more than its value: a thumbnail or glyph, the name over a
+     quieter line of what it stands for, and which library it came from */
+  :global(.ui-suggest [data-combobox-item].rich) {
+    display: flex;
+    align-items: center;
+    gap: var(--space-2);
+  }
+  :global(.ui-suggest .thumb) {
+    flex: none;
+    width: 32px;
+    height: 32px;
+    object-fit: cover;
+    border-radius: 3px;
+    border: 1px solid var(--line);
+    background: var(--sunk);
+  }
+  :global(.ui-suggest .glyph) {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--muted);
+  }
+  :global(.ui-suggest .text) {
+    display: flex;
+    flex-direction: column;
+    min-width: 0;
+    flex: 1;
+  }
+  :global(.ui-suggest .name),
+  :global(.ui-suggest .detail) {
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+  :global(.ui-suggest .detail) {
+    font-family: var(--font-sans);
+    color: var(--muted);
+    font-size: 0.75rem;
+  }
+  :global(.ui-suggest .badge) {
+    flex: none;
+    color: var(--muted);
+    font-size: 0.7rem;
+  }
+</style>

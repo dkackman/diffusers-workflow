@@ -1,6 +1,6 @@
 {
   "files_over_size_ceiling": 0,
-  "complex_functions": 12,
+  "complex_functions": 11,
   "long_functions": 0,
   "import_cycles": 0,
   "modules_in_import_cycles": 0,
