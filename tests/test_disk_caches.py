@@ -344,6 +344,18 @@ def tree(root):
     return sorted(str(p.relative_to(root)) for p in root.rglob("*"))
 
 
+def parent_tree(tmp_path):
+    """What is under tmp_path, minus the server's own workspace files: the
+    job history's SQLite -shm/-wal sidecars come and go with its connection,
+    and outputs/ is created on the server's schedule, so a traversal test
+    checks the parent for losses among the rest, not for equality."""
+    return {
+        p
+        for p in tree(tmp_path)
+        if not p.startswith("jobs.sqlite") and not p.startswith("outputs")
+    }
+
+
 class TestCacheRoutes:
     def test_list_reports_both_caches(self, api, tmp_path):
         root, (total, count) = marked_root(tmp_path)
@@ -436,17 +448,14 @@ class TestCacheRoutes:
         victim.parent.mkdir()
         victim.write_bytes(b"x" * 8)
         before_root = tree(root)
-        before_parent = tree(tmp_path)
+        before_parent = parent_tree(tmp_path)
 
         response = api.delete("/api/caches/..%2Fx")
 
         assert response.status_code == status
         assert tree(root) == before_root
         assert victim.read_bytes() == b"x" * 8
-        # The server's own workspace lives under tmp_path too (outputs, the
-        # job history's -shm/-wal), and it adds files there on its own
-        # schedule, so the parent is checked for losses, not for equality
-        assert set(before_parent) <= set(tree(tmp_path))
+        assert before_parent <= parent_tree(tmp_path)
 
 
 # ------------------------------------------------------- quantized entries

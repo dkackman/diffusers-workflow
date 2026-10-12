@@ -160,6 +160,8 @@ A component can also pin its backend persistently instead, via `set_attention_ba
 
 Prefer the pinned form for a compiled component - the per-call context manager switches implementations under the compiled graph and forces a recompile on every run.
 
+Either form stays on what it names. diffusers' `set_attention_backend` also makes its backend the process-wide default, which the persistent worker would keep for every later model; dw restores the default after pinning, so an H3 `sage_hub` pin cannot reach a Music3 or LTX job that follows it. The server-wide default is `DIFFUSERS_ATTN_BACKEND` in `.env` - leave it `native`, since it reaches every model and sage cannot serve all of them.
+
 ## Attention Slicing
 
 ```json

@@ -129,7 +129,7 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             logger.info(
                 f"Setting {component_name} attention backend: {component_attention_backend}"
             )
-            component.set_attention_backend(component_attention_backend)
+            set_component_attention_backend(component, component_attention_backend)
 
         # Compile last - the graph must capture final dtypes, adapters,
         # quantization, and offload hooks
@@ -141,6 +141,26 @@ def configure_components(pipeline, configuration, default_device, reused_compone
                 compile_configuration,
                 device if device is not None else default_device,
             )
+
+
+def set_component_attention_backend(component, backend):
+    """Pin one component's attention backend without changing anyone else's.
+
+    diffusers' set_attention_backend writes the backend onto the component's own
+    processors, then also makes it the process-wide active backend - the default
+    for every model that pins none. The persistent worker outlives the job, so an
+    H3 transformer pinned to sage_hub would route every later model through sage,
+    and models sage cannot serve (Music3's head_dim-256 audio decoder, LTX's
+    attention mask) crash. Restoring the active backend keeps the pin on the
+    component it was asked for; its processors pass their own backend explicitly.
+    """
+    from diffusers.models.attention_dispatch import _AttentionBackendRegistry
+
+    active_backend = _AttentionBackendRegistry._active_backend
+    try:
+        component.set_attention_backend(backend)
+    finally:
+        _AttentionBackendRegistry.set_active_backend(active_backend)
 
 
 def enable_tiling(component, component_name, component_configuration):
