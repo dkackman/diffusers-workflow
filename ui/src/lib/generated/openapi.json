@@ -6058,7 +6058,7 @@
     },
     "/api/gallery/{name}/thumbnail": {
       "get": {
-        "description": "A small JPEG rendition of an image output, or of a video's first\nframe, for the grid - the full file is only fetched for the\ndetail/lightbox view, so a grid of clips never opens one stream per\ntile. Generated on demand rather than cached to disk, so it never grows\nthe output directory the gallery itself scans.",
+        "description": "A small JPEG rendition of an image output, or of a video's first\nframe, for the grid - the full file is only fetched for the\ndetail/lightbox view, so a grid of clips never opens one stream per\ntile. Generated on demand rather than cached to disk, so it never grows\nthe output directory the gallery itself scans. An 'asset:' name gets\nthe same rendition of an asset, for the editors' asset pickers.",
         "operationId": "gallery_thumbnail_api_gallery__name__thumbnail_get",
         "parameters": [
           {

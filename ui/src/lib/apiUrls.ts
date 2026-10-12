@@ -1,5 +1,6 @@
 import { getApiToken } from './token'
 import { DEFAULT_WORKSPACE, workspace as picker } from './workspaceState.svelte'
+import { ASSET, reference } from './references'
 
 /** Encode a workflow name for a URL, keeping its folder separators. */
 export const encodePath = (name: string) =>
@@ -61,4 +62,13 @@ export function outputUrl(
   const url = `/outputs/${encodePath(name)}`
   const versioned = version === undefined ? url : appendQuery(url, 'v', version)
   return scopeTo(versioned, workspace ?? picker.current)
+}
+
+/** A small JPEG of an image asset, or of a video asset's first frame - what
+ * a picker shows rather than the full file. The gallery's thumbnail route
+ * takes an 'asset:' name in place of an output's. */
+export function assetThumbnailUrl(name: string): string {
+  return withToken(
+    `/api/gallery/${encodePath(reference(ASSET, name))}/thumbnail`,
+  )
 }

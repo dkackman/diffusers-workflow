@@ -1,3 +1,4 @@
+import { assetThumbnailUrl } from './apiUrls'
 import { assetLibrary, ensureAssetLibrary } from './assetlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
 import { ASSET, PROMPT, reference, referenceName } from './references'
@@ -12,7 +13,14 @@ const BADGES: Partial<Record<AssetFile['origin'], string>> = {
   common: 'shared',
   examples: 'example',
 }
-const GLYPHS: Record<string, string> = { video: '▶', audio: '♪', lut: '¶' }
+// What stands in for a picture where the server makes no thumbnail
+const GLYPHS: Record<string, string> = { audio: '♪', lut: '¶' }
+
+/** Whether the server renders a thumbnail of `asset`: an image, or a
+ * video's first frame. */
+export function hasThumbnail(asset: AssetFile): boolean {
+  return asset.kind === 'image' || asset.kind === 'video'
+}
 
 /** The first line of a prompt's text, cut to a row's width. */
 export function firstLine(text: string): string {
@@ -76,7 +84,7 @@ export function assetChoices(
   return ranked(found, query).map((asset) => ({
     value: asset.name,
     label: asset.name,
-    thumb: asset.kind === 'image' ? asset.url : undefined,
+    thumb: hasThumbnail(asset) ? assetThumbnailUrl(asset.name) : undefined,
     glyph: GLYPHS[asset.kind],
     badge: BADGES[asset.origin],
   }))

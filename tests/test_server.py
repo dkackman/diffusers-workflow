@@ -2783,6 +2783,25 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         assert client.get("/api/gallery/track.wav/thumbnail").status_code == 404
 
 
+def test_an_asset_has_a_thumbnail_too(asset_server, tmp_path):
+    """The editors' asset pickers show a grid of the library: a thumbnail
+    per asset rather than the full file."""
+    import io
+
+    from PIL import Image
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "cast").mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (1200, 800), "green").save(assets / "cast" / "priya.png")
+
+        thumbnail = client.get("/api/gallery/asset:cast/priya.png/thumbnail")
+        assert thumbnail.status_code == 200
+        assert thumbnail.headers["content-type"] == "image/jpeg"
+        assert max(Image.open(io.BytesIO(thumbnail.content)).size) <= 320
+        assert client.get("/api/gallery/asset:missing.png/thumbnail").status_code == 404
+
+
 def test_gallery_thumbnail_of_a_video_is_its_first_frame(server, tmp_path):
     """The grid shows a clip as an <img> of its first frame rather than a
     <video> - hundreds of <video> tiles each held a connection open and

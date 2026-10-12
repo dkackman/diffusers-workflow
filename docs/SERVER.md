@@ -535,6 +535,9 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
+- `GET /api/gallery/{name:path}/thumbnail` — a small JPEG of an image, or of
+  a video's first frame; 404 for other kinds. `name` may be an `asset:`
+  reference, which the editors' asset picker uses for its grid
 - `GET /api/gallery/{name}/metadata` also carries `findings`: each level
   problem the probed soundtrack shows (`full_scale`, `near_silent`), measured
   against `dw/audio_qc.py`'s thresholds, in the assess route's finding shape

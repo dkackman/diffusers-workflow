@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { Upload } from '@lucide/svelte'
+  import { Images, Upload } from '@lucide/svelte'
+  import AssetPicker from '../assets/AssetPicker.svelte'
   import { api } from '../api'
   import Suggest from '../ui/Suggest.svelte'
   import {
@@ -9,7 +10,7 @@
     loadAssetLibrary,
   } from '../assetlib.svelte'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import { ASSET, referenceName } from '../references'
+  import { ASSET, reference, referenceName } from '../references'
   import type { MediaKind } from '../editor'
 
   let {
@@ -28,6 +29,7 @@
 
   let fileInput: HTMLInputElement | undefined = $state()
   let uploading = $state(false)
+  let browsing = $state(false)
   let error = $state('')
   // A locally-generated preview URL (object URL for a just-picked file, or
   // the location itself when it is already web-reachable). Cleaned up when
@@ -83,6 +85,16 @@
   }
 </script>
 
+<AssetPicker
+  bind:open={browsing}
+  {kind}
+  current={assetName}
+  onpick={(name) => {
+    setLocalPreview('')
+    onchange(reference(ASSET, name))
+  }}
+/>
+
 <div class="media">
   <div class="row1">
     <Suggest
@@ -96,6 +108,15 @@
         onchange(value)
       }}
     />
+    <button
+      type="button"
+      class="quiet icon"
+      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the asset library`}
+      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the asset library`}
+      onclick={() => (browsing = true)}
+    >
+      <Images size={14} />
+    </button>
     <button
       type="button"
       class="quiet icon"

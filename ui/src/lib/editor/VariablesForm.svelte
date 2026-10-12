@@ -6,6 +6,7 @@
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
+  import AssetBrowseButton from '../assets/AssetBrowseButton.svelte'
 
   let {
     mode,
@@ -67,17 +68,23 @@
 <div class="vars" class:define={mode === 'define'}>
   {#each keys as key (key)}
     <label for={idPrefix + key}>{key}</label>
-    <ExpandingText
-      id={idPrefix + key}
-      value={shown(key)}
-      placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
-      refStyle={isReference(effective(key))}
-      complete={(text) => referenceCompletions(text)}
-      title={promptTooltip(effective(key), promptLibrary.texts)}
-      oninput={(raw) => draft(key, raw)}
-      onchange={(raw) => commit(key, raw)}
-      onpromptpick={(name) => commit(key, reference(PROMPT, name))}
-    />
+    <div class="field">
+      <ExpandingText
+        id={idPrefix + key}
+        value={shown(key)}
+        placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
+        refStyle={isReference(effective(key))}
+        complete={(text) => referenceCompletions(text)}
+        title={promptTooltip(effective(key), promptLibrary.texts)}
+        oninput={(raw) => draft(key, raw)}
+        onchange={(raw) => commit(key, raw)}
+        onpromptpick={(name) => commit(key, reference(PROMPT, name))}
+      />
+      <AssetBrowseButton
+        value={effective(key)}
+        onpick={(value) => commit(key, value)}
+      />
+    </div>
     {#if mode === 'define'}
       <button
         class="quiet icon"
@@ -105,6 +112,16 @@
 </div>
 
 <style>
+  /* The field, and beside it the asset browser when it holds an asset: */
+  .field {
+    display: flex;
+    gap: var(--space-1);
+    align-items: start;
+    min-width: 0;
+  }
+  .field > :global(:first-child) {
+    flex: 1;
+  }
   .vars {
     display: grid;
     grid-template-columns: minmax(140px, 40%) minmax(0, 1fr);

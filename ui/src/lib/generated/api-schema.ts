@@ -598,7 +598,8 @@ export interface paths {
          *     frame, for the grid - the full file is only fetched for the
          *     detail/lightbox view, so a grid of clips never opens one stream per
          *     tile. Generated on demand rather than cached to disk, so it never grows
-         *     the output directory the gallery itself scans.
+         *     the output directory the gallery itself scans. An 'asset:' name gets
+         *     the same rendition of an asset, for the editors' asset pickers.
          */
         get: operations["gallery_thumbnail_api_gallery__name__thumbnail_get"];
         put?: never;

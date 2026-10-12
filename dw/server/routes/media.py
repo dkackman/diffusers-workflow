@@ -604,8 +604,12 @@ def gallery_thumbnail(
     frame, for the grid - the full file is only fetched for the
     detail/lightbox view, so a grid of clips never opens one stream per
     tile. Generated on demand rather than cached to disk, so it never grows
-    the output directory the gallery itself scans."""
-    path = resolve_output_file(request.app.state, name, ws.outputs)
+    the output directory the gallery itself scans. An 'asset:' name gets
+    the same rendition of an asset, for the editors' asset pickers."""
+    if is_asset_reference(name):
+        path = asset_file(request.app.state, name, ws)
+    else:
+        path = resolve_output_file(request.app.state, name, ws.outputs)
     kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
     if kind not in ("image", "video"):
         raise HTTPException(

@@ -564,6 +564,13 @@ button.frame:hover {
   min-width: min(420px, 92vw);
   max-width: 480px;
 }
+.ui-sheet-large {
+  width: min(880px, 94vw);
+  max-width: none;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;

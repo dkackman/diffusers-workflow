@@ -77,7 +77,9 @@ describe('assetChoices', () => {
   it('shows an image, a glyph for other media, and the library', () => {
     const rows = assetChoices('cast')
     expect(rows.find((r) => r.value === 'cast/priya.png')).toMatchObject({
-      thumb: '/inputs/cast/priya.png',
+      thumb: expect.stringContaining(
+        '/api/gallery/asset%3Acast/priya.png/thumbnail',
+      ),
       badge: 'shared',
     })
     expect(rows.find((r) => r.value === 'cast/theme.wav')).toMatchObject({
