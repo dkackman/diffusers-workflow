@@ -12,8 +12,10 @@ shift **6**/3, `num_inference_steps=5`, alpha unset, on every T2VA/FL2VA
 template at 960x544 and 1344x768 (since 2026-10-10; trained at 768p,
 measured at 544p on one prompt). 544p FL2VA 8-step, 960x544, shift 12/3,
 9 steps - the slower alternative; 768p FL2VA 8-step, 1344x768, shift 6/3,
-9 steps; 768p Ref2VA 8-step, shift 12/3, 9 steps - every `ref2va` template
-(no tested 4-step Ref2VA file). Swap file, shift and steps together. The
+9 steps; 768p Ref2VA 8-step, shift 12/3, 9 steps - every `ref2va` template.
+4-step Ref2VA v0.1 (`..._ref2v_turbo_4step_v0.1_bf16`, 5 steps, shift 12/3) is
+a trial (#824): clean on one shot, ~42% less denoise time, not yet a default.
+Swap file, shift and steps together. The
 544p 4-step v0.1 file renders noise. v1.2 records alpha 8; v1.0/v1.1 record
 128 - never state an alpha the header doesn't.
 
