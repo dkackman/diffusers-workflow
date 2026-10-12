@@ -54,7 +54,7 @@
             onclick={() => enhancer.downloadModel()}
             title="download this model to the local cache now - otherwise the first enhancement downloads it"
           >
-            <Download size={13} />get
+            <Download size={14} />Download
           </button>
         {/if}
       {/if}
@@ -89,7 +89,7 @@
       <Sparkles size={14} />Generate
     </button>
     {#if enhancer.busy && enhancer.jobId}
-      <button class="quiet" onclick={() => enhancer.cancel()}>cancel</button>
+      <button class="quiet" onclick={() => enhancer.cancel()}>Cancel</button>
       <a class="muted joblink" href={'#/jobs/' + enhancer.jobId}>watch job</a>
     {/if}
     {#if enhancer.status}
@@ -107,7 +107,7 @@
         <CircleCheck size={14} />Use as prompt text
       </button>
       <button class="quiet" onclick={() => (enhancer.result = '')}>
-        discard
+        Discard
       </button>
     </div>
   {/if}

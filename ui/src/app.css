@@ -225,17 +225,6 @@ button {
   font-weight: 600;
   cursor: pointer;
 }
-/* A link that reads as the filled button - a "new" affordance that
-   navigates rather than acting in place. */
-a.button {
-  display: inline-flex;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-1);
-  padding: 0.4rem 0.9rem;
-  text-decoration: none;
-}
 button:hover {
   filter: brightness(1.35);
 }
@@ -269,6 +258,36 @@ button.bare:hover {
   color: var(--ink);
   background: var(--panel-2);
   filter: none;
+}
+/* A link that acts like a quiet button - a download beside the delete -
+   wears the same outline */
+a.quiet {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+}
+a.quiet:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+/* Unsaved work, on the Save button of either editor */
+.dirtydot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-left: 0.15rem;
+}
+/* An action said by its icon alone (delete, download, dismiss, add a row):
+   one square-ish size everywhere, so the same action looks the same on
+   every page. Its words go in title and aria-label. */
+button.icon,
+a.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.45rem;
 }
 /* Scoped copies of these two in a dozen components, already drifting -
    one global definition each instead. */

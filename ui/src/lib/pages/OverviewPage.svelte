@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Images, Inbox, Layers, Play, Plus } from '@lucide/svelte'
+  import { Images, Inbox, Layers, Play, Plus, Trash2 } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { formatBytes } from '../format'
@@ -214,9 +214,10 @@
       {#if workflows}<span class="num muted">{workflows.length}</span>{/if}
       <span class="flex"></span>
       <a
-        class="button withicon new"
+        class="quiet icon plain"
         href={wsHref(name, 'edit')}
-        title="new workflow"><Plus size={15} /> New workflow</a
+        title="new workflow"
+        aria-label="new workflow"><Plus size={15} /></a
       >
     </h2>
     {#if workflowsError}
@@ -286,14 +287,15 @@
       server. The prompt library and the shared asset library are untouched.
     </p>
     <button
-      class="quiet danger"
+      class="quiet icon danger"
       onclick={() => deleteWorkspaceWithConfirm(name)}
       disabled={name === DEFAULT_WORKSPACE}
       title={name === DEFAULT_WORKSPACE
         ? 'the default workspace is the root itself and cannot be deleted'
         : 'delete this workspace and everything in it'}
+      aria-label="delete workspace {name}"
     >
-      Delete workspace
+      <Trash2 size={14} />
     </button>
   </section>
 </div>
@@ -320,10 +322,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-  }
-  .new {
-    font-family: var(--font-sans);
-    font-size: var(--t-sm);
   }
   .two {
     display: grid;

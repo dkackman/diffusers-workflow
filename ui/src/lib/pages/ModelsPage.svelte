@@ -590,8 +590,4 @@
     padding-bottom: 0.1rem;
     font-size: 0.82rem;
   }
-  .icon {
-    display: inline-flex;
-    padding: 0.25rem 0.4rem;
-  }
 </style>

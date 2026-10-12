@@ -153,7 +153,12 @@
           <div class="hint muted">{parameter.description}</div>
         {/if}
       </div>
-      <button class="quiet icon" title="remove" onclick={() => remove(key)}>
+      <button
+        class="quiet icon"
+        onclick={() => remove(key)}
+        title="remove this argument"
+        aria-label="remove this argument"
+      >
         <Trash2 size={14} />
       </button>
     </div>

@@ -119,8 +119,6 @@
     max-width: 300px;
   }
   .icon {
-    display: inline-flex;
-    padding: 0.3rem 0.45rem;
     justify-self: start;
   }
 </style>

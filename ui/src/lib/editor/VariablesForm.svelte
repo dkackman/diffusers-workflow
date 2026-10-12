@@ -1,6 +1,6 @@
 <script lang="ts">
   import { PROMPT, reference } from '../references'
-  import { Plus } from '@lucide/svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
@@ -89,19 +89,20 @@
         title="remove this variable"
         aria-label="remove this variable"
       >
-        ×
+        <Trash2 size={14} />
       </button>
     {/if}
   {/each}
   {#if mode === 'define'}
     <input placeholder="new variable name…" bind:value={newVariable} />
     <button
-      class="quiet withicon addvar"
+      class="quiet icon addvar"
       onclick={addVariable}
       disabled={!newVariable}
       title="add this variable to the workflow"
+      aria-label="add this variable to the workflow"
     >
-      <Plus size={14} />add
+      <Plus size={14} />
     </button>
     <span></span>
   {/if}
@@ -133,9 +134,6 @@
     font-weight: 600;
     color: var(--muted);
     overflow-wrap: anywhere;
-  }
-  .icon {
-    padding: 0.3rem 0.55rem;
   }
   .addvar {
     justify-self: start;

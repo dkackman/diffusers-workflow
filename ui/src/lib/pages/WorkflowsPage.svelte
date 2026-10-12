@@ -182,9 +182,10 @@
   <input placeholder="filter…" bind:value={filter} class="filter" />
   {#if !examples}
     <a
-      class="newlink plain"
+      class="quiet icon plain"
       href={wsHref(workspace.current, 'edit')}
-      title="new workflow"><Plus size={15} /></a
+      title="new workflow"
+      aria-label="new workflow"><Plus size={15} /></a
     >
   {/if}
 </div>
@@ -354,18 +355,6 @@
     white-space: nowrap;
   }
   .exampleslink:hover {
-    color: var(--ink);
-  }
-  .newlink {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.4rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-1);
-    color: var(--muted);
-  }
-  .newlink:hover {
-    border-color: var(--ink);
     color: var(--ink);
   }
 

@@ -48,8 +48,11 @@
   <h1>Prompts</h1>
   <span class="flex"></span>
   <input placeholder="filter…" bind:value={filter} class="filter" />
-  <a class="newlink plain" href={sharedHref('prompt-edit')} title="new prompt"
-    ><Plus size={15} /></a
+  <a
+    class="quiet icon plain"
+    href={sharedHref('prompt-edit')}
+    title="new prompt"
+    aria-label="new prompt"><Plus size={15} /></a
   >
 </div>
 
@@ -157,18 +160,6 @@
   .filter {
     max-width: 220px;
     margin-left: auto;
-  }
-  .newlink {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.4rem;
-    border: 1px solid var(--line);
-    border-radius: 6px;
-    color: var(--muted);
-  }
-  .newlink:hover {
-    border-color: var(--accent);
-    color: var(--accent);
   }
   .card {
     position: relative;

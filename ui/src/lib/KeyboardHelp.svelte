@@ -16,7 +16,7 @@
     <dt><kbd>?</kbd></dt>
     <dd>show this help</dd>
   </dl>
-  <button class="quiet" onclick={() => (open = false)}>close</button>
+  <button class="quiet" onclick={() => (open = false)}>Close</button>
 </Modal>
 
 <style>

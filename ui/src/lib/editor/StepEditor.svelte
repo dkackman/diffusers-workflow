@@ -212,6 +212,7 @@
       disabled={index === 0}
       onclick={() => onmove(-1)}
       title="move up"
+      aria-label="move up"
     >
       <ChevronUp size={15} />
     </button>
@@ -220,10 +221,16 @@
       disabled={index === count - 1}
       onclick={() => onmove(1)}
       title="move down"
+      aria-label="move down"
     >
       <ChevronDown size={15} />
     </button>
-    <button class="quiet icon" onclick={onremove} title="remove step">
+    <button
+      class="quiet icon"
+      onclick={onremove}
+      title="remove step"
+      aria-label="remove step"
+    >
       <Trash2 size={15} />
     </button>
   </div>
@@ -373,11 +380,6 @@
   }
   .kind {
     font-size: 0.75rem;
-  }
-  .icon {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.3rem 0.45rem;
   }
   .grid {
     display: grid;

@@ -113,7 +113,11 @@
     if (!ed.dirty) return
     event.preventDefault()
     const target = (event.currentTarget as HTMLAnchorElement).href
-    if (await confirmDialog('Discard unsaved changes?')) {
+    if (
+      await confirmDialog('Discard unsaved changes?', {
+        confirmLabel: 'Discard',
+      })
+    ) {
       window.location.href = target
     }
   }
@@ -397,7 +401,7 @@
     disabled={ed.busy}
     title="validate, then write to the workflow directory under the name below (Ctrl+S)"
   >
-    <Save size={14} />Save
+    <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
   </button>
   <button
     class="withicon"

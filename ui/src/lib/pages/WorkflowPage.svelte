@@ -157,9 +157,9 @@
     class="quiet withicon"
     onclick={newFrom}
     disabled={!workflow}
-    title="open a copy in the editor"
+    title="open a copy in the editor to save under a new name"
   >
-    <Copy size={14} />New from
+    <Copy size={14} />Duplicate
   </button>
   <button
     class="withicon run"
@@ -244,12 +244,12 @@
     <span class="flex"></span>
     {#if writable}
       <button
-        class="bare danger withicon"
+        class="quiet icon danger"
         onclick={remove}
         title="delete this workflow file from disk"
         aria-label="delete this workflow file from disk"
       >
-        <Trash2 size={14} />Delete
+        <Trash2 size={14} />
       </button>
     {/if}
   </div>

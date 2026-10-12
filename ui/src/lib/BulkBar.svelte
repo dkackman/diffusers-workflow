@@ -31,14 +31,29 @@
   <div class="picks panel" role="region" aria-label="selected {noun}s">
     <strong>{picks.size} selected</strong>
     <span class="flex"></span>
-    <button class="withicon" onclick={ondownload} disabled={busy}>
-      <Download size={14} />Download .zip
+    <button
+      class="quiet icon"
+      onclick={ondownload}
+      disabled={busy}
+      title="download the selected {noun}s as a .zip"
+      aria-label="download the selected {noun}s as a .zip"
+    >
+      <Download size={14} />
     </button>
-    <button class="withicon danger" onclick={ondelete} disabled={busy}>
-      <Trash2 size={14} />Delete
+    <button
+      class="quiet icon danger"
+      onclick={ondelete}
+      disabled={busy}
+      title="delete the selected {noun}s"
+      aria-label="delete the selected {noun}s"
+    >
+      <Trash2 size={14} />
     </button>
-    <button class="quiet" onclick={() => picks.clear()} disabled={busy}
-      >Clear</button
+    <button
+      class="quiet"
+      onclick={() => picks.clear()}
+      disabled={busy}
+      title="deselect everything">Clear selection</button
     >
   </div>
 {/if}

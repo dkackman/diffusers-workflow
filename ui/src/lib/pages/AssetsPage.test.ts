@@ -369,8 +369,10 @@ it('downloads the ticked assets as one zip', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /download \.zip/i }))
-  screen.getByRole('button', { name: /download \.zip/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /download the selected/i }),
+  )
+  screen.getByRole('button', { name: /download the selected/i }).click()
 
   await waitFor(() => expect(archiveAssets).toHaveBeenCalledTimes(1))
   // The order the grid shows them in, not the order they were ticked
@@ -382,8 +384,10 @@ it('deletes every ticked asset and refetches once', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
   await waitFor(() => expect(deleteAsset).toHaveBeenCalledTimes(2))
@@ -405,8 +409,10 @@ it('keeps an asset that would not delete in the selection', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
   await waitFor(() => expect(notifyError).toHaveBeenCalled())
@@ -508,8 +514,10 @@ it('says nothing about a shared library when nothing shared is picked', async ()
   await renderAssets()
 
   screen.getByRole('button', { name: /select all \(2\)/i }).click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain(
@@ -529,8 +537,10 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   await renderAssets()
 
   screen.getByRole('button', { name: /select all \(3\)/i }).click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain(

@@ -402,7 +402,7 @@ it('an Escape that closes a confirm leaves the selection; the next clears it', a
   await renderGallery()
   checkbox('a.png').click()
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
   pressEscape()
