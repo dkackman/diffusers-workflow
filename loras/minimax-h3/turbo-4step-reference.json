@@ -1,0 +1,32 @@
+{
+  "model_name": "lightx2v/Minimax-h3-Turbo",
+  "weight_name": "minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors",
+  "revision": "3ec17a324ced54151364f24f8b5fb6bf7e26414f",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": "ref2va",
+  "description": "4-step turbo v0.1 for the reference partition (ref2va); header records alpha 8, no training canvas",
+  "use_when": "Optional faster Ref2VA trial: pair with num_inference_steps 5 and shift 12/3, never on a t2va/fl2va step. Keep the 8-step file as the default (#824)",
+  "scale": {
+    "default": 1.0
+  },
+  "status": "trial",
+  "evidence": [
+    {
+      "note": "960x544 Ref2VA shot, 124 frames, reference image + audio, seed 11, int4 sdnq, shift 12/3, 5 steps: clean render, identity and mouth motion held, no noise. Denoise ~222s vs ~384s for the 8-step file at 9 steps (~42% less); s/step unchanged (~44 vs ~43). Model card gives no shift. Judged from frames only (audio not auditioned); one shot, one seed",
+      "issue": 824,
+      "job": "ec9f5b3b92e5"
+    },
+    {
+      "note": "Baseline: 8-step v1.0 768p file, 9 steps, shift 12/3, same shot and seed",
+      "issue": 824,
+      "job": "d65cb4586b9c"
+    }
+  ],
+  "license": "apache-2.0",
+  "tags": [
+    "turbo",
+    "speed"
+  ]
+}
