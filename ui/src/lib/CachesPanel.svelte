@@ -132,7 +132,7 @@
             <tr>
               <td>{cache.name}</td>
               <td><code>{cache.root}</code></td>
-              <td>{cache.bytes ? formatBytes(cache.bytes) : '0'}</td>
+              <td>{cacheSize(cache.bytes)}</td>
               <td>{cache.files}</td>
               <td class="muted">
                 {cache.last_used ? formatMtime(cache.last_used) : '—'}
