@@ -83,14 +83,23 @@ class TestReleaseFloor:
         assert match, "pyproject.toml should pin a diffusers floor"
         assert release_floor() == match.group(1)
 
-    def test_transformers_floor_excludes_5170(self):
+    def test_transformers_requirement_refuses_5170(self):
+        """5.17.0 broke every generate_speech call (#232). Whether it is kept
+        out by an exclusion or by a floor past it, the requirement must not
+        admit it."""
         import re
         from pathlib import Path
 
+        from packaging.requirements import Requirement
+
         pyproject = Path(__file__).resolve().parents[1] / "pyproject.toml"
         text = pyproject.read_text()
-        match = re.search(r'"transformers>=([0-9][0-9.]*[0-9]|[0-9]),!=5\.17\.0"', text)
-        assert match, "pyproject.toml should exclude the broken 5.17.0 release (#232)"
+        match = re.search(r'"(transformers[<>=!,.0-9 ]+)"', text)
+        assert match, "pyproject.toml should declare transformers"
+        specifier = Requirement(match.group(1)).specifier
+        assert "5.17.0" not in specifier, (
+            "pyproject.toml must not admit the broken 5.17.0 release (#232)"
+        )
 
     def test_falls_back_when_pyproject_is_unreadable(self, monkeypatch):
         from dw.server import updater as updater_module

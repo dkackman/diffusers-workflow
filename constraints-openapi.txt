@@ -4,5 +4,5 @@
 # scripts/dump_openapi.py refuses to write under anything else. To move
 # them: bump both lines, install them, run the dump and `npm run gen:api`,
 # and commit the four files together.
-fastapi==0.142.2
-pydantic==2.13.5
+fastapi==0.143.0
+pydantic==2.14.1
