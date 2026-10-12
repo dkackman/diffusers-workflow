@@ -190,6 +190,7 @@ UI_READ_ROUTES = [
     ("get", "/api/pipelines"),
     ("get", "/api/pipelines/{name}"),
     ("get", "/api/tasks"),
+    ("get", "/api/builtin-workflows"),
     ("get", "/api/tasks/{command}"),
     ("get", "/api/classes"),
     ("get", "/api/classes/{name}"),

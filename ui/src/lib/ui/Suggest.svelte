@@ -6,6 +6,7 @@
     value = $bindable(''),
     suggestions = [],
     complete = undefined,
+    openOnFocus = false,
     onchange = undefined,
     oninput = undefined,
     ...rest
@@ -16,6 +17,10 @@
      * or null to fall back on them. How a field offers a library once a
      * reference prefix starts it, searched and shown with thumbnails */
     complete?: (text: string) => SuggestItem[] | null
+    /** Show the list as soon as the field is focused, for a field that
+     * exists to search (the stored-prompt picker); others wait for typing,
+     * so tabbing through a form never pops a list over each field */
+    openOnFocus?: boolean
     /** The committed value: a chosen suggestion, or typed text on change */
     onchange?: (value: string) => void
     /** Each keystroke's text, for a caller that drafts as it goes */
@@ -28,14 +33,16 @@
   // A long class list is offered a page at a time; typing narrows it
   const MAX_SHOWN = 50
 
+  // The completion's rows first, then the plain suggestions that match and
+  // that it did not already offer
   function matching(text: string): SuggestItem[] {
-    const completed = complete?.(text)
-    if (completed) return completed.slice(0, MAX_SHOWN)
+    const completed = complete?.(text) ?? []
+    const offered = new Set(completed.map((item) => item.value))
     const query = text.toLowerCase()
-    return suggestions
-      .filter((s) => s.toLowerCase().includes(query))
-      .slice(0, MAX_SHOWN)
+    const plain = suggestions
+      .filter((s) => !offered.has(s) && s.toLowerCase().includes(query))
       .map((value) => ({ value }))
+    return [...completed, ...plain].slice(0, MAX_SHOWN)
   }
 
   let open = $state(false)
@@ -68,8 +75,21 @@
   inputValue={value ?? ''}
   onValueChange={(chosen) => {
     if (!chosen) return
+    // Read before the value changes, which recomputes the rows
+    const continues = shown.find((item) => item.value === chosen)?.continues
     picked = ''
     value = chosen
+    if (continues) {
+      // A prefix: still typing, so a draft rather than a commit, and the
+      // list reopens on what that prefix offers once Bits has closed it
+      oninput?.(chosen)
+      navigated = false
+      setTimeout(() => {
+        if (shown.length) open = true
+        else awaiting = true
+      })
+      return
+    }
     onchange?.(chosen)
   }}
 >
@@ -85,14 +105,15 @@
     }}
     onblur={() => (awaiting = false)}
     onfocus={() => {
-      // A field whose completion has rows before anything is typed (the
-      // stored-prompt search) shows them on focus; plain suggestions wait
-      // for typing, so focusing a field never pops a list over it
-      if (complete?.(value ?? '')?.length) open = true
+      if (openOnFocus && shown.length) open = true
     }}
     onkeydown={(e) => {
-      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') navigated = true
-      else if (e.key === 'Enter' && (!navigated || e.ctrlKey || e.metaKey)) {
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        navigated = true
+        // An empty field lists what it can start - the reference prefixes -
+        // when asked, rather than on focus
+        if (!open && shown.length) open = true
+      } else if (e.key === 'Enter' && (!navigated || e.ctrlKey || e.metaKey)) {
         // Prevented here, Bits' own Enter handling is skipped; Ctrl/Cmd+Enter
         // (validate & run) still reaches the page, with the typed text
         e.preventDefault()

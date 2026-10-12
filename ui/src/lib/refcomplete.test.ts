@@ -50,8 +50,20 @@ afterEach(() => listAssets.mockReset())
 
 describe('referenceCompletions', () => {
   it('leaves a field that has not started a library reference alone', () => {
-    for (const text of ['', 'a cat', 'variable:x', 'previous_result:a'])
+    for (const text of ['a cat', 'p', 'variable:x', 'previous_result:a'])
       expect(referenceCompletions(text)).toBeNull()
+  })
+
+  it('lists the reference prefixes in an empty field, to be continued', () => {
+    const rows = referenceCompletions('')!
+    expect(rows.map((r) => r.value)).toEqual(['asset:', 'output:', 'prompt:'])
+    expect(rows.every((r) => r.continues && r.detail)).toBe(true)
+  })
+
+  it('offers the prefixes two letters spell the start of', () => {
+    expect(referenceCompletions('pr')!.map((r) => r.value)).toEqual(['prompt:'])
+    expect(referenceCompletions('As')!.map((r) => r.value)).toEqual(['asset:'])
+    expect(referenceCompletions('pre')).toBeNull()
   })
 
   it('offers assets after asset:, found by any part of the name', () => {

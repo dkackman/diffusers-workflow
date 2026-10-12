@@ -2783,6 +2783,20 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         assert client.get("/api/gallery/track.wav/thumbnail").status_code == 404
 
 
+def test_the_builtin_workflows_are_listed_for_the_editor(server):
+    """The packaged fragments a 'builtin:' step names are off every search
+    path, so the editor learns their names from a route of their own."""
+    from dw.library import builtin_root, workflow_names
+
+    with server(success_script) as client:
+        listed = client.get("/api/builtin-workflows").json()["workflows"]
+        assert "h3_context_ir.json" in listed
+        assert listed == [f"{n}.json" for n in workflow_names(builtin_root())]
+        # and the workflow listing still leaves them out
+        names = client.get("/api/workflows").json()["workflows"]
+        assert "h3_context_ir" not in names
+
+
 def test_an_asset_has_a_thumbnail_too(asset_server, tmp_path):
     """The editors' asset pickers show a grid of the library: a thumbnail
     per asset rather than the full file."""

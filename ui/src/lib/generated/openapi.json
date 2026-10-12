@@ -271,6 +271,24 @@
         "title": "AssetList",
         "type": "object"
       },
+      "BuiltinWorkflows": {
+        "additionalProperties": false,
+        "properties": {
+          "workflows": {
+            "description": "The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows"
+        ],
+        "title": "BuiltinWorkflows",
+        "type": "object"
+      },
       "CardCleared": {
         "additionalProperties": false,
         "properties": {
@@ -4952,6 +4970,25 @@
           }
         },
         "summary": "Delete Asset"
+      }
+    },
+    "/api/builtin-workflows": {
+      "get": {
+        "description": "The packaged workflows a 'builtin:' sub-workflow step can name -\nfragments shipped inside dw/, off every workspace's search path, so the\nworkflow listing never shows them. The editor offers them in a\nsub-workflow step's path field.",
+        "operationId": "list_builtin_workflows_api_builtin_workflows_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuiltinWorkflows"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Builtin Workflows"
       }
     },
     "/api/caches": {

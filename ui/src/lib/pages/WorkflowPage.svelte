@@ -214,7 +214,9 @@
       <h2>Variables</h2>
       <p class="hint muted">
         Leave a field blank to use the workflow's own default. Type
-        <code>prompt:</code> to pull in a stored prompt.
+        <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
+        a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
+        field to see them.
       </p>
       <VariablesForm
         mode="override"

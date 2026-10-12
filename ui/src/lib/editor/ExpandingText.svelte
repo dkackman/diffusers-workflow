@@ -89,6 +89,7 @@
           title="replace this text with a stored prompt from the library"
           aria-label="search the stored prompts"
           complete={promptChoices}
+          openOnFocus
           onchange={(name) => {
             if (!promptLibrary.names?.includes(name)) return
             onpromptpick(name)

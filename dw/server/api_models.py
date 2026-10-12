@@ -697,6 +697,13 @@ class WorkflowCard(ApiModel):
     )
 
 
+class BuiltinWorkflows(ApiModel):
+    workflows: list[str] = Field(
+        description="The packaged fragments a sub-workflow step names as "
+        "`builtin:<name>.json`, each as what follows the prefix."
+    )
+
+
 class WorkflowList(ApiModel):
     workspace: str
     libraries: list[LibraryRoot] = Field(

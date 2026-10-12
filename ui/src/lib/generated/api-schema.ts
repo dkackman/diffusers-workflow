@@ -128,6 +128,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/builtin-workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Builtin Workflows
+         * @description The packaged workflows a 'builtin:' sub-workflow step can name -
+         *     fragments shipped inside dw/, off every workspace's search path, so the
+         *     workflow listing never shows them. The editor offers them in a
+         *     sub-workflow step's path field.
+         */
+        get: operations["list_builtin_workflows_api_builtin_workflows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/caches": {
         parameters: {
             query?: never;
@@ -1849,6 +1872,14 @@ export interface components {
             total?: number;
             /** Workspace */
             workspace: string;
+        };
+        /** BuiltinWorkflows */
+        BuiltinWorkflows: {
+            /**
+             * Workflows
+             * @description The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.
+             */
+            workflows: string[];
         };
         /** CardCleared */
         CardCleared: {
@@ -3670,6 +3701,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_builtin_workflows_api_builtin_workflows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuiltinWorkflows"];
                 };
             };
         };

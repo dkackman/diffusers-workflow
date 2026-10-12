@@ -14,6 +14,9 @@ export type SuggestItem = {
   glyph?: string
   /** A short tag after the name: which library it came from */
   badge?: string
+  /** Choosing it starts the value rather than finishing it - a reference
+   * prefix - so the field keeps its focus and the list carries on */
+  continues?: boolean
 }
 
 /** Whether every whitespace-separated word of `query` occurs somewhere in

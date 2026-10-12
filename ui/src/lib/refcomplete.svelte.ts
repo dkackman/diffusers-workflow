@@ -135,12 +135,34 @@ export function outputChoices(
   return ranked(found, query, true).map((file) => outputRow(file))
 }
 
+// The libraries a reference can name, and what each one is, for a field
+// that has not started one yet
+const LIBRARIES: Array<[string, string]> = [
+  [ASSET, 'a file in the asset library'],
+  [OUTPUT, 'a file an earlier run wrote'],
+  [PROMPT, "a stored prompt's text"],
+]
+
+/** The reference prefixes `text` could be starting: all of them for an
+ * empty field, else those it spells the start of once it is two letters
+ * long - one letter would pop a list over every word typed into a prose
+ * field. Choosing one continues the value rather than finishing it. */
+export function prefixChoices(text: string): SuggestItem[] | null {
+  if (text !== '' && (text.length < 2 || /[\s:]/.test(text))) return null
+  const lower = text.toLowerCase()
+  const rows = LIBRARIES.filter(([prefix]) => prefix.startsWith(lower)).map(
+    ([prefix, detail]) => ({ value: prefix, detail, continues: true }),
+  )
+  return rows.length ? rows : null
+}
+
 /** What a field offers once its text starts a reference it can look up:
  * `asset:` the asset library (thumbnails, which library), `output:` what
  * earlier runs wrote (newest first, which run), `prompt:` the
- * prompt library (searched through the text and tags too). null for
+ * prompt library (searched through the text and tags too). Before a
+ * reference is started, the prefixes themselves (`prefixChoices`); null for
  * anything else, so the field's own suggestions stand. `kind` keeps an
- * `asset:` completion to the media a field takes. */
+ * `asset:` or `output:` completion to the media a field takes. */
 export function referenceCompletions(
   text: string,
   kind?: AssetFile['kind'],
@@ -165,5 +187,5 @@ export function referenceCompletions(
       value: reference(PROMPT, item.value),
     }))
   }
-  return null
+  return prefixChoices(text)
 }

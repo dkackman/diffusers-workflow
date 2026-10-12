@@ -69,6 +69,7 @@ export type PipelineParameter = Schemas['PipelineParameter']
 export type PipelineDescription = Schemas['PipelineDescription']
 export type PipelineNames = Schemas['PipelineNames']
 export type TaskList = Schemas['TaskList']
+export type BuiltinWorkflows = Schemas['BuiltinWorkflows']
 export type ClassList = Schemas['ClassList']
 
 export interface JobEvent {

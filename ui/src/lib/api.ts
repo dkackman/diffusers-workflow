@@ -33,6 +33,7 @@ import type {
   ServerInfo,
   StoredPrompt,
   TaskList,
+  BuiltinWorkflows,
   Uploaded,
   ValidationResult,
   WorkflowDefinition,
@@ -187,6 +188,8 @@ export const api = {
       body: JSON.stringify({ new_seed: newSeed }),
     }),
   listTasks: () => request<TaskList>('/api/tasks'),
+  listBuiltinWorkflows: () =>
+    request<BuiltinWorkflows>('/api/builtin-workflows'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>

@@ -535,6 +535,9 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
+- `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
+  names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing
+  includes; the editor offers them in the step's path field
 - `GET /api/gallery/{name:path}/thumbnail` — a small JPEG of an image, or of
   a video's first frame; 404 for other kinds. `name` may be an `asset:`
   reference, which the editors' asset picker uses for its grid
