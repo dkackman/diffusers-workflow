@@ -10,7 +10,11 @@
 #   1. fetch; check out <branch> (default: the current branch); fast-forward
 #      pull. A dirty checkout or a non-fast-forward is an error, never a
 #      reset - a deploy must not lose anything.
-#   2. `pip install -e .` only when pyproject.toml changed in the pull;
+#   2. reinstall only when pyproject.toml differs from the one last installed
+#      successfully (recorded in venv/, so an install that failed is retried
+#      on the next run rather than skipped because the pull already landed),
+#      in install.sh's order: diffusers from git, `pip install -e .`, then a
+#      plain `pip install diffusers` for any dependency the new commit adds;
 #      `npm run build` in ui/ (after `npm ci` if package-lock.json changed)
 #      only when the pull touched ui/. A checkout serves the SPA from
 #      ui/dist, which is gitignored, so without this a UI change is pulled
@@ -160,9 +164,20 @@ say "on $branch at $(git rev-parse --short "$after") (was $(git rev-parse --shor
 # 2. deps and the UI bundle, only when they changed
 changed=""
 [ "$before" = "$after" ] || changed="$(git diff --name-only "$before" "$after")"
-if echo "$changed" | grep -qx 'pyproject.toml'; then
-  say "pyproject.toml changed; reinstalling"
+# What was last installed, not what the pull changed: a failed install used
+# to leave the new pyproject.toml checked out, and the next run then saw
+# nothing to do and restarted onto the old packages. Diffusers is refreshed
+# from git first, as install.sh and dw/server/updater.py do: a git build is
+# taken as fixed by the resolver, and an older one's own pins (a
+# huggingface-hub cap, say) can make the new floors unsatisfiable
+INSTALLED_MARK="venv/.dw-installed-pyproject"
+wanted="$(git hash-object pyproject.toml)"
+if [ "$(cat "$INSTALLED_MARK" 2>/dev/null)" != "$wanted" ]; then
+  say "pyproject.toml differs from the installed one; reinstalling"
+  venv/bin/pip install -q --force-reinstall --no-deps git+https://github.com/huggingface/diffusers
   venv/bin/pip install -q -e .
+  venv/bin/pip install -q diffusers
+  echo "$wanted" > "$INSTALLED_MARK"
 fi
 if echo "$changed" | grep -q '^ui/' || [ ! -d ui/dist ]; then
   find_npm
