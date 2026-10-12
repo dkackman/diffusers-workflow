@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Film, Image, Layers, Music, Plus } from '@lucide/svelte'
+  import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
   import { writableRoot } from '../libraries'
   import Empty from '../Empty.svelte'
@@ -255,7 +255,14 @@
               decoding="async"
             />
           {:else}
-            <video src={proof.url} muted playsinline preload="metadata"></video>
+            <img
+              src={api.galleryThumbnailUrl(proof.name)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
+            >
           {/if}
         </span>
       {/if}
@@ -423,13 +430,13 @@
      that separates the picture from its caption */
   .cardframe {
     display: block;
+    position: relative;
     aspect-ratio: 4 / 3;
     background: var(--panel-2);
     border-bottom: 1px solid var(--line);
     overflow: hidden;
   }
-  .cardframe img,
-  .cardframe video {
+  .cardframe img {
     width: 100%;
     height: 100%;
     object-fit: cover;

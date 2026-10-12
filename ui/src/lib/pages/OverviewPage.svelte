@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Images, Inbox, Layers, Plus } from '@lucide/svelte'
+  import { Images, Inbox, Layers, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { formatBytes } from '../format'
@@ -151,12 +151,13 @@
               alt={file.label}
               loading="lazy"
             />
-          {:else if file.kind === 'video'}<video
-              src={file.url}
-              muted
-              playsinline
-              preload="metadata"
-            ></video>
+          {:else if file.kind === 'video'}<img
+              src={api.galleryThumbnailUrl(file.name)}
+              alt={file.label}
+              loading="lazy"
+            /><span class="videobadge" aria-hidden="true"
+              ><Play size={11} /></span
+            >
           {:else}<span class="muted">{file.label}</span>{/if}
         </a>
       {/each}
@@ -234,12 +235,13 @@
                     alt=""
                     loading="lazy"
                   />
-                {:else}<video
-                    src={proofs[wf].url}
-                    muted
-                    playsinline
-                    preload="metadata"
-                  ></video>{/if}
+                {:else}<img
+                    src={api.galleryThumbnailUrl(proofs[wf].name)}
+                    alt=""
+                    loading="lazy"
+                  /><span class="videobadge" aria-hidden="true"
+                    ><Play size={11} /></span
+                  >{/if}
               </span>
             {/if}
             <span class="cardname">{leaf(wf)}</span>
@@ -383,13 +385,13 @@
   }
   .cardframe {
     display: block;
+    position: relative;
     aspect-ratio: 4 / 3;
     background: var(--panel-2);
     border-bottom: 1px solid var(--line);
     overflow: hidden;
   }
-  .cardframe img,
-  .cardframe video {
+  .cardframe img {
     width: 100%;
     height: 100%;
     object-fit: cover;

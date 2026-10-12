@@ -190,7 +190,13 @@
               loading="lazy"
             />
           {:else}
-            <video src={proof.url} muted playsinline preload="metadata"></video>
+            <img
+              src={api.galleryThumbnailUrl(proof.name)}
+              alt={proof.label}
+              loading="lazy"
+            />
+            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
+            >
           {/if}
         </a>
       {/each}

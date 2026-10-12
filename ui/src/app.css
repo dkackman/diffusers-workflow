@@ -453,6 +453,24 @@ a.danger:hover {
   height: 100%;
   object-fit: cover;
 }
+/* Marks a still as a video's first frame: grids show a clip as its
+   thumbnail, never as a <video>, and this is what says it plays. Sits in the
+   corner of the nearest positioned ancestor. */
+.videobadge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--panel);
+  pointer-events: none;
+}
+
 /* The frame is only ever the picture, so any interactive frame gets its
    affordance from the border rather than from a colour wash over it */
 a.frame:hover,

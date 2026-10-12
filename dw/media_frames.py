@@ -46,6 +46,15 @@ def resolve_crop_box(crop, width, height):
     return (x, y, min(x + w, width), min(y + h, height))
 
 
+def first_frame(path):
+    """The clip's first frame as a PIL image - the gallery grid's poster.
+    Not capped at MAX_DECODE_PIXELS: no video decode is (docs/SECURITY.md)."""
+    try:
+        return media.read_frames(path, [0])[0]
+    except (IndexError, KeyError, EOFError):
+        raise ValueError(f"{path} has no decodable video frame")
+
+
 def frames_at(path, moments, shape=None, crop_box=None):
     """One tile per moment - a float in seconds or "frame:N" - in the order
     asked for. Each tile is {label, frame, seconds, image}.

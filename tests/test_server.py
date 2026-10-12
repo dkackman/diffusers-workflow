@@ -2778,9 +2778,41 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         thumb_image = PILImage.open(io.BytesIO(thumbnail.content))
         assert max(thumb_image.size) <= 320
 
-        # a non-image file has no thumbnail rendition
-        (outputs / "clip.mp4").write_bytes(b"\x00" * 10)
-        assert client.get("/api/gallery/clip.mp4/thumbnail").status_code == 404
+        # audio and text have no thumbnail rendition
+        (outputs / "track.wav").write_bytes(b"\x00" * 10)
+        assert client.get("/api/gallery/track.wav/thumbnail").status_code == 404
+
+
+def test_gallery_thumbnail_of_a_video_is_its_first_frame(server, tmp_path):
+    """The grid shows a clip as an <img> of its first frame rather than a
+    <video> - hundreds of <video> tiles each held a connection open and
+    hung the page."""
+    import io
+
+    from diffusers.utils.export_utils import encode_video
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        frames = [Image.new("RGB", (640, 360), "blue") for _ in range(4)]
+        encode_video(frames, fps=4, output_path=str(outputs / "clip.mp4"))
+
+        thumbnail = client.get("/api/gallery/clip.mp4/thumbnail")
+
+        assert thumbnail.status_code == 200
+        assert thumbnail.headers["content-type"] == "image/jpeg"
+        image = Image.open(io.BytesIO(thumbnail.content))
+        assert image.size == (320, 180)
+
+        # the same validator as an image's: a revisit is a 304
+        again = client.get(
+            "/api/gallery/clip.mp4/thumbnail",
+            headers={"if-none-match": thumbnail.headers["etag"]},
+        )
+        assert again.status_code == 304
+
+        (outputs / "broken.mp4").write_bytes(b"\x00" * 10)
+        assert client.get("/api/gallery/broken.mp4/thumbnail").status_code == 500
 
 
 def test_output_file_route_resolves_an_asset_reference(asset_server, tmp_path):

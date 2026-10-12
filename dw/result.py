@@ -576,6 +576,12 @@ class Result:
                 fps=self.video_fps(artifact),
                 macro_block_size=VIDEO_MACRO_BLOCK,
             )
+        # Every writer leaves the MP4's index at the end, where a browser
+        # has to fetch the whole clip before it can play any of it
+        if output_path.lower().endswith(".mp4") and is_av_available():
+            from .media import faststart
+
+            faststart(output_path)
 
     def _write_audio_file(
         self, output_dir, artifact, file_base_name, content_type, extension, output_path

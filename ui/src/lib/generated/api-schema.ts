@@ -590,9 +590,10 @@ export interface paths {
         };
         /**
          * Gallery Thumbnail
-         * @description A small JPEG rendition of an image output, for the grid - the
-         *     full-resolution file is only fetched for the detail/lightbox view.
-         *     Generated on demand rather than cached to disk, so it never grows
+         * @description A small JPEG rendition of an image output, or of a video's first
+         *     frame, for the grid - the full file is only fetched for the
+         *     detail/lightbox view, so a grid of clips never opens one stream per
+         *     tile. Generated on demand rather than cached to disk, so it never grows
          *     the output directory the gallery itself scans.
          */
         get: operations["gallery_thumbnail_api_gallery__name__thumbnail_get"];
