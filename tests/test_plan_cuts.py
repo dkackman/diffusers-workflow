@@ -809,3 +809,22 @@ class TestRenderGridRefusals:
             )
             == []
         )
+
+
+def test_fallback_length_ignores_a_suspect_tail_chunk():
+    tail = {
+        "start": 24.0,
+        "end": 40.0,
+        "text": "Thanks for watching",
+        "suspect": "silent",
+    }
+    transcript = {"text": TRANSCRIPT["text"], "chunks": [*CHUNKS, tail]}
+    result = plan_cuts(transcript=transcript, beats=beat_list())
+    assert result["duration_s"] == 24.0
+    assert any("at 24.00 s" in w for w in result["warnings"])
+
+
+def test_fallback_length_refuses_a_transcript_of_only_suspect_chunks():
+    chunks = [{"start": 0.0, "end": 9.0, "text": "—", "suspect": "no_words"}]
+    with pytest.raises(ValueError, match="can't tell how long"):
+        plan_cuts(transcript={"text": "", "chunks": chunks}, beats=beat_list())
