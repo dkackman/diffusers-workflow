@@ -740,7 +740,7 @@ def _hub_auth_error(error, model_name, component_name):
     )
     return RuntimeError(
         f"Model '{repo}' requires Hugging Face authentication - run "
-        f"'huggingface-cli login', or request access at "
+        f"'hf auth login', or request access at "
         f"https://huggingface.co/{repo}"
     )
 

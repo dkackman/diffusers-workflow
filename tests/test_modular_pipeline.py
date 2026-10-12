@@ -88,7 +88,7 @@ class TestLoadComponents:
 
 class TestHubAuthErrorMapping:
     """A 401/403 from the Hub loading a gated model becomes an actionable
-    RuntimeError naming the repo and 'huggingface-cli login', instead of
+    RuntimeError naming the repo and 'hf auth login', instead of
     surfacing huggingface_hub's own error message unexplained."""
 
     def _http_error(self, status_code):
@@ -106,7 +106,7 @@ class TestHubAuthErrorMapping:
         component_type.from_pretrained.side_effect = self._http_error(403)
         configuration = {"component_type": component_type}
 
-        with pytest.raises(RuntimeError, match="huggingface-cli login") as excinfo:
+        with pytest.raises(RuntimeError, match="hf auth login") as excinfo:
             load_component(
                 "pipeline",
                 configuration,
@@ -127,7 +127,7 @@ class TestHubAuthErrorMapping:
         component_type.from_pretrained.side_effect = wrapped
         configuration = {"component_type": component_type}
 
-        with pytest.raises(RuntimeError, match="huggingface-cli login") as excinfo:
+        with pytest.raises(RuntimeError, match="hf auth login") as excinfo:
             load_component(
                 "transformer",
                 configuration,
@@ -142,7 +142,7 @@ class TestHubAuthErrorMapping:
         component_type.from_pretrained.side_effect = self._http_error(401)
         configuration = {"component_type": component_type}
 
-        with pytest.raises(RuntimeError, match="huggingface-cli login"):
+        with pytest.raises(RuntimeError, match="hf auth login"):
             load_component(
                 "pipeline", configuration, {"model_name": "some/gated-repo"}, "cpu"
             )
