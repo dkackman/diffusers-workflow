@@ -9,7 +9,8 @@
 # What it does, in order, stopping at the first failure:
 #   1. fetch; check out <branch> (default: the current branch); fast-forward
 #      pull. A dirty checkout or a non-fast-forward is an error, never a
-#      reset - a deploy must not lose anything.
+#      reset - a deploy must not lose anything. When the pull changed this
+#      script, the new version is exec'd to do the rest.
 #   2. reinstall only when pyproject.toml differs from the one last installed
 #      successfully (recorded in venv/, so an install that failed is retried
 #      on the next run rather than skipped because the pull already landed),
@@ -155,11 +156,22 @@ if [ -n "$(git status --porcelain)" ]; then
 fi
 say "fetching origin"
 git fetch -q origin
-before="$(git rev-parse HEAD)"
+# A re-run of a newer copy of this script (below) carries the commit the
+# first run started from, so it still sees everything the pull changed
+before="${DW_DEPLOY_BEFORE:-$(git rev-parse HEAD)}"
 git checkout -q "$branch"
 git pull -q --ff-only origin "$branch"
 after="$(git rev-parse HEAD)"
 say "on $branch at $(git rev-parse --short "$after") (was $(git rev-parse --short "$before"))"
+
+# The running copy of this script is the one from before the pull. When the
+# pull changed it, hand the rest of the deploy to the new one - otherwise a
+# fix here only takes effect on the deploy after the one that brings it
+if [ -z "${DW_DEPLOY_BEFORE:-}" ] && [ "$before" != "$after" ] \
+  && git diff --name-only "$before" "$after" | grep -qx 'scripts/deploy.sh'; then
+  say "scripts/deploy.sh changed; continuing with the new version"
+  DW_DEPLOY_BEFORE="$before" exec "$DW_DIR/scripts/deploy.sh" "$@"
+fi
 
 # 2. deps and the UI bundle, only when they changed
 changed=""
