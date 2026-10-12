@@ -1,7 +1,7 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
   import { Images, Upload } from '@lucide/svelte'
-  import AssetPicker from '../assets/AssetPicker.svelte'
+  import MediaPicker from '../assets/MediaPicker.svelte'
   import { api } from '../api'
   import Suggest from '../ui/Suggest.svelte'
   import {
@@ -10,7 +10,8 @@
     loadAssetLibrary,
   } from '../assetlib.svelte'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import { ASSET, reference, referenceName } from '../references'
+  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
   import type { MediaKind } from '../editor'
 
   let {
@@ -36,7 +37,13 @@
   // replaced so picking several files in a row doesn't leak object URLs.
   let localPreview = $state('')
 
-  // An asset: reference previews the file it names, once the library
+  // An asset: or output: reference previews the file it names, once the
+  // listing that says where that file is served has loaded
+  const outputName = $derived(referenceName(location, OUTPUT))
+  $effect(() => {
+    if (outputName) ensureOutputLibrary()
+  })
+  // An asset: reference likewise, from the asset library
   // listing that says where that file is served has loaded
   const assetName = $derived(referenceName(location, ASSET))
   $effect(() => {
@@ -45,6 +52,7 @@
   const previewSrc = $derived(
     localPreview ||
       (assetName ? (assetNamed(assetName)?.url ?? '') : '') ||
+      (outputName ? (outputNamed(outputName)?.url ?? '') : '') ||
       (location.startsWith('http://') ||
       location.startsWith('https://') ||
       location.startsWith('/')
@@ -85,13 +93,13 @@
   }
 </script>
 
-<AssetPicker
+<MediaPicker
   bind:open={browsing}
   {kind}
-  current={assetName}
-  onpick={(name) => {
+  current={location}
+  onpick={(value) => {
     setLocalPreview('')
-    onchange(reference(ASSET, name))
+    onchange(value)
   }}
 />
 
@@ -111,8 +119,8 @@
     <button
       type="button"
       class="quiet icon"
-      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the asset library`}
-      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the asset library`}
+      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
+      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
       onclick={() => (browsing = true)}
     >
       <Images size={14} />

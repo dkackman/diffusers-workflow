@@ -6,7 +6,7 @@
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import AssetBrowseButton from '../assets/AssetBrowseButton.svelte'
+  import BrowseButton from '../assets/BrowseButton.svelte'
 
   let {
     mode,
@@ -80,7 +80,7 @@
         onchange={(raw) => commit(key, raw)}
         onpromptpick={(name) => commit(key, reference(PROMPT, name))}
       />
-      <AssetBrowseButton
+      <BrowseButton
         value={effective(key)}
         onpick={(value) => commit(key, value)}
       />

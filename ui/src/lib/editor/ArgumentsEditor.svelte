@@ -17,7 +17,7 @@
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
-  import AssetBrowseButton from '../assets/AssetBrowseButton.svelte'
+  import BrowseButton from '../assets/BrowseButton.svelte'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -152,7 +152,7 @@
               value={displayValue(args[key])}
               onchange={(value) => update(key, value)}
             />
-            <AssetBrowseButton
+            <BrowseButton
               value={args[key]}
               onpick={(value) => update(key, value)}
             />

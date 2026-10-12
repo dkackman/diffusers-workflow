@@ -45,7 +45,7 @@ it('previews the file an asset: reference names', async () => {
   const { assetLibrary } = await import('../assetlib.svelte')
   const { workspace } = await import('../workspace.svelte')
   assetLibrary.workspace = workspace.current
-  assetLibrary.assets = [
+  assetLibrary.items = [
     {
       name: 'cast/priya.png',
       reference: 'asset:cast/priya.png',

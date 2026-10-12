@@ -54,6 +54,7 @@ import {
   scopeTo,
   scoped,
   withToken,
+  galleryThumbnailUrl,
 } from './apiUrls'
 
 // Pages and their test mocks import these from here
@@ -284,8 +285,7 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
-  galleryThumbnailUrl: (name: string) =>
-    withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
+  galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',

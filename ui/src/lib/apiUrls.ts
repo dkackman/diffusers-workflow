@@ -72,3 +72,8 @@ export function assetThumbnailUrl(name: string): string {
     `/api/gallery/${encodePath(reference(ASSET, name))}/thumbnail`,
   )
 }
+
+/** A small JPEG of an image output, or of a video's first frame. */
+export function galleryThumbnailUrl(name: string): string {
+  return withToken(`/api/gallery/${encodePath(name)}/thumbnail`)
+}

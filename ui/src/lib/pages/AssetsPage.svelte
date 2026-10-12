@@ -69,7 +69,7 @@
         assets = result.assets
         // The editors' asset: completions read the same listing; an
         // upload or delete here is what they offer next
-        assetLibrary.assets = result.assets
+        assetLibrary.items = result.assets
         assetLibrary.workspace = workspace.current
         libraries = result.libraries
         shadowed = result.shadowed

@@ -31,7 +31,7 @@ const asset = (
 })
 
 beforeEach(() => {
-  assetLibrary.assets = [
+  assetLibrary.items = [
     asset('cast/priya.png', 'image', 'common'),
     asset('priority.png'),
     asset('cast/theme.wav', 'audio'),
@@ -118,4 +118,53 @@ it('cuts a long first line to a row', () => {
   const line = firstLine('x'.repeat(200))
   expect(line.length).toBe(90)
   expect(line.endsWith('…')).toBe(true)
+})
+
+describe('output: completions', () => {
+  beforeEach(async () => {
+    const { outputLibrary } = await import('./outputlib.svelte')
+    outputLibrary.workspace = workspace.current
+    outputLibrary.items = [
+      {
+        name: 'portrait/20261002-000000-bbbbbbbb/final/out.png',
+        folder: 'portrait',
+        subfolder: 'final',
+        run_id: '20261002-000000-bbbbbbbb',
+        version: 2,
+        url: '/outputs/x',
+        kind: 'image',
+        size: 1,
+        mtime: 2,
+        label: 'out.png',
+      },
+      {
+        name: 'clip/20261001-000000-aaaaaaaa/shot.mp4',
+        folder: 'clip',
+        subfolder: '',
+        run_id: '20261001-000000-aaaaaaaa',
+        version: 1,
+        url: '/outputs/y',
+        kind: 'video',
+        size: 1,
+        mtime: 1,
+        label: 'shot.mp4',
+      },
+    ]
+  })
+
+  it('offers what earlier runs wrote, newest first, with the run', () => {
+    const rows = referenceCompletions('output:')!
+    expect(rows.map((r) => r.value)).toEqual([
+      'output:portrait/20261002-000000-bbbbbbbb/final/out.png',
+      'output:clip/20261001-000000-aaaaaaaa/shot.mp4',
+    ])
+    expect(rows[0]).toMatchObject({ label: 'portrait/out.png', badge: 'v2' })
+    expect(rows[0].detail).toContain('final')
+  })
+
+  it('keeps to a media field’s kind', () => {
+    expect(
+      referenceCompletions('output:', 'video')!.map((r) => r.value),
+    ).toEqual(['output:clip/20261001-000000-aaaaaaaa/shot.mp4'])
+  })
 })

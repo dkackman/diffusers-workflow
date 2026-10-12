@@ -1,5 +1,6 @@
 <script lang="ts">
   import { ImageOff, Play } from '@lucide/svelte'
+  import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -36,6 +37,9 @@
       .gallery()
       .then((result) => {
         files = result.files
+        // The editors' output: completions read the same listing
+        outputLibrary.items = result.files
+        outputLibrary.workspace = workspace.current
         error = ''
         picks.keepOnly(result.files.map((f) => f.name))
       })

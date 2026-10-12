@@ -1,9 +1,11 @@
-import { assetThumbnailUrl } from './apiUrls'
+import { assetThumbnailUrl, galleryThumbnailUrl } from './apiUrls'
 import { assetLibrary, ensureAssetLibrary } from './assetlib.svelte'
+import { ensureOutputLibrary, outputLibrary } from './outputlib.svelte'
 import { promptLibrary } from './promptlib.svelte'
-import { ASSET, PROMPT, reference, referenceName } from './references'
+import { ASSET, OUTPUT, PROMPT, reference, referenceName } from './references'
 import { leafName } from './names'
-import type { AssetFile } from './types'
+import { formatMtime } from './format'
+import type { AssetFile, GalleryFile } from './types'
 import { matchesWords, type SuggestItem } from './ui/suggest'
 
 // How much of a prompt's text a row shows: enough to recognize it by
@@ -14,12 +16,12 @@ const BADGES: Partial<Record<AssetFile['origin'], string>> = {
   examples: 'example',
 }
 // What stands in for a picture where the server makes no thumbnail
-const GLYPHS: Record<string, string> = { audio: '♪', lut: '¶' }
+const GLYPHS: Record<string, string> = { audio: '♪', lut: '¶', text: '¶' }
 
 /** Whether the server renders a thumbnail of `asset`: an image, or a
  * video's first frame. */
-export function hasThumbnail(asset: AssetFile): boolean {
-  return asset.kind === 'image' || asset.kind === 'video'
+export function hasThumbnail(file: { kind: string }): boolean {
+  return file.kind === 'image' || file.kind === 'video'
 }
 
 /** The first line of a prompt's text, cut to a row's width. */
@@ -41,10 +43,23 @@ function rank(name: string, query: string): number {
   return 2
 }
 
-function ranked<T extends { name: string }>(entries: T[], query: string): T[] {
+/** By where the name matched, then by name - or, with `keepOrder`, then
+ * in the order given (outputs come newest first, which is the order that
+ * matters for them). */
+function ranked<T extends { name: string }>(
+  entries: T[],
+  query: string,
+  keepOrder = false,
+): T[] {
   return entries
-    .map((entry) => ({ entry, rank: rank(entry.name, query) }))
-    .sort((a, b) => a.rank - b.rank || a.entry.name.localeCompare(b.entry.name))
+    .map((entry, index) => ({ entry, index, rank: rank(entry.name, query) }))
+    .sort(
+      (a, b) =>
+        a.rank - b.rank ||
+        (keepOrder
+          ? a.index - b.index
+          : a.entry.name.localeCompare(b.entry.name)),
+    )
     .map(({ entry }) => entry)
 }
 
@@ -77,7 +92,7 @@ export function assetChoices(
   kind?: AssetFile['kind'],
 ): SuggestItem[] {
   ensureAssetLibrary()
-  const found = (assetLibrary.assets ?? []).filter(
+  const found = (assetLibrary.items ?? []).filter(
     (asset) =>
       (!kind || asset.kind === kind) && matchesWords(query, asset.name),
   )
@@ -90,8 +105,39 @@ export function assetChoices(
   }))
 }
 
+/** A run's file as a row: the workflow and file name, which run it was
+ * (the gallery's v4) and when. */
+export function outputRow(file: GalleryFile, value = file.name): SuggestItem {
+  return {
+    value,
+    label: `${file.folder}/${leafName(file.name)}`,
+    detail: [file.subfolder, formatMtime(file.mtime)]
+      .filter(Boolean)
+      .join(' · '),
+    thumb: hasThumbnail(file) ? galleryThumbnailUrl(file.name) : undefined,
+    glyph: GLYPHS[file.kind],
+    badge: file.version ? `v${file.version}` : undefined,
+  }
+}
+
+/** The files earlier runs wrote that match `query`, newest first,
+ * optionally only one kind, as rows whose value is the gallery name. */
+export function outputChoices(
+  query: string,
+  kind?: GalleryFile['kind'],
+): SuggestItem[] {
+  ensureOutputLibrary()
+  const found = (outputLibrary.items ?? []).filter(
+    (file) =>
+      (!kind || file.kind === kind) &&
+      matchesWords(query, file.name, file.label),
+  )
+  return ranked(found, query, true).map((file) => outputRow(file))
+}
+
 /** What a field offers once its text starts a reference it can look up:
- * `asset:` the asset library (thumbnails, which library), `prompt:` the
+ * `asset:` the asset library (thumbnails, which library), `output:` what
+ * earlier runs wrote (newest first, which run), `prompt:` the
  * prompt library (searched through the text and tags too). null for
  * anything else, so the field's own suggestions stand. `kind` keeps an
  * `asset:` completion to the media a field takes. */
@@ -105,6 +151,12 @@ export function referenceCompletions(
       ...item,
       value: reference(ASSET, item.value),
     }))
+  }
+  const outputQuery = referenceName(text, OUTPUT)
+  if (outputQuery !== null) {
+    return outputChoices(outputQuery, kind === 'lut' ? undefined : kind).map(
+      (item) => ({ ...item, value: reference(OUTPUT, item.value) }),
+    )
   }
   const promptQuery = referenceName(text, PROMPT)
   if (promptQuery !== null) {
