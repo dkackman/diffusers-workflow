@@ -78,7 +78,14 @@
       })
     api
       .listWorkflows()
-      .then((r) => (workflows = r.workflows))
+      // The workspace's own, as the Workflows page lists them - the
+      // read-only examples have their own page
+      .then(
+        (r) =>
+          (workflows = r.workflows.filter(
+            (wf) => r.details?.[wf]?.writable !== false,
+          )),
+      )
       .catch((e) => {
         workflows = []
         workflowsError = errorMessage(e)

@@ -218,6 +218,20 @@ it('the examples view counts and offers chips for only the read-only population'
   expect(within(shapes).getByRole('button', { name: 'image' })).toBeTruthy()
 })
 
+it('the workspace view leaves the examples out and links to them', async () => {
+  listing.details['models/flux-dev'] = {
+    ...listing.details['models/flux-dev'],
+    origin: 'examples',
+    writable: false,
+  }
+  render(WorkflowsPage)
+  await waitFor(() => expect(card('tti')).toBeTruthy())
+  expect(card('flux-dev')).toBeNull()
+  const link = screen.getByTitle(/read-only templates/)
+  expect(link.getAttribute('href')).toBe('#/shared/examples')
+  expect(link.textContent).toContain('1')
+})
+
 it('the workspace view links a card under the current workspace', async () => {
   location.hash = '#/ws/studio/workflows'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
