@@ -54,6 +54,29 @@
     }
   }
 
+  // A scheduler block is a replacement class, a shift on the pipeline's own
+  // scheduler, or both (the schema takes either) - H3 sets only a shift
+  type SchedulerKey = 'scheduler' | 'audio_scheduler'
+
+  function setSchedulerType(key: SchedulerKey, value: string) {
+    const scheduler = pipeline[key]
+    if (!value) {
+      delete scheduler.configuration
+    } else if (scheduler.configuration) {
+      scheduler.configuration.scheduler_type = value
+    } else {
+      scheduler.configuration = { scheduler_type: value }
+      scheduler.from_config_args = scheduler.from_config_args ?? {}
+    }
+  }
+
+  function setShift(key: SchedulerKey, raw: string) {
+    const value = raw.trim()
+    const parsed = Number(value)
+    if (!value) delete pipeline[key].shift
+    else pipeline[key].shift = Number.isNaN(parsed) ? value : parsed
+  }
+
   function toggleCache(enabled: boolean) {
     if (enabled) {
       configuration.cache = configuration.cache ?? {
@@ -122,7 +145,50 @@
   </div>
 </details>
 
-<details open={!!pipeline.scheduler || openSection === 'scheduler'}>
+{#snippet schedulerFields(key: SchedulerKey)}
+  {@const scheduler = pipeline[key]}
+  <label for={`${key}type-${index}`}>scheduler_type</label>
+  <div>
+    <Suggest
+      id={`${key}type-${index}`}
+      suggestions={editorLists.schedulerClasses}
+      bind:value={
+        () => scheduler.configuration?.scheduler_type ?? '',
+        (v) => setSchedulerType(key, v)
+      }
+      placeholder="the pipeline's own - e.g. FlowMatchEulerDiscreteScheduler"
+    />
+    {#if key === 'scheduler' && compatibles.length}
+      <div class="muted hint">
+        interchangeable with: {compatibles
+          .slice(0, 6)
+          .join(', ')}{compatibles.length > 6 ? ', …' : ''}
+      </div>
+    {/if}
+  </div>
+  <label for={`${key}shift-${index}`}>shift</label>
+  <input
+    id={`${key}shift-${index}`}
+    value={scheduler.shift ?? ''}
+    onchange={(e) => setShift(key, e.currentTarget.value)}
+    placeholder="number or variable:name"
+  />
+  {#if scheduler.configuration && scheduler.from_config_args}
+    <label for={`${key}args-${index}`}>from_config_args</label>
+    <ArgumentsEditor
+      bind:args={scheduler.from_config_args}
+      componentType={scheduler.configuration.scheduler_type ?? ''}
+      target="init"
+      suggestions={references}
+    />
+  {/if}
+{/snippet}
+
+<details
+  open={!!pipeline.scheduler ||
+    !!pipeline.audio_scheduler ||
+    openSection === 'scheduler'}
+>
   <summary><Timer size={13} /> scheduler</summary>
   <div class="section grid2">
     <label for={'sched-' + index}>replace scheduler</label>
@@ -134,29 +200,12 @@
       onchange={(e) => toggleScheduler(e.currentTarget.checked)}
     />
     {#if pipeline.scheduler}
-      <label for={'schedtype-' + index}>scheduler_type</label>
-      <div>
-        <Suggest
-          id={'schedtype-' + index}
-          suggestions={editorLists.schedulerClasses}
-          bind:value={pipeline.scheduler.configuration.scheduler_type}
-          placeholder="e.g. FlowMatchEulerDiscreteScheduler"
-        />
-        {#if compatibles.length}
-          <div class="muted hint">
-            interchangeable with: {compatibles
-              .slice(0, 6)
-              .join(', ')}{compatibles.length > 6 ? ', …' : ''}
-          </div>
-        {/if}
-      </div>
-      <label for={'schedargs-' + index}>from_config_args</label>
-      <ArgumentsEditor
-        bind:args={pipeline.scheduler.from_config_args}
-        componentType={pipeline.scheduler.configuration.scheduler_type ?? ''}
-        target="init"
-        suggestions={references}
-      />
+      {@render schedulerFields('scheduler')}
+    {/if}
+    {#if pipeline.audio_scheduler}
+      <span class="muted subhead">audio scheduler</span>
+      <span></span>
+      {@render schedulerFields('audio_scheduler')}
     {/if}
   </div>
 </details>
@@ -254,6 +303,9 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     max-width: 300px;
+  }
+  .subhead {
+    font-weight: 600;
   }
   .grid2 {
     display: grid;

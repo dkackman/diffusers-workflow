@@ -35,3 +35,31 @@ it('shows a dtype and a content type it does not list as selected', () => {
       .value,
   ).toBe('audio/x-flac')
 })
+
+// H3 sets only a shift on the pipeline's own schedulers - no configuration
+// block - and the full view used to throw on it, leaving the compact digest
+it('opens full on a step whose schedulers set only a shift', () => {
+  const h3 = step()
+  Object.assign(h3.pipeline, {
+    scheduler: { shift: 'variable:video_shift' },
+    audio_scheduler: { shift: 3 },
+  })
+  render(StepEditor, {
+    step: h3,
+    index: 0,
+    count: 1,
+    mode: 'full',
+    onremove: () => {},
+    onmove: () => {},
+  })
+  expect((screen.getByLabelText('model') as HTMLInputElement).value).toBe(
+    'org/model',
+  )
+  expect(
+    (document.getElementById('schedulershift-0') as HTMLInputElement).value,
+  ).toBe('variable:video_shift')
+  expect(
+    (document.getElementById('audio_schedulershift-0') as HTMLInputElement)
+      .value,
+  ).toBe('3')
+})
