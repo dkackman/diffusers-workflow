@@ -38,6 +38,7 @@ import secrets
 import time
 import logging
 import threading
+from contextlib import contextmanager
 
 from ..worker_protocol import Execute, workflow_identity
 from ..devices import device_ordinal
@@ -77,6 +78,10 @@ logger = logging.getLogger("dw")
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
+
+
+class JobsActive(Exception):
+    """A job is running or queued."""
 
 
 class JobManager:
@@ -126,6 +131,9 @@ class JobManager:
         self._needs = {}
         # The card a rerun prefers - the original's ordinal - by job id
         self._preferred = {}
+        # Callers holding dispatch (hold_dispatch): while any does, no queued
+        # job is started, though jobs may still be submitted
+        self._dispatch_holds = 0
         self._stop = threading.Event()
         # The thread running each dispatched job, joined by shutdown()
         self._job_threads = set()
@@ -705,6 +713,8 @@ class JobManager:
         None. A job too big for every free card keeps its place, and the
         scan goes on past it: a smaller job behind it takes the card
         meanwhile (backfill). Called holding _lock."""
+        if self._dispatch_holds:
+            return None
         free = [slot for slot in self.slots if slot.current_job_id is None]
         if not free:
             return None
@@ -845,6 +855,24 @@ class JobManager:
             if any(slot.current_job_id is not None for slot in self.slots):
                 return True
             return any(job.status == QUEUED for job in self.jobs.values())
+
+    @contextmanager
+    def hold_dispatch(self):
+        """Hold the queue still while the caller changes files a job writes
+        or reads. Raises JobsActive if a job is running or queued; otherwise
+        no job starts until the block exits - one submitted meanwhile waits.
+        The check and the hold are one step under the lock, so no job can
+        slip in between them."""
+        with self._lock:
+            if self.is_busy():
+                raise JobsActive()
+            self._dispatch_holds += 1
+        try:
+            yield
+        finally:
+            with self._wake:
+                self._dispatch_holds -= 1
+                self._wake.notify()
 
     def is_worker_busy(self, slot):
         """True while `slot`'s card is running a job."""

@@ -33,7 +33,11 @@ refused, until someone marks it by hand.
 is renamed into one `<root>/.clearing-<pid>-<rand>/` directory, which is then
 deleted. A writer racing the clear finds an empty cache and rebuilds; it never
 reads a half-deleted tree. An entry delete moves the one entry the same way. The
-routes refuse while a job is running or queued.
+routes refuse while a job is running or queued, and hold the job queue still
+(`JobManager.hold_dispatch`) while they work, so a job submitted meanwhile waits
+instead of starting into a root being emptied. A staging directory a killed
+server left behind is removed at `mark_roots()` and at the next clear, and is
+never counted by a scan. `scan_all()` reuses its answer for a few seconds.
 
 **An entry id must have a cache key's shape** (`quantized_cache.is_key`, 64
 lowercase hex) before any path is built from it.
@@ -45,6 +49,7 @@ import os
 import secrets
 import shutil
 import threading
+import time
 from dataclasses import dataclass
 from typing import Callable
 
@@ -63,6 +68,12 @@ _MARKER_TEXT = (
 # One clear at a time: a second one would find the first's staging directory
 # among the root's children and move it out from under its rmtree
 _clear_lock = threading.Lock()
+
+
+# How long scan_all's answer is reused. A scan stat()s every file of every
+# cache, and get_server_info asks on each call (#840)
+_SCAN_TTL = 5.0
+_scan_memo = None  # (monotonic time, scan_all's result)
 
 
 class UnknownCache(ValueError):
@@ -210,9 +221,28 @@ def _write_marker(root):
         f.write(_MARKER_TEXT)
 
 
-def mark_root(cache):
+def _sweep_staging(root):
+    """Delete the `.clearing-*` directories a clear that died mid-delete left
+    in `root`. Only called where no clear can be running: server start, or
+    inside `_clear_lock`."""
+    try:
+        leftovers = [
+            entry.path
+            for entry in _children(root)
+            if entry.name.startswith(_CLEARING_PREFIX)
+            and entry.is_dir(follow_symlinks=False)
+        ]
+    except OSError:
+        return
+    for path in leftovers:
+        shutil.rmtree(path, ignore_errors=True)
+        logger.info(f"Removed the leftover {path} from an interrupted clear")
+
+
+def mark_root(cache, quiet=False):
     """Mark one cache's root as dw's to clear, if the rule allows it.
-    Returns whether the root carries the marker afterwards."""
+    Returns whether the root carries the marker afterwards. `quiet` logs the
+    refusal at DEBUG: only the startup pass says it at INFO (#841)."""
     root = cache.root()
     if os.path.islink(root) or (os.path.exists(root) and not os.path.isdir(root)):
         return False
@@ -223,9 +253,10 @@ def mark_root(cache):
     if _has_marker(root):
         return True
     if _children(root) and root != cache.default_root():
-        logger.info(
+        logger.log(
+            logging.DEBUG if quiet else logging.INFO,
             f"The {cache.name} cache at {root} was not created by dw and "
-            f"has no {MARKER} marker, so it can't be cleared from the server"
+            f"has no {MARKER} marker, so it can't be cleared from the server",
         )
         return False
     _write_marker(root)
@@ -237,7 +268,8 @@ def mark_roots():
     once at server start; a root it can't write is left unclearable."""
     for cache in CACHES.values():
         try:
-            mark_root(cache)
+            if mark_root(cache):
+                _sweep_staging(cache.root())
         except (OSError, SecurityError) as e:
             logger.warning(f"Could not mark the {cache.name} cache: {e}")
 
@@ -255,6 +287,9 @@ def _walk(top):
             continue
         with entries:
             for entry in entries:
+                if directory == top and entry.name.startswith(_CLEARING_PREFIX):
+                    # A clear's staging directory is on its way out
+                    continue
                 try:
                     if entry.is_dir(follow_symlinks=False):
                         stack.append(entry.path)
@@ -295,7 +330,7 @@ def _reason(cache):
     root = cache.root()
     if os.path.isdir(root) and not _has_marker(root):
         try:
-            mark_root(cache)
+            mark_root(cache, quiet=True)
         except (OSError, SecurityError) as e:
             logger.warning(f"Could not mark the {cache.name} cache: {e}")
     return _not_clearable_reason(root)
@@ -385,7 +420,20 @@ def scan_entries(root):
 
 
 def scan_all():
-    return [scan(cache) for cache in CACHES.values()]
+    """Every cache as plain data, reused for `_SCAN_TTL` seconds; a clear or
+    entry delete drops the reused answer."""
+    global _scan_memo
+    memo = _scan_memo
+    if memo is not None and time.monotonic() - memo[0] < _SCAN_TTL:
+        return memo[1]
+    result = [scan(cache) for cache in CACHES.values()]
+    _scan_memo = (time.monotonic(), result)
+    return result
+
+
+def _forget_scans():
+    global _scan_memo
+    _scan_memo = None
 
 
 def entry_cache(name, entry):
@@ -441,10 +489,12 @@ def delete_entry(name, entry):
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be changed: {reason}")
         root = validate_path(root)
+        _sweep_staging(root)
         path = quantized_cache.entry_path(root, entry)
         if os.path.islink(path) or not os.path.isdir(path):
             raise UnknownEntry(f"The {name} cache has no entry {entry}")
         freed, files = _stage_out(root, [path])
+        _forget_scans()
     logger.info(f"Deleted {name} cache entry {entry} ({freed} bytes, {files} files)")
     return {"freed": freed, "files": files}
 
@@ -462,10 +512,12 @@ def clear(name):
         if reason:
             raise NotClearable(f"The {name} cache at {root} can't be cleared: {reason}")
         root = validate_path(root)
+        _sweep_staging(root)
         # A link is left alone: validate_path resolves it, so the rename
         # would move its target, not the link
         freed, files = _stage_out(
             root, [entry.path for entry in _children(root) if not entry.is_symlink()]
         )
+        _forget_scans()
     logger.info(f"Cleared the {name} cache at {root} ({freed} bytes, {files} files)")
     return {"freed": freed, "files": files}

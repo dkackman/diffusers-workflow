@@ -4967,7 +4967,7 @@
     },
     "/api/caches/{name}": {
       "delete": {
-        "description": "Empty one cache's root, keeping the root and its marker. Refused\nwhile anything may be writing into it (`_refuse_while_writing`).",
+        "description": "Empty one cache's root, keeping the root and its marker. Refused\nwhile anything may be writing into it (`_hold_writers_off`).",
         "operationId": "clear_cache_api_caches__name__delete",
         "parameters": [
           {

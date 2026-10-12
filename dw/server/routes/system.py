@@ -8,6 +8,7 @@ State comes from `request.app.state`, never a closure: `downloads` and
 """
 
 import logging
+from contextlib import contextmanager
 from typing import Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -49,7 +50,7 @@ from ...workspace import Workspace
 from .. import guides
 from ..deps import selected_workspace
 from ..guides import GuideError
-from ..jobs import WorkerBusy
+from ..jobs import JobsActive, WorkerBusy
 from ..netinfo import local_addresses
 from ..sysinfo import runtime_info
 
@@ -278,14 +279,14 @@ def list_caches():
 )
 def clear_cache(request: Request, name: str):
     """Empty one cache's root, keeping the root and its marker. Refused
-    while anything may be writing into it (`_refuse_while_writing`)."""
+    while anything may be writing into it (`_hold_writers_off`)."""
     try:
         disk_caches.get(name)
     except disk_caches.UnknownCache as e:
         raise HTTPException(status_code=404, detail=str(e))
-    _refuse_while_writing(request, name)
     try:
-        result = disk_caches.clear(name)
+        with _hold_writers_off(request, name):
+            result = disk_caches.clear(name)
     except disk_caches.NotClearable as e:
         raise HTTPException(status_code=400, detail=str(e))
     return {"name": name, "cleared": True, **result}
@@ -305,9 +306,9 @@ def delete_cache_entry(request: Request, name: str, entry: str):
         raise HTTPException(status_code=404, detail=str(e))
     except disk_caches.NoEntries as e:
         raise HTTPException(status_code=400, detail=str(e))
-    _refuse_while_writing(request, name)
     try:
-        result = disk_caches.delete_entry(name, entry)
+        with _hold_writers_off(request, name):
+            result = disk_caches.delete_entry(name, entry)
     except disk_caches.UnknownEntry as e:
         raise HTTPException(status_code=404, detail=str(e))
     except disk_caches.NotClearable as e:
@@ -320,23 +321,30 @@ def delete_cache_entry(request: Request, name: str, entry: str):
 _DOWNLOAD_SENSITIVE_CACHES = frozenset({"quantized"})
 
 
-def _refuse_while_writing(request, name):
-    """409 while a job is running or queued - a compile, autotune or
-    quantized save in progress writes into the root, and a delete mid-write
-    could leave a truncated artifact a later lookup trusts - and, for the
-    quantized cache, while a model download is active."""
+@contextmanager
+def _hold_writers_off(request, name):
+    """Hold off whatever may write into cache `name` for the block: 409 while
+    a job is running or queued - a compile, autotune or quantized save in
+    progress writes into the root, and a delete mid-write could leave a
+    truncated artifact a later lookup trusts - and, for the quantized cache,
+    while a model download is active. A job submitted during the block waits
+    in the queue until it ends: the busy check and the delete are not two
+    steps a submit can fall between."""
     state = request.app.state
-    if state.job_manager.is_busy():
-        raise HTTPException(
-            status_code=409,
-            detail="A job is running or queued - clearing a cache it may be "
-            "writing would leave it a truncated artifact",
-        )
     if name in _DOWNLOAD_SENSITIVE_CACHES and state.downloads.is_active():
         raise HTTPException(
             status_code=409,
             detail="A model download is in progress - the quantized cache "
             "can't be changed until it finishes",
+        )
+    try:
+        with state.job_manager.hold_dispatch():
+            yield
+    except JobsActive:
+        raise HTTPException(
+            status_code=409,
+            detail="A job is running or queued - clearing a cache it may be "
+            "writing would leave it a truncated artifact",
         )
 
 

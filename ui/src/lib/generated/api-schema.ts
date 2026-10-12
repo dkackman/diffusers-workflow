@@ -158,7 +158,7 @@ export interface paths {
         /**
          * Clear Cache
          * @description Empty one cache's root, keeping the root and its marker. Refused
-         *     while anything may be writing into it (`_refuse_while_writing`).
+         *     while anything may be writing into it (`_hold_writers_off`).
          */
         delete: operations["clear_cache_api_caches__name__delete"];
         options?: never;
