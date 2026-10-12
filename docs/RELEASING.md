@@ -68,6 +68,12 @@ hallucinations as lyrics.
   so `triton` stays clearable after the first run (#837).
 - `deploy.sh` restarts a `dw.serve` run as a loaded launchd daemon on
   macOS.
+- A component's `attention_backend` pin stays on that component. diffusers
+  also made it the process-wide default, so after an H3 run with
+  `attention_backend=sage_hub` the worker sent every later model through
+  sage, and Music3 failed with `Unsupported head_dim: 256` (LTX's attention
+  mask is refused the same way). Music3 and LTX templates need no pin of
+  their own.
 
 ### 0.11.1
 
