@@ -436,8 +436,9 @@ def load_entry(root, key, model_cls, torch_dtype, device, config_arguments):
     return component
 
 
-def save_entry(root, key, component, inputs):
-    """Save a just-quantized component as `key`. Returns (result, reason,
+def save_entry(root, key, component, inputs, name=None):
+    """Save a just-quantized component as `key`, recording its `name` in
+    entry.json (the Caches panel labels the entry with it). Returns (result, reason,
     bytes) for the event: `saved`, or `skipped` with why. Never raises."""
     estimate = component_nbytes(component)
     try:
@@ -466,7 +467,14 @@ def save_entry(root, key, component, inputs):
         now = time.time()
         _write_json(
             os.path.join(tmp, ENTRY_FILE),
-            {**inputs, "key": key, "bytes": nbytes, "created": now, "last_hit": None},
+            {
+                **inputs,
+                "component": name,
+                "key": key,
+                "bytes": nbytes,
+                "created": now,
+                "last_hit": None,
+            },
         )
         try:
             os.rename(tmp, final)
@@ -907,7 +915,9 @@ def _save(root, candidate, component):
         return
     inputs = candidate.inputs(commit)
     started = time.monotonic()
-    result, reason, nbytes = save_entry(root, cache_key(inputs), component, inputs)
+    result, reason, nbytes = save_entry(
+        root, cache_key(inputs), component, inputs, candidate.name
+    )
     emit(
         candidate.name,
         result,

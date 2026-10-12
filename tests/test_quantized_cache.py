@@ -1100,9 +1100,10 @@ class TestRealRoundTrip:
 
         root = str(tmp_path / "cache")
         key = qc.cache_key(inputs)
-        result, reason, nbytes = qc.save_entry(root, key, quantized, inputs)
+        result, reason, nbytes = qc.save_entry(root, key, quantized, inputs, "unet")
         assert (result, reason) == ("saved", None) and nbytes > 0
         assert qc.read_entry(os.path.join(root, key))["model_name"] == "org/tiny"
+        assert qc.read_entry(os.path.join(root, key))["component"] == "unet"
 
         loaded = qc.load_entry(root, key, UNet2DModel, torch.float32, "cpu", arguments)
         assert loaded is not None

@@ -375,7 +375,7 @@ def scan(cache):
 def _entry_fields(path):
     """What an entry's `entry.json` says of it, or None when it can't be
     read. `component` falls back to the subfolder - the component's name in
-    a diffusers repo - since entry.json doesn't record it."""
+    a diffusers repo - for entries written before entry.json recorded it."""
     try:
         entry = quantized_cache.read_entry(path)
     except (OSError, ValueError):
