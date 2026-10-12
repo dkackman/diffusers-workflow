@@ -214,6 +214,7 @@ class CatalogTools:
 
     def get_server_info(
         self,
+        cache_entries: bool = False,
     ) -> dict:
         """Get what this installation can do and where it keeps things: the
         accelerator a run will use (`device` - cuda, mps or cpu), the dw
@@ -227,8 +228,9 @@ class CatalogTools:
         workflow is read under: false - the default - means the file is
         untrusted input, so an out-of-ecosystem import, remote code, and a
         media location outside the workspace's roots are all refused.
-        `caches` sizes dw's disk caches (cleared from the server page)."""
-        return workspaces.server_info(self.client)
+        `caches` sizes dw's disk caches; `cache_entries=True` lists the
+        quantized cache's entries (`model`, `subfolder`, `component`)."""
+        return workspaces.server_info(self.client, cache_entries)
 
     def list_jobs(
         self, limit: int = 20, status: str | None = None, workspace: str | None = None
