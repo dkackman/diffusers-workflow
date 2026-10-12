@@ -2,6 +2,14 @@
   import { onDestroy } from 'svelte'
   import { Upload } from '@lucide/svelte'
   import { api } from '../api'
+  import Suggest from '../ui/Suggest.svelte'
+  import {
+    assetNamed,
+    ensureAssetLibrary,
+    loadAssetLibrary,
+  } from '../assetlib.svelte'
+  import { referenceCompletions } from '../refcomplete.svelte'
+  import { ASSET, referenceName } from '../references'
   import type { MediaKind } from '../editor'
 
   let {
@@ -26,8 +34,15 @@
   // replaced so picking several files in a row doesn't leak object URLs.
   let localPreview = $state('')
 
+  // An asset: reference previews the file it names, once the library
+  // listing that says where that file is served has loaded
+  const assetName = $derived(referenceName(location, ASSET))
+  $effect(() => {
+    if (assetName) ensureAssetLibrary()
+  })
   const previewSrc = $derived(
     localPreview ||
+      (assetName ? (assetNamed(assetName)?.url ?? '') : '') ||
       (location.startsWith('http://') ||
       location.startsWith('https://') ||
       location.startsWith('/')
@@ -58,6 +73,8 @@
       const result = await api.uploadMedia(file)
       onchange(result.reference ?? result.url)
       setLocalPreview(result.url)
+      // So the upload is among what an asset: completion offers next
+      void loadAssetLibrary()
     } catch (err) {
       error = err instanceof Error ? err.message : 'upload failed'
     } finally {
@@ -68,12 +85,16 @@
 
 <div class="media">
   <div class="row1">
-    <input
+    <Suggest
       {id}
-      autocomplete="off"
-      placeholder={`${kind} path or URL`}
+      class="mediafield"
+      placeholder={`${ASSET}name, ${kind} path or URL`}
       value={location}
-      onchange={(e) => onchange(e.currentTarget.value)}
+      complete={(text) => referenceCompletions(text, kind)}
+      onchange={(value) => {
+        setLocalPreview('')
+        onchange(value)
+      }}
     />
     <button
       type="button"
@@ -123,7 +144,7 @@
     gap: 0.35rem;
     align-items: center;
   }
-  .row1 input {
+  .row1 :global(input.mediafield) {
     flex: 1;
     min-width: 0;
   }

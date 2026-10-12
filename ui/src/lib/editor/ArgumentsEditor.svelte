@@ -16,6 +16,7 @@
   } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
+  import { referenceCompletions } from '../refcomplete.svelte'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -144,6 +145,7 @@
             id={`${uid}-${key}`}
             class={isReference(args[key]) ? 'ref' : ''}
             {suggestions}
+            complete={(text) => referenceCompletions(text)}
             title={promptTooltip(args[key], promptLibrary.texts)}
             value={displayValue(args[key])}
             onchange={(value) => update(key, value)}

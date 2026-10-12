@@ -25,9 +25,9 @@ describe('ArgumentsEditor media arguments', () => {
       screen.getByRole('button', { name: /browse for a local image file/i }),
     ).toBeInTheDocument()
     // the location itself is still a plain, directly-editable text input
-    expect(screen.getByPlaceholderText('image path or URL')).toHaveValue(
-      'photo.png',
-    )
+    expect(
+      screen.getByPlaceholderText('asset:name, image path or URL'),
+    ).toHaveValue('photo.png')
   })
 
   it('leaves a non-image argument as an ordinary text input', () => {
@@ -41,7 +41,10 @@ describe('ArgumentsEditor media arguments', () => {
     ).not.toBeInTheDocument()
     const input = screen.getByDisplayValue('a scenic landscape')
     expect(input.tagName).toBe('INPUT')
-    expect(input).not.toHaveAttribute('placeholder', 'image path or URL')
+    expect(input).not.toHaveAttribute(
+      'placeholder',
+      'asset:name, image path or URL',
+    )
   })
 
   it('picking a file uploads it and writes the asset reference into the argument', async () => {

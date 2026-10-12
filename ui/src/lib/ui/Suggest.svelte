@@ -1,15 +1,21 @@
 <script lang="ts">
   import { Combobox } from 'bits-ui'
+  import type { SuggestItem } from './suggest'
 
   let {
     value = $bindable(''),
     suggestions = [],
+    complete = undefined,
     onchange = undefined,
     oninput = undefined,
     ...rest
   }: {
     value?: string
     suggestions?: readonly string[]
+    /** Rows for what has been typed so far, in place of `suggestions` -
+     * or null to fall back on them. How a field offers a library once a
+     * reference prefix starts it, searched and shown with thumbnails */
+    complete?: (text: string) => SuggestItem[] | null
     /** The committed value: a chosen suggestion, or typed text on change */
     onchange?: (value: string) => void
     /** Each keystroke's text, for a caller that drafts as it goes */
@@ -22,11 +28,14 @@
   // A long class list is offered a page at a time; typing narrows it
   const MAX_SHOWN = 50
 
-  function matching(text: string): string[] {
+  function matching(text: string): SuggestItem[] {
+    const completed = complete?.(text)
+    if (completed) return completed.slice(0, MAX_SHOWN)
     const query = text.toLowerCase()
     return suggestions
       .filter((s) => s.toLowerCase().includes(query))
       .slice(0, MAX_SHOWN)
+      .map((value) => ({ value }))
   }
 
   let open = $state(false)
@@ -37,6 +46,16 @@
   // row only when the user arrowed to it; otherwise the typed text stands
   let picked = $state('')
   let navigated = false
+  // Typed text whose rows had not arrived yet - a library still loading on
+  // the first keystroke of a reference. When they land, the list opens
+  // for it rather than waiting for the next keystroke
+  let awaiting = $state(false)
+  $effect(() => {
+    if (awaiting && shown.length) {
+      open = true
+      awaiting = false
+    }
+  })
 </script>
 
 <!-- Free text with suggestions, as a <datalist> offered: what is typed is
@@ -62,6 +81,14 @@
       navigated = false
       oninput?.(value)
       open = matching(value).length > 0
+      awaiting = !open && !!complete?.(value)
+    }}
+    onblur={() => (awaiting = false)}
+    onfocus={() => {
+      // A field whose completion has rows before anything is typed (the
+      // stored-prompt search) shows them on focus; plain suggestions wait
+      // for typing, so focusing a field never pops a list over it
+      if (complete?.(value ?? '')?.length) open = true
     }}
     onkeydown={(e) => {
       if (e.key === 'ArrowDown' || e.key === 'ArrowUp') navigated = true
@@ -78,9 +105,22 @@
   {#if shown.length}
     <Combobox.Portal>
       <Combobox.Content class="ui-suggest panel">
-        {#each shown as suggestion (suggestion)}
-          <Combobox.Item value={suggestion} label={suggestion}>
-            {suggestion}
+        {#each shown as item (item.value)}
+          <Combobox.Item
+            value={item.value}
+            label={item.value}
+            class={item.thumb || item.glyph || item.detail ? 'rich' : ''}
+          >
+            {#if item.thumb}
+              <img class="thumb" src={item.thumb} alt="" loading="lazy" />
+            {:else if item.glyph}
+              <span class="thumb glyph" aria-hidden="true">{item.glyph}</span>
+            {/if}
+            <span class="text">
+              <span class="name">{item.label ?? item.value}</span>
+              {#if item.detail}<span class="detail">{item.detail}</span>{/if}
+            </span>
+            {#if item.badge}<span class="badge">{item.badge}</span>{/if}
           </Combobox.Item>
         {/each}
       </Combobox.Content>

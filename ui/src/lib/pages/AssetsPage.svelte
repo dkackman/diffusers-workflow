@@ -19,6 +19,7 @@
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
   import { sharedHref } from '../routes'
+  import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
   import AssetDetail from '../assets/AssetDetail.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
@@ -66,6 +67,10 @@
       .listAssets()
       .then((result) => {
         assets = result.assets
+        // The editors' asset: completions read the same listing; an
+        // upload or delete here is what they offer next
+        assetLibrary.assets = result.assets
+        assetLibrary.workspace = workspace.current
         libraries = result.libraries
         shadowed = result.shadowed
         error = ''

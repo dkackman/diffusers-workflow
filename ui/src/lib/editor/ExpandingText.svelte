@@ -3,6 +3,8 @@
   import { Ellipsis, Minimize2 } from '@lucide/svelte'
   import { isLongText } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
+  import { promptChoices } from '../refcomplete.svelte'
+  import type { SuggestItem } from '../ui/suggest'
 
   let {
     id,
@@ -10,6 +12,7 @@
     placeholder = '',
     refStyle = false,
     suggestions = [],
+    complete = undefined,
     title = '',
     alwaysExpandable = false,
     onchange,
@@ -21,6 +24,8 @@
     placeholder?: string
     refStyle?: boolean
     suggestions?: readonly string[]
+    /** Library rows once a reference prefix is typed (see Suggest) */
+    complete?: (text: string) => SuggestItem[] | null
     title?: string
     /** Offer the expand affordance even while the text is still short -
      * for fields that exist to hold documents (prompts). */
@@ -75,21 +80,22 @@
       <Minimize2 size={13} />
     </button>
     {#if onpromptpick && promptLibrary.names?.length}
-      <select
-        class="promptpick"
-        title="replace this text with a stored prompt from the library"
-        onchange={(e) => {
-          if (!e.currentTarget.value) return
-          onpromptpick(e.currentTarget.value)
-          e.currentTarget.value = ''
-          expanded = false
-        }}
-      >
-        <option value="">use a stored prompt…</option>
-        {#each promptLibrary.names ?? [] as promptName (promptName)}
-          <option value={promptName}>{promptName}</option>
-        {/each}
-      </select>
+      <!-- Searched by name, text and tags, each row showing the prompt's
+           first line: a long library is found by what it says -->
+      <div class="promptpick">
+        <Suggest
+          id="{id}-promptpick"
+          placeholder="use a stored prompt…"
+          title="replace this text with a stored prompt from the library"
+          aria-label="search the stored prompts"
+          complete={promptChoices}
+          onchange={(name) => {
+            if (!promptLibrary.names?.includes(name)) return
+            onpromptpick(name)
+            expanded = false
+          }}
+        />
+      </div>
     {/if}
   </div>
 {:else}
@@ -98,6 +104,7 @@
       {id}
       class={[refStyle && 'ref', expandable && 'roomy']}
       {suggestions}
+      {complete}
       {title}
       {placeholder}
       {value}
@@ -151,7 +158,7 @@
   }
   .promptpick {
     align-self: flex-start;
-    max-width: 260px;
+    width: min(320px, 100%);
     font-size: 0.8rem;
   }
 </style>

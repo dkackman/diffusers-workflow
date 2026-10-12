@@ -607,3 +607,46 @@ button.frame:hover {
 .ui-suggest [data-combobox-item][data-highlighted] {
   background: var(--panel-2);
 }
+/* A row with more than its value: a thumbnail or glyph, the name over a
+   quieter line of what it stands for, and which library it came from */
+.ui-suggest [data-combobox-item].rich {
+  display: flex;
+  align-items: center;
+  gap: var(--space-2);
+}
+.ui-suggest .thumb {
+  flex: none;
+  width: 32px;
+  height: 32px;
+  object-fit: cover;
+  border-radius: 3px;
+  border: 1px solid var(--line);
+  background: var(--sunk);
+}
+.ui-suggest .glyph {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--muted);
+}
+.ui-suggest .text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+  flex: 1;
+}
+.ui-suggest .name,
+.ui-suggest .detail {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.ui-suggest .detail {
+  font-family: var(--font-sans);
+  color: var(--muted);
+  font-size: 0.75rem;
+}
+.ui-suggest .badge {
+  flex: none;
+  color: var(--muted);
+  font-size: 0.7rem;
+}

@@ -125,3 +125,40 @@ it('takes the same suggestion again after the text was edited', async () => {
   await waitFor(() => expect(input.value).toBe('FluxPipeline'))
   expect(onchange).toHaveBeenCalledTimes(2)
 })
+
+it('shows rows from `complete` in place of its suggestions', async () => {
+  const complete = (text: string) =>
+    text.startsWith('asset:')
+      ? [
+          {
+            value: 'asset:cast/priya.png',
+            label: 'cast/priya.png',
+            thumb: '/inputs/cast/priya.png',
+            detail: 'the lead',
+            badge: 'shared',
+          },
+        ]
+      : null
+  const onchange = vi.fn()
+  render(Suggest, {
+    props: { id: 'v', value: '', suggestions, complete, onchange },
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'asset:' } })
+  const option = await waitFor(() =>
+    screen.getByRole('option', { name: /cast\/priya\.png/, hidden: true }),
+  )
+  expect(option.textContent).toContain('the lead')
+  expect(option.textContent).toContain('shared')
+  expect(option.querySelector('img')?.getAttribute('src')).toBe(
+    '/inputs/cast/priya.png',
+  )
+  await fireEvent.pointerUp(option)
+  await fireEvent.click(option)
+  await waitFor(() => expect(input.value).toBe('asset:cast/priya.png'))
+  expect(onchange).toHaveBeenLastCalledWith('asset:cast/priya.png')
+
+  // Where `complete` has nothing to say, the plain suggestions stand
+  await fireEvent.input(input, { target: { value: 'flux' } })
+  await waitFor(() => expect(options()).toEqual(['FluxPipeline']))
+})

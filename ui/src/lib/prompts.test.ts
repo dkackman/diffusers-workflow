@@ -5,7 +5,6 @@ import {
   manifestTextFile,
   parseTags,
   presetForIntendedModel,
-  promptSuggestions,
   promptTooltip,
   workflowsReferencing,
 } from './prompts'
@@ -93,28 +92,6 @@ describe('promptTooltip', () => {
     expect(promptTooltip('prompt:unknown', texts)).toBeUndefined()
     expect(promptTooltip(42, texts)).toBeUndefined()
     expect(promptTooltip(undefined, texts)).toBeUndefined()
-  })
-})
-
-describe('promptSuggestions', () => {
-  const names = ['scenic', 'cast/priya']
-  it('offers the stored prompts once the value commits to prompt:', () => {
-    expect(promptSuggestions('prompt:', names)).toEqual([
-      'prompt:scenic',
-      'prompt:cast/priya',
-    ])
-    expect(promptSuggestions('prompt:sce', names)).toHaveLength(2)
-  })
-
-  it('offers nothing before that, so no list pops over ordinary text', () => {
-    for (const value of [
-      'prom',
-      'a cat wearing a hat',
-      'variable:prompt',
-      42,
-      undefined,
-    ])
-      expect(promptSuggestions(value, names)).toEqual([])
   })
 })
 

@@ -4,7 +4,8 @@
   import ExpandingText from './ExpandingText.svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
-  import { promptSuggestions, promptTooltip } from '../prompts'
+  import { promptTooltip } from '../prompts'
+  import { referenceCompletions } from '../refcomplete.svelte'
 
   let {
     mode,
@@ -22,9 +23,6 @@
 
   const keys = $derived(Object.keys(variables ?? {}))
 
-  // Raw text as typed, per variable - the committed value only updates on
-  // blur, and the prompt datalist should attach as soon as prompt: is typed
-  let drafts = $state<Record<string, string>>({})
   let newVariable = $state('')
 
   function shown(key: string): string {
@@ -49,9 +47,10 @@
     variables[key] = coerce(widgetFor(undefined, variables[key]), raw)
   }
 
+  // An override is live as it is typed, so Run takes what is in the box
+  // even before it blurs; a definition commits on change, coerced
   function draft(key: string, raw: string) {
     if (mode === 'override') overrides[key] = raw
-    else drafts[key] = raw
   }
 
   function addVariable() {
@@ -73,10 +72,7 @@
       value={shown(key)}
       placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
       refStyle={isReference(effective(key))}
-      suggestions={promptSuggestions(
-        mode === 'override' ? effective(key) : (drafts[key] ?? variables[key]),
-        promptLibrary.names ?? [],
-      )}
+      complete={(text) => referenceCompletions(text)}
       title={promptTooltip(effective(key), promptLibrary.texts)}
       oninput={(raw) => draft(key, raw)}
       onchange={(raw) => commit(key, raw)}

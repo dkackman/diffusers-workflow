@@ -40,3 +40,31 @@ it('revokes the local preview blob URL when the component is destroyed', async (
   unmount()
   expect(revokeObjectURL).toHaveBeenCalledWith('blob:preview-1')
 }, 20000)
+
+it('previews the file an asset: reference names', async () => {
+  const { assetLibrary } = await import('../assetlib.svelte')
+  const { workspace } = await import('../workspace.svelte')
+  assetLibrary.workspace = workspace.current
+  assetLibrary.assets = [
+    {
+      name: 'cast/priya.png',
+      reference: 'asset:cast/priya.png',
+      folder: 'cast',
+      kind: 'image',
+      size: 1,
+      mtime: 1,
+      origin: 'common',
+      writable: true,
+      url: '/inputs/cast/priya.png',
+    },
+  ]
+  const { container } = render(MediaArgumentInput, {
+    id: 'arg-image',
+    kind: 'image',
+    location: 'asset:cast/priya.png',
+    onchange: () => {},
+  })
+  expect(container.querySelector('.preview img')?.getAttribute('src')).toBe(
+    '/inputs/cast/priya.png',
+  )
+})
