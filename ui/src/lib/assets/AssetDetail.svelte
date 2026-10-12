@@ -3,6 +3,8 @@
   import CopyButton from '../CopyButton.svelte'
   import type { AssetFile } from '../types'
   import { formatBytes, formatMtime } from '../format'
+  import { wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
 
   // The popout for the one asset picked: its reference to copy, the file,
   // and a delete unless a read-only library brought it
@@ -61,6 +63,15 @@
       aria-label="close details"><X size={14} /></button
     >
   </div>
+  {#if asset.used_by?.length}
+    <p class="usedby muted">
+      used by
+      {#each asset.used_by as name, i (name)}{i ? ', ' : ''}<a
+          href={wsHref(workspace.current, 'workflows', ...name.split('/'))}
+          >{name}</a
+        >{/each}
+    </p>
+  {/if}
   <div class="body">
     {#if asset.kind === 'image'}
       <img src={asset.url} alt={asset.name} />
@@ -76,6 +87,10 @@
 </div>
 
 <style>
+  .usedby {
+    margin: 0 0 var(--space-2);
+    font-size: var(--t-sm);
+  }
   /* The gallery's popout: it rides the bottom of the viewport while the
      grid scrolls behind it. Sitting at the end of the document instead
      would put it off screen for any click above the fold */

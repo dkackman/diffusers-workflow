@@ -12,7 +12,9 @@ from typing import Optional
 
 from fastapi import HTTPException, Request
 
-from ..security import SecurityError
+from .. import references
+from ..realize import strings_with_prefix
+from ..security import SecurityError, validate_asset_reference
 from ..vram_inheritance import build_index, inherited_differences, template_identity
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
@@ -169,6 +171,36 @@ def ceiling_index(state, ws):
     index = build_index([(name, definition) for name, definition, _ in catalog])
     state.ceiling_indexes[ws.name] = (catalog, index)
     return index
+
+
+def asset_users(state, ws):
+    """Which of this workspace's own workflows name each asset: `{asset name:
+    [workflow name, ...]}`, over the writable libraries of its search path -
+    the population the Workflows page lists, not the read-only examples.
+
+    Read off every `asset:` string a definition holds, variable defaults
+    included, the way an export collects them (`dw/server/exports.py`). A
+    reference the definition builds at run time, or one a run passes as an
+    argument, is not seen. Cached per catalog listing, as `ceiling_index` is.
+    """
+    catalog = _catalog_listing(state, ws)
+    cached = state.asset_users.get(ws.name)
+    if cached and cached[0] is catalog:
+        return cached[1]
+    users = {}
+    for name, definition, writable in catalog:
+        if not writable:
+            continue
+        for reference in strings_with_prefix(definition, references.ASSET):
+            try:
+                asset = validate_asset_reference(
+                    references.ref_name(references.ASSET, reference).strip()
+                )
+            except SecurityError:
+                continue
+            users.setdefault(asset, []).append(name)
+    state.asset_users[ws.name] = (catalog, users)
+    return users
 
 
 def _pipeline_steps(definition):

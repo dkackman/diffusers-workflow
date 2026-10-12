@@ -159,6 +159,14 @@
             "title": "Url",
             "type": "string"
           },
+          "used_by": {
+            "description": "This workspace's own workflows that name it in an `asset:` reference, when any do",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
+          },
           "writable": {
             "title": "Writable",
             "type": "boolean"
@@ -4696,7 +4704,7 @@
   "paths": {
     "/api/assets": {
       "get": {
-        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.",
+        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.\n\n`used_by` names the workspace's own workflows that reference an asset\n(`asset_users`) - what lets a workspace show the shared assets it\nactually uses rather than the whole shared library.",
         "operationId": "list_assets_api_assets_get",
         "parameters": [
           {

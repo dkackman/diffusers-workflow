@@ -37,10 +37,12 @@
     <span class="muted" title="read-only: this server cannot write to it"
       >read-only</span
     >
-  {:else if section.origin === 'common'}
+  {:else if section.origin === 'common' && shared}
+    <!-- Only on the Shared assets page: a workspace's page shows just the
+         shared assets its workflows use, so an upload there would vanish
+         from the section it was made in -->
     <button
       class="withicon"
-      class:quiet={!shared}
       onclick={() => onupload('shared')}
       disabled={busy}
       title="lands in the shared library - visible from every workspace under this root and cannot be moved afterwards"

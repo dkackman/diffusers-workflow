@@ -869,6 +869,10 @@ class AssetFile(ApiModel):
     writable: bool
     url: str
     absolute_url: str = sometimes()
+    used_by: list[str] = sometimes(
+        "This workspace's own workflows that name it in an `asset:` reference, "
+        "when any do"
+    )
 
 
 class ShadowedAsset(ApiModel):

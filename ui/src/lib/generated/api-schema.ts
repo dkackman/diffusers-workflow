@@ -25,6 +25,10 @@ export interface paths {
          *     `prefix` keeps the assets (and shadowed names) whose name starts with
          *     it; `limit` then keeps the newest that many. `total` is what matched
          *     before the cut, so a caller can tell a bounded answer from a complete one.
+         *
+         *     `used_by` names the workspace's own workflows that reference an asset
+         *     (`asset_users`) - what lets a workspace show the shared assets it
+         *     actually uses rather than the whole shared library.
          */
         get: operations["list_assets_api_assets_get"];
         put?: never;
@@ -1802,6 +1806,11 @@ export interface components {
             size: number;
             /** Url */
             url: string;
+            /**
+             * Used By
+             * @description This workspace's own workflows that name it in an `asset:` reference, when any do
+             */
+            used_by?: string[];
             /** Writable */
             writable: boolean;
         };

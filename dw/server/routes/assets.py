@@ -38,6 +38,7 @@ from ...library import ReadOnlyLibraryError, shadowed_listing
 from ...workspace import Workspace, forget_workspace_usage
 from ..deps import (
     asset_library_missing,
+    asset_users,
     selected_workspace,
     writable_asset_directory,
 )
@@ -219,6 +220,10 @@ def list_assets(
     `prefix` keeps the assets (and shadowed names) whose name starts with
     it; `limit` then keeps the newest that many. `total` is what matched
     before the cut, so a caller can tell a bounded answer from a complete one.
+
+    `used_by` names the workspace's own workflows that reference an asset
+    (`asset_users`) - what lets a workspace show the shared assets it
+    actually uses rather than the whole shared library.
     """
     library = workspace_asset_library(request.app.state, ws)
     if not library.roots():
@@ -267,6 +272,7 @@ def list_assets(
             "writable": root.writable,
         }
 
+    users = asset_users(request.app.state, ws)
     assets = []
     for name, root in winners.items():
         asset_path = f"/inputs/{quote(name)}"
@@ -276,6 +282,8 @@ def list_assets(
         absolute_url = absolute_served_url(asset_path, ws)
         if absolute_url is not None:
             asset_entry["absolute_url"] = absolute_url
+        if name in users:
+            asset_entry["used_by"] = users[name]
         assets.append(asset_entry)
     assets.sort(key=lambda entry: entry["mtime"], reverse=True)
     if prefix:
