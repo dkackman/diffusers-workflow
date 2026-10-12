@@ -1,7 +1,17 @@
 <script lang="ts">
   import { onDestroy } from 'svelte'
-  import { Upload } from '@lucide/svelte'
+  import { Images, Upload } from '@lucide/svelte'
+  import MediaPicker from '../assets/MediaPicker.svelte'
   import { api } from '../api'
+  import Suggest from '../ui/Suggest.svelte'
+  import {
+    assetNamed,
+    ensureAssetLibrary,
+    loadAssetLibrary,
+  } from '../assetlib.svelte'
+  import { referenceCompletions } from '../refcomplete.svelte'
+  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
   import type { MediaKind } from '../editor'
 
   let {
@@ -20,14 +30,29 @@
 
   let fileInput: HTMLInputElement | undefined = $state()
   let uploading = $state(false)
+  let browsing = $state(false)
   let error = $state('')
   // A locally-generated preview URL (object URL for a just-picked file, or
   // the location itself when it is already web-reachable). Cleaned up when
   // replaced so picking several files in a row doesn't leak object URLs.
   let localPreview = $state('')
 
+  // An asset: or output: reference previews the file it names, once the
+  // listing that says where that file is served has loaded
+  const outputName = $derived(referenceName(location, OUTPUT))
+  $effect(() => {
+    if (outputName) ensureOutputLibrary()
+  })
+  // An asset: reference likewise, from the asset library
+  // listing that says where that file is served has loaded
+  const assetName = $derived(referenceName(location, ASSET))
+  $effect(() => {
+    if (assetName) ensureAssetLibrary()
+  })
   const previewSrc = $derived(
     localPreview ||
+      (assetName ? (assetNamed(assetName)?.url ?? '') : '') ||
+      (outputName ? (outputNamed(outputName)?.url ?? '') : '') ||
       (location.startsWith('http://') ||
       location.startsWith('https://') ||
       location.startsWith('/')
@@ -58,6 +83,8 @@
       const result = await api.uploadMedia(file)
       onchange(result.reference ?? result.url)
       setLocalPreview(result.url)
+      // So the upload is among what an asset: completion offers next
+      void loadAssetLibrary()
     } catch (err) {
       error = err instanceof Error ? err.message : 'upload failed'
     } finally {
@@ -66,15 +93,38 @@
   }
 </script>
 
+<MediaPicker
+  bind:open={browsing}
+  {kind}
+  current={location}
+  onpick={(value) => {
+    setLocalPreview('')
+    onchange(value)
+  }}
+/>
+
 <div class="media">
   <div class="row1">
-    <input
+    <Suggest
       {id}
-      autocomplete="off"
-      placeholder={`${kind} path or URL`}
+      class="mediafield"
+      placeholder={`${ASSET}name, ${kind} path or URL`}
       value={location}
-      onchange={(e) => onchange(e.currentTarget.value)}
+      complete={(text) => referenceCompletions(text, kind)}
+      onchange={(value) => {
+        setLocalPreview('')
+        onchange(value)
+      }}
     />
+    <button
+      type="button"
+      class="quiet icon"
+      title={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
+      aria-label={`choose ${kind === 'image' ? 'an image' : 'a video'} from the assets or earlier runs`}
+      onclick={() => (browsing = true)}
+    >
+      <Images size={14} />
+    </button>
     <button
       type="button"
       class="quiet icon"
@@ -123,7 +173,7 @@
     gap: 0.35rem;
     align-items: center;
   }
-  .row1 input {
+  .row1 :global(input.mediafield) {
     flex: 1;
     min-width: 0;
   }

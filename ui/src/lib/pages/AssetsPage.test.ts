@@ -27,6 +27,9 @@ const asset = (
   origin,
   writable: origin !== 'examples',
   url: `/inputs/${name}`,
+  // A workflow of the workspace's names it, so a workspace's page shows a
+  // shared one; the tests about an unused shared asset drop this
+  used_by: ['portrait'],
 })
 
 // An entry a nearer library hides: an asset's shape minus the `url` the
@@ -124,9 +127,9 @@ afterEach(() => {
   workspace.current = DEFAULT_WORKSPACE
 })
 
-async function renderAssets(first = 'iris.png') {
+async function renderAssets(first = 'iris.png', shared = false) {
   render(ConfirmDialog)
-  render(AssetsPage)
+  render(AssetsPage, { shared })
   await waitFor(() => expect(screen.getByText(first)).toBeTruthy())
 }
 
@@ -369,8 +372,10 @@ it('downloads the ticked assets as one zip', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /download \.zip/i }))
-  screen.getByRole('button', { name: /download \.zip/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /download the selected/i }),
+  )
+  screen.getByRole('button', { name: /download the selected/i }).click()
 
   await waitFor(() => expect(archiveAssets).toHaveBeenCalledTimes(1))
   // The order the grid shows them in, not the order they were ticked
@@ -382,8 +387,10 @@ it('deletes every ticked asset and refetches once', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
   await waitFor(() => expect(deleteAsset).toHaveBeenCalledTimes(2))
@@ -405,8 +412,10 @@ it('keeps an asset that would not delete in the selection', async () => {
 
   screen.getByLabelText('select iris.png').click()
   screen.getByLabelText('select cast/priya.jpg').click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await answerConfirm(true)
 
   await waitFor(() => expect(notifyError).toHaveBeenCalled())
@@ -473,7 +482,8 @@ it('uploads into the workspace from the workspace section', async () => {
 
 it('uploads into the shared library from the shared section', async () => {
   listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
-  await renderAssets()
+  listing.assets = [asset('shared/logo.png', 'common')]
+  await renderAssets('logo.png', true)
 
   screen.getByRole('button', { name: /Upload to shared/ }).click()
   const file = chooseFile()
@@ -508,8 +518,10 @@ it('says nothing about a shared library when nothing shared is picked', async ()
   await renderAssets()
 
   screen.getByRole('button', { name: /select all \(2\)/i }).click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain(
@@ -529,8 +541,10 @@ it('counts the shared assets in a bulk delete confirm', async () => {
   await renderAssets()
 
   screen.getByRole('button', { name: /select all \(3\)/i }).click()
-  await waitFor(() => screen.getByRole('button', { name: /^delete$/i }))
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  await waitFor(() =>
+    screen.getByRole('button', { name: /^delete the selected/i }),
+  )
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
 
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   expect(dialog.textContent).toContain(
@@ -557,4 +571,64 @@ it('the shared view hides the workspace section and makes shared upload the fill
   // The hint must not describe a workspace section the view does not show
   expect(screen.queryByText(/only this workspace's own section/)).toBeNull()
   expect(screen.getByText(/an examples library is read-only/)).toBeTruthy()
+})
+
+// A workspace's page shows the shared library only as far as the workspace's
+// own workflows reach into it; the whole of it is the Shared assets page's
+
+it("leaves out a shared asset none of the workspace's workflows use", async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [
+    asset('iris.png'),
+    asset('cast/priya.png', 'common'),
+    { ...asset('unused.png', 'common'), used_by: undefined },
+  ]
+  await renderAssets()
+
+  expect(screen.getByText('priya.png')).toBeTruthy()
+  expect(screen.queryByText('unused.png')).toBeNull()
+  expect(screen.getByText(/Shared library, used here/)).toBeTruthy()
+  // The rest are a link away, counted
+  const link = screen.getByRole('link', { name: /shared/ })
+  expect(link.getAttribute('href')).toContain('shared/assets')
+  expect(link.textContent).toContain('2')
+})
+
+it('drops the shared section when the workspace uses nothing from it', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [
+    asset('iris.png'),
+    { ...asset('unused.png', 'common'), used_by: undefined },
+  ]
+  await renderAssets()
+
+  const labels = [...document.querySelectorAll('.library')].map(
+    (node) => node.textContent,
+  )
+  expect(labels.some((label) => label?.includes('Shared library'))).toBe(false)
+  expect(screen.queryByRole('button', { name: /Upload to shared/ })).toBeNull()
+})
+
+it('lists every shared asset on the Shared assets page', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [
+    asset('iris.png'),
+    { ...asset('unused.png', 'common'), used_by: undefined },
+  ]
+  await renderAssets('unused.png', true)
+
+  expect(screen.queryByText('iris.png')).toBeNull()
+  expect(screen.getByRole('button', { name: /Upload to shared/ })).toBeTruthy()
+})
+
+it('names the workflows that use an asset in its details', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [
+    { ...asset('cast/priya.png', 'common'), used_by: ['portrait', 'ep/two'] },
+  ]
+  await renderAssets('priya.png')
+  screen.getByLabelText('show details for cast/priya.png').click()
+
+  const link = await waitFor(() => screen.getByRole('link', { name: 'ep/two' }))
+  expect(link.getAttribute('href')).toContain('workflows/ep/two')
 })

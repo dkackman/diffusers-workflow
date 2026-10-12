@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Images, Inbox, Layers, Plus } from '@lucide/svelte'
+  import { Images, Inbox, Layers, Play, Plus, Trash2 } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import { formatBytes } from '../format'
@@ -78,7 +78,14 @@
       })
     api
       .listWorkflows()
-      .then((r) => (workflows = r.workflows))
+      // The workspace's own, as the Workflows page lists them - the
+      // read-only examples have their own page
+      .then(
+        (r) =>
+          (workflows = r.workflows.filter(
+            (wf) => r.details?.[wf]?.writable !== false,
+          )),
+      )
       .catch((e) => {
         workflows = []
         workflowsError = errorMessage(e)
@@ -151,12 +158,13 @@
               alt={file.label}
               loading="lazy"
             />
-          {:else if file.kind === 'video'}<video
-              src={file.url}
-              muted
-              playsinline
-              preload="metadata"
-            ></video>
+          {:else if file.kind === 'video'}<img
+              src={api.galleryThumbnailUrl(file.name)}
+              alt={file.label}
+              loading="lazy"
+            /><span class="videobadge" aria-hidden="true"
+              ><Play size={11} /></span
+            >
           {:else}<span class="muted">{file.label}</span>{/if}
         </a>
       {/each}
@@ -206,9 +214,10 @@
       {#if workflows}<span class="num muted">{workflows.length}</span>{/if}
       <span class="flex"></span>
       <a
-        class="button withicon new"
+        class="quiet icon plain"
         href={wsHref(name, 'edit')}
-        title="new workflow"><Plus size={15} /> New workflow</a
+        title="new workflow"
+        aria-label="new workflow"><Plus size={15} /></a
       >
     </h2>
     {#if workflowsError}
@@ -234,12 +243,13 @@
                     alt=""
                     loading="lazy"
                   />
-                {:else}<video
-                    src={proofs[wf].url}
-                    muted
-                    playsinline
-                    preload="metadata"
-                  ></video>{/if}
+                {:else}<img
+                    src={api.galleryThumbnailUrl(proofs[wf].name)}
+                    alt=""
+                    loading="lazy"
+                  /><span class="videobadge" aria-hidden="true"
+                    ><Play size={11} /></span
+                  >{/if}
               </span>
             {/if}
             <span class="cardname">{leaf(wf)}</span>
@@ -277,14 +287,15 @@
       server. The prompt library and the shared asset library are untouched.
     </p>
     <button
-      class="quiet danger"
+      class="quiet icon danger"
       onclick={() => deleteWorkspaceWithConfirm(name)}
       disabled={name === DEFAULT_WORKSPACE}
       title={name === DEFAULT_WORKSPACE
         ? 'the default workspace is the root itself and cannot be deleted'
         : 'delete this workspace and everything in it'}
+      aria-label="delete workspace {name}"
     >
-      Delete workspace
+      <Trash2 size={14} />
     </button>
   </section>
 </div>
@@ -311,10 +322,6 @@
     display: inline-flex;
     align-items: center;
     gap: 0.35rem;
-  }
-  .new {
-    font-family: var(--font-sans);
-    font-size: var(--t-sm);
   }
   .two {
     display: grid;
@@ -383,13 +390,13 @@
   }
   .cardframe {
     display: block;
+    position: relative;
     aspect-ratio: 4 / 3;
     background: var(--panel-2);
     border-bottom: 1px solid var(--line);
     overflow: hidden;
   }
-  .cardframe img,
-  .cardframe video {
+  .cardframe img {
     width: 100%;
     height: 100%;
     object-fit: cover;

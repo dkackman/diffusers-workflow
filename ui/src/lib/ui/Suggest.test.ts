@@ -125,3 +125,75 @@ it('takes the same suggestion again after the text was edited', async () => {
   await waitFor(() => expect(input.value).toBe('FluxPipeline'))
   expect(onchange).toHaveBeenCalledTimes(2)
 })
+
+it('shows rows from `complete` in place of its suggestions', async () => {
+  const complete = (text: string) =>
+    text.startsWith('asset:')
+      ? [
+          {
+            value: 'asset:cast/priya.png',
+            label: 'cast/priya.png',
+            thumb: '/inputs/cast/priya.png',
+            detail: 'the lead',
+            badge: 'shared',
+          },
+        ]
+      : null
+  const onchange = vi.fn()
+  render(Suggest, {
+    props: { id: 'v', value: '', suggestions, complete, onchange },
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.input(input, { target: { value: 'asset:' } })
+  const option = await waitFor(() =>
+    screen.getByRole('option', { name: /cast\/priya\.png/, hidden: true }),
+  )
+  expect(option.textContent).toContain('the lead')
+  expect(option.textContent).toContain('shared')
+  expect(option.querySelector('img')?.getAttribute('src')).toBe(
+    '/inputs/cast/priya.png',
+  )
+  await fireEvent.pointerUp(option)
+  await fireEvent.click(option)
+  await waitFor(() => expect(input.value).toBe('asset:cast/priya.png'))
+  expect(onchange).toHaveBeenLastCalledWith('asset:cast/priya.png')
+
+  // Where `complete` has nothing to say, the plain suggestions stand
+  await fireEvent.input(input, { target: { value: 'flux' } })
+  await waitFor(() => expect(options()).toEqual(['FluxPipeline']))
+})
+
+it('keeps editing after a continuing row, and lists what it starts', async () => {
+  const complete = (text: string) =>
+    text === ''
+      ? [{ value: 'asset:', detail: 'a file', continues: true }]
+      : text === 'asset:'
+        ? [{ value: 'asset:iris.png' }]
+        : null
+  const onchange = vi.fn()
+  const oninput = vi.fn()
+  render(Suggest, {
+    props: { id: 'v', value: '', complete, onchange, oninput },
+  })
+  const input = screen.getByRole('combobox') as HTMLInputElement
+  await fireEvent.keyDown(input, { key: 'ArrowDown' })
+  const prefix = await waitFor(() =>
+    screen.getByRole('option', { name: /asset:/, hidden: true }),
+  )
+  await fireEvent.pointerUp(prefix)
+  await fireEvent.click(prefix)
+  await waitFor(() => expect(input.value).toBe('asset:'))
+  // a draft, not a commit: the field is still being written
+  expect(oninput).toHaveBeenLastCalledWith('asset:')
+  expect(onchange).not.toHaveBeenCalled()
+  await waitFor(() => expect(options()).toEqual(['asset:iris.png']))
+})
+
+it('opens on focus only when asked to', async () => {
+  const complete = () => [{ value: 'scenic' }]
+  render(Suggest, { props: { id: 'a', value: '', complete } })
+  await fireEvent.focus(screen.getByRole('combobox'))
+  expect(
+    screen.queryByRole('listbox', { hidden: true })?.getAttribute('data-state'),
+  ).not.toBe('open')
+})

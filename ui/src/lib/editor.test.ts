@@ -185,6 +185,60 @@ describe('referenceSuggestions', () => {
   })
 })
 
+describe('referenceSuggestions for for_each steps', () => {
+  const shots = [
+    { name: 'open', prompt: 'a', references: [] },
+    { name: 'close', prompt: 'b', seconds: 4 },
+  ]
+  const workflow = {
+    variables: { shots },
+    steps: [
+      { name: 'shot', for_each: 'variable:shots', pipeline: {} },
+      { name: 'grade', for_each: 'variable:shots', task: {} },
+      { name: 'join', task: {} },
+    ],
+  }
+
+  it('offers item: and every field an entry carries inside a for_each', () => {
+    const inShot = referenceSuggestions(workflow, 0)
+    expect(inShot).toEqual(
+      expect.arrayContaining([
+        'item:',
+        'item:name',
+        'item:prompt',
+        'item:references',
+        'item:seconds',
+      ]),
+    )
+    expect(referenceSuggestions(workflow, 2)).not.toContain('item:')
+  })
+
+  it('offers gather: and members of an earlier for_each step', () => {
+    const inJoin = referenceSuggestions(workflow, 2)
+    expect(inJoin).toContain('gather:shot')
+    expect(inJoin).toContain('previous_result:shot@open')
+    expect(inJoin).toContain('previous_result:shot@close')
+  })
+
+  it('offers a plain previous_result: to it only from a for_each over the same list', () => {
+    expect(referenceSuggestions(workflow, 1)).toContain('previous_result:shot')
+    expect(referenceSuggestions(workflow, 2)).not.toContain(
+      'previous_result:shot',
+    )
+  })
+
+  it('suggests nothing the dangling check would flag', () => {
+    for (const index of [1, 2]) {
+      const offered = referenceSuggestions(workflow, index).filter(
+        (s) => s.startsWith('previous_result:') || s.startsWith('gather:'),
+      )
+      const probe = structuredClone(workflow) as Record<string, any>
+      probe.steps[index].task = { arguments: { value: offered } }
+      expect(danglingReferences(probe)).toEqual([])
+    }
+  })
+})
+
 describe('danglingReferences', () => {
   it('flags undeclared variables and unknown or later steps', () => {
     const workflow = {

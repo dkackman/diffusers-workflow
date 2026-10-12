@@ -33,6 +33,7 @@ import type {
   ServerInfo,
   StoredPrompt,
   TaskList,
+  BuiltinWorkflows,
   Uploaded,
   ValidationResult,
   WorkflowDefinition,
@@ -54,6 +55,7 @@ import {
   scopeTo,
   scoped,
   withToken,
+  galleryThumbnailUrl,
 } from './apiUrls'
 
 // Pages and their test mocks import these from here
@@ -186,6 +188,8 @@ export const api = {
       body: JSON.stringify({ new_seed: newSeed }),
     }),
   listTasks: () => request<TaskList>('/api/tasks'),
+  listBuiltinWorkflows: () =>
+    request<BuiltinWorkflows>('/api/builtin-workflows'),
   describeTask: (command: string) =>
     request<PipelineDescription>(`/api/tasks/${encodeURIComponent(command)}`),
   moveJob: (id: string, direction: 'up' | 'down' | 'front' | 'back') =>
@@ -284,8 +288,7 @@ export const api = {
       undefined,
       { scope: workspace === undefined },
     ),
-  galleryThumbnailUrl: (name: string) =>
-    withToken(`/api/gallery/${encodePath(name)}/thumbnail`),
+  galleryThumbnailUrl,
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',

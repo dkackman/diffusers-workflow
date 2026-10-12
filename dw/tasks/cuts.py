@@ -839,19 +839,18 @@ def _song_length(args, transcript, beats, beats_duration, warnings):
     duration = args.duration_s or beats_duration
     chunks = _chunks(transcript, duration)
     if duration is None:
-        # Only the transcript says how long: to its last word, which is no
-        # end at all when that word's end is null
-        if not chunks or chunks[-1]["end"] is None:
+        # Only the transcript says how long: to the last word it kept (a
+        # hallucination over the fade-out is left out), if that word has an end
+        kept = [c for c in chunks if c.get("suspect") not in SUSPECT_LEFT_OUT]
+        if not kept or kept[-1]["end"] is None:
             raise ValueError(
                 f"{COMMAND} can't tell how long the song is - pass 'duration_s', "
                 "or the analyze_beats result as 'beats'"
             )
-        duration = max(chunk["end"] for chunk in chunks)
+        duration = max(chunk["end"] for chunk in kept)
         if beats is None:
             why = "no 'duration_s' or beats"
         else:
-            # 'previous_result:<step>' into 'beats' hands over only the
-            # analyze_beats result's 'beats' list, the key the argument names
             why = (
                 "no 'duration_s', and 'beats' is a bare list of times with no "
                 "duration_seconds (a previous_result: into 'beats' passes only "

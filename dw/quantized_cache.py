@@ -14,7 +14,8 @@ pins it in the environment its workers inherit (`configure_at_startup`).
 **The key** is a sha256 over the component's repo, subfolder, the commit of the
 snapshot the load reads, the quantizer config minus the arguments that do not
 change the stored weights (the devices and the quantized-matmul switches),
-`torch_dtype`, and the installed sdnq/diffusers/transformers/torch versions. A
+`torch_dtype`, the installed sdnq/diffusers/transformers/torch versions, and
+`KEY_VERSION`, the revision of how those inputs are derived. A
 stale hit silently gives the wrong weights, so the key errs complete: anything
 it cannot pin (a local path, a snapshot whose files are not all on disk, a
 commit the loaded object and the hub cache disagree on) is not cached.
@@ -34,8 +35,9 @@ config's `return_device`, which a pre-quantized load would otherwise ignore.
 
 **Limits:** a save that would leave less free than `min(50 GiB, 10% of the
 volume)` is skipped, and the server-start sweep deletes every entry built
-against other package versions. Nothing else evicts; clearing is
-from the server page or `DELETE /api/caches/quantized` (see dw/disk_caches.py).
+against other package versions or another `KEY_VERSION`. Nothing else evicts;
+clearing is from the server page or `DELETE /api/caches/quantized` (see
+dw/disk_caches.py).
 
 Every lookup and save emits a `quantized_cache` job event,
 `{component, result: hit|miss|saved|skipped, reason?, seconds, bytes}`, and
@@ -73,6 +75,14 @@ LOW_DISK_FLOOR_BYTES = 50 * 2**30
 LOW_DISK_FLOOR_FRACTION = 0.10
 
 VERSIONED_PACKAGES = ("sdnq", "diffusers", "transformers", "torch")
+
+# How the key's inputs are derived. Bump it when that changes - an entry saved
+# under the old derivation records matching versions but can never be hit
+# again, and the startup sweep deletes it only on a mismatch here. Entries
+# from before the field (none recorded) were keyed off the config after
+# sdnq's load had appended to it, and with sdnq's module lists in the
+# worker's hash order (#826): this is 2
+KEY_VERSION = 2
 
 # Quantizer arguments that place or run the weights rather than shape them -
 # the same int4 tensors come out whichever card quantized them, and a hit
@@ -211,6 +221,7 @@ def key_inputs(model_name, subfolder, commit, quantizer, torch_dtype):
         "quantizer": quantizer,
         "torch_dtype": None if torch_dtype is None else str(torch_dtype),
         "versions": installed_versions(),
+        "key_version": KEY_VERSION,
     }
 
 
@@ -436,8 +447,9 @@ def load_entry(root, key, model_cls, torch_dtype, device, config_arguments):
     return component
 
 
-def save_entry(root, key, component, inputs):
-    """Save a just-quantized component as `key`. Returns (result, reason,
+def save_entry(root, key, component, inputs, name=None):
+    """Save a just-quantized component as `key`, recording its `name` in
+    entry.json (the Caches panel labels the entry with it). Returns (result, reason,
     bytes) for the event: `saved`, or `skipped` with why. Never raises."""
     estimate = component_nbytes(component)
     try:
@@ -466,7 +478,14 @@ def save_entry(root, key, component, inputs):
         now = time.time()
         _write_json(
             os.path.join(tmp, ENTRY_FILE),
-            {**inputs, "key": key, "bytes": nbytes, "created": now, "last_hit": None},
+            {
+                **inputs,
+                "component": name,
+                "key": key,
+                "bytes": nbytes,
+                "created": now,
+                "last_hit": None,
+            },
         )
         try:
             os.rename(tmp, final)
@@ -547,9 +566,9 @@ def _child_path(root, name):
 
 
 def sweep(root):
-    """Delete every entry built against other package versions or with no
-    readable `entry.json`, and every leftover `*.tmp-*`. Returns (count,
-    bytes freed)."""
+    """Delete every entry built against other package versions or another
+    `KEY_VERSION`, or with no readable `entry.json`, and every leftover
+    `*.tmp-*`. Returns (count, bytes freed)."""
     if not os.path.isdir(root):
         return 0, 0
     versions = installed_versions()
@@ -562,7 +581,11 @@ def sweep(root):
             stale = True
         elif _KEY_PATTERN.match(name) and os.path.isdir(path):
             try:
-                stale = read_entry(path).get("versions") != versions
+                entry = read_entry(path)
+                stale = (
+                    entry.get("versions") != versions
+                    or entry.get("key_version") != KEY_VERSION
+                )
             except Exception:
                 stale = True
         else:
@@ -907,7 +930,9 @@ def _save(root, candidate, component):
         return
     inputs = candidate.inputs(commit)
     started = time.monotonic()
-    result, reason, nbytes = save_entry(root, cache_key(inputs), component, inputs)
+    result, reason, nbytes = save_entry(
+        root, cache_key(inputs), component, inputs, candidate.name
+    )
     emit(
         candidate.name,
         result,

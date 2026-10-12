@@ -1,10 +1,12 @@
 <script lang="ts">
   import { PROMPT, reference } from '../references'
-  import { Plus } from '@lucide/svelte'
+  import { Plus, Trash2 } from '@lucide/svelte'
   import ExpandingText from './ExpandingText.svelte'
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
-  import { promptSuggestions, promptTooltip } from '../prompts'
+  import { promptTooltip } from '../prompts'
+  import { referenceCompletions } from '../refcomplete.svelte'
+  import BrowseButton from '../assets/BrowseButton.svelte'
 
   let {
     mode,
@@ -22,9 +24,6 @@
 
   const keys = $derived(Object.keys(variables ?? {}))
 
-  // Raw text as typed, per variable - the committed value only updates on
-  // blur, and the prompt datalist should attach as soon as prompt: is typed
-  let drafts = $state<Record<string, string>>({})
   let newVariable = $state('')
 
   function shown(key: string): string {
@@ -49,9 +48,10 @@
     variables[key] = coerce(widgetFor(undefined, variables[key]), raw)
   }
 
+  // An override is live as it is typed, so Run takes what is in the box
+  // even before it blurs; a definition commits on change, coerced
   function draft(key: string, raw: string) {
     if (mode === 'override') overrides[key] = raw
-    else drafts[key] = raw
   }
 
   function addVariable() {
@@ -68,20 +68,23 @@
 <div class="vars" class:define={mode === 'define'}>
   {#each keys as key (key)}
     <label for={idPrefix + key}>{key}</label>
-    <ExpandingText
-      id={idPrefix + key}
-      value={shown(key)}
-      placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
-      refStyle={isReference(effective(key))}
-      suggestions={promptSuggestions(
-        mode === 'override' ? effective(key) : (drafts[key] ?? variables[key]),
-        promptLibrary.names ?? [],
-      )}
-      title={promptTooltip(effective(key), promptLibrary.texts)}
-      oninput={(raw) => draft(key, raw)}
-      onchange={(raw) => commit(key, raw)}
-      onpromptpick={(name) => commit(key, reference(PROMPT, name))}
-    />
+    <div class="field">
+      <ExpandingText
+        id={idPrefix + key}
+        value={shown(key)}
+        placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
+        refStyle={isReference(effective(key))}
+        complete={(text) => referenceCompletions(text)}
+        title={promptTooltip(effective(key), promptLibrary.texts)}
+        oninput={(raw) => draft(key, raw)}
+        onchange={(raw) => commit(key, raw)}
+        onpromptpick={(name) => commit(key, reference(PROMPT, name))}
+      />
+      <BrowseButton
+        value={effective(key)}
+        onpick={(value) => commit(key, value)}
+      />
+    </div>
     {#if mode === 'define'}
       <button
         class="quiet icon"
@@ -89,25 +92,36 @@
         title="remove this variable"
         aria-label="remove this variable"
       >
-        ×
+        <Trash2 size={14} />
       </button>
     {/if}
   {/each}
   {#if mode === 'define'}
     <input placeholder="new variable name…" bind:value={newVariable} />
     <button
-      class="quiet withicon addvar"
+      class="quiet icon addvar"
       onclick={addVariable}
       disabled={!newVariable}
       title="add this variable to the workflow"
+      aria-label="add this variable to the workflow"
     >
-      <Plus size={14} />add
+      <Plus size={14} />
     </button>
     <span></span>
   {/if}
 </div>
 
 <style>
+  /* The field, and beside it the asset browser when it holds an asset: */
+  .field {
+    display: flex;
+    gap: var(--space-1);
+    align-items: start;
+    min-width: 0;
+  }
+  .field > :global(:first-child) {
+    flex: 1;
+  }
   .vars {
     display: grid;
     grid-template-columns: minmax(140px, 40%) minmax(0, 1fr);
@@ -133,9 +147,6 @@
     font-weight: 600;
     color: var(--muted);
     overflow-wrap: anywhere;
-  }
-  .icon {
-    padding: 0.3rem 0.55rem;
   }
   .addvar {
     justify-self: start;

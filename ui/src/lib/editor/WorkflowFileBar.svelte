@@ -1,7 +1,14 @@
+<script module lang="ts">
+  /** The start-from value for a definition handed over from elsewhere (an
+   * image's embedded metadata) rather than chosen here. */
+  export const IMPORTED = '(imported)'
+</script>
+
 <script lang="ts">
   import { ChevronUp, FileCog } from '@lucide/svelte'
   import FolderPicker from './FolderPicker.svelte'
   import type { DocumentEditor } from '../editorShell.svelte'
+  import { groupOf } from '../grouping'
 
   // Where the workflow saves, and what it says about itself: the full
   // fields while open, a path chip once the workflow has a name
@@ -10,12 +17,31 @@
     workflowDir,
     folders,
     fileOpen = $bindable(),
+    origin = undefined,
   }: {
     ed: DocumentEditor
     workflowDir: string
     folders: string[]
     fileOpen: boolean
+    /** A workflow not yet saved: which workspace it saves into and what it
+     * starts from - blank, or one of the read-only examples */
+    origin?: {
+      workspace: string
+      workspaces: string[]
+      startFrom: string
+      examples: string[]
+      onworkspace: (workspace: string) => void
+      onstartfrom: (example: string) => void
+    }
   } = $props()
+
+  // The examples by folder, for the start-from picker's option groups
+  const exampleGroups = $derived.by(() => {
+    const groups: Record<string, string[]> = {}
+    for (const example of origin?.examples ?? [])
+      (groups[groupOf(example)] ??= []).push(example)
+    return Object.entries(groups)
+  })
 
   const savePreview = $derived.by(() => {
     const directory = ed.directory()
@@ -27,6 +53,64 @@
 {#if fileOpen}
   <div class="filebar panel">
     <div class="filegrid">
+      {#if origin}
+        <label for="wf-workspace">workspace</label>
+        <div>
+          <select
+            id="wf-workspace"
+            class="pick"
+            value={origin.workspace}
+            onchange={(e) => {
+              const picked = e.currentTarget.value
+              // the route change re-renders it; until then show the
+              // workspace the draft is still in
+              e.currentTarget.value = origin.workspace
+              origin.onworkspace(picked)
+            }}
+            title="the workspace this workflow saves into"
+          >
+            {#each origin.workspaces as name (name)}<option value={name}
+                >{name}</option
+              >{/each}
+          </select>
+        </div>
+
+        <label for="wf-startfrom">start from</label>
+        <div>
+          <select
+            id="wf-startfrom"
+            class="pick"
+            value={origin.startFrom}
+            onchange={(e) => {
+              const picked = e.currentTarget.value
+              // held at the current start until the swap lands - a
+              // cancelled confirm leaves it where it was
+              e.currentTarget.value = origin.startFrom
+              origin.onstartfrom(picked)
+            }}
+            title="a blank workflow, or a copy of one of the examples"
+          >
+            <option value="">blank</option>
+            {#if origin.startFrom && !origin.examples.includes(origin.startFrom)}
+              <!-- handed over from elsewhere: an image's metadata, or a copy
+                   of one of this workspace's own workflows -->
+              <option value={origin.startFrom} disabled
+                >{origin.startFrom === IMPORTED
+                  ? 'image metadata'
+                  : `copy of ${origin.startFrom}`}</option
+              >
+            {/if}
+            {#each exampleGroups as [group, names] (group)}
+              <optgroup label={group ? `${group}/` : 'examples'}>
+                {#each names as example (example)}<option value={example}
+                    >{example}</option
+                  >{/each}
+              </optgroup>
+            {/each}
+          </select>
+        </div>
+      {/if}
+
       <label for="wf-folder">folder</label>
       <div class="folderrow">
         <FolderPicker
@@ -164,5 +248,8 @@
   }
   .savename {
     max-width: 200px;
+  }
+  .pick {
+    max-width: 320px;
   }
 </style>

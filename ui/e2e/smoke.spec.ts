@@ -196,7 +196,7 @@ test('prompts page lists, creates at the root, and deletes', async ({
     'an e2e scratch prompt',
     { timeout: 15_000 },
   )
-  await page.getByRole('button', { name: /Delete/ }).click()
+  await page.getByRole('button', { name: /delete this prompt/ }).click()
   await page
     .getByRole('alertdialog')
     .getByRole('button', { name: 'Delete', exact: true })
@@ -243,7 +243,7 @@ test('downloads a multi-file gallery selection as one zip', async ({
   await expect(page.getByText('2 selected')).toBeVisible()
 
   const download = page.waitForEvent('download')
-  await page.getByRole('button', { name: 'Download .zip' }).click()
+  await page.getByRole('button', { name: /download the selected/ }).click()
   expect((await download).suggestedFilename()).toMatch(/^dw-outputs-.*\.zip$/)
 })
 

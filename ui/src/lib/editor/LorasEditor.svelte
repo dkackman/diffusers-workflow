@@ -35,7 +35,12 @@
         placeholder="scale"
         onchange={(e) => setNumber(lora, 'scale', e.currentTarget.value)}
       />
-      <button class="quiet icon" onclick={() => remove(index)} title="remove">
+      <button
+        class="quiet icon"
+        onclick={() => remove(index)}
+        title="remove this LoRA"
+        aria-label="remove this LoRA"
+      >
         <Trash2 size={14} />
       </button>
     </div>
@@ -72,9 +77,5 @@
     .row > input:not(.scale) {
       grid-column: 1 / -1;
     }
-  }
-  .icon {
-    display: inline-flex;
-    padding: 0.3rem 0.45rem;
   }
 </style>

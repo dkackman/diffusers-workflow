@@ -12,6 +12,8 @@ import mimetypes
 import os
 from typing import Literal, Optional
 
+import av
+from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
 
@@ -31,6 +33,7 @@ from ...media import (
 )
 from ...media_frames import (
     contact_sheet,
+    first_frame,
     frames_at,
     resolve_crop_box,
     seam_tiles,
@@ -597,15 +600,21 @@ def _crop_header(box):
 def gallery_thumbnail(
     name: str, request: Request, ws: Workspace = Depends(selected_workspace)
 ):
-    """A small JPEG rendition of an image output, for the grid - the
-    full-resolution file is only fetched for the detail/lightbox view.
-    Generated on demand rather than cached to disk, so it never grows
-    the output directory the gallery itself scans."""
-    path = resolve_output_file(request.app.state, name, ws.outputs)
-    extension = os.path.splitext(path)[1].lower()
-    if MEDIA_KINDS.get(extension) != "image":
+    """A small JPEG rendition of an image output, or of a video's first
+    frame, for the grid - the full file is only fetched for the
+    detail/lightbox view, so a grid of clips never opens one stream per
+    tile. Generated on demand rather than cached to disk, so it never grows
+    the output directory the gallery itself scans. An 'asset:' name gets
+    the same rendition of an asset, for the editors' asset pickers."""
+    if is_asset_reference(name):
+        path = asset_file(request.app.state, name, ws)
+    else:
+        path = resolve_output_file(request.app.state, name, ws.outputs)
+    kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
+    if kind not in ("image", "video"):
         raise HTTPException(
-            status_code=404, detail="Thumbnails are only generated for images"
+            status_code=404,
+            detail="Thumbnails are only generated for images and videos",
         )
     # The file's mtime and size are the validator: the grid re-requests
     # every visible thumbnail on each visit, and a 304 skips the
@@ -616,35 +625,44 @@ def gallery_thumbnail(
     if request.headers.get("if-none-match") == etag:
         return Response(status_code=304, headers=cache_headers)
     try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            if image.width * image.height > MAX_DECODE_PIXELS:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"{name} is {image.width}x{image.height}, more "
-                    f"than the {MAX_DECODE_PIXELS:,} pixels a thumbnail "
-                    "is decoded from",
-                )
-            # shrink first (JPEGs decode at reduced size via draft), then
-            # convert - converting a full-resolution image only to
-            # discard most of it is the expensive order
-            image.draft("RGB", (GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
-            image.thumbnail((GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
-            image = image.convert("RGB")
-            buffer = io.BytesIO()
-            image.save(buffer, format="JPEG", quality=80)
+        if kind == "video":
+            buffer = _thumbnail_jpeg(first_frame(path))
+        else:
+            buffer = _image_thumbnail(path, name)
     except Image.DecompressionBombError as e:
         # Pillow's own refusal, on open, of a header past twice its limit
         raise HTTPException(status_code=413, detail=str(e))
-    except (OSError, ValueError) as e:
-        # what PIL raises for an unreadable or corrupt file
+    except (OSError, ValueError, av.FFmpegError) as e:
+        # what PIL or PyAV raise for an unreadable or corrupt file
         raise HTTPException(
             status_code=500, detail=f"Could not generate thumbnail: {e}"
         )
     return Response(
         content=buffer.getvalue(), media_type="image/jpeg", headers=cache_headers
     )
+
+
+def _image_thumbnail(path, name):
+    with Image.open(path) as image:
+        if image.width * image.height > MAX_DECODE_PIXELS:
+            raise HTTPException(
+                status_code=413,
+                detail=f"{name} is {image.width}x{image.height}, more "
+                f"than the {MAX_DECODE_PIXELS:,} pixels a thumbnail "
+                "is decoded from",
+            )
+        # shrink first (JPEGs decode at reduced size via draft), then
+        # convert - converting a full-resolution image only to discard
+        # most of it is the expensive order
+        image.draft("RGB", (GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
+        return _thumbnail_jpeg(image)
+
+
+def _thumbnail_jpeg(image):
+    image.thumbnail((GALLERY_THUMBNAIL_MAX_DIM, GALLERY_THUMBNAIL_MAX_DIM))
+    buffer = io.BytesIO()
+    image.convert("RGB").save(buffer, format="JPEG", quality=80)
+    return buffer
 
 
 @router.get("/api/gallery/{name:path}/download")

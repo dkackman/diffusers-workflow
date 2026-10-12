@@ -2778,9 +2778,74 @@ def test_gallery_thumbnail_is_smaller_than_the_original(server, tmp_path):
         thumb_image = PILImage.open(io.BytesIO(thumbnail.content))
         assert max(thumb_image.size) <= 320
 
-        # a non-image file has no thumbnail rendition
-        (outputs / "clip.mp4").write_bytes(b"\x00" * 10)
-        assert client.get("/api/gallery/clip.mp4/thumbnail").status_code == 404
+        # audio and text have no thumbnail rendition
+        (outputs / "track.wav").write_bytes(b"\x00" * 10)
+        assert client.get("/api/gallery/track.wav/thumbnail").status_code == 404
+
+
+def test_the_builtin_workflows_are_listed_for_the_editor(server):
+    """The packaged fragments a 'builtin:' step names are off every search
+    path, so the editor learns their names from a route of their own."""
+    from dw.library import builtin_root, workflow_names
+
+    with server(success_script) as client:
+        listed = client.get("/api/builtin-workflows").json()["workflows"]
+        assert "h3_context_ir.json" in listed
+        assert listed == [f"{n}.json" for n in workflow_names(builtin_root())]
+        # and the workflow listing still leaves them out
+        names = client.get("/api/workflows").json()["workflows"]
+        assert "h3_context_ir" not in names
+
+
+def test_an_asset_has_a_thumbnail_too(asset_server, tmp_path):
+    """The editors' asset pickers show a grid of the library: a thumbnail
+    per asset rather than the full file."""
+    import io
+
+    from PIL import Image
+
+    with asset_server(success_script) as client:
+        assets = tmp_path / "assets"
+        (assets / "cast").mkdir(parents=True, exist_ok=True)
+        Image.new("RGB", (1200, 800), "green").save(assets / "cast" / "priya.png")
+
+        thumbnail = client.get("/api/gallery/asset:cast/priya.png/thumbnail")
+        assert thumbnail.status_code == 200
+        assert thumbnail.headers["content-type"] == "image/jpeg"
+        assert max(Image.open(io.BytesIO(thumbnail.content)).size) <= 320
+        assert client.get("/api/gallery/asset:missing.png/thumbnail").status_code == 404
+
+
+def test_gallery_thumbnail_of_a_video_is_its_first_frame(server, tmp_path):
+    """The grid shows a clip as an <img> of its first frame rather than a
+    <video> - hundreds of <video> tiles each held a connection open and
+    hung the page."""
+    import io
+
+    from diffusers.utils.export_utils import encode_video
+    from PIL import Image
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        frames = [Image.new("RGB", (640, 360), "blue") for _ in range(4)]
+        encode_video(frames, fps=4, output_path=str(outputs / "clip.mp4"))
+
+        thumbnail = client.get("/api/gallery/clip.mp4/thumbnail")
+
+        assert thumbnail.status_code == 200
+        assert thumbnail.headers["content-type"] == "image/jpeg"
+        image = Image.open(io.BytesIO(thumbnail.content))
+        assert image.size == (320, 180)
+
+        # the same validator as an image's: a revisit is a 304
+        again = client.get(
+            "/api/gallery/clip.mp4/thumbnail",
+            headers={"if-none-match": thumbnail.headers["etag"]},
+        )
+        assert again.status_code == 304
+
+        (outputs / "broken.mp4").write_bytes(b"\x00" * 10)
+        assert client.get("/api/gallery/broken.mp4/thumbnail").status_code == 500
 
 
 def test_output_file_route_resolves_an_asset_reference(asset_server, tmp_path):

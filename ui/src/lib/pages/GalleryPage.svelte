@@ -1,5 +1,6 @@
 <script lang="ts">
-  import { ImageOff } from '@lucide/svelte'
+  import { ImageOff, Play } from '@lucide/svelte'
+  import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
@@ -36,6 +37,9 @@
       .gallery()
       .then((result) => {
         files = result.files
+        // The editors' output: completions read the same listing
+        outputLibrary.items = result.files
+        outputLibrary.workspace = workspace.current
         error = ''
         picks.keepOnly(result.files.map((f) => f.name))
       })
@@ -243,7 +247,17 @@
             loading="lazy"
           />
         {:else if file.kind === 'video'}
-          <video src={file.url} preload="metadata" muted></video>
+          <!-- a poster, never a <video>: a grid of clips opening a stream
+               per tile hung the page -->
+          <span class="poster">
+            <img
+              src={api.galleryThumbnailUrl(file.name)}
+              alt={file.name}
+              loading="lazy"
+            />
+            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
+            >
+          </span>
         {:else}
           <span class="audio"
             >{file.kind === 'text' ? '¶' : '♪'} {file.label}</span
@@ -325,8 +339,11 @@
     border-color: var(--ink);
     filter: none;
   }
-  .cell img,
-  .cell video {
+  .poster {
+    display: block;
+    position: relative;
+  }
+  .cell img {
     width: 100%;
     aspect-ratio: 1;
     object-fit: cover;

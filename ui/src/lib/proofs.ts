@@ -5,9 +5,8 @@ import type { GalleryFile } from './types'
  * that identity as an entry's `folder` with the run id already stripped, so
  * a workflow's name matches its folder directly. Entries arrive newest
  * first, so the first one seen for a folder is that workflow's latest.
- * Images win over video because only images have a thumbnail endpoint; a
- * video-only workflow falls back to its video, which renders its first
- * frame. Audio and text have nothing to show in a frame, so a workflow with
+ * Images win over video, which shows as its first frame - an image is
+ * what the workflow made, a frame is a sample of it. Audio and text have nothing to show in a frame, so a workflow with
  * neither an image nor a video gets no proof. */
 export function latestProofs(
   files: GalleryFile[],

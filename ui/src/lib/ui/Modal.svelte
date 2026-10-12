@@ -7,11 +7,14 @@
     open = $bindable(false),
     label,
     wide = false,
+    large = false,
     children,
   }: {
     open?: boolean
     label: string
     wide?: boolean
+    /** Most of the viewport, for a browsing grid rather than a message */
+    large?: boolean
     children: Snippet
   } = $props()
 
@@ -26,7 +29,13 @@
   <Dialog.Portal>
     <Dialog.Overlay class="ui-overlay" />
     <Dialog.Content
-      class={wide ? 'ui-sheet ui-sheet-wide panel' : 'ui-sheet panel'}
+      class={[
+        'ui-sheet panel',
+        wide && 'ui-sheet-wide',
+        large && 'ui-sheet-large',
+      ]
+        .filter(Boolean)
+        .join(' ')}
       aria-label={label}
     >
       {@render children()}

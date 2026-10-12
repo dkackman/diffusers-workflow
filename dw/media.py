@@ -22,6 +22,7 @@ torch or materialise frames.
 import io
 import logging
 import math
+import os
 import wave
 
 import av
@@ -361,6 +362,40 @@ def video_shape(path):
             "width": int(stream.width),
             "height": int(stream.height),
         }
+
+
+def faststart(path):
+    """Rewrite an MP4 in place with its index (the moov atom) ahead of the
+    media data, as ffmpeg's `-movflags +faststart` does. Neither diffusers
+    writer takes muxer options, and both leave the index at the end - so a
+    browser reads the head of the file and then seeks to its tail before it
+    can show one frame, and cannot start playing until the whole clip has
+    arrived. A stream copy: no frame or sample is re-encoded.
+
+    Best effort, like every other finish on a saved output: a remux that
+    fails keeps the file as written and logs why."""
+    temporary = f"{path}.faststart"
+    try:
+        with av.open(path) as source:
+            streams = [s for s in source.streams if s.type in ("video", "audio")]
+            with av.open(
+                temporary, mode="w", format="mp4", options={"movflags": "+faststart"}
+            ) as target:
+                target.metadata.update(source.metadata)
+                copies = {s.index: target.add_stream_from_template(s) for s in streams}
+                for packet in source.demux(streams):
+                    # demux ends each stream with an empty flush packet
+                    if packet.dts is None:
+                        continue
+                    packet.stream = copies[packet.stream.index]
+                    target.mux(packet)
+        os.replace(temporary, path)
+    except (OSError, ValueError, av.FFmpegError) as e:
+        logger.warning(
+            f"Kept {path} as written; moving its index to the front failed: {e}"
+        )
+        if os.path.exists(temporary):
+            os.remove(temporary)
 
 
 def read_frames(path, indexes, fit=None):

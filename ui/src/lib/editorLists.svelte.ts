@@ -10,6 +10,8 @@ export const editorLists = $state({
   quantizationClasses: [] as string[],
   taskCommands: [] as string[],
   workflowFiles: [] as string[],
+  /** The packaged fragments a sub-workflow step names as builtin: */
+  builtinWorkflows: [] as string[],
 })
 
 /** Fetch the class lists and task commands the editor suggests. The
@@ -34,4 +36,10 @@ export function loadEditorLists(): void {
           ...r.video_processors,
         ].sort()),
     )
+  Promise.resolve()
+    .then(() => api.listBuiltinWorkflows())
+    .then((r) => (editorLists.builtinWorkflows = r.workflows))
+    .catch(() => {
+      /* an older server - the path field just offers the library */
+    })
 }

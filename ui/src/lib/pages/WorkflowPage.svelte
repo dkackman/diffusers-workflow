@@ -5,6 +5,7 @@
   import VariablesForm from '../editor/VariablesForm.svelte'
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
+  import { leafOf } from '../grouping'
   import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
@@ -75,6 +76,9 @@
   function newFrom() {
     if (!workflow) return
     sessionStorage.setItem('dw-editor-import', JSON.stringify(workflow))
+    // what the draft started from, and a file name to start with
+    sessionStorage.setItem('dw-editor-import-from', name)
+    sessionStorage.setItem('dw-editor-import-name', leafOf(name))
     goWs('edit')
   }
 
@@ -153,9 +157,9 @@
     class="quiet withicon"
     onclick={newFrom}
     disabled={!workflow}
-    title="open a copy in the editor"
+    title="open a copy in the editor to save under a new name"
   >
-    <Copy size={14} />New from
+    <Copy size={14} />Duplicate
   </button>
   <button
     class="withicon run"
@@ -190,7 +194,13 @@
               loading="lazy"
             />
           {:else}
-            <video src={proof.url} muted playsinline preload="metadata"></video>
+            <img
+              src={api.galleryThumbnailUrl(proof.name)}
+              alt={proof.label}
+              loading="lazy"
+            />
+            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
+            >
           {/if}
         </a>
       {/each}
@@ -204,7 +214,9 @@
       <h2>Variables</h2>
       <p class="hint muted">
         Leave a field blank to use the workflow's own default. Type
-        <code>prompt:</code> to pull in a stored prompt.
+        <code>prompt:</code>, <code>asset:</code> or <code>output:</code> to pick
+        a stored prompt, an asset or an earlier run's file - or press ↓ in an empty
+        field to see them.
       </p>
       <VariablesForm
         mode="override"
@@ -234,12 +246,12 @@
     <span class="flex"></span>
     {#if writable}
       <button
-        class="bare danger withicon"
+        class="quiet icon danger"
         onclick={remove}
         title="delete this workflow file from disk"
         aria-label="delete this workflow file from disk"
       >
-        <Trash2 size={14} />Delete
+        <Trash2 size={14} />
       </button>
     {/if}
   </div>

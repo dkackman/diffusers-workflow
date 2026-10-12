@@ -21,7 +21,7 @@ python -m dw.run workflows/templates/text-to-image.json
 python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
 
 # A gated model (e.g. workflows/models/flux-dev.json) needs Hugging Face auth
-# first: huggingface-cli login
+# first: hf auth login
 
 # Validate a workflow against schema
 python -m dw.validate workflows/models/z-image.json

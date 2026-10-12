@@ -22,6 +22,7 @@ const COMPONENT_KEYS = new Set([
   'arguments',
   'loras',
   'scheduler',
+  'audio_scheduler',
   'shared_components',
   'reused_components',
 ])
@@ -120,9 +121,23 @@ function lorasLine(pipeline: Config): DigestLine[] {
   ]
 }
 
+// A scheduler block names a replacement class, a shift, or both
+function schedulerText(scheduler: Config | undefined): string {
+  return [
+    scheduler?.configuration?.scheduler_type,
+    scheduler?.shift !== undefined ? `shift ${scheduler.shift}` : null,
+  ]
+    .filter(Boolean)
+    .join(' · ')
+}
+
 function schedulerLine(pipeline: Config): DigestLine[] {
-  const schedulerType = pipeline.scheduler?.configuration?.scheduler_type
-  return schedulerType ? [{ section: 'scheduler', text: schedulerType }] : []
+  const video = schedulerText(pipeline.scheduler)
+  const audio = schedulerText(pipeline.audio_scheduler)
+  const text = [video, audio ? `audio: ${audio}` : null]
+    .filter(Boolean)
+    .join(' · ')
+  return text ? [{ section: 'scheduler', text }] : []
 }
 
 function accelerationLine(configuration: Config): DigestLine[] {

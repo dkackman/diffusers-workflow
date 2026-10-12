@@ -110,7 +110,7 @@
     <span class="flex"></span>
     {#if embeddedWorkflow}
       <button
-        class="withicon"
+        class="quiet withicon"
         onclick={openAsWorkflow}
         title="open the embedded workflow definition in the editor"
       >
@@ -118,7 +118,7 @@
       </button>
     {/if}
     <button
-      class="withicon"
+      class="quiet withicon"
       onclick={keepAsAsset}
       title="keep this file as an input asset, under a name later workflows can use"
     >
@@ -253,10 +253,6 @@
     font-family: var(--font-mono);
     font-size: var(--t-sm);
     overflow-wrap: anywhere;
-  }
-  .icon {
-    display: inline-flex;
-    padding: 0.3rem 0.45rem;
   }
   .body {
     display: flex;

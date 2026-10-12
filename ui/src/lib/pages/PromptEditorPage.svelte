@@ -249,17 +249,17 @@
     <DownloadLink href={api.promptDownloadUrl(name)} />
     {#if !readOnly}
       <button
-        class="quiet withicon danger"
+        class="quiet icon danger"
         onclick={remove}
         title="delete this prompt from the library"
+        aria-label="delete this prompt from the library"
       >
-        <Trash2 size={14} />Delete
+        <Trash2 size={14} />
       </button>
     {/if}
   {/if}
   <button
     class="withicon"
-    class:dirtybtn={shell.dirty}
     onclick={save}
     disabled={shell.busy}
     title="write to the prompt directory under the name below (Ctrl+S)"
@@ -466,13 +466,5 @@
     gap: 0.35rem;
     font-size: 0.8rem;
     margin: 0.6rem 0 0;
-  }
-  .dirtydot {
-    display: inline-block;
-    width: 7px;
-    height: 7px;
-    border-radius: 50%;
-    background: var(--warn);
-    margin-left: 0.15rem;
   }
 </style>

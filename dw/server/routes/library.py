@@ -18,6 +18,7 @@ from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 
 from ..api_models import (
+    BuiltinWorkflows,
     Deleted,
     EnhancerPresets,
     JobDetail,
@@ -36,6 +37,7 @@ from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
 from ...library import (
+    builtin_root,
     ReadOnlyLibraryError,
     merge_patch,
     shadowed_listing,
@@ -276,6 +278,15 @@ def list_workflows(
     # The agent's compact view is a different, smaller card than the one
     # WorkflowList declares; it goes out as built, outside that model
     return JSONResponse(answer) if view == "compact" else answer
+
+
+@router.get("/api/builtin-workflows", response_model=BuiltinWorkflows)
+def list_builtin_workflows():
+    """The packaged workflows a 'builtin:' sub-workflow step can name -
+    fragments shipped inside dw/, off every workspace's search path, so the
+    workflow listing never shows them. The editor offers them in a
+    sub-workflow step's path field."""
+    return {"workflows": [f"{name}.json" for name in workflow_names(builtin_root())]}
 
 
 # A save reads nothing, but a patch reads the stored version, merges and

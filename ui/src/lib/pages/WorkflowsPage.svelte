@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Film, Image, Layers, Music, Plus } from '@lucide/svelte'
+  import { Film, Image, Layers, Music, Play, Plus } from '@lucide/svelte'
   import { api } from '../api'
   import { writableRoot } from '../libraries'
   import Empty from '../Empty.svelte'
@@ -65,15 +65,17 @@
       })
   })
 
-  // The population this page is over: every workflow, or - under `examples`
-  // - only the read-only ones. Everything below reads this rather than
-  // `workflows` directly, so the count, the shape/trait vocabulary and the
-  // empty states all agree with what the cards show.
+  // The population this page is over: the workspace's own workflows (any
+  // writable library), or - under `examples` - only the read-only ones. The
+  // templates stay one link away rather than mixed in among what the
+  // workspace made. Everything below reads this rather than `workflows`
+  // directly, so the count, the shape/trait vocabulary and the empty states
+  // all agree with what the cards show.
+  const readOnly = (name: string) => details[name]?.writable === false
   const listed = $derived(
-    examples
-      ? workflows.filter((name) => details[name]?.writable === false)
-      : workflows,
+    workflows.filter((name) => readOnly(name) === examples),
   )
+  const exampleCount = $derived(workflows.filter(readOnly).length)
 
   // Only the shapes and traits the listing actually has: the vocabulary is
   // fixed, but a workspace holding no video has no use for a `shot` option
@@ -169,12 +171,21 @@
   <h1>{examples ? 'Examples' : 'Workflows'}</h1>
   <span class="count num muted">{listed.length}</span>
   <span class="flex"></span>
+  {#if !examples && exampleCount}
+    <a
+      class="exampleslink plain muted"
+      href={sharedHref('examples')}
+      title="the read-only templates every workspace can start from"
+      >examples <span class="num">{exampleCount}</span></a
+    >
+  {/if}
   <input placeholder="filter…" bind:value={filter} class="filter" />
   {#if !examples}
     <a
-      class="newlink plain"
+      class="quiet icon plain"
       href={wsHref(workspace.current, 'edit')}
-      title="new workflow"><Plus size={15} /></a
+      title="new workflow"
+      aria-label="new workflow"><Plus size={15} /></a
     >
   {/if}
 </div>
@@ -255,7 +266,14 @@
               decoding="async"
             />
           {:else}
-            <video src={proof.url} muted playsinline preload="metadata"></video>
+            <img
+              src={api.galleryThumbnailUrl(proof.name)}
+              alt=""
+              loading="lazy"
+              decoding="async"
+            />
+            <span class="videobadge" aria-hidden="true"><Play size={11} /></span
+            >
           {/if}
         </span>
       {/if}
@@ -304,7 +322,10 @@
     {#if examples}
       No example workflows — start the server with --examples-dir to list some.
     {:else}
-      No workflows yet — the + above creates the first one.
+      No workflows yet — the + above creates the first one{#if exampleCount}, or
+        start from one of the <a href={sharedHref('examples')}
+          >{exampleCount} examples</a
+        >{/if}.
     {/if}
   </Empty>
 {:else if loaded && visible.length === 0}
@@ -329,16 +350,11 @@
   .filter {
     max-width: 220px;
   }
-  .newlink {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.4rem;
-    border: 1px solid var(--line);
-    border-radius: var(--radius-1);
-    color: var(--muted);
+  .exampleslink {
+    font-size: 0.82rem;
+    white-space: nowrap;
   }
-  .newlink:hover {
-    border-color: var(--ink);
+  .exampleslink:hover {
     color: var(--ink);
   }
 
@@ -423,13 +439,13 @@
      that separates the picture from its caption */
   .cardframe {
     display: block;
+    position: relative;
     aspect-ratio: 4 / 3;
     background: var(--panel-2);
     border-bottom: 1px solid var(--line);
     overflow: hidden;
   }
-  .cardframe img,
-  .cardframe video {
+  .cardframe img {
     width: 100%;
     height: 100%;
     object-fit: cover;

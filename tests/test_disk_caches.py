@@ -2,8 +2,10 @@
 
 import builtins
 import json
+import logging
 import os
 import sys
+import time
 
 import pytest
 from fastapi.testclient import TestClient
@@ -17,9 +19,14 @@ from dw.disk_caches import (
     UnknownEntry,
 )
 from dw.server.app import create_app
-from dw.server.jobs import JobManager
+from dw.server.jobs import JobManager, JobsActive
 
-from tests.test_server import ScriptedWorkerManager, success_script
+from tests.test_server import (
+    ScriptedWorkerManager,
+    admitted_for,
+    success_script,
+    valid_workflow,
+)
 
 
 @pytest.fixture
@@ -37,6 +44,11 @@ def env(tmp_path, monkeypatch):
     monkeypatch.delenv("DW_QUANTIZED_CACHE", raising=False)
     monkeypatch.delitem(sys.modules, "triton", raising=False)
     return home
+
+
+@pytest.fixture(autouse=True)
+def fresh_scans(monkeypatch):
+    monkeypatch.setattr(disk_caches, "_scan_memo", None)
 
 
 def populate(root, sizes=(10, 20, 30)):
@@ -767,3 +779,129 @@ def test_triton_default_created_after_start_is_clearable(env):
     assert info["clearable"] is True
     assert info["files"] > 0
     assert disk_caches.clear("triton")["files"] > 0
+
+
+# ------------------------------------------- the clear holds the queue (#838)
+
+
+def test_job_submitted_during_a_clear_waits_for_it(api, tmp_path, monkeypatch):
+    root, _ = marked_root(tmp_path)
+    manager = api.manager
+    seen = {}
+    real_clear = disk_caches.clear
+
+    def clear_with_a_submit_in_the_window(name):
+        # Between the busy check and the clear: a job arrives
+        seen["job"] = manager.submit(
+            admitted=admitted_for(manager, valid_workflow()),
+            workflow=valid_workflow(),
+            arguments={"prompt": "hi"},
+        )
+        time.sleep(0.3)
+        seen["status_during"] = seen["job"].status
+        return real_clear(name)
+
+    monkeypatch.setattr(disk_caches, "clear", clear_with_a_submit_in_the_window)
+
+    response = api.delete("/api/caches/inductor")
+
+    assert response.status_code == 200
+    assert seen["status_during"] == "queued"
+    job = seen["job"]
+    deadline = time.time() + 5
+    while job.status not in ("succeeded", "failed") and time.time() < deadline:
+        time.sleep(0.02)
+    assert job.status == "succeeded"
+    assert tree(root) == [MARKER]
+
+
+def test_hold_dispatch_refuses_when_busy_and_releases(api):
+    manager = api.manager
+    manager.is_busy = lambda: True
+    with pytest.raises(JobsActive):
+        with manager.hold_dispatch():
+            pass
+    assert manager._dispatch_holds == 0
+    del manager.is_busy
+    with manager.hold_dispatch():
+        assert manager._dispatch_holds == 1
+    assert manager._dispatch_holds == 0
+
+
+# --------------------------------------------- orphaned staging (#839)
+
+
+def test_scan_does_not_count_a_leftover_staging_directory(env, tmp_path):
+    root, (total, count) = marked_root(tmp_path)
+    leftover = root / ".clearing-1-abcd"
+    leftover.mkdir()
+    (leftover / "big.bin").write_bytes(b"x" * 500)
+
+    info = disk_caches.scan(disk_caches.get("inductor"))
+
+    assert (info["bytes"], info["files"]) == (total, count)
+
+
+def test_mark_roots_and_clear_remove_a_leftover_staging_directory(env, tmp_path):
+    root, _ = marked_root(tmp_path)
+    leftover = root / ".clearing-1-abcd"
+    leftover.mkdir()
+    (leftover / "big.bin").write_bytes(b"x" * 500)
+
+    disk_caches.mark_roots()
+    assert not leftover.exists()
+    assert (root / "a.bin").exists()
+
+    again = root / ".clearing-2-ef01"
+    again.mkdir()
+    (again / "big.bin").write_bytes(b"x" * 500)
+    result = disk_caches.clear("inductor")
+    assert not again.exists()
+    assert tree(root) == [MARKER]
+    assert result["files"] == 3
+
+
+# ------------------------------------------------- scan cost (#840)
+
+
+def test_scan_all_reuses_its_answer_until_a_clear(env, tmp_path):
+    root, (total, _) = marked_root(tmp_path)
+
+    first = disk_caches.scan_all()
+    (root / "late.bin").write_bytes(b"x" * 7)
+    assert disk_caches.scan_all() is first
+
+    disk_caches.clear("inductor")
+    after = {c["name"]: c for c in disk_caches.scan_all()}
+    assert after["inductor"]["bytes"] == 0
+
+
+def test_scan_all_rescans_after_the_ttl(env, tmp_path, monkeypatch):
+    root, (total, _) = marked_root(tmp_path)
+    disk_caches.scan_all()
+    (root / "late.bin").write_bytes(b"x" * 7)
+    monkeypatch.setattr(disk_caches, "_SCAN_TTL", 0.0)
+
+    inductor = {c["name"]: c for c in disk_caches.scan_all()}["inductor"]
+
+    assert inductor["bytes"] == total + 7
+
+
+# ---------------------------------- the refusal is logged once (#841)
+
+
+def test_unmarked_root_refusal_is_info_at_startup_and_quiet_on_scans(
+    env, tmp_path, caplog
+):
+    populate(tmp_path / "inductor")
+    cache = disk_caches.get("inductor")
+
+    with caplog.at_level(logging.INFO, logger="dw"):
+        disk_caches.mark_roots()
+        startup = [r for r in caplog.records if "not created by dw" in r.message]
+        caplog.clear()
+        disk_caches.scan(cache)
+        disk_caches.scan_all()
+
+    assert len(startup) >= 1
+    assert not [r for r in caplog.records if "not created by dw" in r.message]

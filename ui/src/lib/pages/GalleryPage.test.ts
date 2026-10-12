@@ -402,7 +402,7 @@ it('an Escape that closes a confirm leaves the selection; the next clears it', a
   await renderGallery()
   checkbox('a.png').click()
   await waitFor(() => expect(screen.getByText('1 selected')).toBeTruthy())
-  screen.getByRole('button', { name: /^delete$/i }).click()
+  screen.getByRole('button', { name: /^delete the selected/i }).click()
   await waitFor(() => expect(screen.getByRole('alertdialog')).toBeTruthy())
 
   pressEscape()
@@ -457,4 +457,21 @@ it('names the run and its version in the details of the selected file', async ()
   // One span holding both forms, so the query is over its whole text
   expect(detail.textContent).toContain('version 4')
   expect(detail.querySelector('code')?.textContent).toBe('r2')
+})
+
+// A <video> per tile held a connection each and hung a gallery of a few
+// hundred clips; the grid shows a video as its server-made first frame
+it('shows a video as a lazy thumbnail, never a <video>', async () => {
+  listing.files = [{ ...file('demo/clip.mp4'), kind: 'video' }]
+  const { container } = render(GalleryPage)
+
+  await waitFor(() =>
+    expect(
+      container.querySelector('img[src="/thumb/demo/clip.mp4"]'),
+    ).not.toBeNull(),
+  )
+  const img = container.querySelector('img[src="/thumb/demo/clip.mp4"]')!
+  expect(img.getAttribute('loading')).toBe('lazy')
+  expect(container.querySelector('video')).toBeNull()
+  expect(container.querySelector('.videobadge')).not.toBeNull()
 })

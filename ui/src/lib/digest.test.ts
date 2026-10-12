@@ -60,6 +60,25 @@ describe('stepDigest', () => {
     expect(d.lines.find((l) => l.section === 'arguments')).toBeUndefined()
   })
 
+  it('reads a shift-only scheduler as a scheduler, not a component', () => {
+    const d = stepDigest({
+      name: 'g',
+      pipeline: {
+        configuration: { component_type: 'ModularPipeline' },
+        from_pretrained_arguments: { model_name: 'm' },
+        scheduler: { shift: 'variable:video_shift' },
+        audio_scheduler: { shift: 3 },
+      },
+    })
+    const bySection = Object.fromEntries(
+      d.lines.map((l) => [l.section, l.text]),
+    )
+    expect(bySection.components).toBeUndefined()
+    expect(bySection.scheduler).toBe(
+      'shift variable:video_shift · audio: shift 3',
+    )
+  })
+
   it('truncates long argument values', () => {
     const d = stepDigest({
       name: 'g',

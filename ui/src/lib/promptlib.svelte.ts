@@ -8,7 +8,10 @@ import { api } from './api'
 export const promptLibrary = $state<{
   names: string[] | undefined
   texts: Record<string, string>
-}>({ names: undefined, texts: {} })
+  /** What the `prompt:` picker searches besides the name and text */
+  tags: Record<string, string[]>
+  descriptions: Record<string, string>
+}>({ names: undefined, texts: {}, tags: {}, descriptions: {} })
 
 /** Refresh the store from the server. Always refetches, so a prompt
  * saved moments ago shows up on the next page that loads. */
@@ -20,6 +23,18 @@ export async function loadPromptLibrary(): Promise<void> {
       Object.entries(result.details).map(([name, detail]) => [
         name,
         detail.text ?? '',
+      ]),
+    )
+    promptLibrary.tags = Object.fromEntries(
+      Object.entries(result.details).map(([name, detail]) => [
+        name,
+        detail.tags,
+      ]),
+    )
+    promptLibrary.descriptions = Object.fromEntries(
+      Object.entries(result.details).map(([name, detail]) => [
+        name,
+        detail.description,
       ]),
     )
   } catch {

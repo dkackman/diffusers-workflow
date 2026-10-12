@@ -6,7 +6,7 @@
   import StepList from '../editor/StepList.svelte'
   import { StepModes } from '../stepModes.svelte'
   import ValidationPanel from '../editor/ValidationPanel.svelte'
-  import WorkflowFileBar from '../editor/WorkflowFileBar.svelte'
+  import WorkflowFileBar, { IMPORTED } from '../editor/WorkflowFileBar.svelte'
   import {
     CircleCheck,
     Columns2,
@@ -20,9 +20,9 @@
   import { writableRoot } from '../libraries'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import { goWs } from '../router.svelte'
+  import { go, goWs } from '../router.svelte'
   import { wsHref } from '../routes'
-  import { workspace } from '../workspace.svelte'
+  import { loadWorkspaces, workspace } from '../workspace.svelte'
   import { emptyWorkflow, referenceSuggestions } from '../editor'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
@@ -56,6 +56,17 @@
     [...new Set(editorLists.workflowFiles.map(groupOf).filter(Boolean))].sort(),
   )
   let validation = $state<ValidationResult | null>(null)
+  // A new workflow's starting point: '' for blank, an example's name, or
+  // IMPORTED for a definition handed over from an image's metadata
+  let startFrom = $state('')
+  let examples = $state<string[]>([])
+  // Beside the definition, a hand-off carries the draft's file name and
+  // what it started from, so moving it to another workspace keeps both
+  const NAME_KEY = 'dw-editor-import-name'
+  const FROM_KEY = 'dw-editor-import-from'
+  // the workspace picker's names - outside the load effect, so the listing
+  // landing cannot re-run it and reset the draft
+  loadWorkspaces()
   const VIEWS = [
     {
       view: 'form',
@@ -102,7 +113,11 @@
     if (!ed.dirty) return
     event.preventDefault()
     const target = (event.currentTarget as HTMLAnchorElement).href
-    if (await confirmDialog('Discard unsaved changes?')) {
+    if (
+      await confirmDialog('Discard unsaved changes?', {
+        confirmLabel: 'Discard',
+      })
+    ) {
       window.location.href = target
     }
   }
@@ -139,10 +154,15 @@
   })
 
   $effect(() => {
+    // A new draft moved to another workspace stays on this page; the
+    // workspace is read here so the move reloads the listing and takes the
+    // draft back up from the hand-off
+    void workspace.current
     loadEditorLists()
     api.listWorkflows().then((r) => {
       editorLists.workflowFiles = r.workflows.map((file) => `${file}.json`)
       workflowDir = writableRoot(r.libraries)
+      examples = r.workflows.filter((wf) => r.details?.[wf]?.writable === false)
     })
     loadPromptLibrary()
     validation = null
@@ -165,15 +185,63 @@
       // workflow proxy here would subscribe this effect to every edit and
       // re-fire all the listing calls on each keystroke
       const fresh = imported ?? (emptyWorkflow() as Record<string, any>)
-      if (imported) notify.success('Imported from image metadata')
+      const from = sessionStorage.getItem(FROM_KEY)
+      startFrom = from ?? (imported ? IMPORTED : '')
+      if (imported && from === null)
+        notify.success('Imported from image metadata')
       ed.load(fresh)
-      ed.saveName = ''
+      ed.saveName = sessionStorage.getItem(NAME_KEY) ?? ''
+      sessionStorage.removeItem(FROM_KEY)
+      sessionStorage.removeItem(NAME_KEY)
       // A new workflow has nowhere to save to yet - show the fields
       fileOpen = true
       if (imported) modes.restore()
       else modes.reset({ [fresh.steps[0].name]: 'full' })
     }
   })
+
+  /** Hand the draft to another workspace's editor - nothing is saved yet,
+   * so where it saves is only which workspace the route names. */
+  function moveToWorkspace(target: string) {
+    sessionStorage.setItem(
+      'dw-editor-import',
+      JSON.stringify($state.snapshot(ed.doc)),
+    )
+    sessionStorage.setItem(NAME_KEY, ed.saveName)
+    sessionStorage.setItem(FROM_KEY, startFrom)
+    go('ws', target, 'edit')
+  }
+
+  async function startingDoc(example: string) {
+    if (!example) return emptyWorkflow() as Record<string, any>
+    return (await api.getWorkflow(example)).definition as Record<string, any>
+  }
+
+  /** A name the user typed stays; one the last example supplied follows
+   * the new choice. */
+  function followName(example: string) {
+    const supplied = examples.includes(startFrom) ? leafOf(startFrom) : ''
+    if (ed.saveName && ed.saveName !== supplied) return
+    ed.saveName = example ? leafOf(example) : ''
+  }
+
+  async function chooseStart(example: string) {
+    const message = `Start over from ${example || 'a blank workflow'}? Your edits are lost.`
+    if (
+      ed.dirty &&
+      !(await confirmDialog(message, { confirmLabel: 'Start over' }))
+    )
+      return
+    try {
+      const fresh = await startingDoc(example)
+      ed.load(fresh)
+      modes.reset(example ? {} : { [fresh.steps[0].name]: 'full' })
+      followName(example)
+      startFrom = example
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
 
   function onKeydown(event: KeyboardEvent) {
     if (!(event.ctrlKey || event.metaKey)) return
@@ -333,7 +401,7 @@
     disabled={ed.busy}
     title="validate, then write to the workflow directory under the name below (Ctrl+S)"
   >
-    <Save size={14} />Save
+    <Save size={14} />Save{#if ed.dirty}<span class="dirtydot"></span>{/if}
   </button>
   <button
     class="withicon"
@@ -345,7 +413,22 @@
   </button>
 </div>
 
-<WorkflowFileBar {ed} {workflowDir} {folders} bind:fileOpen />
+<WorkflowFileBar
+  {ed}
+  {workflowDir}
+  {folders}
+  bind:fileOpen
+  origin={name
+    ? undefined
+    : {
+        workspace: workspace.current,
+        workspaces: workspace.names ?? [workspace.current],
+        startFrom,
+        examples,
+        onworkspace: moveToWorkspace,
+        onstartfrom: chooseStart,
+      }}
+/>
 
 {#if validation}
   <ValidationPanel {validation} ondismiss={() => (validation = null)} />

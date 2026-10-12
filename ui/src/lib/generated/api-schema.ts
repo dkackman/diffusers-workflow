@@ -25,6 +25,10 @@ export interface paths {
          *     `prefix` keeps the assets (and shadowed names) whose name starts with
          *     it; `limit` then keeps the newest that many. `total` is what matched
          *     before the cut, so a caller can tell a bounded answer from a complete one.
+         *
+         *     `used_by` names the workspace's own workflows that reference an asset
+         *     (`asset_users`) - what lets a workspace show the shared assets it
+         *     actually uses rather than the whole shared library.
          */
         get: operations["list_assets_api_assets_get"];
         put?: never;
@@ -124,6 +128,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/builtin-workflows": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Builtin Workflows
+         * @description The packaged workflows a 'builtin:' sub-workflow step can name -
+         *     fragments shipped inside dw/, off every workspace's search path, so the
+         *     workflow listing never shows them. The editor offers them in a
+         *     sub-workflow step's path field.
+         */
+        get: operations["list_builtin_workflows_api_builtin_workflows_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/caches": {
         parameters: {
             query?: never;
@@ -158,7 +185,7 @@ export interface paths {
         /**
          * Clear Cache
          * @description Empty one cache's root, keeping the root and its marker. Refused
-         *     while anything may be writing into it (`_refuse_while_writing`).
+         *     while anything may be writing into it (`_hold_writers_off`).
          */
         delete: operations["clear_cache_api_caches__name__delete"];
         options?: never;
@@ -590,10 +617,12 @@ export interface paths {
         };
         /**
          * Gallery Thumbnail
-         * @description A small JPEG rendition of an image output, for the grid - the
-         *     full-resolution file is only fetched for the detail/lightbox view.
-         *     Generated on demand rather than cached to disk, so it never grows
-         *     the output directory the gallery itself scans.
+         * @description A small JPEG rendition of an image output, or of a video's first
+         *     frame, for the grid - the full file is only fetched for the
+         *     detail/lightbox view, so a grid of clips never opens one stream per
+         *     tile. Generated on demand rather than cached to disk, so it never grows
+         *     the output directory the gallery itself scans. An 'asset:' name gets
+         *     the same rendition of an asset, for the editors' asset pickers.
          */
         get: operations["gallery_thumbnail_api_gallery__name__thumbnail_get"];
         put?: never;
@@ -1801,6 +1830,11 @@ export interface components {
             size: number;
             /** Url */
             url: string;
+            /**
+             * Used By
+             * @description This workspace's own workflows that name it in an `asset:` reference, when any do
+             */
+            used_by?: string[];
             /** Writable */
             writable: boolean;
         };
@@ -1838,6 +1872,14 @@ export interface components {
             total?: number;
             /** Workspace */
             workspace: string;
+        };
+        /** BuiltinWorkflows */
+        BuiltinWorkflows: {
+            /**
+             * Workflows
+             * @description The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.
+             */
+            workflows: string[];
         };
         /** CardCleared */
         CardCleared: {
@@ -3659,6 +3701,26 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    list_builtin_workflows_api_builtin_workflows_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["BuiltinWorkflows"];
                 };
             };
         };

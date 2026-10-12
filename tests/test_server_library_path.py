@@ -287,6 +287,58 @@ class TestTheWorkspaceShadowsAnExample:
         assert only["shadowed"] == []
 
 
+class TestAnAssetSaysWhichWorkspaceWorkflowsUseIt:
+    """`used_by` names the workspace's own workflows that reference an asset,
+    so the workspace's Assets page can show the shared assets it uses
+    without listing the whole shared library. An example's references do
+    not count: an example is not the workspace's."""
+
+    @pytest.fixture
+    def server(self, make_server):
+        server = make_server()
+        for name in ("cast/priya.png", "unused.png", "example-only.png"):
+            path = os.path.join(server.workspace.common_assets, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as file:
+                file.write(b"x")
+        for directory, name, reference in (
+            (server.workspace.workflows, "portrait", "asset:cast/priya.png"),
+            (server.workspace.workflows, "sequel", "asset:cast/priya.png"),
+            (str(server.checkout / "workflows"), "example", "asset:example-only.png"),
+        ):
+            workflow = valid_workflow()
+            workflow["variables"]["image"] = reference
+            with open(os.path.join(directory, f"{name}.json"), "w") as file:
+                json.dump(workflow, file)
+        return server
+
+    def used_by(self, server):
+        assets = server.client.get("/api/assets").json()["assets"]
+        return {a["name"]: a.get("used_by") for a in assets}
+
+    def test_a_referenced_asset_names_its_workflows(self, server):
+        assert self.used_by(server)["cast/priya.png"] == ["portrait", "sequel"]
+
+    def test_an_unreferenced_asset_carries_no_used_by(self, server):
+        assert self.used_by(server)["unused.png"] is None
+
+    def test_an_examples_reference_does_not_count(self, server):
+        assert self.used_by(server)["example-only.png"] is None
+
+    def test_a_saved_edit_is_seen_on_the_next_listing(self, server):
+        workflow = valid_workflow()
+        workflow["variables"]["image"] = "asset:unused.png"
+        path = os.path.join(server.workspace.workflows, "portrait.json")
+        with open(path, "w") as file:
+            json.dump(workflow, file)
+        # A later mtime, so the catalog cache sees the change
+        stat = os.stat(path)
+        os.utime(path, (stat.st_atime, stat.st_mtime + 5))
+        used = self.used_by(server)
+        assert used["unused.png"] == ["portrait"]
+        assert used["cast/priya.png"] == ["sequel"]
+
+
 class TestWorkspaceRegistryNamesTheServersPrompts:
     def test_a_named_workspace_reports_the_servers_prompt_dir(
         self, make_server, tmp_path

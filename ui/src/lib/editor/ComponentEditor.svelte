@@ -43,7 +43,12 @@
   <div class="bar">
     <strong>{slot}</strong>
     <span class="flex"></span>
-    <button class="quiet icon" onclick={onremove} title="remove component">
+    <button
+      class="quiet icon"
+      onclick={onremove}
+      title="remove component"
+      aria-label="remove component"
+    >
       <Trash2 size={14} />
     </button>
   </div>
@@ -123,10 +128,6 @@
     align-items: center;
     gap: 0.5rem;
     margin-bottom: 0.5rem;
-  }
-  .icon {
-    display: inline-flex;
-    padding: 0.25rem 0.4rem;
   }
   .grid {
     display: grid;

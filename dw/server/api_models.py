@@ -697,6 +697,13 @@ class WorkflowCard(ApiModel):
     )
 
 
+class BuiltinWorkflows(ApiModel):
+    workflows: list[str] = Field(
+        description="The packaged fragments a sub-workflow step names as "
+        "`builtin:<name>.json`, each as what follows the prefix."
+    )
+
+
 class WorkflowList(ApiModel):
     workspace: str
     libraries: list[LibraryRoot] = Field(
@@ -869,6 +876,10 @@ class AssetFile(ApiModel):
     writable: bool
     url: str
     absolute_url: str = sometimes()
+    used_by: list[str] = sometimes(
+        "This workspace's own workflows that name it in an `asset:` reference, "
+        "when any do"
+    )
 
 
 class ShadowedAsset(ApiModel):

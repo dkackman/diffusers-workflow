@@ -225,17 +225,6 @@ button {
   font-weight: 600;
   cursor: pointer;
 }
-/* A link that reads as the filled button - a "new" affordance that
-   navigates rather than acting in place. */
-a.button {
-  display: inline-flex;
-  background: var(--accent);
-  color: var(--accent-ink);
-  border: 1px solid var(--accent);
-  border-radius: var(--radius-1);
-  padding: 0.4rem 0.9rem;
-  text-decoration: none;
-}
 button:hover {
   filter: brightness(1.35);
 }
@@ -269,6 +258,36 @@ button.bare:hover {
   color: var(--ink);
   background: var(--panel-2);
   filter: none;
+}
+/* A link that acts like a quiet button - a download beside the delete -
+   wears the same outline */
+a.quiet {
+  color: var(--muted);
+  border: 1px solid var(--line);
+  border-radius: var(--radius-1);
+}
+a.quiet:hover {
+  color: var(--ink);
+  border-color: var(--muted);
+}
+/* Unsaved work, on the Save button of either editor */
+.dirtydot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--warn);
+  margin-left: 0.15rem;
+}
+/* An action said by its icon alone (delete, download, dismiss, add a row):
+   one square-ish size everywhere, so the same action looks the same on
+   every page. Its words go in title and aria-label. */
+button.icon,
+a.icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.3rem 0.45rem;
 }
 /* Scoped copies of these two in a dozen components, already drifting -
    one global definition each instead. */
@@ -453,6 +472,24 @@ a.danger:hover {
   height: 100%;
   object-fit: cover;
 }
+/* Marks a still as a video's first frame: grids show a clip as its
+   thumbnail, never as a <video>, and this is what says it plays. Sits in the
+   corner of the nearest positioned ancestor. */
+.videobadge {
+  position: absolute;
+  top: var(--space-2);
+  left: var(--space-2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  background: color-mix(in srgb, var(--ink) 65%, transparent);
+  color: var(--panel);
+  pointer-events: none;
+}
+
 /* The frame is only ever the picture, so any interactive frame gets its
    affordance from the border rather than from a colour wash over it */
 a.frame:hover,
@@ -527,6 +564,13 @@ button.frame:hover {
   min-width: min(420px, 92vw);
   max-width: 480px;
 }
+.ui-sheet-large {
+  width: min(880px, 94vw);
+  max-width: none;
+  max-height: 86vh;
+  display: flex;
+  flex-direction: column;
+}
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;
@@ -544,29 +588,4 @@ button.frame:hover {
   min-width: min(320px, 90vw);
   box-shadow: 0 6px 24px color-mix(in srgb, var(--bg) 60%, transparent);
   font-size: 0.85rem;
-}
-.ui-suggest {
-  position: relative;
-  z-index: var(--layer-popover);
-  /* as wide as the field it suggests for, which Bits exposes */
-  width: var(--bits-combobox-anchor-width);
-  min-width: 12rem;
-  max-height: min(320px, 50vh);
-  overflow-y: auto;
-  padding: var(--space-1) 0;
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-}
-.ui-suggest [data-combobox-item] {
-  /* Bits lays the list out as a flex column: rows keep their height and
-     the list scrolls, rather than every row shrinking to fit */
-  flex-shrink: 0;
-  padding: var(--space-1) var(--space-3);
-  white-space: nowrap;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  cursor: pointer;
-}
-.ui-suggest [data-combobox-item][data-highlighted] {
-  background: var(--panel-2);
 }

@@ -16,6 +16,8 @@
   } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
+  import { referenceCompletions } from '../refcomplete.svelte'
+  import BrowseButton from '../assets/BrowseButton.svelte'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -140,20 +142,32 @@
             }}
           />
         {:else}
-          <Suggest
-            id={`${uid}-${key}`}
-            class={isReference(args[key]) ? 'ref' : ''}
-            {suggestions}
-            title={promptTooltip(args[key], promptLibrary.texts)}
-            value={displayValue(args[key])}
-            onchange={(value) => update(key, value)}
-          />
+          <div class="withbrowse">
+            <Suggest
+              id={`${uid}-${key}`}
+              class={isReference(args[key]) ? 'ref' : ''}
+              {suggestions}
+              complete={(text) => referenceCompletions(text)}
+              title={promptTooltip(args[key], promptLibrary.texts)}
+              value={displayValue(args[key])}
+              onchange={(value) => update(key, value)}
+            />
+            <BrowseButton
+              value={args[key]}
+              onpick={(value) => update(key, value)}
+            />
+          </div>
         {/if}
         {#if parameter?.description}
           <div class="hint muted">{parameter.description}</div>
         {/if}
       </div>
-      <button class="quiet icon" title="remove" onclick={() => remove(key)}>
+      <button
+        class="quiet icon"
+        onclick={() => remove(key)}
+        title="remove this argument"
+        aria-label="remove this argument"
+      >
         <Trash2 size={14} />
       </button>
     </div>
@@ -221,6 +235,16 @@
 </div>
 
 <style>
+  /* A value field, and beside it the asset browser when it holds asset: */
+  .withbrowse {
+    display: flex;
+    gap: var(--space-1);
+    align-items: center;
+  }
+  .withbrowse > :global(input) {
+    flex: 1;
+    min-width: 0;
+  }
   .args {
     display: flex;
     flex-direction: column;

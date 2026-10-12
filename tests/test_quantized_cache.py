@@ -96,7 +96,12 @@ def fake_save(component, path):
 
 
 def entry_json(directory, **fields):
-    entry = {"versions": dict(VERSIONS), "bytes": 10, **fields}
+    entry = {
+        "versions": dict(VERSIONS),
+        "key_version": qc.KEY_VERSION,
+        "bytes": 10,
+        **fields,
+    }
     directory.mkdir(parents=True, exist_ok=True)
     (directory / qc.ENTRY_FILE).write_text(json.dumps(entry))
 
@@ -139,6 +144,11 @@ class TestKey:
         monkeypatch.setattr(
             qc, "installed_versions", lambda: {**VERSIONS, "sdnq": "other"}
         )
+        assert qc.cache_key(base_inputs()) != before
+
+    def test_key_version_changes_the_key(self, monkeypatch):
+        before = qc.cache_key(base_inputs())
+        monkeypatch.setattr(qc, "KEY_VERSION", qc.KEY_VERSION + 1)
         assert qc.cache_key(base_inputs()) != before
 
     def test_installed_versions_reads_the_four_packages(self, monkeypatch):
@@ -628,6 +638,25 @@ class TestSweep:
         assert sorted(os.listdir(tmp_path)) == sorted(["6" * 64, "notes.txt", "other"])
         assert (current / "w").exists()
 
+    def test_deletes_entries_keyed_by_other_rules(self, tmp_path):
+        """An entry saved before a change to how the key is derived can never
+        be hit again, though its package versions still match - one with no
+        key_version (made before the field) or another one goes."""
+        unversioned = tmp_path / ("1" * 64)
+        entry_json(unversioned)
+        payload = json.loads((unversioned / qc.ENTRY_FILE).read_text())
+        del payload["key_version"]
+        (unversioned / qc.ENTRY_FILE).write_text(json.dumps(payload))
+        older = tmp_path / ("2" * 64)
+        entry_json(older, key_version=qc.KEY_VERSION - 1)
+        current = tmp_path / ("3" * 64)
+        entry_json(current)
+
+        count, _ = qc.sweep(str(tmp_path))
+
+        assert count == 2
+        assert os.listdir(tmp_path) == ["3" * 64]
+
     def test_a_symlink_out_of_the_root_is_skipped_not_fatal(self, tmp_path):
         """An entry linked to another disk resolves outside the root, which
         validate_path refuses with a SecurityError - that one entry is left
@@ -1100,9 +1129,10 @@ class TestRealRoundTrip:
 
         root = str(tmp_path / "cache")
         key = qc.cache_key(inputs)
-        result, reason, nbytes = qc.save_entry(root, key, quantized, inputs)
+        result, reason, nbytes = qc.save_entry(root, key, quantized, inputs, "unet")
         assert (result, reason) == ("saved", None) and nbytes > 0
         assert qc.read_entry(os.path.join(root, key))["model_name"] == "org/tiny"
+        assert qc.read_entry(os.path.join(root, key))["component"] == "unet"
 
         loaded = qc.load_entry(root, key, UNet2DModel, torch.float32, "cpu", arguments)
         assert loaded is not None

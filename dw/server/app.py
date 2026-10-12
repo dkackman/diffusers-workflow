@@ -155,6 +155,8 @@ def _store_serving(
     # One index per distinct listing, per app (see deps.ceiling_index)
     state.ceiling_indexes = {}
     state.catalog_listings = {}
+    # Which workspace workflows name each asset (see deps.asset_users)
+    state.asset_users = {}
 
 
 def _mount_mcp(app, mcp_asgi):

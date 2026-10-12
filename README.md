@@ -63,7 +63,7 @@ family that knows which workflow fits a request and the rules that bite:
 ```
 
 Most of the shipped workflows (Flux, LTX-2, MiniMax...) use **gated** models.
-Request access on the model's Hugging Face page, then `huggingface-cli login`
+Request access on the model's Hugging Face page, then `hf auth login`
 once; without it the run fails partway through with a 401/403 from the Hub.
 
 > **GPU on another machine?** Start the engine there with `--mcp` and connect

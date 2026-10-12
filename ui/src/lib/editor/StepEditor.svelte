@@ -21,6 +21,7 @@
     TORCH_DTYPES,
   } from '../editor'
   import type { StepFlow } from '../flow'
+  import { BUILTIN, reference } from '../references'
 
   let {
     step = $bindable(),
@@ -49,6 +50,13 @@
     onremove: () => void
     onmove: (delta: number) => void
   } = $props()
+
+  // What a sub-workflow step's path can name: the library's workflows, then
+  // the packaged fragments as builtin: names
+  const workflowPaths = $derived([
+    ...editorLists.workflowFiles,
+    ...editorLists.builtinWorkflows.map((name) => reference(BUILTIN, name)),
+  ])
 
   const digest = $derived(stepDigest($state.snapshot(step)))
 
@@ -212,6 +220,7 @@
       disabled={index === 0}
       onclick={() => onmove(-1)}
       title="move up"
+      aria-label="move up"
     >
       <ChevronUp size={15} />
     </button>
@@ -220,10 +229,16 @@
       disabled={index === count - 1}
       onclick={() => onmove(1)}
       title="move down"
+      aria-label="move down"
     >
       <ChevronDown size={15} />
     </button>
-    <button class="quiet icon" onclick={onremove} title="remove step">
+    <button
+      class="quiet icon"
+      onclick={onremove}
+      title="remove step"
+      aria-label="remove step"
+    >
       <Trash2 size={15} />
     </button>
   </div>
@@ -333,7 +348,7 @@
         <label for={'wfpath-' + index}>path</label>
         <Suggest
           id={'wfpath-' + index}
-          suggestions={editorLists.workflowFiles}
+          suggestions={workflowPaths}
           bind:value={step.workflow.path}
           placeholder="Other.json, flux/FluxDev.json or builtin:h3_context_ir.json"
         />
@@ -373,11 +388,6 @@
   }
   .kind {
     font-size: 0.75rem;
-  }
-  .icon {
-    display: inline-flex;
-    align-items: center;
-    padding: 0.3rem 0.45rem;
   }
   .grid {
     display: grid;

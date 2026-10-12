@@ -159,6 +159,14 @@
             "title": "Url",
             "type": "string"
           },
+          "used_by": {
+            "description": "This workspace's own workflows that name it in an `asset:` reference, when any do",
+            "items": {
+              "type": "string"
+            },
+            "title": "Used By",
+            "type": "array"
+          },
           "writable": {
             "title": "Writable",
             "type": "boolean"
@@ -261,6 +269,24 @@
           "shadowed"
         ],
         "title": "AssetList",
+        "type": "object"
+      },
+      "BuiltinWorkflows": {
+        "additionalProperties": false,
+        "properties": {
+          "workflows": {
+            "description": "The packaged fragments a sub-workflow step names as `builtin:<name>.json`, each as what follows the prefix.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Workflows",
+            "type": "array"
+          }
+        },
+        "required": [
+          "workflows"
+        ],
+        "title": "BuiltinWorkflows",
         "type": "object"
       },
       "CardCleared": {
@@ -4696,7 +4722,7 @@
   "paths": {
     "/api/assets": {
       "get": {
-        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.",
+        "description": "The asset library: the input media an 'asset:' reference names.\n\nReported by reference rather than by path - 'asset:uploads/x.png' is\nwhat a workflow argument carries, and a client that only ever sees\nreferences cannot accidentally write a path that means something\nelse on another machine. Empty, not an error, on a server with no\nlibrary configured: nothing is wrong, there is just nowhere for an\nasset to be.\n\n`prefix` keeps the assets (and shadowed names) whose name starts with\nit; `limit` then keeps the newest that many. `total` is what matched\nbefore the cut, so a caller can tell a bounded answer from a complete one.\n\n`used_by` names the workspace's own workflows that reference an asset\n(`asset_users`) - what lets a workspace show the shared assets it\nactually uses rather than the whole shared library.",
         "operationId": "list_assets_api_assets_get",
         "parameters": [
           {
@@ -4946,6 +4972,25 @@
         "summary": "Delete Asset"
       }
     },
+    "/api/builtin-workflows": {
+      "get": {
+        "description": "The packaged workflows a 'builtin:' sub-workflow step can name -\nfragments shipped inside dw/, off every workspace's search path, so the\nworkflow listing never shows them. The editor offers them in a\nsub-workflow step's path field.",
+        "operationId": "list_builtin_workflows_api_builtin_workflows_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/BuiltinWorkflows"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "List Builtin Workflows"
+      }
+    },
     "/api/caches": {
       "get": {
         "description": "dw's own disk caches (dw/disk_caches.py): each one's root, size, and\nwhether it can be cleared from here.",
@@ -4967,7 +5012,7 @@
     },
     "/api/caches/{name}": {
       "delete": {
-        "description": "Empty one cache's root, keeping the root and its marker. Refused\nwhile anything may be writing into it (`_refuse_while_writing`).",
+        "description": "Empty one cache's root, keeping the root and its marker. Refused\nwhile anything may be writing into it (`_hold_writers_off`).",
         "operationId": "clear_cache_api_caches__name__delete",
         "parameters": [
           {
@@ -6050,7 +6095,7 @@
     },
     "/api/gallery/{name}/thumbnail": {
       "get": {
-        "description": "A small JPEG rendition of an image output, for the grid - the\nfull-resolution file is only fetched for the detail/lightbox view.\nGenerated on demand rather than cached to disk, so it never grows\nthe output directory the gallery itself scans.",
+        "description": "A small JPEG rendition of an image output, or of a video's first\nframe, for the grid - the full file is only fetched for the\ndetail/lightbox view, so a grid of clips never opens one stream per\ntile. Generated on demand rather than cached to disk, so it never grows\nthe output directory the gallery itself scans. An 'asset:' name gets\nthe same rendition of an asset, for the editors' asset pickers.",
         "operationId": "gallery_thumbnail_api_gallery__name__thumbnail_get",
         "parameters": [
           {

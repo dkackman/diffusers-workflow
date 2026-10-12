@@ -132,7 +132,7 @@
             <tr>
               <td>{cache.name}</td>
               <td><code>{cache.root}</code></td>
-              <td>{cache.bytes ? formatBytes(cache.bytes) : '0'}</td>
+              <td>{cacheSize(cache.bytes)}</td>
               <td>{cache.files}</td>
               <td class="muted">
                 {cache.last_used ? formatMtime(cache.last_used) : '—'}
@@ -157,15 +157,15 @@
               </td>
               <td>
                 <button
-                  class="quiet withicon danger"
+                  class="quiet icon danger"
                   disabled={!cache.clearable || clearing !== null}
                   title={cache.clearable
                     ? `clear the ${cache.name} cache`
                     : (cache.not_clearable_reason ?? 'not clearable')}
+                  aria-label="clear the {cache.name} cache"
                   onclick={() => clear(cache)}
                 >
                   <Trash2 size={14} />
-                  {clearing === cache.name ? 'clearing…' : 'Clear'}
                 </button>
               </td>
             </tr>
@@ -242,19 +242,19 @@
                               </td>
                               <td>
                                 <button
-                                  class="quiet withicon danger"
+                                  class="quiet icon danger"
                                   disabled={!cache.clearable ||
                                     clearing !== null}
                                   title={cache.clearable
                                     ? `delete ${entryLabel(entry)} from the ${cache.name} cache`
                                     : (cache.not_clearable_reason ??
                                       'not clearable')}
+                                  aria-label="delete {entryLabel(
+                                    entry,
+                                  )} from the {cache.name} cache"
                                   onclick={() => deleteEntry(cache, entry)}
                                 >
                                   <Trash2 size={14} />
-                                  {clearing === `${cache.name}/${entry.id}`
-                                    ? 'deleting…'
-                                    : 'Delete'}
                                 </button>
                               </td>
                             </tr>

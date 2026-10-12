@@ -535,6 +535,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable
 - `GET /api/gallery/{name:path}/download` — download an output file
+- `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
+  names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing
+  includes; the editor offers them in the step's path field
+- `GET /api/gallery/{name:path}/thumbnail` — a small JPEG of an image, or of
+  a video's first frame; 404 for other kinds. `name` may be an `asset:`
+  reference, which the editors' asset picker uses for its grid
 - `GET /api/gallery/{name}/metadata` also carries `findings`: each level
   problem the probed soundtrack shows (`full_scale`, `near_silent`), measured
   against `dw/audio_qc.py`'s thresholds, in the assess route's finding shape
@@ -575,7 +581,11 @@ The editor's forms come from these; they are just as usable from scripts:
   delete can actually reach is the one with `writable: true`. `shadowed`
   lists the entries a nearer library hides: same shape as an `assets` entry
   but without `url` (that URL would serve the shadowing file, not this one),
-  plus `shadowed_by` naming the origin that won. The workflow and prompt
+  plus `shadowed_by` naming the origin that won. An `assets` entry carries
+  `used_by` when any of the workspace's own (writable) workflows names it in
+  an `asset:` string, variable defaults included - a reference a run passes
+  as an argument is not seen; the web UI shows a workspace only the shared
+  assets its workflows use. The workflow and prompt
   listings carry the same `libraries` and `shadowed` (`[{name, origin,
   shadowed_by}]`); a filter narrows `shadowed` with the entries. Upload, keep
   and delete answer 409 `This workspace has no asset library` when there is

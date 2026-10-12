@@ -73,8 +73,14 @@ test('long prose arguments collapse to a line and expand on demand', async ({
     .getByRole('button', { name: 'expand to edit as a document' })
     .click()
   await expect(row.locator('textarea')).toBeVisible()
-  // the expanded view offers the stored-prompt library
-  await expect(row.locator('select.promptpick')).toBeVisible()
+  // the expanded view offers the stored-prompt library, searchable, and
+  // focusing the search lists it before anything is typed
+  const search = row.getByLabel('search the stored prompts')
+  await expect(search).toBeVisible()
+  await search.focus()
+  await expect(
+    page.locator('.ui-suggest [role="option"]').first(),
+  ).toBeVisible()
 })
 
 test('the run page shares the same field treatment', async ({ page }) => {

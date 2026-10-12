@@ -7,6 +7,88 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.13.0
+
+<!-- Drafted from v0.12.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.13.0 --notes-file ... -->
+
+A web UI release. Typing a reference opens a searchable picker over what
+it can name: assets, prompts, earlier runs' files, for_each items and
+packaged sub-workflows. A browse dialog picks a file by its thumbnail. A
+workspace's pages now show the workspace, not every example, and the
+gallery stops hanging on a folder of videos.
+
+**Reference picker** (web UI)
+
+- `asset:` in any field that takes a reference lists the asset library,
+  with thumbnails and the library each file comes from. `prompt:` lists the
+  prompt library, searched through text, tags and description. `output:`
+  lists what earlier runs wrote, newest first. Search matches every word
+  anywhere in the name, so `asset:pri` finds `cast/priya.png`.
+- An empty field lists the reference prefixes on ↓. Two letters that start
+  a prefix offer it, and picking one carries on into that library.
+- Inside a step, the list also offers `item:` and `item:<field>` in a
+  for_each step, and `gather:<step>` and `previous_result:<step>@<entry>`
+  for earlier for_each steps. These come from the editor's own dangling-
+  reference rules, so nothing it offers is then flagged. A sub-workflow
+  step's path offers the packaged fragments as `builtin:` names (new
+  `GET /api/builtin-workflows`).
+- A browse button on media inputs and asset or output fields opens a
+  thumbnail picker with two tabs, Assets and Earlier runs. It can pick an
+  output's `latest` form, so a later stage follows the newest run.
+- The gallery thumbnail route accepts `asset:` names too.
+
+**Workspaces** (web UI)
+
+- A workspace's Workflows page lists its own workflows. The read-only
+  examples are a link to the shared Examples page.
+- A workspace's Assets page lists its own assets plus the shared assets its
+  workflows use. Each asset names the workflows that use it (`used_by` on
+  `GET /api/assets`).
+- A new workflow picks which workspace it saves into, and starts blank or
+  from any example. New from lands on the same form.
+
+**Gallery and media**
+
+- Grids show a video as its first frame, a lazy thumbnail with a play
+  badge, not a `<video>` per tile. With 310 clips the gallery used to
+  hang.
+- MP4 outputs are remuxed to faststart, so a browser shows a frame without
+  fetching the file's tail. Existing outputs are untouched.
+
+**Caches** (#838-#842, #844, #847)
+
+- Clearing a cache holds the job queue rather than racing a job that
+  starts. Orphaned staging directories are swept. The scan is memoized and
+  rescans log quietly.
+- The quantized cache key carries a `KEY_VERSION`, and the startup sweep
+  deletes entries from any other version. This frees entries that could
+  never be hit again (about 166 GB of H3 entries on one server). Entries
+  record their component name.
+- `get_server_info(cache_entries=true)` lists the quantized cache's
+  entries. The caches table shows "0 bytes" for an empty cache.
+
+**Fixes**
+
+- A step whose scheduler sets only a `shift` opens in full view. Every H3
+  template's step was stuck in the compact view.
+- `plan_cuts` takes the fallback song length from non-suspect chunks, so a
+  hallucination over the fade-out no longer stretches the plan (#843).
+- The MiniMax H3 4-step Ref2VA v0.1 turbo LoRA is recorded in the catalog
+  as a trial (#824).
+
+**Dependencies and deploy**
+
+- Floors raised to current releases: torch 2.14.1, transformers 5.19.0
+  (the `!=5.17.0` exclusion goes with it), accelerate 1.15.0, peft 0.21.2,
+  fastapi 0.143.0, mcp 2.3.0 and the rest. diffusers stays `>=0.40.0`.
+  huggingface-hub stays `>=1.33.0`, because every PyPI diffusers caps it
+  below 2.0. dw itself works on hub 2.x.
+- The gated-model login hint is now `hf auth login`. huggingface_hub 2.0
+  drops `huggingface-cli`.
+- `deploy.sh` reinstalls until an install succeeds, refreshing diffusers
+  from git first. It also carries on with the pulled copy of itself when
+  the pull changed it, so one deploy is enough.
+
 ### 0.12.0
 
 <!-- Drafted from v0.11.1..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.12.0 --notes-file ... -->

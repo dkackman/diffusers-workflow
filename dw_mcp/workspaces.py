@@ -186,16 +186,17 @@ def delete_workspace(client, name, acknowledged_cost=False):
     return {**result, "current": client.workspace}
 
 
-def server_info(client):
+def server_info(client, cache_entries=False):
     """What this installation can do and where it keeps things: the
     accelerator, version, directories, and which workspace this session works
-    in. The directories are the session workspace's.
+    in. The directories are the session workspace's. `cache_entries` lists
+    each entry of a cache that has them (the quantized cache).
     """
     # /api/server answers for the session's workspace (the client scopes
     # every request), so its directories are already this workspace's
     info = catalog.get_server_info(client)
     info["workspace"] = client.workspace
-    caches = _cache_sizes(client)
+    caches = _cache_sizes(client, cache_entries)
     if caches is not None:
         info["caches"] = caches
     return info
@@ -207,7 +208,7 @@ def server_info(client):
 _CACHE_FIELDS = ("name", "bytes", "files", "enabled", "clearable", "disk_free")
 
 
-def _cache_sizes(client):
+def _cache_sizes(client, cache_entries=False):
     """dw's disk caches (#828), or None from a server without /api/caches -
     the rest of get_server_info doesn't depend on them."""
     try:
@@ -217,13 +218,37 @@ def _cache_sizes(client):
     caches = listing.get("caches") if isinstance(listing, dict) else None
     if not isinstance(caches, list):
         return None
-    return [_cache_summary(cache) for cache in caches if isinstance(cache, dict)]
+    return [
+        _cache_summary(cache, cache_entries)
+        for cache in caches
+        if isinstance(cache, dict)
+    ]
 
 
-def _cache_summary(cache):
+# What `cache_entries` carries of each entry: which model component it holds
+_ENTRY_FIELDS = (
+    "id",
+    "model",
+    "subfolder",
+    "component",
+    "bytes",
+    "files",
+    "unreadable",
+    "created",
+    "last_hit",
+)
+
+
+def _cache_summary(cache, cache_entries=False):
     summary = {field: cache.get(field) for field in _CACHE_FIELDS}
-    # A cache with entries (quantized) is counted, not listed: the listing is
-    # GET /api/caches, for the page that deletes them
-    if isinstance(cache.get("entries"), list):
-        summary["entry_count"] = len(cache["entries"])
+    # A cache with entries (quantized) is counted; `cache_entries` lists them
+    entries = cache.get("entries")
+    if isinstance(entries, list):
+        summary["entry_count"] = len(entries)
+        if cache_entries:
+            summary["entries"] = [
+                {field: entry.get(field) for field in _ENTRY_FIELDS}
+                for entry in entries
+                if isinstance(entry, dict)
+            ]
     return summary

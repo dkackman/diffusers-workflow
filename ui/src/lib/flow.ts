@@ -7,11 +7,13 @@
 import {
   FROM_PREVIOUS_RESULT_KEY,
   GATHER,
+  ITEM,
   MEMBER_SEPARATOR,
   PREVIOUS_RESULT,
   PROMPT,
   VARIABLE,
   isReference,
+  reference,
   referenceName,
 } from './references'
 
@@ -471,4 +473,58 @@ export function danglingReferenceDetails(
     })
   })
   return problems
+}
+
+/** The for_each references a value in step `index` can make, for the
+ * editor's completions - drawn from the same rules `memberRefusal` checks,
+ * so a suggestion is never one the dangling check then flags.
+ *
+ * - `item:`, and `item:<field>` for each field an object entry carries,
+ *   when the step itself is a for_each;
+ * - `gather:<step>` for each earlier for_each step, and its members as
+ *   `previous_result:<step>@<entry>` when the list can be read;
+ * - `plainRefused`: the earlier for_each steps a plain `previous_result:`
+ *   may not name from here (anywhere but a for_each over the same list). */
+export function forEachReferences(
+  workflow: Record<string, any>,
+  index: number,
+): { suggestions: string[]; plainRefused: Set<string> } {
+  const steps: Array<Record<string, any>> = workflow.steps ?? []
+  const step = steps[index] ?? {}
+  const own =
+    FOR_EACH_KEY in step
+      ? forEachEntries(workflow, step[FOR_EACH_KEY])
+      : undefined
+  const suggestions = FOR_EACH_KEY in step ? itemReferences(own) : []
+  const plainRefused = new Set<string>()
+  for (const producer of earlierSteps(workflow, steps, index)) {
+    if (!producer.forEach) continue
+    suggestions.push(...gatherReferences(producer))
+    if (memberRefusal(producer.name, producer, own) !== null)
+      plainRefused.add(producer.name)
+  }
+  return { suggestions, plainRefused }
+}
+
+const isEntryObject = (entry: unknown): entry is Record<string, unknown> =>
+  entry !== null && typeof entry === 'object' && !Array.isArray(entry)
+
+/** `item:`, then `item:<field>` for every field an object entry carries. */
+function itemReferences(entries: unknown): string[] {
+  const fields = new Set<string>()
+  for (const entry of Array.isArray(entries) ? entries : [])
+    if (isEntryObject(entry))
+      for (const field of Object.keys(entry)) fields.add(field)
+  return [ITEM, ...[...fields].sort().map((field) => reference(ITEM, field))]
+}
+
+/** How a later step reads a for_each step: the whole group with `gather:`,
+ * or one member, when the list can be read. */
+function gatherReferences(producer: EarlierStep): string[] {
+  return [
+    reference(GATHER, producer.name),
+    ...(producer.members ?? []).map((member) =>
+      reference(PREVIOUS_RESULT, producer.name + MEMBER_SEPARATOR + member),
+    ),
+  ]
 }

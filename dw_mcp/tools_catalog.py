@@ -214,21 +214,21 @@ class CatalogTools:
 
     def get_server_info(
         self,
+        cache_entries: bool = False,
     ) -> dict:
         """Get what this installation can do and where it keeps things: the
         accelerator a run will use (`device` - cuda, mps or cpu), the dw
         version, and the workflow, output and prompt directories. Check the
-        device before authoring: a CUDA-only choice - bitsandbytes
-        quantization, torch.compile, flash attention - is not available on
-        an mps or cpu server, and `directories` is what a path passed to
-        run_workflow or download_output is relative to. If this session
-        works in a named workspace, `directories` are scoped to that
-        workspace. `trust_workflows` reports the posture a submitted
-        workflow is read under: false - the default - means the file is
-        untrusted input, so an out-of-ecosystem import, remote code, and a
-        media location outside the workspace's roots are all refused.
-        `caches` sizes dw's disk caches (cleared from the server page)."""
-        return workspaces.server_info(self.client)
+        device before authoring: CUDA-only choices (bitsandbytes,
+        torch.compile, flash attention) are unavailable on mps or cpu, and `directories` is what a path passed to
+        run_workflow or download_output is relative to (scoped to this
+        session's workspace). `trust_workflows` false - the default - means
+        a submitted workflow is untrusted input: an out-of-ecosystem
+        import, remote code, and media outside the workspace's roots are
+        refused.
+        `caches` sizes dw's disk caches; `cache_entries=True` lists the
+        quantized cache's entries (`model`, `subfolder`, `component`)."""
+        return workspaces.server_info(self.client, cache_entries)
 
     def list_jobs(
         self, limit: int = 20, status: str | None = None, workspace: str | None = None

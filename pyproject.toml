@@ -33,34 +33,31 @@ classifiers = [
 # than editing ad hoc:  python scripts/refresh_dep_floors.py
 dependencies = [
     # Core ML frameworks
-    "torch>=2.13.0",
-    "torchvision>=0.28.0",
+    "torch>=2.14.1",
+    "torchvision>=0.29.1",
     # Diffusers and the HuggingFace ecosystem. The floor is the newest
     # PyPI release; the newest pipelines may need git HEAD on top, which
     # install.sh layers on (and the web UI's Models page can install)
     "diffusers>=0.40.0",
-    # 5.17.0's TextToAudioPipeline.preprocess calls BatchEncoding.to(dtype=...),
-    # a kwarg BatchEncoding.to() has never accepted in this line - breaks every
-    # generate_speech call outright (#169, #232 - not Bark-only, every TTS model
-    # through this pipeline class). Drop the exclusion once a later release
-    # either restores the kwarg or stops passing it - check both
-    # huggingface/transformers#42758 (VibeVoice config, the reason for the
-    # 5.17.0 bump in the first place) and this preprocess bug before re-bumping.
-    "transformers>=5.16.1,!=5.17.0",
-    "accelerate>=1.14.0",
-    "peft>=0.20.0",
+    # The floor is past 5.17.0, whose TextToAudioPipeline.preprocess called
+    # BatchEncoding.to(dtype=...) and broke every generate_speech call (#169,
+    # #232); later releases only cast a BatchFeature, so the exclusion that
+    # release needed is gone with it.
+    "transformers>=5.19.0",
+    "accelerate>=1.15.0",
+    "peft>=0.21.2",
     "safetensors>=0.8.0",
-    "huggingface-hub>=1.29.0",
+    "huggingface-hub>=1.33.0",
     # Loaded at runtime by model tokenizers/text encoders, not imported here
     "sentencepiece>=0.2.2",
-    "protobuf>=7.36.0",
+    "protobuf>=7.36.2",
     "ftfy>=6.3.1",
     # SDE schedulers
     "torchsde>=0.2.6",
     # Quantization backends (config_objects.py loads them dynamically)
     "torchao>=0.18.0",
     "optimum-quanto>=0.2.7",
-    "sdnq>=0.2.5",
+    "sdnq>=0.2.8",
     "gguf>=0.19.0",
     "bitsandbytes>=0.50.2; sys_platform == 'linux'",
     # ControlNet preprocessors (brings opencv-headless, scikit-image,
@@ -72,19 +69,19 @@ dependencies = [
     # one - LTX-2.5's diffusion decoder reaches NATTEN's na3d this way, and
     # without it that decoder falls back to a FlexAttention path diffusers' own
     # docstring calls larger than device memory at production grids
-    "kernels>=0.17.0",
+    "kernels>=0.17.2",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",
     # Imaging and media
-    "numpy>=2.5.2",
+    "numpy>=2.5.4",
     "Pillow>=12.3.0",
     "piexif>=1.1.3",
-    "imageio>=2.37.4",
+    "imageio>=2.38.1",
     "imageio-ffmpeg>=0.6.0",
-    "av>=18.1.0",
+    "av>=19.0.1",
     "soundfile>=0.14.0",
-    "matplotlib>=3.11.1",
+    "matplotlib>=3.11.2",
     # BS.1770 integrated loudness / true-peak metering (dw/dsp.py, #361)
     "pyloudnorm>=0.2.0",
     # normalize_audio(limit=true)'s 4x true-peak detection (resample_poly) and
@@ -96,7 +93,7 @@ dependencies = [
     # on (spkrec-xvect-voxceleb). Imported lazily in speech_generation.py,
     # so it's only exercised - and its model only downloaded - by a call
     # that actually passes speaker_embedding.
-    "speechbrain>=1.0.3",
+    "speechbrain>=1.1.1",
     # attribute_voices (dw/tasks/voice_attribution.py, #485): htdemucs
     # separates a song's vocal stem before speechbrain's ECAPA encoder
     # embeds it - on a full mix the accompaniment dominates the embedding
@@ -107,16 +104,16 @@ dependencies = [
     # Utilities
     "qrcode>=8.2",
     "requests>=2.34.2",
-    "aiohttp>=3.14.3",
+    "aiohttp>=3.14.5",
     "beautifulsoup4>=4.15.0",
     "jsonschema>=4.26.0",
-    "concurrent-log-handler>=0.9.29",
-    "python-dotenv>=1.2.3",
+    "concurrent-log-handler>=0.9.30",
+    "python-dotenv>=1.2.4",
     "packaging>=26.3",
     # Cross-process lock for claiming a run's directory and version
     # together (dw/runs.py open_run) - already installed transitively
     # through huggingface-hub, declared directly since dw imports it too
-    "filelock>=3.12",
+    "filelock>=4.1.1",
     # dw.run is a client of dw.serve (dw_mcp/client.py, imported by dw/run.py)
     # rather than an in-process runner, so httpx is a core dependency now,
     # not just the mcp extra's
@@ -124,22 +121,22 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
-server = ["fastapi>=0.141.1", "uvicorn[standard]>=0.52.4"]
-mcp = ["mcp>=2.1.1"]
+server = ["fastapi>=0.143.0", "uvicorn[standard]>=0.54.0"]
+mcp = ["mcp>=2.3.0"]
 dev = [
     "pytest>=9.1.1",
     "pytest-cov>=7.1.0",
     "pytest-xdist>=3.8.0",
     "pytest-timeout>=2.4.0",
-    "pytest-mock>=3.15.1",
+    "pytest-mock>=3.16.0",
     "pytest-asyncio>=1.4.0",
     "httpx>=0.28.1",
-    "ruff>=0.15.0",
+    "ruff>=0.17.0",
     "build",
-    "mcp>=2.1.1",
-    "pylint>=3.3",
+    "mcp>=2.3.0",
+    "pylint>=4.1.3",
     "import-linter>=2.15",
-    "networkx>=3.0",
+    "networkx>=3.7",
     "pygount>=3.2",
 ]
 

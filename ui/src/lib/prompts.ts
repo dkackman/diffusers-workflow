@@ -1,5 +1,5 @@
 import type { EnhancerPreset, ManifestEntry, PromptDefinition } from './types'
-import { PROMPT, reference, referenceName } from './references'
+import { PROMPT, referenceName } from './references'
 
 /** A blank prompt, the editor's starting point. */
 export function emptyPrompt(): PromptDefinition {
@@ -57,17 +57,6 @@ export function promptTooltip(
 ): string | undefined {
   const name = referenceName(value, PROMPT)
   return name === null ? undefined : texts[name] || undefined
-}
-
-/** The stored prompts a value can name, offered once the value commits to
- * a prompt: reference - so no list pops over ordinary text. */
-export function promptSuggestions(
-  value: unknown,
-  names: readonly string[],
-): string[] {
-  return referenceName(value, PROMPT) === null
-    ? []
-    : names.map((name) => reference(PROMPT, name))
 }
 
 /** The workflows whose definitions reference a stored prompt, from the

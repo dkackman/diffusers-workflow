@@ -324,6 +324,30 @@ class TestServerInfo:
         assert quantized["entry_count"] == 2
         assert "entries" not in quantized
 
+    def test_cache_entries_lists_each_entry_on_request(self):
+        entry = {
+            "id": "a" * 64,
+            "bytes": 100,
+            "files": 2,
+            "unreadable": False,
+            "model": "org/m",
+            "subfolder": "transformer",
+            "component": "FluxTransformer2DModel",
+            "created": 1.0,
+            "last_hit": None,
+            "extra": "dropped",
+        }
+        listing = {"caches": [{"name": "quantized", "bytes": 100, "entries": [entry]}]}
+        client = self.info_client(httpx.Response(200, json=listing))
+
+        [quantized] = server_info(client, cache_entries=True)["caches"]
+
+        [listed] = quantized["entries"]
+        assert listed["component"] == "FluxTransformer2DModel"
+        assert listed["model"] == "org/m"
+        assert listed["subfolder"] == "transformer"
+        assert "extra" not in listed
+
     @pytest.mark.parametrize("status", [404, 500])
     def test_caches_omitted_when_the_listing_fails(self, status):
         client = self.info_client(httpx.Response(status, json={"detail": "no"}))

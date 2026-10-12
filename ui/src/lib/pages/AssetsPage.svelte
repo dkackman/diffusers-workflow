@@ -18,6 +18,8 @@
   import { storageGet, storageSet } from '../storage'
   import type { AssetFile, AssetLibrary, ShadowedAsset } from '../types'
   import { workspace } from '../workspace.svelte'
+  import { sharedHref } from '../routes'
+  import { assetLibrary } from '../assetlib.svelte'
   import { leafName } from '../names'
   import AssetDetail from '../assets/AssetDetail.svelte'
   import LibraryRow from '../assets/LibraryRow.svelte'
@@ -65,6 +67,10 @@
       .listAssets()
       .then((result) => {
         assets = result.assets
+        // The editors' asset: completions read the same listing; an
+        // upload or delete here is what they offer next
+        assetLibrary.items = result.assets
+        assetLibrary.workspace = workspace.current
         libraries = result.libraries
         shadowed = result.shadowed
         error = ''
@@ -89,6 +95,23 @@
   const byName = $derived(new Map(visible.map((a) => [a.name, a])))
   const folderByName = $derived(new Map(assets.map((a) => [a.name, a.folder])))
   const originOf = $derived(new Map(assets.map((a) => [a.name, a.origin])))
+  // A workspace's page shows the shared and examples libraries only as far
+  // as its own workflows reach into them - the whole shared library is the
+  // Shared assets page's, and listing it in every workspace buried what the
+  // workspace made. Those workflows resolve their `asset:` names through
+  // the workspace first, so a hidden shared copy is shown when the name is
+  // one they use
+  const onPage = (asset: AssetFile) =>
+    shared
+      ? asset.origin !== 'workspace'
+      : asset.origin === 'workspace' || !!asset.used_by?.length
+  const shownCount = $derived(assets.filter(onPage).length)
+  const usedNames = $derived(
+    new Set(assets.filter((a) => a.used_by?.length).map((a) => a.name)),
+  )
+  const elsewhereCount = $derived(
+    assets.filter((a) => a.origin !== 'workspace').length,
+  )
 
   function toggleLibrary(origin: string) {
     collapsed[origin] = !collapsed[origin]
@@ -109,18 +132,27 @@
     libraries
       .map((library) => ({
         ...library,
-        label: LIBRARY_LABELS[library.origin] ?? library.origin,
-        assets: visible.filter((a) => a.origin === library.origin),
+        label:
+          (LIBRARY_LABELS[library.origin] ?? library.origin) +
+          (shared || library.origin === 'workspace' ? '' : ', used here'),
+        assets: visible.filter((a) => a.origin === library.origin && onPage(a)),
         shadowed: shadowed.filter(
-          (s) => s.origin === library.origin && matches(s.name),
+          (s) =>
+            s.origin === library.origin &&
+            matches(s.name) &&
+            (shared || usedNames.has(s.name)),
         ),
       }))
       .filter((section) => !shared || section.origin !== 'workspace')
       .filter(
         (section) =>
-          !filterActive ||
           section.assets.length > 0 ||
-          section.shadowed.length > 0,
+          section.shadowed.length > 0 ||
+          // Unfiltered, an empty library still shows its header, so an
+          // empty workspace says where an upload would land - but on a
+          // workspace's page a shared library it uses nothing from is left
+          // out rather than shown as an empty "used here"
+          (!filterActive && (shared || section.origin === 'workspace')),
       ),
   )
   // What the bulk actions can reach: the grid in the order the page lays
@@ -253,7 +285,16 @@
 
 <div class="pagehead">
   <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
-  <span class="num muted">{assets.length} files</span>
+  <span class="num muted">{shownCount} files</span>
+  <span class="flex"></span>
+  {#if !shared && elsewhereCount}
+    <a
+      class="sharedlink plain muted"
+      href={sharedHref('assets')}
+      title="the shared library every workspace under this root can use"
+      >shared <span class="num">{elsewhereCount}</span></a
+    >
+  {/if}
   <input class="filter" placeholder="filter…" bind:value={filter} />
   <!-- One input for every section: which library the file lands in is
        uploadTarget, set by whichever button opened it -->
@@ -275,17 +316,20 @@
     The shared library follows you between workspaces; an examples library is
     read-only.
   {:else}
-    The shared library and any examples library sit on every workspace's search
-    path, so they follow you between workspaces; only this workspace's own
-    section changes between workspaces, and a name here hides the same name
-    further down.
+    This workspace's own assets come first, and a name here hides the same name
+    in the shared library. Shared assets are listed here only when one of this
+    workspace's workflows names them; the rest are on the Shared assets page.
   {/if}
 </HintBar>
 
-{#if loaded && !error && assets.length === 0}
+{#if loaded && !error && shownCount === 0}
   <Empty>
     {#snippet icon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
     Nothing in the asset library yet — upload a file, or keep one from the gallery.
+    {#if !shared && elsewhereCount}
+      The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
+      more.
+    {/if}
   </Empty>
 {/if}
 
@@ -380,7 +424,13 @@
 <style>
   .pagehead .filter {
     max-width: 220px;
-    margin-left: auto;
+  }
+  .sharedlink {
+    font-size: 0.82rem;
+    white-space: nowrap;
+  }
+  .sharedlink:hover {
+    color: var(--ink);
   }
   .hiddenfile {
     display: none;

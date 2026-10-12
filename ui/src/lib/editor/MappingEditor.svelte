@@ -4,6 +4,7 @@
   import { coerce, displayValue, isReference, widgetFor } from '../editor'
   import { promptLibrary } from '../promptlib.svelte'
   import { promptTooltip } from '../prompts'
+  import { referenceCompletions } from '../refcomplete.svelte'
 
   let {
     args = $bindable(),
@@ -43,6 +44,7 @@
       id={`${uid}-${key}`}
       class={isReference(args[key]) ? 'ref' : ''}
       suggestions={valueSuggestions}
+      complete={(text) => referenceCompletions(text)}
       title={promptTooltip(args[key], promptLibrary.texts)}
       value={displayValue(args[key])}
       placeholder={hintFor(key)}
@@ -119,8 +121,6 @@
     max-width: 300px;
   }
   .icon {
-    display: inline-flex;
-    padding: 0.3rem 0.45rem;
     justify-self: start;
   }
 </style>
