@@ -33,6 +33,7 @@ from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
 from .realize import realize_workflow
+from .roles import annotate_roles, run_inputs
 from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
@@ -104,6 +105,8 @@ class RunRecord:
     seed: object = None
     realized_name: object = None
     annotations: dict = field(default_factory=_empty_annotations)
+    # The expanded steps the run executed - what roles and inputs are read from
+    expanded_steps: list = field(default_factory=list)
 
 
 @dataclass
@@ -220,6 +223,18 @@ def write_run_manifest(workflow, record, status=None):
     """
     status = status or record.status
     annotations = record.annotations
+    steps = [
+        {
+            **entry,
+            "files": manifest_relative_files(entry.get("files"), workflow._run_dir),
+            **_relative_shots(entry, workflow._run_dir),
+        }
+        for entry in workflow.manifest
+    ]
+    # Roles once the run has ended - a running manifest would show the
+    # newest step as final until its consumer runs (dw/roles.py)
+    if status != "running":
+        steps = annotate_roles(record.expanded_steps, steps)
     write_manifest(
         workflow._run_dir,
         {
@@ -252,16 +267,8 @@ def write_run_manifest(workflow, record, status=None):
             # What did not run, and why - a run says what it did not do
             # as well as what it did (#122)
             "elided_steps": workflow._elided_steps,
-            "steps": [
-                {
-                    **entry,
-                    "files": manifest_relative_files(
-                        entry.get("files"), workflow._run_dir
-                    ),
-                    **_relative_shots(entry, workflow._run_dir),
-                }
-                for entry in workflow.manifest
-            ],
+            "inputs": run_inputs(record.expanded_steps),
+            "steps": steps,
         },
     )
 
@@ -620,6 +627,7 @@ def open_run(workflow, prepared, record, run_context):
     inherits the parent's and never opens its own."""
     record.started_at = _now()
     record.run_id = None
+    record.expanded_steps = prepared.workflow_def.get("steps") or []
     if not workflow._run_dir_inherited:
         _claim_run_dir(workflow, prepared, record)
 
