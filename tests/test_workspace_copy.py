@@ -548,3 +548,47 @@ class TestMcp:
         client, seen = self.recording("shots")
         copy_to_workspace(client, "final", ["wf/x"], source="other")
         assert json.loads(seen[0].content)["source"] == "other"
+
+
+class TestTheOwners:
+    """The rules a copy relies on live with their owners (#859 arch review):
+    the entry shape in dw/security.py, the numbering in dw/runs.py."""
+
+    def test_an_entry_follows_the_output_reference_segment_rule(self):
+        from dw.security import validate_output_prefix, validate_output_reference
+
+        assert validate_output_prefix("wf") == "wf"
+        assert validate_output_prefix(f"ltx2/Gyre/{R1}") == f"ltx2/Gyre/{R1}"
+        for name in ("wf@a", "w.f-1/x"):
+            validate_output_prefix(name)
+            validate_output_reference(f"{name}/latest/img.png")
+        for bad in ("@wf", "wf/.hidden", "a/b/c/d/e/f/g/h", "wf/x y"):
+            with pytest.raises(InvalidInputError):
+                validate_output_prefix(bad)
+
+    def test_copy_runs_in_pins_the_destinations_unrecorded_runs_first(self, tmp_path):
+        from dw.runs import copy_runs_in
+
+        source = tmp_path / "src" / "wf"
+        dest = tmp_path / "dst" / "wf"
+        for base, run_id, version in ((source, R2, 1), (dest, R1, None)):
+            run_dir = base / run_id
+            run_dir.mkdir(parents=True)
+            manifest = {"run_id": run_id}
+            if version is not None:
+                manifest["version"] = version
+            (run_dir / "manifest.json").write_text(json.dumps(manifest))
+
+        def place(run_id):
+            os.makedirs(dest / run_id)
+            (dest / run_id / "manifest.json").write_text(
+                (source / run_id / "manifest.json").read_text()
+            )
+
+        renumbered = copy_runs_in(str(source), str(dest), [R2], place)
+
+        assert renumbered == {R2: {"from": 1, "to": 2}}
+        recorded = json.loads((dest / R1 / "manifest.json").read_text())
+        assert recorded["version"] == 1
+        assert run_versions(str(dest)) == {R1: 1, R2: 2}
+        assert json.loads((source / R2 / "manifest.json").read_text())["version"] == 1
