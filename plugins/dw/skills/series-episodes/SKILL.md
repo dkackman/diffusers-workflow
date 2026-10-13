@@ -88,6 +88,7 @@ every episode; the same palette gives the same look. An uploaded `.cube` as
 `lut` works too. The graded clips are then the recut's `shots`. The recipe
 and its workflow are in `references/look.md`.
 
+Give each `run_workflow` a `note` (episode, shot); `set_note` the keeper.
 Once every shot for the episode exists (freshly generated, or promoted from
 a run with `keep_output`), cut and score them with
 `templates/assemble-and-score` - it is the five-beat pipeline this skill

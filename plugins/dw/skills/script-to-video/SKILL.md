@@ -86,6 +86,9 @@ human (or an explicit pre-authorization) has signed off - this is a real
 gate, not a formality, and skipping it here is the one thing this skill
 must not do even when running unattended.
 
+Pass `note` on each `run_workflow` naming the shot and what the run tests,
+and `set_note` the take you keep: the note shows on every file it made.
+
 ## Run and judge
 
 Wait with `wait_for_job`, asking for the plan's estimate plus a margin as
