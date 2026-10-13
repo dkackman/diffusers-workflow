@@ -1704,12 +1704,15 @@ export interface paths {
         put?: never;
         /**
          * Copy Into Workspace
-         * @description Copy runs from another workspace into this one.
+         * @description Copy runs and asset-library entries from another workspace into this one.
          *
          *     Media is hard-linked where the filesystem allows, so a copy costs
-         *     little disk; sidecars are copied. All or nothing: a run already here is
-         *     skipped as `already_present`, a run whose job is still running refuses
-         *     the request. A move is a copy, then `DELETE` of the source runs.
+         *     little disk; sidecars are copied, and an asset's note and kept shots are
+         *     merged into the destination folder's. All or nothing: a run already
+         *     here, or an asset with identical bytes, is skipped as `already_present`;
+         *     a run whose job is still running, or a different file at an asset's
+         *     path, refuses the whole request (409, naming each) with nothing written.
+         *     A move is a copy, then `DELETE` of the source runs and assets.
          */
         post: operations["copy_into_workspace_api_workspaces__destination__copy_post"];
         delete?: never;
@@ -2004,7 +2007,7 @@ export interface components {
         CopiedItems: {
             /**
              * Assets
-             * @description Always empty until assets can be copied.
+             * @description Library-relative path of each asset file copied.
              */
             assets: string[];
             /**
@@ -3701,7 +3704,7 @@ export interface components {
         WorkspaceCopied: {
             /**
              * Already Present
-             * @description Runs the destination already held, by run id - skipped.
+             * @description Runs the destination already held (`<workflow>/<run id>`) and assets it held with identical bytes (library-relative path) - skipped.
              */
             already_present: string[];
             /** Bytes Copied */
@@ -3734,7 +3737,7 @@ export interface components {
         WorkspaceCopyRequest: {
             /**
              * Assets
-             * @description Not supported yet - leave empty
+             * @description Asset-library files or folders, as written after `asset:` (`proj/clip.mp4`, `proj/`); each keeps its library-relative path
              */
             assets?: string[];
             /**

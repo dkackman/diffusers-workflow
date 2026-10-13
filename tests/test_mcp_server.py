@@ -1587,7 +1587,11 @@ def test_the_stated_tool_count_is_the_registered_one():
 # never registered, is registered (66.75 description + 83.25 schema) -
 # measured at 14_620.25 (9_343 / 4_767 / 510.25); the ceiling moves to
 # 14_621 with 0.75 of headroom.
-SURFACE_BUDGET = 14_621
+# 2026-10-13 (#860, #853 stage B): copy_to_workspace takes assets (its
+# description names them; the schema gains the parameter, runs optional) -
+# measured at 14_699.5 (9_381 / 4_808 / 510.5); the ceiling moves to 14_700
+# with 0.5 of headroom.
+SURFACE_BUDGET = 14_700
 
 
 @pytest.mark.asyncio
