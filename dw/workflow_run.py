@@ -9,7 +9,7 @@ cache probe (`cache_hits`) shares `prepare_definition` and `cache_lookup`
 with the run, so the probe answers for the run that would happen.
 
 Every phase takes the Workflow and writes what others read back onto it:
-`manifest`, `_run_dir`, `_run_version`, `_elided_steps` and
+`manifest`, `_run_dir`, `_run_version`, `_elided_steps`, `_used_variables` and
 `_cache_enabled_this_run`. A composed child is recognized as an instance of
 the running workflow's own type.
 
@@ -32,7 +32,7 @@ from .events import emit_warning
 from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
-from .realize import realize_workflow
+from .realize import pin_output_reference, realize_workflow
 from .roles import annotate_roles, role_basis, run_inputs
 from .runs import (
     FLAT_LAYOUT,
@@ -122,6 +122,7 @@ class PreparedRun:
     default_seed: int
     recorded_variables: object
     cache_enabled: bool
+    used_variables: list = field(default_factory=list)
 
 
 @dataclass
@@ -322,6 +323,7 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
         realize_args(variables, base_dir, apply_key_conventions=False)
     ## then replace any variable references in the workflow definition
     # with the actual values, and expand
+    authored_steps = workflow_def.get("steps")
     workflow_def = workflow._expand(workflow_def, variables)
 
     # A step a declared vram_estimate projects past the card 'cost' was
@@ -351,6 +353,9 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     workflow._elided_steps = elide_definition(
         workflow_def, workflow.workflow_definition
     )
+    workflow._used_variables = _surviving_variables(
+        authored_steps, workflow_def.get("steps")
+    )
 
     # Set up random seed for reproducibility. Resolved lazily - as a
     # dict.get default, torch.seed() would run on every call and reseed
@@ -370,6 +375,53 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
             )
         workflow_def["seed"] = default_seed
     return workflow_def, default_seed, recorded_variables
+
+
+def _variable_names(value):
+    """Every 'variable:' name a nested value references, in first-use order."""
+    names = []
+    if isinstance(value, str):
+        name = references.ref_name(references.VARIABLE, value)
+        if name is not None:
+            names.append(name)
+    elif isinstance(value, dict):
+        for item in value.values():
+            names.extend(_variable_names(item))
+    elif isinstance(value, list):
+        for item in value:
+            names.extend(_variable_names(item))
+    return names
+
+
+def _surviving_variables(authored_steps, expanded_steps):
+    """The variable names the steps that survived expansion and elision
+    referenced before substitution (#857). A for_each member
+    ('<group>@<entry>') stands for the step it was expanded from."""
+    groups = {
+        str(step.get("name")).split(references.MEMBER_SEPARATOR)[0]
+        for step in expanded_steps or []
+        if isinstance(step, dict)
+    }
+    used = []
+    for step in authored_steps or []:
+        if isinstance(step, dict) and step.get("name") in groups:
+            for name in _variable_names(step):
+                if name not in used:
+                    used.append(name)
+    return used
+
+
+def _pin_inputs(inputs, output_root):
+    """`inputs` with each output: reference pinned as the realized workflow
+    pins it, duplicates merged."""
+    pinned = []
+    for entry in inputs:
+        reference = entry["reference"]
+        if entry["kind"] == "output":
+            reference = pin_output_reference(reference, output_root)
+        if not any(p["reference"] == reference for p in pinned):
+            pinned.append({**entry, "reference": reference})
+    return pinned
 
 
 def cache_lookup(
@@ -596,6 +648,7 @@ def prepare_run(workflow, record):
         default_seed,
         recorded_variables,
         cache_enabled,
+        list(workflow._used_variables),
     )
 
 
@@ -634,7 +687,15 @@ def open_run(workflow, prepared, record, run_context):
     record.role_basis = role_basis(expanded)
     # The variables as folded, before their assets loaded: a template's
     # input image is usually a variable, gone from the steps by now
-    record.inputs = run_inputs([*expanded, prepared.recorded_variables])
+    # Only the variables a surviving step referenced: a default nothing
+    # read is not something the run was made from (#857)
+    recorded = prepared.recorded_variables
+    read = (
+        {k: v for k, v in recorded.items() if k in prepared.used_variables}
+        if isinstance(recorded, dict)
+        else None
+    )
+    record.inputs = run_inputs([*expanded, read])
     if not workflow._run_dir_inherited:
         _claim_run_dir(workflow, prepared, record)
 
@@ -655,6 +716,9 @@ def open_run(workflow, prepared, record, run_context):
         )
         if write_realized_workflow(workflow._run_dir, realized):
             record.realized_name = REALIZED_FILE_NAME
+        # Made from names the run realize_workflow pinned, not 'latest'
+        # as read when the page is viewed (#858)
+        record.inputs = _pin_inputs(record.inputs, workflow.output_dir)
     except Exception as e:
         # Never fatal: the record is worth less than the run
         logger.warning(f"Could not realize workflow {prepared.workflow_id}: {e}")

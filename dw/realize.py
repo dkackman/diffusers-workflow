@@ -202,6 +202,11 @@ def _pin_output(reference, output_root):
     return references.make_ref(references.OUTPUT, relative)
 
 
+def pin_output_reference(reference, output_root):
+    """`_pin_output` for a caller outside this module (a run's Made from)."""
+    return _pin_output(reference, output_root)
+
+
 def _record_sub_workflows(steps, annotations, base_dir, workflow_dir):
     """Digest every sub-workflow a step names by local path.
 

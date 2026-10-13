@@ -120,3 +120,40 @@ def test_a_real_run_records_an_output_carried_by_a_variable(tmp_path, fake_pipel
 
     manifest = _terminal_manifest(tmp_path, "Var")
     assert manifest["inputs"] == [{"reference": reference, "kind": "output"}]
+
+
+def test_a_real_run_omits_a_variable_default_no_step_read(tmp_path, fake_pipeline):  # noqa: F811
+    # #857: an unused variable's asset:/output: default is not an input
+    from dw.workflow import Workflow
+
+    reference = _source_run(tmp_path)
+    definition = _workflow_definition()
+    definition["id"] = "Unused"
+    definition["variables"] = {
+        "image": reference,
+        "spare": "output:Src/latest/" + reference.rsplit("/", 1)[1],
+        "prompt": "a cat",
+    }
+    definition["steps"][0]["pipeline"]["arguments"]["prompt"] = "variable:prompt"
+    definition["steps"][0]["pipeline"]["arguments"]["image"] = "variable:image"
+    Workflow(definition, str(tmp_path), "/w/workflows/Unused.json").run({})
+
+    manifest = _terminal_manifest(tmp_path, "Unused")
+    assert manifest["inputs"] == [{"reference": reference, "kind": "output"}]
+
+
+def test_a_real_run_pins_a_latest_output_reference(tmp_path, fake_pipeline):  # noqa: F811
+    # #858: Made from names the run 'latest' resolved to, not 'latest'
+    from dw.workflow import Workflow
+
+    pinned = _source_run(tmp_path)
+    _, run_id, image = pinned.removeprefix("output:").split("/")
+    definition = _workflow_definition()
+    definition["id"] = "Pin"
+    definition["steps"][0]["pipeline"]["arguments"]["image"] = (
+        f"output:Src/latest/{image}"
+    )
+    Workflow(definition, str(tmp_path), "/w/workflows/Pin.json").run({})
+
+    manifest = _terminal_manifest(tmp_path, "Pin")
+    assert manifest["inputs"] == [{"reference": pinned, "kind": "output"}]

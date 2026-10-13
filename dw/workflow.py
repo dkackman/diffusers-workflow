@@ -550,6 +550,9 @@ class Workflow:
         # What elision dropped this run, filled by prepare_definition and
         # read by the warning pass and the manifest (#122)
         self._elided_steps = []
+        # The variables the surviving steps referenced, filled by
+        # prepare_definition for the run's Made from (#857)
+        self._used_variables = []
         # A reused Workflow (the persistent worker's) still holds the last
         # run's directory: a run that fails before open_run would otherwise
         # rewrite that run's manifest. A composed child's values were set by
