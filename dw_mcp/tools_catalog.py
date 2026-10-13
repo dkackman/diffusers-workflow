@@ -282,11 +282,10 @@ class CatalogTools:
         only bookkeeping (manifest.json, workflow.json, job.json) as
         `runs`, each `{name, mtime}` - output deleted, or a run that failed
         before writing anything; `name` is what `delete_output` accepts.
-        `subfolder` does not apply. Whether an entry is junk is yours to
-        decide.
+        A run that wrote any file is not listed. `subfolder` does not
+        apply. Whether an entry is junk is yours to decide.
 
-        `workspace` names the workspace for this one call without
-        switching the session, as `run_workflow` takes it.
+        `workspace` scopes one call without switching the session.
 
         `media=True` adds `duration_seconds` to audio/video entries, to
         tell takes apart."""

@@ -228,10 +228,14 @@ def delete_asset(client, name, workspace=None):
     return client.delete_json(api_path("api", "assets", name), workspace=workspace)
 
 
-def set_note(client, target, note):
+def set_note(client, target, note, workspace=None):
     """Set (or clear, with None or '') the note on a run, an output file, an
-    asset ('asset:<name>') or a workspace ('workspace:<name>')."""
-    return client.put_json("/api/notes", {"target": target, "note": note})
+    asset ('asset:<name>') or a workspace ('workspace:<name>'). `workspace`
+    pins this one call, as `delete_asset`'s does: a run or file name is read
+    in that workspace rather than the session's."""
+    return client.put_json(
+        "/api/notes", {"target": target, "note": note}, workspace=workspace
+    )
 
 
 def keep_output(

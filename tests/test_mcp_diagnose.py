@@ -846,6 +846,16 @@ def test_set_note_none_clears():
     assert json.loads(seen[0]["body"]) == {"target": "asset:a.png", "note": None}
 
 
+def test_set_note_workspace_pins_the_call():
+    from dw_mcp import assets
+
+    client, seen = scripted({("PUT", "/api/notes"): (200, {})})
+    assets.set_note(client, "wf/run", "n", workspace="music-video")
+    assert seen[0]["params"]["workspace"] == "music-video"
+    assets.set_note(client, "wf/run", "n")
+    assert "workspace" not in seen[1]["params"]
+
+
 def test_list_jobs_clips_long_notes():
     body = {"jobs": [{"id": "j", "note": "x" * 500}, {"id": "k", "note": "hi"}]}
     client, _ = scripted({("GET", "/api/jobs"): (200, body)})

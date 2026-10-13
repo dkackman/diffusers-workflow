@@ -384,12 +384,15 @@ class AssetTools:
             note=note,
         )
 
-    def set_note(self, target: str, note: str | None = None) -> dict:
+    def set_note(
+        self, target: str, note: str | None = None, workspace: str | None = None
+    ) -> dict:
         """Set or clear (note null or '') the note on a run
         ('<workflow>/<run id>'), an output file (gallery name), 'asset:<name>'
         or 'workspace:<name>'. Plain text, 4000 chars max: what it is for -
-        what a run tested, why a file is the keeper. Free."""
-        return assets.set_note(self.client, target, note)
+        what a run tested, why a file is the keeper. Free. `workspace` scopes
+        one call."""
+        return assets.set_note(self.client, target, note, workspace=workspace)
 
     def delete_asset(self, name: str, workspace: str | None = None) -> dict:
         """Permanently remove one file from the asset library, by the name
