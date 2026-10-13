@@ -330,8 +330,13 @@ A run is self-contained on disk, so copying its folder into another
 workspace's `outputs/` is what makes it resolvable there. `copy_to_workspace`
 (MCP) and `POST /api/workspaces/{destination}/copy` ([SERVER.md](SERVER.md))
 do that for runs, named `<workflow>/<run id>` or, for all of a workflow's runs,
-a bare `<workflow>`. Only runs are copied for now; assets are not, and a
-request naming some is refused.
+a bare `<workflow>`, and for assets, named as after `asset:` (`cast/iris.png`,
+or a folder such as `proj/` for every file under it). An asset keeps its
+library-relative path, so `uploads/` stays `uploads/` and an `asset:` reference
+means the same file in both workspaces. Its note and its kept-shots entry (the
+folder's `notes.json` and `manifest.json`, including where it was kept from)
+are merged into the destination folder's own sidecars, which are written
+fresh: naming a sidecar directly is a 400, since it travels with its files.
 
 Media is hard-linked, so a copy costs almost no disk, falling back to a real
 copy across devices. JSON sidecars (the manifest, `workflow.json`, notes,
@@ -343,7 +348,15 @@ The copy is all or nothing: every entry is checked before anything is written.
 A run whose run id the destination already has is the same run, so it is
 skipped and listed as `already_present`, and repeating a copy changes nothing.
 A run whose job is still queued or running is refused, since its manifest is
-not final.
+not final. An asset the destination already holds with the same bytes is
+skipped as `already_present` too; a different file at that path is a conflict,
+never replaced. Every conflict, runs and assets alike, is named in one 409
+before anything is written.
+
+Because a copied asset is a hard link, nothing edits media in place: an upload
+over an existing name writes a new file and renames it into place, and
+`keep_output` and `delete_asset` unlink first, so an edit in one workspace
+never reaches the other.
 
 A run keeps its `vN` unless the destination already uses that number for the
 workflow. Then this request's runs of that workflow are renumbered after the
@@ -358,7 +371,7 @@ to the source workspace's root) and `no_jobs`. A copied run has no job record, s
 the gallery and resolves as an `output:` reference, but not in `list_jobs`.
 
 A move is a copy, then a delete of the source runs (`delete_output`, or
-`DELETE` on the gallery runs); there is no move that could lose a run halfway.
+`DELETE` on the gallery runs) and assets (`delete_asset`); there is no move that could lose a run halfway.
 
 ## Where this is going
 

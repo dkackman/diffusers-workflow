@@ -426,7 +426,7 @@
         "additionalProperties": false,
         "properties": {
           "assets": {
-            "description": "Always empty until assets can be copied.",
+            "description": "Library-relative path of each asset file copied.",
             "items": {
               "type": "string"
             },
@@ -4808,7 +4808,7 @@
         "description": "What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).",
         "properties": {
           "already_present": {
-            "description": "Runs the destination already held, by run id - skipped.",
+            "description": "Runs the destination already held (`<workflow>/<run id>`) and assets it held with identical bytes (library-relative path) - skipped.",
             "items": {
               "type": "string"
             },
@@ -4868,7 +4868,7 @@
       "WorkspaceCopyRequest": {
         "properties": {
           "assets": {
-            "description": "Not supported yet - leave empty",
+            "description": "Asset-library files or folders, as written after `asset:` (`proj/clip.mp4`, `proj/`); each keeps its library-relative path",
             "items": {
               "type": "string"
             },
@@ -9045,7 +9045,7 @@
     },
     "/api/workspaces/{destination}/copy": {
       "post": {
-        "description": "Copy runs from another workspace into this one.\n\nMedia is hard-linked where the filesystem allows, so a copy costs\nlittle disk; sidecars are copied. All or nothing: a run already here is\nskipped as `already_present`, a run whose job is still running refuses\nthe request. A move is a copy, then `DELETE` of the source runs.",
+        "description": "Copy runs and asset-library entries from another workspace into this one.\n\nMedia is hard-linked where the filesystem allows, so a copy costs\nlittle disk; sidecars are copied, and an asset's note and kept shots are\nmerged into the destination folder's. All or nothing: a run already\nhere, or an asset with identical bytes, is skipped as `already_present`;\na run whose job is still running, or a different file at an asset's\npath, refuses the whole request (409, naming each) with nothing written.\nA move is a copy, then `DELETE` of the source runs and assets.",
         "operationId": "copy_into_workspace_api_workspaces__destination__copy_post",
         "parameters": [
           {

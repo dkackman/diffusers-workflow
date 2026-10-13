@@ -578,12 +578,15 @@ The editor's forms come from these; they are just as usable from scripts:
   exported job. It is a reserved name: no workspace can be called `exports`, and
   the folder is never listed as one.
 - `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
-  "assets": []}`) — copy runs from one workspace into another. A `runs` entry
-  is `<workflow>/<run id>`, or a bare `<workflow>` for all its runs. A
-  non-empty `assets` is a 400: copying assets is not supported yet. An empty
-  `runs` or a source equal to the destination is a 400, an unknown workspace
-  or run a 404, and a server without a workspace root, a run whose job is still
-  queued or running, or a destination that is not writable a 409. All or
+  "assets": [...]}`) — copy runs and assets from one workspace into another.
+  A `runs` entry is `<workflow>/<run id>`, or a bare `<workflow>` for all its
+  runs; an `assets` entry is a library-relative path as after `asset:`, or a
+  folder (`proj/`) for every file under it. Naming neither, a source equal to
+  the destination, a path that escapes or reaches a symlink, or a sidecar
+  named directly is a 400, an unknown workspace, run or asset a 404, and a
+  server without a workspace root, a destination that is not writable, a run
+  whose job is still queued or running, or a different file already at an
+  asset's path a 409 (`detail.conflicts` names every one). All or
   nothing. The reply is `{source, destination, copied: {runs, assets},
   already_present, renumbered, warnings: {unresolved_output_refs,
   absolute_paths, no_jobs}, bytes_linked, bytes_copied}`; `renumbered` maps
