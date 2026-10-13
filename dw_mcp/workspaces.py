@@ -151,6 +151,18 @@ def create_workspace(client, name, use=False):
     return result
 
 
+def copy_to_workspace(client, destination, runs, source=None):
+    """Copy runs into another workspace under the same root. `source`
+    defaults to this session's workspace. The server hard-links media and
+    copies sidecars, skips runs the destination already holds
+    (`already_present`), and reports renumbered `vN` and warnings."""
+    source = source or client.workspace
+    return client.post_json(
+        api_path("api", "workspaces", destination, "copy"),
+        {"source": source, "runs": list(runs or [])},
+    )
+
+
 def delete_workspace(client, name, acknowledged_cost=False):
     """Delete a workspace and every workflow, asset and generated file in it.
 

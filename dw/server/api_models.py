@@ -664,6 +664,32 @@ class WorkspaceDeleted(ApiModel):
     contents: dict[str, DiskUsage] = Field(description="What it held, per folder.")
 
 
+class CopiedItems(ApiModel):
+    runs: list[str] = Field(description="`<workflow>/<run id>` of each run copied.")
+    assets: list[str] = Field(description="Always empty until assets can be copied.")
+
+
+class WorkspaceCopied(ApiModel):
+    """What a copy between workspaces did (`POST /api/workspaces/{name}/copy`)."""
+
+    source: str
+    destination: str
+    copied: CopiedItems
+    already_present: list[str] = Field(
+        description="Runs the destination already held, by run id - skipped."
+    )
+    renumbered: dict[str, dict[str, int]] = Field(
+        description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "
+        "`{from, to}`."
+    )
+    warnings: dict[str, Any] = Field(
+        description="`unresolved_output_refs`, `absolute_paths` and `no_jobs`, "
+        "each only when it applies."
+    )
+    bytes_linked: int
+    bytes_copied: int
+
+
 class WorkflowCost(ApiModel):
     """A measured run, as the workflow's own `cost` block declares it."""
 

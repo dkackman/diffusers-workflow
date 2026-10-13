@@ -171,6 +171,7 @@ def build_server(client):
     tool(wks.list_workspaces, READ_ONLY)
     tool(wks.use_workspace, WRITES)
     tool(wks.create_workspace, WRITES)
+    tool(wks.copy_to_workspace, WRITES)
     tool(wks.delete_workspace, DELETES)
 
     tool(aut.validate_workflow, READ_ONLY)
