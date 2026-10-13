@@ -422,6 +422,33 @@
         "title": "ClassList",
         "type": "object"
       },
+      "CopiedItems": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "description": "Always empty until assets can be copied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "runs": {
+            "description": "`<workflow>/<run id>` of each run copied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "assets"
+        ],
+        "title": "CopiedItems",
+        "type": "object"
+      },
       "Deleted": {
         "additionalProperties": false,
         "properties": {
@@ -3506,11 +3533,6 @@
             "title": "Scaled",
             "type": "string"
           },
-          "withheld": {
-            "description": "With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).",
-            "title": "Withheld",
-            "type": "string"
-          },
           "tempered": {
             "title": "Tempered",
             "type": "boolean"
@@ -3522,6 +3544,11 @@
             },
             "title": "Unpriced",
             "type": "array"
+          },
+          "withheld": {
+            "description": "With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).",
+            "title": "Withheld",
+            "type": "string"
           }
         },
         "required": [
@@ -4774,6 +4801,102 @@
           "summary"
         ],
         "title": "WorkflowSaved",
+        "type": "object"
+      },
+      "WorkspaceCopied": {
+        "additionalProperties": false,
+        "description": "What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).",
+        "properties": {
+          "already_present": {
+            "description": "Runs the destination already held, by run id - skipped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Present",
+            "type": "array"
+          },
+          "bytes_copied": {
+            "title": "Bytes Copied",
+            "type": "integer"
+          },
+          "bytes_linked": {
+            "title": "Bytes Linked",
+            "type": "integer"
+          },
+          "copied": {
+            "$ref": "#/components/schemas/CopiedItems"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "renumbered": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "description": "Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.",
+            "title": "Renumbered",
+            "type": "object"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "warnings": {
+            "additionalProperties": true,
+            "description": "`unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.",
+            "title": "Warnings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source",
+          "destination",
+          "copied",
+          "already_present",
+          "renumbered",
+          "warnings",
+          "bytes_linked",
+          "bytes_copied"
+        ],
+        "title": "WorkspaceCopied",
+        "type": "object"
+      },
+      "WorkspaceCopyRequest": {
+        "properties": {
+          "assets": {
+            "description": "Not supported yet - leave empty",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "runs": {
+            "description": "`<workflow>/<run id>` entries, or a bare `<workflow>` for all its runs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Workspace to copy from; the default when omitted",
+            "title": "Source"
+          }
+        },
+        "title": "WorkspaceCopyRequest",
         "type": "object"
       },
       "WorkspaceDeleted": {
@@ -8221,7 +8344,7 @@
     },
     "/api/uploads": {
       "post": {
-        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined to the library the way `keep_output`'s is, and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.\n\n`note` is kept beside it (the directory's notes.json). An upload over an\nexisting name takes its own note, or none: not the old file's, and not\nthe old file's kept provenance either.",
+        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined the way `keep_output`'s is but placed under `uploads/`\n(not at the library root, as `keep_output`'s is), and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.\n\n`note` is kept beside it (the directory's notes.json). An upload over an\nexisting name takes its own note, or none: not the old file's, and not\nthe old file's kept provenance either.",
         "operationId": "upload_media_api_uploads_post",
         "parameters": [
           {
@@ -8918,6 +9041,56 @@
           }
         },
         "summary": "Add Workspace"
+      }
+    },
+    "/api/workspaces/{destination}/copy": {
+      "post": {
+        "description": "Copy runs from another workspace into this one.\n\nMedia is hard-linked where the filesystem allows, so a copy costs\nlittle disk; sidecars are copied. All or nothing: a run already here is\nskipped as `already_present`, a run whose job is still running refuses\nthe request. A move is a copy, then `DELETE` of the source runs.",
+        "operationId": "copy_into_workspace_api_workspaces__destination__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "destination",
+            "required": true,
+            "schema": {
+              "title": "Destination",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceCopyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceCopied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Copy Into Workspace"
       }
     },
     "/api/workspaces/{name}": {

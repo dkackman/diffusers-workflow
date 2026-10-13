@@ -1491,7 +1491,8 @@ export interface paths {
          *     'cast/priya-voice.wav' rather than the random one a browser upload
          *     gets - which is what makes a recurring cast's references readable
          *     in every workflow that carries them. It may name a folder, is
-         *     confined to the library the way `keep_output`'s is, and takes the
+         *     confined the way `keep_output`'s is but placed under `uploads/`
+         *     (not at the library root, as `keep_output`'s is), and takes the
          *     uploaded file's extension when it has none of its own. Without it
          *     the name stays random, so two uploads of the same file never
          *     collide.
@@ -1686,6 +1687,31 @@ export interface paths {
          *     this server's one prompt library.
          */
         post: operations["add_workspace_api_workspaces_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/workspaces/{destination}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Into Workspace
+         * @description Copy runs from another workspace into this one.
+         *
+         *     Media is hard-linked where the filesystem allows, so a copy costs
+         *     little disk; sidecars are copied. All or nothing: a run already here is
+         *     skipped as `already_present`, a run whose job is still running refuses
+         *     the request. A move is a copy, then `DELETE` of the source runs.
+         */
+        post: operations["copy_into_workspace_api_workspaces__destination__copy_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -1973,6 +1999,19 @@ export interface components {
             classes: string[];
             /** Kind */
             kind: string;
+        };
+        /** CopiedItems */
+        CopiedItems: {
+            /**
+             * Assets
+             * @description Always empty until assets can be copied.
+             */
+            assets: string[];
+            /**
+             * Runs
+             * @description `<workflow>/<run id>` of each run copied.
+             */
+            runs: string[];
         };
         /** Deleted */
         Deleted: {
@@ -3163,11 +3202,6 @@ export interface components {
              * @description With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
              */
             scaled?: string;
-            /**
-             * Withheld
-             * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
-             */
-            withheld?: string;
             /** Tempered */
             tempered?: boolean;
             /**
@@ -3175,6 +3209,11 @@ export interface components {
              * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.
              */
             unpriced: string[];
+            /**
+             * Withheld
+             * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
+             */
+            withheld?: string;
         };
         /** PromptCard */
         PromptCard: {
@@ -3654,6 +3693,60 @@ export interface components {
             warnings: string[];
             /** Workspace */
             workspace: string;
+        };
+        /**
+         * WorkspaceCopied
+         * @description What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).
+         */
+        WorkspaceCopied: {
+            /**
+             * Already Present
+             * @description Runs the destination already held, by run id - skipped.
+             */
+            already_present: string[];
+            /** Bytes Copied */
+            bytes_copied: number;
+            /** Bytes Linked */
+            bytes_linked: number;
+            copied: components["schemas"]["CopiedItems"];
+            /** Destination */
+            destination: string;
+            /**
+             * Renumbered
+             * @description Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.
+             */
+            renumbered: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** Source */
+            source: string;
+            /**
+             * Warnings
+             * @description `unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.
+             */
+            warnings: {
+                [key: string]: unknown;
+            };
+        };
+        /** WorkspaceCopyRequest */
+        WorkspaceCopyRequest: {
+            /**
+             * Assets
+             * @description Not supported yet - leave empty
+             */
+            assets?: string[];
+            /**
+             * Runs
+             * @description `<workflow>/<run id>` entries, or a bare `<workflow>` for all its runs
+             */
+            runs?: string[];
+            /**
+             * Source
+             * @description Workspace to copy from; the default when omitted
+             */
+            source?: string | null;
         };
         /** WorkspaceDeleted */
         WorkspaceDeleted: {
@@ -6050,6 +6143,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_into_workspace_api_workspaces__destination__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceCopied"];
                 };
             };
             /** @description Validation Error */

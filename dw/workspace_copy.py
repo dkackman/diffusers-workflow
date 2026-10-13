@@ -162,7 +162,7 @@ def _source_runs(source, entry):
             raise PathTraversalError(
                 f"'{entry}' passes through a symlink - a copy never follows one"
             )
-        run_dir = validate_path(run_dir, outputs, allow_create=False)
+        run_dir = validate_path(run_dir, outputs)
         if not os.path.isdir(run_dir):
             raise CopyRefused(
                 f"No run '{identity}/{run_id}' in workspace '{source.name}'",

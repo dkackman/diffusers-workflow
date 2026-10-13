@@ -324,6 +324,42 @@ A workspace is a **namespace, not a security boundary**. The API token is
 all-or-nothing: anything that can reach the server can name any workspace on
 it. Use them to keep work apart, not to keep it private.
 
+## Copying between workspaces
+
+A run is self-contained on disk, so copying its folder into another
+workspace's `outputs/` is what makes it resolvable there. `copy_to_workspace`
+(MCP) and `POST /api/workspaces/{destination}/copy` ([SERVER.md](SERVER.md))
+do that for runs, named `<workflow>/<run id>` or, for all of a workflow's runs,
+a bare `<workflow>`. Only runs are copied for now; assets are not, and a
+request naming some is refused.
+
+Media is hard-linked, so a copy costs almost no disk, falling back to a real
+copy across devices. JSON sidecars (the manifest, `workflow.json`, notes,
+any `.json`) are always copied, never linked: they are edited in place, and a
+link would carry an edit in one workspace into the other. Nothing follows or
+creates a symlink.
+
+The copy is all or nothing: every entry is checked before anything is written.
+A run whose run id the destination already has is the same run, so it is
+skipped and listed as `already_present`, and repeating a copy changes nothing.
+A run whose job is still queued or running is refused, since its manifest is
+not final.
+
+A run keeps its `vN` unless the destination already uses that number for the
+workflow. Then this request's runs of that workflow are renumbered after the
+destination's highest, in run-id order, under the run lock so a concurrent run
+cannot take the same number. `renumbered` reports each `from` and `to`. Pinned
+`output:` references name run ids, so none of them break.
+
+The reply carries warnings, not refusals: `unresolved_output_refs` (a run's
+`output:` input that does not resolve in the destination), `absolute_paths`
+(manifest paths that still point into the source workspace, reported relative
+to the source workspace's root) and `no_jobs`. A copied run has no job record, so it appears in
+the gallery and resolves as an `output:` reference, but not in `list_jobs`.
+
+A move is a copy, then a delete of the source runs (`delete_output`, or
+`DELETE` on the gallery runs); there is no move that could lose a run halfway.
+
 ## Where this is going
 
 The resolver, the workflow search path with writes confined to the writable
