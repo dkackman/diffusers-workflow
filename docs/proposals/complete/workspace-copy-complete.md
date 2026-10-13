@@ -156,5 +156,5 @@ figures. The plan estimated $8–12 for both.
   copy.
 - **Saved workflows and prompts.** Out of scope by Don's ruling.
 - **The `absolute_paths` warning on inline runs.** Every inline run warns
-  `workflows/__inline__.json`. It's accurate, but the tester called it
+  the inline workflow's path. It's accurate, but the tester called it
   noise. Quiet it if it misleads an agent.
