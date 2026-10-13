@@ -183,7 +183,7 @@ def _copy_side(state, root, name):
 
 
 @router.post(
-    "/api/workspaces/{destination}/copy",
+    "/api/workspaces/{destination:path}/copy",
     response_model=WorkspaceCopied,
     response_model_exclude_unset=True,
 )

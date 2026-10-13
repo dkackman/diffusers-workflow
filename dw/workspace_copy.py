@@ -93,7 +93,6 @@ def _run_entry(entry):
     name = ref_name(OUTPUT, name) or name
     if name.startswith(("/", "\\")) or os.path.isabs(name):
         raise PathTraversalError(f"'{entry}' is an absolute path - name a run")
-    name = name.strip("/")
     parts = name.split("/")
     if any(part in ("..", ".") for part in parts):
         raise PathTraversalError(f"'{entry}' leaves the outputs folder")

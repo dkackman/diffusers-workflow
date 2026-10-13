@@ -73,6 +73,7 @@ EXPECTED_TOOLS = {
     "list_assets",
     "upload_asset",
     "keep_output",
+    "set_note",
     "delete_asset",
     "list_workspaces",
     "use_workspace",
@@ -102,6 +103,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "delete_output",
     "upload_asset",
     "keep_output",
+    "set_note",
     "delete_asset",
     "use_workspace",
     "copy_to_workspace",
@@ -702,6 +704,7 @@ TOOL_WIRING = [
         "POST",
         "/api/assets/keep",
     ),
+    ("set_note", {"target": "wf/run", "note": "keeper"}, "PUT", "/api/notes"),
     ("delete_asset", {"name": "hero.png"}, "DELETE", "/api/assets/hero.png"),
     ("list_workspaces", {}, "GET", "/api/workspaces"),
     ("use_workspace", {"name": "default"}, "GET", "/api/workspaces"),
@@ -1580,7 +1583,11 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 2026-10-13 (#859, #853 stage A): copy_to_workspace (121.25 description +
 # 84.75 schema) - measured at 14_470.25 (9_276.25 / 4_683.75 / 510.25); the
 # ceiling moves to 14_471 with 0.75 of headroom.
-SURFACE_BUDGET = 14_471
+# 2026-10-13 (#859 bounce): set_note, documented since the notes feature but
+# never registered, is registered (66.75 description + 83.25 schema) -
+# measured at 14_620.25 (9_343 / 4_767 / 510.25); the ceiling moves to
+# 14_621 with 0.75 of headroom.
+SURFACE_BUDGET = 14_621
 
 
 @pytest.mark.asyncio
