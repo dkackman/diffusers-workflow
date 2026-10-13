@@ -1,4 +1,4 @@
-import { cleanup, render } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import GalleryDetail from './GalleryDetail.svelte'
 import type { GalleryFile } from '../types'
@@ -47,7 +47,7 @@ it('orders the panel role, Settings, Made from, Location', () => {
       (el.matches('details') && el.querySelector('summary')?.textContent) ||
       el.querySelector('.muted')?.textContent,
   )
-  expect(order).toEqual(['role', 'Settings', 'Made from', 'Location'])
+  expect(order).toEqual(['role', 'Note', 'Settings', 'Made from', 'Location'])
   // Settings starts collapsed
   expect((meta.querySelector('details') as HTMLDetailsElement).open).toBe(false)
   expect(meta.querySelector('.location code')?.textContent).toBe(
@@ -73,4 +73,28 @@ it('lists each run input as a link', () => {
 it('omits Made from when the run read nothing', () => {
   const { container } = render(GalleryDetail, { ...props, inputs: [] })
   expect(container.querySelector('.madefrom')).toBeNull()
+})
+
+it('shows an inherited run note as the run note and offers to note the file', async () => {
+  render(GalleryDetail, {
+    ...props,
+    note: 'for the client',
+    runNote: 'for the client',
+    noteSource: 'run' as const,
+  })
+  expect(screen.getByText('Run note')).toBeTruthy()
+  expect(screen.getByText('for the client')).toBeTruthy()
+  await fireEvent.click(screen.getByRole('button', { name: 'Note this file' }))
+  expect(screen.getByText('File note')).toBeTruthy()
+  expect(screen.queryByText('for the client')).toBeNull()
+})
+
+it("shows the file's own note", () => {
+  render(GalleryDetail, {
+    ...props,
+    note: 'keeper',
+    noteSource: 'file' as const,
+  })
+  expect(screen.getByText('keeper')).toBeTruthy()
+  expect(screen.queryByRole('button', { name: 'Note this file' })).toBeNull()
 })

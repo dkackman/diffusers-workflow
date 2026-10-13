@@ -2,12 +2,15 @@
   import { Images, Inbox, Layers, Play, Plus, Trash2 } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
+  import NoteEditor from '../ui/NoteEditor.svelte'
+  import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary } from '../types'
   import {
     DEFAULT_WORKSPACE,
+    invalidateWorkspaces,
     loadWorkspaces,
     workspace,
   } from '../workspace.svelte'
@@ -122,6 +125,10 @@
       : null,
   )
   const usage = $derived(workspace.usage[name])
+  function reloadWorkspaces() {
+    invalidateWorkspaces()
+    void loadWorkspaces()
+  }
   const leaf = (n: string) => n.split('/').pop() ?? n
 </script>
 
@@ -129,6 +136,11 @@
   <h1>{name}</h1>
   {#if directory}<code class="muted dir">{directory}</code>{/if}
 </div>
+<NoteEditor
+  note={workspace.notes[name]}
+  target={`${WORKSPACE}${name}`}
+  onsaved={reloadWorkspaces}
+/>
 
 <section class="panel">
   <h2>

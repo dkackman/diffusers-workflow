@@ -2,6 +2,8 @@
   import { Trash2, X } from '@lucide/svelte'
   import CopyButton from '../CopyButton.svelte'
   import { api } from '../api'
+  import NoteEditor from '../ui/NoteEditor.svelte'
+  import { ASSET } from '../references'
   import type { AssetFile } from '../types'
   import { formatBytes, formatMtime } from '../format'
   import { wsHref } from '../routes'
@@ -97,6 +99,7 @@
         >{/each}
     </p>
   {/if}
+  <NoteEditor note={asset.note} target={`${ASSET}${asset.name}`} />
   <div class="body">
     {#if asset.kind === 'image'}
       <img src={asset.url} alt={asset.name} />

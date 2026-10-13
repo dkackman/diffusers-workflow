@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ImageOff, Play } from '@lucide/svelte'
+  import { ImageOff, Pencil, Play } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
@@ -28,6 +28,11 @@
   let busy = $state(false)
   let metadata = $state<Record<string, unknown> | null>(null)
   let metadataLoading = $state(false)
+  let noteInfo = $state<{
+    note: string | null
+    runNote: string | null
+    source: 'file' | 'run' | null
+  }>({ note: null, runNote: null, source: null })
   let sourceJob = $state<{ id: string; status: string } | null>(null)
   let role = $state<OutputRole | null>(null)
   let inputs = $state<GalleryInput[]>([])
@@ -126,6 +131,7 @@
     sourceJob = null
     role = null
     inputs = []
+    noteInfo = { note: null, runNote: null, source: null }
     api
       .galleryMetadata(file.name)
       .then((r) => {
@@ -134,12 +140,38 @@
           sourceJob = r.job
           role = r.role ?? file.role ?? null
           inputs = r.inputs ?? []
+          noteInfo = {
+            note: r.note ?? null,
+            runNote: r.run_note ?? null,
+            source: r.note_source ?? null,
+          }
         }
       })
       .catch(() => {})
       .finally(() => {
         if (selected?.name === file.name) metadataLoading = false
       })
+  }
+
+  // A note changed: refetch what the panel shows and carry the file's
+  // effective note to its tile, which is what the grid marks
+  async function refreshNote() {
+    const name = selected?.name
+    if (!name) return
+    try {
+      const r = await api.galleryMetadata(name)
+      if (selected?.name !== name) return
+      noteInfo = {
+        note: r.note ?? null,
+        runNote: r.run_note ?? null,
+        source: r.note_source ?? null,
+      }
+      files = files.map((f) =>
+        f.name === name ? { ...f, note: r.note ?? undefined } : f,
+      )
+    } catch {
+      /* the editor already shows what was saved */
+    }
   }
 
   async function removeFile() {
@@ -284,7 +316,13 @@
                  whitespace at the edge of an if block is trimmed -->
             <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
             {' '}
-          {/if}{file.label}</span
+          {/if}{file.label}{#if file.note}
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}<span
+              class="note-mark"
+              title={file.note.split('\n')[0]}
+              aria-label="Has a note"><Pencil size={11} /></span
+            >{/if}</span
         >
       </button>
     </div>
@@ -299,6 +337,10 @@
     {sourceJob}
     {role}
     {inputs}
+    note={noteInfo.note}
+    runNote={noteInfo.runNote}
+    noteSource={noteInfo.source}
+    onnotesaved={refreshNote}
     onremove={removeFile}
     onclose={() => (selected = null)}
   />
@@ -332,6 +374,10 @@
     background: var(--ink);
     border-color: var(--ink);
     color: var(--panel);
+  }
+  .note-mark {
+    color: var(--muted);
+    vertical-align: -1px;
   }
   .cellwrap {
     display: flex;

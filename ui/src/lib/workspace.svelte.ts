@@ -86,6 +86,11 @@ export function loadWorkspaces(): Promise<void> {
             .filter((entry) => entry.usage)
             .map((entry) => [entry.name, entry.usage!]),
         )
+        workspace.notes = Object.fromEntries(
+          result.workspaces
+            .filter((entry) => entry.note)
+            .map((entry) => [entry.name, entry.note!]),
+        )
         // A route naming a workspace that has gone away (deleted elsewhere,
         // or a stale bookmark) is caught here for the route the app opened
         // on; `applyRouteWorkspace` catches every one after

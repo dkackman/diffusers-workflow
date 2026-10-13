@@ -54,3 +54,8 @@ it('says nothing for an asset with no recorded provenance', async () => {
   await new Promise((r) => setTimeout(r, 0))
   expect(screen.queryByText(/kept from/)).toBeNull()
 })
+
+it('shows the asset note', () => {
+  render(AssetDetail, { ...props, asset: { ...asset, note: 'the hero face' } })
+  expect(screen.getByText('the hero face')).toBeTruthy()
+})

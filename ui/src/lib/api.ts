@@ -1,5 +1,6 @@
 import type {
   AssetDeleted,
+  NoteSet,
   AssetList,
   ClassList,
   Deleted,
@@ -438,6 +439,16 @@ export async function fetchOutputText(
   const response = await fetch(outputUrl(path, undefined, workspace))
   if (!response.ok) throw new Error(`Could not read ${name}`)
   return response.text()
+}
+
+/** Set (or, with null, clear) the note on a workspace, asset, run or file.
+ * A file name or run directory is read in the picked workspace. */
+export function setNote(target: string, note: string | null): Promise<NoteSet> {
+  return request<NoteSet>('/api/notes', {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ target, note }),
+  })
 }
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']

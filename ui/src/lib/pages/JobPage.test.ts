@@ -579,3 +579,10 @@ it('reads Made from off the first output of a video-only run, probing once', asy
     'a.mp4',
   ])
 })
+
+it('shows the run note when the job has a run', async () => {
+  detail.job = { ...job([]), run_dir: 'wf/run-1', note: 'second pass' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+  expect(screen.getByText('Run note')).toBeTruthy()
+})

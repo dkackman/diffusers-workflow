@@ -8,6 +8,7 @@
   import { describeOutputMeta } from '../outputMeta'
   import type { GalleryFile, GalleryInput, OutputRole } from '../types'
   import RoleTag from './RoleTag.svelte'
+  import NoteEditor from '../ui/NoteEditor.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { outputUrl } from '../apiUrls'
   import { wsHref } from '../routes'
@@ -24,6 +25,10 @@
     sourceJob,
     role = null,
     inputs = [],
+    note = null,
+    runNote = null,
+    noteSource = null,
+    onnotesaved,
     onremove,
     onclose,
   }: {
@@ -35,6 +40,12 @@
     role?: OutputRole | null
     /** The assets and outputs the run read */
     inputs?: GalleryInput[]
+    /** The file's effective note, its run's note, and whose the effective one is */
+    note?: string | null
+    runNote?: string | null
+    noteSource?: 'file' | 'run' | null
+    /** A note changed, so the page can refetch what it shows */
+    onnotesaved?: () => void
     onremove: () => void
     onclose: () => void
   } = $props()
@@ -119,6 +130,17 @@
       : '',
   )
 
+  // The run the file belongs to, as a note target; empty under the flat layout
+  const runDir = $derived(file.run_id ? `${file.folder}/${file.run_id}` : '')
+  // A file inheriting its run's note shows that one; "Note this file" swaps
+  // in a box for the file's own, which then overrides it
+  let ownNote = $state(false)
+  $effect(() => {
+    void file.name
+    ownNote = false
+  })
+  const inherited = $derived(noteSource === 'run' && !ownNote && !!runDir)
+
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
     // Pin the run's seed into the definition so reopening reproduces this
@@ -199,6 +221,24 @@
     {#if metadata || role || inputs.length}
       <div class="meta">
         <div><RoleTag {role} /></div>
+        {#if inherited}
+          <NoteEditor
+            note={runNote}
+            target={runDir}
+            label="Run note"
+            onsaved={() => onnotesaved?.()}
+          />
+          <button type="button" class="bare" onclick={() => (ownNote = true)}
+            >Note this file</button
+          >
+        {:else}
+          <NoteEditor
+            note={ownNote ? null : note}
+            target={file.name}
+            label={ownNote ? 'File note' : 'Note'}
+            onsaved={() => onnotesaved?.()}
+          />
+        {/if}
         {#if metadata}
           <details class="settings">
             <summary>Settings</summary>

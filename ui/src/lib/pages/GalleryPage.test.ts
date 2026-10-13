@@ -462,3 +462,14 @@ it('shows a video as a lazy thumbnail, never a <video>', async () => {
   expect(container.querySelector('video')).toBeNull()
   expect(container.querySelector('.videobadge')).not.toBeNull()
 })
+
+it('marks a tile that carries a note, titled with its first line', async () => {
+  listing.files = [
+    { ...file('a.png'), note: 'first line\nsecond' },
+    file('b.png'),
+  ]
+  await renderGallery()
+  const marks = document.querySelectorAll('.note-mark')
+  expect(marks).toHaveLength(1)
+  expect(marks[0].getAttribute('title')).toBe('first line')
+})
