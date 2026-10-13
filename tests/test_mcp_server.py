@@ -76,6 +76,7 @@ EXPECTED_TOOLS = {
     "delete_asset",
     "list_workspaces",
     "use_workspace",
+    "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
 }
@@ -103,6 +104,7 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "keep_output",
     "delete_asset",
     "use_workspace",
+    "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
 }
@@ -704,6 +706,12 @@ TOOL_WIRING = [
     ("list_workspaces", {}, "GET", "/api/workspaces"),
     ("use_workspace", {"name": "default"}, "GET", "/api/workspaces"),
     ("create_workspace", {"name": "shots"}, "POST", "/api/workspaces"),
+    (
+        "copy_to_workspace",
+        {"destination": "shots", "runs": ["wf/20261013-120000-0123abcd"]},
+        "POST",
+        "/api/workspaces/shots/copy",
+    ),
     (
         "delete_workspace",
         {"name": "shots", "acknowledged_cost": True},
@@ -1569,7 +1577,10 @@ def test_the_stated_tool_count_is_the_registered_one():
 # tokens) - measured 14_246.25 before and 14_262.25 after (9_281.75 /
 # 4_470.25 / 510.25). Text trimmed since 10-07 left room, so the ceiling
 # stays, 2.75 of headroom.
-SURFACE_BUDGET = 14_265
+# 2026-10-13 (#859, #853 stage A): copy_to_workspace (121.25 description +
+# 84.75 schema) - measured at 14_470.25 (9_276.25 / 4_683.75 / 510.25); the
+# ceiling moves to 14_471 with 0.75 of headroom.
+SURFACE_BUDGET = 14_471
 
 
 @pytest.mark.asyncio

@@ -577,6 +577,18 @@ The editor's forms come from these; they are just as usable from scripts:
   `exports/` sits beside the workspace's own folders, holding one directory per
   exported job. It is a reserved name: no workspace can be called `exports`, and
   the folder is never listed as one.
+- `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
+  "assets": []}`) — copy runs from one workspace into another. A `runs` entry
+  is `<workflow>/<run id>`, or a bare `<workflow>` for all its runs. A
+  non-empty `assets` is a 400: copying assets is not supported yet. An empty
+  `runs` or a source equal to the destination is a 400, an unknown workspace
+  or run a 404, and a server without a workspace root, a run whose job is still
+  queued or running, or a destination that is not writable a 409. All or
+  nothing. The reply is `{source, destination, copied: {runs, assets},
+  already_present, renumbered, warnings: {unresolved_output_refs,
+  absolute_paths, no_jobs}, bytes_linked, bytes_copied}`; `renumbered` maps
+  `"<workflow>/<run id>"` to `{"from": 3, "to": 7}`. What is copied and how is
+  in [WORKSPACES.md](WORKSPACES.md#copying-between-workspaces).
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an

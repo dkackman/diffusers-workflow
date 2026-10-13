@@ -27,6 +27,7 @@ from ..api_models import (
     WorkflowDeleted,
     WorkflowList,
     WorkflowSaved,
+    WorkspaceCopied,
     WorkspaceDeleted,
     WorkspaceInfo,
     WorkspaceList,
@@ -36,6 +37,7 @@ from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
+from ...workspace_copy import CopyRefused, copy_runs
 from ...notes import read_workspace_note
 from ...library import (
     builtin_root,
@@ -146,6 +148,92 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     forget_workspace_usage()
     logger.info(f"Created workspace {request.name} at {created.root}")
     return created.describe()
+
+
+class WorkspaceCopyRequest(BaseModel):
+    source: Optional[str] = Field(
+        default=None, description="Workspace to copy from; the default when omitted"
+    )
+    runs: list[str] = Field(
+        default_factory=list,
+        description="`<workflow>/<run id>` entries, or a bare `<workflow>` for "
+        "all its runs",
+    )
+    assets: list[str] = Field(
+        default_factory=list, description="Not supported yet - leave empty"
+    )
+
+
+def _copy_side(state, root, name):
+    """A workspace a copy names, by name: the default when None."""
+    if name is None or name == DEFAULT_WORKSPACE_NAME:
+        return named_workspace(
+            root, DEFAULT_WORKSPACE_NAME, prompts_root=state.prompt_dir
+        )
+    try:
+        known = name in workspace_names(root)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not known:
+        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+    try:
+        return named_workspace(root, name, prompts_root=state.prompt_dir)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/api/workspaces/{destination}/copy",
+    response_model=WorkspaceCopied,
+    response_model_exclude_unset=True,
+)
+def copy_into_workspace(
+    http_request: Request, destination: str, request: WorkspaceCopyRequest
+):
+    """Copy runs from another workspace into this one.
+
+    Media is hard-linked where the filesystem allows, so a copy costs
+    little disk; sidecars are copied. All or nothing: a run already here is
+    skipped as `already_present`, a run whose job is still running refuses
+    the request. A move is a copy, then `DELETE` of the source runs.
+    """
+    state = http_request.app.state
+    manager = state.job_manager
+    root = workspace_root(state)
+    if request.assets:
+        raise HTTPException(
+            status_code=400,
+            detail="Copying assets is not supported yet - copy runs, and "
+            "re-upload the assets they need",
+        )
+    if not request.runs:
+        raise HTTPException(status_code=400, detail="Name at least one run to copy")
+    source_name = request.source or DEFAULT_WORKSPACE_NAME
+    if source_name == destination:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Source and destination are both '{destination}' - name "
+            f"another workspace to copy into",
+        )
+    target = _copy_side(state, root, destination)
+    source = _copy_side(state, root, source_name)
+    with manager._lock:
+        active = [
+            job.run_dir
+            for job in manager.jobs.values()
+            if job.status not in TERMINAL_STATES
+            and (job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME) == source_name
+            and getattr(job, "run_dir", None)
+        ]
+    try:
+        return copy_runs(source, target, request.runs, active_runs=active)
+    except CopyRefused as e:
+        detail = (
+            {"message": str(e), "conflicts": e.conflicts} if e.conflicts else str(e)
+        )
+        raise HTTPException(status_code=e.status, detail=detail)
+    except (SecurityError, InvalidInputError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete(
