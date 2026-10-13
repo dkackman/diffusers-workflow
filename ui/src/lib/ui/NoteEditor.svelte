@@ -10,10 +10,14 @@
     target,
     label = 'Note',
     placeholder = 'Add a note',
+    workspace,
     onsaved,
   }: {
     note: string | null | undefined
     target: string
+    /** The workspace a run or file target is read in; the picker's when
+     * omitted */
+    workspace?: string
     label?: string
     placeholder?: string
     onsaved?: (note: string | null) => void
@@ -45,7 +49,11 @@
     saving = true
     error = null
     try {
-      const stored = await setNote(target, draft.trim() ? draft : null)
+      const stored = await setNote(
+        target,
+        draft.trim() ? draft : null,
+        workspace,
+      )
       shown = stored.note ?? null
       editing = false
       onsaved?.(shown)

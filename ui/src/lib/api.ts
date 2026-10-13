@@ -442,13 +442,23 @@ export async function fetchOutputText(
 }
 
 /** Set (or, with null, clear) the note on a workspace, asset, run or file.
- * A file name or run directory is read in the picked workspace. */
-export function setNote(target: string, note: string | null): Promise<NoteSet> {
-  return request<NoteSet>('/api/notes', {
-    method: 'PUT',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ target, note }),
-  })
+ * A file name or run directory is read in the picked workspace, unless
+ * `workspace` names another - a job page edits the run of the job's own
+ * workspace, wherever the picker has since moved. */
+export function setNote(
+  target: string,
+  note: string | null,
+  workspace?: string,
+): Promise<NoteSet> {
+  return request<NoteSet>(
+    workspace === undefined ? '/api/notes' : scopeTo('/api/notes', workspace),
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, note }),
+    },
+    { scope: workspace === undefined },
+  )
 }
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']

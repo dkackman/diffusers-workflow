@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
-import { api } from '../api'
+import { api, setNote } from '../api'
 import type { JobDetail, JobEvent } from '../types'
 
 const detail = vi.hoisted(() => ({ job: null as JobDetail | null }))
@@ -58,6 +58,9 @@ vi.mock('../api', () => ({
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
   },
   outputUrl: (path: string) => `/outputs/${path}`,
+  setNote: vi.fn((target: string, note: string | null) =>
+    Promise.resolve({ target, note, note_source: note ? 'run' : null }),
+  ),
   streamJobEvents: (
     _jobId: string,
     _after: number,
@@ -585,4 +588,25 @@ it('shows the run note when the job has a run', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
   expect(screen.getByText('Run note')).toBeTruthy()
+})
+
+it("saves the run note in the job's own workspace", async () => {
+  detail.job = {
+    ...job([]),
+    workspace: 'studio',
+    run_dir: 'wf/run-1',
+    note: 'second pass',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'third pass' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  expect(vi.mocked(setNote)).toHaveBeenCalledWith(
+    'wf/run-1',
+    'third pass',
+    'studio',
+  )
 })

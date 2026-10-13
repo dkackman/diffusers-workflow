@@ -232,7 +232,12 @@
   {/if}
 
   {#if job.run_dir}
-    <NoteEditor note={job.note} target={job.run_dir} label="Run note" />
+    <NoteEditor
+      note={job.note}
+      target={job.run_dir}
+      workspace={job.workspace}
+      label="Run note"
+    />
   {/if}
 
   {#if definition}

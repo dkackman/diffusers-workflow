@@ -31,7 +31,7 @@ describe('NoteEditor', () => {
       target: { value: 'new' },
     })
     await fireEvent.click(screen.getByRole('button', { name: /save/i }))
-    expect(spy).toHaveBeenCalledWith('t', 'new')
+    expect(spy).toHaveBeenCalledWith('t', 'new', undefined)
     expect(onsaved).toHaveBeenCalledWith('new')
   })
 
@@ -57,7 +57,7 @@ describe('NoteEditor', () => {
       target: { value: '' },
     })
     await fireEvent.click(screen.getByRole('button', { name: /save/i }))
-    expect(spy).toHaveBeenCalledWith('t', null)
+    expect(spy).toHaveBeenCalledWith('t', null, undefined)
   })
 
   it('shows the server error and stays in edit mode', async () => {
@@ -69,6 +69,21 @@ describe('NoteEditor', () => {
     await fireEvent.click(screen.getByRole('button', { name: /save/i }))
     expect(await screen.findByText(/at most 4000/)).toBeTruthy()
     expect(screen.getByRole('textbox')).toBeTruthy()
+  })
+
+  it('saves in the workspace it was given', async () => {
+    const spy = vi
+      .spyOn(api, 'setNote')
+      .mockResolvedValue({ target: 't', note: 'new', note_source: 'run' })
+    render(NoteEditor, {
+      props: { note: 'old', target: 't', workspace: 'ws2' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'new' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+    expect(spy).toHaveBeenCalledWith('t', 'new', 'ws2')
   })
 
   it('keeps the draft when the note prop changes mid-edit', async () => {
