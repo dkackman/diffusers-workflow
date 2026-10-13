@@ -19,6 +19,8 @@ const stream = vi.hoisted(() => ({
 // What the metadata route answers for each file, by name
 const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
+  // The run inputs the route reports beside a file's metadata
+  inputs: [] as Array<{ reference: string; kind: 'asset' | 'output' }>,
 }))
 // The definition the job ran, for the flow view and the unsaved reasons,
 // and whether it is the realized copy or the definition as submitted
@@ -49,6 +51,7 @@ vi.mock('../api', () => ({
       Promise.resolve({
         name,
         metadata: metadata.byFile[name] ?? null,
+        inputs: metadata.inputs,
         job: null,
       }),
     ),
@@ -100,6 +103,7 @@ afterEach(() => {
   cleanup()
   stream.onEvent = null
   metadata.byFile = {}
+  metadata.inputs = []
   ran.definition = null
   ran.realized = true
   vi.mocked(api.galleryMetadata).mockClear()
@@ -507,4 +511,52 @@ it('shows no card for a job without a device', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
   expect(screen.queryByText(/Card:/)).toBeNull()
+})
+
+const roleJob = (): JobDetail => ({
+  ...job([
+    { step: 'draft', files: ['draft.png'], role: 'intermediate' },
+    { step: 'film', files: ['film.mp4'], role: 'final' },
+  ]),
+  output_kinds: { 'draft.png': 'image', 'film.mp4': 'video' },
+})
+
+it('groups results Final, then a collapsed Intermediate, then Made from', async () => {
+  metadata.inputs = [{ reference: 'asset:face.png', kind: 'asset' }]
+  detail.job = roleJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('face.png')).toBeTruthy())
+
+  const order = [
+    ...container.querySelectorAll('.roles > h3, .roles > details > summary'),
+  ].map((el) => el.textContent?.trim())
+  expect(order).toEqual(['Final', 'Intermediate', 'Made from'])
+  // Final's file is on show; the intermediate's sits in a closed <details>
+  const intermediate = container.querySelector(
+    '.roles > details',
+  ) as HTMLDetailsElement
+  expect(intermediate.open).toBe(false)
+  expect(intermediate.textContent).toContain('draft.png')
+  expect(intermediate.textContent).not.toContain('film.mp4')
+})
+
+it('opens Intermediate when the run has no finals', async () => {
+  detail.job = {
+    ...job([{ step: 'draft', files: ['draft.png'], role: 'intermediate' }]),
+    output_kinds: { 'draft.png': 'image' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(container.querySelector('.roles')).toBeTruthy())
+  expect(
+    (container.querySelector('.roles > details') as HTMLDetailsElement).open,
+  ).toBe(true)
+})
+
+it('leaves the subfolder layout alone when no step has a role', async () => {
+  detail.job = job([
+    { step: 'film', files: ['final/f.mp4'], subfolder: 'final' },
+  ])
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('final/')).toBeTruthy())
+  expect(container.querySelector('.roles')).toBeNull()
 })

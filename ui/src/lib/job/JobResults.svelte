@@ -3,12 +3,15 @@
   import { api, outputUrl } from '../api'
   import { describeOutputMeta } from '../outputMeta'
   import {
+    sectionByRole,
     sectionBySubfolder,
     type StepGroup,
     type UnsavedStep,
   } from '../results'
   import DownloadLink from '../DownloadLink.svelte'
-  import type { JobDetail } from '../types'
+  import type { GalleryInput, JobDetail } from '../types'
+  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { wsHref } from '../routes'
 
   // The Results panel's body: each output beside what made it, sectioned by
   // subfolder and grouped by step, then the steps that wrote nothing. The
@@ -34,6 +37,7 @@
   // seed. Images only: the metadata route decodes an audio or video file
   // whole to probe it, and nothing it would report is shown here. A key
   // present with null is a lookup already in flight or failed
+  let runInputs = $state<GalleryInput[]>([])
   let fileMeta = $state<Record<string, Record<string, unknown> | null>>({})
   $effect(() => {
     const workspace = job.workspace
@@ -51,6 +55,8 @@
           .galleryMetadata(file, workspace)
           .then((r) => {
             fileMeta[file] = r.metadata
+            // The run's inputs are the same whichever output asks
+            if (r.inputs?.length && !runInputs.length) runInputs = r.inputs
           })
           .catch(() => {})
       }
@@ -66,6 +72,12 @@
   // Sections by result.subfolder - one root section, no heading, when no
   // step chose one, so an older run renders as it always did
   const sections = $derived(sectionBySubfolder(fileGroups))
+  // By role when the manifest states one: Final, Intermediate, Made from.
+  // Null for a run that predates roles, which keeps the subfolder layout
+  const byRole = $derived(sectionByRole(fileGroups))
+  const inputName = (input: GalleryInput) =>
+    referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
+    input.reference
   const sectioned = $derived(
     sections.length > 1 || sections[0].subfolder !== '',
   )
@@ -83,15 +95,48 @@
       Use <strong>New seed</strong> for a different image.{/if}
   </p>
 {/if}
-{#each sections as section (section.subfolder)}
-  {#if sectioned}
-    <h3 class="subhead">
-      {section.subfolder === '' ? '(run root)' : `${section.subfolder}/`}
-    </h3>
-  {/if}
-  {#each section.groups as group (group.step)}
+{#if byRole}
+  <div class="roles">
+    <h3 class="subhead">Final</h3>
+    {@render stepGroups(byRole.final, true)}
+    {#if byRole.intermediate.length}
+      <details open={byRole.final.length === 0}>
+        <summary>Intermediate</summary>
+        {@render stepGroups(byRole.intermediate, true)}
+      </details>
+    {/if}
+    {#if runInputs.length}
+      <h3 class="subhead">Made from</h3>
+      <ul class="madefrom">
+        {#each runInputs as input (input.kind + input.reference)}
+          <li>
+            <a
+              href={input.kind === 'asset'
+                ? wsHref(job.workspace, 'assets')
+                : fileUrl(inputName(input))}
+              target={input.kind === 'output' ? '_blank' : undefined}
+              >{inputName(input)}</a
+            >
+            <span class="muted">{input.kind}</span>
+          </li>
+        {/each}
+      </ul>
+    {/if}
+  </div>
+{:else}
+  {#each sections as section (section.subfolder)}
+    {#if sectioned}
+      <h3 class="subhead">
+        {section.subfolder === '' ? '(run root)' : `${section.subfolder}/`}
+      </h3>
+    {/if}
+    {@render stepGroups(section.groups, sectioned)}
+  {/each}
+{/if}
+{#snippet stepGroups(groups: StepGroup[], nested: boolean)}
+  {#each groups as group (group.step)}
     {#if fileGroups.length > 1}
-      <svelte:element this={sectioned ? 'h4' : 'h3'} class="stephead muted">
+      <svelte:element this={nested ? 'h4' : 'h3'} class="stephead muted">
         {group.step}
         {#if group.reused && !allReused}
           <span
@@ -162,7 +207,7 @@
       </div>
     {/each}
   {/each}
-{/each}
+{/snippet}
 {#if unsaved.length}
   <h3 class="subhead">Steps that wrote nothing</h3>
   <ul class="unsaved">
@@ -186,6 +231,24 @@
 {/if}
 
 <style>
+  .roles details {
+    margin-top: var(--space-3);
+  }
+  .roles summary {
+    cursor: pointer;
+    font-size: var(--t-sm);
+    font-weight: 600;
+    margin-bottom: var(--space-2);
+  }
+  .madefrom {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    font-size: var(--t-sm);
+  }
+  .madefrom li {
+    padding: 0.15rem 0;
+  }
   .reusednote {
     margin: 0 0 0.6rem;
   }

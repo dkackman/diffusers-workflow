@@ -9,17 +9,17 @@
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import type { GalleryFile } from '../types'
+  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
+  import RoleTag from '../gallery/RoleTag.svelte'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
   let filter = $state('')
-  // The in-run subfolder to show - null is every one. Only offered when
-  // some output landed in one; a workspace of unfoldered runs never sees
-  // the control
-  let subfolder = $state<string | null>(null)
+  // The roles to show. Finals are what a run was for, so the gallery opens
+  // on them; Intermediate adds the steps' working files
+  let roles = $state<OutputRole[]>(['final'])
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions. The grid order it is
@@ -29,6 +29,8 @@
   let metadata = $state<Record<string, unknown> | null>(null)
   let metadataLoading = $state(false)
   let sourceJob = $state<{ id: string; status: string } | null>(null)
+  let role = $state<OutputRole | null>(null)
+  let inputs = $state<GalleryInput[]>([])
 
   $effect(() => {
     // Read inside the effect so switching workspaces refetches the gallery
@@ -47,37 +49,31 @@
       .finally(() => (loaded = true))
   })
 
-  // Every distinct subfolder in the listing - read off the entries so a
-  // delete updates it without a refetch. '' (the run root) appears only
-  // when some file sits there, so the pick never offers an empty option
-  const subfolders = $derived(
-    [...new Set(files.map((f) => f.subfolder))].sort((a, b) =>
-      a.localeCompare(b),
-    ),
-  )
-  const subfolderOffered = $derived(subfolders.some((s) => s !== ''))
-  const filterActive = $derived(filter !== '' || subfolder !== null)
+  // A file whose run does not say its role counts as final
+  const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
+  const filterActive = $derived(filter !== '' || roles.length < 2)
+  // Finals lead within the listing; the sort is stable, so the order the
+  // server gave (newest first) holds inside each role
   const visible = $derived(
-    files.filter(
-      (f) =>
-        f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        (subfolder === null || f.subfolder === subfolder),
-    ),
+    files
+      .filter(
+        (f) =>
+          f.name.toLowerCase().includes(filter.toLowerCase()) &&
+          roles.includes(roleOf(f)),
+      )
+      .sort(
+        (a, b) =>
+          Number(roleOf(a) === 'intermediate') -
+          Number(roleOf(b) === 'intermediate'),
+      ),
   )
-  // A pick that no longer exists (its last file deleted) means everything,
-  // not an empty grid pinned to a vanished value - and the control itself
-  // is reset, since a <select> whose value matches no option shows blank.
-  // A pick of '' (the run root) never appears in `subfolders` on its own,
-  // so it is only cleared once the control itself stops being offered -
-  // otherwise it would survive the control unmounting and leave
-  // `filterActive` stuck true with nothing to reset it
-  $effect(() => {
-    if (
-      subfolder !== null &&
-      (!subfolderOffered || !subfolders.includes(subfolder))
-    )
-      subfolder = null
-  })
+  // Never both off: an empty grid is not a state worth offering
+  function toggleRole(which: OutputRole) {
+    const next = roles.includes(which)
+      ? roles.filter((r) => r !== which)
+      : [...roles, which]
+    roles = next.length ? next : [which === 'final' ? 'intermediate' : 'final']
+  }
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
@@ -125,12 +121,16 @@
     metadata = null
     metadataLoading = true
     sourceJob = null
+    role = null
+    inputs = []
     api
       .galleryMetadata(file.name)
       .then((r) => {
         if (selected?.name === file.name) {
           metadata = r.metadata
           sourceJob = r.job
+          role = r.role ?? file.role ?? null
+          inputs = r.inputs ?? []
         }
       })
       .catch(() => {})
@@ -178,19 +178,20 @@
   <h1>Gallery</h1>
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
-  {#if subfolderOffered}
-    <select
-      class="subfolderpick"
-      aria-label="subfolder"
-      title="show only files a step saved to this subfolder of its run"
-      bind:value={subfolder}
-    >
-      <option value={null}>all subfolders</option>
-      {#each subfolders as s (s)}
-        <option value={s}>{s === '' ? '(run root)' : `${s}/`}</option>
-      {/each}
-    </select>
-  {/if}
+  <div class="rolechips" role="group" aria-label="filter by role">
+    {#each ['final', 'intermediate'] as const as which (which)}
+      <button
+        class="rolechip"
+        class:on={roles.includes(which)}
+        aria-pressed={roles.includes(which)}
+        onclick={() => toggleRole(which)}
+        title={which === 'final'
+          ? 'what the runs were for'
+          : "the steps' working files, kept along the way"}
+        >{which === 'final' ? 'Final' : 'Intermediate'}</button
+      >
+    {/each}
+  </div>
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
@@ -264,6 +265,11 @@
           >
         {/if}
         <span class="caption" title={file.name}>
+          {#if file.role}
+            <RoleTag role={file.role} />
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}
+          {/if}
           {#if file.version}
             <span
               class="version"
@@ -288,6 +294,8 @@
     {metadata}
     {metadataLoading}
     {sourceJob}
+    {role}
+    {inputs}
     onremove={removeFile}
     onclose={() => (selected = null)}
   />
@@ -298,12 +306,29 @@
     max-width: 220px;
     margin-left: auto;
   }
-  .subfolderpick {
-    /* The global select rule is width: 100% - here it must share the row */
-    width: auto;
-    max-width: 200px;
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+  .rolechips {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .rolechip {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-weight: 500;
+    padding: 0.05rem 0.6rem;
+    cursor: pointer;
+  }
+  .rolechip:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+    filter: none;
+  }
+  .rolechip.on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--panel);
   }
   .cellwrap {
     display: flex;

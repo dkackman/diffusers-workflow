@@ -57,6 +57,9 @@ export type EnhancerPresets = Schemas['EnhancerPresets']
 export type GalleryFile = Schemas['GalleryFile']
 export type GalleryList = Schemas['GalleryList']
 export type GalleryMetadata = Schemas['GalleryMetadata']
+export type GalleryInput = Schemas['GalleryInput']
+/** A file's role in its run, as the server states it. */
+export type OutputRole = NonNullable<GalleryFile['role']>
 export type OutputDeleted = Schemas['OutputDeleted']
 export type AssetFile = Schemas['AssetFile']
 export type AssetLibrary = Schemas['AssetLibraryRoot']

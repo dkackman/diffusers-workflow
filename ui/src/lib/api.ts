@@ -276,7 +276,14 @@ export const api = {
     ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
-  gallery: () => request<GalleryList>('/api/gallery?limit=100000'),
+  // `roles` narrows to those roles server-side (repeated `role` parameters;
+  // a null role counts as final there). The page filters on the client, so
+  // it asks for none
+  gallery: (roles?: string[]) => {
+    const params = new URLSearchParams({ limit: '100000' })
+    for (const role of roles ?? []) params.append('role', role)
+    return request<GalleryList>(`/api/gallery?${params}`)
+  },
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
   // a job page must read its own files from where they were written

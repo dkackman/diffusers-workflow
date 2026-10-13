@@ -6,7 +6,12 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { describeOutputMeta } from '../outputMeta'
-  import type { GalleryFile } from '../types'
+  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
+  import RoleTag from './RoleTag.svelte'
+  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { outputUrl } from '../apiUrls'
+  import { wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
   // The detail panel under the grid for the one file picked. The page owns
@@ -17,6 +22,8 @@
     metadata,
     metadataLoading,
     sourceJob,
+    role = null,
+    inputs = [],
     onremove,
     onclose,
   }: {
@@ -24,6 +31,10 @@
     metadata: Record<string, unknown> | null
     metadataLoading: boolean
     sourceJob: { id: string; status: string } | null
+    /** The file's role in its run; null when the run does not say */
+    role?: OutputRole | null
+    /** The assets and outputs the run read */
+    inputs?: GalleryInput[]
     onremove: () => void
     onclose: () => void
   } = $props()
@@ -92,6 +103,21 @@
   const prompt = $derived(described.prompt)
   const negativePrompt = $derived(described.negativePrompt)
   const seed = $derived(described.seed)
+
+  // Where a run input leads: an output opens its file, an asset the library
+  const inputName = (input: GalleryInput) =>
+    referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
+    input.reference
+  const inputHref = (input: GalleryInput) =>
+    input.kind === 'asset'
+      ? wsHref(workspace.current, 'assets')
+      : outputUrl(inputName(input))
+  // The folder the file sits in, as the engine wrote it
+  const location = $derived(
+    file.name.includes('/')
+      ? file.name.slice(0, file.name.lastIndexOf('/'))
+      : '',
+  )
 
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
@@ -170,49 +196,84 @@
     {:else if file.kind === 'text'}
       <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
-    {#if metadata}
+    {#if metadata || role || inputs.length}
       <div class="meta">
-        {#if metadata.step_name}<div>
-            <span class="muted">step</span>
-            {metadata.step_name}
-          </div>{/if}
-        {#if metadata.model_name}<div>
-            <span class="muted">model</span>
-            <code>{metadata.model_name}</code>
-          </div>{/if}
-        {#if seed !== undefined}
-          <div>
-            <span class="muted">seed</span> <code>{seed}</code>
+        <div><RoleTag {role} /></div>
+        {#if metadata}
+          <details class="settings">
+            <summary>Settings</summary>
+            {#if metadata.step_name}<div>
+                <span class="muted">step</span>
+                {metadata.step_name}
+              </div>{/if}
+            {#if metadata.model_name}<div>
+                <span class="muted">model</span>
+                <code>{metadata.model_name}</code>
+              </div>{/if}
+            {#if seed !== undefined}
+              <div>
+                <span class="muted">seed</span> <code>{seed}</code>
+              </div>
+            {/if}
+            {#if prompt}
+              <div class="prompt">
+                <span class="muted">prompt</span>
+                <p>{prompt}</p>
+              </div>
+            {/if}
+            {#if negativePrompt}
+              <div class="prompt">
+                <span class="muted">negative prompt</span>
+                <p>{negativePrompt}</p>
+              </div>
+            {/if}
+            {#if sourceJob}
+              <div>
+                <span class="muted">job</span>
+                <a
+                  href={'#/jobs/' + sourceJob.id}
+                  title="open the job that produced this file"
+                >
+                  {sourceJob.id}
+                </a>
+              </div>
+            {/if}
+            {#if embeddedWorkflow}
+              <div>
+                <span class="muted">workflow</span>
+                {embeddedWorkflow.id}
+              </div>
+            {:else}
+              <div class="muted">
+                no embedded workflow - enable embed_metadata in the step's
+                result
+              </div>
+            {/if}
+          </details>
+        {/if}
+        {#if inputs.length}
+          <div class="madefrom">
+            <span class="muted">Made from</span>
+            <ul>
+              {#each inputs as input (input.kind + input.reference)}
+                <li>
+                  <a
+                    href={inputHref(input)}
+                    target={input.kind === 'output' ? '_blank' : undefined}
+                    title={input.kind === 'asset'
+                      ? 'open the asset library'
+                      : 'open this earlier output'}>{inputName(input)}</a
+                  >
+                  <span class="muted">{input.kind}</span>
+                </li>
+              {/each}
+            </ul>
           </div>
         {/if}
-        {#if prompt}
-          <div class="prompt">
-            <span class="muted">prompt</span>
-            <p>{prompt}</p>
-          </div>
-        {/if}
-        {#if negativePrompt}
-          <div class="prompt">
-            <span class="muted">negative prompt</span>
-            <p>{negativePrompt}</p>
-          </div>
-        {/if}
-        {#if sourceJob}
-          <div>
-            <span class="muted">job</span>
-            <a
-              href={'#/jobs/' + sourceJob.id}
-              title="open the job that produced this file"
-            >
-              {sourceJob.id}
-            </a>
-          </div>
-        {/if}
-        {#if embeddedWorkflow}
-          <div><span class="muted">workflow</span> {embeddedWorkflow.id}</div>
-        {:else}
-          <div class="muted">
-            no embedded workflow - enable embed_metadata in the step's result
+        {#if location}
+          <div class="location">
+            <span class="muted">Location</span>
+            <code>{location}/</code>
           </div>
         {/if}
       </div>
@@ -275,6 +336,17 @@
   }
   .meta .muted {
     margin-right: 0.4rem;
+  }
+  .settings summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .madefrom ul {
+    margin: 0.15rem 0 0;
+    padding-left: 1.1rem;
+  }
+  .location code {
+    overflow-wrap: anywhere;
   }
   .prompt p {
     margin: 0.15rem 0 0;

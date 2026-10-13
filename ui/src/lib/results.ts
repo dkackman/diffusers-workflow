@@ -8,6 +8,9 @@ export interface StepGroup {
   reused: boolean
   /** The step's `result.subfolder` - `''` for the run root. */
   subfolder: string
+  /** The step's role in its run, as the manifest records it - null for a
+   * step the manifest does not say (a live step_end, an older run). */
+  role: 'final' | 'intermediate' | null
 }
 
 /** A run's output files, grouped by the step that produced them. The
@@ -42,8 +45,11 @@ export function groupResultFiles(
       if (end.reused) reused.add(end.step || '(unnamed)')
     }
   }
+  const role = new Map<string, StepGroup['role']>()
   for (const entry of manifest ?? []) {
     add(entry.step, entry.files, entry.subfolder ?? '')
+    if (entry.role === 'final' || entry.role === 'intermediate')
+      role.set(entry.step, entry.role)
     if (entry.reused) reused.add(entry.step)
   }
   return order
@@ -52,8 +58,27 @@ export function groupResultFiles(
       files: [...byStep.get(step)!],
       reused: reused.has(step),
       subfolder: subfolder.get(step) ?? '',
+      role: role.get(step) ?? null,
     }))
     .filter((group) => group.files.length > 0)
+}
+
+/** A run's step groups split by role. */
+export interface RoleSections {
+  final: StepGroup[]
+  intermediate: StepGroup[]
+}
+
+/** Step groups by the role the manifest gave them, or null when it gave
+ * none to any - a run from before roles, or one still streaming, which the
+ * page then lays out by subfolder as it always did. A group with no role
+ * among ones that have it counts as final, as it does in the gallery. */
+export function sectionByRole(groups: StepGroup[]): RoleSections | null {
+  if (!groups.some((g) => g.role !== null)) return null
+  return {
+    final: groups.filter((g) => g.role !== 'intermediate'),
+    intermediate: groups.filter((g) => g.role === 'intermediate'),
+  }
 }
 
 /** The step groups of one subfolder, under one heading on the job page. */

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   groupResultFiles,
+  sectionByRole,
   sectionBySubfolder,
   unsavedReason,
   unsavedSteps,
@@ -34,8 +35,15 @@ describe('groupResultFiles', () => {
         files: ['a.png', 'b.png'],
         reused: false,
         subfolder: '',
+        role: null,
       },
-      { step: 'upscale', files: ['a_big.png'], reused: false, subfolder: '' },
+      {
+        step: 'upscale',
+        files: ['a_big.png'],
+        reused: false,
+        subfolder: '',
+        role: null,
+      },
     ])
   })
 
@@ -50,6 +58,7 @@ describe('groupResultFiles', () => {
         files: ['a.png', 'c.png'],
         reused: false,
         subfolder: '',
+        role: null,
       },
     ])
   })
@@ -63,7 +72,13 @@ describe('groupResultFiles', () => {
       [],
     )
     expect(groups).toEqual([
-      { step: 'generate', files: ['a.png'], reused: false, subfolder: '' },
+      {
+        step: 'generate',
+        files: ['a.png'],
+        reused: false,
+        subfolder: '',
+        role: null,
+      },
     ])
   })
 
@@ -98,6 +113,7 @@ describe('groupResultFiles subfolder', () => {
         files: ['final/e.mp4'],
         reused: false,
         subfolder: 'final',
+        role: null,
       },
     ])
   })
@@ -129,6 +145,7 @@ describe('sectionBySubfolder', () => {
     files: [`${subfolder ? subfolder + '/' : ''}${step}.png`],
     reused: false,
     subfolder,
+    role: null,
   })
 
   it('returns one root section when no group has a subfolder', () => {
@@ -276,5 +293,37 @@ describe('unsavedSteps', () => {
 
   it('has nothing to say without a definition to read the reasons off', () => {
     expect(unsavedSteps([{ step: 'base', files: [] }], [], null)).toEqual([])
+  })
+})
+
+describe('sectionByRole', () => {
+  const group = (step: string, role: 'final' | 'intermediate' | null) => ({
+    step,
+    files: [`${step}.png`],
+    reused: false,
+    subfolder: '',
+    role,
+  })
+
+  it('reads a step role off the manifest', () => {
+    const groups = groupResultFiles(
+      [{ step: 'draft', files: ['d.png'], role: 'intermediate' }],
+      [],
+    )
+    expect(groups[0].role).toBe('intermediate')
+  })
+
+  it('is null when no step has a role', () => {
+    expect(sectionByRole([group('a', null)])).toBeNull()
+  })
+
+  it('splits by role and counts a roleless step among them as final', () => {
+    const sections = sectionByRole([
+      group('a', 'intermediate'),
+      group('b', 'final'),
+      group('c', null),
+    ])!
+    expect(sections.final.map((g) => g.step)).toEqual(['b', 'c'])
+    expect(sections.intermediate.map((g) => g.step)).toEqual(['a'])
   })
 })

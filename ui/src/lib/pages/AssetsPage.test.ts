@@ -90,6 +90,7 @@ const uploadMedia = vi.hoisted(() =>
 vi.mock('../api', () => ({
   api: {
     listAssets: () => listAssets(),
+    galleryMetadata: () => new Promise(() => {}),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
     uploadMedia: (file: File, assetName?: string, shared?: boolean) =>
