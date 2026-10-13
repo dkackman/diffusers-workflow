@@ -934,6 +934,8 @@ def _inherited_cost_warnings(estimate):
     """A price inherited from a catalog template's runs (#797) is an
     approximation; say so, and name what this workflow sets differently
     from the template. Warns and never refuses."""
+    if isinstance(estimate, dict) and estimate.get("withheld"):
+        return [f"cost estimate withheld: {estimate['withheld']}"]
     if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
         return []
     differs = estimate.get("differs") or []

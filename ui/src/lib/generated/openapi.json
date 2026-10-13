@@ -3506,6 +3506,11 @@
             "title": "Scaled",
             "type": "string"
           },
+          "withheld": {
+            "description": "With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).",
+            "title": "Withheld",
+            "type": "string"
+          },
           "tempered": {
             "title": "Tempered",
             "type": "boolean"

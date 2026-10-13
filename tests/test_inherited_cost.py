@@ -267,3 +267,53 @@ class TestScaledWhenItScales:
             {"num_frames": 124},
         )
         assert block["cold_minutes"] == 8.0
+
+
+class TestVariableFrameCountAndWithheldReason:
+    """#851 bounce: a frame count written as `variable:num_frames` that the
+    template never ran at still prices from the template's default bucket, and
+    a figure still withheld names the template and why."""
+
+    HISTORY = {"templates/t": [run(8 * MINUTE, {"num_frames": 124})]}
+    CATALOG = [("templates/t", definition("t"))]
+
+    def test_a_variable_frame_count_scales_from_the_default_bucket(self):
+        inline = definition("inline", num_frames=248)
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 16.0
+        assert "frame count 248 vs 124" in block["scaled"]
+
+    def test_variable_frames_and_steps_multiply(self):
+        inline = definition("inline", num_frames=248)
+        inline["steps"] = [{**inline["steps"][0], "id": f"s{n}"} for n in range(2)]
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 32.0
+
+    def test_a_withheld_figure_names_template_and_reason(self):
+        inline = definition("inline")
+        inline["variables"] = {}
+        inline["steps"][0]["run"] = {"num_frames": "variable:missing"}
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["inherited_from"] == "templates/t"
+        assert "cannot be compared" in block["withheld"]
+        assert "cold_minutes" not in block
+
+    def test_the_plan_carries_the_withheld_reason(self, tmp_path):
+        inline = definition("inline")
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        withheld = {"inherited_from": "templates/t", "withheld": "not priced: why"}
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            plan = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: withheld,
+            )
+        estimate = plan["estimate"]
+        assert estimate["basis"] == "unknown" and estimate["minutes"] is None
+        assert estimate["inherited_from"] == "templates/t"
+        assert estimate["withheld"] == "not priced: why"
+        assert "withheld" in _inherited_cost_warnings(estimate)[0]

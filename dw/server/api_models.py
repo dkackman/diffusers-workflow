@@ -569,6 +569,11 @@ class PlanEstimate(ApiModel):
         "linearly (more pipeline steps or frames than the template run measured) "
         "- an approximation, with `low_confidence` true."
     )
+    withheld: str = sometimes(
+        "With basis `unknown` and `inherited_from` set: why the template's runs "
+        "could not be re-priced for this workflow (its size cannot be compared "
+        "to the template's)."
+    )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
         "as `cuda:1 NVIDIA GeForce RTX 3090`."

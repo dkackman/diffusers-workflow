@@ -3163,6 +3163,11 @@ export interface components {
              * @description With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
              */
             scaled?: string;
+            /**
+             * Withheld
+             * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
+             */
+            withheld?: string;
             /** Tempered */
             tempered?: boolean;
             /**

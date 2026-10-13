@@ -270,6 +270,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
     variables = definition.get("variables")
     variables = variables if isinstance(variables, dict) else {}
     best = None
+    withheld = None
     for name, template, writable in _catalog_listing(state, ws):
         if not isinstance(template, dict) or template_identity(template) != identity:
             continue
@@ -289,14 +290,28 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
             workspace=ws.name if writable else None,
             card=card,
         )
+        if not (block and block.get("cold_runs")) and drivers:
+            # No run in that bucket (a frame count the template never ran at):
+            # price from the template's own default bucket and scale from it
+            drivers = {}
+            block = observed_for_name(
+                state,
+                name,
+                template,
+                drivers,
+                workspace=ws.name if writable else None,
+                card=card,
+            )
         if not block or not block.get("cold_runs"):
             continue
         # The bucket above prices the drivers the inline workflow shares by
         # name; more pipeline steps or frames than that (#821) are a
         # multiple the template's minutes do not carry, so they re-price it
-        # linearly (#851). A size that cannot be compared is withheld
+        # linearly (#851). A size that cannot be compared is withheld, with
+        # the template and the reason named
         factor, reason = _scale_past_template(definition, template, drivers, arguments)
         if factor is None:
+            withheld = withheld or (name, reason)
             continue
         if reason:
             block = {
@@ -308,6 +323,13 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         if best is None or key < best[0]:
             best = (key, name, template, block)
     if best is None:
+        if withheld:
+            # Not priced, but the plan says which template had history and why
+            # it was not used
+            return {
+                "inherited_from": withheld[0],
+                "withheld": f"not priced from {withheld[0]}: {withheld[1]}",
+            }
         return None
     _, name, template, block = best
     return {

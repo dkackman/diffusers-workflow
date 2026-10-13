@@ -716,7 +716,14 @@ def estimate(
                 child_definition, child_cost, step_arguments, device
             )
         totals.add(path, child, is_observed)
-    return _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
+    result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
+    withheld = observed.get("withheld") if isinstance(observed, dict) else None
+    if withheld and result["basis"] == UNKNOWN and result["minutes"] is None:
+        # History exists but could not be re-priced for this workflow's size:
+        # say which template and why, so it reads differently from no history
+        result["inherited_from"] = observed.get("inherited_from")
+        result["withheld"] = withheld
+    return result
 
 
 def _observed(observed, device):
