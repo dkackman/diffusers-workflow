@@ -2,6 +2,7 @@
 scratch: each entry's `role`, the listing's `role` filter, and the metadata's
 `role` and `inputs` (dw/roles.py decides the roles)."""
 
+import json
 import os
 
 from dw.server.outputs import run_roles, split_run_name
@@ -129,3 +130,200 @@ def test_metadata_for_a_subfolder_file_of_a_nested_identity_run(
     ).json()
     assert meta["role"] == "final"
     assert meta["inputs"] == [{"reference": "output:wf/v1/a.png", "kind": "output"}]
+
+
+def _role_less_run_script(output_dir):
+    """A worker that writes a two-step run - b reads a's result - whose
+    manifest.json predates roles, and reports the manifest it held in
+    memory, which never carries them."""
+    from dw.runs import new_run_id
+
+    def script(command):
+        run_id = new_run_id({"command": 1})
+        relative = f"wf/{run_id}"
+        run_dir = os.path.join(output_dir, "wf", run_id)
+        os.makedirs(run_dir, exist_ok=True)
+        realized = {
+            "id": "wf",
+            "steps": [
+                {"name": "a", "task": {"command": "noop", "arguments": {}}},
+                {
+                    "name": "b",
+                    "task": {
+                        "command": "noop",
+                        "arguments": {"image": "previous_result:a"},
+                    },
+                },
+            ],
+        }
+        steps = [{"step": "a", "files": ["a.png"]}, {"step": "b", "files": ["b.png"]}]
+        for name in ("a.png", "b.png"):
+            with open(os.path.join(run_dir, name), "wb") as handle:
+                handle.write(b"\x89PNG\r\n\x1a\n")
+        with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
+            json.dump({"run_id": run_id, "status": "succeeded", "steps": steps}, handle)
+        with open(os.path.join(run_dir, "workflow.json"), "w") as handle:
+            json.dump(realized, handle)
+        yield {
+            "type": "progress",
+            "event": "run_start",
+            "run_id": run_id,
+            "identity": "wf",
+            "run_dir": relative,
+            "version": 1,
+        }
+        manifest = [
+            {"step": e["step"], "files": [os.path.join(run_dir, e["files"][0])]}
+            for e in steps
+        ]
+        yield {"type": "success", "message": "ok", "run_count": 1, "manifest": manifest}
+
+    return script
+
+
+def test_job_detail_entries_carry_the_run_roles(tmp_path):
+    """The worker reports a role-less manifest; the job detail fills each
+    entry's role from the run directory, live and from history."""
+    from fastapi.testclient import TestClient
+
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from dw.workspace import Workspace
+
+    from .test_server import ScriptedWorkerManager, valid_workflow, wait_for_status
+
+    studio = Workspace(tmp_path / "studio", "flag").ensure()
+    manager = JobManager(
+        studio.outputs,
+        worker_manager=ScriptedWorkerManager(_role_less_run_script(studio.outputs)),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=studio.workflows,
+    )
+    app = create_app(
+        workflow_dir=studio.workflows,
+        output_dir=studio.outputs,
+        job_manager=manager,
+        prompt_dir=studio.prompts,
+        asset_dir=studio.assets,
+        workspace=studio.root,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        detail = wait_for_status(client, job["id"], ["succeeded"])
+        assert all("role" not in e for e in manager.jobs[job["id"]].manifest)
+        assert {e["step"]: e["role"] for e in detail["manifest"]} == {
+            "a": "intermediate",
+            "b": "final",
+        }
+        manager.jobs.pop(job["id"])
+        again = client.get(f"/api/jobs/{job['id']}").json()
+        assert {e["step"]: e["role"] for e in again["manifest"]} == {
+            "a": "intermediate",
+            "b": "final",
+        }
+
+
+def test_recorded_roles_win_in_a_mixed_manifest(tmp_path, write_run):
+    # a says final although b reads it; inference would call it intermediate
+    realized = {
+        "id": "wf",
+        "steps": [
+            {"name": "a", "task": {"command": "noop", "arguments": {}}},
+            {
+                "name": "b",
+                "task": {"command": "noop", "arguments": {"x": "previous_result:a"}},
+            },
+        ],
+    }
+    run_dir = write_run(
+        str(tmp_path),
+        "wf",
+        "20261012-000010-aaaaaaaa",
+        [
+            {"step": "a", "files": ["a.png"], "role": "final"},
+            {"step": "b", "files": ["b.png"]},
+        ],
+        realized=realized,
+    )
+    assert run_roles(run_dir) == {"a.png": "final", "b.png": "final"}
+
+
+def test_a_run_without_its_workflow_falls_back_to_subfolders(tmp_path, write_run):
+    run_dir = write_run(
+        str(tmp_path),
+        "wf",
+        "20261012-000011-aaaaaaaa",
+        [
+            {"step": "a", "files": ["intermediate/a.png"], "subfolder": "intermediate"},
+            {"step": "b", "files": ["final/x/b.png"], "subfolder": "final/x"},
+            {"step": "c", "files": ["c.png"], "subfolder": ""},
+        ],
+    )
+    assert run_roles(run_dir) == {
+        "intermediate/a.png": "intermediate",
+        "final/x/b.png": "final",
+    }
+
+
+def test_a_single_step_run_without_its_workflow_is_final(tmp_path, write_run):
+    run_dir = write_run(
+        str(tmp_path),
+        "wf",
+        "20261012-000012-aaaaaaaa",
+        [{"step": "a", "files": ["a.png", "a2.png"]}],
+        realized={"not": "a workflow"},
+    )
+    assert run_roles(run_dir) == {"a.png": "final", "a2.png": "final"}
+
+
+def test_run_inputs_keeps_only_well_formed_entries(tmp_path, write_run):
+    from dw.server.outputs import run_inputs
+
+    run_dir = write_run(
+        str(tmp_path),
+        "wf",
+        "20261012-000013-aaaaaaaa",
+        [],
+        inputs=[
+            {"reference": "asset:a.png", "kind": "asset"},
+            {"reference": 3, "kind": "asset"},
+            {"reference": "x", "kind": "variable"},
+            "asset:b.png",
+            {"reference": "output:wf/v1/a.png", "kind": "output", "extra": 1},
+        ],
+    )
+    assert run_inputs(run_dir) == [
+        {"reference": "asset:a.png", "kind": "asset"},
+        {"reference": "output:wf/v1/a.png", "kind": "output"},
+    ]
+
+
+def test_role_cache_is_lru_and_safe_under_threads(tmp_path, write_run, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+
+    from dw.server import outputs
+
+    monkeypatch.setattr(outputs, "_ROLE_CACHE", outputs.OrderedDict())
+    monkeypatch.setattr(outputs, "_ROLE_CACHE_LIMIT", 4)
+    runs = [
+        write_run(
+            str(tmp_path),
+            "wf",
+            f"20261012-0001{i:02d}-aaaaaaaa",
+            [{"step": "a", "files": ["a.png"], "role": "final"}],
+        )
+        for i in range(12)
+    ]
+    with ThreadPoolExecutor(8) as pool:
+        results = list(pool.map(run_roles, runs * 20))
+    assert all(r == {"a.png": "final"} for r in results)
+    assert len(outputs._ROLE_CACHE) == 4
+
+    # the most recently used survives a newcomer; the oldest goes
+    outputs._ROLE_CACHE.clear()
+    for run in runs[:4]:
+        run_roles(run)
+    run_roles(runs[0])
+    run_roles(runs[4])
+    kept = {key[0] for key in outputs._ROLE_CACHE}
+    assert runs[0] in kept and runs[1] not in kept

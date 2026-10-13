@@ -215,7 +215,7 @@ class JobHistory:
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id, acknowledged, run_version,"
-            " device, note FROM jobs"
+            " device, note, run_dir, json_extract(spec, '$.output_dir') FROM jobs"
         )
         params = []
         clauses = []
@@ -250,6 +250,10 @@ class JobHistory:
                 "historical": True,
                 # Only when set: JobSummary.note is absent, never null
                 **({"note": row[12]} if row[12] else {}),
+                # Where the run is, for the list to read its current note
+                # from; JobManager.list takes these off before serving
+                "_run_dir": row[13],
+                "_output_dir": row[14],
             }
             for row in rows
         ]

@@ -75,6 +75,7 @@ from ..outputs import (
     delete_run_directory,
     output_kinds,
     served_url,
+    with_run_state,
 )
 
 logger = logging.getLogger("dw")
@@ -263,6 +264,13 @@ def get_job(request: Request, job_id: str):
     # field of its own, or get_job_workflow's, so it is not served
     detail = job if isinstance(job, dict) else manager.describe(job)
     detail = {key: value for key, value in detail.items() if key != "spec"}
+    # The run as it stands now: its current note, and once it has ended
+    # each entry's role - the engine records none on a running manifest
+    location = manager.run_location(job_id)
+    if location is not None:
+        detail = with_run_state(
+            detail, *location, roles=detail.get("status") in TERMINAL_STATES
+        )
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 

@@ -11,7 +11,9 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import zipfile
+from collections import OrderedDict
 from datetime import datetime
 from urllib.parse import quote
 
@@ -31,7 +33,8 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
-from ..roles import annotate_roles, entry_role
+from ..notes import read_notes
+from ..roles import annotate_roles, entry_role, fallback_roles
 from ..runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,
@@ -521,9 +524,14 @@ def run_directory(name, root):
 
 
 # Roles by (run directory, manifest mtime): a listing asks for every file
-# of a run, and the manifest it came from has not changed since the last ask
-_ROLE_CACHE = {}
-_ROLE_CACHE_LIMIT = 512
+# of a run, and the manifest it came from has not changed since the last ask.
+# Least recently used goes first; an entry is a small dict, so the limit
+# sits well above the runs one workspace holds. Listings run on the
+# threadpool, so every touch holds the lock
+_ROLE_CACHE = OrderedDict()
+_ROLE_CACHE_LIMIT = 8192
+_ROLE_CACHE_LOCK = threading.Lock()
+_INPUT_KINDS = ("asset", "output")
 
 
 def _realized_steps(run_dir):
@@ -533,15 +541,25 @@ def _realized_steps(run_dir):
         with open(path) as handle:
             definition = json.load(handle)
         return Workflow(definition, None, path).expanded_definition().get("steps") or []
-    except Exception:  # an unreadable or unexpandable record leaves roles unknown
+    except Exception as e:  # an unreadable or unexpandable record
+        logger.debug(f"No expanded steps for the roles of {run_dir}: {e}")
         return None
+
+
+def _inferred_roles(run_dir, steps):
+    """Manifest entries annotated from the realized workflow, or by the
+    subfolder and single-step fallback when it cannot be read."""
+    expanded = _realized_steps(run_dir)
+    if expanded is None:
+        return fallback_roles(steps)
+    return annotate_roles(expanded, steps)
 
 
 def run_roles(run_dir):
     """Each file of a run, by path relative to the run directory ('/'
-    separated), mapped to its role. Recorded roles win; a run that predates
-    them is inferred from its realized workflow. {} when neither is
-    readable."""
+    separated), mapped to its role. Recorded roles win; an entry without one
+    (a run that predates them) is inferred from the realized workflow, or
+    from its subfolder. {} when the manifest is unreadable."""
     try:
         key = (
             run_dir,
@@ -549,27 +567,102 @@ def run_roles(run_dir):
         )
     except OSError:
         return {}
-    if key in _ROLE_CACHE:
-        return _ROLE_CACHE[key]
+    with _ROLE_CACHE_LOCK:
+        if key in _ROLE_CACHE:
+            _ROLE_CACHE.move_to_end(key)
+            return _ROLE_CACHE[key]
     manifest = _read_manifest(run_dir) or {}
     steps = [e for e in manifest.get("steps") or [] if isinstance(e, dict)]
-    if steps and any(entry_role(e) is None for e in steps):
-        expanded = _realized_steps(run_dir)
-        if expanded is not None:
-            steps = annotate_roles(expanded, steps)
+    inferred = steps
+    if any(entry_role(e) is None for e in steps):
+        inferred = _inferred_roles(run_dir, steps)
     roles = {}
-    for entry in steps:
-        role = entry_role(entry)
+    for entry, guess in zip(steps, inferred):
+        role = entry_role(entry) or entry_role(guess)
         if role:
             for name in entry.get("files") or []:
                 roles[str(name).replace(os.sep, "/")] = role
-    if len(_ROLE_CACHE) >= _ROLE_CACHE_LIMIT:
-        _ROLE_CACHE.pop(next(iter(_ROLE_CACHE)))
-    _ROLE_CACHE[key] = roles
+    with _ROLE_CACHE_LOCK:
+        _ROLE_CACHE[key] = roles
+        _ROLE_CACHE.move_to_end(key)
+        while len(_ROLE_CACHE) > _ROLE_CACHE_LIMIT:
+            _ROLE_CACHE.popitem(last=False)
     return roles
 
 
 def run_inputs(run_dir):
-    """The inputs a run's manifest recorded, or None when it has none."""
+    """The inputs a run's manifest recorded, or None when it has none. Only
+    well-formed entries: a str reference of a kind the engine records."""
     inputs = (_read_manifest(run_dir) or {}).get("inputs")
-    return inputs if isinstance(inputs, list) else None
+    if not isinstance(inputs, list):
+        return None
+    return [
+        {"reference": entry["reference"], "kind": entry["kind"]}
+        for entry in inputs
+        if isinstance(entry, dict)
+        and isinstance(entry.get("reference"), str)
+        and entry.get("kind") in _INPUT_KINDS
+    ]
+
+
+def job_run_directory(root, run_dir):
+    """A job's run directory under its validated output root, or None when
+    the job never opened one or the directory is gone."""
+    if not run_dir:
+        return None
+    try:
+        path = validate_path(os.path.join(root, run_dir), root, allow_create=False)
+    except SecurityError:
+        return None
+    return path if os.path.isdir(path) else None
+
+
+def with_run_note(summary, path):
+    """`summary` with the run's current note from its notes.json - a note
+    edited after submission replaces the one the job was submitted with,
+    and a cleared one removes it. Unchanged when `path` is None."""
+    if path is None:
+        return summary
+    summary = {key: value for key, value in summary.items() if key != "note"}
+    note = read_notes(path)["run"]
+    return {**summary, "note": note} if note else summary
+
+
+def with_run_state(detail, root, run_dir, roles=True):
+    """A job's detail with what its run directory says now: the run note,
+    and each manifest entry's role. The worker reports the manifest it held
+    in memory, which carries no roles, and a job recorded before roles has
+    none - so each entry takes the role `run_roles` gives its files, a
+    recorded one first. `roles` false leaves the manifest alone."""
+    path = job_run_directory(root, run_dir)
+    if path is None:
+        return detail
+    detail = with_run_note(detail, path)
+    roles = run_roles(path) if roles else None
+    manifest = detail.get("manifest")
+    if not roles or not isinstance(manifest, list):
+        return detail
+    entries = []
+    for entry in manifest:
+        if isinstance(entry, dict) and entry_role(entry) is None:
+            role = next(
+                (
+                    roles[name]
+                    for name in (
+                        _run_relative(root, path, f) for f in entry.get("files") or []
+                    )
+                    if name in roles
+                ),
+                None,
+            )
+            if role:
+                entry = {**entry, "role": role}
+        entries.append(entry)
+    return {**detail, "manifest": entries}
+
+
+def _run_relative(root, run_path, name):
+    """A job manifest's file name (relative to the output root) as the run
+    directory's manifest names it, '/' separated."""
+    full = os.path.normpath(os.path.join(root, str(name)))
+    return os.path.relpath(full, run_path).replace(os.sep, "/")

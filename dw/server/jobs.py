@@ -58,6 +58,7 @@ from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import job_results, pool, worker_memory
 from .job_history import JobHistory
+from .outputs import job_run_directory, with_run_note
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -602,14 +603,25 @@ class JobManager:
                 continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
-            summaries.append(summary)
+            output_dir = job.spec.get("output_dir")
+            summaries.append(self._current_note(summary, output_dir, job.run_dir))
         for historical in self.history.recent_summaries(
             workspace=workspace, statuses=statuses
         ):
+            run_dir = historical.pop("_run_dir", None)
+            output_dir = historical.pop("_output_dir", None)
             if historical["id"] not in live_ids:
-                summaries.append(historical)
+                summaries.append(self._current_note(historical, output_dir, run_dir))
         summaries.sort(key=lambda summary: summary["created_at"] or 0)
         return summaries
+
+    def _current_note(self, summary, output_dir, run_dir):
+        """The summary with its run's current note (outputs.with_run_note),
+        when the run directory is still there."""
+        if not run_dir:
+            return summary
+        root = validate_output_path(output_dir or self.output_dir, None)
+        return with_run_note(summary, job_run_directory(root, run_dir))
 
     # ------------------------------------------------------------ cancel/stop
 

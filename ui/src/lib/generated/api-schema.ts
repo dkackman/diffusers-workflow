@@ -2809,6 +2809,12 @@ export interface components {
              * @description The step was served from the step cache: these files are an earlier run's, republished, and nothing was generated for them this time.
              */
             reused?: boolean;
+            /**
+             * Role
+             * @description The step's role in its run, from the run's manifest.json or inferred for an older run. Absent while the run is going, or when unknown.
+             * @enum {string}
+             */
+            role?: "final" | "intermediate";
             /** Step */
             step: string;
             /**

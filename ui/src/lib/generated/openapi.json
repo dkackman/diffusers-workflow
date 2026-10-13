@@ -2551,6 +2551,15 @@
             "title": "Reused",
             "type": "boolean"
           },
+          "role": {
+            "description": "The step's role in its run, from the run's manifest.json or inferred for an older run. Absent while the run is going, or when unknown.",
+            "enum": [
+              "final",
+              "intermediate"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
           "step": {
             "title": "Step",
             "type": "string"

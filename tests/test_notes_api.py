@@ -507,3 +507,38 @@ def test_note_set_during_run_survives_manifest_rewrite(tmp_path):
     assert N.read_notes(d)["run"] == "mid-run"
     with open(os.path.join(d, "manifest.json")) as handle:
         assert "mid-run" not in json.dumps(json.load(handle))
+
+
+def test_job_detail_and_list_show_the_current_run_note(client, output_root):
+    """A run note edited after submission replaces the submitted one on
+    the job, live and from history, and a cleared one removes it."""
+    job = client.post(
+        "/api/jobs", json={"workflow": valid_workflow(), "note": "A"}
+    ).json()
+    detail = wait_for_status(client, job["id"], ["succeeded"])
+    r = client.put("/api/notes", json={"target": detail["run_dir"], "note": "B"})
+    assert r.status_code == 200
+
+    def shown():
+        listed = {j["id"]: j for j in client.get("/api/jobs").json()["jobs"]}
+        return (
+            client.get(f"/api/jobs/{job['id']}").json().get("note"),
+            listed[job["id"]].get("note"),
+        )
+
+    assert shown() == ("B", "B")
+    client.app.state.job_manager.jobs.pop(job["id"])  # from sqlite now
+    assert shown() == ("B", "B")
+    client.put("/api/notes", json={"target": detail["run_dir"], "note": None})
+    assert shown() == (None, None)
+
+
+def test_a_job_whose_run_is_gone_keeps_its_submitted_note(client, output_root):
+    import shutil
+
+    job = client.post(
+        "/api/jobs", json={"workflow": valid_workflow(), "note": "A"}
+    ).json()
+    detail = wait_for_status(client, job["id"], ["succeeded"])
+    shutil.rmtree(os.path.join(output_root, *detail["run_dir"].split("/")))
+    assert client.get(f"/api/jobs/{job['id']}").json()["note"] == "A"
