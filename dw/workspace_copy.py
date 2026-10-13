@@ -23,9 +23,10 @@ of making it resolvable there. What this module adds is the care around that:
 - Versions. A copied run keeps its `vN` unless the destination's identity
   already uses that number; then every run this request copies into that
   identity is renumbered after the destination's highest, in run-id order,
-  under the identity's run lock so it cannot race `open_run`. The version is
-  the only manifest field a copy edits; pinned `output:` refs name run ids,
-  so renumbering breaks none of them.
+  under the identity's run lock so it cannot race `open_run`. dw/runs.py
+  owns the numbering (`copy_runs_in`); this module only places the folders.
+  The version is the only manifest field a copy edits; pinned `output:` refs
+  name run ids, so renumbering breaks none of them.
 - Warnings, never refusals: `output:` inputs that do not resolve in the
   destination, manifest paths that still point into the source workspace
   (reported relative to its root - no reply carries an absolute server
@@ -37,32 +38,25 @@ Copying assets is stage B of #853.
 
 import logging
 import os
-import re
 import shutil
 
-from filelock import FileLock
-
+from .references import OUTPUT, ref_name
 from .runs import (
-    MANIFEST_FILE_NAME,
-    RUN_VERSION_KEY,
     _read_manifest,
-    _run_ids,
+    copy_runs_in,
+    identity_run_ids,
     is_run_id,
     resolve_output_reference,
-    run_id_sort_key,
-    run_lock_path,
-    run_versions,
-    write_json_atomic,
 )
-from .security import InvalidInputError, PathTraversalError, validate_path
+from .security import (
+    InvalidInputError,
+    PathTraversalError,
+    validate_output_prefix,
+    validate_path,
+)
 from .workspace import ConfiguredWorkspace, forget_workspace_usage
 
 logger = logging.getLogger("dw")
-
-# One segment of a run entry: the segment rule `output:` names follow
-# (security.OUTPUT_REFERENCE_PATTERN), so whatever can be copied can be named
-_SEGMENT = re.compile(r"^[\w][\w.@-]*\Z")
-_MAX_SEGMENTS = 7
 
 # The sidecars a copy writes fresh rather than links: every JSON file
 SIDECAR_SUFFIX = ".json"
@@ -96,18 +90,14 @@ def _run_entry(entry):
     if not isinstance(entry, str) or not entry.strip():
         raise InvalidInputError("A runs entry must be a non-empty string")
     name = entry.strip()
-    if name.startswith("output:"):
-        name = name[len("output:") :]
+    name = ref_name(OUTPUT, name) or name
     if name.startswith(("/", "\\")) or os.path.isabs(name):
         raise PathTraversalError(f"'{entry}' is an absolute path - name a run")
-    parts = name.strip("/").split("/")
+    name = name.strip("/")
+    parts = name.split("/")
     if any(part in ("..", ".") for part in parts):
         raise PathTraversalError(f"'{entry}' leaves the outputs folder")
-    if len(parts) > _MAX_SEGMENTS or not all(_SEGMENT.match(p) for p in parts):
-        raise InvalidInputError(
-            f"'{entry}' is not a run - name one as '<workflow>/<run id>', as "
-            f"the gallery lists it, or a bare '<workflow>' for all its runs"
-        )
+    validate_output_prefix(name)
     return parts
 
 
@@ -149,7 +139,7 @@ def _source_runs(source, entry):
         identity, run_ids = "/".join(parts), None
     identity_dir = validate_path(os.path.join(outputs, *identity.split("/")), outputs)
     if run_ids is None:
-        run_ids = _run_ids(identity_dir) if os.path.isdir(identity_dir) else []
+        run_ids = identity_run_ids(identity_dir)
         if not run_ids:
             raise CopyRefused(
                 f"No runs of '{identity}' in workspace '{source.name}'", status=404
@@ -219,50 +209,21 @@ def _place_run(source_dir, identity_dir, run_id, totals):
         raise
 
 
-def _set_version(run_dir, version):
-    """Record a copied run's ordinal in its own (copied, never linked)
-    manifest. A run with no readable manifest is left alone."""
-    manifest = _read_manifest(run_dir)
-    if manifest is None or manifest.get(RUN_VERSION_KEY) == version:
-        return
-    manifest[RUN_VERSION_KEY] = version
-    write_json_atomic(os.path.join(run_dir, MANIFEST_FILE_NAME), manifest)
-
-
 def _copy_identity(source, destination, identity, run_ids, totals):
-    """Copy one identity's runs under its run lock and settle their
-    versions. Returns {"<identity>/<run>": {"from", "to"}} for each run whose
-    number changed."""
+    """Copy one identity's runs; dw/runs.py settles their versions under
+    the identity's run lock. Returns {"<identity>/<run>": {"from", "to"}}
+    for each run whose number changed."""
     source_identity = os.path.join(
         os.path.realpath(source.outputs), *identity.split("/")
     )
     outputs = os.path.realpath(destination.outputs)
     identity_dir = validate_path(os.path.join(outputs, *identity.split("/")), outputs)
-    source_versions = run_versions(source_identity)
-    run_ids = sorted(run_ids, key=run_id_sort_key)
-    renumbered = {}
-    with FileLock(run_lock_path(identity_dir)):
-        os.makedirs(identity_dir, exist_ok=True)
-        held = run_versions(identity_dir)
-        wanted = [source_versions.get(run_id) for run_id in run_ids]
-        collides = any(v is not None and v in held.values() for v in wanted)
-        next_number = max(held.values(), default=0) + 1
-        for run_id, version in zip(run_ids, wanted):
-            _place_run(
-                os.path.join(source_identity, run_id), identity_dir, run_id, totals
-            )
-            if version is None:
-                continue
-            new = version
-            if collides:
-                new, next_number = next_number, next_number + 1
-            # Pinned even when unchanged: a source run that recorded no
-            # number was ranked, and its rank in the destination is not
-            # the one it had
-            _set_version(os.path.join(identity_dir, run_id), new)
-            if new != version:
-                renumbered[f"{identity}/{run_id}"] = {"from": version, "to": new}
-    return renumbered
+
+    def place(run_id):
+        _place_run(os.path.join(source_identity, run_id), identity_dir, run_id, totals)
+
+    renumbered = copy_runs_in(source_identity, identity_dir, run_ids, place)
+    return {f"{identity}/{run_id}": change for run_id, change in renumbered.items()}
 
 
 def _absolute_paths(manifest, source_root):
@@ -311,24 +272,8 @@ def _unresolved_inputs(manifest, outputs):
     return unresolved
 
 
-def copy_runs(source, destination, runs, active_runs=()):
-    """Copy runs from one workspace into another.
-
-    Args:
-        source, destination: Workspaces under one root, already resolved
-            and known to exist
-        runs: `<identity>/<run id>` or bare `<identity>` entries
-        active_runs: `<identity>/<run id>` of the source's runs whose job
-            is still queued or running - their manifest is not final
-
-    Returns:
-        {copied: {runs, assets}, already_present, renumbered, warnings,
-        bytes_linked, bytes_copied}
-
-    Raises:
-        InvalidInputError, PathTraversalError: A malformed or escaping entry
-        CopyRefused: Anything else that stops the copy; nothing was written
-    """
+def _refuse_unless_copyable(source, destination, runs):
+    """The checks on the request as a whole, before any entry is read."""
     for side in (source, destination):
         if isinstance(side, ConfiguredWorkspace):
             raise CopyRefused(
@@ -347,13 +292,16 @@ def copy_runs(source, destination, runs, active_runs=()):
     if not os.access(destination.outputs, os.W_OK):
         raise CopyRefused(f"Workspace '{destination.name}' is not writable")
 
+
+def _plan_copy(source, outputs, runs, active_runs):
+    """Every entry checked before anything is written: ({identity: [run
+    id]} to copy, [already present]), or CopyRefused naming the runs whose
+    job is still active."""
     named = []
     for entry in runs:
         for found in _source_runs(source, entry):
             if found not in named:
                 named.append(found)
-
-    outputs = os.path.realpath(destination.outputs)
     active = set(active_runs)
     conflicts = []
     already_present = []
@@ -376,6 +324,52 @@ def copy_runs(source, destination, runs, active_runs=()):
             "are not final - wait for them, then copy: " + ", ".join(conflicts),
             conflicts=conflicts,
         )
+    return to_copy, already_present
+
+
+def _copy_warnings(copied, outputs, source_root):
+    """What the caller should know about the copied runs - never a refusal."""
+    warnings = {}
+    unresolved = {}
+    absolute = {}
+    for name in copied:
+        manifest = _read_manifest(os.path.join(outputs, *name.split("/"))) or {}
+        refs = _unresolved_inputs(manifest, outputs)
+        if refs:
+            unresolved[name] = refs
+        paths = _absolute_paths(manifest, source_root)
+        if paths:
+            absolute[name] = paths
+    if unresolved:
+        warnings["unresolved_output_refs"] = unresolved
+    if absolute:
+        warnings["absolute_paths"] = absolute
+    if copied:
+        warnings["no_jobs"] = NO_JOBS_NOTE
+    return warnings
+
+
+def copy_runs(source, destination, runs, active_runs=()):
+    """Copy runs from one workspace into another.
+
+    Args:
+        source, destination: Workspaces under one root, already resolved
+            and known to exist
+        runs: `<identity>/<run id>` or bare `<identity>` entries
+        active_runs: `<identity>/<run id>` of the source's runs whose job
+            is still queued or running - their manifest is not final
+
+    Returns:
+        {copied: {runs, assets}, already_present, renumbered, warnings,
+        bytes_linked, bytes_copied}
+
+    Raises:
+        InvalidInputError, PathTraversalError: A malformed or escaping entry
+        CopyRefused: Anything else that stops the copy; nothing was written
+    """
+    _refuse_unless_copyable(source, destination, runs)
+    outputs = os.path.realpath(destination.outputs)
+    to_copy, already_present = _plan_copy(source, outputs, runs, active_runs)
 
     totals = {"bytes_linked": 0, "bytes_copied": 0}
     renumbered = {}
@@ -391,32 +385,12 @@ def copy_runs(source, destination, runs, active_runs=()):
         f"{destination.name}"
     )
 
-    warnings = {}
-    source_root = os.path.realpath(source.root)
-    unresolved = {}
-    absolute = {}
-    for name in copied:
-        run_dir = os.path.join(outputs, *name.split("/"))
-        manifest = _read_manifest(run_dir) or {}
-        refs = _unresolved_inputs(manifest, outputs)
-        if refs:
-            unresolved[name] = refs
-        paths = _absolute_paths(manifest, source_root)
-        if paths:
-            absolute[name] = paths
-    if unresolved:
-        warnings["unresolved_output_refs"] = unresolved
-    if absolute:
-        warnings["absolute_paths"] = absolute
-    if copied:
-        warnings["no_jobs"] = NO_JOBS_NOTE
-
     return {
         "source": source.name,
         "destination": destination.name,
         "copied": {"runs": copied, "assets": []},
         "already_present": already_present,
         "renumbered": renumbered,
-        "warnings": warnings,
+        "warnings": _copy_warnings(copied, outputs, os.path.realpath(source.root)),
         **totals,
     }

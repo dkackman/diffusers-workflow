@@ -680,6 +680,65 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     return candidate, version
 
 
+def copy_runs_in(source_identity_dir, identity_dir, run_ids, place):
+    """Bring runs of one identity in from another workspace and settle their
+    numbers - the copy's counterpart of `open_run` (dw/workspace_copy.py).
+
+    `place(run_id)` puts one run folder at `<identity_dir>/<run_id>`. It is
+    called under the identity's run lock, oldest run first, so no run can
+    open between a copy landing and its number being written down.
+
+    A copied run keeps the version it had in the source unless the
+    destination already holds that number; then every run of this call is
+    numbered after the destination's highest, in run-id order. The
+    destination's unrecorded runs are pinned first (`record_run_versions`):
+    a copied run sorting among them would otherwise move their ranked
+    numbers. The number is written into the copied manifest - a copy, never
+    a link - so the source's stays as it was.
+
+    Returns:
+        {run id: {"from": old, "to": new}} for each run whose number changed
+    """
+    source_versions = run_versions(source_identity_dir)
+    run_ids = sorted(run_ids, key=run_id_sort_key)
+    renumbered = {}
+    with FileLock(run_lock_path(identity_dir)):
+        os.makedirs(identity_dir, exist_ok=True)
+        held = set(record_run_versions(identity_dir).values())
+        wanted = [source_versions.get(run_id) for run_id in run_ids]
+        collides = any(v is not None and v in held for v in wanted)
+        next_number = max(held, default=0) + 1
+        for run_id, version in zip(run_ids, wanted):
+            place(run_id)
+            if version is None:
+                continue
+            new = version
+            if collides:
+                new, next_number = next_number, next_number + 1
+            # Pinned even when unchanged: a source run that recorded no
+            # number was ranked, and its rank in the destination is not
+            # the one it had
+            _pin_version(os.path.join(identity_dir, run_id), new)
+            if new != version:
+                renumbered[run_id] = {"from": version, "to": new}
+    return renumbered
+
+
+def _pin_version(run_dir, version):
+    """Record a run's ordinal in its manifest. A run with no readable
+    manifest is left alone, and stays ranked."""
+    manifest = _read_manifest(run_dir)
+    if manifest is None or manifest.get(RUN_VERSION_KEY) == version:
+        return
+    manifest[RUN_VERSION_KEY] = version
+    write_json_atomic(os.path.join(run_dir, MANIFEST_FILE_NAME), manifest)
+
+
+def identity_run_ids(identity_dir):
+    """Every run id under one workflow identity, oldest first."""
+    return _run_ids(identity_dir)
+
+
 def write_json_atomic(path, data):
     """Write `data` as JSON to `path` by a temp file and a rename, so a
     reader never sees half a file. Raises OSError."""
