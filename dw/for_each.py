@@ -69,6 +69,14 @@ def is_member_name(name):
     return isinstance(name, str) and MEMBER_SEPARATOR in name
 
 
+def group_of(name):
+    """The authored step a name stands for: a member's group, else the name
+    itself (the inverse of `member_name`; a step name never holds the
+    separator, so the first split is the group)."""
+    name = str(name)
+    return name.split(MEMBER_SEPARATOR)[0] if is_member_name(name) else name
+
+
 def expand_for_each(definition, source_indices=None):
     """The definition with every 'for_each' step replaced by its members.
 

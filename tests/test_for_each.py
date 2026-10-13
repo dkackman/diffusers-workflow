@@ -46,6 +46,12 @@ class TestNaming:
     def test_member_name_joins_with_at(self):
         assert member_name("shot", "wide_open") == "shot@wide_open"
 
+    def test_group_of_inverts_member_name(self):
+        from dw.for_each import group_of
+
+        assert group_of(member_name("shot", "wide_open")) == "shot"
+        assert group_of("plain") == "plain"
+
     def test_is_member_name_round_trips_member_name(self):
         assert is_member_name(member_name("shot", "wide_open"))
         assert not is_member_name("shot")

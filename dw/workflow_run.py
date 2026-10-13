@@ -29,6 +29,7 @@ from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .elision import elide_definition, warn_elided
 from .events import emit_warning
+from .for_each import group_of
 from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
@@ -398,7 +399,7 @@ def _surviving_variables(authored_steps, expanded_steps):
     referenced before substitution (#857). A for_each member
     ('<group>@<entry>') stands for the step it was expanded from."""
     groups = {
-        str(step.get("name")).split(references.MEMBER_SEPARATOR)[0]
+        group_of(step.get("name"))
         for step in expanded_steps or []
         if isinstance(step, dict)
     }
