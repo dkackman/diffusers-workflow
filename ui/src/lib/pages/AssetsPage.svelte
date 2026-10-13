@@ -62,6 +62,17 @@
     storageGet(COLLAPSE_KEY, {} as Record<string, boolean>),
   )
 
+  // Carry a saved note onto the listing and the pick, so selecting the asset
+  // again shows it rather than what was fetched before the edit
+  function saveNote(note: string | null) {
+    if (!selected) return
+    const name = selected.name
+    const patch = (a: AssetFile) =>
+      a.name === name ? { ...a, note: note ?? undefined } : a
+    assets = assets.map(patch)
+    selected = patch(selected)
+  }
+
   function load() {
     return api
       .listAssets()
@@ -418,6 +429,7 @@
     {busy}
     onremove={remove}
     onclose={() => (selected = null)}
+    onnotesaved={saveNote}
   />
 {/if}
 

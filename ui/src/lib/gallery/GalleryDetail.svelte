@@ -45,7 +45,7 @@
     runNote?: string | null
     noteSource?: 'file' | 'run' | null
     /** A note changed, so the page can refetch what it shows */
-    onnotesaved?: () => void
+    onnotesaved?: (kind: 'run' | 'file') => void | Promise<void>
     onremove: () => void
     onclose: () => void
   } = $props()
@@ -141,6 +141,13 @@
   })
   const inherited = $derived(noteSource === 'run' && !ownNote && !!runDir)
 
+  // Back to what the server says once it has answered: a cleared file note
+  // returns the run's, a saved one is the file's own
+  async function saveFileNote() {
+    await onnotesaved?.('file')
+    ownNote = false
+  }
+
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
     // Pin the run's seed into the definition so reopening reproduces this
@@ -226,7 +233,7 @@
             note={runNote}
             target={runDir}
             label="Run note"
-            onsaved={() => onnotesaved?.()}
+            onsaved={() => onnotesaved?.('run')}
           />
           <button type="button" class="bare" onclick={() => (ownNote = true)}
             >Note this file</button
@@ -235,8 +242,8 @@
           <NoteEditor
             note={ownNote ? null : note}
             target={file.name}
-            label={ownNote ? 'File note' : 'Note'}
-            onsaved={() => onnotesaved?.()}
+            label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
+            onsaved={saveFileNote}
           />
         {/if}
         {#if metadata}

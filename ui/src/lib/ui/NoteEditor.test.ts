@@ -70,4 +70,18 @@ describe('NoteEditor', () => {
     expect(await screen.findByText(/at most 4000/)).toBeTruthy()
     expect(screen.getByRole('textbox')).toBeTruthy()
   })
+
+  it('keeps the draft when the note prop changes mid-edit', async () => {
+    const { rerender } = render(NoteEditor, {
+      props: { note: 'old', target: 't' },
+    })
+    await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+    await fireEvent.input(screen.getByRole('textbox'), {
+      target: { value: 'half typed' },
+    })
+    await rerender({ note: 'refetched', target: 't' })
+    expect((screen.getByRole('textbox') as HTMLTextAreaElement).value).toBe(
+      'half typed',
+    )
+  })
 })

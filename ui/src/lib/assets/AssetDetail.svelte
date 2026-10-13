@@ -16,11 +16,14 @@
     busy,
     onremove,
     onclose,
+    onnotesaved,
   }: {
     asset: AssetFile
     busy: boolean
     onremove: (asset: AssetFile) => void
     onclose: () => void
+    /** The note the server stored, so the page can carry it on the asset */
+    onnotesaved?: (note: string | null) => void
   } = $props()
 
   // Where a kept asset came from, when keep_output recorded it: the
@@ -99,7 +102,11 @@
         >{/each}
     </p>
   {/if}
-  <NoteEditor note={asset.note} target={`${ASSET}${asset.name}`} />
+  <NoteEditor
+    note={asset.note}
+    target={`${ASSET}${asset.name}`}
+    onsaved={(note) => onnotesaved?.(note)}
+  />
   <div class="body">
     {#if asset.kind === 'image'}
       <img src={asset.url} alt={asset.name} />

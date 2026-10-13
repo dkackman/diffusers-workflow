@@ -51,7 +51,12 @@ const deleteOutput = vi.hoisted(() =>
 const archiveOutputs = vi.hoisted(() =>
   vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
 )
+const setNote = vi.hoisted(() => vi.fn())
+const galleryMetadata = vi.hoisted(() =>
+  vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
+)
 vi.mock('../api', () => ({
+  setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     gallery: () => gallery(),
     galleryThumbnailUrl: (name: string) => `/thumb/${name}`,
@@ -59,7 +64,7 @@ vi.mock('../api', () => ({
     outputDownloadUrl: (name: string) => `/download/${name}`,
     deleteOutput: (name: string) => deleteOutput(name),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
-    galleryMetadata: vi.fn(() => new Promise(() => {})),
+    galleryMetadata: (name: string) => galleryMetadata(name),
   },
 }))
 
@@ -77,6 +82,8 @@ afterEach(() => {
   deleteOutput.mockClear()
   archiveOutputs.mockClear()
   notifyError.mockClear()
+  galleryMetadata.mockReset()
+  galleryMetadata.mockImplementation(() => new Promise(() => {}))
   vi.unstubAllGlobals()
   workspace.current = DEFAULT_WORKSPACE
 })
@@ -472,4 +479,44 @@ it('marks a tile that carries a note, titled with its first line', async () => {
   const marks = document.querySelectorAll('.note-mark')
   expect(marks).toHaveLength(1)
   expect(marks[0].getAttribute('title')).toBe('first line')
+})
+
+it('marks every tile of a run after its run note is saved', async () => {
+  const inRun = (name: string, note?: string): GalleryFile => ({
+    ...file(`wf/r1/${name}`),
+    folder: 'wf',
+    run_id: 'r1',
+    note,
+  })
+  listing.files = [inRun('a.png'), inRun('b.png')]
+  galleryMetadata.mockResolvedValue({
+    metadata: {},
+    job: null,
+    inputs: [],
+    role: null,
+    note: 'old',
+    run_note: 'old',
+    note_source: 'run',
+  })
+  await renderGallery('wf/r1/a.png')
+  screen
+    .getByLabelText('select wf/r1/a.png')
+    .closest('.cellwrap')!
+    .querySelector<HTMLButtonElement>('button.cell')!
+    .click()
+  await fireEvent.click(
+    await screen.findByRole('button', { name: /edit note/i }),
+  )
+  setNote.mockImplementation(async () => {
+    listing.files = [inRun('a.png', 'fresh'), inRun('b.png', 'fresh')]
+    return { target: 'wf/r1', note: 'fresh', note_source: 'run' }
+  })
+  await fireEvent.input(screen.getByLabelText('Run note'), {
+    target: { value: 'fresh' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() =>
+    expect(document.querySelectorAll('.note-mark')).toHaveLength(2),
+  )
+  expect(setNote).toHaveBeenCalledWith('wf/r1', 'fresh')
 })

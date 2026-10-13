@@ -37,10 +37,8 @@
   let role = $state<OutputRole | null>(null)
   let inputs = $state<GalleryInput[]>([])
 
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the gallery
-    void workspace.current
-    api
+  function loadListing() {
+    return api
       .gallery()
       .then((result) => {
         files = result.files
@@ -52,6 +50,12 @@
       })
       .catch((e) => (error = e.message))
       .finally(() => (loaded = true))
+  }
+
+  $effect(() => {
+    // Read inside the effect so switching workspaces refetches the gallery
+    void workspace.current
+    void loadListing()
   })
 
   // A file whose run does not say its role counts as final
@@ -155,9 +159,11 @@
 
   // A note changed: refetch what the panel shows and carry the file's
   // effective note to its tile, which is what the grid marks
-  async function refreshNote() {
+  async function refreshNote(kind: 'run' | 'file') {
     const name = selected?.name
     if (!name) return
+    // A run's note shows on every tile of the run that inherits it
+    if (kind === 'run') await loadListing()
     try {
       const r = await api.galleryMetadata(name)
       if (selected?.name !== name) return

@@ -1,9 +1,17 @@
-import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import GalleryDetail from './GalleryDetail.svelte'
 import type { GalleryFile } from '../types'
 
+const setNote = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
+  setNote: (t: string, n: string | null) => setNote(t, n),
   api: { outputDownloadUrl: (name: string) => `/download/${name}` },
 }))
 
@@ -97,4 +105,46 @@ it("shows the file's own note", () => {
   })
   expect(screen.getByText('keeper')).toBeTruthy()
   expect(screen.queryByRole('button', { name: 'Note this file' })).toBeNull()
+})
+
+it("labels a saved file note as the file's own, and a cleared one returns the run note", async () => {
+  const run = {
+    ...props,
+    note: 'for the client',
+    runNote: 'for the client',
+    noteSource: 'run' as const,
+  }
+  const spy = setNote
+  const onnotesaved = vi.fn(async () => {})
+  const { rerender } = render(GalleryDetail, { ...run, onnotesaved })
+  await fireEvent.click(screen.getByRole('button', { name: 'Note this file' }))
+  spy.mockResolvedValue({
+    target: file.name,
+    note: 'mine',
+    note_source: 'file',
+  })
+  onnotesaved.mockImplementation(async () => {
+    await rerender({ ...run, note: 'mine', noteSource: 'file', onnotesaved })
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'mine' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(screen.getByText('File note')).toBeTruthy())
+  expect(screen.getByText('mine')).toBeTruthy()
+
+  spy.mockResolvedValue({
+    target: file.name,
+    note: 'for the client',
+    note_source: 'run',
+  })
+  onnotesaved.mockImplementation(async () => {
+    await rerender({ ...run, onnotesaved })
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), { target: { value: '' } })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(screen.getByText('Run note')).toBeTruthy())
+  expect(screen.getByText('for the client')).toBeTruthy()
 })

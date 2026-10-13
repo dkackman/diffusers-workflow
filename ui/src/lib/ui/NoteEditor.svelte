@@ -24,11 +24,14 @@
   let saving = $state(false)
   let error = $state<string | null>(null)
   // What the box last stored, until the parent hands down a newer note
-  let shown = $state<string | null>(null)
+  let shown = $derived(note ?? null)
+  // Another target is another note, even when the text is the same. Only a
+  // changed target ends an edit: a refetch landing mid-edit keeps the draft
+  // svelte-ignore state_referenced_locally
+  let editedTarget = target
   $effect(() => {
-    // Another target is another note, even when the text is the same
-    void target
-    shown = note ?? null
+    if (target === editedTarget) return
+    editedTarget = target
     editing = false
   })
 
