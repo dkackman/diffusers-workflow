@@ -484,6 +484,42 @@ def split_run_name(root, relative_name):
     return None
 
 
+def validated_run_split(root, path):
+    """`split_run_name` for a file already resolved under `root` (a
+    validator's return value): (run directory, name inside it), the
+    directory itself validated against `root`, or None for a flat-layout
+    file. Measured from root's real path, since `path` is a real path and a
+    root under a symlink would otherwise relativise to '../..'."""
+    relative = os.path.relpath(path, os.path.realpath(root)).replace(os.sep, "/")
+    split = split_run_name(root, relative)
+    if split is None:
+        return None
+    try:
+        return validate_path(split[0], root, allow_create=False), split[1]
+    except SecurityError:
+        return None
+
+
+def run_directory(name, root):
+    """The run directory `<identity>/<run id>` names, validated against
+    `root`, or None when `name` is not one.
+
+    A run that failed before it wrote anything still has a directory and a
+    manifest, and no gallery name addresses it - so the name of the
+    directory itself is the only handle there can be (#134).
+    """
+    parts = [part for part in (name or "").split("/") if part]
+    if not parts or not is_run_id(parts[-1]):
+        return None
+    try:
+        path = validate_path(
+            os.path.join(root, "/".join(parts)), root, allow_create=False
+        )
+    except SecurityError:
+        return None
+    return path if os.path.isdir(path) else None
+
+
 # Roles by (run directory, manifest mtime): a listing asks for every file
 # of a run, and the manifest it came from has not changed since the last ask
 _ROLE_CACHE = {}

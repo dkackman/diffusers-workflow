@@ -183,6 +183,7 @@ UI_READ_ROUTES = [
     ("get", "/api/gallery"),
     ("delete", "/api/gallery/{name}"),
     ("get", "/api/gallery/{name}/metadata"),
+    ("put", "/api/notes"),
     ("get", "/api/assets"),
     ("post", "/api/uploads"),
     ("post", "/api/assets/keep"),

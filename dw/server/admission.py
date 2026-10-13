@@ -26,6 +26,7 @@ from ..assets import (
     resolve_asset_reference,
 )
 from .. import get_device_type, references, validation
+from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
 from ..plan import build_plan
 from ..prompts import resolve_prompt_reference
 from ..runs import (
@@ -399,6 +400,20 @@ class JobRequest(BaseModel):
         description="Which workspace to run or resolve in; the default when omitted",
     )
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
+    note: Optional[str] = Field(
+        default=None,
+        description=f"A note on the run, at most {MAX_NOTE_LENGTH} characters: "
+        "kept with the job and written as the run note when the run opens",
+    )
+
+
+def admitted_note(note):
+    """The job's note as it will be stored, or a 400 - checked before
+    admission so an over-long note queues nothing."""
+    try:
+        return clean_note(note)
+    except (NoteTooLong, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 def pool_capacity(state):

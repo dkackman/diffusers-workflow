@@ -206,8 +206,9 @@ note.
 - It is stored in a new `note` column on the sqlite `jobs` table, added by
   the existing `ALTER TABLE ADD COLUMN` migration path
   (`dw/server/job_history.py:61-133`).
-- It is passed to the worker in the job spec, and the engine writes it to
-  `notes.json` when the run opens.
+- It is kept in the job spec, and the server writes it to the run's
+  `notes.json` when the worker's `run_start` event names the run directory.
+  The engine never writes notes.
 - `note` joins `RERUN_SPEC_KEYS` (`dw/server/job_record.py:31`), so
   `rerun_job` carries it forward.
 

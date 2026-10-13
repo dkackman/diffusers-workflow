@@ -1164,6 +1164,32 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Note
+         * @description Set or clear the note on a run, a file, an asset or a workspace.
+         *
+         *     `target` is a gallery file name (that file's own note), a run directory
+         *     `<identity>/<run id>` (the run note every file of the run falls back to),
+         *     `asset:<name>` or `workspace:<name>` ('default' for the root's own). The
+         *     answer is the target's effective note after the write: a file with no
+         *     note of its own answers with its run's, and `note_source` says which.
+         */
+        put: operations["put_note_api_notes_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/pipelines": {
         parameters: {
             query?: never;
@@ -1473,6 +1499,10 @@ export interface paths {
          *     `shared` puts it in the library every workspace under this root
          *     shares rather than in this workspace's own - a recurring cast that
          *     episode four, in a workspace of its own, still has to reach.
+         *
+         *     `note` is kept beside it (the directory's notes.json). An upload over an
+         *     existing name takes its own note, or none: not the old file's, and not
+         *     the old file's kept provenance either.
          */
         post: operations["upload_media_api_uploads_post"];
         delete?: never;
@@ -1822,6 +1852,11 @@ export interface components {
             mtime: number;
             /** Name */
             name: string;
+            /**
+             * Note
+             * @description The asset's note, when it has one.
+             */
+            note?: string;
             /**
              * Origin
              * @description Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.
@@ -2187,6 +2222,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Note
+             * @description The effective note: the file's own, else its run's.
+             */
+            note?: string;
+            /**
              * Role
              * @description `final` for a deliverable, `intermediate` for a file a later step consumed; null under the flat layout or when no manifest lists the file.
              */
@@ -2268,12 +2308,28 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Note
+             * @description The effective note: the file's own, else its run's.
+             */
+            note?: string;
+            /**
+             * Note Source
+             * @description Whose note `note` is.
+             * @enum {string}
+             */
+            note_source?: "file" | "run";
+            /**
              * Role
              * @description The file's role in its run; null when the run does not say.
              */
             role?: ("final" | "intermediate") | null;
             /** Run Id */
             run_id: string;
+            /**
+             * Run Note
+             * @description The note of the run that wrote the file.
+             */
+            run_note?: string;
             /**
              * Source
              * @enum {string}
@@ -2369,6 +2425,11 @@ export interface components {
              * @description Null on a history row recorded before manifests, or by a run that wrote none.
              */
             manifest: components["schemas"]["ManifestEntry"][] | null;
+            /**
+             * Note
+             * @description The note it was submitted with; also its run's note.
+             */
+            note?: string;
             /**
              * Output Kinds
              * @description Each output file's kind; null for a kind the gallery does not show. On GET /api/jobs/{id} only.
@@ -2534,6 +2595,11 @@ export interface components {
              */
             base_dir?: string | null;
             /**
+             * Note
+             * @description A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens
+             */
+            note?: string | null;
+            /**
              * Workflow
              * @description Inline workflow definition
              */
@@ -2575,6 +2641,11 @@ export interface components {
             historical?: boolean;
             /** Id */
             id: string;
+            /**
+             * Note
+             * @description The note it was submitted with; also its run's note.
+             */
+            note?: string;
             /**
              * Queue Position
              * @description Index in the waiting queue; only while queued.
@@ -2649,6 +2720,11 @@ export interface components {
              * @description The generated file to keep, as the gallery names it
              */
             name: string;
+            /**
+             * Note
+             * @description A note on the kept asset, at most 4000 characters; the source file's effective note when omitted
+             */
+            note?: string | null;
             /**
              * Overwrite
              * @description Replace an asset already under that name
@@ -2912,6 +2988,34 @@ export interface components {
              * @description up, down, front, or back
              */
             direction: string;
+        };
+        /** NoteRequest */
+        NoteRequest: {
+            /**
+             * Note
+             * @description At most 4000 characters; null or '' clears it
+             */
+            note?: string | null;
+            /**
+             * Target
+             * @description What the note is on: a gallery file name, a run directory `<identity>/<run id>`, `asset:<name>` or `workspace:<name>`
+             */
+            target: string;
+        };
+        /** NoteSet */
+        NoteSet: {
+            /**
+             * Note
+             * @description The effective note after the write.
+             */
+            note: string | null;
+            /**
+             * Note Source
+             * @description Whose note `note` is; null for a workspace or no note.
+             */
+            note_source: ("file" | "run") | null;
+            /** Target */
+            target: string;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -3559,6 +3663,11 @@ export interface components {
             default: boolean;
             /** Name */
             name: string;
+            /**
+             * Note
+             * @description The workspace's note, when it has one; listings only.
+             */
+            note?: string;
             /** Outputs */
             outputs: string;
             /** Prompts */
@@ -5134,6 +5243,41 @@ export interface operations {
             };
         };
     };
+    put_note_api_notes_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pipelines_api_pipelines_get: {
         parameters: {
             query?: never;
@@ -5538,6 +5682,8 @@ export interface operations {
                 filename: string;
                 asset_name?: string | null;
                 shared?: boolean;
+                /** @description A note on the asset, at most 4000 characters */
+                note?: string | null;
                 workspace?: string | null;
             };
             header?: never;

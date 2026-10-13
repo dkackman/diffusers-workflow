@@ -13,6 +13,9 @@ export const ITEM = 'item:'
 export const GATHER = 'gather:'
 export const BUILTIN = 'builtin:'
 export const CONSTRAINT = 'constraint:'
+// Not a workflow reference, so not in PREFIXES: names a workspace as a note
+// target (PUT /api/notes)
+export const WORKSPACE = 'workspace:'
 
 export const PREFIXES = [
   ASSET,

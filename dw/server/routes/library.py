@@ -36,6 +36,7 @@ from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
+from ...notes import read_workspace_note
 from ...library import (
     builtin_root,
     ReadOnlyLibraryError,
@@ -114,6 +115,9 @@ def list_workspaces(request: Request):
         # workspace_usage - a listing is a glance, and a job writing
         # into outputs moves the number continuously anyway
         entry["usage"] = workspace_usage(space)
+        note = read_workspace_note(space.root) if space.root else None
+        if note:
+            entry["note"] = note
         described.append(entry)
     return {
         "workspace_root": root.root if root else None,

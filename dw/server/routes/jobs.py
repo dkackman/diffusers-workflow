@@ -42,6 +42,7 @@ from ..admission import (
     JobRequest,
     ValidatorFailure,
     acknowledgement_form,
+    admitted_note,
     admit_for,
     bound_plan_for,
     check_bound_acknowledgement,
@@ -120,6 +121,7 @@ def submit_job(
     the body wins when both are given."""
     state = http_request.app.state
     manager = http_request.app.state.job_manager
+    note = admitted_note(request.note)
     try:
         workspace = workspace_for(state, request.workspace or ws.name)
         resolved, source = resolve_workflow_reference(
@@ -192,6 +194,7 @@ def submit_job(
             warnings=admission.warnings,
             # What a card must hold to run it: the pool dispatches on it
             vram_need=admission.vram_need,
+            note=note,
         )
         return manager.describe(job)
     except HTTPException:

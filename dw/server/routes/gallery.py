@@ -20,7 +20,7 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
-from ...notes import NOTES_FILE_NAME, drop_file_note
+from ...notes import NOTES_FILE_NAME, drop_file_note, effective_note, read_notes
 from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
@@ -41,6 +41,7 @@ from ..outputs import (
     archive_selection,
     iter_gallery_files,
     resolve_output_file,
+    run_directory,
     run_roles,
     served_url,
     split_run_name,
@@ -70,6 +71,8 @@ def _gallery_entries(root, ws):
     # a run of fifty files would otherwise re-read the same manifests
     # fifty times
     versions_by_folder = {}
+    # And one read of each run's notes.json, for the same reason
+    notes_by_run = {}
 
     def _version(folder, run_id):
         if not run_id:
@@ -120,6 +123,12 @@ def _gallery_entries(root, ws):
         # None under the flat layout, and for a file no manifest lists
         split = split_run_name(root, relative_name) if run_id else None
         entry["role"] = run_roles(split[0]).get(split[1]) if split else None
+        if split:
+            if split[0] not in notes_by_run:
+                notes_by_run[split[0]] = read_notes(split[0])
+            note = effective_note(notes_by_run[split[0]], split[1])[0]
+            if note:
+                entry["note"] = note
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:
             entry["absolute_url"] = absolute_url
@@ -348,25 +357,6 @@ def _prune_empty_run_directory(name, root):
     return run_id
 
 
-def _run_directory(name, root):
-    """The run directory `<identity>/<run id>` names, or None.
-
-    A run that failed before it wrote anything still has a directory and a
-    manifest, and no gallery name addresses it - so the name of the
-    directory itself is the only handle there can be (#134).
-    """
-    parts = [part for part in (name or "").split("/") if part]
-    if not parts or not is_run_id(parts[-1]):
-        return None
-    try:
-        path = validate_path(
-            os.path.join(root, "/".join(parts)), root, allow_create=False
-        )
-    except SecurityError:
-        return None
-    return path if os.path.isdir(path) else None
-
-
 @router.delete(
     "/api/gallery/{name:path}",
     response_model=OutputDeleted,
@@ -383,7 +373,7 @@ def delete_output(
     on a run that failed before it wrote any media (#134).
     """
     name = strip_output_prefix(name)
-    run_dir = _run_directory(name, ws.outputs)
+    run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
         return {
             "name": name,

@@ -131,6 +131,10 @@ class JobHistory:
                 connection.execute("ALTER TABLE jobs ADD COLUMN device_ordinal TEXT")
             if "device_card" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN device_card TEXT")
+            # The note the job was submitted with. NULL for a row before the
+            # column and for a job submitted without one
+            if "note" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN note TEXT")
             if "device_ordinal" not in columns or "device_card" not in columns:
                 connection.execute(
                     "UPDATE jobs SET"
@@ -164,8 +168,8 @@ class JobHistory:
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
                 " host_memory_job_peak_rss_mb, run_version, device,"
-                " device_ordinal, device_card) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " device_ordinal, device_card, note) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -194,6 +198,7 @@ class JobHistory:
                     getattr(job, "device", None),
                     getattr(job, "device_ordinal", None),
                     getattr(job, "device_card", None),
+                    getattr(job, "note", None),
                 ),
             )
 
@@ -210,7 +215,7 @@ class JobHistory:
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id, acknowledged, run_version,"
-            " device FROM jobs"
+            " device, note FROM jobs"
         )
         params = []
         clauses = []
@@ -243,6 +248,8 @@ class JobHistory:
                 "run_version": row[10],
                 "device": row[11],
                 "historical": True,
+                # Only when set: JobSummary.note is absent, never null
+                **({"note": row[12]} if row[12] else {}),
             }
             for row in rows
         ]
@@ -253,7 +260,7 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device FROM jobs WHERE id = ?",
+                " run_version, device, note FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -494,4 +501,5 @@ class JobHistory:
             "traceback": None,
             "event_count": len(events) if isinstance(events, list) else 0,
             "historical": True,
+            **({"note": row[19]} if row[19] else {}),
         }

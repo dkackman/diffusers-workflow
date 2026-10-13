@@ -28,6 +28,8 @@ ITEM = "item:"
 GATHER = "gather:"
 BUILTIN = "builtin:"
 CONSTRAINT = "constraint:"
+# Not a workflow reference: names a workspace as a note target (PUT /api/notes)
+WORKSPACE = "workspace:"
 
 # The key naming the file an argument object is constructed from
 FROM_FILE_KEY = "from_file"

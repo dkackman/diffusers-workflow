@@ -375,6 +375,7 @@ class JobSummary(ApiModel):
     )
     historical: bool = sometimes("Read from job history rather than a live job.")
     queue_position: int = sometimes("Index in the waiting queue; only while queued.")
+    note: str = sometimes("The note it was submitted with; also its run's note.")
 
 
 class ManifestEntry(ApiModel):
@@ -634,6 +635,7 @@ class WorkspaceInfo(ApiModel):
     prompts: str | None
     common_assets: str | None
     usage: DiskUsage = sometimes("Roughly how much disk it holds; listings only.")
+    note: str = sometimes("The workspace's note, when it has one; listings only.")
 
 
 class WorkspaceList(ApiModel):
@@ -806,6 +808,7 @@ class GalleryFile(ApiModel):
         "`final` for a deliverable, `intermediate` for a file a later step "
         "consumed; null under the flat layout or when no manifest lists the file."
     )
+    note: str = sometimes("The effective note: the file's own, else its run's.")
 
 
 class GalleryList(ApiModel):
@@ -869,6 +872,9 @@ class GalleryMetadata(ApiModel):
         "The `asset:` and `output:` references the run read; null for a run "
         "that recorded none."
     )
+    note: str = sometimes("The effective note: the file's own, else its run's.")
+    run_note: str = sometimes("The note of the run that wrote the file.")
+    note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
 
 
 class AssetLibraryRoot(ApiModel):
@@ -896,6 +902,7 @@ class AssetFile(ApiModel):
         "This workspace's own workflows that name it in an `asset:` reference, "
         "when any do"
     )
+    note: str = sometimes("The asset's note, when it has one.")
 
 
 class ShadowedAsset(ApiModel):
@@ -934,6 +941,14 @@ class Kept(ApiModel):
     workspace: str
     linked: bool
     shared: bool
+
+
+class NoteSet(ApiModel):
+    target: str
+    note: str | None = Field(description="The effective note after the write.")
+    note_source: Literal["file", "run"] | None = Field(
+        description="Whose note `note` is; null for a workspace or no note."
+    )
 
 
 class AssetDeleted(ApiModel):

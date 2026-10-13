@@ -137,6 +137,11 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The asset's note, when it has one.",
+            "title": "Note",
+            "type": "string"
+          },
           "origin": {
             "description": "Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.",
             "enum": [
@@ -1130,6 +1135,11 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The effective note: the file's own, else its run's.",
+            "title": "Note",
+            "type": "string"
+          },
           "role": {
             "anyOf": [
               {
@@ -1334,6 +1344,20 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The effective note: the file's own, else its run's.",
+            "title": "Note",
+            "type": "string"
+          },
+          "note_source": {
+            "description": "Whose note `note` is.",
+            "enum": [
+              "file",
+              "run"
+            ],
+            "title": "Note Source",
+            "type": "string"
+          },
           "role": {
             "anyOf": [
               {
@@ -1352,6 +1376,11 @@
           },
           "run_id": {
             "title": "Run Id",
+            "type": "string"
+          },
+          "run_note": {
+            "description": "The note of the run that wrote the file.",
+            "title": "Run Note",
             "type": "string"
           },
           "source": {
@@ -1601,6 +1630,11 @@
             ],
             "description": "Null on a history row recorded before manifests, or by a run that wrote none.",
             "title": "Manifest"
+          },
+          "note": {
+            "description": "The note it was submitted with; also its run's note.",
+            "title": "Note",
+            "type": "string"
           },
           "output_kinds": {
             "additionalProperties": {
@@ -2066,6 +2100,18 @@
             "description": "Directory relative paths in an inline workflow resolve against",
             "title": "Base Dir"
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens",
+            "title": "Note"
+          },
           "workflow": {
             "anyOf": [
               {
@@ -2167,6 +2213,11 @@
           },
           "id": {
             "title": "Id",
+            "type": "string"
+          },
+          "note": {
+            "description": "The note it was submitted with; also its run's note.",
+            "title": "Note",
             "type": "string"
           },
           "queue_position": {
@@ -2331,6 +2382,18 @@
             "description": "The generated file to keep, as the gallery names it",
             "title": "Name",
             "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A note on the kept asset, at most 4000 characters; the source file's effective note when omitted",
+            "title": "Note"
           },
           "overwrite": {
             "default": false,
@@ -3015,6 +3078,76 @@
           "direction"
         ],
         "title": "MoveRequest",
+        "type": "object"
+      },
+      "NoteRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At most 4000 characters; null or '' clears it",
+            "title": "Note"
+          },
+          "target": {
+            "description": "What the note is on: a gallery file name, a run directory `<identity>/<run id>`, `asset:<name>` or `workspace:<name>`",
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "NoteRequest",
+        "type": "object"
+      },
+      "NoteSet": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effective note after the write.",
+            "title": "Note"
+          },
+          "note_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "file",
+                  "run"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose note `note` is; null for a workspace or no note.",
+            "title": "Note Source"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "note",
+          "note_source"
+        ],
+        "title": "NoteSet",
         "type": "object"
       },
       "OutputDeleted": {
@@ -4683,6 +4816,11 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "description": "The workspace's note, when it has one; listings only.",
+            "title": "Note",
             "type": "string"
           },
           "outputs": {
@@ -7485,6 +7623,63 @@
         "summary": "Cancel Download"
       }
     },
+    "/api/notes": {
+      "put": {
+        "description": "Set or clear the note on a run, a file, an asset or a workspace.\n\n`target` is a gallery file name (that file's own note), a run directory\n`<identity>/<run id>` (the run note every file of the run falls back to),\n`asset:<name>` or `workspace:<name>` ('default' for the root's own). The\nanswer is the target's effective note after the write: a file with no\nnote of its own answers with its run's, and `note_source` says which.",
+        "operationId": "put_note_api_notes_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Note"
+      }
+    },
     "/api/pipelines": {
       "get": {
         "description": "Every pipeline class the installed diffusers exports.",
@@ -8007,7 +8202,7 @@
     },
     "/api/uploads": {
       "post": {
-        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined to the library the way `keep_output`'s is, and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.",
+        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined to the library the way `keep_output`'s is, and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.\n\n`note` is kept beside it (the directory's notes.json). An upload over an\nexisting name takes its own note, or none: not the old file's, and not\nthe old file's kept provenance either.",
         "operationId": "upload_media_api_uploads_post",
         "parameters": [
           {
@@ -8043,6 +8238,24 @@
               "default": false,
               "title": "Shared",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "A note on the asset, at most 4000 characters",
+            "in": "query",
+            "name": "note",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A note on the asset, at most 4000 characters",
+              "title": "Note"
             }
           },
           {

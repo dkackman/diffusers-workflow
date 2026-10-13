@@ -732,6 +732,53 @@ The editor's forms come from these; they are just as usable from scripts:
   without shelling in; the machine's non-loopback `addresses`; a client
   composes its URLs from an address, the port and the MCP path
 
+## Notes
+
+A note is optional plain text on a run, on a file in a run, on an asset or
+on a workspace, saying what it is for. At most 4,000 characters (longer is
+a 400); `null` or `""` clears it. Only the server writes notes: a run's and
+its files' live in `notes.json` in the run directory, an asset's in
+`notes.json` in its library directory, and a workspace's in `workspace.json`
+at its root (`dw/notes.py`).
+
+`PUT /api/notes?workspace=` with `{"target": ..., "note": ...}` sets or
+clears one. `target` is one of:
+
+- a gallery file name (`output:` accepted) - that file's own note. A
+  flat-layout file has no run directory and answers 409 `notes need a run
+  directory`;
+- a run directory, `<identity>/<run id>` - the run note;
+- `asset:<name>` - resolved down the asset search path the way the asset
+  delete resolves it, a read-only examples tree answering 403;
+- `workspace:<name>`, `workspace:default` for the root's own (409 on a
+  server with no workspace root).
+
+The answer is `{target, note, note_source}`: the target's effective note
+after the write, and whether it is the file's own (`"file"`) or its run's
+(`"run"`); `note_source` is null for a workspace and when there is no note.
+A file's **effective note** is its own, else its run's. An unknown target or
+one that would leave its root is a 404 (a name a workspace cannot take, or
+an invalid asset name, a 400), and a write that fails a 500. Notes are free
+metadata and need no `acknowledged_cost`.
+
+Notes are set at creation too:
+
+- `POST /api/jobs` takes `note`. It is kept on the job (`note` in every job
+  summary and detail, and in history) and written as the run note when the
+  worker reports the run directory (`run_start`); a rerun carries it
+  forward.
+- `POST /api/uploads?note=` keeps it beside the upload. An upload over an
+  existing name takes its own note or none, never the old file's.
+- `POST /api/assets/keep` takes `note`; without one the kept asset takes the
+  source file's effective note.
+
+They are read back on every listing: a gallery entry's `note` is the
+effective one; the metadata route carries `note`, `note_source` and the
+run's `run_note`; an asset entry and a workspace entry carry `note`. Each is
+absent when unset. Deleting an output drops its note; deleting an asset
+drops its note and its kept provenance and shots, so a later file under the
+same name inherits none of them.
+
 ## Security model
 
 The server is built to serve **your own GPU to your own browser**, not the

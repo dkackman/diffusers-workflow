@@ -223,6 +223,7 @@ class JobManager:
         warnings=None,
         vram_need=None,
         preferred_device=None,
+        note=None,
     ):
         """Record a job request and queue it.
 
@@ -261,6 +262,9 @@ class JobManager:
 
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
+
+        `note` is the run's note, already cleaned (`admitted_note`): kept on
+        the job and written into the run directory when the run opens.
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -308,6 +312,8 @@ class JobManager:
         if asset_dir:
             spec["asset_dir"] = asset_dir
         spec["warnings"] = list(warnings or [])
+        if note:
+            spec["note"] = note
 
         job = Job(spec)
         with self._lock:
@@ -551,6 +557,7 @@ class JobManager:
             warnings=warnings,
             vram_need=vram_need,
             preferred_device=self._original_device(job_id),
+            note=spec.get("note"),
         )
 
     def _original_device(self, job_id):
