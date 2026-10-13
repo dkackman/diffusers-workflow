@@ -160,13 +160,15 @@ file shows a "kept from <workflow> v<n>" line from the provenance
 |---|---|---|
 | Run | `notes.json` in the run directory | `{"run": "..."}` |
 | File in a run | the same `notes.json` | `{"files": {"<path relative to the run dir>": "..."}}` |
-| Asset | the existing directory sidecar `manifest.json` that `record_kept_shots` writes | a top-level `notes` map keyed by file name |
+| Asset | the asset directory's `notes.json` (`{"files": {name: note}}`) | a `files` map keyed by file name |
 | Workspace | new `workspace.json` at the workspace root | `{"notes": "..."}` |
 
 Why `notes.json` and not `manifest.json`: the engine rewrites the whole
 manifest on every write while a run is going (`write_run_manifest`), so a
 note written into it by the server could be lost. A separate file keeps the
-engine's manifest single-writer.
+engine's manifest single-writer. For assets the same file is used rather than
+the `record_kept_shots` sidecar, because `record_kept_shots` deletes its sidecar
+with the last entry, which would take the notes with it.
 
 Every write is atomic, using a temp file and replace, as `write_manifest`
 does (`dw/runs.py:683`). Concurrent edits to the same `notes.json` are

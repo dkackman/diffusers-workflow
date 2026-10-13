@@ -680,6 +680,21 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     return candidate, version
 
 
+def write_json_atomic(path, data):
+    """Write `data` as JSON to `path` by a temp file and a rename, so a
+    reader never sees half a file. Raises OSError."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=f".{os.path.basename(path)}-")
+    try:
+        with os.fdopen(fd, "w") as file:
+            json.dump(data, file, indent=2, default=str)
+        os.replace(tmp_path, path)
+    except OSError:
+        os.unlink(tmp_path)
+        raise
+
+
 def write_manifest(run_dir, manifest):
     """Record what a run did, beside what it made.
 
@@ -690,15 +705,7 @@ def write_manifest(run_dir, manifest):
     """
     path = os.path.join(run_dir, MANIFEST_FILE_NAME)
     try:
-        os.makedirs(run_dir, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=run_dir, prefix=f".{MANIFEST_FILE_NAME}-")
-        try:
-            with os.fdopen(fd, "w") as file:
-                json.dump(manifest, file, indent=2, default=str)
-            os.replace(tmp_path, path)
-        except OSError:
-            os.unlink(tmp_path)
-            raise
+        write_json_atomic(path, manifest)
     except OSError as e:
         logger.warning(f"Could not write {path}: {e}")
         return None

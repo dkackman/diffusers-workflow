@@ -20,6 +20,7 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
+from ...notes import NOTES_FILE_NAME, drop_file_note
 from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
@@ -54,7 +55,9 @@ router = APIRouter()
 # about itself. A run whose directory holds nothing else is an orphan
 # (see _iter_orphan_runs, #170) whatever shape its output would have had.
 # job.json is what an export bundle writes, listed defensively.
-RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
+RUN_BOOKKEEPING_FILES = frozenset(
+    {MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json", NOTES_FILE_NAME}
+)
 
 
 def _gallery_entries(root, ws):
@@ -295,7 +298,7 @@ def archive_outputs(
 
 # What a run directory holds besides its media: the engine writes them to
 # describe the run, and the gallery - which lists media - never shows them
-RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
+RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME, NOTES_FILE_NAME)
 
 
 def _prune_empty_run_directory(name, root):
@@ -391,6 +394,10 @@ def delete_output(
     path = resolve_output_file(request.app.state, name, ws.outputs)
     os.remove(path)
     logger.info(f"Deleted output file {name}")
+    split = split_run_name(ws.outputs, name)
+    if split is not None:
+        # The note describes the file; it goes with it
+        drop_file_note(*split)
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
     return {"name": name, "deleted": True, "run_swept": swept}
