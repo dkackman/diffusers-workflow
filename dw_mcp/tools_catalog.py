@@ -261,6 +261,7 @@ class CatalogTools:
         folder: str | None = None,
         version: int | None = None,
         media: bool = False,
+        role: list[Literal["final", "intermediate"]] | None = None,
     ) -> dict:
         """List generated output files, newest first. A name is
         <workflow>/<run id>/<file>, where <file> may itself sit in a
@@ -268,12 +269,12 @@ class CatalogTools:
         `get_output_image`, `get_output_text`, `download_output`,
         `keep_output` and `delete_output` all take, and the form an
         `output:` reference in a later workflow is built from. Each entry
-        carries `folder` (the workflow) and `subfolder` (the part of the run:
-        by convention `final` is the deliverable and `intermediate` the
-        scratch work, '' when the step chose none); `subfolder=` filters on
-        the latter, so `subfolder="final"` is "what did these runs
-        deliver". Each entry's `url` is already scoped to its workspace;
-        use it as given rather than composing one from the name.
+        carries `folder` (the workflow), `subfolder` (the step's chosen
+        subfolder, '' for none; `subfolder=` filters on it) and `role`:
+        `final` is a deliverable, `intermediate` a file a later step
+        consumed, null with no run. `role=` filters; omit it for every
+        file. Each entry's `url` is already scoped to its workspace; use
+        it as given.
 
         Entries also carry `run_id` and `version`, the run's stable ordinal
         (the web UI shows `v5`) - quote the version to a person. `folder=`
@@ -283,14 +284,11 @@ class CatalogTools:
         `only_orphans=True` inverts the call: instead of files, it returns
         run directories holding nothing but their own bookkeeping
         (manifest.json, workflow.json, job.json) as `runs`, each
-        `{name, mtime}` - a run whose output was deleted before
-        `delete_output` could remove it by name, or one that failed before
-        writing anything. `subfolder` does not apply in this mode. `name` is
-        exactly what `delete_output` accepts, so clearing the backlog is
-        list, then delete each name. A run that wrote any file at
-        all - a text-shape prompt, a utility's side output - is not listed;
-        this call only lists, so deciding whether a listed entry is actually
-        junk before calling `delete_output` on it is still yours to make.
+        `{name, mtime}` - a run whose output was deleted, or one that failed
+        before writing anything. `subfolder` does not apply in this mode.
+        `name` is exactly what `delete_output` accepts. A run that wrote any
+        file is not listed; whether a listed entry is junk is still yours
+        to decide.
 
         `workspace` names the workspace for this one call without
         switching the session to it - the same pin `run_workflow`
@@ -309,6 +307,7 @@ class CatalogTools:
             folder=folder,
             version=version,
             media=media,
+            role=role,
         )
 
     def get_gallery_metadata(

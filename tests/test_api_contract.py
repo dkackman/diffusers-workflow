@@ -533,6 +533,8 @@ def test_gallery_and_asset_answers_keep_their_keys(server, tmp_path):
         "version",
         "media",
         "findings",
+        "role",
+        "inputs",
     }
     assert metadata["job"] is None and metadata["findings"] == []
     assert set(assets) == {"workspace", "libraries", "assets", "folders", "shadowed"}

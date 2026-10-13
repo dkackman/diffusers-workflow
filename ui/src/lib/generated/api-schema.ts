@@ -339,6 +339,10 @@ export interface paths {
          *     Off by default and bounded by `limit`: only the page actually
          *     returned is probed, not the whole listing, so the cost of asking
          *     stays proportional to the page size rather than the library size.
+         *
+         *     Each entry carries `role`, `final` or `intermediate` (null for a
+         *     flat-layout file or one no manifest lists). `role` is a repeatable
+         *     filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
         put?: never;
@@ -2183,6 +2187,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Role
+             * @description `final` for a deliverable, `intermediate` for a file a later step consumed; null under the flat layout or when no manifest lists the file.
+             */
+            role?: ("final" | "intermediate") | null;
+            /**
              * Run Id
              * @description The run that wrote the file, `''` under the flat layout.
              */
@@ -2201,6 +2210,16 @@ export interface components {
              * @description That run's ordinal among the workflow's runs - what the grid shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null when there is no run.
              */
             version: number | null;
+        };
+        /** GalleryInput */
+        GalleryInput: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "asset" | "output";
+            /** Reference */
+            reference: string;
         };
         /** GalleryList */
         GalleryList: {
@@ -2226,6 +2245,11 @@ export interface components {
         GalleryMetadata: {
             /** Findings */
             findings: components["schemas"]["LevelFinding"][];
+            /**
+             * Inputs
+             * @description The `asset:` and `output:` references the run read; null for a run that recorded none.
+             */
+            inputs?: components["schemas"]["GalleryInput"][] | null;
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
@@ -2243,6 +2267,11 @@ export interface components {
             } | null;
             /** Name */
             name: string;
+            /**
+             * Role
+             * @description The file's role in its run; null when the run does not say.
+             */
+            role?: ("final" | "intermediate") | null;
             /** Run Id */
             run_id: string;
             /**
@@ -3937,6 +3966,7 @@ export interface operations {
                 only_orphans?: boolean;
                 version?: number | null;
                 media?: boolean;
+                role?: string[] | null;
                 workspace?: string | null;
             };
             header?: never;

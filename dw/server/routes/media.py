@@ -57,6 +57,9 @@ from ..outputs import (
     asset_file,
     job_provenance,
     resolve_output_file,
+    run_inputs,
+    run_roles,
+    split_run_name,
     strip_output_prefix,
 )
 
@@ -116,6 +119,7 @@ def gallery_metadata(
     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
     of its own to reopen."""
     run_id, version = "", None
+    role, inputs = None, None
     name = strip_output_prefix(name)
     if is_asset_reference(name):
         path = asset_file(request.app.state, name, ws)
@@ -133,6 +137,10 @@ def gallery_metadata(
         # call, so it confirms the right file was reached rather than
         # sending the caller back to the listing
         job, run_id, version = job_provenance(request.app.state, name, ws)
+        split = split_run_name(ws.outputs, name)
+        if split:
+            role = run_roles(split[0]).get(split[1])
+            inputs = run_inputs(split[0])
     metadata = read_embedded_metadata(path)
     extension = os.path.splitext(path)[1].lower()
     try:
@@ -161,6 +169,8 @@ def gallery_metadata(
         "version": version,
         "media": media,
         "findings": level_findings(media),
+        "role": role,
+        "inputs": inputs,
     }
 
 

@@ -235,6 +235,7 @@ def list_gallery(
     folder=None,
     version=None,
     media=False,
+    role=None,
 ):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
@@ -267,8 +268,13 @@ def list_gallery(
     `media=True` adds `duration_seconds` to each audio/video entry in the
     page returned, probed the way `get_gallery_metadata` measures a file -
     enough to pick between two takes without one metadata call per
-    candidate. Off by default; a plain call carries no `duration_seconds`."""
+    candidate. Off by default; a plain call carries no `duration_seconds`.
+
+    Each file carries `role` (`final`, `intermediate`, or null with no run);
+    `role=[...]` keeps only those, null counting as final."""
     params = {"limit": limit}
+    if role:
+        params["role"] = list(role)
     if subfolder is not None:
         params["subfolder"] = subfolder
     if folder is not None:

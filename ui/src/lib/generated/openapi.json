@@ -1130,6 +1130,22 @@
             "title": "Name",
             "type": "string"
           },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "final",
+                  "intermediate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`final` for a deliverable, `intermediate` for a file a later step consumed; null under the flat layout or when no manifest lists the file.",
+            "title": "Role"
+          },
           "run_id": {
             "description": "The run that wrote the file, `''` under the flat layout.",
             "title": "Run Id",
@@ -1174,6 +1190,29 @@
           "label"
         ],
         "title": "GalleryFile",
+        "type": "object"
+      },
+      "GalleryInput": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "asset",
+              "output"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "kind"
+        ],
+        "title": "GalleryInput",
         "type": "object"
       },
       "GalleryList": {
@@ -1240,6 +1279,21 @@
             "title": "Findings",
             "type": "array"
           },
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GalleryInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `asset:` and `output:` references the run read; null for a run that recorded none.",
+            "title": "Inputs"
+          },
           "job": {
             "anyOf": [
               {
@@ -1279,6 +1333,22 @@
           "name": {
             "title": "Name",
             "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "final",
+                  "intermediate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file's role in its run; null when the run does not say.",
+            "title": "Role"
           },
           "run_id": {
             "title": "Run Id",
@@ -5266,7 +5336,7 @@
     },
     "/api/gallery": {
       "get": {
-        "description": "A page of media files in the output directory, newest first.\nStateless by design - the gallery survives server restarts because\nit reads the directory tree, not job history. 'folders' lists every\ndistinct workflow folder present (over the whole directory, not just\nthis page), for the UI's folder filter - a run id is not a folder of\nits own, so a workflow's runs group together; '' stands for files\nsaved directly at the output root, and is itself always a member so\nthat folder-less outputs stay selectable once anything is nested.\n'subfolders' is the other axis, over the whole directory the same\nway: the in-run subfolders steps wrote into ('final',\n'intermediate'), '' for files at a run's root. `folder` and\n`subfolder` filter independently and intersect when both are given.\n`version` narrows to the runs holding that ordinal - with `folder`,\nthe one run \"v4\" names; without it, that run of every workflow.\n\n`only_orphans=true` inverts the whole call: instead of media files,\nit returns run directories holding nothing but their own\nbookkeeping (manifest.json, workflow.json, job.json) as `runs`,\neach `{name, mtime}` - a run that wrote any file at all, a\ntext-shape prompt or a utility's side output included, is not\nlisted. `folder`/`subfolder` and the `folders`/`subfolders` facets\ndo not apply in this mode, since an orphan run has no file to\ncarry either. `name` is exactly what `DELETE /api/gallery/{name}`\naccepts, so listing and deleting an orphan is a two-call round\ntrip (#170).\n\n`media=true` adds `duration_seconds` to each audio/video entry,\nprobed the same way `get_gallery_metadata` reports it - which two\ntakes of the same workflow otherwise have no way to be told apart\nby, since size and mtime are misleading proxies for length (#356).\nOff by default and bounded by `limit`: only the page actually\nreturned is probed, not the whole listing, so the cost of asking\nstays proportional to the page size rather than the library size.",
+        "description": "A page of media files in the output directory, newest first.\nStateless by design - the gallery survives server restarts because\nit reads the directory tree, not job history. 'folders' lists every\ndistinct workflow folder present (over the whole directory, not just\nthis page), for the UI's folder filter - a run id is not a folder of\nits own, so a workflow's runs group together; '' stands for files\nsaved directly at the output root, and is itself always a member so\nthat folder-less outputs stay selectable once anything is nested.\n'subfolders' is the other axis, over the whole directory the same\nway: the in-run subfolders steps wrote into ('final',\n'intermediate'), '' for files at a run's root. `folder` and\n`subfolder` filter independently and intersect when both are given.\n`version` narrows to the runs holding that ordinal - with `folder`,\nthe one run \"v4\" names; without it, that run of every workflow.\n\n`only_orphans=true` inverts the whole call: instead of media files,\nit returns run directories holding nothing but their own\nbookkeeping (manifest.json, workflow.json, job.json) as `runs`,\neach `{name, mtime}` - a run that wrote any file at all, a\ntext-shape prompt or a utility's side output included, is not\nlisted. `folder`/`subfolder` and the `folders`/`subfolders` facets\ndo not apply in this mode, since an orphan run has no file to\ncarry either. `name` is exactly what `DELETE /api/gallery/{name}`\naccepts, so listing and deleting an orphan is a two-call round\ntrip (#170).\n\n`media=true` adds `duration_seconds` to each audio/video entry,\nprobed the same way `get_gallery_metadata` reports it - which two\ntakes of the same workflow otherwise have no way to be told apart\nby, since size and mtime are misleading proxies for length (#356).\nOff by default and bounded by `limit`: only the page actually\nreturned is probed, not the whole listing, so the cost of asking\nstays proportional to the page size rather than the library size.\n\nEach entry carries `role`, `final` or `intermediate` (null for a\nflat-layout file or one no manifest lists). `role` is a repeatable\nfilter; a null role counts as final. Omitted, every file is listed.",
         "operationId": "gallery_api_gallery_get",
         "parameters": [
           {
@@ -5355,6 +5425,25 @@
               "default": false,
               "title": "Media",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
             }
           },
           {

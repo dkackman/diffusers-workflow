@@ -802,6 +802,10 @@ class GalleryFile(ApiModel):
     duration_seconds: int | float | None = sometimes(
         "An audio or video file's length, with `media=true`."
     )
+    role: Literal["final", "intermediate"] | None = sometimes(
+        "`final` for a deliverable, `intermediate` for a file a later step "
+        "consumed; null under the flat layout or when no manifest lists the file."
+    )
 
 
 class GalleryList(ApiModel):
@@ -840,6 +844,11 @@ class LevelFinding(ApiModel):
     says: str
 
 
+class GalleryInput(ApiModel):
+    reference: str
+    kind: Literal["asset", "output"]
+
+
 class GalleryMetadata(ApiModel):
     name: str
     source: Literal["output", "asset"]
@@ -853,6 +862,13 @@ class GalleryMetadata(ApiModel):
         description="The probe of an audio or video file; null for an image."
     )
     findings: list[LevelFinding]
+    role: Literal["final", "intermediate"] | None = sometimes(
+        "The file's role in its run; null when the run does not say."
+    )
+    inputs: list[GalleryInput] | None = sometimes(
+        "The `asset:` and `output:` references the run read; null for a run "
+        "that recorded none."
+    )
 
 
 class AssetLibraryRoot(ApiModel):

@@ -412,3 +412,21 @@ def test_full_get_workflow_without_history_has_no_observed_key():
     )
 
     assert "observed" not in catalog.get_workflow(client, "w")
+
+
+def test_list_gallery_forwards_role_as_a_repeated_parameter():
+    seen = {}
+
+    def handler(request):
+        seen["roles"] = request.url.params.get_list("role")
+        return httpx.Response(200, json={"files": []})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    catalog.list_gallery(client)
+    assert seen["roles"] == []
+
+    catalog.list_gallery(client, role=["final"])
+    assert seen["roles"] == ["final"]
+
+    catalog.list_gallery(client, role=["final", "intermediate"])
+    assert seen["roles"] == ["final", "intermediate"]

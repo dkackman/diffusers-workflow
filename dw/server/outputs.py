@@ -6,6 +6,7 @@ The gallery, media, assets and files routers all reach it. Functions take the
 app's `state` explicitly, so two apps in one process resolve independently.
 """
 
+import json
 import logging
 import os
 import shutil
@@ -30,8 +31,13 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
+from ..roles import annotate_roles, entry_role
 from ..runs import (
+    MANIFEST_FILE_NAME,
+    REALIZED_FILE_NAME,
+    _read_manifest,
     is_output_reference,
+    is_run_id,
     record_run_versions,
     run_lock_path,
     run_versions,
@@ -48,6 +54,7 @@ from ..security import (
     validate_asset_reference,
     validate_path,
 )
+from ..workflow import Workflow
 from ..workspace import forget_workspace_usage
 
 logger = logging.getLogger("dw")
@@ -463,3 +470,70 @@ def delete_run_directory(run_dir, root):
     logger.info(f"Deleted run directory {os.path.relpath(run_dir, root)}")
     forget_workspace_usage()
     return os.path.basename(run_dir)
+
+
+def split_run_name(root, relative_name):
+    """A gallery file name's run directory and its path inside that run:
+    'wf/20261012-000003-dddddddd/final/b.png' -> (<root>/wf/<run id>,
+    'final/b.png'). None for a flat-layout file, which has no run."""
+    parts = [part for part in (relative_name or "").split("/") if part]
+    for position, segment in enumerate(parts[:-1]):
+        if is_run_id(segment):
+            run_dir = os.path.join(root, *parts[: position + 1])
+            return run_dir, "/".join(parts[position + 1 :])
+    return None
+
+
+# Roles by (run directory, manifest mtime): a listing asks for every file
+# of a run, and the manifest it came from has not changed since the last ask
+_ROLE_CACHE = {}
+_ROLE_CACHE_LIMIT = 512
+
+
+def _realized_steps(run_dir):
+    """The realized workflow's expanded steps, or None when unreadable."""
+    path = os.path.join(run_dir, REALIZED_FILE_NAME)
+    try:
+        with open(path) as handle:
+            definition = json.load(handle)
+        return Workflow(definition, None, path).expanded_definition().get("steps") or []
+    except Exception:  # an unreadable or unexpandable record leaves roles unknown
+        return None
+
+
+def run_roles(run_dir):
+    """Each file of a run, by path relative to the run directory ('/'
+    separated), mapped to its role. Recorded roles win; a run that predates
+    them is inferred from its realized workflow. {} when neither is
+    readable."""
+    try:
+        key = (
+            run_dir,
+            os.stat(os.path.join(run_dir, MANIFEST_FILE_NAME)).st_mtime_ns,
+        )
+    except OSError:
+        return {}
+    if key in _ROLE_CACHE:
+        return _ROLE_CACHE[key]
+    manifest = _read_manifest(run_dir) or {}
+    steps = [e for e in manifest.get("steps") or [] if isinstance(e, dict)]
+    if steps and any(entry_role(e) is None for e in steps):
+        expanded = _realized_steps(run_dir)
+        if expanded is not None:
+            steps = annotate_roles(expanded, steps)
+    roles = {}
+    for entry in steps:
+        role = entry_role(entry)
+        if role:
+            for name in entry.get("files") or []:
+                roles[str(name).replace(os.sep, "/")] = role
+    if len(_ROLE_CACHE) >= _ROLE_CACHE_LIMIT:
+        _ROLE_CACHE.pop(next(iter(_ROLE_CACHE)))
+    _ROLE_CACHE[key] = roles
+    return roles
+
+
+def run_inputs(run_dir):
+    """The inputs a run's manifest recorded, or None when it has none."""
+    inputs = (_read_manifest(run_dir) or {}).get("inputs")
+    return inputs if isinstance(inputs, list) else None

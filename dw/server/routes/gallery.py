@@ -12,7 +12,7 @@ import shutil
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from ..api_models import (
@@ -20,6 +20,7 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
+from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,
@@ -39,7 +40,9 @@ from ..outputs import (
     archive_selection,
     iter_gallery_files,
     resolve_output_file,
+    run_roles,
     served_url,
+    split_run_name,
     strip_output_prefix,
 )
 
@@ -111,6 +114,9 @@ def _gallery_entries(root, ws):
             "mtime": stat.st_mtime,
             "label": label,
         }
+        # None under the flat layout, and for a file no manifest lists
+        split = split_run_name(root, relative_name) if run_id else None
+        entry["role"] = run_roles(split[0]).get(split[1]) if split else None
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:
             entry["absolute_url"] = absolute_url
@@ -171,6 +177,7 @@ def gallery(
     only_orphans: bool = False,
     version: Optional[int] = None,
     media: bool = False,
+    role: Optional[list[str]] = Query(None),
     ws: Workspace = Depends(selected_workspace),
 ):
     """A page of media files in the output directory, newest first.
@@ -205,7 +212,18 @@ def gallery(
     by, since size and mtime are misleading proxies for length (#356).
     Off by default and bounded by `limit`: only the page actually
     returned is probed, not the whole listing, so the cost of asking
-    stays proportional to the page size rather than the library size."""
+    stays proportional to the page size rather than the library size.
+
+    Each entry carries `role`, `final` or `intermediate` (null for a
+    flat-layout file or one no manifest lists). `role` is a repeatable
+    filter; a null role counts as final. Omitted, every file is listed."""
+    if role:
+        unknown = sorted(set(role) - set(ROLES))
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
+            )
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)
@@ -231,6 +249,9 @@ def gallery(
         entries = [e for e in entries if e["subfolder"] == subfolder]
     if version is not None:
         entries = [e for e in entries if e["version"] == version]
+    if role:
+        wanted = set(role)
+        entries = [e for e in entries if (e.get("role") or "final") in wanted]
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]
