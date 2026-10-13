@@ -111,3 +111,21 @@ def test_split_run_name(tmp_path):
     )
     assert split_run_name(root, "loose/x.png") is None
     assert run_roles(os.path.join(root, "missing")) == {}
+
+
+def test_metadata_for_a_subfolder_file_of_a_nested_identity_run(
+    gallery_client, output_root, write_run
+):
+    write_run(
+        output_root,
+        "series/ep1",
+        "20261012-000004-eeeeeeee",
+        [{"step": "b", "files": ["final/b.png"], "role": "final"}],
+        files=["final/b.png"],
+        inputs=[{"reference": "output:wf/v1/a.png", "kind": "output"}],
+    )
+    meta = gallery_client.get(
+        "/api/gallery/series/ep1/20261012-000004-eeeeeeee/final/b.png/metadata"
+    ).json()
+    assert meta["role"] == "final"
+    assert meta["inputs"] == [{"reference": "output:wf/v1/a.png", "kind": "output"}]

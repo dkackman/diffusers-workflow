@@ -137,7 +137,11 @@ def gallery_metadata(
         # call, so it confirms the right file was reached rather than
         # sending the caller back to the listing
         job, run_id, version = job_provenance(request.app.state, name, ws)
-        split = split_run_name(ws.outputs, name)
+        # Split the validated path, not the raw route parameter, so the
+        # run directory the manifest is read from is a validator's output
+        split = split_run_name(
+            ws.outputs, os.path.relpath(path, ws.outputs).replace(os.sep, "/")
+        )
         if split:
             role = run_roles(split[0]).get(split[1])
             inputs = run_inputs(split[0])
