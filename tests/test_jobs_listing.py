@@ -200,3 +200,39 @@ def test_limit_larger_than_the_match_under_a_status_filter(server):
 
         assert body["total"] == 2
         assert [entry["id"] for entry in body["jobs"]] == ids
+
+
+def test_history_summaries_survive_a_malformed_spec_row(history):
+    stored_job(history, "good", "succeeded", 1)
+    stored_job(history, "bad", "succeeded", 2)
+    with history._connect() as conn:
+        conn.execute("UPDATE jobs SET spec = '{not json' WHERE id = 'bad'")
+
+    rows = history.recent_summaries()
+
+    assert {row["id"] for row in rows} == {"good", "bad"}
+    assert next(row for row in rows if row["id"] == "bad")["_output_dir"] is None
+
+
+def test_list_page_reads_notes_only_for_the_page(tmp_path):
+    from dw.server.jobs import JobManager
+
+    manager = JobManager.__new__(JobManager)
+    import threading
+
+    manager._lock = threading.RLock()
+    manager.jobs = {}
+    manager._pending = []
+    manager.history = JobHistory(str(tmp_path / "jobs.sqlite"))
+    for index in range(6):
+        stored_job(manager.history, f"j{index}", "succeeded", index)
+    seen = []
+    manager._current_note = lambda summary, out, run: (
+        seen.append(summary["id"]) or summary
+    )
+
+    jobs, total = manager.list_page(limit=2)
+
+    assert total == 6
+    assert [j["id"] for j in jobs] == ["j4", "j5"]
+    assert sorted(seen) == ["j4", "j5"]

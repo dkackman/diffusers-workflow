@@ -589,6 +589,13 @@ class JobManager:
         workspaces existed. `statuses` filters to a set of job states
         ('queued', 'running', 'succeeded', 'failed', 'cancelled'); omitted,
         every state is listed."""
+        return self.list_page(workspace, statuses)[0]
+
+    def list_page(self, workspace=None, statuses=None, limit=None):
+        """`list`'s jobs cut to the newest `limit` (every one when None),
+        and how many matched before the cut. Each run's current note is
+        read after the cut, so a small page does not read the notes of
+        the whole history."""
         statuses = set(statuses) if statuses else None
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
@@ -604,16 +611,22 @@ class JobManager:
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
             output_dir = job.spec.get("output_dir")
-            summaries.append(self._current_note(summary, output_dir, job.run_dir))
+            summaries.append((summary, output_dir, job.run_dir))
         for historical in self.history.recent_summaries(
             workspace=workspace, statuses=statuses
         ):
             run_dir = historical.pop("_run_dir", None)
             output_dir = historical.pop("_output_dir", None)
             if historical["id"] not in live_ids:
-                summaries.append(self._current_note(historical, output_dir, run_dir))
-        summaries.sort(key=lambda summary: summary["created_at"] or 0)
-        return summaries
+                summaries.append((historical, output_dir, run_dir))
+        summaries.sort(key=lambda entry: entry[0]["created_at"] or 0)
+        total = len(summaries)
+        if limit is not None:
+            # the newest are the interesting ones and the list is oldest
+            # first, so the cut comes off the front; max(0, ...) because a
+            # bare negative start would be read from the end instead
+            summaries = summaries[max(0, total - limit) :] if limit else []
+        return [self._current_note(*entry) for entry in summaries], total
 
     def _current_note(self, summary, output_dir, run_dir):
         """The summary with its run's current note (outputs.with_run_note),

@@ -235,17 +235,9 @@ def list_jobs(
                 detail=f"Unknown job status {', '.join(unknown)} - one of "
                 f"{', '.join((QUEUED, RUNNING, *TERMINAL_STATES))}",
             )
-    jobs = manager.list(workspace=workspace, statuses=statuses)
-    total = len(jobs)
-    if limit is not None:
-        if limit < 0:
-            raise HTTPException(status_code=400, detail="limit must not be negative")
-        # the newest are the interesting ones, and the list is oldest
-        # first - so the cut comes off the front, not the back. max(0, ...)
-        # because a limit above what matched is no cut at all: a bare
-        # negative start would be read from the end instead, and answer a
-        # limit of 12 against 9 matching jobs with the last 3 of them
-        jobs = jobs[max(0, len(jobs) - limit) :] if limit else []
+    if limit is not None and limit < 0:
+        raise HTTPException(status_code=400, detail="limit must not be negative")
+    jobs, total = manager.list_page(workspace=workspace, statuses=statuses, limit=limit)
     return {"jobs": jobs, "total": total}
 
 

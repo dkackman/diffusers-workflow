@@ -215,7 +215,9 @@ class JobHistory:
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id, acknowledged, run_version,"
-            " device, note, run_dir, json_extract(spec, '$.output_dir') FROM jobs"
+            " device, note, run_dir,"
+            " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
+            " FROM jobs"
         )
         params = []
         clauses = []
