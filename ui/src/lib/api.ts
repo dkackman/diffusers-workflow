@@ -450,8 +450,9 @@ export function setNote(
   note: string | null,
   workspace?: string,
 ): Promise<NoteSet> {
+  const path = '/api/notes'
   return request<NoteSet>(
-    workspace === undefined ? '/api/notes' : scopeTo('/api/notes', workspace),
+    workspace === undefined ? path : scopeTo(path, workspace),
     {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
