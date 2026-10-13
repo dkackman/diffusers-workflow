@@ -1240,6 +1240,13 @@
                     "description": "A subfolder of the run directory this step's files are written into, as a relative path like 'final' or 'shots/act-1'. Optional: without it the files land at the root of the run directory as they always have. By convention a step whose output the user will be shown is 'final' and everything else is 'intermediate', which is how a consumer tells the deliverable from the scratch files without knowing the workflow; the engine treats no name specially. May be a 'variable:' or, inside a for_each step, an 'item:' reference. Each segment must start with a letter, digit or underscore; '..' and '\\' are refused.",
                     "type": "string"
                 },
+                "role": {
+                    "description": "What this step's files are to whoever looks at the run: 'final' (a deliverable) or 'intermediate' (made for a later step). Optional: without it a subfolder named 'final' or 'intermediate' decides, else a step a later media-writing step consumes is intermediate and every other step is final. May be a 'variable:' reference.",
+                    "anyOf": [
+                        {"enum": ["final", "intermediate"]},
+                        {"type": "string", "pattern": "^variable:"}
+                    ]
+                },
                 "fps": {
                     "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about. May be a 'variable:' or, inside a for_each step, an 'item:' reference, resolved the same way 'subfolder' is - the resolved value must be a positive whole number; a fractional rate is refused, since the video writer would silently truncate rather than honor it.",
                     "type": ["integer", "number", "string"],
