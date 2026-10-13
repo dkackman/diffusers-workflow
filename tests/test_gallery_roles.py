@@ -24,9 +24,8 @@ def test_recorded_roles_reach_the_listing(gallery_client, output_root, write_run
     assert files["b.png"]["role"] == "final"
 
 
-def test_older_run_roles_inferred_from_realized_workflow(
-    gallery_client, output_root, write_run
-):
+def test_older_run_has_no_role(gallery_client, output_root, write_run):
+    # A manifest from before roles: b reads a, but nothing is guessed
     realized = {
         "id": "wf",
         "steps": [
@@ -44,13 +43,16 @@ def test_older_run_roles_inferred_from_realized_workflow(
         output_root,
         "wf",
         "20261012-000001-bbbbbbbb",
-        [{"step": "a", "files": ["a.png"]}, {"step": "b", "files": ["b.png"]}],
+        [
+            {"step": "a", "files": ["intermediate/a.png"], "subfolder": "intermediate"},
+            {"step": "b", "files": ["b.png"]},
+        ],
         realized=realized,
-        files=["a.png", "b.png"],
+        files=["intermediate/a.png", "b.png"],
     )
     files = {f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]}
-    assert files["a.png"]["role"] == "intermediate"
-    assert files["b.png"]["role"] == "final"
+    assert files["a.png"]["role"] is None
+    assert files["b.png"]["role"] is None
 
 
 def test_role_filter(gallery_client, output_root, write_run):
@@ -134,7 +136,7 @@ def test_metadata_for_a_subfolder_file_of_a_nested_identity_run(
 
 def _role_less_run_script(output_dir):
     """A worker that writes a two-step run - b reads a's result - whose
-    manifest.json predates roles, and reports the manifest it held in
+    manifest.json records roles, and reports the manifest it held in
     memory, which never carries them."""
     from dw.runs import new_run_id
 
@@ -156,7 +158,10 @@ def _role_less_run_script(output_dir):
                 },
             ],
         }
-        steps = [{"step": "a", "files": ["a.png"]}, {"step": "b", "files": ["b.png"]}]
+        steps = [
+            {"step": "a", "files": ["a.png"], "role": "intermediate"},
+            {"step": "b", "files": ["b.png"], "role": "final"},
+        ]
         for name in ("a.png", "b.png"):
             with open(os.path.join(run_dir, name), "wb") as handle:
                 handle.write(b"\x89PNG\r\n\x1a\n")
@@ -223,18 +228,7 @@ def test_job_detail_entries_carry_the_run_roles(tmp_path):
         }
 
 
-def test_recorded_roles_win_in_a_mixed_manifest(tmp_path, write_run):
-    # a says final although b reads it; inference would call it intermediate
-    realized = {
-        "id": "wf",
-        "steps": [
-            {"name": "a", "task": {"command": "noop", "arguments": {}}},
-            {
-                "name": "b",
-                "task": {"command": "noop", "arguments": {"x": "previous_result:a"}},
-            },
-        ],
-    }
+def test_a_mixed_manifest_reports_only_recorded_roles(tmp_path, write_run):
     run_dir = write_run(
         str(tmp_path),
         "wf",
@@ -242,38 +236,10 @@ def test_recorded_roles_win_in_a_mixed_manifest(tmp_path, write_run):
         [
             {"step": "a", "files": ["a.png"], "role": "final"},
             {"step": "b", "files": ["b.png"]},
-        ],
-        realized=realized,
-    )
-    assert run_roles(run_dir) == {"a.png": "final", "b.png": "final"}
-
-
-def test_a_run_without_its_workflow_falls_back_to_subfolders(tmp_path, write_run):
-    run_dir = write_run(
-        str(tmp_path),
-        "wf",
-        "20261012-000011-aaaaaaaa",
-        [
-            {"step": "a", "files": ["intermediate/a.png"], "subfolder": "intermediate"},
-            {"step": "b", "files": ["final/x/b.png"], "subfolder": "final/x"},
-            {"step": "c", "files": ["c.png"], "subfolder": ""},
+            {"step": "c", "files": ["c.png"], "role": "bogus"},
         ],
     )
-    assert run_roles(run_dir) == {
-        "intermediate/a.png": "intermediate",
-        "final/x/b.png": "final",
-    }
-
-
-def test_a_single_step_run_without_its_workflow_is_final(tmp_path, write_run):
-    run_dir = write_run(
-        str(tmp_path),
-        "wf",
-        "20261012-000012-aaaaaaaa",
-        [{"step": "a", "files": ["a.png", "a2.png"]}],
-        realized={"not": "a workflow"},
-    )
-    assert run_roles(run_dir) == {"a.png": "final", "a2.png": "final"}
+    assert run_roles(run_dir) == {"a.png": "final"}
 
 
 def test_run_inputs_keeps_only_well_formed_entries(tmp_path, write_run):

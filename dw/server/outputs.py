@@ -6,7 +6,6 @@ The gallery, media, assets and files routers all reach it. Functions take the
 app's `state` explicitly, so two apps in one process resolve independently.
 """
 
-import json
 import logging
 import os
 import shutil
@@ -34,10 +33,9 @@ from ..library import (
     library_path,
 )
 from ..notes import read_notes
-from ..roles import annotate_roles, entry_role, fallback_roles
+from ..roles import entry_role
 from ..runs import (
     MANIFEST_FILE_NAME,
-    REALIZED_FILE_NAME,
     _read_manifest,
     is_output_reference,
     is_run_id,
@@ -57,7 +55,6 @@ from ..security import (
     validate_asset_reference,
     validate_path,
 )
-from ..workflow import Workflow
 from ..workspace import forget_workspace_usage
 
 logger = logging.getLogger("dw")
@@ -534,32 +531,11 @@ _ROLE_CACHE_LOCK = threading.Lock()
 _INPUT_KINDS = ("asset", "output")
 
 
-def _realized_steps(run_dir):
-    """The realized workflow's expanded steps, or None when unreadable."""
-    path = os.path.join(run_dir, REALIZED_FILE_NAME)
-    try:
-        with open(path) as handle:
-            definition = json.load(handle)
-        return Workflow(definition, None, path).expanded_definition().get("steps") or []
-    except Exception as e:  # an unreadable or unexpandable record
-        logger.debug(f"No expanded steps for the roles of {run_dir}: {e}")
-        return None
-
-
-def _inferred_roles(run_dir, steps):
-    """Manifest entries annotated from the realized workflow, or by the
-    subfolder and single-step fallback when it cannot be read."""
-    expanded = _realized_steps(run_dir)
-    if expanded is None:
-        return fallback_roles(steps)
-    return annotate_roles(expanded, steps)
-
-
 def run_roles(run_dir):
     """Each file of a run, by path relative to the run directory ('/'
-    separated), mapped to its role. Recorded roles win; an entry without one
-    (a run that predates them) is inferred from the realized workflow, or
-    from its subfolder. {} when the manifest is unreadable."""
+    separated), mapped to the role its manifest entry records. An entry
+    without one (a run that predates roles) is left out - unknown, not
+    guessed. {} when the manifest is unreadable."""
     try:
         key = (
             run_dir,
@@ -572,13 +548,9 @@ def run_roles(run_dir):
             _ROLE_CACHE.move_to_end(key)
             return _ROLE_CACHE[key]
     manifest = _read_manifest(run_dir) or {}
-    steps = [e for e in manifest.get("steps") or [] if isinstance(e, dict)]
-    inferred = steps
-    if any(entry_role(e) is None for e in steps):
-        inferred = _inferred_roles(run_dir, steps)
     roles = {}
-    for entry, guess in zip(steps, inferred):
-        role = entry_role(entry) or entry_role(guess)
+    for entry in manifest.get("steps") or []:
+        role = entry_role(entry)
         if role:
             for name in entry.get("files") or []:
                 roles[str(name).replace(os.sep, "/")] = role
@@ -631,9 +603,8 @@ def with_run_note(summary, path):
 def with_run_state(detail, root, run_dir, roles=True):
     """A job's detail with what its run directory says now: the run note,
     and each manifest entry's role. The worker reports the manifest it held
-    in memory, which carries no roles, and a job recorded before roles has
-    none - so each entry takes the role `run_roles` gives its files, a
-    recorded one first. `roles` false leaves the manifest alone."""
+    in memory, which carries no roles - so each entry takes the role
+    `run_roles` gives its files; a run from before roles stays without. `roles` false leaves the manifest alone."""
     path = job_run_directory(root, run_dir)
     if path is None:
         return detail

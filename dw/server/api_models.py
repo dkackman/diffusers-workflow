@@ -397,8 +397,8 @@ class ManifestEntry(ApiModel):
     )
     parent_step: str = sometimes("The composing step a rolled-up entry came from.")
     role: Literal["final", "intermediate"] = sometimes(
-        "The step's role in its run, from the run's manifest.json or inferred "
-        "for an older run. Absent while the run is going, or when unknown."
+        "The step's role in its run, as the run's manifest.json records it. "
+        "Absent while the run is going, or for a run from before roles."
     )
 
 

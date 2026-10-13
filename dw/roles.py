@@ -17,9 +17,8 @@ step, first rule wins:
 
 A composed child's rolled-up manifest entries carry `parent_step` and take
 that step's role. The engine records roles when a run ends, from the
-`role_basis` it took as the run opened; the server infers them with the
-same function for a run that predates this, and falls back to
-`fallback_roles` when the run's steps cannot be read. Inputs
+`role_basis` it took as the run opened; the server reads only what was
+recorded, so a run that predates roles has none - unknown, not guessed. Inputs
 are the asset: and output: references the expanded steps carry - a run's
 'made from' list. This module names no model.
 """
@@ -142,20 +141,6 @@ def annotate_roles(steps, manifest_steps, basis=None):
             continue
         name = entry.get("parent_step") or entry.get("step")
         annotated.append({**entry, ROLE_KEY: roles.get(name, FINAL)})
-    return annotated
-
-
-def fallback_roles(manifest_steps):
-    """Copies of `manifest_steps` for a run whose steps cannot be read (no
-    realized workflow, or one that no longer expands): rule 2 against each
-    entry's recorded subfolder, and a run of one step is final. Any other
-    entry is left without a role - unknown, not guessed."""
-    entries = [e for e in manifest_steps or [] if isinstance(e, dict)]
-    single = len({e.get("parent_step") or e.get("step") for e in entries}) == 1
-    annotated = []
-    for entry in entries:
-        role = _subfolder_role(entry.get("subfolder")) or (FINAL if single else None)
-        annotated.append({**entry, ROLE_KEY: role} if role else dict(entry))
     return annotated
 
 

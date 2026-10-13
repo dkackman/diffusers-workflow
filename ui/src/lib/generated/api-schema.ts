@@ -2850,7 +2850,7 @@ export interface components {
             reused?: boolean;
             /**
              * Role
-             * @description The step's role in its run, from the run's manifest.json or inferred for an older run. Absent while the run is going, or when unknown.
+             * @description The step's role in its run, as the run's manifest.json records it. Absent while the run is going, or for a run from before roles.
              * @enum {string}
              */
             role?: "final" | "intermediate";

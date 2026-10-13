@@ -186,15 +186,3 @@ def test_role_basis_survives_realization_of_the_steps():
     steps[1]["arguments"]["image"] = object()  # what a run does in place
     manifest = [_entry("image", "a.png"), _entry("video", "b.mp4")]
     assert step_roles(None, manifest, basis) == {"image": INTERMEDIATE, "video": FINAL}
-
-
-def test_fallback_roles():
-    from dw.roles import fallback_roles
-
-    entries = [
-        {"step": "a", "files": ["a.png"], "subfolder": "intermediate/x"},
-        {"step": "b", "files": ["b.png"], "subfolder": ""},
-    ]
-    assert [e.get("role") for e in fallback_roles(entries)] == [INTERMEDIATE, None]
-    assert fallback_roles([{"step": "a", "files": ["a.png"]}])[0]["role"] == FINAL
-    assert fallback_roles([]) == []
