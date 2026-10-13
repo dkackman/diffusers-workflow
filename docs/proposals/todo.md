@@ -41,6 +41,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Copy runs and assets between workspaces** (#853, stages #859-#860),
+  shipped 2026-10-13. `copy_to_workspace` and `POST
+  /api/workspaces/{destination}/copy` copy whole runs (with manifests) and
+  asset-library entries (with their notes and kept shots) between two
+  workspaces under one root. The copy is all or nothing, never overwrites
+  and is idempotent. Media is hard-linked, sidecars are copied, and
+  colliding versions are renumbered. A move is a copy followed by the
+  delete tools. Record, including what was deferred (a UI, job rows for
+  copied runs, workflows and prompts): `complete/workspace-copy-complete.md`.
 - **List and clear dw's own disk caches** (#828, stages #832-#834), shipped
   2026-10-11. A registry (`dw/disk_caches.py`) of `inductor`, `triton` (Triton's
   own `~/.triton/cache`, left in place) and the `quantized` cache, with
