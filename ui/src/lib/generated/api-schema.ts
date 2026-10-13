@@ -2722,7 +2722,7 @@ export interface components {
             name: string;
             /**
              * Note
-             * @description A note on the kept asset, at most 4000 characters; the source file's effective note when omitted
+             * @description A note on the kept asset, at most 4000 characters; the source file's effective note when omitted, and none when empty
              */
             note?: string | null;
             /**

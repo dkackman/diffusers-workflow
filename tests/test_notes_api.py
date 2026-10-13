@@ -542,3 +542,61 @@ def test_a_job_whose_run_is_gone_keeps_its_submitted_note(client, output_root):
     detail = wait_for_status(client, job["id"], ["succeeded"])
     shutil.rmtree(os.path.join(output_root, *detail["run_dir"].split("/")))
     assert client.get(f"/api/jobs/{job['id']}").json()["note"] == "A"
+
+
+def test_keep_with_an_empty_note_keeps_none(client, output_root, make_run):
+    run = run_name(make_run("wf", ["a.png"]), output_root)
+    client.put("/api/notes", json={"target": run, "note": "the run note"})
+    kept = client.post("/api/assets/keep", json={"name": f"{run}/a.png", "note": ""})
+    assert kept.status_code == 201
+    assert "note" not in asset_entry(client, "a.png")
+
+
+def _keep_with_provenance(client, run, asset_name):
+    history = client.app.state.job_manager.history
+    history.job_for_file = lambda name, workspace=None: {
+        "id": "abc",
+        "status": "succeeded",
+    }
+    kept = client.post(
+        "/api/assets/keep", json={"name": f"{run}/x.png", "asset_name": asset_name}
+    )
+    assert kept.status_code == 201
+    meta = client.get(f"/api/gallery/asset:{asset_name}/metadata").json()
+    assert meta["job"]["id"] == "abc"
+
+
+def test_an_upload_over_a_kept_name_clears_its_provenance(
+    client, output_root, make_run
+):
+    run = run_name(make_run("wf", ["x.png"]), output_root)
+    _keep_with_provenance(client, run, "uploads/x.png")
+    up = client.post(
+        "/api/uploads", params={"filename": "x.png", "asset_name": "x.png"}, content=PNG
+    )
+    assert up.status_code == 201
+    assert client.get("/api/gallery/asset:uploads/x.png/metadata").json()["job"] is None
+
+
+def test_an_upload_under_a_fresh_name_leaves_other_provenance(
+    client, studio, output_root, make_run
+):
+    run = run_name(make_run("wf", ["x.png"]), output_root)
+    _keep_with_provenance(client, run, "uploads/x.png")
+    up = client.post(
+        "/api/uploads", params={"filename": "y.png", "asset_name": "y.png"}, content=PNG
+    )
+    assert up.status_code == 201
+    meta = client.get("/api/gallery/asset:uploads/x.png/metadata").json()
+    assert meta["job"]["id"] == "abc"
+
+    # a kept record caught mid-write is not the upload's to rewrite
+    manifest = os.path.join(studio.assets, "uploads", "manifest.json")
+    with open(manifest, "w") as handle:
+        handle.write('{"steps": [')
+    up = client.post(
+        "/api/uploads", params={"filename": "z.png", "asset_name": "z.png"}, content=PNG
+    )
+    assert up.status_code == 201
+    with open(manifest) as handle:
+        assert handle.read() == '{"steps": ['

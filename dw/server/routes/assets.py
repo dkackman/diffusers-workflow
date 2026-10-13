@@ -221,17 +221,21 @@ async def upload_media(
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    # Taken before the write: only a file this one replaces can have left a
+    # kept record behind, and a fresh name leaves the directory's alone
+    replaced = os.path.exists(dest)
 
     # Off the event loop: a 200 MB write would otherwise stall every SSE
     # stream and poll for its duration
     await run_in_threadpool(_write_bytes, dest, body)
     logger.info(f"Saved upload {filename!r} -> {dest}")
     _describe_new_asset(dest, note)
-    try:
-        # A kept file this one replaced left its provenance and shots behind
-        record_kept_shots(os.path.dirname(dest), os.path.basename(dest), None, None)
-    except OSError as e:
-        logger.warning(f"Could not clear the kept record beside {dest}: {e}")
+    if replaced:
+        try:
+            # A kept file this one replaced left its provenance and shots
+            record_kept_shots(os.path.dirname(dest), os.path.basename(dest), None, None)
+        except OSError as e:
+            logger.warning(f"Could not clear the kept record beside {dest}: {e}")
     path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
     result = {
         "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
@@ -388,7 +392,8 @@ class KeepRequest(BaseModel):
     note: Optional[str] = Field(
         default=None,
         description=f"A note on the kept asset, at most {MAX_NOTE_LENGTH} "
-        "characters; the source file's effective note when omitted",
+        "characters; the source file's effective note when omitted, and "
+        "none when empty",
     )
 
 
@@ -420,8 +425,9 @@ def keep_output_as_asset(
 
     kept_name = strip_output_prefix(body.name)
     source = resolve_output_file(request.app.state, kept_name, ws.outputs)
-    if note is None:
-        # The note the file carried where it was made: its own, else its run's
+    if body.note is None:
+        # The note the file carried where it was made: its own, else its
+        # run's. Only when no note was given - an empty one keeps none
         split = validated_run_split(ws.outputs, source)
         if split:
             note = effective_note(read_notes(split[0]), split[1])[0]
