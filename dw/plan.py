@@ -753,6 +753,11 @@ def _observed(observed, device):
         estimate["basis"] = INHERITED
         estimate["inherited_from"] = inherited_from
         estimate["differs"] = list(observed.get("differs") or [])
+        if observed.get("scaled"):
+            # Re-priced linearly from the template's size (#851): an
+            # approximation, not a measurement
+            estimate["scaled"] = observed["scaled"]
+            estimate["low_confidence"] = True
     return estimate
 
 

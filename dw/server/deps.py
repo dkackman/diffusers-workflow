@@ -15,7 +15,12 @@ from fastapi import HTTPException, Request
 from .. import references
 from ..realize import strings_with_prefix
 from ..security import SecurityError, validate_asset_reference
-from ..vram_inheritance import build_index, inherited_differences, template_identity
+from ..vram_inheritance import (
+    build_index,
+    inherited_differences,
+    pipeline_frames,
+    template_identity,
+)
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -211,14 +216,39 @@ def _pipeline_steps(definition):
     )
 
 
-def _scales_past_template(definition, template, drivers, arguments):
-    """Whether `definition` runs the template's pipeline more times, or for
-    more frames, than the template run the bucket was measured on (#821)."""
-    if _pipeline_steps(definition) != _pipeline_steps(template):
-        return True
+def _scale_past_template(definition, template, drivers, arguments):
+    """How the workflow's size compares to the template run the bucket was
+    measured on (#821, #851): (factor, reason). The factor is the ratio of
+    pipeline steps times the ratio of mean frames per step - linear, as
+    `derived` re-prices a list of another length - and the reason names
+    each axis that moved. (1, None) when the workflow is the template's
+    size; (None, reason) when its size cannot be compared."""
+    steps, template_steps = _pipeline_steps(definition), _pipeline_steps(template)
     # The template as the bucket's drivers set it
     bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
-    return "frame count" in inherited_differences(definition, bucket, arguments)
+    factor, reasons = 1.0, []
+    if steps != template_steps:
+        factor *= steps / template_steps
+        reasons.append(
+            f"runs the pipeline in {steps} steps, template measured {template_steps}"
+        )
+    # `pipeline_frames` takes the template's variables as the bucket sets them
+    mine = [f for f in pipeline_frames(definition, arguments) if f]
+    theirs = [f for f in pipeline_frames(bucket) if f]
+    if mine and theirs:
+        mean_mine, mean_theirs = sum(mine) / len(mine), sum(theirs) / len(theirs)
+        if mean_mine != mean_theirs:
+            factor *= mean_mine / mean_theirs
+            reasons.append(
+                f"frame count {_number(mean_mine)} vs {_number(mean_theirs)} per step"
+            )
+    elif "frame count" in inherited_differences(definition, bucket, arguments):
+        return None, "frame count differs and cannot be compared"
+    return factor, "; ".join(reasons) or None
+
+
+def _number(value):
+    return int(value) if float(value).is_integer() else round(value, 1)
 
 
 def inherited_observed(state, ws, definition, arguments=None, *, card=None):
@@ -261,13 +291,19 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         )
         if not block or not block.get("cold_runs"):
             continue
-        # A figure is quoted only for a run of the template's own size: the
-        # bucket above prices the drivers the inline workflow shares by
-        # name, and anything else that moves the frame count or repeats the
-        # pipeline in more steps (#821) is a multiple the template's
-        # minutes do not carry - withheld rather than quoted unchanged
-        if _scales_past_template(definition, template, drivers, arguments):
+        # The bucket above prices the drivers the inline workflow shares by
+        # name; more pipeline steps or frames than that (#821) are a
+        # multiple the template's minutes do not carry, so they re-price it
+        # linearly (#851). A size that cannot be compared is withheld
+        factor, reason = _scale_past_template(definition, template, drivers, arguments)
+        if factor is None:
             continue
+        if reason:
+            block = {
+                **block,
+                "cold_minutes": block["cold_minutes"] * factor,
+                "scaled": f"scaled from {name}: {reason}",
+            }
         key = (-block["cold_runs"], name)
         if best is None or key < best[0]:
             best = (key, name, template, block)

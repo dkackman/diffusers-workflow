@@ -195,25 +195,69 @@ class TestThePlanReportsIt:
         assert _inherited_cost_warnings({"basis": "observed"}) == []
 
 
-class TestNotQuotedUnchangedWhenItScales:
-    """#821: the template's minutes are for one template-sized run."""
+class TestScaledWhenItScales:
+    """#821/#851: the template's minutes are for one template-sized run, so a
+    bigger workflow is re-priced linearly and says why."""
 
     HISTORY = {"templates/t": [run(8 * MINUTE, {"num_frames": 124})]}
+    CATALOG = [("templates/t", definition("t"))]
 
-    def test_several_steps_of_one_pipeline_are_not_priced_as_one_run(self):
+    def test_several_steps_scale_by_step_count(self):
         inline = definition("inline")
         inline["steps"] = [{**inline["steps"][0], "id": f"shot{n}"} for n in range(3)]
-        assert (
-            inherited(inline, [("templates/t", definition("t"))], self.HISTORY) is None
-        )
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 24.0
+        assert block["inherited_from"] == "templates/t"
+        assert "3 steps, template measured 1" in block["scaled"]
 
-    def test_a_literal_longer_frame_count_is_not_priced_as_the_templates(self):
+    def test_a_longer_frame_count_scales_by_frames(self):
         inline = definition("inline")
         inline["variables"] = {}
-        inline["steps"][0]["run"] = {"num_frames": 899}
-        assert (
-            inherited(inline, [("templates/t", definition("t"))], self.HISTORY) is None
+        inline["steps"][0]["run"] = {"num_frames": 248}
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 16.0
+        assert "frame count 248 vs 124" in block["scaled"]
+        assert "frame count" in block["differs"]
+
+    def test_steps_and_frames_multiply(self):
+        inline = definition("inline")
+        inline["variables"] = {}
+        inline["steps"] = [
+            {**inline["steps"][0], "id": f"shot{n}", "run": {"num_frames": 62}}
+            for n in range(4)
+        ]
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 16.0  # 4 steps x half the frames
+        assert "4 steps" in block["scaled"] and "62 vs 124" in block["scaled"]
+
+    def test_a_template_sized_workflow_is_not_scaled(self):
+        block = inherited(definition("inline"), self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 8.0
+        assert "scaled" not in block
+
+    def test_the_plan_reports_the_reason_and_low_confidence(self, tmp_path):
+        inline = definition("inline")
+        inline["steps"] = [{**inline["steps"][0], "id": f"shot{n}"} for n in range(3)]
+        block = inherited(
+            inline, self.CATALOG, {"templates/t": self.HISTORY["templates/t"] * 3}
         )
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            plan = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: block,
+            )
+        estimate = plan["estimate"]
+        assert estimate["basis"] == "inherited"
+        assert estimate["minutes"] == 24.0
+        assert estimate["low_confidence"] is True
+        assert "3 steps, template measured 1" in estimate["scaled"]
+        assert "3 steps" in _inherited_cost_warnings(estimate)[0]
 
     def test_a_shared_driver_name_still_prices_its_bucket(self):
         block = inherited(

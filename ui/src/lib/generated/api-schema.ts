@@ -3158,6 +3158,11 @@ export interface components {
             priced_for?: string;
             /** Runs */
             runs: number | null;
+            /**
+             * Scaled
+             * @description With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
+             */
+            scaled?: string;
             /** Tempered */
             tempered?: boolean;
             /**

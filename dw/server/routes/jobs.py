@@ -948,6 +948,7 @@ def _inherited_cost_warnings(estimate):
     return [
         f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "
         "(same pipeline), not of this workflow"
+        + (f"; {estimate['scaled']}" if estimate.get("scaled") else "")
         + (
             f"; its {', '.join(differs)} differ from that template, so the real cost may too"
             if differs

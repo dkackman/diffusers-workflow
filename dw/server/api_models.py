@@ -564,6 +564,11 @@ class PlanEstimate(ApiModel):
         "`inherited_from` among offload, quantization and frame count; empty "
         "when nothing does."
     )
+    scaled: str = sometimes(
+        "With basis `inherited`: why the template's minutes were re-priced "
+        "linearly (more pipeline steps or frames than the template run measured) "
+        "- an approximation, with `low_confidence` true."
+    )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
         "as `cuda:1 NVIDIA GeForce RTX 3090`."

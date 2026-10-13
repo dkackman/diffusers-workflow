@@ -147,9 +147,10 @@ hallucinations as lyrics.
 
 **Fixes**
 
-- The inherited cost estimate is withheld when an inline workflow runs
-  more steps or frames than the template it came from, instead of
-  quoting the template's number (#821: a 7x under-quote).
+- The inherited cost estimate is re-priced linearly when an inline
+  workflow runs more steps or frames than the template it came from,
+  instead of quoting the template's number (#821: a 7x under-quote); the
+  estimate carries `scaled` (why) and `low_confidence` (#851).
 - `assess_output` shot findings carry `index` and `start_frame`, so a
   repeated shot name is unambiguous (#835).
 - `dialogue-short` and `music-video` expose `match_levels_dbfs` (#836).

@@ -3501,6 +3501,11 @@
             ],
             "title": "Runs"
           },
+          "scaled": {
+            "description": "With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.",
+            "title": "Scaled",
+            "type": "string"
+          },
           "tempered": {
             "title": "Tempered",
             "type": "boolean"

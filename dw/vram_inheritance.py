@@ -93,6 +93,26 @@ def inherited_differences(definition, template, arguments=None):
     return differs
 
 
+def pipeline_frames(definition, arguments=None):
+    """The frame count each pipeline step sets (`num_frames`, a `variable:`
+    reference resolved; `arguments` override the variables), None for a
+    step that sets none or a non-numeric one - for scaling an inherited
+    price by frame count (#851)."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    frames = []
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict) or not isinstance(step.get("pipeline"), dict):
+            continue
+        counts = [
+            value
+            for value in map(json.loads, _found(step, "num_frames", variables))
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        frames.append(max(counts) if counts else None)
+    return frames
+
+
 def declarations(catalog):
     """Every (identity, name, definition) a catalog of (name, definition)
     pairs offers the index: a declared `vram_estimate` on a single-identity
