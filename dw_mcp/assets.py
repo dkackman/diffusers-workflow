@@ -309,7 +309,9 @@ def upload_asset(
     required so the upload has a name and extension to be validated against.
 
     `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
-    rather than the random one an upload gets by default. A recurring cast
+    rather than the random one an upload gets by default. It lands under
+    `uploads/` ('asset:uploads/cast/priya-voice.wav'), not at the library
+    root as `keep_output`'s `asset_name` does. A recurring cast
     referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
     be told apart without opening each file, which is the whole reason to
     name one (2026-09-11). With `file_path`, the extension comes from the

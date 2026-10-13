@@ -338,8 +338,8 @@ class AssetTools:
 
         Accepts the usual image, video and audio extensions; reference the
         result, not a path. Pass `asset_name` for a readable stored name
-        ("cast/priya-voice.wav", folders allowed) - otherwise (with
-        `file_path`) the name is random. Pass `shared=true` to put it in
+        ("cast/priya-voice.wav", folders allowed; under `uploads/`) -
+        otherwise (with `file_path`) it is random. Pass `shared=true` to put it in
         the library every workspace shares - where a recurring cast
         belongs, since a workspace's own assets are invisible from the next.
 

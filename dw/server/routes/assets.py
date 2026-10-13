@@ -152,7 +152,8 @@ async def upload_media(
     'cast/priya-voice.wav' rather than the random one a browser upload
     gets - which is what makes a recurring cast's references readable
     in every workflow that carries them. It may name a folder, is
-    confined to the library the way `keep_output`'s is, and takes the
+    confined the way `keep_output`'s is but placed under `uploads/`
+    (not at the library root, as `keep_output`'s is), and takes the
     uploaded file's extension when it has none of its own. Without it
     the name stays random, so two uploads of the same file never
     collide.
