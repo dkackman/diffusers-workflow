@@ -290,6 +290,38 @@ it('toggling Intermediate shows intermediates too, finals first', async () => {
   ])
 })
 
+it('keeps newest-first between runs and puts finals first only inside a run', async () => {
+  const inRun = (
+    run: string,
+    name: string,
+    role: 'final' | 'intermediate',
+  ) => ({
+    ...file(`wf/${run}/${name}.png`, role, role),
+    folder: 'wf',
+    run_id: run,
+  })
+  // The server lists newest first: the newer run's intermediate leads
+  listing.files = [
+    inRun('new', 'scratch', 'intermediate'),
+    inRun('old', 'scratch', 'intermediate'),
+    inRun('new', 'deliverable', 'final'),
+    inRun('old', 'deliverable', 'final'),
+  ]
+  await renderGallery('wf/new/deliverable.png')
+  screen.getByRole('button', { name: 'Intermediate' }).click()
+  await waitFor(() =>
+    expect(screen.getByLabelText('select wf/new/scratch.png')).toBeTruthy(),
+  )
+  expect(
+    screen.getAllByRole('checkbox').map((c) => c.getAttribute('aria-label')),
+  ).toEqual([
+    'select wf/new/deliverable.png',
+    'select wf/new/scratch.png',
+    'select wf/old/deliverable.png',
+    'select wf/old/scratch.png',
+  ])
+})
+
 it('never lets both chips be off', async () => {
   listing.files = roleFiles()
   await renderGallery('wf/run-1/deliverable.png')

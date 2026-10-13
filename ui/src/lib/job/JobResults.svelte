@@ -10,6 +10,7 @@
   } from '../results'
   import DownloadLink from '../DownloadLink.svelte'
   import type { GalleryInput, JobDetail } from '../types'
+  import RoleTag from '../gallery/RoleTag.svelte'
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { wsHref } from '../routes'
 
@@ -61,6 +62,26 @@
           .catch(() => {})
       }
     })
+  })
+
+  // A run that wrote no image (video and audio only, as H3 and LTX do) has
+  // no lookup above to read its inputs from, so the first output of any kind
+  // is asked once - never one probe per file
+  let probedFirst = false
+  $effect(() => {
+    const files = fileGroups.flatMap((group) => group.files)
+    if (!files.length || probedFirst) return
+    if (files.some((file) => kindOf(file) === 'image')) return
+    probedFirst = true
+    api
+      .galleryMetadata(
+        files[0],
+        untrack(() => job.workspace),
+      )
+      .then((r) => {
+        if (r.inputs?.length && !runInputs.length) runInputs = r.inputs
+      })
+      .catch(() => {})
   })
 
   // Nothing at all was generated: every step the manifest lists was served
@@ -117,6 +138,7 @@
               target={input.kind === 'output' ? '_blank' : undefined}
               >{inputName(input)}</a
             >
+            <RoleTag role="input" />
             <span class="muted">{input.kind}</span>
           </li>
         {/each}

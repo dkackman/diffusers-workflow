@@ -531,6 +531,9 @@ it('groups results Final, then a collapsed Intermediate, then Made from', async 
     ...container.querySelectorAll('.roles > h3, .roles > details > summary'),
   ].map((el) => el.textContent?.trim())
   expect(order).toEqual(['Final', 'Intermediate', 'Made from'])
+  expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
+    'Input',
+  )
   // Final's file is on show; the intermediate's sits in a closed <details>
   const intermediate = container.querySelector(
     '.roles > details',
@@ -559,4 +562,20 @@ it('leaves the subfolder layout alone when no step has a role', async () => {
   const { container } = render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('final/')).toBeTruthy())
   expect(container.querySelector('.roles')).toBeNull()
+})
+
+it('reads Made from off the first output of a video-only run, probing once', async () => {
+  metadata.inputs = [{ reference: 'asset:face.png', kind: 'asset' }]
+  detail.job = {
+    ...job([{ step: 'film', files: ['a.mp4', 'b.mp4'], role: 'final' }]),
+    output_kinds: { 'a.mp4': 'video', 'b.mp4': 'video' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('face.png')).toBeTruthy())
+  expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
+    'Input',
+  )
+  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+    'a.mp4',
+  ])
 })

@@ -52,21 +52,24 @@
   // A file whose run does not say its role counts as final
   const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
   const filterActive = $derived(filter !== '' || roles.length < 2)
-  // Finals lead within the listing; the sort is stable, so the order the
-  // server gave (newest first) holds inside each role
-  const visible = $derived(
-    files
-      .filter(
-        (f) =>
-          f.name.toLowerCase().includes(filter.toLowerCase()) &&
-          roles.includes(roleOf(f)),
-      )
-      .sort(
-        (a, b) =>
-          Number(roleOf(a) === 'intermediate') -
-          Number(roleOf(b) === 'intermediate'),
-      ),
-  )
+  // Finals lead inside a run only: the server's order (newest first) holds
+  // between runs, so runs sit where their newest file put them. The sort is
+  // stable, so it holds inside each role too
+  const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
+  const visible = $derived.by(() => {
+    const shown = files.filter(
+      (f) =>
+        f.name.toLowerCase().includes(filter.toLowerCase()) &&
+        roles.includes(roleOf(f)),
+    )
+    const runs: string[] = []
+    for (const f of shown) if (!runs.includes(runKey(f))) runs.push(runKey(f))
+    const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
+    return shown.sort(
+      (a, b) =>
+        runs.indexOf(runKey(a)) - runs.indexOf(runKey(b)) || rank(a) - rank(b),
+    )
+  })
   // Never both off: an empty grid is not a state worth offering
   function toggleRole(which: OutputRole) {
     const next = roles.includes(which)

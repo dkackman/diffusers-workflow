@@ -264,6 +264,7 @@
                       ? 'open the asset library'
                       : 'open this earlier output'}>{inputName(input)}</a
                   >
+                  <RoleTag role="input" />
                   <span class="muted">{input.kind}</span>
                 </li>
               {/each}

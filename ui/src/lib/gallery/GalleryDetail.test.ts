@@ -42,6 +42,7 @@ it('orders the panel role, Settings, Made from, Location', () => {
   const meta = container.querySelector('.meta') as HTMLElement
   const order = [...meta.children].map(
     (el) =>
+      (el.classList.contains('madefrom') && 'Made from') ||
       (el.querySelector('.role-tag') && 'role') ||
       (el.matches('details') && el.querySelector('summary')?.textContent) ||
       el.querySelector('.muted')?.textContent,
@@ -61,6 +62,11 @@ it('lists each run input as a link', () => {
     'face.png',
     'wf/run-0/b.png',
   ])
+  expect(
+    [...container.querySelectorAll('.madefrom .role-tag')].map(
+      (t) => (t as HTMLElement).dataset.role,
+    ),
+  ).toEqual(['input', 'input'])
   expect(links[1].getAttribute('href')).toContain('wf/run-0/b.png')
 })
 
