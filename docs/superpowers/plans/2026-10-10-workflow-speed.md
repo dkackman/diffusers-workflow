@@ -61,10 +61,7 @@ import pytest
 
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TEMPLATES = sorted(
-    glob.glob(
-        os.path.join(REPO_ROOT, "workflows", "templates", "**", "*.json"),
-        recursive=True,
-    )
+    glob.glob(os.path.join(REPO_ROOT, "workflows", "templates", "**", "*.json"), recursive=True)
 )
 
 
@@ -103,13 +100,9 @@ def test_turbo_schedules_carry_no_block_cache(path):
 
 
 def test_compose_workflows_video_steps_match_the_turbo_default():
-    compose = _load(
-        os.path.join(REPO_ROOT, "workflows", "templates", "compose-workflows.json")
-    )
+    compose = _load(os.path.join(REPO_ROOT, "workflows", "templates", "compose-workflows.json"))
     i2v = _load(
-        os.path.join(
-            REPO_ROOT, "workflows", "templates", "minimax", "image-to-video.json"
-        )
+        os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "image-to-video.json")
     )
     assert _default(compose, "video_num_inference_steps") == _default(
         i2v, "num_inference_steps"
@@ -227,8 +220,7 @@ def test_two_frames_share_one_helper(fake_facexlib, monkeypatch):
     descriptor = MagicMock(supports_half=False)
     monkeypatch.setattr(module, "_load_face_model", lambda path, device: descriptor)
     monkeypatch.setattr(
-        "dw.tasks.upscale.resolve_model_path",
-        lambda model_name, filename: "weights.pth",
+        "dw.tasks.upscale.resolve_model_path", lambda model_name, filename: "weights.pth"
     )
     frame = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
 
@@ -246,14 +238,15 @@ def test_helper_state_is_cleared_before_each_frame(fake_facexlib, monkeypatch):
     descriptor = MagicMock(supports_half=False)
     monkeypatch.setattr(module, "_load_face_model", lambda path, device: descriptor)
     monkeypatch.setattr(
-        "dw.tasks.upscale.resolve_model_path",
-        lambda model_name, filename: "weights.pth",
+        "dw.tasks.upscale.resolve_model_path", lambda model_name, filename: "weights.pth"
     )
     frame = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
     module.restore_faces(frame, "m", device="cpu")
     module.restore_faces(frame, "m", device="cpu")
 
-    helper = model_cache._cache[("restore_faces_helper", 1, 512, True, "cpu")]
+    helper = model_cache._cache[
+        ("restore_faces_helper", 1, 512, True, "cpu")
+    ]
     assert helper.cleaned == 2
 
 
@@ -263,8 +256,7 @@ def test_different_settings_build_different_helpers(fake_facexlib, monkeypatch):
     descriptor = MagicMock(supports_half=False)
     monkeypatch.setattr(module, "_load_face_model", lambda path, device: descriptor)
     monkeypatch.setattr(
-        "dw.tasks.upscale.resolve_model_path",
-        lambda model_name, filename: "weights.pth",
+        "dw.tasks.upscale.resolve_model_path", lambda model_name, filename: "weights.pth"
     )
     frame = Image.fromarray(np.zeros((8, 8, 3), dtype=np.uint8))
     module.restore_faces(frame, "m", device="cpu", face_size=512)
@@ -284,26 +276,25 @@ Expected: `test_two_frames_share_one_helper` fails with 2 constructions; the cac
 Replace the helper construction at `dw/tasks/restore_faces.py:70-77` with:
 
 ```python
-# facexlib's helper loads RetinaFace (and ParseNet with use_parse) in
-# its constructor. per_frame calls this once per frame, so a video was
-# reloading detector weights for every frame. The helper keeps per-image
-# state between calls; clean_all() resets it before each read
-def build_helper():
-    return FaceRestoreHelper(
-        upscale_factor=upscale_factor,
-        face_size=face_size,
-        crop_ratio=(1, 1),
-        det_model="retinaface_resnet50",
-        use_parse=use_parse,
-        device=torch.device(device),
+    # facexlib's helper loads RetinaFace (and ParseNet with use_parse) in
+    # its constructor. per_frame calls this once per frame, so a video was
+    # reloading detector weights for every frame. The helper keeps per-image
+    # state between calls; clean_all() resets it before each read
+    def build_helper():
+        return FaceRestoreHelper(
+            upscale_factor=upscale_factor,
+            face_size=face_size,
+            crop_ratio=(1, 1),
+            det_model="retinaface_resnet50",
+            use_parse=use_parse,
+            device=torch.device(device),
+        )
+
+    face_helper = cached_model(
+        ("restore_faces_helper", upscale_factor, face_size, use_parse, str(device)),
+        build_helper,
     )
-
-
-face_helper = cached_model(
-    ("restore_faces_helper", upscale_factor, face_size, use_parse, str(device)),
-    build_helper,
-)
-face_helper.clean_all()
+    face_helper.clean_all()
 ```
 
 Keep the existing `read_image` call that follows.
@@ -440,7 +431,6 @@ git commit -m "perf(media): decode picture frames with libav AUTO threading"
 ```python
 RUNTIME_LORA_KEYS = ("scale", "alpha")
 
-
 def weights_identity(pipeline_definition):
     """The pipeline definition with every runtime-mutable setting removed:
     a LoRA's scale and alpha (set_adapters / set_adapter_alpha) and a
@@ -456,7 +446,6 @@ def adapter_settings(loras):
     """(adapter_names, adapter_weights, alphas) for the active entries of
     `loras`, naming an adapter by its own adapter_name or its ORIGINAL index
     (a nulled entry keeps its slot). Reads, never pops."""
-
 
 def apply_adapter_settings(loras, pipeline):
     """Set each active LoRA's alpha then every scale on a pipeline that
@@ -498,12 +487,7 @@ def _definition(**overrides):
         "configuration": {"component_type": "FluxPipeline"},
         "from_pretrained_arguments": {"model_name": "black-forest-labs/FLUX.1-dev"},
         "loras": [
-            {
-                "model_name": "a/b",
-                "weight_name": "x.safetensors",
-                "scale": 1.0,
-                "alpha": 16,
-            },
+            {"model_name": "a/b", "weight_name": "x.safetensors", "scale": 1.0, "alpha": 16},
         ],
         "scheduler": {"shift": 6.0},
         "audio_scheduler": {"shift": 3.0},
@@ -515,16 +499,7 @@ def _definition(**overrides):
 
 def test_lora_scale_and_alpha_do_not_change_the_pipeline_key():
     a = _definition()
-    b = _definition(
-        loras=[
-            {
-                "model_name": "a/b",
-                "weight_name": "x.safetensors",
-                "scale": 0.5,
-                "alpha": 8,
-            }
-        ]
-    )
+    b = _definition(loras=[{"model_name": "a/b", "weight_name": "x.safetensors", "scale": 0.5, "alpha": 8}])
     assert pipeline_cache_key(a) == pipeline_cache_key(b)
 
 
@@ -536,9 +511,7 @@ def test_scheduler_shift_does_not_change_the_pipeline_key():
 
 def test_lora_model_name_still_changes_the_pipeline_key():
     a = _definition()
-    b = _definition(
-        loras=[{"model_name": "a/c", "weight_name": "x.safetensors", "scale": 1.0}]
-    )
+    b = _definition(loras=[{"model_name": "a/c", "weight_name": "x.safetensors", "scale": 1.0}])
     assert pipeline_cache_key(a) != pipeline_cache_key(b)
 
 
@@ -1005,36 +978,40 @@ Leave `clear_model_cache()` and `step_cache.clear()` as they are. Append `f", ke
 `_prepare_workflow`:
 
 ```python
-if identity != self.workflow_identity:
-    if self.workflow_identity is not None:
-        keep = self._keys_worth_keeping(command, job.workflow)
-        if keep:
-            self._reply(
-                Output(
-                    message=f"Workflow changed - keeping {len(keep)} warm "
-                    "model(s) the new workflow loads, releasing the rest..."
-                )
-            )
-        else:
-            self._reply(Output(message="Workflow changed - releasing cached models..."))
-        self._reply(Output(message=self._cleanup_all(keep=keep)))
-    self.workflow_identity = identity
+        if identity != self.workflow_identity:
+            if self.workflow_identity is not None:
+                keep = self._keys_worth_keeping(command, job.workflow)
+                if keep:
+                    self._reply(
+                        Output(
+                            message=f"Workflow changed - keeping {len(keep)} warm "
+                            "model(s) the new workflow loads, releasing the rest..."
+                        )
+                    )
+                else:
+                    self._reply(
+                        Output(message="Workflow changed - releasing cached models...")
+                    )
+                self._reply(Output(message=self._cleanup_all(keep=keep)))
+            self.workflow_identity = identity
 ```
 
 with
 
 ```python
-def _keys_worth_keeping(self, command, workflow):
-    """The resident pipeline keys the next workflow loads anyway. Any
-    failure to prepare the definition answers the empty set - the run
-    itself will report what is wrong, and a full release is the safe
-    default on a card that cannot hold two stacks."""
-    try:
-        wanted = workflow_run.pipeline_keys(workflow, command.get("arguments") or {})
-    except Exception as e:
-        logger.debug(f"Could not take the next workflow's pipeline keys: {e}")
-        return set()
-    return wanted & set(self.loaded_pipelines)
+    def _keys_worth_keeping(self, command, workflow):
+        """The resident pipeline keys the next workflow loads anyway. Any
+        failure to prepare the definition answers the empty set - the run
+        itself will report what is wrong, and a full release is the safe
+        default on a card that cannot hold two stacks."""
+        try:
+            wanted = workflow_run.pipeline_keys(
+                workflow, command.get("arguments") or {}
+            )
+        except Exception as e:
+            logger.debug(f"Could not take the next workflow's pipeline keys: {e}")
+            return set()
+        return wanted & set(self.loaded_pipelines)
 ```
 
 Check whether `_prepare_workflow` runs with the job's asset dir already active (`_activate_job` is phase 1, so yes); `pipeline_keys` may realize `asset:` variables and needs it.
