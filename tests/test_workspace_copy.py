@@ -19,7 +19,7 @@ from dw.workspace import (
     create_workspace,
 )
 from dw.workspace_copy import CopyRefused, copy_runs
-from dw_mcp.client import DwClient
+from dw_mcp.client import DwClient, api_path
 from dw_mcp.workspaces import copy_to_workspace
 
 from .test_server import ScriptedWorkerManager, success_script
@@ -230,6 +230,13 @@ class TestRefusals:
     def test_traversal(self, src, dst, entry):
         make_run(src, "wf", R1)
         with pytest.raises(SecurityError):
+            copy_runs(src, dst, [entry])
+        assert nothing_written(dst)
+
+    @pytest.mark.parametrize("entry", ["wf/", f"wf/{R1}/", f"wf//{R1}", "output:wf/"])
+    def test_an_empty_segment(self, src, dst, entry):
+        make_run(src, "wf", R1)
+        with pytest.raises(InvalidInputError):
             copy_runs(src, dst, [entry])
         assert nothing_written(dst)
 
@@ -463,6 +470,27 @@ class TestRoute:
                 json={"source": "src", "runs": ["../x"]},
             )
         assert response.status_code == 400
+
+    @pytest.mark.parametrize(
+        "destination",
+        ["../dst", "/tmp/dst", "dst/../x", ".", "..", "", "dst/"],
+    )
+    def test_a_bad_destination_name_is_refused_by_name(
+        self, server, root, src, dst, destination
+    ):
+        # Built as the MCP client builds it: each name reaches the route
+        # rather than being normalized into another URL on the way
+        make_run(src, "wf", R1)
+        before = sorted(os.listdir(root.root))
+        with server() as client:
+            response = client.post(
+                api_path("api", "workspaces", destination, "copy"),
+                json={"source": "src", "runs": [f"wf/{R1}"]},
+            )
+        assert response.status_code == 404, response.text
+        assert response.json()["detail"] == f"No such workspace: {destination}"
+        assert sorted(os.listdir(root.root)) == before
+        assert nothing_written(dst)
 
     def test_an_active_job_conflicts(self, server, src, dst):
         make_run(src, "wf", R1)

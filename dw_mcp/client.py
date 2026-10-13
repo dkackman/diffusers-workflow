@@ -113,8 +113,11 @@ def path_segment(name):
     and the server's own path-traversal check never runs on it. Quoting
     keeps the literal bytes intact on the wire, so it is the server's own
     validation - not this client - that decides what a name is allowed to
-    contain.
+    contain. A segment that is only dots ('.', '..') is not touched by
+    `quote`, so its dots are encoded too: unencoded, httpx would drop it.
     """
+    if name and name.strip(".") == "":
+        return "%2E" * len(name)
     return quote(name, safe="")
 
 

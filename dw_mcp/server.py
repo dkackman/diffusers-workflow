@@ -166,6 +166,7 @@ def build_server(client):
     tool(asset.list_assets, READ_ONLY)
     tool(asset.upload_asset, WRITES)
     tool(asset.keep_output, WRITES)
+    tool(asset.set_note, WRITES)
     tool(asset.delete_asset, DELETES)
 
     tool(wks.list_workspaces, READ_ONLY)
