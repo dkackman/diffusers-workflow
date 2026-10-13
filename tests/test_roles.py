@@ -173,3 +173,28 @@ def test_schema_role_values(role, ok):
     errors = validate_data_all(workflow, load_schema("workflow"))
     role_errors = [e for e in errors if "role" in (e["path"] or "")]
     assert (not role_errors) == ok
+
+
+def test_role_basis_survives_realization_of_the_steps():
+    from dw.roles import role_basis
+
+    steps = [
+        {"name": "image", "result": {"subfolder": "x"}},
+        {"name": "video", "arguments": {"image": "previous_result:image"}},
+    ]
+    basis = role_basis(steps)
+    steps[1]["arguments"]["image"] = object()  # what a run does in place
+    manifest = [_entry("image", "a.png"), _entry("video", "b.mp4")]
+    assert step_roles(None, manifest, basis) == {"image": INTERMEDIATE, "video": FINAL}
+
+
+def test_fallback_roles():
+    from dw.roles import fallback_roles
+
+    entries = [
+        {"step": "a", "files": ["a.png"], "subfolder": "intermediate/x"},
+        {"step": "b", "files": ["b.png"], "subfolder": ""},
+    ]
+    assert [e.get("role") for e in fallback_roles(entries)] == [INTERMEDIATE, None]
+    assert fallback_roles([{"step": "a", "files": ["a.png"]}])[0]["role"] == FINAL
+    assert fallback_roles([]) == []

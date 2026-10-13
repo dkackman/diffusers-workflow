@@ -33,7 +33,7 @@ from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
 from .previous_results import StepResults
 from .realize import realize_workflow
-from .roles import annotate_roles, run_inputs
+from .roles import annotate_roles, role_basis, run_inputs
 from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
@@ -105,8 +105,11 @@ class RunRecord:
     seed: object = None
     realized_name: object = None
     annotations: dict = field(default_factory=_empty_annotations)
-    # The expanded steps the run executed - what roles and inputs are read from
-    expanded_steps: list = field(default_factory=list)
+    # Taken from the expanded steps as the run opens, before realization
+    # rewrites their references in place: what roles are decided from
+    # (dw/roles.py role_basis) and the asset:/output: inputs it read
+    role_basis: list = field(default_factory=list)
+    inputs: list = field(default_factory=list)
 
 
 @dataclass
@@ -234,7 +237,7 @@ def write_run_manifest(workflow, record, status=None):
     # Roles once the run has ended - a running manifest would show the
     # newest step as final until its consumer runs (dw/roles.py)
     if status != "running":
-        steps = annotate_roles(record.expanded_steps, steps)
+        steps = annotate_roles(None, steps, record.role_basis)
     write_manifest(
         workflow._run_dir,
         {
@@ -267,7 +270,7 @@ def write_run_manifest(workflow, record, status=None):
             # What did not run, and why - a run says what it did not do
             # as well as what it did (#122)
             "elided_steps": workflow._elided_steps,
-            "inputs": run_inputs(record.expanded_steps),
+            "inputs": record.inputs,
             "steps": steps,
         },
     )
@@ -627,7 +630,11 @@ def open_run(workflow, prepared, record, run_context):
     inherits the parent's and never opens its own."""
     record.started_at = _now()
     record.run_id = None
-    record.expanded_steps = prepared.workflow_def.get("steps") or []
+    expanded = prepared.workflow_def.get("steps") or []
+    record.role_basis = role_basis(expanded)
+    # The variables as folded, before their assets loaded: a template's
+    # input image is usually a variable, gone from the steps by now
+    record.inputs = run_inputs([*expanded, prepared.recorded_variables])
     if not workflow._run_dir_inherited:
         _claim_run_dir(workflow, prepared, record)
 

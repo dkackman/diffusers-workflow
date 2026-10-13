@@ -16,8 +16,10 @@ step, first rule wins:
    does not make one out of it.
 
 A composed child's rolled-up manifest entries carry `parent_step` and take
-that step's role. The engine records roles when a run ends; the server
-infers them with the same function for a run that predates this. Inputs
+that step's role. The engine records roles when a run ends, from the
+`role_basis` it took as the run opened; the server infers them with the
+same function for a run that predates this, and falls back to
+`fallback_roles` when the run's steps cannot be read. Inputs
 are the asset: and output: references the expanded steps carry - a run's
 'made from' list. This module names no model.
 """
@@ -41,6 +43,15 @@ _MEDIA_EXTENSIONS = frozenset(
 )
 
 
+def _subfolder_role(subfolder):
+    """Rule 2: the role a subfolder's head names, or None."""
+    if isinstance(subfolder, str):
+        head = subfolder.split("/", 1)[0]
+        if head in ROLES:
+            return head
+    return None
+
+
 def _declared_role(step):
     """Rules 1 and 2: the role a step's result block states, or None."""
     result = step.get("result")
@@ -49,12 +60,7 @@ def _declared_role(step):
     role = result.get(ROLE_KEY)
     if role in ROLES:
         return role
-    subfolder = result.get("subfolder")
-    if isinstance(subfolder, str):
-        head = subfolder.split("/", 1)[0]
-        if head in ROLES:
-            return head
-    return None
+    return _subfolder_role(result.get("subfolder"))
 
 
 def _writes_only_text(files):
@@ -77,24 +83,43 @@ def _files_by_step(manifest_steps):
     return files
 
 
-def step_roles(steps, manifest_steps):
-    """Each step's role, by name - see the module docstring for the rules."""
-    steps = [s for s in steps or [] if isinstance(s, dict) and "name" in s]
+def role_basis(steps):
+    """What the rules read from expanded steps: each step's name, its
+    declared role (rules 1 and 2) and the previous_result references it
+    carries. A run rewrites its steps' references in place as they resolve,
+    so the engine takes this as the run opens, before any step runs."""
+    basis = []
+    for step in steps or []:
+        if not isinstance(step, dict) or "name" not in step:
+            continue
+        consumes = [
+            reference
+            for _path, reference, _via in iter_previous_result_references(
+                step, descend_into_from=True
+            )
+            if isinstance(reference, str)
+        ]
+        basis.append(
+            {
+                "name": step["name"],
+                "declared": _declared_role(step),
+                "consumes": consumes,
+            }
+        )
+    return basis
+
+
+def step_roles(steps, manifest_steps, basis=None):
+    """Each step's role, by name - see the module docstring for the rules.
+    `basis` is `role_basis(steps)` taken earlier, in place of `steps`."""
+    basis = role_basis(steps) if basis is None else basis
     files = _files_by_step(manifest_steps)
-    names = [s["name"] for s in steps]
-    roles = {}
-    for step in steps:
-        declared = _declared_role(step)
-        if declared:
-            roles[step["name"]] = declared
-    for consumer in steps:
+    names = [b["name"] for b in basis]
+    roles = {b["name"]: b["declared"] for b in basis if b["declared"]}
+    for consumer in basis:
         if _writes_only_text(files.get(consumer["name"])):
             continue
-        for _path, reference, _via in iter_previous_result_references(
-            consumer, descend_into_from=True
-        ):
-            if not isinstance(reference, str):
-                continue
+        for reference in consumer["consumes"]:
             target = max(
                 (n for n in names if reference_resolves_to(reference, n)),
                 key=len,
@@ -107,9 +132,9 @@ def step_roles(steps, manifest_steps):
     return roles
 
 
-def annotate_roles(steps, manifest_steps):
+def annotate_roles(steps, manifest_steps, basis=None):
     """Copies of `manifest_steps`, each with its step's `role`."""
-    roles = step_roles(steps, manifest_steps)
+    roles = step_roles(steps, manifest_steps, basis)
     annotated = []
     for entry in manifest_steps or []:
         if not isinstance(entry, dict):
@@ -117,6 +142,20 @@ def annotate_roles(steps, manifest_steps):
             continue
         name = entry.get("parent_step") or entry.get("step")
         annotated.append({**entry, ROLE_KEY: roles.get(name, FINAL)})
+    return annotated
+
+
+def fallback_roles(manifest_steps):
+    """Copies of `manifest_steps` for a run whose steps cannot be read (no
+    realized workflow, or one that no longer expands): rule 2 against each
+    entry's recorded subfolder, and a run of one step is final. Any other
+    entry is left without a role - unknown, not guessed."""
+    entries = [e for e in manifest_steps or [] if isinstance(e, dict)]
+    single = len({e.get("parent_step") or e.get("step") for e in entries}) == 1
+    annotated = []
+    for entry in entries:
+        role = _subfolder_role(entry.get("subfolder")) or (FINAL if single else None)
+        annotated.append({**entry, ROLE_KEY: role} if role else dict(entry))
     return annotated
 
 
