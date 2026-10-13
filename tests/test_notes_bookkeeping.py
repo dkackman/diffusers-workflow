@@ -65,3 +65,19 @@ def test_export_carries_notes(export_server):  # noqa: F811
         zipped = client.get(body["zip_url"])
     names = zipfile.ZipFile(io.BytesIO(zipped.content)).namelist()
     assert f"{job_id}/{NOTES_FILE_NAME}" in names
+
+
+def test_a_failing_note_drop_does_not_fail_the_delete(
+    gallery_client, output_root, write_run, monkeypatch
+):
+    run_id, run_dir = _run(write_run, output_root, ["a.png"])
+    set_file_note(run_dir, "a.png", "first")
+
+    def broken(*_args):
+        raise OSError("disk full")
+
+    monkeypatch.setattr("dw.server.routes.gallery.drop_file_note", broken)
+    response = gallery_client.delete(f"/api/gallery/{IDENTITY}/{run_id}/a.png")
+    assert response.status_code == 200
+    assert response.json()["run_swept"] == run_id
+    assert not os.path.exists(run_dir)

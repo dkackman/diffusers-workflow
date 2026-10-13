@@ -396,8 +396,15 @@ def delete_output(
     logger.info(f"Deleted output file {name}")
     split = split_run_name(ws.outputs, name)
     if split is not None:
-        # The note describes the file; it goes with it
-        drop_file_note(*split)
+        # The note describes the file; it goes with it. Best effort: the file
+        # is already gone, so a note that cannot be rewritten is not a failure
+        try:
+            note_dir = validate_path(split[0], ws.outputs, allow_create=False)
+            drop_file_note(note_dir, split[1])
+        except SecurityError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not drop the note for {name}: {e}")
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
     return {"name": name, "deleted": True, "run_swept": swept}

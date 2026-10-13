@@ -172,9 +172,8 @@ with the last entry, which would take the notes with it.
 
 Every write is atomic, using a temp file and replace, as `write_manifest`
 does (`dw/runs.py:683`). Concurrent edits to the same `notes.json` are
-serialized by a per-path lock in the server. The engine writes
-`notes.json` only once, when the run opens, before the server can address
-the run directory.
+serialized by a per-path lock in the server. Only the server writes
+`notes.json`, never the engine.
 
 ### The effective note
 
