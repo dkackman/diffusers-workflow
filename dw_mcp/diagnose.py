@@ -12,7 +12,7 @@ import math
 import os
 import time
 
-from dw_mcp.client import DwApiError, api_path, workflow_source
+from dw_mcp.client import DwApiError, api_path, clip_note, workflow_source
 
 logger = logging.getLogger(__name__)
 
@@ -96,6 +96,7 @@ def run_workflow(
     acknowledged_cost=False,
     workspace=None,
     wait_seconds=0,
+    note=None,
 ):
     """Queue a workflow. `workflow_path` (or `name` - the same thing
     `validate_workflow` calls it) is either a catalog name from
@@ -132,6 +133,8 @@ def run_workflow(
         )
     payload = {"arguments": arguments or {}}
     payload.update(_acknowledgement_body(acknowledged_cost))
+    if note:
+        payload["note"] = note
     if path is not None:
         payload["workflow_path"] = path
     else:
@@ -237,6 +240,8 @@ _SLIM_KEYS = (
     # is what separates a slow job from a hung one on a poll that would
     # otherwise come back byte-identical
     "progress",
+    # Clipped in slim_job: a poll repeats it
+    "note",
 )
 
 
@@ -249,7 +254,7 @@ def slim_job(job):
     running job's carries the steps finished so far (#799), under
     `finished_steps` so it is not read as the final list.
     """
-    slim = {key: job.get(key) for key in _SLIM_KEYS if key in job}
+    slim = clip_note({key: job.get(key) for key in _SLIM_KEYS if key in job})
     if job.get("status") in TERMINAL_STATUSES:
         slim["manifest"] = job.get("manifest")
     elif job.get("manifest"):

@@ -270,6 +270,12 @@ produces the shape it needs, and is about to write JSON. `get_schema` says what
 is *well-formed*; this section says what the engine *does* with a well-formed
 document, which is where a draft that validates still fails.
 
+When exploring variations, pass `note` to `run_workflow` saying what each run
+tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
+note is shown with every file the run made. Each file carries a `role`
+(`final` or `intermediate`) inferred from how a step's output is used; set
+`result.role` on a step to override it when the default is wrong.
+
 ### References
 
 An argument value is a reference when it begins with one of these prefixes.

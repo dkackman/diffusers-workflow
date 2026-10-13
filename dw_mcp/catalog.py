@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import DwApiError, api_path, project
+from dw_mcp.client import DwApiError, api_path, clip_note, project
 
 
 def list_workflows(
@@ -214,7 +214,7 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     body = client.get_json("/api/jobs", params=params or None)
     # The API answers oldest first - the order the web UI's list renders in.
     # An agent reads the top of a tool result, so the newest job belongs there
-    jobs = list(reversed(body.get("jobs") or []))
+    jobs = [clip_note(job) for job in reversed(body.get("jobs") or [])]
     total = body.get("total", len(jobs))
     answer = {"jobs": jobs, "returned": len(jobs), "total": total}
     if total > len(jobs):
@@ -285,7 +285,14 @@ def list_gallery(
         params["only_orphans"] = "true"
     if media:
         params["media"] = "true"
-    return client.get_json("/api/gallery", params=params, workspace=workspace)
+    result = client.get_json("/api/gallery", params=params, workspace=workspace)
+    files = result.get("files") if isinstance(result, dict) else None
+    if isinstance(files, list):
+        result = {
+            **result,
+            "files": [clip_note(f) if isinstance(f, dict) else f for f in files],
+        }
+    return result
 
 
 def get_gallery_metadata(

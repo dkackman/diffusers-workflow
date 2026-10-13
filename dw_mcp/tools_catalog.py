@@ -272,32 +272,24 @@ class CatalogTools:
         carries `folder` (the workflow), `subfolder` (the step's chosen
         subfolder, '' for none; `subfolder=` filters on it) and `role`:
         `final` is a deliverable, `intermediate` a file a later step
-        consumed, null with no run. `role=` filters; omit it for every
-        file. Each entry's `url` is already scoped to its workspace; use
-        it as given.
+        consumed, null with no run. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
 
-        Entries also carry `run_id` and `version`, the run's stable ordinal
-        (the web UI shows `v5`) - quote the version to a person. `folder=`
-        plus `version=` lists that run; "output:<folder>/v5/<file>" names
-        it. Other tools take `name`.
+        Entries carry `run_id` and `version`, the run's stable ordinal
+        (the web UI's `v5`) - quote it to a person. `folder=` plus
+        `version=` lists that run; "output:<folder>/v5/<file>" names it.
 
-        `only_orphans=True` inverts the call: instead of files, it returns
-        run directories holding nothing but their own bookkeeping
-        (manifest.json, workflow.json, job.json) as `runs`, each
-        `{name, mtime}` - a run whose output was deleted, or one that failed
-        before writing anything. `subfolder` does not apply in this mode.
-        `name` is exactly what `delete_output` accepts. A run that wrote any
-        file is not listed; whether a listed entry is junk is still yours
-        to decide.
+        `only_orphans=True` returns instead the run directories holding
+        only bookkeeping (manifest.json, workflow.json, job.json) as
+        `runs`, each `{name, mtime}` - output deleted, or a run that failed
+        before writing anything; `name` is what `delete_output` accepts.
+        `subfolder` does not apply. Whether an entry is junk is yours to
+        decide.
 
         `workspace` names the workspace for this one call without
-        switching the session to it - the same pin `run_workflow`
-        takes, so a job run into another workspace is reachable from
-        here without leaving this one.
+        switching the session, as `run_workflow` takes it.
 
-        `media=True` adds `duration_seconds` to audio/video entries - two
-        takes sharing a basename are told apart by length, not size or
-        mtime."""
+        `media=True` adds `duration_seconds` to audio/video entries, to
+        tell takes apart."""
         return catalog.list_gallery(
             self.client,
             limit=limit,

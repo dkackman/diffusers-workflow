@@ -10,7 +10,7 @@ where it mattered.
 
 import logging
 
-from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, project
+from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, clip_note, project
 from dw_mcp import catalog
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # What a compact workspace entry keeps: enough to choose one or judge its
 # size, nothing that only naming its folders needs
-WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage")
+WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage", "note")
 
 # What create_workspace answers with: the name to address it by, never the
 # folders the server made for it - no MCP response carries an absolute
@@ -79,7 +79,7 @@ def list_workspaces(client, detail=False):
             result = {
                 **result,
                 "workspaces": [
-                    project(entry, WORKSPACE_SUMMARY_FIELDS)
+                    clip_note(project(entry, WORKSPACE_SUMMARY_FIELDS))
                     for entry in entries
                     if isinstance(entry, dict)
                 ],

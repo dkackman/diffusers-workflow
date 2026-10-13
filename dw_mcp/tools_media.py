@@ -316,6 +316,7 @@ class AssetTools:
         asset_name: str | None = None,
         shared: bool = False,
         workspace: str | None = None,
+        note: str | None = None,
     ) -> dict:
         """Put an image, video or audio file into the server's asset
         library and get back the `asset:` reference to use in a workflow.
@@ -342,7 +343,8 @@ class AssetTools:
         the library every workspace shares - where a recurring cast
         belongs, since a workspace's own assets are invisible from the next.
 
-        `workspace` scopes this one call without changing the session pin."""
+        `workspace` scopes this one call without changing the session pin.
+        `note` is kept with the asset."""
         return assets.upload_asset(
             self.client,
             file_path=file_path,
@@ -350,6 +352,7 @@ class AssetTools:
             asset_name=asset_name,
             shared=shared,
             workspace=workspace,
+            note=note,
         )
 
     def keep_output(
@@ -359,6 +362,7 @@ class AssetTools:
         overwrite: bool = False,
         shared: bool = False,
         workspace: str | None = None,
+        note: str | None = None,
     ) -> dict:
         """Keep a generated file as an input asset under a stable `asset:`
         name, so later workflows can rely on it - a run's own name moves
@@ -368,7 +372,8 @@ class AssetTools:
         re-uploaded. Pass `shared=true` to keep it in the library every
         workspace shares instead.
 
-        `workspace` scopes this one call without changing the session pin."""
+        `workspace` scopes this one call without changing the session pin.
+        `note` is kept with the asset; left out, the source's is copied."""
         return assets.keep_output(
             self.client,
             name,
@@ -376,7 +381,15 @@ class AssetTools:
             overwrite=overwrite,
             shared=shared,
             workspace=workspace,
+            note=note,
         )
+
+    def set_note(self, target: str, note: str | None = None) -> dict:
+        """Set or clear (note null or '') the note on a run
+        ('<workflow>/<run id>'), an output file (gallery name), 'asset:<name>'
+        or 'workspace:<name>'. Plain text, 4000 chars max: what it is for -
+        what a run tested, why a file is the keeper. Free."""
+        return assets.set_note(self.client, target, note)
 
     def delete_asset(self, name: str, workspace: str | None = None) -> dict:
         """Permanently remove one file from the asset library, by the name

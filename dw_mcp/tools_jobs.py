@@ -21,6 +21,7 @@ class JobTools:
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
         wait_seconds: int = 0,
+        note: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
         occupies a GPU for minutes and the engine runs one job per GPU.
@@ -49,7 +50,10 @@ class JobTools:
         "downloads": [...the non-null repos in plan.downloads_required]} from
         the validate plan; the server refuses with 409, naming the new
         plan, if the run's shape changed since. Bare true is for a plan
-        that was null."""
+        that was null.
+
+        `note`: what this run is for, shown on every file it writes
+        ('testing video_shift 5 against 3'). Give each variation its own."""
         return diagnose.run_workflow(
             self.client,
             workflow_path=workflow_path,
@@ -60,6 +64,7 @@ class JobTools:
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,
             wait_seconds=wait_seconds,
+            note=note,
         )
 
     # The cap is a number a caller paces against, so the description
