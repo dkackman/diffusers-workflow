@@ -666,7 +666,9 @@ class WorkspaceDeleted(ApiModel):
 
 class CopiedItems(ApiModel):
     runs: list[str] = Field(description="`<workflow>/<run id>` of each run copied.")
-    assets: list[str] = Field(description="Always empty until assets can be copied.")
+    assets: list[str] = Field(
+        description="Library-relative path of each asset file copied."
+    )
 
 
 class WorkspaceCopied(ApiModel):
@@ -676,7 +678,9 @@ class WorkspaceCopied(ApiModel):
     destination: str
     copied: CopiedItems
     already_present: list[str] = Field(
-        description="Runs the destination already held, by run id - skipped."
+        description="Runs the destination already held (`<workflow>/<run id>`) "
+        "and assets it held with identical bytes (library-relative path) - "
+        "skipped."
     )
     renumbered: dict[str, dict[str, int]] = Field(
         description="Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: "

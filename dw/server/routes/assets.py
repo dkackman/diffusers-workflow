@@ -72,8 +72,22 @@ router = APIRouter()
 
 
 def _write_bytes(path, data):
-    with open(path, "wb") as f:
-        f.write(data)
+    """Write a file whole, then rename it into place. An upload over an
+    existing name replaces that file rather than writing into it: the old
+    one may be a hard link - of a run's file (keep_output) or of another
+    workspace's asset (copy_to_workspace) - and an in-place write would
+    change those bytes too."""
+    partial = f"{path}.{uuid.uuid4().hex}.part"
+    try:
+        with open(partial, "wb") as f:
+            f.write(data)
+        os.replace(partial, path)
+    except BaseException:
+        try:
+            os.remove(partial)
+        except OSError:
+            pass
+        raise
 
 
 def _note_or_400(note):

@@ -37,7 +37,7 @@ from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
-from ...workspace_copy import CopyRefused, copy_runs
+from ...workspace_copy import CopyRefused, copy_between
 from ...notes import read_workspace_note
 from ...library import (
     builtin_root,
@@ -160,7 +160,9 @@ class WorkspaceCopyRequest(BaseModel):
         "all its runs",
     )
     assets: list[str] = Field(
-        default_factory=list, description="Not supported yet - leave empty"
+        default_factory=list,
+        description="Asset-library files or folders, as written after `asset:` "
+        "(`proj/clip.mp4`, `proj/`); each keeps its library-relative path",
     )
 
 
@@ -190,24 +192,23 @@ def _copy_side(state, root, name):
 def copy_into_workspace(
     http_request: Request, destination: str, request: WorkspaceCopyRequest
 ):
-    """Copy runs from another workspace into this one.
+    """Copy runs and asset-library entries from another workspace into this one.
 
     Media is hard-linked where the filesystem allows, so a copy costs
-    little disk; sidecars are copied. All or nothing: a run already here is
-    skipped as `already_present`, a run whose job is still running refuses
-    the request. A move is a copy, then `DELETE` of the source runs.
+    little disk; sidecars are copied, and an asset's note and kept shots are
+    merged into the destination folder's. All or nothing: a run already
+    here, or an asset with identical bytes, is skipped as `already_present`;
+    a run whose job is still running, or a different file at an asset's
+    path, refuses the whole request (409, naming each) with nothing written.
+    A move is a copy, then `DELETE` of the source runs and assets.
     """
     state = http_request.app.state
     manager = state.job_manager
     root = workspace_root(state)
-    if request.assets:
+    if not request.runs and not request.assets:
         raise HTTPException(
-            status_code=400,
-            detail="Copying assets is not supported yet - copy runs, and "
-            "re-upload the assets they need",
+            status_code=400, detail="Name at least one run or asset to copy"
         )
-    if not request.runs:
-        raise HTTPException(status_code=400, detail="Name at least one run to copy")
     source_name = request.source or DEFAULT_WORKSPACE_NAME
     if source_name == destination:
         raise HTTPException(
@@ -226,7 +227,9 @@ def copy_into_workspace(
             and getattr(job, "run_dir", None)
         ]
     try:
-        return copy_runs(source, target, request.runs, active_runs=active)
+        return copy_between(
+            source, target, request.runs, request.assets, active_runs=active
+        )
     except CopyRefused as e:
         detail = (
             {"message": str(e), "conflicts": e.conflicts} if e.conflicts else str(e)

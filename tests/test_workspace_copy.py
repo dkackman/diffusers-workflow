@@ -1,4 +1,4 @@
-"""Copying runs between workspaces (#853): the engine, the route and the MCP tool."""
+"""Copying runs and assets between workspaces (#853): the engine, the route and the MCP tool."""
 
 import json
 import os
@@ -9,7 +9,13 @@ import httpx
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.runs import RUN_ID_PATTERN, resolve_output_reference, run_versions
+from dw.notes import read_notes, set_file_note
+from dw.runs import (
+    RUN_ID_PATTERN,
+    record_kept_shots,
+    resolve_output_reference,
+    run_versions,
+)
 from dw.security import InvalidInputError, PathTraversalError, SecurityError
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
@@ -18,7 +24,7 @@ from dw.workspace import (
     Workspace,
     create_workspace,
 )
-from dw.workspace_copy import CopyRefused, copy_runs
+from dw.workspace_copy import CopyRefused, copy_between
 from dw_mcp.client import DwClient, api_path
 from dw_mcp.workspaces import copy_to_workspace
 
@@ -93,7 +99,7 @@ def nothing_written(ws):
 class TestHappyPath:
     def test_one_run_is_copied(self, src, dst):
         make_run(src, "wf", R1)
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         assert set(reply) == {
             "source",
             "destination",
@@ -115,29 +121,29 @@ class TestHappyPath:
     def test_a_bare_workflow_copies_all_its_runs(self, src, dst):
         make_run(src, "wf", R1, 1)
         make_run(src, "wf", R2, 2)
-        reply = copy_runs(src, dst, ["wf"])
+        reply = copy_between(src, dst, ["wf"])
         assert reply["copied"]["runs"] == [f"wf/{R1}", f"wf/{R2}"]
 
     def test_a_multi_segment_identity(self, src, dst):
         make_run(src, "ltx2/Gyre", R1)
-        reply = copy_runs(src, dst, [f"ltx2/Gyre/{R1}"])
+        reply = copy_between(src, dst, [f"ltx2/Gyre/{R1}"])
         assert reply["copied"]["runs"] == [f"ltx2/Gyre/{R1}"]
         assert os.path.isfile(os.path.join(dst.outputs, "ltx2", "Gyre", R1, "img.png"))
 
     def test_a_bare_multi_segment_identity(self, src, dst):
         make_run(src, "ltx2/Gyre", R1)
-        reply = copy_runs(src, dst, ["ltx2/Gyre"])
+        reply = copy_between(src, dst, ["ltx2/Gyre"])
         assert reply["copied"]["runs"] == [f"ltx2/Gyre/{R1}"]
 
     def test_an_output_prefix_is_accepted(self, src, dst):
         make_run(src, "wf", R1)
-        reply = copy_runs(src, dst, [f"output:wf/{R1}"])
+        reply = copy_between(src, dst, [f"output:wf/{R1}"])
         assert reply["copied"]["runs"] == [f"wf/{R1}"]
 
     def test_repeating_a_copy_is_idempotent(self, src, dst):
         make_run(src, "wf", R1)
-        copy_runs(src, dst, [f"wf/{R1}"])
-        again = copy_runs(src, dst, [f"wf/{R1}"])
+        copy_between(src, dst, [f"wf/{R1}"])
+        again = copy_between(src, dst, [f"wf/{R1}"])
         assert again["already_present"] == [f"wf/{R1}"]
         assert again["copied"]["runs"] == []
         assert "no_jobs" not in again["warnings"]
@@ -150,7 +156,7 @@ class TestRenumbering:
         make_run(src, "wf", R1, 1)
         make_run(src, "wf", R3, 3)
         # v1 collides, so every copied run of the identity is renumbered
-        reply = copy_runs(src, dst, ["wf"])
+        reply = copy_between(src, dst, ["wf"])
         assert reply["renumbered"] == {
             f"wf/{R1}": {"from": 1, "to": 2},
             f"wf/{R2}": {"from": 2, "to": 3},
@@ -165,7 +171,7 @@ class TestRenumbering:
         make_run(dst, "wf", "20251231-000000-dddddddd", 1)
         make_run(src, "wf", R1, 1)
         make_run(src, "wf", R2, 2)
-        reply = copy_runs(src, dst, ["wf"])
+        reply = copy_between(src, dst, ["wf"])
         assert reply["renumbered"] == {
             f"wf/{R1}": {"from": 1, "to": 2},
             f"wf/{R2}": {"from": 2, "to": 3},
@@ -174,7 +180,7 @@ class TestRenumbering:
     def test_no_collision_keeps_numbers(self, src, dst):
         make_run(dst, "wf", "20251231-000000-dddddddd", 1)
         make_run(src, "wf", R2, 2)
-        reply = copy_runs(src, dst, [f"wf/{R2}"])
+        reply = copy_between(src, dst, [f"wf/{R2}"])
         assert reply["renumbered"] == {}
         copied = read_json(os.path.join(dst.outputs, "wf", R2, "manifest.json"))
         assert copied["version"] == 2
@@ -189,14 +195,14 @@ class TestWarnings:
             R2,
             inputs=["output:other/latest/img.png", "output:gone/latest/img.png"],
         )
-        reply = copy_runs(src, dst, [f"wf/{R2}"])
+        reply = copy_between(src, dst, [f"wf/{R2}"])
         unresolved = reply["warnings"]["unresolved_output_refs"]
         assert unresolved == {f"wf/{R2}": ["output:gone/latest/img.png"]}
 
     def test_all_refs_resolving_gives_no_warning(self, src, dst):
         make_run(dst, "other", R1)
         make_run(src, "wf", R2, inputs=["output:other/latest/img.png"])
-        reply = copy_runs(src, dst, [f"wf/{R2}"])
+        reply = copy_between(src, dst, [f"wf/{R2}"])
         assert "unresolved_output_refs" not in reply["warnings"]
 
     def test_absolute_paths_are_relative_to_the_source_root(self, src, dst, tmp_path):
@@ -209,19 +215,19 @@ class TestWarnings:
             workflow_file=workflow,
             steps=[{"step": "s", "files": [inside, "relative/img.png"]}],
         )
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         paths = reply["warnings"]["absolute_paths"][f"wf/{R1}"]
         assert paths == sorted(["outputs/wf/earlier/img.png", "workflows/wf.json"])
         assert str(tmp_path) not in json.dumps(reply)
 
     def test_a_path_outside_the_source_root_is_not_reported(self, src, dst):
         make_run(src, "wf", R1, workflow_file="/somewhere/else/wf.json")
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         assert "absolute_paths" not in reply["warnings"]
 
     def test_no_jobs_note_after_a_copy(self, src, dst):
         make_run(src, "wf", R1)
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         assert "no_jobs" in reply["warnings"]
 
 
@@ -230,14 +236,14 @@ class TestRefusals:
     def test_traversal(self, src, dst, entry):
         make_run(src, "wf", R1)
         with pytest.raises(SecurityError):
-            copy_runs(src, dst, [entry])
+            copy_between(src, dst, [entry])
         assert nothing_written(dst)
 
     @pytest.mark.parametrize("entry", ["wf/", f"wf/{R1}/", f"wf//{R1}", "output:wf/"])
     def test_an_empty_segment(self, src, dst, entry):
         make_run(src, "wf", R1)
         with pytest.raises(InvalidInputError):
-            copy_runs(src, dst, [entry])
+            copy_between(src, dst, [entry])
         assert nothing_written(dst)
 
     def test_a_symlinked_run_folder(self, src, dst, tmp_path):
@@ -248,7 +254,7 @@ class TestRefusals:
             os.path.join(src.outputs, "wf", R1),
         )
         with pytest.raises(PathTraversalError):
-            copy_runs(src, dst, [f"wf/{R1}"])
+            copy_between(src, dst, [f"wf/{R1}"])
         assert nothing_written(dst)
 
     def test_a_symlinked_identity_folder(self, src, dst):
@@ -257,36 +263,36 @@ class TestRefusals:
             os.path.join(src.outputs, "real"), os.path.join(src.outputs, "linked")
         )
         with pytest.raises(PathTraversalError):
-            copy_runs(src, dst, [f"linked/{R1}"])
+            copy_between(src, dst, [f"linked/{R1}"])
         assert nothing_written(dst)
 
     def test_a_symlink_inside_a_run(self, src, dst, tmp_path):
         run_dir = make_run(src, "wf", R1)
         os.symlink(os.path.join(run_dir, "img.png"), os.path.join(run_dir, "link.png"))
         with pytest.raises(PathTraversalError):
-            copy_runs(src, dst, [f"wf/{R1}"])
+            copy_between(src, dst, [f"wf/{R1}"])
         assert nothing_written(dst)
 
     def test_a_missing_run(self, src, dst):
         make_run(src, "wf", R1)
         with pytest.raises(CopyRefused) as raised:
-            copy_runs(src, dst, [f"wf/{R2}"])
+            copy_between(src, dst, [f"wf/{R2}"])
         assert raised.value.status == 404
         assert nothing_written(dst)
 
     def test_a_missing_workflow(self, src, dst):
         with pytest.raises(CopyRefused) as raised:
-            copy_runs(src, dst, ["nope"])
+            copy_between(src, dst, ["nope"])
         assert raised.value.status == 404
 
     def test_same_workspace(self, src):
         make_run(src, "wf", R1)
         with pytest.raises(InvalidInputError):
-            copy_runs(src, src, [f"wf/{R1}"])
+            copy_between(src, src, [f"wf/{R1}"])
 
     def test_empty_runs(self, src, dst):
         with pytest.raises(InvalidInputError):
-            copy_runs(src, dst, [])
+            copy_between(src, dst, [])
 
     def configured(self, ws):
         return ConfiguredWorkspace(ws.workflows, ws.assets, ws.outputs, ws.prompts)
@@ -294,14 +300,14 @@ class TestRefusals:
     def test_configured_source(self, src, dst):
         make_run(src, "wf", R1)
         with pytest.raises(CopyRefused) as raised:
-            copy_runs(self.configured(src), dst, [f"wf/{R1}"])
+            copy_between(self.configured(src), dst, [f"wf/{R1}"])
         assert raised.value.status == 409
         assert nothing_written(dst)
 
     def test_configured_destination(self, src, dst):
         make_run(src, "wf", R1)
         with pytest.raises(CopyRefused) as raised:
-            copy_runs(src, self.configured(dst), [f"wf/{R1}"])
+            copy_between(src, self.configured(dst), [f"wf/{R1}"])
         assert raised.value.status == 409
         assert nothing_written(dst)
 
@@ -309,7 +315,7 @@ class TestRefusals:
         make_run(src, "wf", R1, 1)
         make_run(src, "wf", R2, 2)
         with pytest.raises(CopyRefused) as raised:
-            copy_runs(src, dst, ["wf"], active_runs=[f"wf/{R2}"])
+            copy_between(src, dst, ["wf"], active_runs=[f"wf/{R2}"])
         assert raised.value.status == 409
         assert raised.value.conflicts == [f"wf/{R2}"]
         assert nothing_written(dst)
@@ -319,7 +325,7 @@ class TestRefusals:
 class TestResolution:
     def test_output_references_resolve_in_the_destination(self, src, dst):
         make_run(src, "wf", R1)
-        copy_runs(src, dst, ["wf"])
+        copy_between(src, dst, ["wf"])
         latest = resolve_output_reference("output:wf/latest/img.png", dst.outputs)
         pinned = resolve_output_reference(f"output:wf/{R1}/img.png", dst.outputs)
         expected = os.path.join(os.path.realpath(dst.outputs), "wf", R1, "img.png")
@@ -331,7 +337,7 @@ class TestResolution:
 class TestIndependence:
     def test_notes_are_not_shared(self, src, dst):
         source_run = make_run(src, "wf", R1, notes={"note": "original"})
-        copy_runs(src, dst, [f"wf/{R1}"])
+        copy_between(src, dst, [f"wf/{R1}"])
         copied = os.path.join(dst.outputs, "wf", R1, "notes.json")
         original = os.path.join(source_run, "notes.json")
         assert os.stat(copied).st_ino != os.stat(original).st_ino
@@ -342,7 +348,7 @@ class TestIndependence:
     def test_a_renumbered_manifest_leaves_the_source_alone(self, src, dst):
         make_run(dst, "wf", "20251231-000000-dddddddd", 1)
         source_run = make_run(src, "wf", R1, 1)
-        copy_runs(src, dst, [f"wf/{R1}"])
+        copy_between(src, dst, [f"wf/{R1}"])
         copied = os.path.join(dst.outputs, "wf", R1, "manifest.json")
         original = os.path.join(source_run, "manifest.json")
         assert read_json(copied)["version"] == 2
@@ -353,7 +359,7 @@ class TestIndependence:
 class TestMediaLinking:
     def test_media_is_hard_linked(self, src, dst):
         source_run = make_run(src, "wf", R1, content=b"x" * 100)
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         a = os.stat(os.path.join(source_run, "img.png"))
         b = os.stat(os.path.join(dst.outputs, "wf", R1, "img.png"))
         assert a.st_ino == b.st_ino
@@ -366,7 +372,7 @@ class TestMediaLinking:
             raise OSError("cross-device")
 
         monkeypatch.setattr("dw.workspace_copy.os.link", refuse)
-        reply = copy_runs(src, dst, [f"wf/{R1}"])
+        reply = copy_between(src, dst, [f"wf/{R1}"])
         target = os.path.join(dst.outputs, "wf", R1, "img.png")
         source_file = os.path.join(source_run, "img.png")
         assert os.stat(target).st_ino != os.stat(source_file).st_ino
@@ -374,6 +380,211 @@ class TestMediaLinking:
             assert a.read() == b.read()
         assert reply["bytes_linked"] == 0
         assert reply["bytes_copied"] >= 100
+
+
+def make_asset(
+    ws, name, content=b"asset-bytes", note=None, shots=None, provenance=None
+):
+    path = os.path.join(ws.assets, *name.split("/"))
+    os.makedirs(os.path.dirname(path), exist_ok=True)
+    with open(path, "wb") as f:
+        f.write(content)
+    if note is not None:
+        set_file_note(os.path.dirname(path), os.path.basename(path), note)
+    if shots is not None or provenance is not None:
+        record_kept_shots(
+            os.path.dirname(path), os.path.basename(path), shots, provenance
+        )
+    return path
+
+
+def no_assets(ws):
+    return not os.path.exists(ws.assets) or not any(os.scandir(ws.assets))
+
+
+SHOTS = [{"start": 0.0, "end": 1.5}]
+PROVENANCE = {"job_id": "j1", "workspace": "src", "run": f"wf/{R1}"}
+
+
+class TestAssets:
+    def test_a_file_keeps_its_path(self, src, dst):
+        source_file = make_asset(src, "cast/iris.png")
+        reply = copy_between(src, dst, assets=["cast/iris.png"])
+        target = os.path.join(dst.assets, "cast", "iris.png")
+        assert reply["copied"] == {"runs": [], "assets": ["cast/iris.png"]}
+        assert os.stat(target).st_ino == os.stat(source_file).st_ino
+        assert reply["bytes_linked"] == len(b"asset-bytes")
+
+    def test_an_asset_prefix_is_accepted(self, src, dst):
+        make_asset(src, "iris.png")
+        reply = copy_between(src, dst, assets=["asset:iris.png"])
+        assert reply["copied"]["assets"] == ["iris.png"]
+
+    def test_a_folder_copies_every_file_under_it(self, src, dst):
+        make_asset(src, "proj/a.png", note="first")
+        make_asset(src, "proj/deep/b.wav")
+        make_asset(src, "other.png")
+        reply = copy_between(src, dst, assets=["proj/"])
+        assert reply["copied"]["assets"] == ["proj/a.png", "proj/deep/b.wav"]
+        assert not os.path.exists(os.path.join(dst.assets, "other.png"))
+        # The folder's sidecar travels per file, not as a file of its own
+        assert read_json(os.path.join(dst.assets, "proj", "notes.json"))["files"] == {
+            "a.png": "first"
+        }
+
+    def test_a_folder_without_a_slash_is_a_folder(self, src, dst):
+        make_asset(src, "proj/a.png")
+        reply = copy_between(src, dst, assets=["proj"])
+        assert reply["copied"]["assets"] == ["proj/a.png"]
+
+    def test_an_upload_stays_under_uploads(self, src, dst):
+        make_asset(src, "uploads/abc.png")
+        reply = copy_between(src, dst, assets=["uploads/abc.png"])
+        assert reply["copied"]["assets"] == ["uploads/abc.png"]
+        assert os.path.isfile(os.path.join(dst.assets, "uploads", "abc.png"))
+
+    def test_json_is_copied_not_linked(self, src, dst):
+        source_file = make_asset(src, "data/cues.json", content=b"{}")
+        copy_between(src, dst, assets=["data/cues.json"])
+        target = os.path.join(dst.assets, "data", "cues.json")
+        assert os.stat(target).st_ino != os.stat(source_file).st_ino
+
+    def test_an_identical_file_is_already_present(self, src, dst):
+        make_asset(src, "iris.png")
+        make_asset(dst, "iris.png")
+        reply = copy_between(src, dst, assets=["iris.png"])
+        assert reply["copied"]["assets"] == []
+        assert reply["already_present"] == ["iris.png"]
+
+    def test_repeating_a_copy_is_idempotent(self, src, dst):
+        make_asset(src, "proj/a.png", note="n")
+        copy_between(src, dst, assets=["proj/"])
+        reply = copy_between(src, dst, assets=["proj/"])
+        assert reply["copied"]["assets"] == []
+        assert reply["already_present"] == ["proj/a.png"]
+
+    def test_a_different_file_refuses_everything(self, src, dst):
+        make_run(src, "wf", R1)
+        make_asset(src, "proj/a.png")
+        make_asset(src, "proj/b.png", content=b"mine")
+        make_asset(dst, "proj/b.png", content=b"theirs")
+        with pytest.raises(CopyRefused) as refused:
+            copy_between(src, dst, [f"wf/{R1}"], ["proj/"])
+        assert refused.value.status == 409
+        assert refused.value.conflicts == ["proj/b.png"]
+        assert "proj/b.png" in str(refused.value)
+        assert nothing_written(dst)
+        assert not os.path.exists(os.path.join(dst.assets, "proj", "a.png"))
+        with open(os.path.join(dst.assets, "proj", "b.png"), "rb") as f:
+            assert f.read() == b"theirs"
+
+    def test_an_active_run_and_a_different_file_are_named_together(self, src, dst):
+        make_run(src, "wf", R1)
+        make_asset(src, "a.png", content=b"mine")
+        make_asset(dst, "a.png", content=b"theirs")
+        with pytest.raises(CopyRefused) as refused:
+            copy_between(src, dst, [f"wf/{R1}"], ["a.png"], active_runs=[f"wf/{R1}"])
+        assert refused.value.conflicts == [f"wf/{R1}", "a.png"]
+
+    def test_runs_and_assets_together(self, src, dst):
+        make_run(src, "wf", R1)
+        make_asset(src, "a.png")
+        reply = copy_between(src, dst, [f"wf/{R1}"], ["a.png"])
+        assert reply["copied"] == {"runs": [f"wf/{R1}"], "assets": ["a.png"]}
+
+    def test_notes_and_kept_shots_travel(self, src, dst):
+        make_asset(
+            src, "proj/a.mp4", note="the keeper", shots=SHOTS, provenance=PROVENANCE
+        )
+        copy_between(src, dst, assets=["proj/a.mp4"])
+        target_dir = os.path.join(dst.assets, "proj")
+        assert read_notes(target_dir)["files"] == {"a.mp4": "the keeper"}
+        manifest = read_json(os.path.join(target_dir, "manifest.json"))
+        [entry] = manifest["steps"]
+        assert entry["files"] == ["a.mp4"]
+        assert entry["shots"] == SHOTS
+        # Where it was kept from is history: it does not become the destination
+        assert entry["provenance"] == PROVENANCE
+        assert entry["provenance"]["workspace"] == "src"
+
+    def test_a_destinations_own_entries_are_kept(self, src, dst):
+        make_asset(src, "proj/a.png", note="from src")
+        make_asset(dst, "proj/z.png", note="already here", shots=SHOTS)
+        copy_between(src, dst, assets=["proj/a.png"])
+        target_dir = os.path.join(dst.assets, "proj")
+        assert read_notes(target_dir)["files"] == {
+            "a.png": "from src",
+            "z.png": "already here",
+        }
+        steps = read_json(os.path.join(target_dir, "manifest.json"))["steps"]
+        assert [s["files"] for s in steps] == [["z.png"]]
+
+    def test_sidecars_are_not_shared(self, src, dst):
+        make_asset(src, "proj/a.mp4", note="original", shots=SHOTS)
+        source_dir = os.path.join(src.assets, "proj")
+        notes_before = read_json(os.path.join(source_dir, "notes.json"))
+        manifest_before = read_json(os.path.join(source_dir, "manifest.json"))
+        copy_between(src, dst, assets=["proj/"])
+        target_dir = os.path.join(dst.assets, "proj")
+        for sidecar in ("notes.json", "manifest.json"):
+            assert (
+                os.stat(os.path.join(target_dir, sidecar)).st_ino
+                != os.stat(os.path.join(source_dir, sidecar)).st_ino
+            )
+        set_file_note(target_dir, "a.mp4", "edited")
+        record_kept_shots(target_dir, "a.mp4", [{"start": 0.0, "end": 9.0}])
+        assert read_json(os.path.join(source_dir, "notes.json")) == notes_before
+        assert read_json(os.path.join(source_dir, "manifest.json")) == manifest_before
+
+    @pytest.mark.parametrize("entry", ["../x.png", "/abs/x.png", "a/../b.png", "./a"])
+    def test_traversal(self, src, dst, entry):
+        make_asset(src, "a/b.png")
+        with pytest.raises(PathTraversalError):
+            copy_between(src, dst, assets=[entry])
+        assert no_assets(dst)
+
+    def test_a_sidecar_named_directly(self, src, dst):
+        make_asset(src, "proj/a.png", note="n")
+        with pytest.raises(InvalidInputError):
+            copy_between(src, dst, assets=["proj/notes.json"])
+
+    def test_a_missing_asset(self, src, dst):
+        with pytest.raises(CopyRefused) as refused:
+            copy_between(src, dst, assets=["nope.png"])
+        assert refused.value.status == 404
+
+    def test_a_symlink_on_the_way_in_the_source(self, src, dst, tmp_path):
+        outside = tmp_path / "outside"
+        outside.mkdir()
+        (outside / "a.png").write_bytes(b"x")
+        os.makedirs(src.assets, exist_ok=True)
+        os.symlink(outside, os.path.join(src.assets, "linked"))
+        with pytest.raises(PathTraversalError):
+            copy_between(src, dst, assets=["linked/a.png"])
+        assert no_assets(dst)
+
+    def test_a_symlink_inside_a_folder(self, src, dst, tmp_path):
+        make_asset(src, "proj/a.png")
+        outside = tmp_path / "secret.png"
+        outside.write_bytes(b"x")
+        os.symlink(outside, os.path.join(src.assets, "proj", "b.png"))
+        with pytest.raises(PathTraversalError):
+            copy_between(src, dst, assets=["proj/"])
+        assert no_assets(dst)
+
+    def test_a_symlink_on_the_way_in_the_destination(self, src, dst, tmp_path):
+        make_asset(src, "proj/a.png")
+        elsewhere = tmp_path / "elsewhere"
+        elsewhere.mkdir()
+        os.makedirs(dst.assets, exist_ok=True)
+        os.symlink(elsewhere, os.path.join(dst.assets, "proj"))
+        with pytest.raises(PathTraversalError):
+            copy_between(src, dst, assets=["proj/a.png"])
+        assert list(elsewhere.iterdir()) == []
+
+    def test_nothing_named(self, src, dst):
+        with pytest.raises(InvalidInputError):
+            copy_between(src, dst)
 
 
 @pytest.fixture
@@ -412,16 +623,80 @@ class TestRoute:
         assert body["copied"]["runs"] == [f"wf/{R1}"]
         assert os.path.isfile(os.path.join(dst.outputs, "wf", R1, "img.png"))
 
-    def test_assets_are_not_supported(self, server, src, dst):
+    def test_assets(self, server, src, dst):
+        make_asset(src, "proj/a.png", note="n")
+        with server() as client:
+            response = client.post(
+                "/api/workspaces/dst/copy",
+                json={"source": "src", "assets": ["proj/"]},
+            )
+        assert response.status_code == 200, response.text
+        assert response.json()["copied"] == {"runs": [], "assets": ["proj/a.png"]}
+        assert os.path.isfile(os.path.join(dst.assets, "proj", "a.png"))
+
+    def test_runs_and_assets(self, server, src, dst):
         make_run(src, "wf", R1)
+        make_asset(src, "a.png")
         with server() as client:
             response = client.post(
                 "/api/workspaces/dst/copy",
                 json={"source": "src", "runs": [f"wf/{R1}"], "assets": ["a.png"]},
             )
-        assert response.status_code == 400
-        assert "not supported" in response.text
+        assert response.status_code == 200, response.text
+        assert response.json()["copied"] == {
+            "runs": [f"wf/{R1}"],
+            "assets": ["a.png"],
+        }
+
+    def test_a_different_asset_is_409_and_writes_nothing(self, server, src, dst):
+        make_run(src, "wf", R1)
+        make_asset(src, "a.png", content=b"mine")
+        make_asset(dst, "a.png", content=b"theirs")
+        with server() as client:
+            response = client.post(
+                "/api/workspaces/dst/copy",
+                json={"source": "src", "runs": [f"wf/{R1}"], "assets": ["a.png"]},
+            )
+        assert response.status_code == 409
+        assert response.json()["detail"]["conflicts"] == ["a.png"]
         assert nothing_written(dst)
+
+    def test_a_missing_asset_is_404(self, server, src, dst):
+        with server() as client:
+            response = client.post(
+                "/api/workspaces/dst/copy",
+                json={"source": "src", "assets": ["nope.png"]},
+            )
+        assert response.status_code == 404
+
+    def test_asset_traversal_is_400(self, server, src, dst):
+        with server() as client:
+            response = client.post(
+                "/api/workspaces/dst/copy",
+                json={"source": "src", "assets": ["../x.png"]},
+            )
+        assert response.status_code == 400
+
+    def test_an_upload_over_a_copied_asset_leaves_the_source_alone(
+        self, server, src, dst
+    ):
+        source_file = make_asset(src, "uploads/cast.png", content=b"original")
+        copy_between(src, dst, assets=["uploads/cast.png"])
+        with server() as client:
+            response = client.post(
+                "/api/uploads",
+                params={
+                    "filename": "cast.png",
+                    "asset_name": "cast.png",
+                    "workspace": "dst",
+                },
+                content=b"replaced",
+            )
+        assert response.status_code == 201, response.text
+        with open(os.path.join(dst.assets, "uploads", "cast.png"), "rb") as f:
+            assert f.read() == b"replaced"
+        with open(source_file, "rb") as f:
+            assert f.read() == b"original"
 
     def test_empty_runs(self, server, src, dst):
         with server() as client:
@@ -570,7 +845,13 @@ class TestMcp:
         assert seen[0].method == "POST"
         assert seen[0].url.path == "/api/workspaces/final/copy"
         body = json.loads(seen[0].content)
-        assert body == {"source": "shots", "runs": ["wf/x"]}
+        assert body == {"source": "shots", "runs": ["wf/x"], "assets": []}
+
+    def test_assets_pass_through(self):
+        client, seen = self.recording("shots")
+        copy_to_workspace(client, "final", assets=["proj/"])
+        body = json.loads(seen[0].content)
+        assert body == {"source": "shots", "runs": [], "assets": ["proj/"]}
 
     def test_an_explicit_source_passes_through(self):
         client, seen = self.recording("shots")

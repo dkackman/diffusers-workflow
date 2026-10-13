@@ -1,4 +1,5 @@
-"""Copying runs from one workspace to another under the same root (#853).
+"""Copying runs and asset-library entries from one workspace to another
+under the same root (#853).
 
 A run is self-contained on disk - `latest`, `vN`, `output:` resolution and
 the gallery all read the run folder and its manifests, never the jobs
@@ -33,24 +34,39 @@ of making it resolvable there. What this module adds is the care around that:
   path), and that a copied run has no job row (it appears in the gallery,
   not in the jobs list).
 
-Copying assets is stage B of #853.
+Assets are named as after `asset:` - a file, or a folder for everything
+under it - and keep their library-relative path, so `uploads/x` stays
+`uploads/x`. A path the destination already holds with identical bytes is
+`already_present`; with different bytes it is a conflict, and a conflict
+refuses the whole request - runs included - before anything is written.
+An asset's sidecars are not copied as files: its `notes.json` entry and its
+kept-shots entry (`record_kept_shots`) are merged into the destination
+folder's own, written fresh, so the shot map and the note travel while
+`provenance.workspace` keeps naming the workspace the file was made in.
+Media is linked here too: no asset path writes a file in place - an upload
+over a name replaces it (`os.replace`), keep and delete unlink first.
 """
 
+import filecmp
 import logging
 import os
 import shutil
 
-from .references import OUTPUT, ref_name
+from .notes import NOTES_FILE_NAME, read_notes, set_file_note
+from .references import ASSET, OUTPUT, ref_name
 from .runs import (
+    MANIFEST_FILE_NAME,
     _read_manifest,
     copy_runs_in,
     identity_run_ids,
     is_run_id,
+    record_kept_shots,
     resolve_output_reference,
 )
 from .security import (
     InvalidInputError,
     PathTraversalError,
+    validate_asset_reference,
     validate_output_prefix,
     validate_path,
 )
@@ -60,6 +76,9 @@ logger = logging.getLogger("dw")
 
 # The sidecars a copy writes fresh rather than links: every JSON file
 SIDECAR_SUFFIX = ".json"
+
+# An asset folder's own sidecars: merged per file, never copied as files
+ASSET_SIDECARS = (NOTES_FILE_NAME, MANIFEST_FILE_NAME)
 
 NO_JOBS_NOTE = (
     "Copied runs appear in list_gallery and resolve through output: "
@@ -271,7 +290,140 @@ def _unresolved_inputs(manifest, outputs):
     return unresolved
 
 
-def _refuse_unless_copyable(source, destination, runs):
+def _asset_entry(entry):
+    """An `assets` entry as a library-relative name, and whether it names a
+    folder. An `asset:` prefix is accepted; a trailing `/` marks a folder,
+    but a folder is a folder without one too.
+
+    Raises:
+        PathTraversalError: For an absolute path or a `..`
+        InvalidInputError: For anything else that is not an asset name
+    """
+    if not isinstance(entry, str) or not entry.strip():
+        raise InvalidInputError("An assets entry must be a non-empty string")
+    name = entry.strip()
+    name = ref_name(ASSET, name) or name
+    if name.startswith(("/", "\\")) or os.path.isabs(name):
+        raise PathTraversalError(f"'{entry}' is an absolute path - name an asset")
+    if any(part in ("..", ".") for part in name.split("/")):
+        raise PathTraversalError(f"'{entry}' leaves the asset library")
+    folder = name.endswith("/")
+    return validate_asset_reference(name[:-1] if folder else name), folder
+
+
+def _source_assets(source, entry):
+    """[library-relative name] of each file one entry names in the source's
+    asset library - the file itself, or every file under a folder but the
+    folder sidecars, which travel per file instead.
+
+    Raises:
+        PathTraversalError: When the entry escapes, or reaches a symlink
+        InvalidInputError: When it names a sidecar rather than an asset
+        CopyRefused (404): When there is no such asset
+    """
+    name, _folder = _asset_entry(entry)
+    library = os.path.realpath(source.assets)
+    joined = os.path.join(library, *name.split("/"))
+    if os.path.isdir(library) and _symlink_on_the_way(library, joined):
+        raise PathTraversalError(
+            f"'{entry}' passes through a symlink - a copy never follows one"
+        )
+    path = validate_path(joined, library)
+    if os.path.isfile(path):
+        if os.path.basename(path) in ASSET_SIDECARS:
+            raise InvalidInputError(
+                f"'{entry}' is a sidecar, not an asset - copy the file it "
+                f"describes and its entry comes with it"
+            )
+        return [name]
+    if not os.path.isdir(path):
+        raise CopyRefused(f"No asset '{name}' in workspace '{source.name}'", status=404)
+    if _symlink_inside(path):
+        raise PathTraversalError(
+            f"Asset folder '{name}' holds a symlink - a copy never follows or "
+            f"creates one"
+        )
+    found = []
+    for current, dirs, files in os.walk(path):
+        dirs.sort()
+        for file_name in sorted(files):
+            if file_name in ASSET_SIDECARS:
+                continue
+            relative = os.path.relpath(os.path.join(current, file_name), library)
+            found.append(relative.replace(os.sep, "/"))
+    if not found:
+        raise CopyRefused(
+            f"Asset folder '{name}' in workspace '{source.name}' holds no files",
+            status=404,
+        )
+    return found
+
+
+def _same_bytes(a, b):
+    """Whether two files hold the same bytes - a hard link of one another
+    trivially does."""
+    if os.path.samefile(a, b):
+        return True
+    return filecmp.cmp(a, b, shallow=False)
+
+
+def _plan_assets(source, destination, assets):
+    """([name] to copy, [already present], [conflicting]) for the assets
+    named - every path checked against the destination, nothing written."""
+    named = []
+    for entry in assets:
+        for name in _source_assets(source, entry):
+            if name not in named:
+                named.append(name)
+    source_library = os.path.realpath(source.assets)
+    library = os.path.realpath(destination.assets)
+    to_copy, already_present, conflicts = [], [], []
+    for name in named:
+        joined = os.path.join(library, *name.split("/"))
+        if os.path.isdir(library) and _symlink_on_the_way(library, joined):
+            raise PathTraversalError(
+                f"'{name}' passes through a symlink in workspace "
+                f"'{destination.name}' - a copy never writes through one"
+            )
+        target = validate_path(joined, library)
+        if not os.path.lexists(target):
+            to_copy.append(name)
+        elif os.path.isfile(target) and _same_bytes(
+            os.path.join(source_library, *name.split("/")), target
+        ):
+            already_present.append(name)
+        else:
+            conflicts.append(name)
+    return to_copy, already_present, conflicts
+
+
+def _kept_entry(directory, file_name):
+    """The kept-shots entry a folder's manifest holds for one file, or None."""
+    for entry in (_read_manifest(directory) or {}).get("steps") or []:
+        if isinstance(entry, dict) and entry.get("files") == [file_name]:
+            return entry
+    return None
+
+
+def _copy_asset(source, destination, name, totals):
+    """Link (or copy) one asset into place, then merge its note and its
+    kept-shots entry into the destination folder's sidecars - written
+    fresh, so an edit on either side stays on that side."""
+    parts = name.split("/")
+    source_path = os.path.join(os.path.realpath(source.assets), *parts)
+    library = os.path.realpath(destination.assets)
+    target = validate_path(os.path.join(library, *parts), library)
+    os.makedirs(os.path.dirname(target), exist_ok=True)
+    _copy_file(source_path, target, totals)
+
+    source_dir, target_dir = os.path.dirname(source_path), os.path.dirname(target)
+    file_name = parts[-1]
+    set_file_note(target_dir, file_name, read_notes(source_dir)["files"].get(file_name))
+    kept = _kept_entry(source_dir, file_name) or {}
+    record_kept_shots(target_dir, file_name, kept.get("shots"), kept.get("provenance"))
+
+
+def _refuse_unless_copyable(source, destination, runs, assets):
     """The checks on the request as a whole, before any entry is read."""
     for side in (source, destination):
         if isinstance(side, ConfiguredWorkspace):
@@ -285,17 +437,19 @@ def _refuse_unless_copyable(source, destination, runs):
             f"Source and destination are both '{source.name}' - name another "
             f"workspace to copy into"
         )
-    if not runs:
-        raise InvalidInputError("Name at least one run to copy")
-    os.makedirs(destination.outputs, exist_ok=True)
-    if not os.access(destination.outputs, os.W_OK):
-        raise CopyRefused(f"Workspace '{destination.name}' is not writable")
+    if not runs and not assets:
+        raise InvalidInputError("Name at least one run or asset to copy")
+    for folder, named in ((destination.outputs, runs), (destination.assets, assets)):
+        if not named:
+            continue
+        os.makedirs(folder, exist_ok=True)
+        if not os.access(folder, os.W_OK):
+            raise CopyRefused(f"Workspace '{destination.name}' is not writable")
 
 
-def _plan_copy(source, outputs, runs, active_runs):
-    """Every entry checked before anything is written: ({identity: [run
-    id]} to copy, [already present]), or CopyRefused naming the runs whose
-    job is still active."""
+def _plan_runs(source, outputs, runs, active_runs):
+    """({identity: [run id]} to copy, [already present], [active]) - every
+    entry checked before anything is written."""
     named = []
     for entry in runs:
         for found in _source_runs(source, entry):
@@ -317,13 +471,29 @@ def _plan_copy(source, outputs, runs, active_runs):
             already_present.append(name)
         else:
             to_copy.setdefault(identity, []).append(run_id)
-    if conflicts:
-        raise CopyRefused(
-            "These runs' jobs are still queued or running, so their manifests "
-            "are not final - wait for them, then copy: " + ", ".join(conflicts),
-            conflicts=conflicts,
+    return to_copy, already_present, conflicts
+
+
+def _refuse_conflicts(active, differing):
+    """One refusal naming every conflict the plan found, or nothing."""
+    if not active and not differing:
+        return
+    reasons = []
+    if active:
+        reasons.append(
+            "these runs' jobs are still queued or running, so their manifests "
+            "are not final - wait for them, then copy: " + ", ".join(active)
         )
-    return to_copy, already_present
+    if differing:
+        reasons.append(
+            "the destination already holds a different file at: "
+            + ", ".join(differing)
+            + " - a copy never replaces one; delete or rename it first"
+        )
+    raise CopyRefused(
+        "Nothing was copied: " + "; and ".join(reasons),
+        conflicts=active + differing,
+    )
 
 
 def _copy_warnings(copied, outputs, source_root):
@@ -348,13 +518,14 @@ def _copy_warnings(copied, outputs, source_root):
     return warnings
 
 
-def copy_runs(source, destination, runs, active_runs=()):
-    """Copy runs from one workspace into another.
+def copy_between(source, destination, runs=(), assets=(), active_runs=()):
+    """Copy runs and assets from one workspace into another.
 
     Args:
         source, destination: Workspaces under one root, already resolved
             and known to exist
         runs: `<identity>/<run id>` or bare `<identity>` entries
+        assets: Library-relative files or folders, as after `asset:`
         active_runs: `<identity>/<run id>` of the source's runs whose job
             is still queued or running - their manifest is not final
 
@@ -366,9 +537,14 @@ def copy_runs(source, destination, runs, active_runs=()):
         InvalidInputError, PathTraversalError: A malformed or escaping entry
         CopyRefused: Anything else that stops the copy; nothing was written
     """
-    _refuse_unless_copyable(source, destination, runs)
+    runs, assets = list(runs or []), list(assets or [])
+    _refuse_unless_copyable(source, destination, runs, assets)
     outputs = os.path.realpath(destination.outputs)
-    to_copy, already_present = _plan_copy(source, outputs, runs, active_runs)
+    to_copy, runs_present, active = _plan_runs(source, outputs, runs, active_runs)
+    assets_to_copy, assets_present, differing = (
+        _plan_assets(source, destination, assets) if assets else ([], [], [])
+    )
+    _refuse_conflicts(active, differing)
 
     totals = {"bytes_linked": 0, "bytes_copied": 0}
     renumbered = {}
@@ -378,17 +554,19 @@ def copy_runs(source, destination, runs, active_runs=()):
             _copy_identity(source, destination, identity, run_ids, totals)
         )
         copied.extend(f"{identity}/{run_id}" for run_id in run_ids)
+    for name in assets_to_copy:
+        _copy_asset(source, destination, name, totals)
     forget_workspace_usage()
     logger.info(
-        f"Copied {len(copied)} run(s) from workspace {source.name} to "
-        f"{destination.name}"
+        f"Copied {len(copied)} run(s) and {len(assets_to_copy)} asset(s) from "
+        f"workspace {source.name} to {destination.name}"
     )
 
     return {
         "source": source.name,
         "destination": destination.name,
-        "copied": {"runs": copied, "assets": []},
-        "already_present": already_present,
+        "copied": {"runs": copied, "assets": assets_to_copy},
+        "already_present": runs_present + assets_present,
         "renumbered": renumbered,
         "warnings": _copy_warnings(copied, outputs, os.path.realpath(source.root)),
         **totals,
