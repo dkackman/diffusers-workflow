@@ -74,7 +74,9 @@ class TestOwnGuidesPlusTheChain:
         assert "4" in error["message"]
 
     def test_three_own_guides_leave_room(self):
-        assert guide_chain_errors(definition(prompt="a cat", guides=self.guides(3))) == []
+        assert (
+            guide_chain_errors(definition(prompt="a cat", guides=self.guides(3))) == []
+        )
 
     def test_an_unresolved_guides_value_is_left_to_the_run(self):
         assert (
@@ -85,7 +87,9 @@ class TestOwnGuidesPlusTheChain:
     def test_last_frame_continuity_takes_the_full_four(self):
         chain = {"segments": 2, "continuity": "last_frame"}
         assert (
-            guide_chain_errors(definition(chain=chain, prompt="a cat", guides=self.guides(4)))
+            guide_chain_errors(
+                definition(chain=chain, prompt="a cat", guides=self.guides(4))
+            )
             == []
         )
 ```
@@ -190,7 +194,9 @@ def test_the_context_defaults_to_the_devices_capacity(tmp_path, monkeypatch):
 
 def test_the_context_takes_a_pool_ceiling_instead(tmp_path, monkeypatch):
     monkeypatch.setattr("dw.validation.device_capacity_gb", lambda: 12.0)
-    assert workflow_context(empty_workflow(tmp_path), capacity_gb=24.0).capacity_gb == 24.0
+    assert (
+        workflow_context(empty_workflow(tmp_path), capacity_gb=24.0).capacity_gb == 24.0
+    )
 
 
 def _patched_admit_for(monkeypatch, state):
@@ -225,18 +231,19 @@ def test_a_state_without_a_manager_falls_back_to_the_device(monkeypatch):
 Append to `class TestFitAtSubmit` in `tests/test_worker_pool.py`:
 
 ```python
-    def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
-        manager = pool(
-            card(success_script, "cuda:0", 12, name="Small GPU"),
-            card(success_script, "cuda:1", 24, name="Large GPU"),
-        )
-        assert manager.largest_ceiling_gb() == 24
+def test_the_largest_card_is_the_ceiling_admission_checks(self, pool):
+    manager = pool(
+        card(success_script, "cuda:0", 12, name="Small GPU"),
+        card(success_script, "cuda:1", 24, name="Large GPU"),
+    )
+    assert manager.largest_ceiling_gb() == 24
 
-    def test_an_unread_card_has_no_ceiling(self, pool):
-        worker = ScriptedWorkerManager(success_script)
-        worker.device = "cuda:0"
-        manager = pool(worker)
-        assert manager.largest_ceiling_gb() is None
+
+def test_an_unread_card_has_no_ceiling(self, pool):
+    worker = ScriptedWorkerManager(success_script)
+    worker.device = "cuda:0"
+    manager = pool(worker)
+    assert manager.largest_ceiling_gb() is None
 ```
 
 Note for the implementer: `card()` sets `_capacity_read = True` and `_capacity_gb`; a bare `ScriptedWorkerManager` leaves them unread, and `ceiling_gb()` falls back to `capacity_gb()`, which is `None` until read. If `ScriptedWorkerManager` reads a real device on first call, patch `dw.worker_manager.device_capacity_gb` to return `None` in the second test, as `test_a_declared_need_is_held_to_the_ceiling_admission_uses` patches it.
@@ -261,7 +268,7 @@ Add to the docstring, after "the device the request is checked against": `(its o
 Replace `capacity_gb=device_capacity_gb(),` with:
 
 ```python
-        capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
+capacity_gb = (device_capacity_gb() if capacity_gb is None else capacity_gb,)
 ```
 
 - [ ] **Step 4: Add `JobManager.largest_ceiling_gb`**
@@ -519,47 +526,50 @@ class TestSafeRequest:
 Then change `test_an_untrusted_run_withholds_the_token_from_a_third_party` so it patches the shared path instead of `remote.requests.post`. Replace its `_Response`/`_post`/`with` block with:
 
 ```python
-        sent = {}
+sent = {}
 
-        class _Response:
-            ok = True
-            is_redirect = False
-            headers = {"Content-Type": "application/octet-stream"}
-            status_code = 200
-            _content = b""
 
-            def raise_for_status(self):
-                pass
+class _Response:
+    ok = True
+    is_redirect = False
+    headers = {"Content-Type": "application/octet-stream"}
+    status_code = 200
+    _content = b""
 
-            def iter_content(self, chunk_size):
-                return iter([b""])
+    def raise_for_status(self):
+        pass
 
-            def close(self):
-                pass
+    def iter_content(self, chunk_size):
+        return iter([b""])
 
-        class _Session:
-            def request(self, method, url, **kwargs):
-                sent["method"] = method
-                sent["headers"] = kwargs.get("headers")
-                sent["timeout"] = kwargs.get("timeout")
-                return _Response()
+    def close(self):
+        pass
 
-            def close(self):
-                pass
 
-        with (
-            patch("dw.locations._pinned_session", lambda url, address: _Session()),
-            patch.object(remote.torch, "load", return_value=_Embeds()),
-            patch(
-                "dw.locations.socket.getaddrinfo",
-                return_value=[(None, None, None, "", ("93.184.216.34", 443))],
-            ),
-        ):
-            remote.remote_text_encoder(["a"], "https://evil.example.com/encode", "cpu")
+class _Session:
+    def request(self, method, url, **kwargs):
+        sent["method"] = method
+        sent["headers"] = kwargs.get("headers")
+        sent["timeout"] = kwargs.get("timeout")
+        return _Response()
 
-        assert "Authorization" not in sent["headers"]
-        assert sent["method"] == "POST"
-        assert sent["timeout"] == remote.REMOTE_ENCODER_TIMEOUT
+    def close(self):
+        pass
+
+
+with (
+    patch("dw.locations._pinned_session", lambda url, address: _Session()),
+    patch.object(remote.torch, "load", return_value=_Embeds()),
+    patch(
+        "dw.locations.socket.getaddrinfo",
+        return_value=[(None, None, None, "", ("93.184.216.34", 443))],
+    ),
+):
+    remote.remote_text_encoder(["a"], "https://evil.example.com/encode", "cpu")
+
+assert "Authorization" not in sent["headers"]
+assert sent["method"] == "POST"
+assert sent["timeout"] == remote.REMOTE_ENCODER_TIMEOUT
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -677,7 +687,13 @@ def _read_capped(response, max_bytes, what, url):
 
 
 def _safe_request(
-    method, url, what, timeout, validate=validate_media_url, max_bytes=MAX_MEDIA_BYTES, **kwargs
+    method,
+    url,
+    what,
+    timeout,
+    validate=validate_media_url,
+    max_bytes=MAX_MEDIA_BYTES,
+    **kwargs,
 ):
     """One outbound request on the workflow's behalf: `validate` on the URL
     and on every redirect target, each hop dialed at the address the policy
@@ -733,7 +749,12 @@ def safe_get(url, what="a media argument", timeout=60, max_bytes=MAX_MEDIA_BYTES
 
 
 def safe_post(
-    url, what, timeout=120, max_bytes=MAX_MEDIA_BYTES, validate=validate_media_url, **kwargs
+    url,
+    what,
+    timeout=120,
+    max_bytes=MAX_MEDIA_BYTES,
+    validate=validate_media_url,
+    **kwargs,
 ):
     """POST on a workflow's behalf, the way safe_get fetches: `kwargs` are
     requests' own (`json=`, `headers=`)."""
@@ -877,39 +898,41 @@ Context: `cancel()` on a RUNNING job calls `slot.manager.cancel()` immediately. 
 Append to `class TestCancel` in `tests/test_worker_pool.py`:
 
 ```python
-    def test_a_cancel_before_the_execute_is_sent_still_lands(self, pool):
-        """The dispatcher marks RUNNING before the job's thread takes the
-        slot; a cancel in that window used to reach an idle worker, which
-        ignores it, and the job ran anyway."""
-        gate = Gate()
-        manager = pool(card(gate, "cuda:0", 24))
-        slot = manager.slots[0]
-        with slot.lock:  # a cache probe holds the card between dispatch and Execute
-            job = submit(manager, "late-cancel")
-            assert wait_until(lambda: job.status == "running")
-            assert manager.cancel(job.id) == "running"
-        wait_for(job, {"cancelled"})
-        assert not gate.started.is_set(), "the worker was still sent the job"
+def test_a_cancel_before_the_execute_is_sent_still_lands(self, pool):
+    """The dispatcher marks RUNNING before the job's thread takes the
+    slot; a cancel in that window used to reach an idle worker, which
+    ignores it, and the job ran anyway."""
+    gate = Gate()
+    manager = pool(card(gate, "cuda:0", 24))
+    slot = manager.slots[0]
+    with slot.lock:  # a cache probe holds the card between dispatch and Execute
+        job = submit(manager, "late-cancel")
+        assert wait_until(lambda: job.status == "running")
+        assert manager.cancel(job.id) == "running"
+    wait_for(job, {"cancelled"})
+    assert not gate.started.is_set(), "the worker was still sent the job"
 
-    def test_a_cancel_after_the_job_finished_is_a_no_op(self, pool):
-        manager = pool(card(success_script, "cuda:0", 24))
-        job = submit(manager, "done")
-        wait_for(job, {"succeeded"})
-        assert manager.cancel(job.id) == "succeeded"
-        assert job.status == "succeeded"
 
-    def test_cancelling_a_queued_job_drops_its_dispatch_bookkeeping(self, pool):
-        gate = Gate()
-        manager = pool(card(gate, "cuda:0", 24))
-        first = submit(manager, "first")
-        gate.wait_started()
-        second = submit(manager, "second", vram_need=(8, True))
-        assert second.id in manager._needs
-        assert manager.cancel(second.id) == "cancelled"
-        assert second.id not in manager._needs
-        assert second.id not in manager._preferred
-        gate.release.set()
-        wait_for(first, {"succeeded"})
+def test_a_cancel_after_the_job_finished_is_a_no_op(self, pool):
+    manager = pool(card(success_script, "cuda:0", 24))
+    job = submit(manager, "done")
+    wait_for(job, {"succeeded"})
+    assert manager.cancel(job.id) == "succeeded"
+    assert job.status == "succeeded"
+
+
+def test_cancelling_a_queued_job_drops_its_dispatch_bookkeeping(self, pool):
+    gate = Gate()
+    manager = pool(card(gate, "cuda:0", 24))
+    first = submit(manager, "first")
+    gate.wait_started()
+    second = submit(manager, "second", vram_need=(8, True))
+    assert second.id in manager._needs
+    assert manager.cancel(second.id) == "cancelled"
+    assert second.id not in manager._needs
+    assert second.id not in manager._preferred
+    gate.release.set()
+    wait_for(first, {"succeeded"})
 ```
 
 - [ ] **Step 2: Run them to verify they fail**
@@ -1026,27 +1049,28 @@ Context: the held-track outputs are added only when `output` is a list containin
 Append to `class TestWithHeldAudio` in `tests/test_h3_hold_audio.py`:
 
 ```python
-    def test_a_string_output_naming_audio_gets_the_held_keys_too(self):
-        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
-        insert_audio_hold(pipeline)
-        reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
+def test_a_string_output_naming_audio_gets_the_held_keys_too(self):
+    pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+    insert_audio_hold(pipeline)
+    reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
 
-        result = Pipeline._with_held_audio(
-            ns(pipeline), {"hold_audio": reference, "output": "audio"}
-        )
+    result = Pipeline._with_held_audio(
+        ns(pipeline), {"hold_audio": reference, "output": "audio"}
+    )
 
-        assert result["output"] == ["audio", HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
+    assert result["output"] == ["audio", HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
 
-    def test_a_string_output_not_naming_audio_is_left_as_written(self):
-        pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
-        insert_audio_hold(pipeline)
-        reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
 
-        result = Pipeline._with_held_audio(
-            ns(pipeline), {"hold_audio": reference, "output": "videos"}
-        )
+def test_a_string_output_not_naming_audio_is_left_as_written(self):
+    pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+    insert_audio_hold(pipeline)
+    reference = MiniMaxH3AudioReference(audio=torch.zeros(2, 10), sample_rate=8000)
 
-        assert result["output"] == "videos"
+    result = Pipeline._with_held_audio(
+        ns(pipeline), {"hold_audio": reference, "output": "videos"}
+    )
+
+    assert result["output"] == "videos"
 ```
 
 - [ ] **Step 2: Run them to verify they fail**

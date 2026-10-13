@@ -7,6 +7,13 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.14.0
+
+- Gallery files are tagged final or intermediate (inferred when a
+  workflow doesn't say) and the gallery opens on finals; runs, files,
+  assets and workspaces take an optional note (`note` on `run_workflow`,
+  MCP `set_note`).
+
 ### 0.13.0
 
 <!-- Drafted from v0.12.0..develop. Paste into the GitHub release body once the tag has published: gh release edit v0.13.0 --notes-file ... -->

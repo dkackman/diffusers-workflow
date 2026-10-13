@@ -254,9 +254,16 @@ def test_for_each_members_are_steps_of_their_own():
     steps = [
         _step("shot@0"),
         _step("shot@1"),
-        _step("join", args={"videos": ["previous_result:shot@0", "previous_result:shot@1"]}),
+        _step(
+            "join",
+            args={"videos": ["previous_result:shot@0", "previous_result:shot@1"]},
+        ),
     ]
-    manifest = [_entry("shot@0", "0.mp4"), _entry("shot@1", "1.mp4"), _entry("join", "j.mp4")]
+    manifest = [
+        _entry("shot@0", "0.mp4"),
+        _entry("shot@1", "1.mp4"),
+        _entry("join", "j.mp4"),
+    ]
     roles = step_roles(steps, manifest)
     assert roles["shot@0"] == roles["shot@1"] == INTERMEDIATE
     assert roles["join"] == FINAL
@@ -451,7 +458,9 @@ def run_inputs(steps):
             continue
         for value in _walk_strings(step):
             for prefix, kind in _INPUT_KINDS:
-                if is_ref(prefix, value) and value not in (s["reference"] for s in seen):
+                if is_ref(prefix, value) and value not in (
+                    s["reference"] for s in seen
+                ):
                     seen.append({"reference": value, "kind": kind})
     return seen
 ```
@@ -489,14 +498,25 @@ Append to `tests/test_roles.py`:
 
 ```python
 import pytest
-from dw.validation import validate_workflow_definition  # use the name tests/test_schema*.py use
+from dw.validation import (
+    validate_workflow_definition,
+)  # use the name tests/test_schema*.py use
 
 
-@pytest.mark.parametrize("role,ok", [("final", True), ("intermediate", True), ("input", False), ("keeper", False)])
+@pytest.mark.parametrize(
+    "role,ok",
+    [("final", True), ("intermediate", True), ("input", False), ("keeper", False)],
+)
 def test_schema_role_values(role, ok):
     workflow = {
         "id": "t",
-        "steps": [{"name": "s", "task": {"command": "noop", "arguments": {}}, "result": {"role": role}}],
+        "steps": [
+            {
+                "name": "s",
+                "task": {"command": "noop", "arguments": {}},
+                "result": {"role": role},
+            }
+        ],
     }
     errors = validate_workflow_definition(workflow)
     assert (not errors) == ok
@@ -571,7 +591,9 @@ import json, os
 # into a tmp output dir and return the run directory
 
 
-def test_terminal_manifest_records_roles_and_inputs(run_workflow_into, tmp_path, asset_png):
+def test_terminal_manifest_records_roles_and_inputs(
+    run_workflow_into, tmp_path, asset_png
+):
     workflow = {
         "id": "roles-e2e",
         "steps": [
@@ -730,41 +752,69 @@ def _write_run(root, identity, run_id, steps, realized=None, files=()):
         path = os.path.join(run_dir, f)
         os.makedirs(os.path.dirname(path), exist_ok=True)
         open(path, "wb").write(b"\x89PNG\r\n\x1a\n")
-    json.dump({"run_id": run_id, "version": 1, "status": "succeeded", "steps": steps},
-              open(os.path.join(run_dir, "manifest.json"), "w"))
+    json.dump(
+        {"run_id": run_id, "version": 1, "status": "succeeded", "steps": steps},
+        open(os.path.join(run_dir, "manifest.json"), "w"),
+    )
     if realized is not None:
         json.dump(realized, open(os.path.join(run_dir, "workflow.json"), "w"))
     return run_dir
 
 
 def test_recorded_roles_reach_the_listing(client, output_root):
-    _write_run(output_root, "wf", "20261012-000000-aaaa",
-               [{"step": "a", "files": ["a.png"], "role": "intermediate"},
-                {"step": "b", "files": ["b.png"], "role": "final"}],
-               files=["a.png", "b.png"])
+    _write_run(
+        output_root,
+        "wf",
+        "20261012-000000-aaaa",
+        [
+            {"step": "a", "files": ["a.png"], "role": "intermediate"},
+            {"step": "b", "files": ["b.png"], "role": "final"},
+        ],
+        files=["a.png", "b.png"],
+    )
     files = {f["label"]: f for f in client.get("/api/gallery").json()["files"]}
     assert files["a.png"]["role"] == "intermediate"
     assert files["b.png"]["role"] == "final"
 
 
 def test_older_run_roles_inferred_from_realized_workflow(client, output_root):
-    realized = {"id": "wf", "steps": [
-        {"name": "a", "task": {"command": "noop", "arguments": {}}},
-        {"name": "b", "task": {"command": "noop", "arguments": {"image": "previous_result:a"}}},
-    ]}
-    _write_run(output_root, "wf", "20261012-000001-bbbb",
-               [{"step": "a", "files": ["a.png"]}, {"step": "b", "files": ["b.png"]}],
-               realized=realized, files=["a.png", "b.png"])
+    realized = {
+        "id": "wf",
+        "steps": [
+            {"name": "a", "task": {"command": "noop", "arguments": {}}},
+            {
+                "name": "b",
+                "task": {
+                    "command": "noop",
+                    "arguments": {"image": "previous_result:a"},
+                },
+            },
+        ],
+    }
+    _write_run(
+        output_root,
+        "wf",
+        "20261012-000001-bbbb",
+        [{"step": "a", "files": ["a.png"]}, {"step": "b", "files": ["b.png"]}],
+        realized=realized,
+        files=["a.png", "b.png"],
+    )
     files = {f["label"]: f for f in client.get("/api/gallery").json()["files"]}
     assert files["a.png"]["role"] == "intermediate"
     assert files["b.png"]["role"] == "final"
 
 
 def test_role_filter(client, output_root):
-    _write_run(output_root, "wf", "20261012-000002-cccc",
-               [{"step": "a", "files": ["a.png"], "role": "intermediate"},
-                {"step": "b", "files": ["final/b.png"], "role": "final"}],
-               files=["a.png", "final/b.png"])
+    _write_run(
+        output_root,
+        "wf",
+        "20261012-000002-cccc",
+        [
+            {"step": "a", "files": ["a.png"], "role": "intermediate"},
+            {"step": "b", "files": ["final/b.png"], "role": "final"},
+        ],
+        files=["a.png", "final/b.png"],
+    )
     finals = client.get("/api/gallery", params={"role": "final"}).json()["files"]
     assert [f["label"] for f in finals] == ["b.png"]
 
@@ -778,8 +828,13 @@ def test_flat_file_has_null_role_and_passes_final_filter(client, output_root):
 
 
 def test_metadata_carries_role_and_inputs(client, output_root):
-    run_dir = _write_run(output_root, "wf", "20261012-000003-dddd",
-               [{"step": "b", "files": ["b.png"], "role": "final"}], files=["b.png"])
+    run_dir = _write_run(
+        output_root,
+        "wf",
+        "20261012-000003-dddd",
+        [{"step": "b", "files": ["b.png"], "role": "final"}],
+        files=["b.png"],
+    )
     manifest_path = os.path.join(run_dir, "manifest.json")
     manifest = json.load(open(manifest_path))
     manifest["inputs"] = [{"reference": "asset:iris.png", "kind": "asset"}]
@@ -862,11 +917,9 @@ The relative name inside it is `relative_name` with the
 `f"{folder}/{run_id}/"` prefix removed. Then:
 
 ```python
-        entry["role"] = (
-            run_roles(os.path.join(root, folder, run_id)).get(inner_name)
-            if run_id
-            else None
-        )
+entry["role"] = (
+    run_roles(os.path.join(root, folder, run_id)).get(inner_name) if run_id else None
+)
 ```
 
 Add a `role: list[str] | None = Query(None)` parameter to the gallery
@@ -897,10 +950,12 @@ the manifest for `job`, `shots` and so on.
 In `dw_mcp/tools_catalog.py`, `list_gallery` gains:
 
 ```python
-    role: Annotated[
-        list[Literal["final", "intermediate"]] | None,
-        Field(description="Only files of these roles. A deliverable is 'final', a file a later step consumed is 'intermediate'. Omit for every file - intermediates matter when diagnosing a run."),
-    ] = None,
+role: Annotated[
+    list[Literal["final", "intermediate"]] | None,
+    Field(
+        description="Only files of these roles. A deliverable is 'final', a file a later step consumed is 'intermediate'. Omit for every file - intermediates matter when diagnosing a run."
+    ),
+] = (None,)
 ```
 
 Forward it as the repeated `role` query parameter in `dw_mcp/catalog.py`,
@@ -1243,7 +1298,10 @@ def test_corrupt_file_reads_empty(tmp_path):
 
 def test_concurrent_file_notes_all_land(tmp_path):
     d = str(tmp_path)
-    threads = [threading.Thread(target=N.set_file_note, args=(d, f"{i}.png", str(i))) for i in range(20)]
+    threads = [
+        threading.Thread(target=N.set_file_note, args=(d, f"{i}.png", str(i)))
+        for i in range(20)
+    ]
     [t.start() for t in threads]
     [t.join() for t in threads]
     assert len(N.read_notes(d)["files"]) == 20
@@ -1254,7 +1312,9 @@ def test_workspace_note(tmp_path):
     assert N.read_workspace_note(root) is None
     N.set_workspace_note(root, "the anthem project")
     assert N.read_workspace_note(root) == "the anthem project"
-    assert json.load(open(tmp_path / N.WORKSPACE_FILE_NAME)) == {"notes": "the anthem project"}
+    assert json.load(open(tmp_path / N.WORKSPACE_FILE_NAME)) == {
+        "notes": "the anthem project"
+    }
     N.set_workspace_note(root, None)
     assert not os.path.exists(tmp_path / N.WORKSPACE_FILE_NAME)
 
@@ -1372,7 +1432,9 @@ def clean_note(note):
     if not note.strip():
         return None
     if len(note) > MAX_NOTE_LENGTH:
-        raise NoteTooLong(f"a note is at most {MAX_NOTE_LENGTH} characters, got {len(note)}")
+        raise NoteTooLong(
+            f"a note is at most {MAX_NOTE_LENGTH} characters, got {len(note)}"
+        )
     return note
 
 
@@ -1395,7 +1457,9 @@ def read_notes(directory):
     data = _read_json(os.path.join(directory, NOTES_FILE_NAME))
     run = data.get("run") if isinstance(data.get("run"), str) else None
     files = data.get("files") if isinstance(data.get("files"), dict) else {}
-    files = {k: v for k, v in files.items() if isinstance(k, str) and isinstance(v, str)}
+    files = {
+        k: v for k, v in files.items() if isinstance(k, str) and isinstance(v, str)
+    }
     return {"run": run, "files": files}
 
 
@@ -1688,13 +1752,17 @@ Expected: FAIL with 404 or 405 on `/api/notes`.
 In `dw/server/routes/media.py`:
 
 ```python
-class NoteRequest(BaseModel):  # or define in api_models.py next to the response, per file convention
+class NoteRequest(
+    BaseModel
+):  # or define in api_models.py next to the response, per file convention
     target: str
     note: Optional[str] = None
 
 
 @router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
-def put_note(request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)):
+def put_note(
+    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
+):
     """Set or clear the note on a run, a file, an asset or a workspace."""
     try:
         note = clean_note(body.note)
@@ -1712,7 +1780,11 @@ def put_note(request: Request, body: NoteRequest, ws: Workspace = Depends(select
             stored, source = effective_note(read_notes(directory), name)
     except OSError as e:
         raise HTTPException(status_code=500, detail=f"Could not write the note: {e}")
-    return {"target": body.target, "note": stored, "note_source": source if stored else None}
+    return {
+        "target": body.target,
+        "note": stored,
+        "note_source": source if stored else None,
+    }
 ```
 
 Write `resolve_note_target(state, ws, target) -> (directory, name, kind)`
@@ -1847,11 +1919,18 @@ def test_set_note_puts_target_and_note(fake_server):
     result = set_note(target="wf/20261012-000000-aaaa", note="shift 5")
     assert fake_server.last_request.method == "PUT"
     assert fake_server.last_request.path == "/api/notes"
-    assert fake_server.last_request.json == {"target": "wf/20261012-000000-aaaa", "note": "shift 5"}
+    assert fake_server.last_request.json == {
+        "target": "wf/20261012-000000-aaaa",
+        "note": "shift 5",
+    }
 
 
 def test_run_workflow_forwards_note(fake_server):
-    run_workflow(workflow_path="templates/text-to-image", note="seed sweep 1/4", acknowledged_cost=True)
+    run_workflow(
+        workflow_path="templates/text-to-image",
+        note="seed sweep 1/4",
+        acknowledged_cost=True,
+    )
     assert fake_server.last_job_body["note"] == "seed sweep 1/4"
 
 
