@@ -5,8 +5,8 @@ Each of these cost a render to find out in Don's `h3-quality` matrix:
 - `cache_short_schedule`: a threshold cache (`first_block`, `mag`) on a
   schedule under `CACHE_MIN_USEFUL_STEPS`. Consecutive steps of a short
   schedule differ too much for the residual threshold, so the cache skips
-  nothing and still perturbs the result - P2 ran a `first_block` cache at 12
-  steps for 12.9 min and skipped no step. `docs/RECIPES_24GB.md` states the
+  nothing and still perturbs the result - on MiniMax-H3 a `first_block` cache
+  at 0.05 skipped no step at 12 steps and took 22% off at 30. `docs/RECIPES_24GB.md` states the
   rule and `tests/test_catalog_speed_defaults.py` holds the catalog to it;
   this is where a hand-written workflow meets it. The interval caches
   (`taylorseer`, `faster`) skip on a fixed interval and `text_kv` skips no
@@ -33,8 +33,8 @@ from .references import iter_steps, render_path
 from .vram_estimate import required_vram_gb
 
 # The fewest denoise steps a threshold cache is expected to skip any of. A
-# general fact about residual-threshold caching, not a per-model rule: P2
-# skipped nothing at 12 steps and ~25% at 30 (RECIPES_24GB.md); nothing
+# general fact about residual-threshold caching, not a per-model rule: H3
+# skipped nothing at 12 steps and 22% at 30 (RECIPES_24GB.md); nothing
 # between has been measured yet (#875 measures 20)
 CACHE_MIN_USEFUL_STEPS = 20
 
@@ -208,5 +208,10 @@ def acceleration_warnings(context):
                 f"so the job will fail at load{where}; leave it unset or use a "
                 f"'native'-family backend"
             )
-    # A for_each step's members share their written path; say each once
-    return list(dict.fromkeys(warnings))
+    # A for_each step's members share their written path: say each code once
+    # there, naming the first member it fired for
+    said = {}
+    for warning in warnings:
+        path, _, rest = warning.partition(": ")
+        said.setdefault((path, rest.partition(": ")[0]), warning)
+    return list(said.values())
