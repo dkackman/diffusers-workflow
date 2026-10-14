@@ -418,3 +418,23 @@ def test_apply_vram_estimate_raises_with_no_variables_block_at_all():
     assert "variables" not in d
     with pytest.raises(ValueError):
         apply_vram_estimate(d, variables=None, device_type="cuda", capacity_gb=24.0)
+
+
+def test_a_projection_between_the_real_card_and_its_rounded_catalog_entry_is_refused():
+    # 768*512*121 voxels * 1 byte/voxel = 0.04 GiB; a base of 23.9 projects to
+    # 23.94 GB: under the catalog's "24" but over a 3090's 23.6 (#900)
+    d = definition()
+    d["vram_estimate"] = {
+        "voxel_variables": ["width", "height", "num_frames"],
+        "base_gb": 23.9,
+        "bytes_per_voxel": 1,
+    }
+    errors = vram_estimate_errors(
+        d, device_type="cuda", capacity_gb=23.6, capacity_label="cuda:0 RTX 3090"
+    )
+    assert len(errors) == 1
+    assert "cuda:0 RTX 3090" in errors[0]["message"]
+    assert "above the 23.6 GB" in errors[0]["message"]
+    assert vram_estimate_errors(d, device_type="cuda", capacity_gb=24) == []
+    with pytest.raises(ValueError):
+        apply_vram_estimate(d, d["variables"], device_type="cuda", capacity_gb=23.6)

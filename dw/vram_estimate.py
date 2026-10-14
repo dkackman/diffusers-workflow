@@ -55,6 +55,7 @@ The entries checked are the serving device's own (see `_entries_for`);
 is an estimate of an estimate.
 """
 
+import math
 import numbers
 
 from .references import FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY, VARIABLE, ref_name
@@ -215,6 +216,27 @@ def _entries_for(cost, device_type, capacity_gb, capacity_label=None):
         if str(entry.get("device", "")).split(":")[0] == device_type
     ]
     if matching:
+        # The catalog writes a card's GiB rounded up (a 3090 is "24"), but
+        # the queue gate holds a projection to what the card reports (23.6),
+        # so a projection between the two must be reported here as well
+        # (#900)
+        known = [
+            entry["vram_gb"]
+            for entry in matching
+            if _as_number(entry.get("vram_gb")) is not None
+        ]
+        if (
+            capacity_gb is not None
+            and known
+            and round(capacity_gb, 1) < min(known) <= math.ceil(capacity_gb)
+        ):
+            return matching + [
+                {
+                    "name": capacity_label
+                    or f"this {device_type} device (recommended maximum)",
+                    "vram_gb": round(capacity_gb, 1),
+                }
+            ]
         return matching
     if capacity_gb is not None:
         return [
