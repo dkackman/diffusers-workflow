@@ -1185,3 +1185,64 @@ class TestLabelAndIdentityRules:
             "x",
         )
         assert JobManager.identity_of("inline", None, None) == ("inline", None)
+
+
+class TestCancelDuringLoading:
+    def test_a_cancel_in_a_load_terminates_the_worker_and_cancels(
+        self, pool, monkeypatch
+    ):
+        from dw.server import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
+        gate = Gate()
+        worker = card(gate, "cuda:0", 24)
+        terminated = []
+        worker.terminate_worker = lambda: (terminated.append(1), gate.release.set())
+        manager = pool(worker)
+        job = submit(manager, "loading")
+        gate.wait_started()
+        job.add_event({"event": "phase", "phase": "loading", "detail": "pipeline"})
+        manager.cancel(job.id)
+        assert job.summary()["cancel_requested"] is True
+        wait_for(job, {"cancelled"})
+        assert terminated
+
+    def test_a_cancel_in_an_interruptible_phase_is_not_escalated(
+        self, pool, monkeypatch
+    ):
+        from dw.server import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
+        gate = Gate()
+        worker = card(gate, "cuda:0", 24)
+        terminated = []
+        worker.terminate_worker = lambda: terminated.append(1)
+        manager = pool(worker)
+        job = submit(manager, "denoising")
+        gate.wait_started()
+        job.add_event({"event": "phase", "phase": "generating"})
+        manager.cancel(job.id)
+        time.sleep(0.4)
+        assert not terminated
+        gate.release.set()
+        wait_for(job, {"cancelled"})
+
+
+def test_a_worker_that_dies_under_a_requested_cancel_reads_as_cancelled(tmp_path):
+    from dw.server import job_results
+    from dw.server.job_record import Job
+
+    class Dead:
+        def get_result(self):
+            raise RuntimeError("Worker process died while waiting for results")
+
+        def crash_details(self):
+            return "terminated"
+
+        def mark_crashed(self):
+            pass
+
+    job = Job({"workflow_name": "w"})
+    job.cancel_requested = True
+    outcome = job_results.consume_results(job, Dead(), None, str(tmp_path), None)
+    assert outcome == ("cancelled", None, None)

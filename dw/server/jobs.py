@@ -40,6 +40,7 @@ import logging
 import threading
 from contextlib import contextmanager
 
+from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
 from ..devices import device_ordinal
 from ..host_memory import process_rss_mb, read_oom_score_adj
@@ -79,6 +80,10 @@ logger = logging.getLogger("dw")
 # Finished jobs kept in memory for SSE replay grace; older ones live in
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
+
+# How long a cancel waits for a worker in a phase with no checkpoint (a model
+# load, a task) before the worker is terminated (#892)
+CANCEL_GRACE_SECONDS = 30.0
 
 
 class JobsActive(Exception):
@@ -665,7 +670,41 @@ class JobManager:
                     slot.manager.cancel()
                 except Exception as e:
                     logger.warning(f"Could not send cancel for job {job_id}: {e}")
+                self._escalate_cancel(slot, job)
         return job.status
+
+    def _escalate_cancel(self, slot, job):
+        """A model load or a task step never reaches the checkpoint that
+        honors a cancel, and a cold download can last hours. Once the grace
+        period has passed and the job is still in such a phase, the worker
+        is terminated and the job ends cancelled (#892); it respawns for the
+        next job."""
+        timer = threading.Timer(
+            CANCEL_GRACE_SECONDS, self._terminate_if_stuck, args=(slot, job)
+        )
+        timer.daemon = True
+        timer.start()
+
+    def _terminate_if_stuck(self, slot, job):
+        with self._lock:
+            stuck = (
+                job.status == RUNNING
+                and slot.current_job_id == job.id
+                and job.phase in NON_INTERRUPTIBLE_PHASES
+            )
+        if not stuck:
+            return
+        job.add_event(
+            {
+                "event": "log",
+                "message": f"Cancel still pending in phase '{job.phase}' after "
+                f"{CANCEL_GRACE_SECONDS:g}s: terminating the worker",
+            }
+        )
+        try:
+            slot.manager.terminate_worker()
+        except Exception as e:
+            logger.warning(f"Could not terminate the worker for job {job.id}: {e}")
 
     def move(self, job_id, direction):
         """Reorder a queued job: 'up'/'down' swap with a neighbour,

@@ -299,6 +299,14 @@ class Job:
             "run_version": self.run_version,
             "device": self.device,
             "acknowledged": self.acknowledged,
+            # A cancel asked of a running job that has not stopped yet: a
+            # model load or a task has no checkpoint, so the job stays
+            # `running` for a while after the request (#892)
+            **(
+                {"cancel_requested": True}
+                if self.cancel_requested and self.status == RUNNING
+                else {}
+            ),
             **({"note": self.note} if self.note else {}),
         }
 
