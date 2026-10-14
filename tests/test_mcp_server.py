@@ -1697,7 +1697,10 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 2026-10-14 (#889, #871 stage A): compare_outputs (60.75 description +
 # 200.75 schema - `crop` is one box or one per name) - measured at 14_989.25
 # (9_470 / 5_009 / 510.25); the ceiling moves to 14_990 with 0.75 of headroom.
-SURFACE_BUDGET = 14_990
+# 2026-10-14 (#886, #867 stage 2): get_job_events' description names the
+# `cache_stats` kind (+15 description) - measured at 15_004.25 (9_485 /
+# 5_009 / 510.25); the ceiling moves to 15_005 with 0.75 of headroom.
+SURFACE_BUDGET = 15_005
 
 
 @pytest.mark.asyncio

@@ -16,6 +16,7 @@ from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning
 from .. import download_watch
 from .. import quantized_cache
 from huggingface_hub.errors import HfHubHTTPError
+from .timing import counting_forwards, report_cache_stats
 from .h3_guides import insert_guides
 from .h3_hold import insert_audio_hold
 from .placement import (
@@ -930,7 +931,7 @@ def captured_mag_calibration(pipeline, arguments=None):
 
 
 @contextlib.contextmanager
-def stateful_cache_context(pipeline):
+def stateful_cache_context(pipeline, segment=None):
     """Provide the context a stateful cache hook reads its state through.
 
     first_block, mag and layer_skip keep per-context state, and their hooks go
@@ -947,6 +948,11 @@ def stateful_cache_context(pipeline):
     to keep their caches apart, which a shared context would defeat - but a modular
     pipeline that needed that would be setting its own contexts already, and this
     is a no-op for pipelines whose cache is not enabled.
+
+    The call's skip counts are taken here too (dw/pipeline_processors/timing.py):
+    a forward hook counts each denoiser forward, and the `cache_stats` event
+    (naming the chain `segment`, when there is one) goes out before the state
+    is reset, the hook removed after it.
     """
     transformer = get_cache_transformer(pipeline)
     if transformer is None or not getattr(transformer, "is_cache_enabled", False):
@@ -954,10 +960,15 @@ def stateful_cache_context(pipeline):
         return
 
     logger.debug(f"Entering cache context for {transformer.__class__.__name__}")
+    counter, stop_counting = counting_forwards(transformer)
     try:
         with transformer.cache_context(_CACHE_CONTEXT_NAME):
             yield
     finally:
+        try:
+            report_cache_stats(counter, segment)
+        finally:
+            stop_counting()
         # Private, but it is what diffusers' own pipelines call and there is no
         # public equivalent. Also clears the context an errored call left set
         transformer._reset_stateful_cache()

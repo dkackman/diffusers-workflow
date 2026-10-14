@@ -4256,6 +4256,12 @@
         "additionalProperties": true,
         "description": "Where one pipeline step's time went, on the worker's monotonic clock\n(dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field\nwhose mark never happened is null, never guessed. Open, like the entry.",
         "properties": {
+          "cache": {
+            "additionalProperties": true,
+            "description": "Skip counts, on a step that set a `cache`.",
+            "title": "Cache",
+            "type": "object"
+          },
           "compiled": {
             "anyOf": [
               {
