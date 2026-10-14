@@ -140,6 +140,10 @@ embeddings across denoising steps, recomputing only what the latents need:
 
 No parameters.
 
+### Reading the skip counts
+
+A step that set a `cache` reports `timing.cache` on its manifest entry (fields in [WORKSPACES.md](WORKSPACES.md#step-timing)). `hit_rate` is the fraction of denoiser forwards whose remaining blocks were skipped. It counts forwards, not steps: classifier-free guidance runs two per step, so a 30-step run is 60 forwards. Only `first_block` and `mag` are counted; `taylorseer`, `faster` and `text_kv` report null counts. A cache with zero skips can still change the output, so a 0-skip run is not guaranteed bit-identical to an uncached one. With `first_block` the head block always runs, and enabling any cache wraps the blocks in hooks that recompute the residual (the tail's output minus the head's, in the transformer's dtype), which changes the order and precision of operations; the MiniMax-H3 matrix run P2 saw a changed output with nothing skipped. Judge quality against an uncached run, not against `skipped == 0`. A threshold sweep (#875) reads `hit_rate` against quality.
+
 ## Attention Backends
 
 Select the attention implementation diffusers uses for the duration of each pipeline call, via a context manager wrapped around `pipeline(...)`:

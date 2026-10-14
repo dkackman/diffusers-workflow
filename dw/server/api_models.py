@@ -428,6 +428,7 @@ class StepTiming(ApiModel):
         description="Pipeline calls summed into this timing: chain segments "
         "or iterations; 1 for a plain step."
     )
+    cache: dict[str, Any] = sometimes("Skip counts, on a step that set a `cache`.")
 
 
 class ManifestEntry(ApiModel):

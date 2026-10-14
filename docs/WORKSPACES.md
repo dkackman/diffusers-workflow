@@ -263,6 +263,8 @@ the load and encode events are gone from a long job. Every `_s` is seconds to
 | `save_s` | Writing the step's files |
 | `segments` | Pipeline calls summed into this timing. A chain step sums its segments into one timing with `segments: N`; a step that iterates counts each call. 1 for a plain step |
 
+A step that set a `cache` also carries `timing.cache`: `{type, threshold, forwards, computed, skipped, hit_rate}`. `forwards` counts denoiser forwards, not steps - classifier-free guidance runs two per step (cond and uncond), so it is a whole multiple of `passes` - and `computed + skipped == forwards`; `hit_rate` is `skipped / forwards` to 3 places. A chain sums the counts over its segments. Counted for `first_block` and `mag` (`mag` also reports `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `calibrate`); `taylorseer` (with `cache_interval`, `max_order`), `faster` and `text_kv` keep no per-forward decision in diffusers, so they report `type` and their config keys with `threshold` and every count null. A step with no cache has no `cache` key. If the installed diffusers moved the hook state dw reads, the counts are null and one `warning` event with `kind: "cache_stats_unavailable"` is emitted; the run never fails for it. The same fields arrive live as a `cache_stats` event ([SERVER.md](SERVER.md#progress-events)). See [Reading the skip counts](ACCELERATION.md#reading-the-skip-counts).
+
 A step served from the step cache (`reused: true`) has no `timing`, nor does a
 task step or a composed (sub-workflow) step. A failed or cancelled step has no
 manifest entry, so no timing. Job summaries and history are unchanged.

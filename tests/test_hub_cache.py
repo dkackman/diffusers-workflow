@@ -2,6 +2,7 @@
 deleting it through huggingface_hub's own strategy."""
 
 import json
+import os
 
 import pytest
 
@@ -68,7 +69,11 @@ def make_pipeline_repo(
     (repo / "refs" / "main").write_text(commit)
     index = {"_class_name": "SomePipeline"}
     for component in components or {}:
-        index[component] = ["diffusers", "SomeComponent"]
+        weightless = component in ("scheduler", "tokenizer")
+        index[component] = [
+            "diffusers",
+            "SomeScheduler" if weightless else "SomeComponent",
+        ]
     (snapshot / "model_index.json").write_text(json.dumps(index))
     for component, files in (components or {}).items():
         folder = snapshot / component
@@ -179,6 +184,69 @@ class TestRepoDownloadIncomplete:
             repo_download_incomplete("acme/pipe", cache_dir=tmp_path, variant="fp16")
             is False
         )
+
+
+class TestConfigOnlyComponents:
+    """#894: FLUX.1-dev with every component folder holding only its small
+    config files read as fully cached, and the run then pulled ~33 GB."""
+
+    def _repo(self, tmp_path, classes, files):
+        repo = make_pipeline_repo(tmp_path, components=files)
+        snapshot = next((repo / "snapshots").iterdir())
+        index = json.loads((snapshot / "model_index.json").read_text())
+        for name, cls in classes.items():
+            index[name] = ["diffusers", cls]
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+        return snapshot
+
+    def test_a_weight_bearing_component_with_only_a_config_is_incomplete(
+        self, tmp_path
+    ):
+        self._repo(
+            tmp_path,
+            {
+                "transformer": "FluxTransformer2DModel",
+                "scheduler": "FlowMatchEulerDiscreteScheduler",
+            },
+            {"transformer": ["config.json"], "scheduler": ["scheduler_config.json"]},
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    def test_weightless_components_alone_are_complete(self, tmp_path):
+        self._repo(
+            tmp_path,
+            {
+                "scheduler": "FlowMatchEulerDiscreteScheduler",
+                "tokenizer": "CLIPTokenizer",
+            },
+            {"scheduler": ["scheduler_config.json"], "tokenizer": ["vocab.json"]},
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
+
+    def test_a_shard_named_by_the_index_but_absent_is_incomplete(self, tmp_path):
+        snapshot = self._repo(
+            tmp_path,
+            {"transformer": "FluxTransformer2DModel"},
+            {"transformer": ["m-00001-of-00002.safetensors"]},
+        )
+        (snapshot / "transformer" / "m.safetensors.index.json").write_text(
+            json.dumps(
+                {
+                    "weight_map": {
+                        "a": "m-00001-of-00002.safetensors",
+                        "b": "m-00002-of-00002.safetensors",
+                    }
+                }
+            )
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    def test_a_dangling_weight_symlink_is_incomplete(self, tmp_path):
+        snapshot = self._repo(
+            tmp_path, {"transformer": "FluxTransformer2DModel"}, {"transformer": []}
+        )
+        os.symlink(tmp_path / "gone", snapshot / "transformer" / "model.safetensors")
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
 
 
 class FakeSibling:
