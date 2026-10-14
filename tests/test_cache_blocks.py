@@ -515,7 +515,9 @@ def test_mag_calibration_silent_without_calibrate(monkeypatch):
     monkeypatch.setattr(components, "emit_warning", warnings.append)
     model = _mag_model(3)
     model.disable_cache()
-    model.enable_cache(MagCacheConfig(mag_ratios=[1.0, 0.9, 0.8], num_inference_steps=3))
+    model.enable_cache(
+        MagCacheConfig(mag_ratios=[1.0, 0.9, 0.8], num_inference_steps=3)
+    )
 
     with components.captured_mag_calibration(_FakePipeline(model)):
         pass
