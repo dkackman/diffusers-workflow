@@ -276,9 +276,9 @@ class DownloadManager:
     def __init__(self, download_fn=None, info_fn=None):
         # Injectable for tests - the defaults reach the network
         if download_fn is None or info_fn is None:
-            from huggingface_hub import HfApi, snapshot_download
+            from huggingface_hub import HfApi
 
-            download_fn = download_fn or snapshot_download
+            download_fn = download_fn or _download_repo
             info_fn = info_fn or (
                 lambda repo_id: HfApi().repo_info(repo_id, files_metadata=True)
             )
@@ -417,6 +417,37 @@ class DownloadManager:
         excess = len(finished) - self.KEEP_FINISHED
         for entry in finished[: max(0, excess)]:
             del self._downloads[entry["id"]]
+
+
+def _download_repo(repo_id, tqdm_class, max_workers=4):
+    """Fetch every file of repo_id, stopping promptly on a cancel (#899).
+
+    Stands in for `snapshot_download`, whose file pool runs every queued file
+    to the end after a cancel (its worker threads swallow the tracker's
+    exception, and aborting the xet session only ends the files in flight).
+    Here each file checks the cancel event before it starts, so a cancel
+    leaves at most the aborted in-flight files behind."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from huggingface_hub import HfApi, hf_hub_download
+
+    cancel_event = tqdm_class._cancel_event
+    info = HfApi().repo_info(repo_id)
+    files = [sibling.rfilename for sibling in info.siblings or []]
+
+    def fetch(filename):
+        if cancel_event.is_set():
+            raise DownloadCancelled()
+        hf_hub_download(
+            repo_id, filename=filename, revision=info.sha, tqdm_class=tqdm_class
+        )
+
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        for future in [pool.submit(fetch, name) for name in files]:
+            future.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
 
 
 def _abort_xet_session():

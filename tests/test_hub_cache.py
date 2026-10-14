@@ -426,3 +426,39 @@ class TestDownloadManager:
         manager.cancel(started["id"])
         gate.set()
         self.wait_status(manager, started["id"], ["cancelled"])
+
+
+class TestDownloadRepoCancel:
+    def test_cancel_skips_files_not_yet_started(self):
+        """#899: after a cancel no queued file starts (snapshot_download's
+        pool ran them all). Runs the real _download_repo loop."""
+        import threading
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from dw.hub_cache import DownloadCancelled, _download_repo
+
+        cancel = threading.Event()
+        fetched = []
+
+        def fake_hub_download(repo_id, filename, revision, tqdm_class):
+            fetched.append(filename)
+            cancel.set()
+
+        info = SimpleNamespace(
+            sha="abc",
+            siblings=[SimpleNamespace(rfilename=f"f{i}") for i in range(20)],
+        )
+        tracker = SimpleNamespace(_cancel_event=cancel)
+        with (
+            mock.patch("huggingface_hub.HfApi") as api,
+            mock.patch("huggingface_hub.hf_hub_download", fake_hub_download),
+        ):
+            api.return_value.repo_info.return_value = info
+            try:
+                _download_repo("acme/tiny", tracker, max_workers=1)
+            except DownloadCancelled:
+                pass
+            else:
+                raise AssertionError("expected DownloadCancelled")
+        assert len(fetched) == 1
