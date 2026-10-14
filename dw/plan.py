@@ -34,8 +34,26 @@ from .validation import _is_seeded
 logger = logging.getLogger("dw")
 
 FINGERPRINT_PREFIX = "sha256:"
-# Top-level keys that document a workflow rather than shape its work
-DOCUMENTATION_KEYS = ("cost", "description", "summary", "configures")
+# Top-level keys that document, classify or price a workflow rather than
+# shape its output - the fingerprint is keyed only by what can change the
+# generated output, so editing one of these never busts an acknowledgement
+# (#905). Pinned by tests/test_plan.py::TestFingerprintKeys
+DOCUMENTATION_KEYS = (
+    "configures",
+    "cost",
+    "cost_drivers",
+    "description",
+    "shape",
+    "summary",
+    "traits",
+    "vram_estimate",
+)
+# A variable constraint's keys that explain the rule rather than state it
+CONSTRAINT_DOCUMENTATION_KEYS = ("reason",)
+# A step result's keys that name, place or label its files without changing
+# their bytes. The step cache keeps file_base_name and subfolder: a hit
+# republishes the cached files verbatim and writes none (dw/step_cache.py)
+PLACEMENT_RESULT_KEYS = ("file_base_name", "role", "subfolder")
 FOR_EACH_KEY = "for_each"
 SIZE_LOOKUP_TIMEOUT = 5.0
 GIB = 1024**3
@@ -126,7 +144,17 @@ def build_plan(
         pin_outputs=False,
     )
     return {
-        "fingerprint": fingerprint(work, definition, annotations),
+        "fingerprint": fingerprint(
+            work,
+            definition,
+            {
+                **annotations,
+                "sub_workflows": {
+                    path: child_work_digest(path, base_dir, candidate.workflow_dir)
+                    for path in annotations.get("sub_workflows") or {}
+                },
+            },
+        ),
         "steps": step_count,
         "elided_steps": elided,
         "list_entries": entries,
@@ -206,23 +234,71 @@ def cached_steps(definition, realized, arguments, cache_probe):
     return len(answer) if isinstance(answer, list) else None
 
 
+def output_only(doc):
+    """Remove from a workflow definition, in place, every key that cannot
+    change the generated output (#905): the documentation keys, each
+    variable constraint's reason, and each step result's placement keys.
+    Returns `doc`."""
+    for key in DOCUMENTATION_KEYS:
+        doc.pop(key, None)
+    constraints = doc.get("variable_constraints")
+    if isinstance(constraints, dict):
+        for rule in constraints.values():
+            if isinstance(rule, dict):
+                for key in CONSTRAINT_DOCUMENTATION_KEYS:
+                    rule.pop(key, None)
+    for step in doc.get("steps") or []:
+        result = step.get("result") if isinstance(step, dict) else None
+        if isinstance(result, dict):
+            for key in PLACEMENT_RESULT_KEYS:
+                result.pop(key, None)
+    return doc
+
+
+def _canonical_digest(doc):
+    # default=repr: a realized 'constant:' can be any Python value, and the
+    # fingerprint only needs it to be stable, not round-trippable
+    serialized = json.dumps(
+        doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def child_work_digest(path, base_dir, workflow_dir):
+    """The digest of a composed child's work: its file with `output_only`
+    applied, so editing a child's cost or documentation leaves the parent's
+    fingerprint alone. None when the file cannot be read; a file that is not
+    a JSON object is digested as bytes."""
+    raw = read_sub_workflow(path, base_dir, workflow_dir)
+    if raw is None:
+        return None
+    try:
+        child = json.loads(raw)
+    except ValueError:
+        child = None
+    if not isinstance(child, dict):
+        return hashlib.sha256(raw).hexdigest()
+    return _canonical_digest(output_only(child))
+
+
 def fingerprint(expanded, definition, annotations=None):
     """SHA-256 over the expanded definition with everything that is not
-    work removed: the seed wherever it sits, and the documentation keys.
+    work removed: the seed wherever it sits, and whatever `output_only`
+    removes.
 
     `definition` is the workflow as written, consulted for whether the
     top-level seed named a variable - if it did, that variable's folded
     value is the seed too and is blanked at its source. `annotations` is
     what realization recorded beside the copy; its sub-workflow digests go
     into the hash, since a composed child edited between the quote and the
-    call is different work the parent's text cannot show.
+    call is different work the parent's text cannot show - build_plan
+    passes them as `child_work_digest`s.
     """
     doc = copy.deepcopy(expanded)
     if annotations and annotations.get("sub_workflows"):
         doc["__sub_workflows__"] = dict(annotations["sub_workflows"])
     doc.pop("seed", None)
-    for key in DOCUMENTATION_KEYS:
-        doc.pop(key, None)
+    output_only(doc)
     written_seed = definition.get("seed")
     name = references.ref_name(references.VARIABLE, written_seed)
     if name is not None:
@@ -235,12 +311,7 @@ def fingerprint(expanded, definition, annotations=None):
             pipeline = step.get("pipeline")
             if isinstance(pipeline, dict):
                 pipeline.pop("seed", None)
-    # default=repr: a realized 'constant:' can be any Python value, and the
-    # fingerprint only needs it to be stable, not round-trippable
-    serialized = json.dumps(
-        doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
-    )
-    return FINGERPRINT_PREFIX + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return FINGERPRINT_PREFIX + _canonical_digest(doc)
 
 
 UNKNOWN = "unknown"

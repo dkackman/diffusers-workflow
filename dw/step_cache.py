@@ -32,6 +32,15 @@ A step is safe to skip only if:
   6. the entry retained the step's Result if this run needs one - an entry
      stored for a step nothing downstream read holds only its saved_files
 
+The cache is keyed only by what can change the output (#905). A workflow's
+top-level keys never reach a key - an entry is the step alone, under the
+workflow id - so its cost, cost_drivers, vram_estimate and documentation
+move nothing here. Inside a step, `output_identity` drops the result keys
+that only label a file (NON_OUTPUT_RESULT_KEYS). A result's subfolder and
+file_base_name stay: a hit writes nothing and republishes the cached paths,
+so a run that moved either would be handed files where it did not ask for
+them.
+
 Entries are keyed by (workflow_id, step_name), not by step name alone:
 saved files are named "{workflow_id}-{step_name}.{index}", so a bare-name
 key would let a different workflow (or the same one after an id rename, or
@@ -74,6 +83,24 @@ logger = logging.getLogger("dw")
 # entry records the stamp of each upstream it was computed from. Never reset
 # (clear() included) - a reused number would make a stale entry look fresh.
 _generations = itertools.count(1)
+
+
+# A step result's keys that label its files without changing them or where
+# they are written: the run records a step's role from its own definition as
+# it opens (dw/roles.py role_basis), never from a cached entry. Pinned by
+# tests/test_workflow_step_cache.py::TestOutputKeys
+NON_OUTPUT_RESULT_KEYS = ("role",)
+
+
+def output_identity(step_data):
+    """`step_data` with NON_OUTPUT_RESULT_KEYS removed from its result
+    block, in place - what a step cache entry is keyed and compared on.
+    Returns `step_data`."""
+    result = step_data.get("result")
+    if isinstance(result, dict):
+        for key in NON_OUTPUT_RESULT_KEYS:
+            result.pop(key, None)
+    return step_data
 
 
 def reference_resolves_to(reference, name):

@@ -6,7 +6,13 @@ import json
 
 import pytest
 
-from dw.plan import build_plan, gate_warnings
+from dw.plan import (
+    CONSTRAINT_DOCUMENTATION_KEYS,
+    DOCUMENTATION_KEYS,
+    PLACEMENT_RESULT_KEYS,
+    build_plan,
+    gate_warnings,
+)
 from dw.validation import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
@@ -222,6 +228,218 @@ class TestFingerprintChangesWith:
             plan(added)["fingerprint"],
         }
         assert len(prints) == 4
+
+
+# Every top-level schema key and every step `result` key, sorted into what
+# the fingerprint leaves out and what it keeps (#905). A key added to the
+# schema fails TestFingerprintKeys until it is sorted here, so a metadata key
+# can neither bust acknowledgements nor slip into the work unreviewed
+KEPT_TOP_LEVEL_KEYS = {
+    "id",  # names every file the run saves, and the step cache keys on it
+    "variables",  # the folded values are the work
+    "variable_constraints",  # a rule rounds or refuses a value
+    "argument_template",  # read as arguments when not run as a child
+    "seed",  # removed separately: a seed is not the work, but it is the output
+    "steps",
+}
+KEPT_RESULT_KEYS = {
+    "content_type",
+    "save",
+    "fps",
+    "sample_rate",
+    "audio_sample_rate",
+    "subtype",
+    "compression_level",
+    "bitrate_mode",
+    "embed_metadata",
+    "format",
+}
+
+
+def schema():
+    from importlib import resources
+
+    return json.loads(
+        resources.files("dw").joinpath("workflow_schema.json").read_text()
+    )
+
+
+class TestFingerprintKeys:
+    def test_the_exclusion_lists_are_pinned(self):
+        assert DOCUMENTATION_KEYS == (
+            "configures",
+            "cost",
+            "cost_drivers",
+            "description",
+            "shape",
+            "summary",
+            "traits",
+            "vram_estimate",
+        )
+        assert CONSTRAINT_DOCUMENTATION_KEYS == ("reason",)
+        assert PLACEMENT_RESULT_KEYS == ("file_base_name", "role", "subfolder")
+
+    def test_every_top_level_schema_key_is_sorted(self):
+        keys = set(schema()["properties"])
+        assert set(DOCUMENTATION_KEYS) | KEPT_TOP_LEVEL_KEYS == keys
+        assert not set(DOCUMENTATION_KEYS) & KEPT_TOP_LEVEL_KEYS
+
+    def test_every_result_schema_key_is_sorted(self):
+        keys = set(schema()["$defs"]["result"]["properties"])
+        assert set(PLACEMENT_RESULT_KEYS) | KEPT_RESULT_KEYS == keys
+        assert not set(PLACEMENT_RESULT_KEYS) & KEPT_RESULT_KEYS
+
+    def test_every_constraint_schema_key_but_the_reason_is_a_rule(self):
+        keys = set(schema()["$defs"]["variable_constraint"]["properties"])
+        assert set(CONSTRAINT_DOCUMENTATION_KEYS) <= keys
+
+
+def with_pipeline_settings(spec):
+    """The fixture's pipeline step with an attention backend, a cache
+    config, a dtype and a LoRA set, so a test can move each one."""
+    spec = copy.deepcopy(spec)
+    pipeline = spec["steps"][0]["pipeline"]
+    pipeline["configuration"]["attention_backend"] = "flash"
+    pipeline["configuration"]["cache"] = {"type": "mag", "threshold": 0.1}
+    pipeline["from_pretrained_arguments"]["torch_dtype"] = "torch.bfloat16"
+    pipeline["loras"] = [{"model_name": "org/lora-a", "scale": 1.0}]
+    return spec
+
+
+class TestFingerprintIgnoresWhatCannotChangeTheOutput:
+    """#905: the fingerprint is keyed only by what can change the output."""
+
+    def test_cost_drivers(self, plan):
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        other = copy.deepcopy(spec)
+        other["cost_drivers"] = ["frames", "shots"]
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_vram_estimate(self, plan):
+        spec = definition()
+        spec["vram_estimate"] = {
+            "base_gb": 4,
+            "bytes_per_voxel": 1.0,
+            "voxel_variables": ["frames"],
+            "reason": "measured",
+        }
+        other = copy.deepcopy(spec)
+        other["vram_estimate"]["base_gb"] = 9
+        other["vram_estimate"]["reason"] = "re-measured"
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_shape_and_traits(self, plan):
+        spec = definition()
+        spec["shape"] = "shot"
+        spec["traits"] = ["has-audio"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_a_constraints_reason(self, plan):
+        spec = definition()
+        spec["variable_constraints"] = {
+            "frames": {"modulus": 8, "remainder": 1, "reason": "the VAE packs 8"}
+        }
+        other = copy.deepcopy(spec)
+        other["variable_constraints"]["frames"]["reason"] = "reworded"
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+
+    def test_a_results_role_subfolder_and_file_name(self, plan):
+        spec = definition()
+        result = spec["steps"][0]["result"]
+        result.update(role="final", subfolder="final", file_base_name="still")
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_a_composed_childs_cost_and_documentation(self, plan, tmp_path):
+        step = {"name": "x", "task": {"command": "x", "arguments": {}}}
+        child = {"id": "child", "variables": {"n": 1}, "steps": [step]}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec = composing("child.json")
+        before = plan(spec)["fingerprint"]
+        child.update(
+            cost=[cost("cuda", 5)],
+            cost_drivers=["n"],
+            description="documented",
+            vram_estimate={"base_gb": 1, "voxel_variables": ["n"]},
+        )
+        (tmp_path / "child.json").write_text(json.dumps(child, indent=2))
+        assert plan(spec)["fingerprint"] == before
+
+
+class TestFingerprintStillChangesWithWhatChangesTheOutput:
+    @pytest.mark.parametrize(
+        "move",
+        [
+            lambda p: p["configuration"].update(attention_backend="native"),
+            lambda p: p["configuration"].update(cache={"type": "first_block"}),
+            lambda p: p["configuration"]["cache"].update(threshold=0.2),
+            lambda p: p["from_pretrained_arguments"].update(
+                torch_dtype="torch.float16"
+            ),
+            lambda p: p["loras"][0].update(model_name="org/lora-b"),
+            lambda p: p["loras"][0].update(scale=0.5),
+            lambda p: p.pop("loras"),
+        ],
+        ids=[
+            "attention_backend",
+            "cache_type",
+            "cache_threshold",
+            "dtype",
+            "lora",
+            "lora_scale",
+            "no_lora",
+        ],
+    )
+    def test_a_pipeline_setting(self, plan, move):
+        spec = with_pipeline_settings(definition())
+        other = copy.deepcopy(spec)
+        move(other["steps"][0]["pipeline"])
+        assert plan(spec)["fingerprint"] != plan(other)["fingerprint"]
+
+    def test_a_results_format(self, plan):
+        spec = definition()
+        spec["steps"][0]["result"]["format"] = "webp"
+        assert plan(spec)["fingerprint"] != plan()["fingerprint"]
+
+
+CATALOG_H3 = "workflows/templates/minimax/reference-to-video.json"
+
+
+class TestTheCatalogH3Template:
+    """The stage's repro on the real template: a copy differing only in
+    cost_drivers plans the same work, one differing in attention backend
+    or weights dtype does not."""
+
+    @pytest.fixture
+    def template(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return json.loads((root / CATALOG_H3).read_text())
+
+    def test_cost_drivers_leave_the_fingerprint(self, plan, template):
+        other = copy.deepcopy(template)
+        other["cost_drivers"] = other["cost_drivers"] + [
+            "weights_dtype",
+            "attention_backend",
+            "lora_model_name",
+            "cache",
+        ]
+        del other["vram_estimate"]
+        assert plan(template)["fingerprint"] == plan(other)["fingerprint"]
+
+    @pytest.mark.parametrize(
+        "arguments",
+        [{"attention_backend": "native"}, {"weights_dtype": "{int8}"}],
+        ids=["attention_backend", "weights_dtype"],
+    )
+    def test_an_output_setting_moves_it(self, plan, template, arguments):
+        assert (
+            plan(template)["fingerprint"]
+            != plan(template, arguments=arguments)["fingerprint"]
+        )
 
 
 def cost(device="cuda", minutes=10, per_entry=None, name="card"):
