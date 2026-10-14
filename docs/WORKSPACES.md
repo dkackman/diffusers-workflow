@@ -429,6 +429,8 @@ dw already has.
    "variable:steps"` in the step. A factor that is a dtype or a quantization
    name keeps its braces in the default, `"{nf4}"`, so it reaches the
    pipeline as a string ([Types and escaping](WORKFLOW_GUIDE.md#types-and-escaping)).
+   Keep the template's `cost` block in the copy, or `plan.estimate` has no
+   basis to quote from.
 
 3. **Pin the seed, change one factor per variant.** Every variant passes the
    same `seed` in `arguments`, and differs from the base in one factor only.
@@ -443,10 +445,14 @@ dw already has.
    yet aware of host RAM (#869), so two large variants on two cards can run
    the host out of memory together.
 
-5. **A repeat is a cache hit.** A variant whose step is unchanged from an
-   earlier run with the same seed is served from the step cache: its
-   manifest marks the step `"reused": true` and lists the earlier run's
-   files ([Runs](#runs)). That is expected, not a failed variant.
+5. **Only the latest run of a step is cached.** The step cache holds one
+   entry per workflow step: its most recent run. A variant whose step and
+   seed match that run, such as the same variant submitted twice in a row,
+   is served from the cache: its manifest marks the step `"reused": true`
+   and lists that run's files ([Runs](#runs)). Going back to an earlier
+   variant after another one has run renders it again. Each card's worker
+   keeps its own cache, and a server restart empties them. Either way a
+   re-render is expected, not a failed variant.
 
 6. **The results table.** `list_jobs(workspace=<name>)` gives each variant's
    job id, status and note. `get_job` on each gives its arguments, step
