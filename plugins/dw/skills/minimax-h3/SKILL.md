@@ -28,6 +28,10 @@ arguments; prompt format is MiniMax's, from its text not here.
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
+- **A locked frame that lip-syncs to a song** (FL2VA takes no audio): Ref2VA
+  `[keyframe completion + audio reuse]`, `<Picture 1>` the first frame,
+  `<Audio 1>` the song, held with `hold_audio` (#852). It keeps the framing,
+  not the pixels; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
@@ -43,17 +47,16 @@ arguments; prompt format is MiniMax's, from its text not here.
   Z-Image, references it in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards, one generation, unbroken score**:
-  `templates/minimax/storyboard` - H3 cuts between boards in one
-  generation, which no concat matches. One beat only; past that use the
-  cuts pattern below.
+  `templates/minimax/storyboard`, cuts no concat matches. One beat only;
+  past that use the cuts pattern below.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
   (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
   22 or 39 - default 22 - holds the last frames and voice as a guide instead.
-  `carry_audio` (default true, a chain-block setting the
-  template does not expose as a variable) is what brings the voice with the
-  guide. Not on the ref2va chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
+  `carry_audio` (default true, a chain-block setting, not a variable)
+  brings the voice. Not on the ref2va chains, as guides stay off ref2va),
+  `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
   sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`
@@ -73,13 +76,12 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
-  step per `shots` entry, no shared cast, no concat. `keep_output` each
-  clip, then `templates/assemble-and-score` cuts and scores.
+  step per `shots` entry, no concat. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3`
   skill - its `audio_duration` is a ceiling, not a length.
 
-If none fits, compose from `list_tasks` before writing a new workflow and
-read the `workflows` guide's authoring section.
+If none fits, compose from `list_tasks` (the `workflows` guide's authoring
+section).
 
 ## Hard rules
 
@@ -110,19 +112,17 @@ read the `workflows` guide's authoring section.
   for ~1.5s (about 1 in 25): check a shot's first frames and say in
   `subject_definitions` that the portrait's backdrop, pose and framing are
   not reused.
-- Ref2VA reaches 1344x768 too, not only the FL2VA 768p template - see the
-  `recipes` guide's MiniMax-H3 section for the trade-off. At that canvas the
-  24 GB ceiling on the `17n+5` grid drops with each reference: 243 frames at
-  one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
+- Ref2VA reaches 1344x768 too (trade-off: the `recipes` guide's MiniMax-H3
+  section). There the 24 GB ceiling on the `17n+5` grid drops with each
+  reference: 243 frames at one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
   the largest `for_each` shot over budget.
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
 - Nothing carries between generations except a passed reference, a
-  held track or a `guides` clip: there is no latent memory (a diffusers
-  limit, not the model's). Identity rides on a picture, voice
-  timbre on an audio clip, motion/camera on a video tail, score across
-  cuts under concat.
+  held track or a `guides` clip: there is no latent memory. Identity rides
+  on a picture, voice timbre on an audio clip, motion/camera on a video
+  tail, score across cuts under concat.
 - Lip sync to supplied audio: an audio reference alone, as the
   `match_audio` chains pass it, can sing shifted beats off the track; `music-video`
   holds each slice as well by default, and the chains' `hold_audio` variable adds a
@@ -191,7 +191,7 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
    `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
-   to the person and keep using `get_output_image`/`_audio`/`_frames`.
+   to the person.
 
 ## Sources
 
