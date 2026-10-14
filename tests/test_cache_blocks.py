@@ -438,3 +438,85 @@ def test_without_the_remap_the_text_stream_leaks_into_the_audio_slot(monkeypatch
 
     # The text conditioning's sequence length, carried into the audio stream
     assert audio_hidden_states.shape == (1, 3, 4)
+
+
+def _mag_model(num_inference_steps):
+    from diffusers import MagCacheConfig
+    from diffusers.models.transformers.transformer_minimax_h3 import (
+        MiniMaxH3Transformer3DModel,
+    )
+
+    register_cache_blocks()
+    model = MiniMaxH3Transformer3DModel(
+        num_attention_heads=2,
+        attention_head_dim=8,
+        hidden_size=16,
+        num_layers=2,
+        num_refiner_layers=1,
+        ffn_dim=32,
+        text_dim=16,
+        time_embed_hidden_dim=16,
+        time_embed_dim=8,
+        freq_dim=16,
+        rope_freq_dim=4,
+    )
+    model.enable_cache(
+        MagCacheConfig(calibrate=True, num_inference_steps=num_inference_steps)
+    )
+    return model
+
+
+def _run_calibration_steps(model, context, steps):
+    """Drive the real mag hooks' tail path the way a forward does."""
+    from diffusers.hooks import HookRegistry
+    from diffusers.hooks.mag_cache import MagCacheBlockHook
+
+    tail = next(
+        hook
+        for block in model.transformer_blocks
+        for hook in HookRegistry.check_if_exists_or_initialize(block).hooks.values()
+        if isinstance(hook, MagCacheBlockHook) and hook.is_tail
+    )
+    with model.cache_context(context):
+        state = tail.state_manager.get_state()
+        for i in range(steps):
+            tail._perform_calibration_step(state, torch.full((1, 3, 4), 1.0 + i))
+            state.previous_residual = torch.full((1, 3, 4), 1.0 + i)
+            tail._advance_step(state)
+
+
+def test_mag_calibration_ratios_reach_job_events_for_both_cfg_contexts(monkeypatch):
+    """#891: diffusers logs the ratios and clears them; both CFG lists must be emitted."""
+    from dw.pipeline_processors import components
+
+    logs, warnings = [], []
+    monkeypatch.setattr(components, "emit_log", logs.append)
+    monkeypatch.setattr(components, "emit_warning", warnings.append)
+
+    model = _mag_model(4)
+    with components.captured_mag_calibration(_FakePipeline(model)):
+        _run_calibration_steps(model, "cond", 4)
+        _run_calibration_steps(model, "uncond", 4)
+
+    assert logs == warnings
+    assert len(warnings) == 2
+    assert "[cond]" in warnings[0] and "[uncond]" in warnings[1]
+    for message in warnings:
+        assert "MagCache calibration (4 steps)" in message
+        assert "paste into mag_ratios" in message
+
+
+def test_mag_calibration_silent_without_calibrate(monkeypatch):
+    from diffusers import MagCacheConfig
+
+    from dw.pipeline_processors import components
+
+    warnings = []
+    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    model = _mag_model(3)
+    model.disable_cache()
+    model.enable_cache(MagCacheConfig(mag_ratios=[1.0, 0.9, 0.8], num_inference_steps=3))
+
+    with components.captured_mag_calibration(_FakePipeline(model)):
+        pass
+    assert warnings == []

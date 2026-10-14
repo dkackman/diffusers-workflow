@@ -805,7 +805,7 @@
                             ]
                         },
                         "calibrate": {
-                            "description": "Run mag cache in calibration mode: skip nothing, and log the magnitude ratios for this model at the end of the run so they can be pasted into mag_ratios. Default: false.",
+                            "description": "Run mag cache in calibration mode: skip nothing, and report the magnitude ratios for this model at the end of the run as a job warning and log event, so they can be pasted into mag_ratios. Under classifier-free guidance two lists are reported, labeled [cond] and [uncond]; use the cond one. Default: false.",
                             "type": "boolean"
                         },
                         "cache_interval": {

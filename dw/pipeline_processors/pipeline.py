@@ -23,6 +23,7 @@ from .components import (
     get_component,
     load_and_configure_scheduler,
     load_component,
+    captured_mag_calibration,
     stateful_cache_context,
 )
 from .placement import (
@@ -638,6 +639,7 @@ class Pipeline:
                 logger.info(f"Using attention backend: {attn_backend}")
                 stack.enter_context(attention_backend(attn_backend))
 
+            stack.enter_context(captured_mag_calibration(self.pipeline))
             stack.enter_context(stateful_cache_context(self.pipeline))
             if not self._takes_step_callback():
                 # A modular pipeline takes no step callback at all, so this

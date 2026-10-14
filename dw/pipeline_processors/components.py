@@ -1,4 +1,5 @@
 import torch
+import ast
 import contextlib
 import logging
 from .config_objects import (
@@ -11,7 +12,7 @@ from ..trust import (
     require_trusted_from_pretrained_arguments,
 )
 from .. import get_device_type, resolve_device
-from ..events import WorkflowCancelled, emit_phase
+from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning
 from .. import download_watch
 from .. import quantized_cache
 from huggingface_hub.errors import HfHubHTTPError
@@ -828,6 +829,85 @@ def get_cache_transformer(pipeline):
         if transformer is not None:
             return transformer
     return None
+
+
+_MAG_LOGGER = "diffusers.hooks.mag_cache"
+_MAG_RESULT_PREFIX = "MagCache Calibration Results:"
+
+
+def _active_cache_context_name(transformer):
+    """The name of the cache context a stateful hook under the transformer is
+    running in, or None. Under CFG that is "cond" or "uncond"."""
+    for module in transformer.modules():
+        registry = getattr(module, "_diffusers_hook", None)
+        for hook in getattr(registry, "hooks", {}).values():
+            for attr in vars(hook).values():
+                context = getattr(attr, "_context", None)
+                if context is not None and hasattr(attr, "get_state"):
+                    return context.name
+    return None
+
+
+class _MagCalibrationHandler(logging.Handler):
+    """Turns diffusers' end-of-run calibration log record into job events.
+
+    diffusers prints the ratios, logs them at INFO and clears the list in the
+    same call (`MagCacheHook._advance_step`), so the record is the only moment
+    they can be read, and the worker's stdout reaches no consumer. The record
+    is emitted synchronously from inside the forward, so the state manager's
+    context is still the one the ratios belong to.
+    """
+
+    def __init__(self, transformer):
+        super().__init__(level=logging.INFO)
+        self.transformer = transformer
+
+    def emit(self, record):
+        message = record.getMessage()
+        if not message.startswith(_MAG_RESULT_PREFIX):
+            return
+        try:
+            ratios = ast.literal_eval(message[len(_MAG_RESULT_PREFIX) :].strip())
+            context = _active_cache_context_name(self.transformer)
+        except (ValueError, SyntaxError):
+            return
+        label = f" [{context}]" if context in ("cond", "uncond") else ""
+        text = (
+            f"MagCache calibration ({len(ratios)} steps){label}: "
+            f"{ratios} \u2014 paste into mag_ratios"
+        )
+        if context == "cond":
+            text += " (classifier-free guidance runs two lists; the cond one is the usual choice)"
+        emit_log(text)
+        emit_warning(text)
+
+
+@contextlib.contextmanager
+def captured_mag_calibration(pipeline):
+    """Report a mag cache's calibration ratios as job events (#891).
+
+    A no-op unless the transformer's cache is a MagCacheConfig with calibrate
+    on. Under classifier-free guidance dw's pipelines run "cond" and "uncond"
+    contexts, each with its own state, so two labeled lists are emitted.
+    """
+    transformer = get_cache_transformer(pipeline)
+    config = getattr(transformer, "_cache_config", None)
+    if not getattr(config, "calibrate", False):
+        yield
+        return
+
+    mag_logger = logging.getLogger(_MAG_LOGGER)
+    handler = _MagCalibrationHandler(transformer)
+    old_level, old_propagate = mag_logger.level, mag_logger.propagate
+    mag_logger.addHandler(handler)
+    mag_logger.setLevel(logging.INFO)
+    mag_logger.propagate = False
+    try:
+        yield
+    finally:
+        mag_logger.removeHandler(handler)
+        mag_logger.setLevel(old_level)
+        mag_logger.propagate = old_propagate
 
 
 @contextlib.contextmanager
