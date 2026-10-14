@@ -4268,7 +4268,7 @@
                 "type": "null"
               }
             ],
-            "description": "Denoise passes counted.",
+            "description": "Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps.",
             "title": "Passes"
           },
           "save_s": {
