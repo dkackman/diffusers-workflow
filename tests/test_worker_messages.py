@@ -117,6 +117,15 @@ EXAMPLES = [
         {"type": "progress", "event": "step_start", "step": "gen", "index": 0},
     ),
     (
+        Progress(event={"event": "cache_stats", "step": "gen", "type": "mag"}),
+        {
+            "type": "progress",
+            "event": "cache_stats",
+            "step": "gen",
+            "event_type": "mag",
+        },
+    ),
+    (
         MemoryInfo(info={"run_count": 1}),
         {"type": "memory_info", "info": {"run_count": 1}},
     ),
