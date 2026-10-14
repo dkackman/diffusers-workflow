@@ -303,9 +303,10 @@ class WorkerManager:
         """Put this worker back to the oom_score_adj it was spawned with, not
         a literal 0. Without CAP_SYS_RESOURCE the kernel refuses a write below
         the process's `oom_score_adj_min`, which a privileged write sets and
-        a child inherits: lem's systemd user unit starts the server at 200,
-        so a worker raised to 1000 can come back to 200 and never to 0 (#881).
-        The spawn-time value is always at or above that minimum. Returns as
+        a child inherits: on lem, PID 1 starts the systemd user manager at 100
+        and the manager starts the server's unit at 200, so a worker raised to
+        1000 can come back to 200 and never to 0 (#881). The spawn-time value
+        is always at or above that minimum. Returns as
         set_oom_score_adj does."""
         floor = self.oom_score_floor
         return self.set_oom_score_adj(0 if floor is None else floor)

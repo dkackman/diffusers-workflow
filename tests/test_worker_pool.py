@@ -413,7 +413,7 @@ class FakeProcess:
 class FakeKernelAdj:
     """A worker's /proc/<pid>/oom_score_adj as an unprivileged writer meets
     it: a write below `minimum` (the oom_score_adj_min a privileged parent
-    left, 200 under lem's systemd user unit) is refused."""
+    left - 100 under lem's systemd user manager) is refused."""
 
     def __init__(self, minimum):
         self.minimum = minimum
@@ -501,9 +501,8 @@ class TestOomRanking:
         assert written == []
 
     def test_a_privileged_floor_is_where_the_others_go_back_to(self, pool):
-        # lem's unit starts the server at 200, which its workers inherit as
-        # their minimum: writing 0 is refused, so a worker raised to 1000
-        # would stay there and tie with the next one (#881 verify)
+        # Under lem's systemd user manager writing 0 is refused, so a worker
+        # raised to 1000 stayed there and tied with the next (#881 verify)
         manager, written = self._pair(pool, minimum=200)
         first, second = manager.slots
         manager._rank_for_oom(first)
@@ -543,8 +542,9 @@ class TestOomRanking:
 @pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc")
 class TestOomScoreAdjOnLinux:
     """The real write through /proc, against a real child process. Run under
-    `systemd-run --user --pipe` on lem the child inherits a minimum of 200,
-    and this shows the reset lands there rather than being refused."""
+    `systemd-run --user --pipe` on lem the child starts at 200 with a
+    minimum of 100 (user@.service's), so a reset to 0 would be refused and
+    this shows the reset to the spawn value lands."""
 
     def test_raise_then_reset_returns_to_the_spawn_value(self):
         from dw.host_memory import read_oom_score_adj
@@ -561,8 +561,6 @@ class TestOomScoreAdjOnLinux:
             assert read_oom_score_adj(child.pid) == 1000
             assert manager.reset_oom_score_adj() is True
             assert read_oom_score_adj(child.pid) == floor
-            if floor > 0:
-                assert manager.set_oom_score_adj(floor - 1) is False
         finally:
             child.kill()
             child.wait()
