@@ -41,6 +41,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`compare_outputs`: aligned grids and diff metrics across runs** (#871,
+  stage #889), shipped 2026-10-14. A read-only MCP tool and `POST
+  /api/gallery/compare` return one grid of 2–8 outputs × 1–8 moments, plus
+  PSNR, SSIM and mean abs diff against a baseline. One shared crop is the
+  region shown and measured; per-output crops are display only. This is the
+  read-only comparison half of item 8 above, without batches or a UI. Record,
+  including what was cut (`crop="faces"` as a deferred stage B,
+  `same_staging`, saving the grid): `complete/compare-outputs-complete.md`.
+
 - **Per-step timing and step-cache skip counts** (#867, stages #885-#886),
   shipped 2026-10-14. Each pipeline step's manifest entry carries `timing`
   (load, encode, denoise, passes, first and median pass, decode, save), and
