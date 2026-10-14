@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374, #379, #380, and #244 for `resume.md`; #375 was declined, #376, #377 and #378 shipped), parked with Don. Its
+`feature` (#374, #380, and #244 for `resume.md`; #375 and #379 were declined, #376, #377 and #378 shipped), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -31,22 +31,30 @@ remaining deferred fix is recorded in
    rehydrating the step cache from disk manifests is a correctness-sensitive
    engine change (step identity matching, partial-state edge cases). High
    complexity.
-8. **sweeps-and-comparison.md** — valuable once doing real side-by-side
-   comparisons, but it's a new job-schema field, batch semantics, and a new
-   UI page. Its own doc says "nothing here should be implemented without a
-   fresh look."
 9. **maintenance-screen.md — the full UI page** — Phase 0 (WAL mode) shipped
    2026-09-20; the maintenance/observability page itself (orphan listing,
    disk usage, job pruning) is the remaining, much bigger ask.
 
 ## Shipped since the ranking
 
+- **Running a sweep: a written method, not a server feature** (#872, stage
+  #890), shipped 2026-10-14. `## Running a sweep` in `docs/WORKSPACES.md`
+  (`get_guide("workspaces", section="Running a sweep")`) writes down the
+  loop the H3 quality matrix ran with local scripts: one workspace per
+  experiment, factors as variables, a pinned seed, one noted `run_workflow`
+  per variant with `wait_for_job` between, `set_note` assessments in the
+  `score N/5 · judged_by <who>` form. It supersedes
+  `sweeps-and-comparison.md` (#379), now deleted. Record, including what was
+  cut (`sweep=` on `run_workflow`, structured notes, an experiment object,
+  `arguments` on `rerun_job`): `complete/sweeps-complete.md`.
+
 - **`compare_outputs`: aligned grids and diff metrics across runs** (#871,
   stage #889), shipped 2026-10-14. A read-only MCP tool and `POST
   /api/gallery/compare` return one grid of 2–8 outputs × 1–8 moments, plus
   PSNR, SSIM and mean abs diff against a baseline. One shared crop is the
   region shown and measured; per-output crops are display only. This is the
-  read-only comparison half of item 8 above, without batches or a UI. Record,
+  read-only comparison half of the old `sweeps-and-comparison.md`, without
+  batches or a UI. Record,
   including what was cut (`crop="faces"` as a deferred stage B,
   `same_staging`, saving the grid): `complete/compare-outputs-complete.md`.
 
