@@ -397,7 +397,9 @@ The editor's forms come from these; they are just as usable from scripts:
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded
-  definition with the seed and the documentation keys removed and
+  definition with the seed and every key that cannot change the output
+  (cost, `cost_drivers`, `vram_estimate`, descriptions, a result's role,
+  subfolder and file name) removed and
   `output:…/latest/…` left unpinned - the same work hashes the same, a
   longer list or an edited stored prompt does not); `steps`, the expanded
   member count; `list_entries`, `{variable: length}` for each `for_each`
