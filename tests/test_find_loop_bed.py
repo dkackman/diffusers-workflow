@@ -216,6 +216,25 @@ class TestTonal:
         assert result["rejected"]["tonal"] >= 1
 
 
+class TestTonalFinding:
+    def test_names_tonal_when_loud_windows_outnumber_it(self):
+        rng = numpy.random.default_rng(3)
+        waveform = noise(rng, 20 * SR, -20.0)
+        t = numpy.arange(2 * SR) / SR
+        amplitude = rms_amplitude(-78.0) * math.sqrt(2)
+        waveform[8 * SR : 10 * SR] = amplitude * numpy.sin(2 * math.pi * 220.0 * t)
+
+        result = find_loop_bed(track(waveform), min_seconds=0.5, max_seconds=1.0)
+
+        assert result["candidates"] == []
+        assert result["rejected"]["too_loud"] > result["rejected"]["tonal"] > 0
+        finding = result["findings"][0]
+        assert finding["rejected_by"] == "tonal"
+        assert finding["closest_tonal"]["flatness"] < 0.3
+        assert finding["closest_tonal"]["harmonicity"] >= 0.45
+        assert "nearest misses" in finding["message"]
+
+
 class TestIntermittentVoice:
     """Speech under a bed comes and goes: 250 ms harmonic syllables every
     400 ms, at the bed's own level. Measured over a whole 0.5-2 s window the

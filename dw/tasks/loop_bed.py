@@ -356,9 +356,15 @@ def _looped(segment, sample_rate, crossfade_ms, loop_seconds):
     }
 
 
-def _empty_finding(rejected, criteria):
+def _empty_finding(rejected, criteria, closest_tonal=None):
     """The one finding for a search that found nothing, naming the rule that
     threw the most out and the argument that relaxes it.
+
+    Rules tally in order, so `too_loud` counts every window above the level
+    limits, however many quiet windows then failed a later rule. Once any
+    window passed the level test, raising the level limits cannot help and
+    the dominant of the later rules is named instead. `closest_tonal` is the
+    nearest any tonal-rejected window came to the thresholds.
 
     A window that crosses a shot boundary is counted under `shot_boundary`
     alone, so the other rules tally in-shot windows only. When any in-shot
@@ -369,7 +375,9 @@ def _empty_finding(rejected, criteria):
         rule = None
     else:
         in_shot = {n: c for n, c in rejected.items() if n != "shot_boundary"}
-        pool = in_shot if any(in_shot.values()) else rejected
+        quiet = {n: c for n, c in in_shot.items() if n != "too_loud"}
+        pool = quiet if any(quiet.values()) else in_shot
+        pool = pool if any(pool.values()) else rejected
         rule = max(pool, key=lambda name: pool[name])
         message = {
             "too_loud": (
@@ -396,10 +404,25 @@ def _empty_finding(rejected, criteria):
             "tonal": (
                 "every quiet window is tonal or speech-like - faint "
                 "programme that would be audible once it repeats; widen "
-                "the range"
+                "the range" + _closest_note(closest_tonal, criteria)
             ),
         }[rule]
-    return {"rule": "no_loop_bed", "rejected_by": rule, "message": message}
+    finding = {"rule": "no_loop_bed", "rejected_by": rule, "message": message}
+    if closest_tonal is not None:
+        finding["closest_tonal"] = closest_tonal
+    return finding
+
+
+def _closest_note(closest, criteria):
+    """How near the tonal-rejected windows came to the thresholds, in words."""
+    if closest is None:
+        return ""
+    return (
+        f" (nearest misses: flatness {closest['flatness']:.3f} against the "
+        f"{criteria['tonal_flatness']:g} floor, harmonicity "
+        f"{closest['harmonicity']:.3f} against the {criteria['harmonicity']:g} "
+        "ceiling, each on a different window)"
+    )
 
 
 def _coerce_arguments(shots, **raw):
@@ -523,7 +546,10 @@ def _scan_windows(
     lengths,
     args,
 ):
-    """Judge every (start, length) window; returns (survivors, rejected).
+    """Judge every (start, length) window; returns (survivors, rejected, closest).
+
+    `closest` holds the highest flatness and lowest harmonicity any
+    tonal-rejected window reached (empty with none).
 
     Vectorised per window length: every pair is judged at once and counted
     under the first rule it fails - loudness, silence, ticks, tonality - so
@@ -539,6 +565,7 @@ def _scan_windows(
     if bin_shot is not None:
         rejected["shot_boundary"] = 0
     survivors = []  # (source ripple, start bin, length in bins, readings)
+    closest = {}
     for length in range(shortest, longest + 1):
         windows = _sliding(power, length)  # (starts, length)
         loudest = windows.max(axis=1)
@@ -571,6 +598,17 @@ def _scan_windows(
             inside = _sliding(block_tonal, length - block_bins + 1)
             any_tonal |= inside[: windows.shape[0]].any(axis=1)
         tonal = ~crossing & ~loud & ~silent & ~ticked & any_tonal
+        if tonal.any():
+            rows = numpy.flatnonzero(tonal)
+            for bins, flat, harm, _ in scales:
+                flat_in = _sliding(flat, length - bins + 1)[rows]
+                harm_in = _sliding(harm, length - bins + 1)[rows]
+                closest["flatness"] = max(
+                    closest.get("flatness", 0.0), float(flat_in.min(axis=1).max())
+                )
+                closest["harmonicity"] = min(
+                    closest.get("harmonicity", 1.0), float(harm_in.max(axis=1).min())
+                )
         rejected["too_loud"] += int(loud.sum())
         rejected["silent"] += int(silent.sum())
         rejected["spike"] += int(ticked.sum())
@@ -607,7 +645,7 @@ def _scan_windows(
                     },
                 )
             )
-    return survivors, rejected
+    return survivors, rejected, closest
 
 
 def _rank_and_loop(
@@ -683,6 +721,7 @@ def _answer(
     last,
     shots_source,
     spans,
+    closest=None,
 ):
     """The command's JSON answer, with the finding when nothing was found."""
     criteria = {
@@ -697,7 +736,9 @@ def _answer(
         "max_seconds": args.max_seconds,
         "target_bed_dbfs": args.target_bed_dbfs,
     }
-    findings = [] if candidates else [_empty_finding(rejected, criteria)]
+    findings = (
+        [] if candidates else [_empty_finding(rejected, criteria, closest or None)]
+    )
     logger.info(
         f"{COMMAND}: {survivor_count} windows passed level and tick tests, "
         f"{kept_count} looped, {len(candidates)} returned; rejected {rejected}"
@@ -843,7 +884,7 @@ def find_loop_bed(
         searched, bin_length, sample_rate, bin_seconds, count, shortest, usable
     )
     edges = _edge_ticks(power, peaks, bin_threshold)
-    survivors, rejected = _scan_windows(
+    survivors, rejected, closest = _scan_windows(
         power, peaks, bin_shot, scales, edges, (shortest, longest), args
     )
     kept, candidates = _rank_and_loop(
@@ -861,4 +902,5 @@ def find_loop_bed(
         last,
         shots_source,
         spans,
+        closest,
     )
