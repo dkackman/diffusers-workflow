@@ -383,6 +383,50 @@ class JobSummary(ApiModel):
     note: str = sometimes("The note it was submitted with; also its run's note.")
 
 
+class StepTiming(ApiModel):
+    """Where one pipeline step's time went, on the worker's monotonic clock
+    (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
+    whose mark never happened is null, never guessed. Open, like the entry."""
+
+    model_config = ConfigDict(extra="allow")
+
+    load_s: float | None = Field(
+        description="Loading or fetching the step's pipeline, cached or not."
+    )
+    load_cached: bool | None = Field(
+        description="The pipeline came from the worker's cache; false if any "
+        "part was loaded fresh, null when the step loaded nothing."
+    )
+    encode_s: float | None = Field(
+        description="Call start to the first denoiser forward: prompt "
+        "encoding and preparation."
+    )
+    denoise_s: float | None = Field(
+        description="First denoiser forward to the last pass's end; the whole "
+        "call when the pipeline reports no passes."
+    )
+    passes: int | None = Field(description="Denoise passes counted.")
+    first_pass_s: float | None = Field(
+        description="The first pass, which carries any compile warm-up."
+    )
+    pass_s: float | None = Field(
+        description="Median of passes 2..n, wall time at step boundaries; "
+        "null with fewer than two passes."
+    )
+    compiled: bool | None = Field(
+        description="The denoiser runs through torch.compile; null when unknown."
+    )
+    decode_s: float | None = Field(
+        description="Last pass's end to the call's return: VAE decode and "
+        "post-processing."
+    )
+    save_s: float | None = Field(description="Writing the step's files.")
+    segments: int = Field(
+        description="Pipeline calls summed into this timing: chain segments "
+        "or iterations; 1 for a plain step."
+    )
+
+
 class ManifestEntry(ApiModel):
     """One step's saved files. Open even in strict mode: the worker adds
     per-step detail (`selected`, `shots`, ...) the UI does not read."""
@@ -404,6 +448,10 @@ class ManifestEntry(ApiModel):
     role: Literal["final", "intermediate"] = sometimes(
         "The step's role in its run, as the run's manifest.json records it. "
         "Absent while the run is going, or for a run from before roles."
+    )
+    timing: StepTiming = sometimes(
+        "Where the step's time went. Only on a pipeline step that ran: a "
+        "reused step, a task or a composed step has none."
     )
 
 

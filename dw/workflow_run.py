@@ -32,6 +32,7 @@ from .events import emit_warning
 from .for_each import group_of
 from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
+from .pipeline_processors.timing import StepTimer, mark, timed_step
 from .previous_results import StepResults
 from .realize import pin_output_reference, realize_workflow
 from .roles import annotate_roles, role_basis, run_inputs
@@ -883,10 +884,11 @@ def _warn_shot_collisions(step_data, step_name, shots):
         )
 
 
-def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
+def record_step(workflow, loop, index, step_data, outcome, sub_manifest, timing=None):
     """Phase E7: the step's manifest entry, the child's rolled-up entries,
     and `step_end`. `outcome` is (result, saved_files, reused,
-    parent_saves_this)."""
+    parent_saves_this). `timing` is the step's StepTimer reading
+    (dw/pipeline_processors/timing.py), None for a step nothing timed."""
     result, saved_files, reused, parent_saves_this = outcome
     step_name = step_data["name"]
     # 'reused' marks files an earlier run wrote and this one only
@@ -899,6 +901,9 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
         details["reused"] = True
     if selected is not None:
         details["selected"] = selected
+    # A reused step ran nothing, so it has nothing to time
+    if timing is not None and not reused:
+        details["timing"] = timing
     # Where each joined shot sits in the file, named by the
     # step's own input references (dw/shots.py)
     references = shot_references(step_data.get("task", {}).get("arguments", {}))
@@ -974,12 +979,28 @@ def run_step(workflow, loop, index, step_data, record):
     """Phase E: one step, start to `step_end`. Returns the names later
     steps still reference; the result is the loop's (`last_result`,
     `results`), so the caller holds no reference of its own to it.
+    """
+    step, step_seed = _start_step(workflow, loop, index, step_data)
+    # Only a pipeline step is timed; any other step opens None, which also
+    # keeps a composed child's pipeline marks off an outer step's timer
+    timer = StepTimer() if _runs_a_pipeline(step_data) else None
+    with timed_step(timer):
+        return _run_started_step(
+            workflow, loop, index, step_data, step, step_seed, record, timer
+        )
+
+
+def _runs_a_pipeline(step_data):
+    return "pipeline" in step_data or "pipeline_reference" in step_data
+
+
+def _run_started_step(workflow, loop, index, step_data, step, step_seed, record, timer):
+    """run_step past `step_start`, with the step's timer open.
 
     Holds the step's action in this frame and nowhere else, so the release
     a step asks for can drop it here before memory is reclaimed.
     """
     steps = loop.steps
-    step, step_seed = _start_step(workflow, loop, index, step_data)
     cached_result, step_data_snapshot, result_needed, remaining_refs = cache_lookup(
         workflow,
         loop.workflow_id,
@@ -1006,6 +1027,7 @@ def run_step(workflow, loop, index, step_data, record):
     # it, and it loads only when a step that actually runs
     # borrows it - whether a later step will be a hit too is not
     # known until that step's own lookup
+    mark("load_started")
     if cached_result is None:
         workflow._load_deferred_borrows(
             loop.workflow_id, steps, index, loop.shared_components, loop.pipelines
@@ -1018,6 +1040,7 @@ def run_step(workflow, loop, index, step_data, record):
         get_device(),
         cache_hit=cached_result is not None,
     )
+    mark("load_ended")
     is_child = isinstance(step_action, type(workflow))
     if is_child:
         wire_child(workflow, step_action, step_data, index, len(steps))
@@ -1060,6 +1083,7 @@ def run_step(workflow, loop, index, step_data, record):
         finish_release(loop.workflow_id, step.name, index, before)
 
     if not reused:
+        mark("save_started")
         saved_files = save_step(
             workflow,
             loop,
@@ -1069,6 +1093,7 @@ def run_step(workflow, loop, index, step_data, record):
             result,
             (step_data_snapshot, step_seed, result_needed, parent_saves_this),
         )
+        mark("save_ended")
 
     loop.last_result = result
     loop.results[step.name] = result
@@ -1079,6 +1104,7 @@ def run_step(workflow, loop, index, step_data, record):
         step_data,
         (result, saved_files, reused, parent_saves_this),
         sub_manifest,
+        timing=timer.timing() if timer is not None else None,
     )
 
     # Rewritten after every step, not only at the end (#480): a

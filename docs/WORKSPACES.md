@@ -212,6 +212,11 @@ run fails part way, since the files it did write are on disk either way. A
 sub-workflow is part of its parent's run: it writes into the same directory and
 rolls up into the same manifest.
 
+A pipeline step that ran also carries `timing` in its `manifest.json` entry
+(and in the same entry of the job's manifest from the API or MCP `get_job`):
+load, encode, denoise, decode and save seconds. A reused, task or composed
+step has none. See [Step timing](#step-timing).
+
 An unchanged rerun still reuses the step cache: it writes no new files and its
 manifest reports the earlier run's, marked `"reused": true`. The cache is
 validated against the output *root* a run writes into, which is the pinned
@@ -234,6 +239,33 @@ To keep the previous layout — everything at the output root, with only a
 `workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory
 are the reason to.
+
+### Step timing
+
+A manifest entry for a pipeline step that ran - in `GET /api/jobs/{id}`, in
+MCP `get_job`, and on that step's `step_end` event - carries `timing`: where
+the step's time went. It is measured in the worker on its monotonic clock, not
+taken from event timestamps, because the job keeps only the last 200 events and
+the load and encode events are gone from a long job. Every `_s` is seconds to
+0.1. A field whose mark never happened is null, never guessed.
+
+| Field | Meaning |
+|---|---|
+| `load_s` | Loading or fetching the step's pipeline, cached or not |
+| `load_cached` | `true` if the pipeline came from the worker's cache, `false` if any part loaded fresh, null if the step loaded nothing |
+| `encode_s` | Call start to the first denoiser forward (or a modular pipeline's denoise bar opening): prompt and reference encoding and preparation |
+| `denoise_s` | First denoiser forward to the last pass's end. The whole call when the pipeline reports no passes; `encode_s` and `decode_s` are then null |
+| `passes` | Denoise passes counted |
+| `first_pass_s` | The first pass, which carries any compile warm-up |
+| `pass_s` | Median of passes 2..n; null with fewer than two passes |
+| `compiled` | The denoiser runs through `torch.compile` |
+| `decode_s` | Last pass's end to the call's return: VAE decode and post-processing |
+| `save_s` | Writing the step's files |
+| `segments` | Pipeline calls summed into this timing. A chain step sums its segments into one timing with `segments: N`; a step that iterates counts each call. 1 for a plain step |
+
+A step served from the step cache (`reused: true`) has no `timing`, nor does a
+task step or a composed (sub-workflow) step. A failed or cancelled step has no
+manifest entry, so no timing. Job summaries and history are unchanged.
 
 ## Several workspaces on one server
 

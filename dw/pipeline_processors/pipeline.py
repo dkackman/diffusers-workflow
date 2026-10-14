@@ -45,6 +45,7 @@ from .h3_rules import (
     snap_guide_length,
 )
 from .progress import reported_blocks, reported_progress_bars
+from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
 from ..trust import (
@@ -634,6 +635,8 @@ class Pipeline:
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
         emit_phase("generating", detail=self.segment_label or self.name)
+        denoiser = _denoiser(self.pipeline)
+        mark("call_started", compiled=is_compiled(denoiser))
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
@@ -641,7 +644,10 @@ class Pipeline:
 
             stack.enter_context(captured_mag_calibration(self.pipeline))
             stack.enter_context(stateful_cache_context(self.pipeline))
-            if not self._takes_step_callback():
+            if self._takes_step_callback():
+                # Encode ends where the denoiser first runs
+                stack.enter_context(denoise_start_hook(denoiser))
+            else:
                 # A modular pipeline takes no step callback at all, so this
                 # is the only per-step signal it has: the denoise blocks
                 # drive a tqdm bar, and a bar that reports each advance is
@@ -653,7 +659,9 @@ class Pipeline:
                     reported_blocks(self.pipeline, self.segment_label or self.name)
                 )
 
-            return self.pipeline(**arguments)
+            output = self.pipeline(**arguments)
+            mark("call_ended")
+            return output
 
     def _with_held_audio(self, arguments):
         """`hold_audio` as the reference the H3 hold block takes, and the
@@ -776,6 +784,7 @@ class Pipeline:
         num_steps = arguments.get("num_inference_steps", None)
 
         def on_step_end(pipe, step_index, timestep, callback_kwargs):
+            mark("pass_ended")
             total = getattr(pipe, "_num_timesteps", None) or num_steps
             run_context.emit("pipeline_step", step=step_index + 1, total_steps=total)
             # Past the last step the pipeline still has to decode the latents,
@@ -884,6 +893,14 @@ class Pipeline:
                 if torch_dtype is not None:
                     logger.debug(f"Setting {component_name} torch dtype: {torch_dtype}")
                     component.to(torch_dtype)
+
+
+def _denoiser(pipeline):
+    """The module whose forward is one denoise pass, or None."""
+    from .components import get_cache_transformer
+
+    denoiser = get_cache_transformer(pipeline)
+    return denoiser if denoiser is not None else getattr(pipeline, "unet", None)
 
 
 def _prepared_guide(where, index, guide, base_dir):

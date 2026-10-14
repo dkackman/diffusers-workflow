@@ -27,6 +27,7 @@ from . import device_memory_stats, empty_device_cache
 from .events import emit_phase, get_context
 from .host_memory import release_host_caches
 from .pipeline_processors.pipeline import Pipeline
+from .pipeline_processors.timing import mark
 from .step_cache import pipeline_cache_key, step_pipeline_keys
 from .tasks.model_cache import clear_model_cache
 
@@ -305,6 +306,7 @@ def wrap_resident(
     # A cache hit and a cold load look identical from the outside -
     # same step, same dot - and they differ by minutes
     emit_phase("cached", detail=new_pipeline_wrapper.name)
+    mark("load_cached", True)
     return new_pipeline_wrapper
 
 
@@ -334,5 +336,6 @@ def load_fresh(
     # Loading is the longest silence in a run: weights, quantization,
     # adapters and placement all happen inside this call
     emit_phase("loading", detail=pipeline.name)
+    mark("load_cached", False)
     pipeline.load(shared_components)
     return pipeline
