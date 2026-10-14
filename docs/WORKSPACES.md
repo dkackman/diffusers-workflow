@@ -255,7 +255,7 @@ the load and encode events are gone from a long job. Every `_s` is seconds to
 | `load_cached` | `true` if the pipeline came from the worker's cache, `false` if any part loaded fresh, null if the step loaded nothing |
 | `encode_s` | Call start to the first denoiser forward (or a modular pipeline's denoise bar opening): prompt and reference encoding and preparation |
 | `denoise_s` | First denoiser forward to the last pass's end. The whole call when the pipeline reports no passes; `encode_s` and `decode_s` are then null |
-| `passes` | Denoise passes counted |
+| `passes` | Denoise passes the pipeline actually ran: one per iteration of its denoise loop, so one per scheduler timestep. This is not always `num_inference_steps`: SD 1.5's default PNDM scheduler runs 21 passes at 20 steps (N+1 from 2 steps up). `denoise_s` ≈ `first_pass_s + (passes − 1) × pass_s` |
 | `first_pass_s` | The first pass, which carries any compile warm-up |
 | `pass_s` | Median of passes 2..n; null with fewer than two passes |
 | `compiled` | The denoiser runs through `torch.compile` |

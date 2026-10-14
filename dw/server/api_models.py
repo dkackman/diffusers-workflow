@@ -405,7 +405,9 @@ class StepTiming(ApiModel):
         description="First denoiser forward to the last pass's end; the whole "
         "call when the pipeline reports no passes."
     )
-    passes: int | None = Field(description="Denoise passes counted.")
+    passes: int | None = Field(
+        description="Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps."
+    )
     first_pass_s: float | None = Field(
         description="The first pass, which carries any compile warm-up."
     )

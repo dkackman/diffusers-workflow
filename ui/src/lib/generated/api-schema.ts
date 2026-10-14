@@ -3486,7 +3486,7 @@ export interface components {
             pass_s: number | null;
             /**
              * Passes
-             * @description Denoise passes counted.
+             * @description Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps.
              */
             passes: number | null;
             /**
