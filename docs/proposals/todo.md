@@ -41,6 +41,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Validate warnings for acceleration settings that can't pay off** (#868,
+  stage #887), shipped 2026-10-14. `validate_workflow` and `save_workflow`
+  warn (never refuse) on `cache_short_schedule` (a `first_block`/`mag` cache
+  under 20 steps), `taylorseer_state_unestimated`,
+  `compile_fullgraph_with_cache` and `attention_backend_unavailable` (a
+  CUDA-only backend on a server that isn't CUDA). Compile under offload is
+  docs only. Record, including what was deferred (TaylorSeer state sizing,
+  a `mag` step-mismatch check): `complete/acceleration-warnings-complete.md`.
+
 - **Copy runs and assets between workspaces** (#853, stages #859-#860),
   shipped 2026-10-13. `copy_to_workspace` and `POST
   /api/workspaces/{destination}/copy` copy whole runs (with manifests) and
