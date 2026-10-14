@@ -86,7 +86,7 @@ class JobTools:
         the scratch work, and '' a step that said nothing. A step served
         from the step cache is marked `reused`, with the earlier run's
         files. A pipeline step's entry carries `timing`, where its time
-        went (`get_guide("server", section="Step timing")`). On failure,
+        went (`get_guide("workspaces", section="Step timing")`). On failure,
         read the error and traceback before changing
         anything. `device` is the card the job ran or is running on, e.g.
         `cuda:1 NVIDIA GeForce RTX 3090`; null for jobs from before

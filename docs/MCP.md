@@ -400,9 +400,12 @@ The intended loop:
    terminal/not-terminal status. Each event carries `at`, seconds since the
    job started, so where a step's time went is a subtraction between two
    events - `step_start` to `generating` is the lead-in a reused pipeline
-   still pays, `generating` to the first `pipeline_step` the encoding
+   still pays; `generating` is emitted when the pipeline call starts, so
+   `generating` to the first `pipeline_step` is the encoding plus the first
+   denoise pass (`timing.encode_s` on the manifest entry is the encoding alone)
 4. `get_job(job_id)` for the finished manifest (or the error and traceback,
-   if it failed)
+   if it failed). A pipeline step's entry carries `timing` - load, encode,
+   denoise, decode and save seconds ([WORKSPACES.md](WORKSPACES.md#step-timing))
 5. `get_output_image(name)` to look at a result image
 6. `get_output_frames(name, count=12)` to look at a result video, and
    `get_output_audio(name, start, duration)` to hear it
