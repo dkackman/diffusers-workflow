@@ -411,7 +411,12 @@ class Pipeline:
             # Enable diffusers built-in cache acceleration on transformer
             cache_config = get_cache_configuration(self.configuration)
             if cache_config is not None:
-                enable_cache_on_transformer(self.pipeline, cache_config)
+                enable_cache_on_transformer(
+                    self.pipeline,
+                    cache_config,
+                    distilled_explicit="is_guidance_distilled"
+                    in self.configuration["cache"],
+                )
 
             # Configure the schedulers if specified - a pipeline that denoises two
             # modalities against two schedules configures each of them separately

@@ -101,6 +101,33 @@ class TestFasterCacheWiring:
 
         assert config.current_timestep_callback is callback
 
+    def test_guidance_embeds_infers_distilled(self):
+        from diffusers import FasterCacheConfig
+
+        config = FasterCacheConfig()
+        pipeline = MagicMock()
+        pipeline.transformer.config.guidance_embeds = True
+        enable_cache_on_transformer(pipeline, config)
+        assert config.is_guidance_distilled is True
+
+    def test_no_guidance_embeds_stays_false(self):
+        from diffusers import FasterCacheConfig
+
+        config = FasterCacheConfig()
+        pipeline = MagicMock()
+        pipeline.transformer.config.guidance_embeds = False
+        enable_cache_on_transformer(pipeline, config)
+        assert config.is_guidance_distilled is False
+
+    def test_explicit_value_wins(self):
+        from diffusers import FasterCacheConfig
+
+        config = FasterCacheConfig(is_guidance_distilled=False)
+        pipeline = MagicMock()
+        pipeline.transformer.config.guidance_embeds = True
+        enable_cache_on_transformer(pipeline, config, distilled_explicit=True)
+        assert config.is_guidance_distilled is False
+
 
 class ModularLike:
     """Stands in for a ModularPipeline - built from its own component index, and
