@@ -322,6 +322,26 @@ def test_gallery_metadata_points_at_get_job_workflow_when_embedded_is_null():
     assert "c68bc29607ec" in result["next"]
 
 
+def test_gallery_metadata_null_hint_does_not_claim_a_png_carries_it():
+    """#903: a task step's PNG has null metadata; the hint must not say
+    images carry it."""
+    body = {
+        "name": "ws/20261014-104901-39d691b0/ws-frame.0-0.0.png",
+        "source": "output",
+        "metadata": None,
+        "job": {"id": "6cee0715fc6f", "status": "succeeded"},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/" + body["name"] + "/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, body["name"])
+
+    assert "only an image" not in result["next"]
+    assert "task step" in result["next"]
+    assert "6cee0715fc6f" in result["next"]
+
+
 def test_gallery_metadata_says_a_kept_asset_has_no_recorded_job():
     """#556: a kept asset with no recorded job (kept before provenance
     tracking, or from a file with no job history) still answers 'job: null',
