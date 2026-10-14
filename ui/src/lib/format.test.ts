@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest'
 import {
   formatBytes,
   formatDuration,
+  formatMinutes,
   formatMtime,
   gbFromBytes,
   gbFromMb,
@@ -44,5 +45,12 @@ describe('formatDuration', () => {
     expect(formatDuration(12.34)).toBe('12.3s')
     expect(formatDuration(243)).toBe('4m 03s')
     expect(formatDuration(3725)).toBe('1h 02m')
+  })
+})
+
+describe('formatMinutes', () => {
+  it('rounds to two places and says <1 below a minute', () => {
+    expect(formatMinutes(12.946)).toBe('~12.95 min')
+    expect(formatMinutes(0.4)).toBe('<1 min')
   })
 })

@@ -36,3 +36,8 @@ export function formatDuration(seconds: number): string {
   if (whole < 3600) return `${Math.floor(whole / 60)}m ${pad(whole % 60)}s`
   return `${Math.floor(whole / 3600)}h ${pad(Math.floor((whole % 3600) / 60))}m`
 }
+
+/** Minutes for a person: under one is '<1 min', anything else keeps the
+ * measured value ('~3 min', '~1.5 min') rather than rounding it away. */
+export const formatMinutes = (minutes: number) =>
+  minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`

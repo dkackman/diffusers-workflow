@@ -10,6 +10,7 @@
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
+  import { observedText, observedTitle } from '../observed'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
   import ClampedText from '../ui/ClampedText.svelte'
@@ -35,6 +36,8 @@
    * catalog card shows, in the place where you decide whether to run it
    * again. */
   let proofs = $state<GalleryFile[]>([])
+  /** This server's own measured run time for the workflow, if it has one. */
+  let observed = $state<Record<string, unknown> | null>(null)
 
   $effect(() => {
     overrides = {}
@@ -50,6 +53,14 @@
         writable = fetched.writable
       })
       .catch((e) => (error = e.message))
+    observed = null
+    api
+      .listWorkflows()
+      .then((r) => {
+        observed =
+          (r.details?.[name]?.observed as Record<string, unknown>) ?? null
+      })
+      .catch(() => {})
   })
 
   $effect(() => {
@@ -162,6 +173,11 @@
   >
     <Copy size={14} />Duplicate
   </button>
+  {#if observedText(observed)}
+    <span class="num muted" title={observedTitle(observed) ?? ''}
+      >{observedText(observed)}</span
+    >
+  {/if}
   <button
     class="withicon run"
     onclick={run}
