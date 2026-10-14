@@ -315,6 +315,36 @@ class TestDownloadManager:
         status = self.wait_status(manager, started["id"], ["cancelled"])
         assert status["downloaded"] < 100
 
+    def test_cancel_shows_pending_then_aborts_xet_and_ends_cancelled(self):
+        """#899: the record says the cancel is pending, the xet session is
+        aborted, and the library's own error from the abort is a cancel."""
+        import threading
+        from unittest import mock
+
+        from dw.hub_cache import DownloadManager
+
+        release = threading.Event()
+
+        def stuck_download(repo_id, tqdm_class=None):
+            release.wait(5)
+            raise RuntimeError("xet session aborted")
+
+        manager = DownloadManager(
+            download_fn=stuck_download,
+            info_fn=lambda repo_id: FakeInfo([10]),
+        )
+        started = manager.start("acme/tiny")
+        assert started["cancel_requested"] is False
+        with mock.patch("dw.hub_cache._abort_xet_session") as abort:
+            pending = manager.cancel(started["id"])
+        abort.assert_called_once()
+        assert pending["status"] == "downloading"
+        assert pending["cancel_requested"] is True
+        release.set()
+        status = self.wait_status(manager, started["id"], ["cancelled"])
+        assert status["cancel_requested"] is False
+        assert status["error"] is None
+
     def test_xet_aggregate_bars_count_file_bytes_once(self):
         """huggingface_hub's xet path builds two aggregate bars from the
         tracker class - reconstruction (file bytes) and transfer (network

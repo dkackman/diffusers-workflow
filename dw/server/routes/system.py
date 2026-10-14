@@ -221,7 +221,7 @@ def list_downloads(request: Request):
     response_model_exclude_unset=True,
 )
 def cancel_download(request: Request, download_id: str):
-    """Request cancellation; takes effect at the next progress tick.
+    """Request cancellation; `cancel_requested` shows until it is terminal.
     Partial files stay in the cache and resume on a retry."""
     state = request.app.state
     status = state.downloads.cancel(download_id)

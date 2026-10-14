@@ -266,7 +266,7 @@ class DownloadManager:
 
     One thread per download; progress is fed by a tqdm-compatible tracker
     that snapshot_download instantiates per file, so the counters aggregate
-    across the file pool. Cancellation raises out of the next progress tick;
+    across the file pool. Cancellation raises out of the next progress tick (and aborts the xet session);
     huggingface_hub's partial files remain resumable, so a cancelled or
     failed download picks up where it stopped when retried.
     """
@@ -311,6 +311,9 @@ class DownloadManager:
                 "error": None,
                 "started_at": time.time(),
                 "finished_at": None,
+                # True from cancel() until the download is terminal, so a
+                # consumer can tell "stopping" from "still pulling" (#899)
+                "cancel_requested": False,
                 # Set before the entry is published: cancel() reaches for this
                 # the moment the id is visible, and assigning it after the
                 # lock left a window where cancelling raised KeyError
@@ -343,13 +346,19 @@ class DownloadManager:
         except DownloadCancelled:
             self._finish(entry, "cancelled")
         except Exception as e:
-            self._finish(entry, "failed", str(e))
+            # An aborted xet transfer surfaces as whatever the library
+            # raises; a requested cancel is a cancel, not a failure
+            if cancel_event.is_set():
+                self._finish(entry, "cancelled")
+            else:
+                self._finish(entry, "failed", str(e))
 
     def _finish(self, entry, status, error=None):
         with self._lock:
             entry["status"] = status
             entry["error"] = error
             entry["finished_at"] = time.time()
+            entry["cancel_requested"] = False
 
     def _add_progress(self, entry, n):
         with self._lock:
@@ -357,13 +366,25 @@ class DownloadManager:
 
     def cancel(self, download_id):
         """Request cancellation; returns the status dict or None if unknown.
-        Takes effect at the download's next progress tick."""
+        The record shows `cancel_requested` until it is terminal. A plain
+        download stops at its next chunk; an xet transfer, which ticks only
+        as it writes a file, is aborted outright (#899)."""
+        abort_xet = False
         with self._lock:
             entry = self._downloads.get(download_id)
             if entry is None:
                 return None
             if entry["status"] == "downloading":
                 entry["_cancel"].set()
+                entry["cancel_requested"] = True
+                # The xet session is process-wide: abort it only when no
+                # other download shares it
+                abort_xet = all(
+                    other is entry or other["status"] != "downloading"
+                    for other in self._downloads.values()
+                )
+        if abort_xet:
+            _abort_xet_session()
         return self.status(download_id)
 
     def status(self, download_id):
@@ -396,6 +417,16 @@ class DownloadManager:
         excess = len(finished) - self.KEEP_FINISHED
         for entry in finished[: max(0, excess)]:
             del self._downloads[entry["id"]]
+
+
+def _abort_xet_session():
+    """Stop in-flight hf_xet transfers (the hub's own KeyboardInterrupt path)."""
+    try:
+        from huggingface_hub.utils._xet import abort_xet_session
+
+        abort_xet_session()
+    except Exception as e:
+        logger.debug(f"Could not abort the xet session: {e}")
 
 
 def _public(entry):
