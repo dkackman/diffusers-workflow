@@ -169,6 +169,15 @@ def timed_step(timer):
         _active_timer.reset(token)
 
 
+@contextlib.contextmanager
+def step_timer(step_data):
+    """Open a StepTimer for a pipeline step, None for any other. Opening None
+    also keeps a composed child's pipeline marks off an outer step's timer."""
+    runs_a_pipeline = "pipeline" in step_data or "pipeline_reference" in step_data
+    with timed_step(StepTimer() if runs_a_pipeline else None) as timer:
+        yield timer
+
+
 def current_timer():
     """The open step's timer, or None."""
     return _active_timer.get()
