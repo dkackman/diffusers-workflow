@@ -819,6 +819,10 @@
                         "max_order": {
                             "description": "Taylor series order for taylorseer cache. Higher = better approximation, more memory. Default: 1.",
                             "type": "integer"
+                        },
+                        "is_guidance_distilled": {
+                            "description": "For faster cache: set true when the model is guidance-distilled (FLUX.1-dev, FLUX.1-Krea-dev), where guidance_scale is an embedding and the transformer sees a batch of 1, not a cond/uncond pair. Without it faster fails at the first step with 'tuple index out of range'. Default: false.",
+                            "type": "boolean"
                         }
                     },
                     "required": [

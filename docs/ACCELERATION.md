@@ -127,6 +127,10 @@ Experimental, video-oriented. Uses FFT frequency decomposition:
 
 Best for video models like CogVideoX. No additional parameters needed for basic use.
 
+| Property | Default | Description |
+| -------- | ------- | ----------- |
+| `is_guidance_distilled` | false | Set `true` for a guidance-distilled model (FLUX.1-dev, FLUX.1-Krea-dev), where `guidance_scale` is an embedding and the transformer sees a batch of 1. FasterCache otherwise assumes a cond/uncond batch of 2 and fails at the first step with `tuple index out of range` (#895). Validate cannot tell a distilled model from a CFG one, so it does not check this |
+
 ### TextKVCache
 
 Caches the transformer's key/value projections of the (unchanging) text
