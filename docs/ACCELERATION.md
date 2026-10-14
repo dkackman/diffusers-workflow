@@ -8,6 +8,11 @@ For ready-made configurations that combine these levers per model family, see [R
 
 Applied at pipeline load time via the `cache` configuration. Hooks auto-reset between runs.
 
+`validate_workflow` warns (it never refuses) about two cache settings that cost a render to find out:
+
+- **`cache_short_schedule`: a threshold cache on a short schedule.** `first_block` and `mag` decide each step's skip on a residual threshold, and the consecutive steps of a short schedule differ too much for it: under 20 `num_inference_steps` such a cache will likely skip nothing and still perturbs the result. On MiniMax-H3 a `first_block` cache at `0.05` skipped nothing at 12 steps and took 22% off at 30 ([FirstBlockCache](#firstblockcache)). Drop the cache or run 20 steps or more. A turbo schedule (9 steps or fewer) never benefits. `taylorseer` and `faster` skip on a fixed interval and `text_kv` skips no step, so the rule does not apply to them.
+- **`taylorseer_state_unestimated`: TaylorSeer's state is not in the VRAM estimate.** Said whenever `taylorseer` is set - see [TaylorSeerCache](#taylorseercache).
+
 ### Models diffusers has not registered
 
 `first_block`, `mag` and `layer_skip` look a model's transformer block class up in
@@ -96,7 +101,9 @@ Taylor series approximation of cached outputs:
 | Property | Default | Description |
 | -------- | ------- | ----------- |
 | `cache_interval` | 5 | Full computation every N steps |
-| `max_order` | 1 | Taylor series order (higher = better approximation, more memory) |
+| `max_order` | 1 | Taylor series order (higher = better approximation, and more state kept on the GPU) |
+
+TaylorSeer keeps per-block state on the GPU that no `vram_estimate` charges, so a job that fits without the cache can run out of memory with it. On MiniMax-H3 at 1344x768, 30 steps and `max_order` 1, a run that `validate_workflow` had passed ran out of memory 2 min in on a 24 GB card. Validate says so as `taylorseer_state_unestimated` whenever `taylorseer` is set, with the job's estimate and the card's capacity when both are known; the state itself is on top of that figure, and is not sized.
 
 ### FasterCache
 
@@ -143,9 +150,8 @@ exposes this as a variable: `attention_backend`, pinned on the H3 step's transfo
 `shots-batch`, `music-video` and `storyboard` among them - and only their H3 steps: a
 Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass
 `attention_backend=sage_hub` to a box with the `kernels` package and
-`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since
-validation does not check the backend against the device and a `_hub` kernel fails
-there only at run time. LTX-2.5 cannot use it: its transformer
+`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since a
+CUDA-only kernel fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
 passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
 for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
 
@@ -160,6 +166,8 @@ A component can also pin its backend persistently instead, via `set_attention_ba
 ```
 
 Prefer the pinned form for a compiled component - the per-call context manager switches implementations under the compiled graph and forces a recompile on every run.
+
+The flash, flash-3, sage and xformers backends need CUDA, `_hub` variants included. On a server whose device is not CUDA (`mps`, `cpu`), `validate_workflow` warns `attention_backend_unavailable` for one set at pipeline or component level, naming the backend and the device: the job would fail at load. It never refuses, and a `native`-family backend never warns. A backend diffusers adds later is not on the list until dw's is updated, and draws no warning.
 
 Either form stays on what it names. diffusers' `set_attention_backend` also makes its backend the process-wide default, which the persistent worker would keep for every later model; dw restores the default after pinning, so an H3 `sage_hub` pin cannot reach a Music3 or LTX job that follows it. The server-wide default is `DIFFUSERS_ATTN_BACKEND` in `.env` - leave it `native`, since it reaches every model and sage cannot serve all of them.
 
@@ -205,8 +213,8 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compilation stacks wit
 - **Measure the cold cost from `timing`.** A pipeline step's manifest entry carries `timing` ([WORKSPACES.md](WORKSPACES.md#step-timing)): on a cold run the compile cost is about `first_pass_s - pass_s`, and `compiled` says whether compile was on. `pass_s` is wall time at step boundaries, not kernel time - on CUDA kernels run asynchronously, so a pass boundary is when the host saw it.
 - **Pin the attention backend** on a compiled component (`"attention_backend"` in the same `components` entry) rather than using the pipeline-level per-call context manager, which forces recompiles.
 - **Quantize-on-load time is a separate cost.** An SDNQ on-the-fly component re-reads and re-quantizes its bf16 weights on every cold load; `DW_QUANTIZED_CACHE=1` saves the quantized result and reads it back instead - see [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache).
-- **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS.
-- **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active.
+- **Composes with offloading**: apply `group_offload` and `compile` on the same component and the offload hooks are installed first, as required. Skipped with a warning on MPS. The compile cost is paid again every time the worker releases the pipeline ("Workflow changed - releasing cached models"), i.e. on any workflow change, so it pays off only across many runs of one workflow at one shape.
+- **Don't combine `fullgraph` with a `cache`**: the cache hooks decide skip-or-compute per step, a data-dependent branch diffusers wraps in `torch.compiler.disable` - it needs the graph break that `fullgraph: true` forbids. Compile with the default (partial) graph mode when a cache is active. `validate_workflow` warns `compile_fullgraph_with_cache` on a component that sets `fullgraph: true` in a pipeline with a `cache`.
 - **TorchAO quantization needs compile to be fast** - see [QUANTIZATION.md](QUANTIZATION.md#torchao).
 
 **Example:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-torchao.json](../workflows/models/flux-torchao.json)
@@ -308,7 +316,7 @@ For faster model downloads, optionally `pip install hf_transfer` and set `HF_HUB
 
 Apple Silicon has narrower acceleration support than CUDA:
 
-- No flash-attn, no Triton, no bitsandbytes - `attention_backend` is effectively CUDA-only; use `"native"`-family backends or leave it unset on MPS. `compile` is skipped with a warning (inductor support on MPS is immature). A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path yet.
+- No flash-attn, no Triton, no bitsandbytes - `attention_backend` is effectively CUDA-only; use `"native"`-family backends or leave it unset on MPS. Validate warns `attention_backend_unavailable` for a CUDA-only one ([Attention Backends](#attention-backends)). `compile` is skipped with a warning (inductor support on MPS is immature). A workflow that loads a bitsandbytes checkpoint (`flux2-dev`, `multi-image-reference`) or a TorchAO int4 config (`flux-torchao`) has no Mac path yet.
 - Workflows written for CUDA are adapted rather than refused: a `cuda` device becomes `mps`, SDNQ's `quantization_device` follows it and its quantized matmul is switched off (it runs through `torch._int_mm`, ~500x slower on MPS), group-offload CUDA streams are dropped, and `"offload": "sequential"` becomes `"model"`. Each change is logged as a warning.
 - Attention slicing is automatic; set `disable_attention_slicing` for SDXL-family models (head dim 64), where it is 2.4x slower in attention. It helps SD 1.5.
 - `float16` can produce NaN values on Apple Silicon - use `bfloat16`; dw only warns, it doesn't override the dtype for you.

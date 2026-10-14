@@ -308,6 +308,7 @@ WARNING_ORDER = [
     "slice_past_end_warnings",
     "shot_span_warnings",
     "inherited_vram_warnings",
+    "acceleration_warnings",
 ]
 
 
@@ -398,6 +399,9 @@ def test_a_warning_method_on_an_unexpandable_definition_says_it_failed(tmp_path)
                 ceiling_index={"identity": {}},
             )
         ),
+        "acceleration_warnings": lambda: validation.run_warning_check(
+            workflow, "acceleration_warnings", None
+        ),
     }
     for name, call in calls.items():
         assert call() == [
@@ -434,3 +438,392 @@ def test_a_pipeline_configuration_naming_teacache_is_refused():
     errors = Workflow(definition, ".", "teacache-removed.json").validation_errors()
 
     assert any("teacache" in str(error["message"]) for error in errors), errors
+
+
+class TestAccelerationWarnings:
+    """dw/acceleration_warnings.py through the real path: a Workflow, its
+    expansion, the registry check. Every code is a warning, never a refusal,
+    and a value unknown before the run leaves its warning silent."""
+
+    CODES = (
+        "cache_short_schedule",
+        "taylorseer_state_unestimated",
+        "compile_fullgraph_with_cache",
+        "attention_backend_unavailable",
+    )
+
+    @staticmethod
+    def definition(
+        cache=None,
+        steps=20,
+        components=None,
+        attention_backend=None,
+        variables=None,
+        extra=None,
+    ):
+        configuration = {"component_type": "FluxPipeline"}
+        if cache is not None:
+            configuration["cache"] = cache
+        if components is not None:
+            configuration["components"] = components
+        if attention_backend is not None:
+            configuration["attention_backend"] = attention_backend
+        arguments = {"prompt": "a cat"}
+        if steps is not None:
+            arguments["num_inference_steps"] = steps
+        definition = {
+            "id": "accel",
+            "steps": [
+                {
+                    "name": "gen",
+                    "pipeline": {
+                        "configuration": configuration,
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-dev"
+                        },
+                        "arguments": arguments,
+                    },
+                }
+            ],
+        }
+        if variables is not None:
+            definition["variables"] = variables
+        definition.update(extra or {})
+        return definition
+
+    @staticmethod
+    def workflow(definition):
+        from dw.workflow import Workflow
+
+        return Workflow(definition, None, "")
+
+    def run(self, monkeypatch, definition, arguments=None, device="cuda", **fields):
+        monkeypatch.setattr(validation, "get_device_type", lambda: device)
+        return validation.run_warning_check(
+            self.workflow(definition), "acceleration_warnings", arguments, **fields
+        )
+
+    def direct(self, definition, **fields):
+        """A hand-built context, for the fields run_warning_check cannot
+        leave None (capacity_gb) or the device it cannot name."""
+        workflow = self.workflow(definition)
+        source_indices = []
+        expanded = workflow.expanded_definition(None, source_indices)
+        from dw.acceleration_warnings import acceleration_warnings
+
+        values = {
+            "workflow": workflow,
+            "expanded": expanded,
+            "source_indices": source_indices,
+            "device_type": "cuda",
+        }
+        values.update(fields)
+        return acceleration_warnings(context(**values))
+
+    @staticmethod
+    def coded(warnings, code):
+        return [w for w in warnings if f": {code}:" in w]
+
+    # cache_short_schedule
+
+    def test_a_threshold_cache_fires_below_twenty_steps_and_not_at_twenty(
+        self, monkeypatch
+    ):
+        cache = {"type": "first_block"}
+        short = self.run(monkeypatch, self.definition(cache, steps=19))
+        enough = self.run(monkeypatch, self.definition(cache, steps=20))
+
+        found = self.coded(short, "cache_short_schedule")
+        assert len(found) == 1
+        assert "19 steps" in found[0]
+        assert "first_block" in found[0]
+        assert self.coded(enough, "cache_short_schedule") == []
+
+    @pytest.mark.parametrize("cache_type", ["first_block", "mag"])
+    def test_both_threshold_caches_fire_at_twelve_steps(self, monkeypatch, cache_type):
+        warnings = self.run(
+            monkeypatch, self.definition({"type": cache_type}, steps=12)
+        )
+
+        assert len(self.coded(warnings, "cache_short_schedule")) == 1
+
+    @pytest.mark.parametrize("cache_type", ["taylorseer", "faster", "text_kv"])
+    def test_the_other_caches_are_not_held_to_the_schedule_rule(
+        self, monkeypatch, cache_type
+    ):
+        warnings = self.run(monkeypatch, self.definition({"type": cache_type}, steps=9))
+
+        assert self.coded(warnings, "cache_short_schedule") == []
+
+    def test_steps_come_from_a_variable_default(self, monkeypatch):
+        definition = self.definition(
+            {"type": "first_block"},
+            steps="variable:steps",
+            variables={"steps": 12},
+        )
+
+        warnings = self.run(monkeypatch, definition)
+
+        found = self.coded(warnings, "cache_short_schedule")
+        assert len(found) == 1 and "12 steps" in found[0]
+
+    def test_steps_come_from_an_argument_over_the_default(self, monkeypatch):
+        definition = self.definition(
+            {"type": "first_block"},
+            steps="variable:steps",
+            variables={"steps": 30},
+        )
+
+        short = self.run(monkeypatch, definition, {"steps": 9})
+        default = self.run(monkeypatch, definition)
+
+        assert len(self.coded(short, "cache_short_schedule")) == 1
+        assert self.coded(default, "cache_short_schedule") == []
+
+    def test_steps_that_resolve_to_nothing_are_silent(self, monkeypatch):
+        definition = self.definition(
+            {"type": "first_block"},
+            steps="variable:steps",
+            variables={"steps": None},
+        )
+
+        assert (
+            self.coded(self.run(monkeypatch, definition), "cache_short_schedule") == []
+        )
+
+    def test_no_num_inference_steps_is_silent(self, monkeypatch):
+        definition = self.definition({"type": "first_block"}, steps=None)
+
+        assert (
+            self.coded(self.run(monkeypatch, definition), "cache_short_schedule") == []
+        )
+
+    # taylorseer_state_unestimated
+
+    def test_taylorseer_always_says_its_state_is_unestimated(self, monkeypatch):
+        default = self.run(monkeypatch, self.definition({"type": "taylorseer"}))
+        second = self.run(
+            monkeypatch, self.definition({"type": "taylorseer", "max_order": 2})
+        )
+
+        first = self.coded(default, "taylorseer_state_unestimated")
+        higher = self.coded(second, "taylorseer_state_unestimated")
+        assert len(first) == 1 and "this one is 1" in first[0]
+        assert len(higher) == 1 and "this one is 2" in higher[0]
+
+    def test_taylorseer_names_the_declared_estimate_against_the_capacity(
+        self, monkeypatch
+    ):
+        definition = self.definition(
+            {"type": "taylorseer"},
+            extra={
+                "vram_estimate": {
+                    "base_gb": 10,
+                    "gb_per_voxel": 0,
+                    "voxel_variables": [],
+                }
+            },
+        )
+
+        warnings = self.run(monkeypatch, definition, capacity_gb=24)
+
+        found = self.coded(warnings, "taylorseer_state_unestimated")
+        assert len(found) == 1
+        assert "10.0 of 24.0 GB" in found[0]
+
+    def test_taylorseer_without_capacity_carries_no_gb_clause(self):
+        definition = self.definition(
+            {"type": "taylorseer"},
+            extra={
+                "vram_estimate": {
+                    "base_gb": 10,
+                    "gb_per_voxel": 0,
+                    "voxel_variables": [],
+                }
+            },
+        )
+
+        warnings = self.direct(definition, capacity_gb=None)
+
+        found = self.coded(warnings, "taylorseer_state_unestimated")
+        assert len(found) == 1 and "GB" not in found[0]
+
+    def test_taylorseer_without_a_declared_estimate_carries_no_gb_clause(
+        self, monkeypatch
+    ):
+        warnings = self.run(
+            monkeypatch, self.definition({"type": "taylorseer"}), capacity_gb=24
+        )
+
+        found = self.coded(warnings, "taylorseer_state_unestimated")
+        assert len(found) == 1 and "GB" not in found[0]
+
+    # compile_fullgraph_with_cache
+
+    def test_fullgraph_with_a_cache_fires_at_the_component(self, monkeypatch):
+        definition = self.definition(
+            {"type": "faster"},
+            components={"transformer": {"compile": {"fullgraph": True}}},
+        )
+
+        warnings = self.run(monkeypatch, definition)
+
+        found = self.coded(warnings, "compile_fullgraph_with_cache")
+        assert len(found) == 1
+        assert (
+            found[0].split(": ")[0].endswith("components.transformer.compile.fullgraph")
+        )
+
+    def test_partial_graph_with_a_cache_is_silent(self, monkeypatch):
+        definition = self.definition(
+            {"type": "faster"},
+            components={"transformer": {"compile": {"fullgraph": False}}},
+        )
+
+        warnings = self.run(monkeypatch, definition)
+
+        assert self.coded(warnings, "compile_fullgraph_with_cache") == []
+
+    def test_fullgraph_without_a_cache_is_silent(self, monkeypatch):
+        definition = self.definition(
+            components={"transformer": {"compile": {"fullgraph": True}}}
+        )
+
+        warnings = self.run(monkeypatch, definition)
+
+        assert self.coded(warnings, "compile_fullgraph_with_cache") == []
+
+    # attention_backend_unavailable
+
+    @staticmethod
+    def with_backend(level, backend):
+        if level == "pipeline":
+            return {"attention_backend": backend}
+        return {"components": {"transformer": {"attention_backend": backend}}}
+
+    @pytest.mark.parametrize("level", ["pipeline", "component"])
+    @pytest.mark.parametrize("device", ["mps", "cpu"])
+    def test_a_cuda_only_backend_fires_off_cuda(self, monkeypatch, level, device):
+        definition = self.definition(**self.with_backend(level, "sage_hub"))
+
+        warnings = self.run(monkeypatch, definition, device=device)
+
+        found = self.coded(warnings, "attention_backend_unavailable")
+        assert len(found) == 1
+        assert "'sage_hub'" in found[0] and f"'{device}'" in found[0]
+        if level == "component":
+            assert "components.transformer.attention_backend" in found[0]
+
+    @pytest.mark.parametrize("level", ["pipeline", "component"])
+    @pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+    def test_a_cuda_only_backend_is_silent_on_cuda(self, monkeypatch, level, device):
+        definition = self.definition(**self.with_backend(level, "sage_hub"))
+
+        warnings = self.run(monkeypatch, definition, device=device)
+
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    @pytest.mark.parametrize("level", ["pipeline", "component"])
+    def test_an_unknown_device_is_silent(self, level):
+        definition = self.definition(**self.with_backend(level, "sage_hub"))
+
+        warnings = self.direct(definition, device_type=None)
+
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    @pytest.mark.parametrize("backend", ["native", "_native_cudnn", "flex"])
+    def test_a_native_family_backend_is_silent_on_mps(self, monkeypatch, backend):
+        definition = self.definition(attention_backend=backend)
+
+        warnings = self.run(monkeypatch, definition, device="mps")
+
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    def test_an_unresolvable_backend_is_silent_on_mps(self, monkeypatch):
+        definition = self.definition(
+            attention_backend="variable:backend", variables={"backend": None}
+        )
+
+        warnings = self.run(monkeypatch, definition, device="mps")
+
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    # shape of the answer
+
+    def test_a_for_each_step_says_each_warning_once(self, monkeypatch):
+        """Members share their written path, and each one's message names
+        its member - the warning is said once there, not once a member"""
+        definition = self.definition(
+            {"type": "taylorseer"},
+            variables={"shots": [{"name": "a"}, {"name": "b"}, {"name": "c"}]},
+        )
+        definition["steps"][0]["for_each"] = "variable:shots"
+        definition["steps"][0]["name"] = "gen"
+
+        warnings = self.run(monkeypatch, definition)
+
+        assert len(self.coded(warnings, "taylorseer_state_unestimated")) == 1
+
+    def test_warnings_never_refuse(self, monkeypatch):
+        definition = self.definition(
+            {"type": "first_block"},
+            steps=9,
+            components={
+                "transformer": {
+                    "compile": {"fullgraph": True},
+                    "attention_backend": "sage_hub",
+                }
+            },
+        )
+        monkeypatch.setattr(validation, "get_device_type", lambda: "mps")
+
+        warnings = self.run(monkeypatch, definition, device="mps")
+
+        assert len(self.coded(warnings, "cache_short_schedule")) == 1
+        assert len(self.coded(warnings, "compile_fullgraph_with_cache")) == 1
+        assert len(self.coded(warnings, "attention_backend_unavailable")) == 1
+        assert self.workflow(definition).validation_errors() == []
+
+    # the catalog
+
+    def test_no_catalog_workflow_trips_a_device_independent_acceleration_warning(
+        self, monkeypatch
+    ):
+        """The catalog defaults are held to the same rules a hand-written
+        workflow meets. attention_backend_unavailable is left out on purpose:
+        a CUDA-only backend is a legitimate catalog choice."""
+        import glob
+
+        from dw.workflow import Workflow
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        paths = sorted(
+            glob.glob(str(root / "workflows" / "**" / "*.json"), recursive=True)
+            + glob.glob(
+                str(root / "dw" / "workflows" / "**" / "*.json"), recursive=True
+            )
+        )
+        monkeypatch.setattr(validation, "get_device_type", lambda: "cuda")
+        checked = 0
+        offenders = []
+        for path in paths:
+            try:
+                with open(path, encoding="utf-8") as handle:
+                    definition = json.load(handle)
+            except (OSError, ValueError):
+                continue
+            if not isinstance(definition, dict) or "steps" not in definition:
+                continue
+            workflow = Workflow(definition, None, path)
+            warnings = validation.run_warning_check(
+                workflow, "acceleration_warnings", None
+            )
+            checked += 1
+            for code in self.CODES[:3]:
+                offenders += [
+                    f"{os.path.relpath(path, root)}: {w}"
+                    for w in self.coded(warnings, code)
+                ]
+
+        assert checked
+        assert offenders == []
