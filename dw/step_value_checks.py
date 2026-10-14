@@ -115,6 +115,14 @@ def _cache_object_schema():
     )
     schema["type"] = "object"
     schema.pop("pattern", None)
+    # A field that also takes a 'variable:' string (threshold) has been
+    # substituted by now, so only its number form is a value the run can use
+    for field in schema.get("properties", {}).values():
+        kinds = field.get("type")
+        if isinstance(kinds, list) and "string" in kinds:
+            numeric = [k for k in kinds if k in ("number", "integer")]
+            if numeric:
+                field["type"] = numeric[0] if len(numeric) == 1 else numeric
     return schema
 
 
