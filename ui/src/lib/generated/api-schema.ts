@@ -3540,7 +3540,7 @@ export interface components {
             name: string | null;
             /**
              * Oom Score Adj
-             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else 0); absent where unreadable.
+             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.
              */
             oom_score_adj?: number;
             /**

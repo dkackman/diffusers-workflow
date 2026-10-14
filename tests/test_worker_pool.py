@@ -2,6 +2,8 @@
 isolation, cancel routing, VRAM-aware dispatch with backfill, the fit check at
 submit, the OOM ranking, and what /api/health reports."""
 
+import subprocess
+import sys
 import threading
 import time
 
@@ -408,18 +410,42 @@ class FakeProcess:
         return True
 
 
+class FakeKernelAdj:
+    """A worker's /proc/<pid>/oom_score_adj as an unprivileged writer meets
+    it: a write below `minimum` (the oom_score_adj_min a privileged parent
+    left, 200 under lem's systemd user unit) is refused."""
+
+    def __init__(self, minimum):
+        self.minimum = minimum
+        self.value = minimum
+
+    def write(self, value):
+        if value < self.minimum:
+            return False
+        self.value = value
+        return True
+
+
 class TestOomRanking:
-    def _pair(self, pool):
+    def _pair(self, pool, minimum=0):
         a = card(success_script, "cuda:0", 24)
         b = card(success_script, "cuda:1", 24)
         written = []
         for worker, pid in ((a, 101), (b, 102)):
+            kernel = FakeKernelAdj(minimum)
+            worker.kernel = kernel
+            worker.oom_score_floor = minimum
             worker.pid = lambda pid=pid: pid
             worker.worker_active = True
             worker.worker_process = FakeProcess(pid)
-            worker.set_oom_score_adj = lambda value, worker=worker: written.append(
-                (worker.device, value)
-            )
+
+            def set_adj(value, worker=worker, kernel=kernel):
+                took = kernel.write(value)
+                if took:
+                    written.append((worker.device, value))
+                return took
+
+            worker.set_oom_score_adj = set_adj
         return pool(a, b), written
 
     def test_health_reports_pid_and_kernel_oom_score_adj(self, pool, monkeypatch):
@@ -473,6 +499,73 @@ class TestOomRanking:
 
         manager._rank_for_oom(first)
         assert written == []
+
+    def test_a_privileged_floor_is_where_the_others_go_back_to(self, pool):
+        # lem's unit starts the server at 200, which its workers inherit as
+        # their minimum: writing 0 is refused, so a worker raised to 1000
+        # would stay there and tie with the next one (#881 verify)
+        manager, written = self._pair(pool, minimum=200)
+        first, second = manager.slots
+        manager._rank_for_oom(first)
+        manager._rank_for_oom(second)
+        assert written[-2:] == [("cuda:1", 1000), ("cuda:0", 200)]
+
+        manager._rank_for_oom(first)
+        assert [w.manager.kernel.value for w in manager.slots] == [1000, 200]
+
+    def test_a_refused_write_is_a_warning_on_the_job(self, pool):
+        manager, _ = self._pair(pool, minimum=200)
+        first, second = manager.slots
+        second.manager.oom_score_floor = 0  # a floor the kernel won't take
+        events = []
+
+        class Job:
+            def add_event(self, event):
+                events.append(event)
+
+        manager._rank_for_oom(first, Job())
+
+        assert [e["event"] for e in events] == ["warning"]
+        assert "cuda:1" in events[0]["message"] and "0" in events[0]["message"]
+
+    def test_a_clean_ranking_warns_nothing(self, pool):
+        manager, _ = self._pair(pool, minimum=200)
+        events = []
+
+        class Job:
+            def add_event(self, event):
+                events.append(event)
+
+        manager._rank_for_oom(manager.slots[0], Job())
+        assert events == []
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc")
+class TestOomScoreAdjOnLinux:
+    """The real write through /proc, against a real child process. Run under
+    `systemd-run --user --pipe` on lem the child inherits a minimum of 200,
+    and this shows the reset lands there rather than being refused."""
+
+    def test_raise_then_reset_returns_to_the_spawn_value(self):
+        from dw.host_memory import read_oom_score_adj
+        from dw.worker_manager import WorkerManager
+
+        child = subprocess.Popen(["sleep", "30"])
+        try:
+            manager = WorkerManager("cuda:0")
+            manager.worker_process = FakeProcess(child.pid)
+            manager.oom_score_floor = read_oom_score_adj(child.pid)
+            floor = manager.oom_score_floor
+
+            assert manager.set_oom_score_adj(1000) is True
+            assert read_oom_score_adj(child.pid) == 1000
+            assert manager.reset_oom_score_adj() is True
+            assert read_oom_score_adj(child.pid) == floor
+            if floor > 0:
+                assert manager.set_oom_score_adj(floor - 1) is False
+        finally:
+            child.kill()
+            child.wait()
 
 
 class TestHealth:

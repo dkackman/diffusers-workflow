@@ -229,9 +229,11 @@ counts as 24), which a `cost` figure is compared to; a declared estimate is
 held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
 admission checks it against. Cancel reaches only the worker running that job, and a worker
 crash fails only its own job. Each dispatch sets its worker's Linux
-`oom_score_adj` to 1000 and every other live worker's to 0, so a host-RAM
-squeeze kills the newest job whatever the workers' sizes; nothing is written
-with one worker. There is no
+`oom_score_adj` to 1000 and every other live worker's back to the value it was
+spawned with (the server's own, e.g. 200 under a systemd user unit - the kernel
+refuses an unprivileged write below that), so a host-RAM squeeze kills the
+newest job whatever the workers' sizes; nothing is written with one worker, and
+a write the kernel refuses is a warning on the job. There is no
 host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
 Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card
@@ -728,7 +730,7 @@ The editor's forms come from these; they are just as usable from scripts:
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
   host_memory_rss_mb, pid, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
-  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, 0 for the others)
+  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
   cache on each idle card (MCP `clear_memory`), and returns the memory
   reading taken right after. A card running a job is left alone: `workers`

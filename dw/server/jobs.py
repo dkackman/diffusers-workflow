@@ -818,7 +818,7 @@ class JobManager:
                     outcome = (CANCELLED, None, None)
                 else:
                     manager.ensure_worker(self.log_level)
-                    self._rank_for_oom(slot)
+                    self._rank_for_oom(slot, job)
                     command = Execute(
                         # The snapshot admission checked, which the worker runs
                         # as it is rather than reading the file again
@@ -860,12 +860,15 @@ class JobManager:
             status, error, traceback_text = outcome
             self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _rank_for_oom(self, slot):
+    def _rank_for_oom(self, slot, job=None):
         """Score the dispatching worker 1000 for the kernel's OOM killer and
-        every other live worker 0, on every dispatch, so a host-RAM squeeze
-        kills the newest job whatever the workers' sizes (#881). Nothing is
+        put every other live worker back to its spawn-time floor, on every
+        dispatch, so a host-RAM squeeze kills the newest job whatever the
+        workers' sizes (#881). The floor rather than 0: an unprivileged write
+        below it is refused (WorkerManager.reset_oom_score_adj). Nothing is
         written while it is the only worker, so one card runs exactly as
-        before. Lowering back to 0 needs no privilege."""
+        before. A write the kernel refuses is a warning on the job, since a
+        tie at 1000 is the failure this exists to prevent."""
         manager = slot.manager
         if not hasattr(manager, "set_oom_score_adj"):
             return
@@ -874,10 +877,24 @@ class JobManager:
         ]
         if not others:
             return
-        manager.set_oom_score_adj(1000)
+        refused = []
+        if manager.set_oom_score_adj(1000) is False:
+            refused.append((manager, 1000))
         for other in others:
-            if hasattr(other, "set_oom_score_adj"):
-                other.set_oom_score_adj(0)
+            if (
+                hasattr(other, "reset_oom_score_adj")
+                and other.reset_oom_score_adj() is False
+            ):
+                refused.append((other, other.oom_score_floor or 0))
+        for worker, value in refused:
+            message = (
+                f"Could not set oom_score_adj to {value} on the {worker.device} "
+                f"worker (pid {worker.pid()}): a host-RAM squeeze may not kill "
+                "the newest job first"
+            )
+            logger.warning(message)
+            if job is not None:
+                job.add_event({"event": "warning", "message": message})
 
     def is_busy(self):
         """True while a job is running on any card or queued - the window in
