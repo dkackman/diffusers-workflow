@@ -19,8 +19,18 @@ Applied at pipeline load time via the `cache` configuration. Hooks auto-reset be
 diffusers' own registry and raise when it is absent, which is how a model that supports
 `enable_cache()` ends up with no usable cache. [cache_blocks.json](../dw/cache_blocks.json)
 fills those gaps in, registering the missing block metadata on demand; entries become
-redundant, not wrong, once diffusers registers the same class upstream. MiniMax-H3 and
-LTX-2 are listed there today.
+redundant, not wrong, once diffusers registers the same class upstream. MiniMax-H3,
+LTX-2 and Qwen-Image-2.1 are listed there today.
+
+Qwen-Image-2.1's pipeline keeps a key/value cache of its own (`use_kv_cache`, on by
+default) that drops the text tokens from the sequence after the first step. `first_block`
+and `mag` compare one step's residual against the previous one, so the sequence length
+changing under them fails the second step; pass `"use_kv_cache": false` in the step's
+`arguments` to cache it.
+
+A transformer that does not support `enable_cache()` at all - Z-Image's, for one - takes
+no cache of any type. The step still runs, uncached, and the job carries a warning that the
+cache was not applied.
 
 LTX-2's block needs one thing more than the metadata diffusers defines. It returns two
 streams - video and audio - and diffusers reads the second one back out of a forward
@@ -80,7 +90,7 @@ MagCache needs to know how each denoising step's output magnitude typically beha
 - **A preset name** — `"mag_ratios": "flux"` resolves to the ratios diffusers ships for Flux. Any preset a later diffusers release adds is usable by name without a change here.
 - **An explicit array** — `"mag_ratios": [1.0, 0.98, 0.96, ...]`. The array is interpolated automatically when its length differs from `num_inference_steps`, so ratios measured at one step count can be reused at another.
 
-For a model with no preset, run once with `"calibrate": true`. Calibration skips nothing. At the end of the run the measured ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is the step count, so the cache's can be left at its default (a mismatch is reported as a warning). The cache attaches to a pipeline's `transformer`; a UNet pipeline such as SD 1.5 has none, and gets a warning that the cache was not applied. Paste that array into `mag_ratios` and drop the `calibrate` flag for subsequent runs. A pipeline that uses classifier-free guidance (an SD-style template, not a guidance-distilled one such as Flux) keeps a separate state for its `cond` and `uncond` passes, so it emits **two** lists, each labeled `[cond]` or `[uncond]`; use the `cond` one, since `mag_ratios` takes one array.
+For a model with no preset, run once with `"calibrate": true`. Calibration skips nothing. At the end of the run the measured ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is the step count, so the cache's can be left at its default (a mismatch is reported as a warning). The cache attaches to a pipeline's `transformer`, and only one that supports `enable_cache()`: a UNet pipeline such as SD 1.5 has no transformer, and Z-Image's transformer has no cache support, so both get a warning that the cache was not applied and no calibration. Paste that array into `mag_ratios` and drop the `calibrate` flag for subsequent runs. A pipeline that runs classifier-free guidance as two transformer passes in their own `cond` and `uncond` cache contexts (Qwen-Image-2.1 with `true_cfg_scale` above 1 and a `negative_prompt`, or the other Qwen-Image pipelines) keeps a separate state for each, so it emits **two** lists, each labeled `[cond]` or `[uncond]`; use the `cond` one, since `mag_ratios` takes one array. A guidance-distilled pipeline such as Flux, or one that batches both passes into one forward emits one unlabeled list.
 
 ```json
 "cache": { "type": "mag", "calibrate": true, "num_inference_steps": 28 }

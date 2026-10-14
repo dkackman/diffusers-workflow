@@ -552,3 +552,21 @@ def test_cache_on_pipeline_without_transformer_warns(monkeypatch):
     monkeypatch.setattr(components, "emit_warning", warnings.append)
     components.enable_cache_on_transformer(object(), MagCacheConfig(calibrate=True))
     assert len(warnings) == 1 and "not applied" in warnings[0]
+
+
+def test_cache_on_transformer_without_enable_cache_warns(monkeypatch):
+    """#891: Z-Image's transformer has no enable_cache(); the caller must hear
+    the cache was dropped, not only the server log."""
+    import torch
+    from diffusers import MagCacheConfig
+
+    from dw.pipeline_processors import components
+
+    class _Pipe:
+        transformer = torch.nn.Linear(2, 2)
+
+    warnings = []
+    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    components.enable_cache_on_transformer(_Pipe(), MagCacheConfig(calibrate=True))
+    assert len(warnings) == 1
+    assert "was not applied" in warnings[0] and "enable_cache()" in warnings[0]

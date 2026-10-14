@@ -11,6 +11,11 @@
             "return_encoder_hidden_states_index": 1,
             "hidden_states_argument_name": "hidden_states",
             "encoder_hidden_states_argument_name": "audio_hidden_states"
+        },
+        "diffusers.models.transformers.transformer_qwenimage21.QwenImage21TransformerBlock": {
+            "return_hidden_states_index": 0,
+            "return_encoder_hidden_states_index": null,
+            "hidden_states_argument_name": "hidden_states"
         }
     }
 }
