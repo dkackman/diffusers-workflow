@@ -903,6 +903,27 @@ class TestCacheVariable:
         assert [e["path"] for e in errors] == ["steps[0].pipeline.configuration.cache"]
         assert "'type'" in errors[0]["message"]
 
+    def test_a_string_threshold_is_refused_at_the_field(self):
+        for threshold in ("0.05", "abc"):
+            errors = self.errors(
+                self.definition(),
+                {"cache": {"type": "first_block", "threshold": threshold}},
+            )
+
+            assert [e["path"] for e in errors] == [
+                "steps[0].pipeline.configuration.cache.threshold"
+            ], threshold
+
+    def test_a_threshold_variable_in_a_literal_object_still_validates(self):
+        definition = self.definition()
+        definition["variables"]["threshold"] = 0.05
+        definition["steps"][0]["pipeline"]["configuration"]["cache"] = {
+            "type": "first_block",
+            "threshold": "variable:threshold",
+        }
+
+        assert self.errors(definition) == []
+
     def test_an_invalid_default_is_refused_with_no_arguments(self):
         errors = self.errors(self.definition(default={"type": "bogus"}))
 
@@ -964,3 +985,9 @@ class TestCacheVariableOnAForEachTemplate:
 
         assert len(errors) == 1, errors
         assert errors[0]["path"].endswith("pipeline.configuration.cache")
+
+    def test_a_string_threshold_is_refused_once(self):
+        errors = self.errors({"cache": {"type": "first_block", "threshold": "0.05"}})
+
+        assert len(errors) == 1, errors
+        assert errors[0]["path"].endswith("pipeline.configuration.cache.threshold")
