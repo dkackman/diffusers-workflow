@@ -377,6 +377,36 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/gallery/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gallery Compare
+         * @description Two to eight outputs side by side at the same moments, and how far
+         *     each is from a baseline (#871): one grid, a row per output and a
+         *     column per moment, plus PSNR, SSIM and mean absolute difference per
+         *     non-baseline output at source resolution. Moments resolve to one
+         *     frame index against the baseline (or the first video) and every
+         *     output is read at that frame; one past an output's end is a blank
+         *     cell. A single `crop` is the region shown and measured; one box per
+         *     name is shown only, and the metrics stay on the full frame. Outputs
+         *     of different sizes get no metrics, and say why. Stills join a video
+         *     comparison as the same image in every column. `max_total_bytes`
+         *     shrinks the whole grid, and `downscaled_to` says to what.
+         */
+        post: operations["gallery_compare_api_gallery_compare_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/gallery/{name}": {
         parameters: {
             query?: never;
@@ -2003,6 +2033,40 @@ export interface components {
             /** Kind */
             kind: string;
         };
+        /** CompareRequest */
+        CompareRequest: {
+            /**
+             * At
+             * @description 1 to 8 moments - seconds, or "frame:N" - read at the same frame number in every output; default 4 evenly spaced frames
+             */
+            at?: (number | string)[] | null;
+            /**
+             * Baseline
+             * @description The output the others are measured against; default the first
+             */
+            baseline?: string | null;
+            /**
+             * Crop
+             * @description [x, y, width, height] in source pixels, the region shown and measured; or one box per name, shown only
+             */
+            crop?: number[] | number[][] | null;
+            /**
+             * Max Dimension
+             * @description Longest side of each grid cell
+             * @default 384
+             */
+            max_dimension: number;
+            /**
+             * Max Total Bytes
+             * @description A budget on the grid's base64 size
+             */
+            max_total_bytes?: number | null;
+            /**
+             * Names
+             * @description 2 to 8 outputs (or `asset:` references), one row each
+             */
+            names: string[];
+        };
         /** CopiedItems */
         CopiedItems: {
             /**
@@ -3438,12 +3502,55 @@ export interface components {
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
         };
         /**
+         * StepCacheStats
+         * @description A step cache's skip counts over the step's pipeline calls
+         *     (dw/pipeline_processors/cache_stats.py). Counted for `first_block` and
+         *     `mag`; other types report their type and config with null counts. Open:
+         *     a type adds its config keys.
+         */
+        StepCacheStats: {
+            /**
+             * Computed
+             * @description Forwards that ran every block.
+             */
+            computed: number | null;
+            /**
+             * Forwards
+             * @description Denoiser forwards, not steps: classifier-free guidance runs two per step.
+             */
+            forwards: number | null;
+            /**
+             * Hit Rate
+             * @description skipped / forwards to 3 places; null with no counts.
+             */
+            hit_rate: number | null;
+            /**
+             * Skipped
+             * @description Forwards that reused cached blocks; computed + skipped == forwards.
+             */
+            skipped: number | null;
+            /**
+             * Threshold
+             * @description The skip threshold; null for a type without one.
+             */
+            threshold: number | null;
+            /**
+             * Type
+             * @description The workflow's `cache.type`.
+             */
+            type: string;
+        } & {
+            [key: string]: unknown;
+        };
+        /**
          * StepTiming
          * @description Where one pipeline step's time went, on the worker's monotonic clock
          *     (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
          *     whose mark never happened is null, never guessed. Open, like the entry.
          */
         StepTiming: {
+            /** @description Skip counts, on a step that set a `cache`. */
+            cache?: components["schemas"]["StepCacheStats"];
             /**
              * Compiled
              * @description The denoiser runs through torch.compile; null when unknown.
@@ -4305,6 +4412,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ArchiveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gallery_compare_api_gallery_compare_post: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareRequest"];
             };
         };
         responses: {

@@ -384,6 +384,32 @@ class JobSummary(ApiModel):
     note: str = sometimes("The note it was submitted with; also its run's note.")
 
 
+class StepCacheStats(ApiModel):
+    """A step cache's skip counts over the step's pipeline calls
+    (dw/pipeline_processors/cache_stats.py). Counted for `first_block` and
+    `mag`; other types report their type and config with null counts. Open:
+    a type adds its config keys."""
+
+    model_config = ConfigDict(extra="allow")
+
+    type: str = Field(description="The workflow's `cache.type`.")
+    threshold: float | None = Field(
+        description="The skip threshold; null for a type without one."
+    )
+    forwards: int | None = Field(
+        description="Denoiser forwards, not steps: classifier-free guidance "
+        "runs two per step."
+    )
+    computed: int | None = Field(description="Forwards that ran every block.")
+    skipped: int | None = Field(
+        description="Forwards that reused cached blocks; computed + skipped == "
+        "forwards."
+    )
+    hit_rate: float | None = Field(
+        description="skipped / forwards to 3 places; null with no counts."
+    )
+
+
 class StepTiming(ApiModel):
     """Where one pipeline step's time went, on the worker's monotonic clock
     (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
@@ -428,6 +454,7 @@ class StepTiming(ApiModel):
         description="Pipeline calls summed into this timing: chain segments "
         "or iterations; 1 for a plain step."
     )
+    cache: StepCacheStats = sometimes("Skip counts, on a step that set a `cache`.")
 
 
 class ManifestEntry(ApiModel):

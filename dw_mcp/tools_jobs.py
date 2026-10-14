@@ -120,7 +120,8 @@ class JobTools:
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
         events. `kinds` (e.g. `["log", "warning"]`, or a warning's `kind`)
-        filters the page - `memory` events otherwise dominate it.
+        filters the page - `memory` events otherwise dominate it;
+        `cache_stats` is a step cache's skip counts, once per call.
 
         A `kind: "phase_stall"` entry is a watchdog notice, not progress - it
         fires every ~30s a phase goes quiet, not evidence of a hang by

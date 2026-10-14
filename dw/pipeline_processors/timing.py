@@ -70,8 +70,10 @@ class _Segment:
 class StepTimer:
     """The marks of one pipeline step, from load start to save end."""
 
-    def __init__(self, clock=time.monotonic):
+    def __init__(self, clock=time.monotonic, step=None):
         self._clock = clock
+        self.step = step
+        self._cache = None
         self._load_started = None
         self._load_ended = None
         self._load_cached = None
@@ -115,6 +117,19 @@ class StepTimer:
         if segment is not None:
             segment.ended = self._clock()
 
+    def cache_counted(self, stats):
+        """One call's step-cache counts (cache_stats.py). A chain's calls sum
+        into one, null if any call's counts are; the rest is the first's."""
+        if self._cache is None:
+            self._cache = dict(stats)
+            return
+        for key in ("forwards", "computed", "skipped"):
+            self._cache[key] = _sum([self._cache[key], stats.get(key)])
+        forwards = self._cache["forwards"]
+        self._cache["hit_rate"] = (
+            round(self._cache["skipped"] / forwards, 3) if forwards else None
+        )
+
     def save_started(self):
         self._save_started = self._clock()
 
@@ -136,7 +151,7 @@ class StepTimer:
             interval for segment_spans in spans for interval in segment_spans[4]
         ]
         pass_counts = [len(segment.pass_ends) or None for segment in self._segments]
-        return {
+        timing = {
             "load_s": _seconds(self._span(self._load_started, self._load_ended)),
             "load_cached": self._load_cached,
             "encode_s": _seconds(_sum([s[0] for s in spans])),
@@ -149,6 +164,10 @@ class StepTimer:
             "save_s": _seconds(self._span(self._save_started, self._save_ended)),
             "segments": len(self._segments),
         }
+        # Only a step that set a `cache` has one
+        if self._cache is not None:
+            timing["cache"] = self._cache
+        return timing
 
     @staticmethod
     def _span(started, ended):
@@ -174,7 +193,8 @@ def step_timer(step_data):
     """Open a StepTimer for a pipeline step, None for any other. Opening None
     also keeps a composed child's pipeline marks off an outer step's timer."""
     runs_a_pipeline = "pipeline" in step_data or "pipeline_reference" in step_data
-    with timed_step(StepTimer() if runs_a_pipeline else None) as timer:
+    timer = StepTimer(step=step_data.get("name")) if runs_a_pipeline else None
+    with timed_step(timer) as timer:
         yield timer
 
 

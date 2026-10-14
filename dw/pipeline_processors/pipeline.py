@@ -647,7 +647,9 @@ class Pipeline:
                 stack.enter_context(attention_backend(attn_backend))
 
             stack.enter_context(captured_mag_calibration(self.pipeline, arguments))
-            stack.enter_context(stateful_cache_context(self.pipeline))
+            stack.enter_context(
+                stateful_cache_context(self.pipeline, segment=self.segment_label)
+            )
             if self._takes_step_callback():
                 # Encode ends where the denoiser first runs
                 stack.enter_context(denoise_start_hook(denoiser))
