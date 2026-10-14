@@ -43,7 +43,12 @@ def test_turbo_schedules_carry_no_block_cache(path):
         pytest.skip("not a turbo schedule")
     for step in _pipeline_steps(definition):
         configuration = step["pipeline"].get("configuration", {})
-        assert "cache" not in configuration, (
+        # A `variable:cache` defaulting to null is no cache: the effective
+        # default is what counts, not whether the key is written (#865)
+        cache = configuration.get("cache")
+        if isinstance(cache, str) and cache.startswith("variable:"):
+            cache = _default(definition, cache[len("variable:") :])
+        assert cache is None, (
             f"{os.path.basename(path)} step '{step['name']}' carries a cache block on a "
             f"{steps}-step turbo schedule; RECIPES_24GB.md says it never skips there"
         )

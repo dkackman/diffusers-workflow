@@ -45,7 +45,7 @@ Simplest and broadest support. Compares first-block residuals to decide whether 
 }
 ```
 
-Higher threshold = more speedup, more quality loss. Start with `0.05` and increase to taste. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one, which it never skips; `torch.compile` there cost 289 s on the first pass for ~1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory.
+Higher threshold = more speedup, more quality loss. Start with `0.05` and increase to taste. On MiniMax-H3 (RTX 3090, 1344x768, 4 references) `0.05` took 22% off a 30-step base-model job and nothing off a 12-step or turbo one, which it never skips; `torch.compile` there cost 289 s on the first pass for ~1% per pass, `text_kv` did nothing on Ref2VA, and `taylorseer` ran out of memory. Every MiniMax-H3 template takes a `cache` argument, `null` (off) by default and wired to the H3 step only: pass `{"type": "first_block", "threshold": 0.05}` rather than editing the JSON, and only at ~20 or more base steps, never with the turbo LoRAs.
 
 **Example:** [step-caching.json](../workflows/templates/step-caching.json)
 

@@ -21,8 +21,8 @@ Callers use the functions at the end of this module directly
 (`workflow_errors`, `workflow_context`, `run_warning_check`,
 `undeclared_variable_errors`, `sub_workflow_errors`,
 `sub_workflow_argument_warnings`); only `Workflow.validation_errors` and
-`Workflow.validate` remain as methods. The three step-value checkers the error
-registry runs (`fps_errors`, `null_media_errors`, `select_errors`) are in
+`Workflow.validate` remain as methods. The step-value checkers the error
+registry runs (`fps_errors`, `cache_errors`, `null_media_errors`, `select_errors`) are in
 dw/step_value_checks.py.
 """
 
@@ -57,6 +57,7 @@ from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
 from .step_value_checks import (
+    cache_errors,
     chain_prompts_errors,
     fps_errors,
     null_media_errors,
@@ -303,6 +304,9 @@ ERROR_CHECKS = [
     ),
     Check("subfolders", lambda c: subfolder_errors(c.expanded, c.source_indices)),
     Check("fps", lambda c: fps_errors(c.expanded, c.source_indices)),
+    # A `cache: "variable:cache"` the raw schema let through, holding an
+    # object the run could not build (dw/step_value_checks.py, #865)
+    Check("cache", lambda c: cache_errors(c.expanded, c.source_indices)),
     # A reference name no workspace could ever resolve - the '@' a for_each
     # member's own file carries, rejected after the queue by a message that
     # named a valid form and not the objection (dw/reference_names.py, #162)

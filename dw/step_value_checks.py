@@ -1,4 +1,5 @@
-"""Four step-value checkers: `fps_errors` (a result's `fps`),
+"""Five step-value checkers: `fps_errors` (a result's `fps`),
+`cache_errors` (a pipeline's `cache` once a variable has substituted it),
 `null_media_errors` (a bare object description whose media resolved null),
 `select_errors` (a `select` step's arguments) and `chain_prompts_errors` (a
 chain's `prompts` that is not a list).
@@ -10,9 +11,13 @@ creating it; their bodies sit here so the registry and the runner stay whole
 in validation.py. Their only caller is the error registry there.
 """
 
+import copy
+from functools import lru_cache
+
 from . import references
 from .arguments import names_no_media
 from .for_each import render_path
+from .schema import load_schema, validate_data_all
 from .references import (
     FROM_ARGUMENTS_KEY,
     FROM_FILE_KEY,
@@ -84,6 +89,70 @@ def fps_errors(workflow_definition, source_indices=None):
                     "message": f"{message}{where}",
                 }
             )
+    return errors
+
+
+# --- A pipeline's 'cache' once substituted (#865) ------------------------------
+#
+# The schema lets the raw document hold `cache: "variable:cache"` so a template
+# can expose the whole cache object as one argument. The raw check then never
+# sees the object the run will build, so `{"type": "bogus"}` or a bare
+# "first_block" would pass validate and fail at load. This checks the
+# substituted value against the schema's own cache object shape; a variable
+# that resolved to null has already dropped the key (dw/variables.py), which
+# is no cache.
+
+CACHE_EXAMPLE = '{"type": "first_block", "threshold": 0.05}'
+
+
+@lru_cache(maxsize=1)
+def _cache_object_schema():
+    """The schema's `cache` shape with the `variable:` string form taken out."""
+    schema = copy.deepcopy(
+        load_schema("workflow")["$defs"]["pipeline_configuration"]["properties"][
+            "cache"
+        ]
+    )
+    schema["type"] = "object"
+    schema.pop("pattern", None)
+    return schema
+
+
+def cache_errors(workflow_definition, source_indices=None):
+    """Every substituted pipeline 'cache' the run could not build, as
+    [{path, message}], each at the field it names. A for_each step's members
+    share one written path and, nearly always, one cache value: each problem
+    is said once there, naming the first member it was found in."""
+    errors = []
+    said = set()
+
+    def add(path, message, where):
+        if (path, message) not in said:
+            said.add((path, message))
+            errors.append({"path": path, "message": f"Invalid cache: {message}{where}"})
+
+    for _, _, pipeline, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        configuration = pipeline.get("configuration")
+        if not isinstance(configuration, dict) or "cache" not in configuration:
+            continue
+        value = configuration["cache"]
+        if references.is_ref(references.SUBSTITUTED, value):
+            continue
+        base = ("steps", source, "pipeline", "configuration", "cache")
+        if not isinstance(value, dict):
+            add(
+                render_path(base),
+                f"{value!r} - cache is an object such as {CACHE_EXAMPLE}, "
+                f"or null for no cache",
+                where,
+            )
+            continue
+        for error in validate_data_all(value, _cache_object_schema()):
+            inner = error["path"]
+            path = render_path(base) + (f".{inner}" if inner else "")
+            add(path, error["message"], where)
     return errors
 
 

@@ -305,6 +305,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
     # fields of the plan's entries, which music-video's shots then take
     "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
+    # the pipeline's 'cache' block it writes inline, not the H3 templates'
+    # variable of that name
+    "workflows/templates/step-caching.json": {"cache"},
 }
 
 
@@ -478,7 +481,10 @@ def test_no_stale_entry_in_the_allowlist():
 # stage #883, 2026-10-13), measured at 10_758: about 79 tokens across fifteen
 # templates, so the cinema path's sage_hub is an argument on the shots, chains
 # and episodes rather than a JSON edit.
-COMPACT_BUDGET = 10_800
+# Then to 10_850 for the whole-object `cache` variable on the same nineteen H3
+# templates (#865, stage #884, 2026-10-13), measured at 10_800: about 42
+# tokens, so first_block on a long base-model schedule is an argument too.
+COMPACT_BUDGET = 10_850
 FILTERED_BUDGET = 1_500
 
 
@@ -641,6 +647,35 @@ def test_only_h3_steps_wire_attention_backend():
             )
 
 
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_every_h3_transformer_step_wires_cache(path):
+    """first_block 0.05 is -22% at 30 base steps, and the only way to reach it
+    from `arguments` is a whole-object `cache` variable on the H3 step (#865).
+    Null by default: an installed hook changes the output even when it skips
+    nothing, so null is the only off."""
+    definition = load(path)
+
+    assert definition["variables"].get("cache", "missing") is None, (
+        f"{path} declares no cache variable defaulting to null"
+    )
+    for step in _h3_steps(definition):
+        assert step["pipeline"]["configuration"].get("cache") == "variable:cache", (
+            f"{path} step '{step['name']}' does not wire configuration.cache"
+        )
+
+
+def test_only_h3_steps_wire_cache():
+    for path in H3_TEMPLATES:
+        definition = load(path)
+        h3 = {step["name"] for step in _h3_steps(definition)}
+        for step in definition["steps"]:
+            if step["name"] in h3:
+                continue
+            assert "variable:cache" not in json.dumps(step), (
+                f"{path} step '{step['name']}' is not H3 but wires cache"
+            )
+
+
 def _dialogue_short_after_substitution(**overrides):
     from dw.variables import replace_variables
 
@@ -663,6 +698,22 @@ def test_attention_backend_reaches_only_the_h3_shot():
     for name, step in steps.items():
         if name != "shot":
             assert "sage_hub" not in json.dumps(step), name
+
+
+def test_cache_reaches_only_the_h3_shot():
+    cache = {"type": "first_block", "threshold": 0.05}
+    steps = _dialogue_short_after_substitution(cache=cache)
+
+    assert steps["shot"]["pipeline"]["configuration"]["cache"] == cache
+    for name, step in steps.items():
+        if name != "shot":
+            assert "first_block" not in json.dumps(step), name
+
+
+def test_a_default_cache_drops_the_key():
+    steps = _dialogue_short_after_substitution()
+
+    assert "cache" not in steps["shot"]["pipeline"]["configuration"]
 
 
 def test_a_default_attention_backend_drops_the_key():

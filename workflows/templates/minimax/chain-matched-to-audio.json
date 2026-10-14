@@ -37,7 +37,8 @@
         "weights_dtype": "{int4}",
         "hold_audio": null,
         "seed": null,
-        "attention_backend": null
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -157,7 +158,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",

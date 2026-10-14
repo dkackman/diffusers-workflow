@@ -757,8 +757,12 @@
                     }
                 },
                 "cache": {
-                    "description": "Enable diffusers built-in cache acceleration on the transformer. Hooks auto-reset between inference runs.",
-                    "type": "object",
+                    "description": "Enable diffusers built-in cache acceleration on the transformer. Hooks auto-reset between inference runs. Accepts a 'variable:' reference to a whole cache object; a variable that resolves to null means no cache, and the object it resolves to is checked against this shape at validate.",
+                    "type": [
+                        "object",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "properties": {
                         "type": {
                             "description": "Cache algorithm: first_block (simplest, broadest support), faster (video-oriented, experimental), mag (magnitude-based, needs num_inference_steps), taylorseer (Taylor series approximation), text_kv (text key-value cache).",
