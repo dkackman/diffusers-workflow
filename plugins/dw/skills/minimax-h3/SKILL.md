@@ -70,7 +70,7 @@ arguments; prompt format is MiniMax's, from its text not here.
   `max(124, next 17n+5 ≥ lead + cut)`, the smallest `17n + 5` at or above
   `lead_frames + cut_frames`, at least 124; past 345, split the span.
   Before composing one, read `references/cuts.md`: the `shots` list (a music
-  video's six fields, plan then render), cost per entry, scoring and one voice across cuts.
+  video's six fields), cost per entry, scoring and one voice across cuts.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
@@ -85,7 +85,7 @@ read the `workflows` guide's authoring section.
 ## Hard rules
 
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
-  seconds in one clip. Most default to 124 for fast iteration (storyboard 192);
+  seconds in one clip. Most default to 124 (storyboard 192);
   `num_frames=345` is the full length, and fits 24 GB at 544p only (#271).
   The 5-second floor is diffusers'; the model card says 4.
 - Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
@@ -97,6 +97,7 @@ read the `workflows` guide's authoring section.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
+- Smeary faces: int8 base model, `references/quality-and-speed.md`.
 - Fit a crowd's action to what it holds: candle-holders asked to clap
   rendered three-handed people.
 - A directed crowd move needs its landmark in frame: "marches up to the

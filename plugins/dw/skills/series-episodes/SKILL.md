@@ -138,8 +138,8 @@ composes into, not something to re-derive:
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
-One `assemble-and-score` run per episode; each episode's `total_frames` and
-`shots` list are its own.
+For smeary two-shot faces, read `references/cinema-path.md` (1344x768 base
+model); choose the path once, at episode 1.
 
 ## Run and judge
 
