@@ -3,6 +3,8 @@
   import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
+    Bell,
+    BellOff,
     Braces,
     KeyRound,
     Menu,
@@ -12,9 +14,25 @@
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
   import { route } from './lib/router.svelte'
-  import { api } from './lib/api'
+  import { api, TERMINAL_STATUSES } from './lib/api'
+  import { isEditable } from './lib/editable'
+  import { notify } from './lib/toast'
+  import { wsHref } from './lib/routes'
+  import {
+    endedSince,
+    endedTitle,
+    finishedText,
+    runningIds,
+    tabTitle,
+  } from './lib/jobWatch'
+  import {
+    alertFinished,
+    alertMode,
+    enableAlerts,
+    unlockChime,
+  } from './lib/finishAlert'
   import { storageGet, storageSet } from './lib/storage'
-  import type { HealthInfo, MemoryInfo } from './lib/types'
+  import type { HealthInfo, JobDetail, MemoryInfo } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
@@ -45,16 +63,79 @@
   let statusTrigger = $state<HTMLElement | null>(null)
   let tokenTrigger = $state<HTMLElement | null>(null)
   const currentJob = $derived(health?.current_job ?? null)
+  const view = $derived(route.view)
 
-  function isEditable(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false
-    return (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target.isContentEditable
-    )
+  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts). The
+  // first poll only learns what is running - a job already going when the
+  // page opened has not "just finished" when the next poll misses it
+  let watched: string[] | null = null
+  let runningJob = $state<JobDetail | null>(null)
+  let othersRunning = $state(0)
+  let endedMark = $state<string | null>(null)
+  let alertsOn = $state(storageGet<boolean>('alert-finished', false))
+
+  async function watchJobs(info: HealthInfo | null) {
+    // A failed poll says nothing about the jobs - treating it as "none
+    // running" would announce every running job as finished
+    if (!info) return
+    const now = runningIds(info)
+    const ended = watched === null ? [] : endedSince(watched, now)
+    watched = now
+    othersRunning = Math.max(0, now.length - 1)
+    runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
+    for (const id of ended) {
+      const job = await api.getJob(id).catch(() => null)
+      if (job && TERMINAL_STATUSES.includes(job.status)) announce(job)
+    }
   }
+
+  function announce(job: JobDetail) {
+    const text = finishedText(job)
+    if (document.hidden) endedMark = endedTitle(job)
+    // The job's own page already shows its outcome
+    const onItsPage =
+      view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === job.id
+    if (!onItsPage) {
+      if (job.status === 'succeeded') notify.success(text)
+      else notify.error(text)
+    }
+    if (alertsOn && document.hidden)
+      alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
+  }
+
+  async function toggleAlerts() {
+    if (alertsOn) {
+      alertsOn = false
+    } else if (await enableAlerts()) {
+      alertsOn = true
+    } else {
+      notify.error(
+        'The browser blocked notifications for this site - allow them in its site settings',
+      )
+      return
+    }
+    storageSet('alert-finished', alertsOn)
+  }
+
+  $effect(() => {
+    document.title = endedMark ?? tabTitle(runningJob, othersRunning)
+  })
+  $effect(() => {
+    const back = () => {
+      if (!document.hidden) endedMark = null
+    }
+    // A chime may only play after a gesture; after a reload the first
+    // click anywhere is that gesture
+    const unlock = () => {
+      if (alertsOn && alertMode() === 'chime') unlockChime()
+    }
+    document.addEventListener('visibilitychange', back)
+    window.addEventListener('pointerdown', unlock, { once: true })
+    return () => {
+      document.removeEventListener('visibilitychange', back)
+      window.removeEventListener('pointerdown', unlock)
+    }
+  })
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key === '?' && !isEditable(event.target)) {
@@ -76,6 +157,7 @@
       ])
       memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
       health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
+      void watchJobs(health)
     }
     return poll(refreshStatus, 5000)
   })
@@ -133,7 +215,6 @@
     drawerOpen = false
     window.scrollTo(0, 0)
   })
-  const view = $derived(route.view)
   const wide = $derived(
     (view.kind === 'ws' && view.section === 'edit') ||
       (view.kind === 'shared' && view.section === 'prompt-edit'),
@@ -238,6 +319,21 @@
             <KeyRound size={15} />
           </button>
           <TokenPopover bind:open={tokenOpen} anchor={tokenTrigger} />
+          <button
+            class="bare icon"
+            onclick={toggleAlerts}
+            aria-pressed={alertsOn}
+            aria-label={alertsOn
+              ? 'stop job-finished alerts'
+              : 'alert me when a job finishes'}
+            title={alertsOn
+              ? 'alerts on - click to stop'
+              : alertMode() === 'chime'
+                ? 'chime when a job finishes while this tab is in the background (this page is not a secure origin, so desktop notifications are unavailable)'
+                : 'notify me when a job finishes while this tab is in the background'}
+          >
+            {#if alertsOn}<Bell size={15} />{:else}<BellOff size={15} />{/if}
+          </button>
           <button
             class="bare icon"
             onclick={cycleTheme}
