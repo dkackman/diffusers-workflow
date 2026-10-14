@@ -27,7 +27,9 @@ from dw.adapter_compatibility import (
     REFERENCE_WORKFLOWS,
     adapter_errors,
     adapter_warnings,
+    catalog_index,
 )
+from dw.lora_catalog import entry_errors
 from tests.test_examples import REPO_ROOT
 
 TEMPLATES = sorted(
@@ -40,7 +42,7 @@ def load(path):
         return json.load(handle)
 
 
-def h3_step(workflow, weight_name, name="shot"):
+def h3_step(workflow, weight_name, name="shot", model_name="MiniMaxAI/MiniMax-H3"):
     return {
         "name": name,
         "pipeline": {
@@ -48,9 +50,7 @@ def h3_step(workflow, weight_name, name="shot"):
                 "model_name": "MiniMaxAI/MiniMax-H3",
                 "workflow": workflow,
             },
-            "loras": [
-                {"model_name": "MiniMaxAI/MiniMax-H3", "weight_name": weight_name}
-            ],
+            "loras": [{"model_name": model_name, "weight_name": weight_name}],
         },
     }
 
@@ -193,3 +193,177 @@ class TestTheCatalogPairsThemRight:
             )
         ]
         assert len(paired) >= 15, "the H3 family moved - this sweep found almost none"
+
+
+REALISM = "fal/MiniMax-H3-Realism-People-LoRA"
+NO_TOKEN = "h3-realism-people-t2v-i2v-r2v.safetensors"
+
+
+def catalogued(workflow, status="proven", weight_name=NO_TOKEN, name="h3/realism"):
+    """A one-entry index for `weight_name` under `REALISM`."""
+    entry = {
+        "model_name": REALISM,
+        "weight_name": weight_name,
+        "workflow": workflow,
+        "status": status,
+    }
+    return catalog_index({name: entry})
+
+
+def realism_step(workflow, weight_name=NO_TOKEN):
+    return h3_step(workflow, weight_name, model_name=REALISM)
+
+
+class TestTheCatalogDecidesFirst:
+    """#870: a catalog entry's `workflow` places a file its name cannot."""
+
+    def test_a_proven_entry_refuses_the_other_partition(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        spec = definition(realism_step("ref2va"))
+        errors = adapter_errors(spec, catalog=catalog)
+        assert len(errors) == 1
+        assert "h3/realism" in errors[0]["message"]
+        assert "proven" in errors[0]["message"]
+        assert errors[0]["path"] == "steps[0].pipeline.loras[0].weight_name"
+
+    def test_a_proven_entry_agrees_cleanly(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        for workflow in sorted(KEYFRAME_WORKFLOWS):
+            spec = definition(realism_step(workflow))
+            assert adapter_errors(spec, catalog=catalog) == [], workflow
+            # No "names neither" warning: the catalog placed it
+            assert adapter_warnings(spec, catalog=catalog) == [], workflow
+
+    def test_a_single_workflow_string_is_one_partition(self):
+        catalog = catalogued("t2va")
+        assert adapter_errors(definition(realism_step("ref2va")), catalog=catalog)
+        assert adapter_errors(definition(realism_step("fl2va")), catalog=catalog) == []
+
+    @pytest.mark.parametrize("status", ["trial", "rejected"])
+    def test_a_weaker_entry_only_warns(self, status):
+        catalog = catalogued(["t2va", "fl2va"], status=status)
+        spec = definition(realism_step("ref2va"))
+        assert adapter_errors(spec, catalog=catalog) == []
+        warnings = adapter_warnings(spec, catalog=catalog)
+        assert len(warnings) == 1
+        assert "h3/realism" in warnings[0] and status in warnings[0]
+        assert "names neither" not in warnings[0]
+
+    @pytest.mark.parametrize("status", ["trial", "rejected"])
+    def test_a_weaker_entry_that_agrees_clears_names_neither(self, status):
+        catalog = catalogued(["t2va", "fl2va"], status=status)
+        spec = definition(realism_step("fl2va"))
+        assert adapter_errors(spec, catalog=catalog) == []
+        assert adapter_warnings(spec, catalog=catalog) == []
+
+    def test_no_index_is_todays_rule(self):
+        spec = definition(realism_step("ref2va"))
+        assert adapter_errors(spec) == []
+        warnings = adapter_warnings(spec)
+        assert len(warnings) == 1
+        assert "names neither" in warnings[0]
+
+    def test_an_uncovered_file_is_todays_rule(self):
+        catalog = catalogued(["t2va", "fl2va"], weight_name="other.safetensors")
+        spec = definition(realism_step("ref2va"))
+        assert adapter_errors(spec, catalog=catalog) == []
+        assert "names neither" in adapter_warnings(spec, catalog=catalog)[0]
+
+    def test_another_repo_with_the_same_file_is_not_covered(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        spec = definition(h3_step("ref2va", NO_TOKEN, model_name="someone/else"))
+        assert adapter_errors(spec, catalog=catalog) == []
+        assert "names neither" in adapter_warnings(spec, catalog=catalog)[0]
+
+    @pytest.mark.parametrize("workflow", [None, ["t2va", "ref2va"]])
+    def test_a_null_or_mixed_workflow_falls_back_to_the_name(self, workflow):
+        catalog = catalogued(workflow)
+        spec = definition(realism_step("ref2va"))
+        assert adapter_errors(spec, catalog=catalog) == []
+        assert "names neither" in adapter_warnings(spec, catalog=catalog)[0]
+        token = definition(
+            realism_step("ref2va", "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors")
+        )
+        assert (
+            len(
+                adapter_errors(
+                    token,
+                    catalog=catalogued(
+                        workflow,
+                        weight_name="minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
+                    ),
+                )
+            )
+            == 1
+        )
+
+    def test_a_proven_entry_against_a_name_token_warns_naming_both(self):
+        """Q1: the catalog and the file name disagree - say both, refuse
+        neither, whichever partition the step runs."""
+        weight_name = "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors"
+        catalog = catalogued("ref2va", weight_name=weight_name)
+        for workflow in sorted(H3_WORKFLOWS):
+            spec = definition(realism_step(workflow, weight_name))
+            assert adapter_errors(spec, catalog=catalog) == [], workflow
+            warnings = adapter_warnings(spec, catalog=catalog)
+            assert len(warnings) == 1, workflow
+            assert "h3/realism" in warnings[0] and KEYFRAME_TOKEN in warnings[0]
+
+    @pytest.mark.parametrize("status", ["trial", "rejected"])
+    def test_a_weaker_entry_never_lifts_a_name_error(self, status):
+        weight_name = "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors"
+        catalog = catalogued("ref2va", status=status, weight_name=weight_name)
+        spec = definition(realism_step("ref2va", weight_name))
+        errors = adapter_errors(spec, catalog=catalog)
+        assert len(errors) == 1 and "transformer_ref" in errors[0]["message"]
+
+    def test_the_caller_is_told_where_they_wrote_it(self):
+        catalog = catalogued(["t2va", "fl2va"])
+        written = definition(
+            h3_step("ref2va", "variable:lora_weight_name", model_name=REALISM)
+        )
+        expanded = definition(realism_step("ref2va"))
+        errors = adapter_errors(
+            expanded,
+            None,
+            written=written,
+            supplied={"lora_weight_name"},
+            catalog=catalog,
+        )
+        assert errors[0]["path"] == "arguments.lora_weight_name"
+
+    def test_a_stronger_entry_wins_a_shared_file(self):
+        entry = {"model_name": REALISM, "weight_name": NO_TOKEN}
+        index = catalog_index(
+            {
+                "a/trial": {**entry, "workflow": "ref2va", "status": "trial"},
+                "b/proven": {**entry, "workflow": "t2va", "status": "proven"},
+            }
+        )
+        assert index[(REALISM, NO_TOKEN)] == ("b/proven", ("t2va",), "proven")
+
+
+def packaged_catalog():
+    entries = {}
+    root = os.path.join(REPO_ROOT, "loras")
+    for path in glob.glob(os.path.join(root, "**", "*.json"), recursive=True):
+        entry = load(path)
+        assert not entry_errors(entry), path
+        entries[os.path.relpath(path, root)[: -len(".json")]] = entry
+    return catalog_index(entries)
+
+
+PACKAGED = packaged_catalog()
+
+
+class TestThePackagedCatalogAgrees:
+    """The template sweep again, as the server validates it: with the
+    packaged catalog's index (#870)."""
+
+    def test_the_index_covers_realism_people(self):
+        assert PACKAGED[(REALISM, NO_TOKEN)][1:] == (("t2va", "fl2va"), "proven")
+
+    @pytest.mark.parametrize("path", TEMPLATES)
+    def test_no_stored_workflow_mispairs_an_adapter(self, path):
+        spec = load(path)
+        assert adapter_errors(spec, catalog=PACKAGED) == [], path

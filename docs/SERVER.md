@@ -387,6 +387,13 @@ The editor's forms come from these; they are just as usable from scripts:
   `weight_name` carrying neither `ref2v` nor `fl2v` cannot be placed, so it
   is a `warnings` entry naming the rule rather than a refusal - a
   reference-trained checkpoint nobody has named yet still gets through.
+  The LoRA catalog is read first (#870): a `proven` entry for that
+  `model_name` and `weight_name` whose `workflow` sits in one partition
+  decides it, so a `ref2va` step loading a file the catalog proves for
+  `t2va`/`fl2va` is refused, whatever its name says. A `trial` or
+  `rejected` entry's `workflow` only warns; promoting the entry to `proven`
+  is what makes it refuse. The CLI and the worker have no catalog and keep
+  the file-name rule alone.
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded

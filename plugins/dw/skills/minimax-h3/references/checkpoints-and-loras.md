@@ -28,7 +28,7 @@ Swap file, shift and steps together. The
 **Realism People** (#585) as a second `loras` entry on a t2va
 step (`fal/MiniMax-H3-Realism-People-LoRA`,
 `h3-realism-people-t2v-i2v-r2v.safetensors`, scale 0.7, own `adapter_name`;
-a saved copy): validate warns the name fits neither partition, so never on
+a saved copy): validate refuses it on `ref2va`, so never on
 a `ref2va` template: its header says `base_model: minimax-h3-fl2va`, and
 it is inert on `reference-to-video` whatever `r2v` the filename says.
 
