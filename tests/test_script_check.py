@@ -852,6 +852,13 @@ class TestShotValidation(unittest.TestCase):
         resolved = with_full_shot_names(lines, records)
         self.assertEqual(resolved[0]["shot"], "x-shot@cold_open.0-0.0.mp4")
 
+    def test_member_keys_come_from_the_for_each_separator(self):
+        from dw.references import member_keys
+
+        self.assertEqual(member_keys("shot@cold_open"), ["cold_open"])
+        self.assertEqual(member_keys("x-shot@cold_open.0-0.0.mp4"), ["cold_open"])
+        self.assertEqual(member_keys("plain.mp4"), [])
+
     def test_a_short_name_two_shots_carry_is_refused(self):
         records = [{"name": "a-shot@open.mp4"}, {"name": "b-shot@open.mp4"}]
         message = shot_names_error(

@@ -103,6 +103,28 @@ def author_index(source_indices, index):
 
 # A for_each member is named `<group>@<entry>`
 MEMBER_SEPARATOR = "@"
+# A member's key is its entry's name (a variable name: letters, digits, '_',
+# '-') or its index, so it ends at the first character outside this set
+_MEMBER_KEY_CHARS = frozenset(
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+)
+
+
+def member_keys(name):
+    """The for_each member keys a name carries: `cold_open` for
+    `shot@cold_open` and for a file named `...-shot@cold_open.0-0.0.mp4`
+    (the key ends where `member_name`'s key charset does). Empty for a name
+    with no separator."""
+    if not isinstance(name, str):
+        return []
+    keys = []
+    for part in name.split(MEMBER_SEPARATOR)[1:]:
+        end = 0
+        while end < len(part) and part[end] in _MEMBER_KEY_CHARS:
+            end += 1
+        if end:
+            keys.append(part[:end])
+    return keys
 
 
 def member_suffix(name):

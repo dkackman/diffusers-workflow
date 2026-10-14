@@ -15,6 +15,7 @@ the run grouping plan_cuts warns about suspect chunks by.
 
 import re
 
+from .references import member_keys
 from .shots import duplicate_shot_names
 
 COMMAND = "check_script"
@@ -193,8 +194,7 @@ def matching_shot_names(shot, names):
     (`cold_open` for `shot@cold_open` or `...-shot@cold_open.0-0.0.mp4`)."""
     if shot in names:
         return [shot]
-    pattern = re.compile(r"@" + re.escape(shot) + r"(?![A-Za-z0-9_-])")
-    return list(dict.fromkeys(name for name in names if pattern.search(name or "")))
+    return list(dict.fromkeys(name for name in names if shot in member_keys(name)))
 
 
 def shot_names_error(parsed_lines, records, source="argument"):
