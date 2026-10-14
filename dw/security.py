@@ -9,6 +9,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Union, List, Optional
 
+from .references import VARIABLE_NAME_CHARACTERS
+
 logger = logging.getLogger("dw")
 
 # Security constants
@@ -307,7 +309,7 @@ def validate_variable_name(name: str) -> str:
         raise InvalidInputError("Variable name cannot be empty")
 
     # Allow only alphanumeric characters, underscores, and hyphens
-    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*\Z", name):
+    if not re.match(rf"^[a-zA-Z_][{re.escape(VARIABLE_NAME_CHARACTERS)}]*\Z", name):
         raise InvalidInputError(f"Invalid variable name: {name}")
 
     if len(name) > MAX_VARIABLE_NAME_LENGTH:
