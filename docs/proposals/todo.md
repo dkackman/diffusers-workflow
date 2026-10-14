@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 templates expose `attention_backend` and `cache`** (#865, stages
+  #883-#884), shipped 2026-10-14. Every MiniMax-H3 template takes both as
+  variables (default `null`, wired to the H3 step only). `cache` is a
+  whole-object variable: the schema accepts `variable:` there, and
+  validation checks the substituted object (`cache_errors`). The tier
+  presets were cut; the tiers live in the `minimax-h3` skill as argument
+  sets (#862). Record: `complete/h3-template-acceleration-complete.md`.
+
 - **Validate warnings for acceleration settings that can't pay off** (#868,
   stage #887), shipped 2026-10-14. `validate_workflow` and `save_workflow`
   warn (never refuse) on `cache_short_schedule` (a `first_block`/`mag` cache
