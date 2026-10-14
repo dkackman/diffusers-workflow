@@ -91,6 +91,20 @@ def test_every_moment_past_every_video_is_refused(server, outputs):
         assert "past the end" in response.json()["detail"]
 
 
+@pytest.mark.parametrize("moment", ["frame:-1", -1.0])
+def test_a_negative_moment_is_refused_not_taken_from_the_end(server, outputs, moment):
+    """Python negative indexing would silently pick a frame near the end."""
+    write_ramp_mp4(outputs / "a.mp4", frames=12)
+    write_ramp_mp4(outputs / "b.mp4", frames=12)
+
+    with server(success_script) as client:
+        response = post(client, names=["a.mp4", "b.mp4"], at=[moment])
+
+        assert response.status_code == 400
+        assert repr(moment) in response.json()["detail"]
+        assert "is negative" in response.json()["detail"]
+
+
 def test_a_size_mismatch_gets_no_numbers_and_says_why(server, outputs):
     """Resizing to force a comparison would itself be a difference."""
     write_ramp_mp4(outputs / "big.mp4", width=64, height=32)
