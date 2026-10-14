@@ -216,6 +216,7 @@ class _RecordingProcess:
     variables in os.environ at that moment instead of spawning."""
 
     environment_at_start = None
+    pid = None  # nothing spawned, so no /proc entry to read
 
     def __init__(self, target=None, args=()):
         self.target = target
@@ -239,6 +240,31 @@ def recorded_start(monkeypatch):
     monkeypatch.delenv("CUDA_VISIBLE_DEVICES", raising=False)
     monkeypatch.delenv("DW_DEVICE", raising=False)
     return _RecordingProcess
+
+
+class TestOomScoreFloor:
+    def test_the_spawn_time_adj_is_recorded_as_the_floor(
+        self, recorded_start, monkeypatch
+    ):
+        # #881: the value a reset may go back to without privilege
+        monkeypatch.setattr(recorded_start, "pid", 4242, raising=False)
+        read = []
+        monkeypatch.setattr(
+            worker_manager,
+            "read_oom_score_adj",
+            lambda pid: read.append(pid) or 200,
+        )
+        manager = WorkerManager(device="cuda:1")
+        manager.ensure_worker()
+        assert read == [4242] and manager.oom_score_floor == 200
+
+    def test_reset_writes_the_floor_not_zero(self, monkeypatch):
+        manager = WorkerManager(device="cuda:1")
+        manager.oom_score_floor = 200
+        written = []
+        monkeypatch.setattr(manager, "set_oom_score_adj", written.append)
+        manager.reset_oom_score_adj()
+        assert written == [200]
 
 
 class TestWorkerPinning:

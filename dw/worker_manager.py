@@ -21,6 +21,7 @@ from .devices import (
     pinned_environment,
     worker_environment,
 )
+from .host_memory import read_oom_score_adj
 from .worker import worker_main
 from .worker_protocol import Cancel, Shutdown, WorkerCrashed, parse_reply
 
@@ -54,6 +55,9 @@ class WorkerManager:
         self._ceiling_gb = None
         # What set_oom_score_adj last wrote for the running process
         self.oom_score_adj = None
+        # The running process's oom_score_adj as spawned - the lowest value
+        # reset_oom_score_adj may write back without privilege (#881)
+        self.oom_score_floor = None
         self.worker_process: Optional[multiprocessing.Process] = None
         self.command_queue: Optional[multiprocessing.Queue] = None
         self.result_queue: Optional[multiprocessing.Queue] = None
@@ -81,6 +85,7 @@ class WorkerManager:
                 self.worker_process.start()
             self.worker_active = True
             self.oom_score_adj = None
+            self.oom_score_floor = read_oom_score_adj(self.worker_process.pid)
             logger.info("Worker process started")
 
     def device_fields(self):
@@ -275,13 +280,15 @@ class WorkerManager:
     def set_oom_score_adj(self, value):
         """Ask the kernel's OOM killer to pick this worker ahead of anything
         scored lower (Linux only; best effort). In a pool the worker of the
-        latest dispatch is scored 1000 and the others 0, so a host-RAM
-        squeeze kills the newest job rather than whichever worker happens to
-        be larger (#462, #881). Neither raising nor lowering to 0 needs
-        privilege. Returns whether it took."""
+        latest dispatch is scored 1000 and the others are put back to their
+        floor (reset_oom_score_adj), so a host-RAM squeeze kills the newest
+        job rather than whichever worker happens to be larger (#462, #881).
+
+        Returns True when the kernel took the value, False when it refused
+        it, and None where nothing was attempted (no worker, not Linux)."""
         pid = self.pid()
         if pid is None or not sys.platform.startswith("linux"):
-            return False
+            return None
         value = max(-1000, min(1000, int(value)))
         try:
             with open(f"/proc/{int(pid)}/oom_score_adj", "w") as file:
@@ -291,3 +298,15 @@ class WorkerManager:
             return False
         self.oom_score_adj = value
         return True
+
+    def reset_oom_score_adj(self):
+        """Put this worker back to the oom_score_adj it was spawned with, not
+        a literal 0. Without CAP_SYS_RESOURCE the kernel refuses a write below
+        the process's `oom_score_adj_min`, which a privileged write sets and
+        a child inherits: on lem, PID 1 starts the systemd user manager at 100
+        and the manager starts the server's unit at 200, so a worker raised to
+        1000 can come back to 200 and never to 0 (#881). The spawn-time value
+        is always at or above that minimum. Returns as
+        set_oom_score_adj does."""
+        floor = self.oom_score_floor
+        return self.set_oom_score_adj(0 if floor is None else floor)
