@@ -274,10 +274,11 @@ class WorkerManager:
 
     def set_oom_score_adj(self, value):
         """Ask the kernel's OOM killer to pick this worker ahead of anything
-        scored lower (Linux only; best effort). In a pool the worker started
-        later is scored higher, so a host-RAM squeeze kills the newer job
-        rather than whichever worker happens to be larger (#462). Raising a
-        process's own score needs no privilege. Returns whether it took."""
+        scored lower (Linux only; best effort). In a pool the worker of the
+        latest dispatch is scored 1000 and the others 0, so a host-RAM
+        squeeze kills the newest job rather than whichever worker happens to
+        be larger (#462, #881). Neither raising nor lowering to 0 needs
+        privilege. Returns whether it took."""
         pid = self.pid()
         if pid is None or not sys.platform.startswith("linux"):
             return False

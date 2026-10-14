@@ -228,9 +228,10 @@ on one card); else any card. A card's size is its GiB rounded up (a 3090
 counts as 24), which a `cost` figure is compared to; a declared estimate is
 held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
 admission checks it against. Cancel reaches only the worker running that job, and a worker
-crash fails only its own job. The worker started later gets a higher Linux
-`oom_score_adj` (+100 over the highest other live worker), so a host-RAM
-squeeze kills the later job; nothing is written with one worker. There is no
+crash fails only its own job. Each dispatch sets its worker's Linux
+`oom_score_adj` to 1000 and every other live worker's to 0, so a host-RAM
+squeeze kills the newest job whatever the workers' sizes; nothing is written
+with one worker. There is no
 host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
 Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card

@@ -409,30 +409,48 @@ class FakeProcess:
 
 
 class TestOomRanking:
-    def test_the_later_started_worker_is_ranked_first(self, pool):
+    def _pair(self, pool):
         a = card(success_script, "cuda:0", 24)
         b = card(success_script, "cuda:1", 24)
         written = []
         for worker, pid in ((a, 101), (b, 102)):
             worker.pid = lambda pid=pid: pid
+            worker.worker_active = True
+            worker.worker_process = FakeProcess(pid)
             worker.set_oom_score_adj = lambda value, worker=worker: written.append(
                 (worker.device, value)
             )
-        manager = pool(a, b)
+        return pool(a, b), written
+
+    def test_each_dispatch_scores_its_worker_highest(self, pool):
+        manager, written = self._pair(pool)
         first, second = manager.slots
 
-        # The only worker alive: nothing is written
-        a.worker_active = True
-        a.worker_process = FakeProcess(101)
+        manager._rank_for_oom(first)
+        assert written == [("cuda:0", 1000), ("cuda:1", 0)]
+
+        written.clear()
+        manager._rank_for_oom(second)
+        assert written == [("cuda:1", 1000), ("cuda:0", 0)]
+
+    def test_a_dispatch_back_onto_an_unchanged_worker_flips_the_scores(self, pool):
+        manager, written = self._pair(pool)
+        first, second = manager.slots
+        manager._rank_for_oom(first)
+        manager._rank_for_oom(second)
+
+        written.clear()
+        manager._rank_for_oom(first)  # same pid as the first dispatch
+        assert written == [("cuda:0", 1000), ("cuda:1", 0)]
+
+    def test_the_only_live_worker_is_left_alone(self, pool):
+        manager, written = self._pair(pool)
+        first, second = manager.slots
+        second.manager.worker_active = False
+        second.manager.worker_process = None
+
         manager._rank_for_oom(first)
         assert written == []
-
-        # A second starts beside it, with the first still at no adjustment
-        b.worker_active = True
-        b.worker_process = FakeProcess(102)
-        assert a.oom_score_adj is None
-        manager._rank_for_oom(second)
-        assert written == [("cuda:1", 100)]
 
 
 class TestHealth:

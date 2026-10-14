@@ -861,23 +861,23 @@ class JobManager:
             self._finish(job, status, error=error, traceback_text=traceback_text)
 
     def _rank_for_oom(self, slot):
-        """A worker this call just started is scored for the kernel's OOM
-        killer above every other live worker, so a host-RAM squeeze kills
-        the later-started worker - one job - rather than whichever is
-        largest. Nothing is written while it is the only worker, so one card
-        runs exactly as before."""
+        """Score the dispatching worker 1000 for the kernel's OOM killer and
+        every other live worker 0, on every dispatch, so a host-RAM squeeze
+        kills the newest job whatever the workers' sizes (#881). Nothing is
+        written while it is the only worker, so one card runs exactly as
+        before. Lowering back to 0 needs no privilege."""
         manager = slot.manager
-        pid = manager.pid() if hasattr(manager, "pid") else None
-        if pid is None or pid == slot.ranked_pid:
+        if not hasattr(manager, "set_oom_score_adj"):
             return
-        slot.ranked_pid = pid
         others = [
             other.manager for other in self.slots if other is not slot and other.alive()
         ]
-        if not others or not hasattr(manager, "set_oom_score_adj"):
+        if not others:
             return
-        highest = max((other.oom_score_adj or 0) for other in others)
-        manager.set_oom_score_adj(min(1000, highest + 100))
+        manager.set_oom_score_adj(1000)
+        for other in others:
+            if hasattr(other, "set_oom_score_adj"):
+                other.set_oom_score_adj(0)
 
     def is_busy(self):
         """True while a job is running on any card or queued - the window in

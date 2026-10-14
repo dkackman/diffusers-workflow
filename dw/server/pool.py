@@ -32,8 +32,6 @@ class WorkerSlot:
         # This card's last memory reading and when it was taken
         self.last_memory = None
         self.last_memory_at = None
-        # The worker process _rank_for_oom last looked at
-        self.ranked_pid = None
 
     @property
     def device(self):
