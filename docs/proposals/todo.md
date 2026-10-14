@@ -246,6 +246,12 @@ remaining deferred fix is recorded in
   Record, including what was deferred (a host-RAM gate, an overlap flag on
   observed cost, per-card catalog cost, with their triggers):
   `complete/multi-gpu-workers-complete.md`.
+- **A locked H3 frame that lip-syncs to a song** (#852, stages
+  #877-#879), shipped 2026-10-14. Four renders on lem found Ref2VA
+  `[keyframe completion + audio reuse]` with a first frame holds a wide
+  two-shot and lip-syncs the right singer; a last frame doesn't help. One
+  `minimax-h3` skill line; no template, since `music-video` takes the
+  recipe with arguments. Record: `complete/h3-keyframe-audio-complete.md`.
 
 ## Declined
 
