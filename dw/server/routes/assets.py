@@ -63,6 +63,7 @@ from ..outputs import (
     resolve_output_file,
     served_url,
     strip_output_prefix,
+    run_inputs,
     validated_run_split,
 )
 
@@ -497,6 +498,10 @@ def keep_output_as_asset(
     job, source_run_id, source_version = job_provenance(
         request.app.state, kept_name, ws
     )
+    # The assets and outputs the source run was built from, so the lineage
+    # outlives the run and its workspace (#902)
+    run_split = validated_run_split(ws.outputs, source)
+    source_inputs = run_inputs(run_split[0]) if run_split else None
     provenance = (
         {
             "job": job,
@@ -504,6 +509,7 @@ def keep_output_as_asset(
             "version": source_version,
             "workspace": ws.name,
             "source": kept_name,
+            **({"inputs": source_inputs} if source_inputs else {}),
         }
         if job
         else None
