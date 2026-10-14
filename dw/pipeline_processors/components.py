@@ -974,12 +974,14 @@ def stateful_cache_context(pipeline, segment=None):
         transformer._reset_stateful_cache()
 
 
-def enable_cache_on_transformer(pipeline, cache_config):
+def enable_cache_on_transformer(pipeline, cache_config, distilled_explicit=False):
     """Enable cache configuration on the pipeline's transformer.
 
     Args:
         pipeline: The loaded diffusers pipeline
         cache_config: Cache configuration object from get_cache_configuration()
+        distilled_explicit: True when the workflow set is_guidance_distilled, which
+            then wins over what the transformer's config implies
     """
     transformer = get_cache_transformer(pipeline)
     if transformer is None:
@@ -1008,6 +1010,21 @@ def enable_cache_on_transformer(pipeline, cache_config):
     ):
         logger.debug("Wiring FasterCache current_timestep_callback to the pipeline")
         cache_config.current_timestep_callback = lambda: pipeline._current_timestep
+
+    # FasterCache assumes a cond/uncond batch of 2. A guidance-distilled
+    # transformer embeds guidance instead of batching CFG, so its config says
+    # so (guidance_embeds); infer the flag unless the workflow set it
+    if (
+        cache_config.__class__.__name__ == "FasterCacheConfig"
+        and not distilled_explicit
+        and getattr(getattr(transformer, "config", None), "guidance_embeds", None)
+        is True
+    ):
+        logger.info(
+            "Inferring FasterCache is_guidance_distilled=True from "
+            f"{transformer.__class__.__name__}.config.guidance_embeds"
+        )
+        cache_config.is_guidance_distilled = True
 
     # first_block, mag and layer_skip resolve the transformer's block class
     # through diffusers' registry and raise when it is absent - fill in the
