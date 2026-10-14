@@ -208,6 +208,19 @@ class WorkerManager:
         """Ask the worker to cancel the workflow it is running."""
         self.send_command(Cancel().to_wire())
 
+    def terminate_worker(self):
+        """Kill the worker process outright, for a cancel that a model load
+        cannot honor (#892). The job's thread, blocked reading results, sees
+        the process gone; the next job respawns it, with a cold model cache."""
+        process = self.worker_process
+        if process is None or not process.is_alive():
+            return
+        logger.warning("Terminating the worker: a cancel found it still loading")
+        process.terminate()
+        process.join(timeout=WORKER_TERMINATE_TIMEOUT_SECONDS)
+        if process.is_alive():
+            process.kill()
+
     def crash_details(self):
         """Why the worker process is gone, as far as the OS will say.
 

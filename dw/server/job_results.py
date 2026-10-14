@@ -165,6 +165,11 @@ def consume_results(job, manager, slot, output_dir, record_memory):
             # against a queue nobody is reading
             detail = manager.crash_details()
             manager.mark_crashed()
+            if job.cancel_requested:
+                # Terminated by JobManager's cancel escalation (#892), or
+                # died on its own with the job already asked to stop: the
+                # outcome the caller wanted either way
+                return (CANCELLED, None, None)
             reason = f"Worker process died: {detail or e}"
             logger.error(f"Job {job.id}: {reason}")
             return (FAILED, reason, None)
