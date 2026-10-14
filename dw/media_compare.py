@@ -23,7 +23,7 @@ import numpy
 from PIL import Image, ImageDraw, ImageFont
 
 from . import media
-from .media_frames import compose_grid, evenly_spaced_indices
+from .media_frames import compose_grid, evenly_spaced_indices, moment_index, parse_crop
 
 MAX_COMPARE_NAMES = 8
 MAX_COMPARE_MOMENTS = 8
@@ -117,14 +117,7 @@ def crop_box(crop, width, height, name):
     """`[x, y, w, h]` as Pillow's (left, upper, right, lower), refused unless
     it lies wholly inside this output's `width` x `height` frame - a box
     clamped differently per output would measure different regions."""
-    try:
-        x, y, w, h = (int(v) for v in crop)
-    except (TypeError, ValueError):
-        raise ValueError(f"crop must be [x, y, width, height] in pixels, got {crop!r}")
-    if x < 0 or y < 0 or w <= 0 or h <= 0:
-        raise ValueError(
-            f"crop must have a non-negative origin and a positive size, got {crop!r}"
-        )
+    x, y, w, h = parse_crop(crop)
     if x + w > width or y + h > height:
         raise ValueError(
             f"crop {[x, y, w, h]} is out of bounds for {name}, which is "
@@ -146,26 +139,7 @@ def resolve_moments(at, reference, shortest):
         ]
     resolved = []
     for moment in at:
-        if isinstance(moment, str) and moment.strip().startswith("frame:"):
-            raw = moment.strip()[len("frame:") :]
-            try:
-                index = int(raw)
-            except ValueError:
-                raise ValueError(f'"{moment}" - frame index must be a whole number')
-        else:
-            try:
-                seconds = float(moment)
-            except (TypeError, ValueError):
-                raise ValueError(f'{moment!r} is not a moment - seconds, or "frame:N"')
-            if not math.isfinite(seconds):
-                raise ValueError(f"{moment!r} is not a moment in seconds")
-            if not reference["fps"]:
-                raise ValueError(
-                    "the reference clip has no frame rate, so name a frame: 'frame:N'"
-                )
-            index = int(round(seconds * reference["fps"]))
-        if index < 0:
-            index += reference["frame_count"]
+        index = moment_index(moment, reference)
         if index < 0:
             raise ValueError(f"{moment!r} is before the start of the clip")
         resolved.append((moment, index))

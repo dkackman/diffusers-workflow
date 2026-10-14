@@ -158,3 +158,27 @@ def test_short_name_keeps_an_asset_reference_and_trims_an_output_path():
     """An asset reads as given; an output as its run id and file."""
     assert short_name("asset:uploads/a.png") == "asset:uploads/a.png"
     assert short_name("wf/run1/out.png") == "run1/out.png"
+
+
+@pytest.mark.parametrize("moment", ["50%", "frame:x", "nan"])
+def test_resolve_moments_refuses_what_get_output_frames_refuses(moment):
+    # One `at` grammar (media_frames.moment_index): compare and frames
+    # refuse the same malformed moment with the same words.
+    from dw.media_frames import frames_at
+
+    with pytest.raises(ValueError) as frames_error:
+        frames_at("unused.mp4", [moment], shape=REFERENCE)
+    with pytest.raises(ValueError) as compare_error:
+        resolve_moments([moment], REFERENCE, 24)
+    assert str(compare_error.value) == str(frames_error.value)
+
+
+def test_crop_box_refuses_a_malformed_box_as_resolve_crop_box_does():
+    # One crop parse (media_frames.parse_crop); only the bounds policy differs.
+    from dw.media_frames import resolve_crop_box
+
+    with pytest.raises(ValueError) as frames_error:
+        resolve_crop_box([1, 2, 3], 32, 16)
+    with pytest.raises(ValueError) as compare_error:
+        crop_box([1, 2, 3], 32, 16, "a.mp4")
+    assert str(compare_error.value) == str(frames_error.value)

@@ -31,6 +31,19 @@ def resolve_crop_box(crop, width, height):
     across every tile - the same `[x, y, width, height]` convention
     `get_output_image`'s crop uses. Refused when it is not four
     non-negative integers, starts outside the frame, or has nothing in it."""
+    x, y, w, h = parse_crop(crop)
+    if x >= width or y >= height:
+        raise ValueError(
+            f"crop origin ({x}, {y}) lies outside the {width}x{height} frame."
+        )
+    return (x, y, min(x + w, width), min(y + h, height))
+
+
+def parse_crop(crop):
+    """`[x, y, width, height]` as four ints - the crop convention every
+    media route shares. Refused when it is not four integers, or has a
+    negative origin or an empty size. Bounds are the caller's policy:
+    `resolve_crop_box` clamps, `media_compare.crop_box` refuses."""
     try:
         x, y, w, h = (int(v) for v in crop)
     except (TypeError, ValueError):
@@ -39,11 +52,7 @@ def resolve_crop_box(crop, width, height):
         raise ValueError(
             f"crop must have a non-negative origin and a positive size, got {crop!r}."
         )
-    if x >= width or y >= height:
-        raise ValueError(
-            f"crop origin ({x}, {y}) lies outside the {width}x{height} frame."
-        )
-    return (x, y, min(x + w, width), min(y + h, height))
+    return x, y, w, h
 
 
 def first_frame(path):
@@ -195,7 +204,12 @@ def seam_tiles(
     return tiles
 
 
-def _moment_to_index(moment, shape):
+def moment_index(moment, shape):
+    """The frame index one `at` moment names in a clip of `shape`
+    (`video_shape`): "frame:N", or seconds converted at the clip's fps and
+    rounded. A negative index counts back from the end. This is the `at`
+    grammar `get_output_frames` and `compare_outputs` share; the index is
+    not bounds-checked, because past-end is each caller's policy."""
     total = shape["frame_count"]
     if isinstance(moment, str) and moment.startswith("frame:"):
         raw = moment[len("frame:") :]
@@ -203,36 +217,43 @@ def _moment_to_index(moment, shape):
             index = int(raw)
         except ValueError:
             raise ValueError(f'"{moment}" - frame index must be a whole number')
-        if index < 0:
-            index += total
-        if not 0 <= index < total:
-            raise ValueError(
-                f"frame {index} is past the end of a {total}-frame clip "
-                f"(frames 0-{total - 1})"
-            )
-        return index
-    fps = shape["fps"]
-    if fps is None:
-        raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
-    seconds = float(moment)
-    if not math.isfinite(seconds):
-        raise ValueError(f"{moment!r} is not a moment in seconds")
-    index = int(round(seconds * fps))
+    else:
+        try:
+            seconds = float(moment)
+        except (TypeError, ValueError):
+            raise ValueError(f'{moment!r} is not a moment - seconds, or "frame:N"')
+        if not math.isfinite(seconds):
+            raise ValueError(f"{moment!r} is not a moment in seconds")
+        if not shape["fps"]:
+            raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
+        index = int(round(seconds * shape["fps"]))
     if index < 0:
         index += total
-    if not 0 <= index < total:
-        duration = total / fps
-        message = (
-            f"{moment!r} s is past the end of a {duration:.2f} s "
-            f"({total}-frame) clip - bare numbers in 'at' are seconds"
-        )
-        # A fractional value is a seconds overshoot, not a frame index in
-        # disguise - the frame: hint only makes sense for a whole number
-        # that would itself be a valid frame index.
-        if seconds.is_integer() and 0 <= int(seconds) < total:
-            message += f'; use "frame:{_format_moment(moment)}" for a frame index'
-        raise ValueError(message)
     return index
+
+
+def _moment_to_index(moment, shape):
+    total = shape["frame_count"]
+    index = moment_index(moment, shape)
+    if 0 <= index < total:
+        return index
+    if isinstance(moment, str) and moment.startswith("frame:"):
+        raise ValueError(
+            f"frame {index} is past the end of a {total}-frame clip "
+            f"(frames 0-{total - 1})"
+        )
+    seconds = float(moment)
+    duration = total / shape["fps"]
+    message = (
+        f"{moment!r} s is past the end of a {duration:.2f} s "
+        f"({total}-frame) clip - bare numbers in 'at' are seconds"
+    )
+    # A fractional value is a seconds overshoot, not a frame index in
+    # disguise - the frame: hint only makes sense for a whole number
+    # that would itself be a valid frame index.
+    if seconds.is_integer() and 0 <= int(seconds) < total:
+        message += f'; use "frame:{_format_moment(moment)}" for a frame index'
+    raise ValueError(message)
 
 
 def _format_moment(moment):
