@@ -887,18 +887,32 @@ class _MagCalibrationHandler(logging.Handler):
 
 
 @contextlib.contextmanager
-def captured_mag_calibration(pipeline):
+def captured_mag_calibration(pipeline, arguments=None):
     """Report a mag cache's calibration ratios as job events (#891).
 
     A no-op unless the transformer's cache is a MagCacheConfig with calibrate
     on. Under classifier-free guidance dw's pipelines run "cond" and "uncond"
     contexts, each with its own state, so two labeled lists are emitted.
+
+    diffusers only finishes (and logs) a calibration once its step counter
+    reaches the config's `num_inference_steps`, which defaults to 28. A run of
+    any other length would end without a record, so for the call the config
+    counts the steps the call actually runs.
     """
     transformer = get_cache_transformer(pipeline)
     config = getattr(transformer, "_cache_config", None)
     if not getattr(config, "calibrate", False):
         yield
         return
+
+    steps = (arguments or {}).get("num_inference_steps")
+    declared_steps = config.num_inference_steps
+    if isinstance(steps, int) and steps != declared_steps:
+        emit_warning(
+            f"MagCache calibration: the cache declares num_inference_steps "
+            f"{declared_steps} but this step runs {steps}; calibrating over {steps}"
+        )
+        config.num_inference_steps = steps
 
     mag_logger = logging.getLogger(_MAG_LOGGER)
     handler = _MagCalibrationHandler(transformer)
@@ -909,6 +923,7 @@ def captured_mag_calibration(pipeline):
     try:
         yield
     finally:
+        config.num_inference_steps = declared_steps
         mag_logger.removeHandler(handler)
         mag_logger.setLevel(old_level)
         mag_logger.propagate = old_propagate
@@ -957,7 +972,11 @@ def enable_cache_on_transformer(pipeline, cache_config):
     """
     transformer = get_cache_transformer(pipeline)
     if transformer is None:
-        logger.warning("Pipeline has no transformer, skipping cache configuration")
+        emit_warning(
+            f"{cache_config.__class__.__name__} was not applied: the pipeline has "
+            "no transformer to attach a cache to (a UNet pipeline such as SD 1.5 "
+            "is not supported)"
+        )
         return
 
     if not hasattr(transformer, "enable_cache"):

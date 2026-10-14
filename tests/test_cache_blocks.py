@@ -522,3 +522,33 @@ def test_mag_calibration_silent_without_calibrate(monkeypatch):
     with components.captured_mag_calibration(_FakePipeline(model)):
         pass
     assert warnings == []
+
+
+def test_mag_calibration_counts_the_steps_the_call_runs(monkeypatch):
+    """#891: a config left at 28 steps never finishes a 4-step run; the call's count is used."""
+    from dw.pipeline_processors import components
+
+    warnings = []
+    monkeypatch.setattr(components, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(components, "emit_warning", warnings.append)
+
+    model = _mag_model(28)
+    with components.captured_mag_calibration(
+        _FakePipeline(model), {"num_inference_steps": 4}
+    ):
+        _run_calibration_steps(model, "cond", 4)
+
+    assert model._cache_config.num_inference_steps == 28
+    assert any("declares num_inference_steps 28" in w for w in warnings)
+    assert any("MagCache calibration (4 steps)" in w for w in warnings)
+
+
+def test_cache_on_pipeline_without_transformer_warns(monkeypatch):
+    from diffusers import MagCacheConfig
+
+    from dw.pipeline_processors import components
+
+    warnings = []
+    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    components.enable_cache_on_transformer(object(), MagCacheConfig(calibrate=True))
+    assert len(warnings) == 1 and "not applied" in warnings[0]
