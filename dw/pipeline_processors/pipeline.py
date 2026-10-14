@@ -60,7 +60,7 @@ from diffusers import attention_backend
 
 from ..argument_media import fetch_video
 from ..tasks.video_utils import load_audio_video
-from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
+from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
 
@@ -640,6 +640,10 @@ class Pipeline:
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
+                emit_log(
+                    f"Using attention backend: {attn_backend}",
+                    attention_backend=str(attn_backend),
+                )
                 stack.enter_context(attention_backend(attn_backend))
 
             stack.enter_context(captured_mag_calibration(self.pipeline))

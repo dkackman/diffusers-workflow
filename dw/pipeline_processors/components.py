@@ -127,8 +127,12 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             "attention_backend", None
         )
         if component_attention_backend is not None:
-            logger.info(
-                f"Setting {component_name} attention backend: {component_attention_backend}"
+            message = f"Setting {component_name} attention backend: {component_attention_backend}"
+            logger.info(message)
+            emit_log(
+                message,
+                component=component_name,
+                attention_backend=str(component_attention_backend),
             )
             set_component_attention_backend(component, component_attention_backend)
 
