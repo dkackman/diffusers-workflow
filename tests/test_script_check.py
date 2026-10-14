@@ -859,6 +859,26 @@ class TestShotValidation(unittest.TestCase):
         self.assertEqual(member_keys("x-shot@cold_open.0-0.0.mp4"), ["cold_open"])
         self.assertEqual(member_keys("plain.mp4"), [])
 
+    def test_a_valid_variable_name_comes_back_whole_as_a_member_key(self):
+        # A for_each entry's name is checked by validate_variable_name; the
+        # key member_keys reads back must end exactly where that rule does,
+        # for every character either could meet
+        import string
+
+        from dw.for_each import member_name
+        from dw.references import member_keys
+        from dw.security import InvalidInputError, validate_variable_name
+
+        for char in string.printable:
+            key = f"a{char}b"
+            filename = member_name("shot", key) + ".0-0.0.mp4"
+            try:
+                validate_variable_name(key)
+            except InvalidInputError:
+                self.assertNotEqual(member_keys(filename)[:1], [key], repr(char))
+            else:
+                self.assertEqual(member_keys(filename), [key], repr(char))
+
     def test_a_short_name_two_shots_carry_is_refused(self):
         records = [{"name": "a-shot@open.mp4"}, {"name": "b-shot@open.mp4"}]
         message = shot_names_error(
