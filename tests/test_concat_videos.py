@@ -615,6 +615,34 @@ class TestInnerLevelStep:
 
         assert not found
 
+    def test_a_trimmed_joined_input_still_warns(self):
+        inner = concat_videos([audio_video(4, 0.5), audio_video(4, 0.1)])
+        inner.fps = 4
+        for shot in inner.shots:
+            shot.pop("start_sample", None)
+            shot.pop("num_samples", None)
+
+        found = self._events(
+            lambda: concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        )
+
+        assert found
+
+    def test_a_track_replaced_downstream_draws_no_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        inner = concat_videos([audio_video(4, 0.5), audio_video(4, 0.1)])
+        events = []
+        context = RunContext(on_event=events.append)
+        context.audio_replaced_downstream = True
+        token = activate_context(context)
+        try:
+            concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        finally:
+            deactivate_context(token)
+
+        assert not [e for e in events if "inner_level_step" in str(e)]
+
 
 class TestWarningsReachTheCaller:
     """A warning that only reaches the server's log does not exist from

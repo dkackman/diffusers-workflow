@@ -16,8 +16,9 @@ rename cannot leave a rule reading nothing), how the value is compared,
 the threshold, the severity and what a crossing says. `magnitude` compares
 the value's absolute size, for a signed measurement whose direction is not
 the problem. `shot_level_spread` shares its threshold with the run-time
-`LEVEL_SPREAD_WARN_DB`, so the join-time warning and the after-the-fact
-probe cannot disagree about the same cut.
+`LEVEL_SPREAD_WARN_DB`, and `seam_level_step` with `INNER_LEVEL_STEP_WARN_DB`
+(concat_videos' warning for a multi-shot input), so the join-time warning
+and the after-the-fact probe cannot disagree about the same cut.
 
 Three rules carry a guard the table alone cannot express, applied by the
 probe and named here in `unless` so it is written down beside the number:
@@ -32,7 +33,7 @@ The thresholds were settled against real runs on the server in stage D
 `tests/test_assessment_rules.py` pins those quotes to this table.
 """
 
-from .tasks.joins import LEVEL_SPREAD_WARN_DB
+from .tasks.joins import INNER_LEVEL_STEP_WARN_DB, LEVEL_SPREAD_WARN_DB
 
 SEVERITIES = ("info", "warn")
 
@@ -67,7 +68,7 @@ RULES = (
         "probe": "analyze_seams",
         "field": "level_step_db",
         "comparator": ">",
-        "threshold": 3.0,
+        "threshold": INNER_LEVEL_STEP_WARN_DB,
         "severity": "warn",
         "says": "the shots either side of the seam sit this far apart in level",
     },
