@@ -594,7 +594,9 @@ def _h3_steps(definition):
 def _transformers(step):
     components = step["pipeline"]["configuration"].get("components", {})
     # t2va/fl2va load `transformer`, ref2va loads `transformer_ref`
-    return {k: v for k, v in components.items() if k in ("transformer", "transformer_ref")}
+    return {
+        k: v for k, v in components.items() if k in ("transformer", "transformer_ref")
+    }
 
 
 H3_TEMPLATES = [path for path in TEMPLATES if _h3_steps(load(path))]
@@ -643,7 +645,9 @@ def _dialogue_short_after_substitution(**overrides):
     from dw.variables import replace_variables
 
     definition = load(
-        os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json")
+        os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json"
+        )
     )
     variables = {**definition["variables"], **overrides}
     return {
