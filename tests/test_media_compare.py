@@ -138,9 +138,11 @@ def test_resolve_moments_defaults_to_four_evenly_spaced_frames():
     ]
 
 
-def test_resolve_moments_counts_a_negative_frame_from_the_end():
-    """frame:-1 is the reference's last frame."""
-    assert resolve_moments(["frame:-1"], REFERENCE, 24) == [("frame:-1", 23)]
+@pytest.mark.parametrize("moment", ["frame:-1", -1.0, "-0.01"])
+def test_resolve_moments_refuses_a_negative_moment(moment):
+    """A negative moment is refused, never wrapped to the clip's end."""
+    with pytest.raises(ValueError, match="is negative"):
+        resolve_moments([moment], REFERENCE, 24)
 
 
 def test_resolve_moments_converts_seconds_at_the_reference_fps():
@@ -148,10 +150,11 @@ def test_resolve_moments_converts_seconds_at_the_reference_fps():
     assert resolve_moments([1.5, "0"], REFERENCE, 24) == [(1.5, 9), ("0", 0)]
 
 
-def test_resolve_moments_refuses_a_moment_before_the_start():
-    """A negative frame past the start is not a frame."""
-    with pytest.raises(ValueError, match="before the start"):
-        resolve_moments(["frame:-30"], REFERENCE, 24)
+def test_get_output_frames_still_counts_a_negative_frame_from_the_end():
+    """frames keeps Python-style negatives; only compare refuses them."""
+    from dw.media_frames import moment_index
+
+    assert moment_index("frame:-1", REFERENCE) == 23
 
 
 def test_short_name_keeps_an_asset_reference_and_trims_an_output_path():

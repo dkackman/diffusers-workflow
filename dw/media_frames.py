@@ -204,12 +204,13 @@ def seam_tiles(
     return tiles
 
 
-def moment_index(moment, shape):
+def moment_index(moment, shape, from_end=True):
     """The frame index one `at` moment names in a clip of `shape`
     (`video_shape`): "frame:N", or seconds converted at the clip's fps and
-    rounded. A negative index counts back from the end. This is the `at`
-    grammar `get_output_frames` and `compare_outputs` share; the index is
-    not bounds-checked, because past-end is each caller's policy."""
+    rounded. A negative moment counts back from the end, or with
+    `from_end=False` is refused. This is the `at` grammar
+    `get_output_frames` and `compare_outputs` share; the index is not
+    bounds-checked, because past-end is each caller's policy."""
     total = shape["frame_count"]
     if isinstance(moment, str) and moment.startswith("frame:"):
         raw = moment[len("frame:") :]
@@ -217,6 +218,7 @@ def moment_index(moment, shape):
             index = int(raw)
         except ValueError:
             raise ValueError(f'"{moment}" - frame index must be a whole number')
+        negative = index < 0
     else:
         try:
             seconds = float(moment)
@@ -226,7 +228,12 @@ def moment_index(moment, shape):
             raise ValueError(f"{moment!r} is not a moment in seconds")
         if not shape["fps"]:
             raise ValueError("this clip has no frame rate, so name a frame: 'frame:N'")
+        negative = seconds < 0
         index = int(round(seconds * shape["fps"]))
+    if negative and not from_end:
+        raise ValueError(
+            f"{moment!r} is negative - moments count from the start of the clip"
+        )
     if index < 0:
         index += total
     return index

@@ -129,9 +129,9 @@ def crop_box(crop, width, height, name):
 def resolve_moments(at, reference, shortest):
     """The frame index each moment names, as [(moment, frame)]. Seconds
     convert at the reference video's fps (the baseline's, or the first
-    video's), and a negative frame counts back from its end; every output
-    is then read at that same frame number. Without `at`, 4 evenly spaced
-    frames of the shortest video."""
+    video's), and a negative moment is refused rather than counted back
+    from an end; every output is then read at that same frame number.
+    Without `at`, 4 evenly spaced frames of the shortest video."""
     if at is None:
         return [
             (f"frame:{index}", index)
@@ -139,10 +139,7 @@ def resolve_moments(at, reference, shortest):
         ]
     resolved = []
     for moment in at:
-        index = moment_index(moment, reference)
-        if index < 0:
-            raise ValueError(f"{moment!r} is before the start of the clip")
-        resolved.append((moment, index))
+        resolved.append((moment, moment_index(moment, reference, from_end=False)))
     return resolved
 
 
