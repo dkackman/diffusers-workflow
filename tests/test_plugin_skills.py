@@ -469,6 +469,35 @@ class TestMiniMaxH3Skill:
         workflow = Workflow(definition, REPO_ROOT, os.path.join(REPO_ROOT, "n.json"))
         assert workflow.validation_errors() == []
 
+    def test_the_locked_frame_lip_sync_recipe_names_real_task_types(self):
+        """#852: a locked frame that lip-syncs is Ref2VA with a first-frame
+        keyframe and the song held. The task types are MiniMax's, which the
+        built-in Context-IR enhancer teaches, and `hold_audio` is the argument
+        music-video's ref2va step takes, so a rename of either fails here."""
+        body = skill_body(H3_SKILL)
+        task = "[keyframe completion + audio reuse]"
+        assert f"`{task}`" in body
+        assert "FL2VA takes no audio" in body
+        assert "`hold_audio`" in body
+
+        enhancer = os.path.join(REPO_ROOT, "dw", "workflows", "h3_context_ir.json")
+        system_prompt = open(enhancer, encoding="utf-8").read()
+        for name in ("keyframe completion", "audio reuse"):
+            assert name in system_prompt
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-video.json"
+        )
+        steps = json.load(open(path, encoding="utf-8"))["steps"]
+        assert any(
+            step.get("pipeline", {})
+            .get("from_pretrained_arguments", {})
+            .get("workflow")
+            == "ref2va"
+            and "hold_audio" in step["pipeline"].get("arguments", {})
+            for step in steps
+        )
+
     def test_the_1344x768_reference_ceilings_are_the_templates_vram_estimate(self):
         """#479: `gb_per_reference` and the per-step projection moved the
         Ref2VA ceiling from one number (175 frames, unstated reference count)
