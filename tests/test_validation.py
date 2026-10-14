@@ -178,6 +178,7 @@ ERROR_ORDER = [
     "previous_result_references",
     "subfolders",
     "fps",
+    "cache",
     "reference_names",
     "video_extensions",
     "hold_audio",
@@ -827,3 +828,139 @@ class TestAccelerationWarnings:
 
         assert checked
         assert offenders == []
+
+
+class TestCacheVariable:
+    """A `cache: "variable:cache"` is checked as the object it substitutes to
+    (#865): the raw schema only sees the reference string, so this is what
+    stops a bad cache object from passing validate and failing at load."""
+
+    @staticmethod
+    def definition(default=None):
+        return {
+            "id": "cache-variable",
+            "variables": {"cache": default},
+            "steps": [
+                {
+                    "name": "gen",
+                    "pipeline": {
+                        "configuration": {
+                            "component_type": "FluxPipeline",
+                            "cache": "variable:cache",
+                        },
+                        "from_pretrained_arguments": {
+                            "model_name": "black-forest-labs/FLUX.1-dev"
+                        },
+                        "arguments": {"prompt": "a cat", "num_inference_steps": 30},
+                    },
+                }
+            ],
+        }
+
+    @staticmethod
+    def errors(definition, arguments=None):
+        from dw.workflow import Workflow
+
+        return Workflow(definition, None, "").validation_errors(arguments)
+
+    @staticmethod
+    def expanded_configuration(definition, arguments=None):
+        from dw.workflow import Workflow
+
+        expanded = Workflow(definition, None, "").expanded_definition(arguments)
+        return expanded["steps"][0]["pipeline"]["configuration"]
+
+    def test_a_valid_object_validates_and_reaches_the_step(self):
+        cache = {"type": "first_block", "threshold": 0.05}
+
+        assert self.errors(self.definition(), {"cache": cache}) == []
+        assert (
+            self.expanded_configuration(self.definition(), {"cache": cache})["cache"]
+            == cache
+        )
+
+    def test_null_drops_the_key(self):
+        assert self.errors(self.definition()) == []
+        assert "cache" not in self.expanded_configuration(self.definition())
+
+    def test_an_unknown_type_is_refused_at_the_field(self):
+        errors = self.errors(self.definition(), {"cache": {"type": "bogus"}})
+
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.configuration.cache.type"
+        ]
+        assert "bogus" in errors[0]["message"]
+
+    def test_a_bare_string_is_refused(self):
+        errors = self.errors(self.definition(), {"cache": "first_block"})
+
+        assert [e["path"] for e in errors] == ["steps[0].pipeline.configuration.cache"]
+        assert "object" in errors[0]["message"]
+
+    def test_a_missing_type_is_refused(self):
+        errors = self.errors(self.definition(), {"cache": {"threshold": 0.05}})
+
+        assert [e["path"] for e in errors] == ["steps[0].pipeline.configuration.cache"]
+        assert "'type'" in errors[0]["message"]
+
+    def test_an_invalid_default_is_refused_with_no_arguments(self):
+        errors = self.errors(self.definition(default={"type": "bogus"}))
+
+        assert [e["path"] for e in errors] == [
+            "steps[0].pipeline.configuration.cache.type"
+        ]
+
+    def test_a_literal_string_other_than_a_variable_fails_the_schema(self):
+        definition = self.definition()
+        definition["steps"][0]["pipeline"]["configuration"]["cache"] = "first_block"
+
+        errors = self.errors(definition)
+
+        assert [e["path"] for e in errors] == ["steps[0].pipeline.configuration.cache"]
+
+    def test_a_literal_object_still_validates(self):
+        definition = self.definition()
+        definition["steps"][0]["pipeline"]["configuration"]["cache"] = {
+            "type": "first_block",
+            "threshold": 0.05,
+        }
+
+        assert self.errors(definition) == []
+
+
+class TestCacheVariableOnAForEachTemplate:
+    """The same check through a real for_each template: every member's
+    substituted cache is checked, and one bad value is said once."""
+
+    PATH = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "workflows",
+        "templates",
+        "minimax",
+        "dialogue-short.json",
+    )
+
+    def errors(self, arguments):
+
+        from dw.workflow import Workflow
+
+        with open(self.PATH, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        errors = Workflow(definition, None, self.PATH).validation_errors(arguments)
+        return [e for e in errors if ".cache" in e["path"]]
+
+    def test_a_valid_object_is_clean(self):
+        assert self.errors({"cache": {"type": "first_block", "threshold": 0.05}}) == []
+
+    def test_an_unknown_type_is_refused_once(self):
+        errors = self.errors({"cache": {"type": "bogus"}})
+
+        assert len(errors) == 1, errors
+        assert errors[0]["path"].endswith("pipeline.configuration.cache.type")
+        assert "member 'shot@" in errors[0]["message"]
+
+    def test_a_bare_string_is_refused(self):
+        errors = self.errors({"cache": "first_block"})
+
+        assert len(errors) == 1, errors
+        assert errors[0]["path"].endswith("pipeline.configuration.cache")

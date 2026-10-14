@@ -87,7 +87,10 @@ block-level group offload: compute-bound, not PCIe-bound.
   it `null` on mps or cpu, where it passes validate and fails at run time.
 - **`first_block` 0.05**: -22% at 30 base steps with identical staging and
   faces (PSNR 27.5 dB against L5). It skips nothing at 12 steps or on a
-  turbo schedule: use it at 30 base steps only.
+  turbo schedule, yet still perturbs the result: use it at ~20 or more base
+  steps only, never with the turbo LoRAs. It is the `cache` argument on every H3
+  template, `{"type": "first_block", "threshold": 0.05}`; `null` (the default)
+  is off.
 - **`torch.compile`**: +289 s on the first pass, ~1% per pass after. A net
   loss for one job; it breaks even only across ~16 shots at one shape in one
   warm worker.

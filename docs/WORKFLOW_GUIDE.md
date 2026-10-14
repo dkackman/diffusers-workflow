@@ -1529,6 +1529,14 @@ A `cache` block speeds up inference by skipping redundant computation:
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
 
+`cache` can also be a whole-object `variable:` reference, which must resolve to a cache
+object or to `null`. A variable resolving to `null` drops the key: no cache, and the only
+true "off", since an installed `first_block` hook changes the output even when it skips
+nothing. The substituted object is checked against the cache shape at validate, so
+`{"type": "bogus"}` or a bare `"first_block"` is refused, naming the field. Every
+MiniMax-H3 template exposes a `cache` variable (default `null`) on its H3 step:
+`"arguments": {"cache": {"type": "first_block", "threshold": 0.05}}`.
+
 ### Device and Dtype
 
 Device is auto-detected (CUDA > MPS > CPU). Dtype is set per-component:
