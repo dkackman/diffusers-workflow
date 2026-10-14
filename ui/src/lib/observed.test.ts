@@ -32,4 +32,8 @@ describe('observedTitle', () => {
       'measured on this server (RTX 4090): ~12.9 min with the model loaded (2 runs), ~14.5 min from cold (1 run); 3 runs since 2026-10-01',
     )
   })
+  it('is null without input or a figure', () => {
+    expect(observedTitle(null)).toBeNull()
+    expect(observedTitle({ runs: 2 })).toBeNull()
+  })
 })

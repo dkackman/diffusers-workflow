@@ -54,9 +54,11 @@
       })
       .catch((e) => (error = e.message))
     observed = null
+    const wanted = name
     api
       .listWorkflows()
       .then((r) => {
+        if (wanted !== name) return
         observed =
           (r.details?.[name]?.observed as Record<string, unknown>) ?? null
       })
