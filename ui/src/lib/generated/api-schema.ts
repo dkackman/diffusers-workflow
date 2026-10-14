@@ -3539,6 +3539,16 @@ export interface components {
              */
             name: string | null;
             /**
+             * Oom Score Adj
+             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else 0); absent where unreadable.
+             */
+            oom_score_adj?: number;
+            /**
+             * Pid
+             * @description The worker process's pid; absent while it is not running.
+             */
+            pid?: number;
+            /**
              * Vram Gb
              * @description What the card holds, in the GB a catalog cost entry is written in.
              */

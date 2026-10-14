@@ -422,6 +422,28 @@ class TestOomRanking:
             )
         return pool(a, b), written
 
+    def test_health_reports_pid_and_kernel_oom_score_adj(self, pool, monkeypatch):
+        manager, _ = self._pair(pool)
+        values = {101: 1000, 102: 0}
+        monkeypatch.setattr(
+            "dw.server.jobs.read_oom_score_adj", lambda pid: values.get(pid)
+        )
+
+        workers = manager.workers()
+
+        assert [w["pid"] for w in workers] == [101, 102]
+        assert [w["oom_score_adj"] for w in workers] == [1000, 0]
+
+    def test_health_omits_oom_fields_for_a_stopped_worker(self, pool):
+        manager, _ = self._pair(pool)
+        manager.slots[1].manager.worker_active = False
+        manager.slots[1].manager.worker_process = None
+        manager.slots[1].manager.pid = lambda: None
+
+        second = manager.workers()[1]
+
+        assert "pid" not in second and "oom_score_adj" not in second
+
     def test_each_dispatch_scores_its_worker_highest(self, pool):
         manager, written = self._pair(pool)
         first, second = manager.slots

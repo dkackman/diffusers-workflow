@@ -80,6 +80,11 @@ class WorkerInfo(ApiModel):
     host_memory_rss_mb: float = sometimes(
         "The worker process's resident host memory; absent while it is not running."
     )
+    pid: int = sometimes("The worker process's pid; absent while it is not running.")
+    oom_score_adj: int = sometimes(
+        "The worker's kernel oom_score_adj, read from /proc at call time (1000 for "
+        "the latest dispatch's worker in a pool, else 0); absent where unreadable."
+    )
 
 
 class HealthInfo(ApiModel):

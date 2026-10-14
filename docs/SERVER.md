@@ -727,8 +727,8 @@ The editor's forms come from these; they are just as usable from scripts:
   machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
-  host_memory_rss_mb}` - `device` is the ordinal (`cuda:1`) and `name` the
-  GPU's own name, the two halves of a job's `device` - the last absent when the worker process isn't running
+  host_memory_rss_mb, pid, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, 0 for the others)
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
   cache on each idle card (MCP `clear_memory`), and returns the memory
   reading taken right after. A card running a job is left alone: `workers`
