@@ -51,8 +51,7 @@ arguments; prompt format is MiniMax's, from its text not here.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
   (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
   22 or 39 - default 22 - holds the last frames and voice as a guide instead.
-  The guide prefix is trimmed off again, so the deliverable carries no
-  repeated frames. `carry_audio` (default true, a chain-block setting the
+  `carry_audio` (default true, a chain-block setting the
   template does not expose as a variable) is what brings the voice with the
   guide. Not on the ref2va chains, as guides stay off ref2va), `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
@@ -98,6 +97,7 @@ read the `workflows` guide's authoring section.
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
 - Smeary faces: int8 base model, `references/quality-and-speed.md`.
+- CUDA: `attention_backend=sage_hub` (null elsewhere; mps fails at run).
 - Fit a crowd's action to what it holds: candle-holders asked to clap
   rendered three-handed people.
 - A directed crowd move needs its landmark in frame: "marches up to the

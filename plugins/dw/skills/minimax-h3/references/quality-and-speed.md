@@ -81,7 +81,10 @@ Denoise is 80-91% of a job, ~56 s/pass with int8 weights streamed by
 block-level group offload: compute-bound, not PCIe-bound.
 
 - **`sage_hub`**: -23% at turbo 8-step, -33% at base 30, visually lossless.
-  Advise it first where the box has it (`attention_backend=sage_hub`).
+  Advise it first where the box has it: `attention_backend=sage_hub`, an
+  argument on every H3 template (default `null`, the H3 step only). It needs
+  CUDA, the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true`; leave
+  it `null` on mps or cpu, where it passes validate and fails at run time.
 - **`first_block` 0.05**: -22% at 30 base steps with identical staging and
   faces (PSNR 27.5 dB against L5). It skips nothing at 12 steps or on a
   turbo schedule: use it at 30 base steps only.

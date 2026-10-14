@@ -136,15 +136,16 @@ Select the attention implementation diffusers uses for the duration of each pipe
 
 Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
-The MiniMax-H3 baselines expose this as a variable: `attention_backend` on
-[video-with-audio.json](../workflows/templates/minimax/video-with-audio.json),
-[video-with-audio-768p.json](../workflows/templates/minimax/video-with-audio-768p.json),
-[image-to-video.json](../workflows/templates/minimax/image-to-video.json) and
-[reference-to-video.json](../workflows/templates/minimax/reference-to-video.json), pinned
-on the transformer and `null` by default. Pass `attention_backend=sage_hub` to a box with
-the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS
-leave it null. The other H3 templates take the same key under `components.transformer`
-(`transformer_ref` for a ref2va workflow). LTX-2.5 cannot use it: its transformer
+Every MiniMax-H3 template in [templates/minimax/](../workflows/templates/minimax/)
+exposes this as a variable: `attention_backend`, pinned on the H3 step's transformer
+(`components.transformer`, or `components.transformer_ref` for a ref2va workflow) and
+`null` by default. That covers the shots, chains and episodes - `dialogue-short`,
+`shots-batch`, `music-video` and `storyboard` among them - and only their H3 steps: a
+Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass
+`attention_backend=sage_hub` to a box with the `kernels` package and
+`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since
+validation does not check the backend against the device and a `_hub` kernel fails
+there only at run time. LTX-2.5 cannot use it: its transformer
 passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
 for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
 
