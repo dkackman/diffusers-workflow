@@ -422,6 +422,99 @@
         "title": "ClassList",
         "type": "object"
       },
+      "CompareRequest": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 to 8 moments - seconds, or \"frame:N\" - read at the same frame number in every output; default 4 evenly spaced frames",
+            "title": "At"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The output the others are measured against; default the first",
+            "title": "Baseline"
+          },
+          "crop": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[x, y, width, height] in source pixels, the region shown and measured; or one box per name, shown only",
+            "title": "Crop"
+          },
+          "max_dimension": {
+            "default": 384,
+            "description": "Longest side of each grid cell",
+            "title": "Max Dimension",
+            "type": "integer"
+          },
+          "max_total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A budget on the grid's base64 size",
+            "title": "Max Total Bytes"
+          },
+          "names": {
+            "description": "2 to 8 outputs (or `asset:` references), one row each",
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "title": "CompareRequest",
+        "type": "object"
+      },
       "CopiedItems": {
         "additionalProperties": false,
         "properties": {
@@ -5981,6 +6074,61 @@
           }
         },
         "summary": "Archive Outputs"
+      }
+    },
+    "/api/gallery/compare": {
+      "post": {
+        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.",
+        "operationId": "gallery_compare_api_gallery_compare_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Compare"
       }
     },
     "/api/gallery/{name}": {
