@@ -193,6 +193,31 @@ def test_the_event_names_the_step_and_segment_and_goes_out_before_the_reset(
     assert data["forwards"] == 2 * STEPS
 
 
+def test_the_event_crosses_the_worker_wire_with_its_cache_type():
+    """The real path to the server: the run context's sink, the worker's
+    Progress wire dict, the parent's parse_reply. The cache's `type` key used
+    to overwrite the wire's own "type" and the event was dropped (#886)."""
+    from dw.events import RunContext, activate_context, deactivate_context
+    from dw.worker_protocol import Progress, parse_reply
+
+    wire = []
+    token = activate_context(
+        RunContext(on_event=lambda event: wire.append(Progress(event=event).to_wire()))
+    )
+    try:
+        _call(_flux_pipeline(_first_block(0.5)), StepTimer(step="render"))
+    finally:
+        deactivate_context(token)
+
+    replies = [parse_reply(message) for message in wire]
+    assert all(isinstance(reply, Progress) for reply in replies)
+    stats = [r.event for r in replies if r.event.get("event") == "cache_stats"]
+    assert len(stats) == 1
+    assert stats[0]["type"] == "first_block"
+    assert stats[0]["step"] == "render"
+    assert stats[0]["forwards"] == 2 * STEPS
+
+
 def test_counts_restart_each_call_and_a_chain_sums_them(recorder):
     pipeline = _flux_pipeline(_first_block(0.5))
     timer = StepTimer(step="chain")
