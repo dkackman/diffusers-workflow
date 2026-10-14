@@ -340,8 +340,10 @@ def get_gallery_metadata(
     if body.get("metadata") is None:
         if job and job.get("id"):
             hints.append(
-                "metadata is null because only an image (PNG/JPEG/WebP) "
-                "carries it embedded - this file's job is known, and "
+                "metadata is null because this file has none embedded - a "
+                "pipeline's image carries it, but video, audio and an image "
+                "a task step wrote (get_last_frame, a crop) do not. "
+                "This file's job is known, and "
                 f'get_job_workflow(job_id="{job["id"]}") returns the exact '
                 "workflow, arguments and seed that produced it."
             )

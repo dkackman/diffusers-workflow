@@ -147,7 +147,7 @@ def gallery_metadata(
     back the same way it reads a kept file's shots (#556). `run_id`/
     `version` are that source run's own - `job.id` is still the one to
     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-    of its own to reopen."""
+    of its own to reopen. `inputs` is the source run's too (#902)."""
     run_id, version = "", None
     role, inputs = None, None
     notes = {}
@@ -165,6 +165,7 @@ def gallery_metadata(
             job = kept.get("job")
             run_id = kept.get("run_id") or ""
             version = kept.get("version")
+            inputs = kept.get("inputs") or None
     else:
         path = resolve_output_file(request.app.state, name, ws.outputs)
         source = "output"
