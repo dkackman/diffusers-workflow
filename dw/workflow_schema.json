@@ -809,7 +809,7 @@
                             ]
                         },
                         "calibrate": {
-                            "description": "Run mag cache in calibration mode: skip nothing, and report the magnitude ratios for this model at the end of the run as a job warning and log event, so they can be pasted into mag_ratios. Under classifier-free guidance two lists are reported, labeled [cond] and [uncond]; use the cond one. Default: false.",
+                            "description": "Run mag cache in calibration mode: skip nothing, and report the magnitude ratios for this model at the end of the run as a job warning and log event, so they can be pasted into mag_ratios. Under classifier-free guidance run as separate cond and uncond passes two lists are reported, labeled [cond] and [uncond]; use the cond one. A pipeline whose transformer does not support enable_cache() (a UNet such as SD 1.5, Z-Image) runs uncached with a job warning and reports nothing. Default: false.",
                             "type": "boolean"
                         },
                         "cache_interval": {

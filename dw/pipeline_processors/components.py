@@ -980,8 +980,10 @@ def enable_cache_on_transformer(pipeline, cache_config):
         return
 
     if not hasattr(transformer, "enable_cache"):
-        logger.warning(
-            f"{transformer.__class__.__name__} does not support enable_cache(), skipping"
+        emit_warning(
+            f"{cache_config.__class__.__name__} was not applied: "
+            f"{transformer.__class__.__name__} does not support diffusers' "
+            "enable_cache(), so this step runs uncached"
         )
         return
 
