@@ -11,7 +11,7 @@ import os
 from dw import validation
 from dw.media import probe_metadata
 from dw.runs import activate_output_root, deactivate_output_root
-from dw.shot_span_preflight import shot_span_warnings
+from dw.shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from dw.workflow import workflow_from_definition
 
 from tests.test_assess import write_mp4
@@ -174,3 +174,64 @@ class TestWiredIntoTheWorkflow:
 
         assert len(warnings) == 1
         assert "'b'" in warnings[0]
+
+
+class TestScriptShotNames:
+    def _take(self, tmp_path):
+        import json
+
+        from dw.runs import MANIFEST_FILE_NAME
+        from dw.shots import shot_record
+
+        output_root = tmp_path / "out"
+        run_dir = output_root / "ep" / "20260101-000000-abc"
+        (run_dir / "final").mkdir(parents=True)
+        write_mp4(str(run_dir / "final" / "cut.mp4"), frames=48, fps=24)
+        records = [
+            shot_record("clip-shot@cold_open.0-0.0.mp4", 0, 24),
+            shot_record("clip-shot@reveal.0-0.0.mp4", 24, 24),
+        ]
+        manifest = {
+            "steps": [{"step": "join", "files": ["final/cut.mp4"], "shots": records}]
+        }
+        (run_dir / MANIFEST_FILE_NAME).write_text(json.dumps(manifest))
+        return str(output_root)
+
+    def _definition(self, shot):
+        return {
+            "id": "check",
+            "steps": [
+                {
+                    "name": "check",
+                    "task": {
+                        "command": "check_script",
+                        "arguments": {
+                            "audio": "output:ep/20260101-000000-abc/final/cut.mp4",
+                            "lines": [{"text": "hello", "shot": shot}],
+                        },
+                    },
+                    "result": {"content_type": "application/json"},
+                }
+            ],
+        }
+
+    def _errors(self, tmp_path, shot):
+        token = activate_output_root(self._take(tmp_path))
+        try:
+            return script_shot_name_errors(self._definition(shot))
+        finally:
+            deactivate_output_root(token)
+
+    def test_a_wrong_shot_name_is_an_error_at_validate_time(self, tmp_path):
+        errors = self._errors(tmp_path, "nope")
+        assert len(errors) == 1
+        assert "does not have" in errors[0]["message"]
+        assert "cold_open" in errors[0]["message"]
+
+    def test_the_short_name_and_the_full_name_pass(self, tmp_path):
+        token = activate_output_root(self._take(tmp_path))
+        try:
+            for shot in ("cold_open", "clip-shot@reveal.0-0.0.mp4"):
+                assert script_shot_name_errors(self._definition(shot)) == []
+        finally:
+            deactivate_output_root(token)

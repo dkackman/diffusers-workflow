@@ -187,10 +187,21 @@ def parse_shots(shots):
     return list(shots) or None
 
 
+def matching_shot_names(shot, names):
+    """The names in `names` a line's `shot` addresses: `shot` itself when
+    the map holds it, else every name carrying it as a `@<member>` key
+    (`cold_open` for `shot@cold_open` or `...-shot@cold_open.0-0.0.mp4`)."""
+    if shot in names:
+        return [shot]
+    pattern = re.compile(r"@" + re.escape(shot) + r"(?![A-Za-z0-9_-])")
+    return list(dict.fromkeys(name for name in names if pattern.search(name or "")))
+
+
 def shot_names_error(parsed_lines, records, source="argument"):
     """The refusal for a line naming a shot `records` does not hold once -
-    unknown, or a name `shots.duplicate_shot_names` finds repeated - or
-    None. The message lists the shots it does hold."""
+    unknown, a short `@<member>` name more than one shot carries, or a name
+    `shots.duplicate_shot_names` finds repeated - or None. The message lists
+    the shots it does hold."""
     names = [record.get("name") for record in records]
     known = ", ".join(repr(name) for name in names)
     duplicated = {
@@ -200,15 +211,34 @@ def shot_names_error(parsed_lines, records, source="argument"):
         shot = line["shot"]
         if shot is None:
             continue
-        if shot not in names:
+        matches = matching_shot_names(shot, names)
+        if not matches:
             return (
                 f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the take"
                 f" does not have - its shots ({source}) are {known}"
             )
-        if shot in duplicated:
+        if len(matches) > 1:
+            return (
+                f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which more"
+                f" than one of the take's shots ({source}) carries - name one"
+                f" in full: {', '.join(repr(name) for name in matches)}"
+            )
+        if matches[0] in duplicated:
             return (
                 f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the"
                 f" take's shot map ({source}) holds more than once - a line can"
                 f" only name a shot the map holds once: {known}"
             )
     return None
+
+
+def with_full_shot_names(parsed_lines, records):
+    """`parsed_lines` with each line's short shot name replaced by the full
+    name `records` holds. Call after `shot_names_error` found nothing."""
+    names = [record.get("name") for record in records]
+    resolved = []
+    for line in parsed_lines:
+        shot = line["shot"]
+        matches = matching_shot_names(shot, names) if shot is not None else []
+        resolved.append(dict(line, shot=matches[0]) if matches else line)
+    return resolved
