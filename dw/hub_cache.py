@@ -119,11 +119,18 @@ _WEIGHTLESS_CLASS_MARKERS = ("Scheduler", "Tokenizer", "Processor", "Extractor")
 
 def _component_incomplete(folder, variant, class_name=None):
     """Whether a diffusers pipeline component's folder is missing files a
-    load would need. A component with no weight files at all (a scheduler
-    or tokenizer config) is complete once its folder exists; one with
-    weight files is checked against the requested `variant` only when that
-    variant is actually in play, since an unvarianted component (most
-    schedulers, safety checkers) never carries a tagged file."""
+    load would need. The rule, by `class_name` (#894):
+
+    - A weightless class (Scheduler, Tokenizer, Processor, Extractor - see
+      `_WEIGHTLESS_CLASS_MARKERS`) is complete once its folder exists and is
+      non-empty.
+    - Any other class is weight-bearing: it is incomplete with no weight
+      files (an earlier pull that stopped after the configs), with a weight
+      file that is a dangling symlink (its blob never arrived), or with a
+      shard named by a `*.index.json` weight_map that is absent.
+    - The `variant` check applies only when a variant is actually
+      requested, since an unvarianted component (most schedulers, safety
+      checkers) never carries a tagged file."""
     if not os.path.isdir(folder):
         return True
     try:
@@ -171,8 +178,8 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
     `*.incomplete` blob (huggingface_hub's own marker for a file mid-transfer)
     anywhere in the repo's `blobs/` makes the repo incomplete outright. Past
     that, a diffusers pipeline repo (one with a `model_index.json` in its
-    current snapshot) is checked component by component, for the requested
-    `variant`; a plain checkpoint/LoRA repo (no `model_index.json`) has
+    current snapshot) is checked component by component, by its class and
+    for the requested `variant` (see `_component_incomplete`); a plain checkpoint/LoRA repo (no `model_index.json`) has
     nothing further to check beyond its blobs.  This is not a full hub
     file-list diff - it does not fetch the repo's file list from the hub, so
     a file that was never attempted at all on an otherwise-untouched repo
