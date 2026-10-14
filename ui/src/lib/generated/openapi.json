@@ -4421,6 +4421,16 @@
             "description": "The card as a job record's device names it.",
             "title": "Name"
           },
+          "oom_score_adj": {
+            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else 0); absent where unreadable.",
+            "title": "Oom Score Adj",
+            "type": "integer"
+          },
+          "pid": {
+            "description": "The worker process's pid; absent while it is not running.",
+            "title": "Pid",
+            "type": "integer"
+          },
           "vram_gb": {
             "anyOf": [
               {

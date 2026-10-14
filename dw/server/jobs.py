@@ -42,7 +42,7 @@ from contextlib import contextmanager
 
 from ..worker_protocol import Execute, workflow_identity
 from ..devices import device_ordinal
-from ..host_memory import process_rss_mb
+from ..host_memory import process_rss_mb, read_oom_score_adj
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
 from ..security import (
@@ -949,6 +949,11 @@ class JobManager:
             rss = process_rss_mb(pid) if pid is not None else None
             if rss is not None:
                 entry["host_memory_rss_mb"] = rss
+            if pid is not None and slot.alive():
+                entry["pid"] = pid
+                adj = read_oom_score_adj(pid)
+                if adj is not None:
+                    entry["oom_score_adj"] = adj
             described.append(entry)
         return described
 

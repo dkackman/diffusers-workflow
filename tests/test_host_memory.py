@@ -215,3 +215,16 @@ def test_rss_split_absent_without_the_split(tmp_path):
     status.write_text("VmRSS:\t300 kB\n")
     assert host_memory.rss_split_mb(str(status)) == {}
     assert host_memory.rss_split_mb(str(tmp_path / "missing")) == {}
+
+
+def test_read_oom_score_adj_reads_proc_or_none():
+    from dw.host_memory import read_oom_score_adj
+
+    assert read_oom_score_adj(0) is None
+    assert read_oom_score_adj(None) is None
+    if sys.platform.startswith("linux"):
+        assert read_oom_score_adj(os.getpid()) == int(
+            open("/proc/self/oom_score_adj").read()
+        )
+    else:
+        assert read_oom_score_adj(os.getpid()) is None
