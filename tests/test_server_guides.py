@@ -347,7 +347,13 @@ class TestTheRealDocs:
         )
         for tool in loop:
             assert f"`{tool}" in content, tool
-        for convention in ("plan.estimate", "reused", "score ", "judged_by"):
+        for convention in (
+            "plan.estimate",
+            "reused",
+            "latest run",
+            "score ",
+            "judged_by",
+        ):
             assert convention in content, convention
 
         tools = {t.name for t in asyncio.run(build_server(DwClient()).list_tools())}
