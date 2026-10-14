@@ -28,11 +28,10 @@ from . import references
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .elision import elide_definition, warn_elided
-from .events import emit_warning
 from .for_each import group_of
 from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
-from .pipeline_processors.timing import StepTimer, mark, timed_step
+from .pipeline_processors.timing import mark, step_timer
 from .previous_results import StepResults
 from .realize import pin_output_reference, realize_workflow
 from .roles import annotate_roles, role_basis, run_inputs
@@ -50,11 +49,10 @@ from .runs import (
     write_realized_workflow,
 )
 from .shots import (
-    carries_shots,
-    duplicate_shot_names,
     name_unsaved_shots,
     shot_references,
     step_shots,
+    warn_shot_collisions,
 )
 from .step import Step
 from .step_cache import (
@@ -857,33 +855,6 @@ def save_step(workflow, loop, index, step_data, step, result, cache_entry):
     return saved_files
 
 
-def _warn_shot_collisions(step_data, step_name, shots):
-    """Joined shots that share a name, said where the join made them."""
-    # Only the step that joined made the collision; a step
-    # that carries an input's shots over (pair_audio,
-    # interpolate_frames) repeats what the caller can only
-    # act on at the join (#568)
-    command = step_data.get("task", {}).get("command")
-    duplicates = None if carries_shots(command) else duplicate_shot_names(shots)
-    if not duplicates:
-        return
-    # Frames and samples stay exact either way - only a
-    # name-based lookup (a `shots=` argument, a finding)
-    # can no longer tell the collided shots apart (#508)
-    for file, names in duplicates.items():
-        extra = {"file": file} if file is not None else {}
-        emit_warning(
-            "joined shots share a name ("
-            + ", ".join(names)
-            + ") and can no longer be told apart by "
-            "name - start_frame still disambiguates.",
-            kind="shot_name_collision",
-            command=step_name,
-            names=names,
-            **extra,
-        )
-
-
 def record_step(workflow, loop, index, step_data, outcome, sub_manifest, timing=None):
     """Phase E7: the step's manifest entry, the child's rolled-up entries,
     and `step_end`. `outcome` is (result, saved_files, reused,
@@ -911,7 +882,7 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest, timing=
     shots = step_shots(getattr(result, "saved_shots", None), saved_files, references)
     if shots:
         details["shots"] = shots
-        _warn_shot_collisions(step_data, step_name, shots)
+        warn_shot_collisions(step_data, step_name, shots)
     # No entry at all for a step the parent saves for: the
     # parent's own entry names the same files, under the step
     # name the caller wrote (#92)
@@ -981,17 +952,10 @@ def run_step(workflow, loop, index, step_data, record):
     `results`), so the caller holds no reference of its own to it.
     """
     step, step_seed = _start_step(workflow, loop, index, step_data)
-    # Only a pipeline step is timed; any other step opens None, which also
-    # keeps a composed child's pipeline marks off an outer step's timer
-    timer = StepTimer() if _runs_a_pipeline(step_data) else None
-    with timed_step(timer):
+    with step_timer(step_data) as timer:
         return _run_started_step(
             workflow, loop, index, step_data, step, step_seed, record, timer
         )
-
-
-def _runs_a_pipeline(step_data):
-    return "pipeline" in step_data or "pipeline_reference" in step_data
 
 
 def _run_started_step(workflow, loop, index, step_data, step, step_seed, record, timer):

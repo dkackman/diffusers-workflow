@@ -62,6 +62,7 @@ the manifest and on the artifact, not in the file.
 
 import copy
 
+from .events import emit_warning
 from .for_each import is_member_name
 from .references import PREVIOUS_RESULT, ref_name
 
@@ -466,6 +467,33 @@ def duplicate_shot_names(shots):
         if dups:
             duplicates[file] = dups
     return duplicates or None
+
+
+def warn_shot_collisions(step_data, step_name, shots):
+    """Joined shots that share a name, said where the join made them."""
+    # Only the step that joined made the collision; a step
+    # that carries an input's shots over (pair_audio,
+    # interpolate_frames) repeats what the caller can only
+    # act on at the join (#568)
+    command = step_data.get("task", {}).get("command")
+    duplicates = None if carries_shots(command) else duplicate_shot_names(shots)
+    if not duplicates:
+        return
+    # Frames and samples stay exact either way - only a
+    # name-based lookup (a `shots=` argument, a finding)
+    # can no longer tell the collided shots apart (#508)
+    for file, names in duplicates.items():
+        extra = {"file": file} if file is not None else {}
+        emit_warning(
+            "joined shots share a name ("
+            + ", ".join(names)
+            + ") and can no longer be told apart by "
+            "name - start_frame still disambiguates.",
+            kind="shot_name_collision",
+            command=step_name,
+            names=names,
+            **extra,
+        )
 
 
 def shots_for_file(shots, path, step_files):
