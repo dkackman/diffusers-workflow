@@ -41,6 +41,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Per-step timing and step-cache skip counts** (#867, stages #885-#886),
+  shipped 2026-10-14. Each pipeline step's manifest entry carries `timing`
+  (load, encode, denoise, passes, first and median pass, decode, save), and
+  a cached step adds `timing.cache` (forwards, computed, skipped,
+  `hit_rate`) plus one `cache_stats` event. Record, including what was cut
+  (`compile_s`, counts for `taylorseer`/`faster`/`text_kv`, with their
+  triggers): `complete/step-timing-complete.md`.
+
 - **H3 templates expose `attention_backend` and `cache`** (#865, stages
   #883-#884), shipped 2026-10-14. Every MiniMax-H3 template takes both as
   variables (default `null`, wired to the H3 step only). `cache` is a
