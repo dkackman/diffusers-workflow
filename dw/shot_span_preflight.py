@@ -24,6 +24,8 @@ from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import iter_steps
+from .script_lines import parse_lines, shot_names_error
+from .runs import shots_beside
 
 PROBE_COMMANDS = ("analyze_shots", "analyze_seams", "analyze_sync_drift")
 
@@ -103,4 +105,45 @@ def shot_span_warnings(
     return warnings
 
 
-__all__ = ["shot_span_warnings"]
+def script_shot_name_errors(workflow_definition, source_indices=None, base_dir=None):
+    """Every `check_script` step with a literal `lines` entry naming a shot
+    that the shot map recorded beside its statically-resolvable `audio`
+    (a manifest, via `shots_beside`) does not hold, as [{path, message}]
+    (#873). The run refuses the same line with the same message, but only
+    after queueing and loading Whisper. A `shots` argument, a
+    `previous_result:` audio or an unreadable manifest is left to the run."""
+    errors = []
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") != "check_script":
+            continue
+        task_args = task.get("arguments")
+        if not isinstance(task_args, dict) or task_args.get("shots"):
+            continue
+        try:
+            parsed_lines = parse_lines(task_args.get("lines"))
+        except ValueError:
+            continue  # task_argument_errors reports a malformed `lines`
+        if not any(line["shot"] for line in parsed_lines):
+            continue
+        path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")
+        if path is None:
+            continue
+        records = shots_beside(path)
+        if not records:
+            continue
+        refusal = shot_names_error(parsed_lines, records, "manifest")
+        if refusal:
+            errors.append(
+                {
+                    "path": render_path(
+                        ("steps", source, "task", "arguments", "lines")
+                    ),
+                    "message": f"{refusal}{where}",
+                }
+            )
+    return errors
+
+
+__all__ = ["script_shot_name_errors", "shot_span_warnings"]

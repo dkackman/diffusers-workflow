@@ -192,6 +192,7 @@ ERROR_ORDER = [
     "adapters",
     "task_argument_domains",
     "dissolve_frames",
+    "script_shot_names",
     "window_count",
     "video_sizes",
     "select",

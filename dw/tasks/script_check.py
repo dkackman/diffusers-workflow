@@ -57,6 +57,7 @@ from ..script_lines import (
     parse_lines,
     parse_shots,
     shot_names_error,
+    with_full_shot_names,
 )
 from .assess import DEAD_AIR_WINDOW, resolve_shots, sample_span
 from .audio_transcription import WHISPER_DEFAULT_MODEL
@@ -620,7 +621,9 @@ def check_script(
         audio: The take - a path, 'asset:'/'output:' reference, or an
             earlier step's audio or video (its soundtrack is taken).
         lines: The expected lines in order - a list of strings or
-            {text, shot}, 'shot' naming the take's shot the line belongs in.
+            {text, shot}, 'shot' naming the take's shot the line belongs in -
+            its full recorded name, or the short '@name' of exactly one shot
+            ('cold_open' for 'shot@cold_open').
             H3 markup (<d>[English] ...</d>, <scenetrans>, <cutoff>,
             [unclear], (S1)) is stripped, and a markup word heard spoken is
             'tag_spoken'. [] means no speech is expected.
@@ -655,6 +658,7 @@ def check_script(
         refusal = shot_names_error(parsed_lines, records, shots_source)
         if refusal:
             raise ValueError(refusal)
+        parsed_lines = with_full_shot_names(parsed_lines, records)
     waveform, rate = waveform_and_rate(audio, sample_rate, COMMAND)
 
     from .audio_transcription import transcribe_audio
