@@ -21,6 +21,11 @@ Environment=DW_MCP_MAX_WAIT_SECONDS=1800
 ExecStart=%h/diffusers-workflow/venv/bin/python -m dw.serve --host 0.0.0.0 --port 8765 --mcp --token xyz --workspace %h/diffusers-workspace --examples-dir %h/diffusers-workflow/workflows
 KillSignal=SIGTERM
 TimeoutStopSec=30
+# A worker the kernel OOM-kills fails only its own job (the pool ranks the
+# newest dispatch first, #881). systemd's default OOMPolicy=stop would instead
+# SIGTERM the whole unit, the server and every other worker's job with it -
+# what killed the second job in #869
+OOMPolicy=continue
 Restart=on-failure
 RestartSec=5
 

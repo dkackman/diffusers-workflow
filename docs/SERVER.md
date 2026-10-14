@@ -233,7 +233,10 @@ crash fails only its own job. Each dispatch sets its worker's Linux
 spawned with (the server's own, e.g. 200 under a systemd user unit - the kernel
 refuses an unprivileged write below that), so a host-RAM squeeze kills the
 newest job whatever the workers' sizes; nothing is written with one worker, and
-a write the kernel refuses is a warning on the job. There is no
+a write the kernel refuses is a warning on the job. Under systemd the unit needs
+`OOMPolicy=continue` (`scripts/dw-serve.service` sets it): the default `stop`
+answers one worker's OOM kill by stopping the whole server, every other job
+with it. There is no
 host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
 Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card
