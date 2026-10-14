@@ -424,6 +424,9 @@ def _write_validated(state, ws, name, definition):
     warnings += validation.run_warning_check(
         candidate, "null_variable_argument_warnings", None
     )
+    # An acceleration setting that can't pay off is said where the
+    # workflow is kept, too, not only at validate and submit (#887)
+    warnings += validation.run_warning_check(candidate, "acceleration_warnings", None)
     if not metadata["summary"]:
         warnings.append(
             "No summary: add a 'description' (its first sentence becomes "

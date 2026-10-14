@@ -537,6 +537,27 @@ class TestNullVariableArgument:
         assert any("audio" in warning for warning in response.json()["warnings"])
 
 
+def test_save_workflow_carries_the_acceleration_warnings(server):
+    """#887: a save answers the acceleration warnings validate gives, and
+    still saves - they never refuse."""
+    from .test_validation import TestAccelerationWarnings
+
+    definition = TestAccelerationWarnings.definition(
+        cache={"type": "first_block"},
+        steps=12,
+        components={"transformer": {"compile": {"fullgraph": True}}},
+    )
+    with server() as client:
+        response = client.put(
+            "/api/workflows/AccelerationSaved", json={"workflow": definition}
+        )
+
+    assert response.status_code == 200
+    warnings = response.json()["warnings"]
+    assert any("cache_short_schedule" in warning for warning in warnings)
+    assert any("compile_fullgraph_with_cache" in warning for warning in warnings)
+
+
 def test_an_entry_key_no_step_reads_is_a_warning_not_an_error(server):
     workflow = {
         "id": "cut",
