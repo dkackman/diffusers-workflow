@@ -158,6 +158,7 @@ def build_server(client):
         med.get_output_frames,
         med.get_output_text,
         med.assess_output,
+        med.compare_outputs,
     ):
         tool(fn, READ_ONLY)
     tool(med.download_output, OVERWRITES)
