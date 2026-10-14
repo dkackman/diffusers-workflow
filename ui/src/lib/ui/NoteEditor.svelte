@@ -1,6 +1,7 @@
 <script lang="ts">
   import { Pencil } from '@lucide/svelte'
   import { setNote } from '../api'
+  import ClampedText from './ClampedText.svelte'
 
   // A note on a workspace, asset, run or file: shown as plain text, edited
   // in place. The server owns the 4000-character limit and says so in its
@@ -11,6 +12,7 @@
     label = 'Note',
     placeholder = 'Add a note',
     workspace,
+    lines = 4,
     onsaved,
   }: {
     note: string | null | undefined
@@ -20,6 +22,8 @@
     workspace?: string
     label?: string
     placeholder?: string
+    /** Lines shown before the note folds behind "Show more" */
+    lines?: number
     onsaved?: (note: string | null) => void
   } = $props()
 
@@ -89,7 +93,7 @@
     <div class="shown">
       <span class="label muted">{label}</span>
       {#if shown}
-        <p class="text">{shown}</p>
+        <div class="text"><ClampedText text={shown} {lines} /></div>
       {:else}
         <p class="text muted">{placeholder}</p>
       {/if}
@@ -115,8 +119,7 @@
     font-size: var(--t-sm);
   }
   .text {
-    white-space: pre-wrap;
-    overflow-wrap: anywhere;
+    min-width: 0;
     margin: 0;
   }
   .muted {

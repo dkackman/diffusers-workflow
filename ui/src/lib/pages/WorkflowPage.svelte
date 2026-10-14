@@ -12,6 +12,7 @@
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
+  import ClampedText from '../ui/ClampedText.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -175,7 +176,9 @@
 
 {#if workflow}
   {#if workflow.description}
-    <p class="muted desc prose">{workflow.description}</p>
+    <div class="muted desc prose">
+      <ClampedText text={String(workflow.description)} />
+    </div>
   {/if}
 
   <!-- What it made last time, before you decide to make another -->

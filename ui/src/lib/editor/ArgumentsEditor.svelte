@@ -18,6 +18,7 @@
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
   import BrowseButton from '../assets/BrowseButton.svelte'
+  import ClampedText from '../ui/ClampedText.svelte'
   import type { PipelineDescription } from '../types'
 
   let {
@@ -159,7 +160,9 @@
           </div>
         {/if}
         {#if parameter?.description}
-          <div class="hint muted">{parameter.description}</div>
+          <div class="hint muted">
+            <ClampedText text={parameter.description} lines={3} />
+          </div>
         {/if}
       </div>
       <button
@@ -199,7 +202,9 @@
               >{parameter.name}{parameter.required ? ' *' : ''}</span
             >
             {#if parameter.description}
-              <span class="muted availdesc">{parameter.description}</span>
+              <div class="muted availdesc">
+                <ClampedText text={parameter.description} lines={2} />
+              </div>
             {/if}
           </div>
         {/each}
