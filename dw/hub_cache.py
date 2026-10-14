@@ -112,7 +112,12 @@ def _snapshot_dir(repo_dir):
     return snapshot if os.path.isdir(snapshot) else None
 
 
-def _component_incomplete(folder, variant):
+# Component classes that carry no weights: a folder holding only config
+# files is whole for them
+_WEIGHTLESS_CLASS_MARKERS = ("Scheduler", "Tokenizer", "Processor", "Extractor")
+
+
+def _component_incomplete(folder, variant, class_name=None):
     """Whether a diffusers pipeline component's folder is missing files a
     load would need. A component with no weight files at all (a scheduler
     or tokenizer config) is complete once its folder exists; one with
@@ -127,10 +132,30 @@ def _component_incomplete(folder, variant):
         return True
     if not entries:
         return True
-    if not variant:
-        return False
     weight_files = [e for e in entries if e.endswith(_WEIGHT_SUFFIXES)]
+    # A weight-bearing component whose folder holds only configs (an earlier
+    # pull that stopped after the small files) is not whole (#894)
     if not weight_files:
+        return isinstance(class_name, str) and not any(
+            marker in class_name for marker in _WEIGHTLESS_CLASS_MARKERS
+        )
+    # A symlink whose blob is gone is a file that never arrived
+    if any(not os.path.exists(os.path.join(folder, e)) for e in weight_files):
+        return True
+    for name in entries:
+        if name.endswith(".safetensors.index.json") or name.endswith(".bin.index.json"):
+            try:
+                with open(os.path.join(folder, name)) as f:
+                    shards = set(json.load(f).get("weight_map", {}).values())
+            except (OSError, ValueError, AttributeError):
+                continue
+            if any(
+                os.path.basename(shard) != shard
+                or not os.path.exists(os.path.join(folder, shard))
+                for shard in shards
+            ):
+                return True
+    if not variant:
         return False
     return not any(f".{variant}." in name for name in weight_files)
 
@@ -197,7 +222,8 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
         # downloads_required a yes/no oracle for directories on the box
         if os.path.basename(key) != key or key in (".", ".."):
             continue
-        if _component_incomplete(os.path.join(snapshot, key), variant):
+        class_name = value[1] if len(value) > 1 else None
+        if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
             return True
     return False
 
