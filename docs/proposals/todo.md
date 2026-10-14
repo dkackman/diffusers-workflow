@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 adapter check reads the LoRA catalog first** (#870, stage #888),
+  shipped 2026-10-14. On the server, validate and admission look up the
+  LoRA in the shared catalog: a `proven` entry whose `workflow` puts it on
+  the other partition refuses the step (Realism People on `ref2va`), a
+  `trial`/`rejected` one only warns, naming the entry; uncatalogued files
+  keep the filename rule. Record, including what was cut (reading the
+  safetensors header, any Hub request from validation):
+  `complete/catalog-adapter-check-complete.md`.
+
 - **Running a sweep: a written method, not a server feature** (#872, stage
   #890), shipped 2026-10-14. `## Running a sweep` in `docs/WORKSPACES.md`
   (`get_guide("workspaces", section="Running a sweep")`) writes down the
