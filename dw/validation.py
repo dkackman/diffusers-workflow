@@ -52,7 +52,7 @@ from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
-from .shot_span_preflight import shot_span_warnings
+from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
 from .step_value_checks import (
@@ -405,6 +405,12 @@ ERROR_CHECKS = [
         lambda c: dissolve_frame_errors(
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
+    ),
+    # A check_script line naming a shot the take's recorded shot map lacks
+    # (dw/shot_span_preflight.py, #873)
+    Check(
+        "script_shot_names",
+        lambda c: script_shot_name_errors(c.expanded, c.source_indices, c.base_dir),
     ),
     # A join_windows list not the length its statically-resolvable source
     # needs (dw/window_count_errors.py, #601)

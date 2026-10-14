@@ -18,6 +18,7 @@ from dw.script_lines import (
     parse_lines,
     parse_shots,
     shot_names_error,
+    with_full_shot_names,
     strip_markup,
 )
 from dw.tasks import script_check
@@ -840,6 +841,23 @@ class TestShotValidation(unittest.TestCase):
     def test_known_names_and_untagged_lines_pass(self):
         lines = parse_lines([{"text": "x", "shot": "B"}, "y"])
         self.assertIsNone(shot_names_error(lines, self.RECORDS))
+
+    def test_a_short_member_name_matches_the_one_shot_carrying_it(self):
+        records = [
+            {"name": "x-shot@cold_open.0-0.0.mp4"},
+            {"name": "x-shot@cold_open_two.0-0.0.mp4"},
+        ]
+        lines = parse_lines([{"text": "x", "shot": "cold_open"}])
+        self.assertIsNone(shot_names_error(lines, records))
+        resolved = with_full_shot_names(lines, records)
+        self.assertEqual(resolved[0]["shot"], "x-shot@cold_open.0-0.0.mp4")
+
+    def test_a_short_name_two_shots_carry_is_refused(self):
+        records = [{"name": "a-shot@open.mp4"}, {"name": "b-shot@open.mp4"}]
+        message = shot_names_error(
+            parse_lines([{"text": "x", "shot": "open"}]), records
+        )
+        self.assertIn("more than one", message)
 
     def test_parse_shots(self):
         self.assertIsNone(parse_shots(None))
