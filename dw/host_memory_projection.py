@@ -148,7 +148,9 @@ def _fit_peak_model(medians):
     return base, slope, low, high
 
 
-def _already_survived(rows, list_entries, requested, projected_mb, variables):
+def _already_survived(
+    rows, list_entries, requested, projected_mb, variables, released=False
+):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
 
@@ -159,11 +161,21 @@ def _already_survived(rows, list_entries, requested, projected_mb, variables):
     completed data point, not a guess: warning about a peak already reached
     without incident tells a caller nothing they don't already know from ten
     minutes ago.
+
+    A `released` shape holds one entry's pipeline at a time, so its peak does
+    not scale with the list: a successful run at that peak survived it
+    whatever length that run had (#901 - dialogue-short's ~125 GB was reached
+    by runs of 5 and fewer shots alike, all of which finished). The
+    `released` projection is the largest peak among successful rows, so this
+    holds by construction; the check stays so the rule is stated in one
+    place.
     """
     for row in rows:
         peak = row.get("host_memory_job_peak_rss_mb")
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
+        if released:
+            return True
         count = _row_count(row, list_entries, variables)
         if count is not None and count >= requested:
             return True
@@ -197,7 +209,8 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
         # Cold start: history exists for this workflow, but no run of it
         # ever reported a host-memory reading - nothing to project from
         return []
-    if releases_between_iterations(definition):
+    released = releases_between_iterations(definition)
+    if released:
         projected_mb = max(peaks)
         shape = f"~{round(projected_mb)} MB, the largest single iteration observed"
     else:
@@ -219,7 +232,9 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
             )
     if projected_mb <= ceiling_mb:
         return []
-    if _already_survived(rows, list_entries, requested, projected_mb, variables):
+    if _already_survived(
+        rows, list_entries, requested, projected_mb, variables, released
+    ):
         return []
     return [
         f"Projected host memory for this run ({shape}) exceeds this "
