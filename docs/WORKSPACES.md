@@ -407,6 +407,70 @@ the gallery and resolves as an `output:` reference, but not in `list_jobs`.
 A move is a copy, then a delete of the source runs (`delete_output`, or
 `DELETE` on the gallery runs) and assets (`delete_asset`); there is no move that could lose a run halfway.
 
+## Running a sweep
+
+A sweep answers one quality or speed question by rendering the same request
+under several configurations, changing one factor at a time, and keeping the
+results together. There is no sweep tool: every step is one call to a tool
+dw already has.
+
+1. **One workspace per experiment.** `create_workspace` a workspace for it,
+   then `use_workspace`. Put the question and the factor list in its
+   workspace note, so the experiment explains itself to the next session:
+   `set_note("workspace:<name>", "Q: does steps change the face? factors: steps 4/8/12")`.
+
+2. **A base workflow with every factor as a variable.** If a catalog
+   template already exposes the factor as a variable (`get_workflow(name,
+   variables_only=true)`), run the template. Otherwise `get_workflow` it,
+   add a variable for each factor, put `variable:<name>` where the value
+   was, and `save_workflow` the copy into the experiment's workspace.
+   `text-to-image` fixes `num_inference_steps` at 25, so a steps sweep saves a copy
+   with `"steps": 25` under `variables` and `"num_inference_steps":
+   "variable:steps"` in the step. A factor that is a dtype or a quantization
+   name keeps its braces in the default, `"{nf4}"`, so it reaches the
+   pipeline as a string ([Types and escaping](WORKFLOW_GUIDE.md#types-and-escaping)).
+
+3. **Pin the seed, change one factor per variant.** Every variant passes the
+   same `seed` in `arguments`, and differs from the base in one factor only.
+   A factor can change the cost, so `validate_workflow` each variant with its
+   `arguments`, quote each one's `plan.estimate`, and get one go-ahead
+   for the whole list.
+
+4. **One `run_workflow` per variant, with a `note`.** The note's first line
+   is the overrides, `steps=8` or `steps=20 attention=sage`, so a listing
+   that clips notes still shows which variant is which. Call `wait_for_job`
+   until the variant finishes before submitting the next. Dispatch is not
+   yet aware of host RAM (#869), so two large variants on two cards can run
+   the host out of memory together.
+
+5. **A repeat is a cache hit.** A variant whose step is unchanged from an
+   earlier run with the same seed is served from the step cache: its
+   manifest marks the step `"reused": true` and lists the earlier run's
+   files ([Runs](#runs)). That is expected, not a failed variant.
+
+6. **The results table.** `list_jobs(workspace=<name>)` gives each variant's
+   job id, status and note. `get_job` on each gives its arguments, step
+   `timing` ([Step timing](#step-timing)) and files.
+
+7. **Assess each output with `set_note`.** Put the note on the output file
+   (its gallery name, as `list_gallery` gives it). The first line is the
+   score and who judged it, then one `key: value` line per facet:
+
+   ```
+   score 4/5 · judged_by claude-opus-5-5
+   faces: sharp, eyes aligned
+   staging: matches the brief
+   defects: none
+   ```
+
+   `get_gallery_metadata` returns the whole note. `list_gallery` and
+   `list_jobs` clip a note to its first 200 characters, so keep the
+   first line short: it is what a listing shows.
+
+8. **Keep the winner.** `keep_output` the winning file under a stable
+   `asset:` name, and put the conclusion (the answer, and the variant that
+   gave it) in the workspace note.
+
 ## Where this is going
 
 The resolver, the workflow search path with writes confined to the writable
