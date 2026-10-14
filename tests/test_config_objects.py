@@ -343,6 +343,15 @@ class TestCacheConfiguration:
         assert explicit.max_order == 3
         assert bare.cache_interval == explicit.cache_interval
 
+    def test_faster_forwards_is_guidance_distilled(self):
+        config = get_cache_configuration(
+            {"cache": {"type": "faster", "is_guidance_distilled": True}}
+        )
+
+        assert config.is_guidance_distilled is True
+        bare = get_cache_configuration({"cache": {"type": "faster"}})
+        assert bare.is_guidance_distilled is False
+
     def test_an_unknown_cache_type_raises(self):
         with pytest.raises(ValueError, match="Unknown cache type: nope"):
             get_cache_configuration({"cache": {"type": "nope"}})
@@ -478,6 +487,18 @@ class TestCacheTypesMatchTheSchema:
         declared = set(cache_schema()["properties"])
 
         assert set(_TAYLORSEER_CACHE_KEYS) <= declared
+
+    def test_every_forwarded_faster_argument_is_declared_in_the_schema(self):
+        import dataclasses
+
+        from diffusers import FasterCacheConfig
+        from dw.pipeline_processors.config_objects import _FASTER_CACHE_KEYS
+
+        declared = set(cache_schema()["properties"])
+        fields = {f.name for f in dataclasses.fields(FasterCacheConfig)}
+
+        assert set(_FASTER_CACHE_KEYS) <= declared
+        assert set(_FASTER_CACHE_KEYS) <= fields
 
     def test_forwarded_arguments_are_real_diffusers_config_fields(self):
         """A key the schema and the builder agree on but diffusers does not have

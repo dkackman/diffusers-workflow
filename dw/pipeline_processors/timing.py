@@ -28,12 +28,29 @@ import logging
 import statistics
 import time
 
+import torch
+
+from .. import get_device_type
 from ..events import emit_warning, get_context
 from .config_objects import _MAG_CACHE_KEYS, _TAYLORSEER_CACHE_KEYS
 
 logger = logging.getLogger("dw")
 
 _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
+
+
+def _synced_clock():
+    """The monotonic clock, read after the device has finished its queued work.
+
+    CUDA and MPS run kernels asynchronously: without the wait, a pass or the
+    call's end is stamped when the host queued the work, and the denoise time
+    surfaces at the first host read, in decode (#896)."""
+    device_type = get_device_type()
+    if device_type == "cuda":
+        torch.cuda.synchronize()
+    elif device_type == "mps":
+        torch.mps.synchronize()
+    return time.monotonic()
 
 
 def _seconds(value):
@@ -79,7 +96,7 @@ class _Segment:
 class StepTimer:
     """The marks of one pipeline step, from load start to save end."""
 
-    def __init__(self, clock=time.monotonic, step=None):
+    def __init__(self, clock=_synced_clock, step=None):
         self._clock = clock
         self.step = step
         self._cache = None

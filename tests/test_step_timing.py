@@ -516,3 +516,21 @@ def test_a_timing_with_a_mistyped_field_is_refused():
         ManifestEntry.model_validate(
             {"step": "s", "files": [], "subfolder": "", "timing": {"segments": "x"}}
         )
+
+
+def test_default_clock_syncs_the_device_before_reading(monkeypatch):
+    """#896: on an async backend a mark must wait for queued work."""
+    calls = []
+    monkeypatch.setattr(timing_module, "get_device_type", lambda: "mps")
+    monkeypatch.setattr(torch.mps, "synchronize", lambda: calls.append("sync"))
+    timer = StepTimer()
+    timer.call_started()
+    timer.pass_ended()
+    timer.call_ended()
+    assert calls == ["sync"] * 3
+
+
+def test_default_clock_does_not_sync_on_cpu(monkeypatch):
+    monkeypatch.setattr(timing_module, "get_device_type", lambda: "cpu")
+    monkeypatch.setattr(torch.mps, "synchronize", lambda: pytest.fail("synced on cpu"))
+    StepTimer().load_started()

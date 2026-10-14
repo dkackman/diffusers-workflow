@@ -374,7 +374,10 @@ def compare_summary(result):
             continue
         for key in ("psnr_db", "ssim", "mean_abs_diff"):
             summary = entry[key]
-            line += f"  {key} mean {summary['mean']} min {summary['min']}"
+            line += (
+                f"  {key} mean {summary['mean']} min {summary['min']}"
+                f" max {summary['max']}"
+            )
         if entry["psnr_db"].get("identical_columns"):
             line += f"  ({entry['psnr_db']['identical_columns']} identical columns)"
         skipped = {cell["reason"] for cell in entry["cells"] if cell["reason"]}

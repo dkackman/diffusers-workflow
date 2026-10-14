@@ -5,6 +5,7 @@ import gc
 import importlib
 import inspect
 import logging
+import traceback
 from .config_objects import (
     get_quantization_configuration,
     get_cache_configuration,
@@ -665,7 +666,22 @@ class Pipeline:
                     reported_blocks(self.pipeline, self.segment_label or self.name)
                 )
 
-            output = self.pipeline(**arguments)
+            try:
+                output = self.pipeline(**arguments)
+            except IndexError as e:
+                cache = self.configuration.get("cache")
+                if (
+                    isinstance(cache, dict)
+                    and cache.get("type") == "faster"
+                    and not cache.get("is_guidance_distilled")
+                    and "faster_cache" in "".join(traceback.format_tb(e.__traceback__))
+                ):
+                    raise ValueError(
+                        f"Step '{self.name}': the faster cache failed ({e}). It "
+                        f"assumes a cond/uncond batch of 2; a guidance-distilled "
+                        f"model (FLUX.1-dev) needs cache.is_guidance_distilled: true"
+                    ) from e
+                raise
             mark("call_ended")
             return output
 

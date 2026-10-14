@@ -2989,6 +2989,12 @@
       "ModelDownload": {
         "additionalProperties": false,
         "properties": {
+          "cancel_requested": {
+            "default": false,
+            "description": "A cancel was requested and the download has not yet stopped: it is stopping, not still pulling.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "downloaded": {
             "title": "Downloaded",
             "type": "integer"
@@ -8041,7 +8047,7 @@
     },
     "/api/models/downloads/{download_id}/cancel": {
       "post": {
-        "description": "Request cancellation; takes effect at the next progress tick.\nPartial files stay in the cache and resume on a retry.",
+        "description": "Request cancellation; `cancel_requested` shows until it is terminal.\nPartial files stay in the cache and resume on a retry.",
         "operationId": "cancel_download_api_models_downloads__download_id__cancel_post",
         "parameters": [
           {

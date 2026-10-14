@@ -1184,7 +1184,7 @@ export interface paths {
         put?: never;
         /**
          * Cancel Download
-         * @description Request cancellation; takes effect at the next progress tick.
+         * @description Request cancellation; `cancel_requested` shows until it is terminal.
          *     Partial files stay in the cache and resume on a retry.
          */
         post: operations["cancel_download_api_models_downloads__download_id__cancel_post"];
@@ -3039,6 +3039,12 @@ export interface components {
         };
         /** ModelDownload */
         ModelDownload: {
+            /**
+             * Cancel Requested
+             * @description A cancel was requested and the download has not yet stopped: it is stopping, not still pulling.
+             * @default false
+             */
+            cancel_requested: boolean;
             /** Downloaded */
             downloaded: number;
             /** Error */

@@ -1542,7 +1542,7 @@ A `cache` block speeds up inference by skipping redundant computation:
 `cache` wraps diffusers' own cache hooks - `type` is one of `first_block`, `faster`,
 `mag`, `taylorseer` or `text_kv`, each with its own tuning fields (`threshold`,
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
-`max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
+`max_order`, `mag_ratios`, `calibrate`, `is_guidance_distilled` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
 

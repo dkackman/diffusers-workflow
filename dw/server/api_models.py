@@ -249,6 +249,11 @@ class ModelDownload(ApiModel):
     error: str | None
     started_at: int | float
     finished_at: int | float | None
+    cancel_requested: bool = Field(
+        default=False,
+        description="A cancel was requested and the download has not yet "
+        "stopped: it is stopping, not still pulling.",
+    )
 
 
 class ModelDownloads(ApiModel):
