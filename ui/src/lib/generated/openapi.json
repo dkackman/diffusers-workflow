@@ -2595,6 +2595,10 @@
             "description": "The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.",
             "title": "Subfolder",
             "type": "string"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/StepTiming",
+            "description": "Where the step's time went. Only on a pipeline step that ran: a reused step, a task or a composed step has none."
           }
         },
         "required": [
@@ -4153,6 +4157,152 @@
           "shadowed_by"
         ],
         "title": "ShadowedEntry",
+        "type": "object"
+      },
+      "StepTiming": {
+        "additionalProperties": true,
+        "description": "Where one pipeline step's time went, on the worker's monotonic clock\n(dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field\nwhose mark never happened is null, never guessed. Open, like the entry.",
+        "properties": {
+          "compiled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The denoiser runs through torch.compile; null when unknown.",
+            "title": "Compiled"
+          },
+          "decode_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last pass's end to the call's return: VAE decode and post-processing.",
+            "title": "Decode S"
+          },
+          "denoise_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First denoiser forward to the last pass's end; the whole call when the pipeline reports no passes.",
+            "title": "Denoise S"
+          },
+          "encode_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Call start to the first denoiser forward: prompt encoding and preparation.",
+            "title": "Encode S"
+          },
+          "first_pass_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first pass, which carries any compile warm-up.",
+            "title": "First Pass S"
+          },
+          "load_cached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pipeline came from the worker's cache; false if any part was loaded fresh, null when the step loaded nothing.",
+            "title": "Load Cached"
+          },
+          "load_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Loading or fetching the step's pipeline, cached or not.",
+            "title": "Load S"
+          },
+          "pass_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Median of passes 2..n, wall time at step boundaries; null with fewer than two passes.",
+            "title": "Pass S"
+          },
+          "passes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Denoise passes counted.",
+            "title": "Passes"
+          },
+          "save_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Writing the step's files.",
+            "title": "Save S"
+          },
+          "segments": {
+            "description": "Pipeline calls summed into this timing: chain segments or iterations; 1 for a plain step.",
+            "title": "Segments",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "load_s",
+          "load_cached",
+          "encode_s",
+          "denoise_s",
+          "passes",
+          "first_pass_s",
+          "pass_s",
+          "compiled",
+          "decode_s",
+          "save_s",
+          "segments"
+        ],
+        "title": "StepTiming",
         "type": "object"
       },
       "TaskList": {

@@ -1591,7 +1591,11 @@ def test_the_stated_tool_count_is_the_registered_one():
 # description names them; the schema gains the parameter, runs optional) -
 # measured at 14_699.5 (9_381 / 4_808 / 510.5); the ceiling moves to 14_700
 # with 0.5 of headroom.
-SURFACE_BUDGET = 14_700
+# 2026-10-13 (#885, #867 stage 1): get_job's description names a manifest
+# entry's `timing` and the guide section for it (+27.5 description) - measured
+# at 14_727 (9_408.5 / 4_808.25 / 510.25); the ceiling moves to 14_727 with
+# none to spare.
+SURFACE_BUDGET = 14_727
 
 
 @pytest.mark.asyncio

@@ -2864,6 +2864,8 @@ export interface components {
              * @description The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.
              */
             subfolder?: string;
+            /** @description Where the step's time went. Only on a pipeline step that ran: a reused step, a task or a composed step has none. */
+            timing?: components["schemas"]["StepTiming"];
         } & {
             [key: string]: unknown;
         };
@@ -3434,6 +3436,71 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /**
+         * StepTiming
+         * @description Where one pipeline step's time went, on the worker's monotonic clock
+         *     (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
+         *     whose mark never happened is null, never guessed. Open, like the entry.
+         */
+        StepTiming: {
+            /**
+             * Compiled
+             * @description The denoiser runs through torch.compile; null when unknown.
+             */
+            compiled: boolean | null;
+            /**
+             * Decode S
+             * @description Last pass's end to the call's return: VAE decode and post-processing.
+             */
+            decode_s: number | null;
+            /**
+             * Denoise S
+             * @description First denoiser forward to the last pass's end; the whole call when the pipeline reports no passes.
+             */
+            denoise_s: number | null;
+            /**
+             * Encode S
+             * @description Call start to the first denoiser forward: prompt encoding and preparation.
+             */
+            encode_s: number | null;
+            /**
+             * First Pass S
+             * @description The first pass, which carries any compile warm-up.
+             */
+            first_pass_s: number | null;
+            /**
+             * Load Cached
+             * @description The pipeline came from the worker's cache; false if any part was loaded fresh, null when the step loaded nothing.
+             */
+            load_cached: boolean | null;
+            /**
+             * Load S
+             * @description Loading or fetching the step's pipeline, cached or not.
+             */
+            load_s: number | null;
+            /**
+             * Pass S
+             * @description Median of passes 2..n, wall time at step boundaries; null with fewer than two passes.
+             */
+            pass_s: number | null;
+            /**
+             * Passes
+             * @description Denoise passes counted.
+             */
+            passes: number | null;
+            /**
+             * Save S
+             * @description Writing the step's files.
+             */
+            save_s: number | null;
+            /**
+             * Segments
+             * @description Pipeline calls summed into this timing: chain segments or iterations; 1 for a plain step.
+             */
+            segments: number;
+        } & {
+            [key: string]: unknown;
         };
         /** TaskList */
         TaskList: {
