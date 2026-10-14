@@ -13,11 +13,13 @@ import logging
 import numpy
 
 from ..dsp import as_channels_samples, level_dbfs
-from ..events import emit_log, emit_warning
+from ..events import emit_log, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from ..task_domains import frames_to_samples
+from .assess import sample_span
 from .joins import (
+    INNER_LEVEL_STEP_WARN_DB,
     bleed_join,
     equal_power_crossfade_join,
     fit_audio_to_frames,
@@ -238,20 +240,21 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
     return names, videos, clips, waveforms, sample_rate
 
 
-INNER_LEVEL_STEP_WARN_DB = 3.0
-
-
 def _warn_inner_level_steps(videos, names, waveforms, measure):
     """Say so when match_levels levels a multi-shot input as one unit and its
-    own shots differ by more than assess_output's seam_level_step threshold:
+    own shots differ by more than assess_output's seam_level_step threshold (shared with it), placing
+    shots with assess.sample_span:
     the step between them survives the join (#876)."""
+    # A later pair_audio replaces the track, so the step is never heard (#800)
+    if get_context().audio_replaced_downstream:
+        return
     for video, name, waveform in zip(videos, names, waveforms):
         shots = getattr(video, "shots", None)
         if waveform is None or not shots or len(shots) < 2:
             continue
         levels = []
         for shot in shots:
-            start, count = shot.get("start_sample"), shot.get("num_samples")
+            start, count, _ = sample_span(shot, video)
             if start is None or not count:
                 continue
             level = level_dbfs(waveform[:, start : start + count], measure)

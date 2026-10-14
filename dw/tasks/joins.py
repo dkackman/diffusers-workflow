@@ -507,6 +507,10 @@ MATCH_CEILING_DBFS = -0.5
 
 LEVEL_SPREAD_WARN_DB = 6.0
 
+# The level step between a multi-shot input's own shots that match_levels cannot
+# level (#876); assessment_rules' seam_level_step reads the same number
+INNER_LEVEL_STEP_WARN_DB = 3.0
+
 # Mirrors audio_qc.py's NEAR_SILENT_WARN_DBFS: the same mean/rms level a job's
 # own near-silent check treats as having no real content. Gaining an input
 # already this quiet up to the target raises a noise floor rather than
