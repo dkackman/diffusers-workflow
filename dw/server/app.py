@@ -154,6 +154,8 @@ def _store_serving(
     state.updater = diffusers_updater or DiffusersUpdater()
     # One index per distinct listing, per app (see deps.ceiling_index)
     state.ceiling_indexes = {}
+    # The LoRA catalog's partitions, one per listing (see deps.lora_index)
+    state.lora_indexes = None
     state.catalog_listings = {}
     # Which workspace workflows name each asset (see deps.asset_users)
     state.asset_users = {}
