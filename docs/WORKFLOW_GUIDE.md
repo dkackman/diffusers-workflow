@@ -1225,6 +1225,9 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
+  Every MiniMax-H3 template wires an `attention_backend` variable (default `null`) here,
+  on its H3 step's `transformer` or `transformer_ref`; see
+  [ACCELERATION.md](ACCELERATION.md) for `sage_hub` and what it needs.
 - `attn_processor_type` — the attention processor the component runs, constructed with no
   arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
   those two; this covers any other component that carries attention (LTX-2.5's
