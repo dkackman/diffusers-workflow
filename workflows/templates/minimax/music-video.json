@@ -93,7 +93,8 @@
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "seed": 42,
-        "attention_backend": null
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -287,7 +288,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",
