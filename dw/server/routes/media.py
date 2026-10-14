@@ -12,7 +12,7 @@ import base64
 import io
 import mimetypes
 import os
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import av
 from PIL import Image
@@ -47,6 +47,7 @@ from ...media import (
     projected_wav_base64_size,
     video_shape,
 )
+from ... import media_compare
 from ...media_frames import (
     contact_sheet,
     first_frame,
@@ -584,6 +585,123 @@ def _encoded_tile(tile, image):
         }
     )
     return encoded
+
+
+class CompareRequest(BaseModel):
+    names: list[str] = Field(
+        description="2 to 8 outputs (or `asset:` references), one row each"
+    )
+    at: Optional[list[Union[float, str]]] = Field(
+        None,
+        description='1 to 8 moments - seconds, or "frame:N" - read at the same '
+        "frame number in every output; default 4 evenly spaced frames",
+    )
+    crop: Optional[Union[list[int], list[list[int]]]] = Field(
+        None,
+        description="[x, y, width, height] in source pixels, the region shown "
+        "and measured; or one box per name, shown only",
+    )
+    baseline: Optional[str] = Field(
+        None,
+        description="The output the others are measured against; default the first",
+    )
+    max_dimension: int = Field(384, description="Longest side of each grid cell")
+    max_total_bytes: Optional[int] = Field(
+        None, description="A budget on the grid's base64 size"
+    )
+
+
+def _compare_source(state, ws, name):
+    """One output of a comparison, resolved and opened: a still decoded
+    (413/422 as `open_bounded` refuses), a video's shape read."""
+    name = strip_output_prefix(name)
+    if is_asset_reference(name):
+        path = asset_file(state, name, ws)
+    else:
+        path = resolve_output_file(state, name, ws.outputs)
+    kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
+    if kind == "image":
+        return {"name": name, "kind": kind, "image": open_bounded(path, name)}
+    if kind != "video":
+        raise HTTPException(
+            status_code=400, detail=f"{name} is not an image or a video"
+        )
+    try:
+        shape = video_shape(path)
+    except (av.FFmpegError, ValueError) as e:
+        raise HTTPException(
+            status_code=422, detail=f"{name} could not be decoded as a video: {e}"
+        )
+    if shape["width"] * shape["height"] > MAX_DECODE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{name} is {shape['width']}x{shape['height']}, more than the "
+            f"{MAX_DECODE_PIXELS:,} pixels a frame is decoded from",
+        )
+    return {"name": name, "kind": kind, "path": path, "shape": shape}
+
+
+@router.post("/api/gallery/compare")
+def gallery_compare(
+    request: Request, body: CompareRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Two to eight outputs side by side at the same moments, and how far
+    each is from a baseline (#871): one grid, a row per output and a
+    column per moment, plus PSNR, SSIM and mean absolute difference per
+    non-baseline output at source resolution. Moments resolve to one
+    frame index against the baseline (or the first video) and every
+    output is read at that frame; one past an output's end is a blank
+    cell. A single `crop` is the region shown and measured; one box per
+    name is shown only, and the metrics stay on the full frame. Outputs
+    of different sizes get no metrics, and say why. Stills join a video
+    comparison as the same image in every column. `max_total_bytes`
+    shrinks the whole grid, and `downscaled_to` says to what."""
+    try:
+        baseline_row, crop_mode = media_compare.check_request(
+            body.names, body.at, body.crop, body.baseline
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    state = request.app.state
+    sources = [_compare_source(state, ws, name) for name in body.names]
+    limit = max(1, int(body.max_dimension))
+    try:
+        answer = media_compare.compare(
+            sources, body.at, body.crop, baseline_row, crop_mode, limit
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except media_compare.UnreadableMedia as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    grid = answer.pop("grid")
+    downscaled_to = None
+    if body.max_total_bytes is not None:
+        # Each cell kept at least FRAME_MIN_DIMENSION on its longest side
+        # however far the budget shrinks the grid
+        cells = max(len(sources), len(answer["columns"]))
+        longest = max(grid.size)
+        (grid,), downscaled_to = fit_tiles_within_budget(
+            [grid], longest, body.max_total_bytes, floor=FRAME_MIN_DIMENSION * cells
+        )
+        if downscaled_to is not None and max(grid.size) >= longest:
+            # Already at the floor: shrinking further would not leave a
+            # cell legible, so the grid goes over budget and says so
+            downscaled_to = None
+            answer["notes"].append(
+                "over `max_total_bytes`: the grid is already as small as it "
+                "can be and stay legible"
+            )
+    return {
+        "image": {
+            "data": base64.b64encode(png_bytes(grid)).decode("ascii"),
+            "mime_type": "image/png",
+            "width": grid.width,
+            "height": grid.height,
+        },
+        "downscaled_to": downscaled_to,
+        **answer,
+    }
 
 
 @router.get("/api/gallery/{name:path}/image")
