@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import references
+from .acceleration_warnings import acceleration_warnings
 from . import get_device_type, device_capacity_gb
 from .adapter_compatibility import adapter_errors, adapter_warnings
 from .argument_warnings import workflow_argument_warnings
@@ -652,6 +653,11 @@ WARNING_CHECKS = [
             )
         ),
     ),
+    # An acceleration setting that cannot pay off - a threshold cache on a
+    # short schedule, TaylorSeer state no estimate charges, fullgraph with a
+    # cache, a CUDA-only attention backend off CUDA - each of which cost a
+    # render to find out (#868)
+    Check("acceleration_warnings", acceleration_warnings),
 ]
 
 
