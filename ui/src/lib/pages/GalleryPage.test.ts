@@ -114,6 +114,14 @@ function pressEscape() {
   )
 }
 
+/** Opens a file's detail panel by clicking its tile. */
+const openFile = (name: string) =>
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: new RegExp(`^${name.replace('.', '\\.')}`),
+    }),
+  )
+
 async function answerConfirm(accept: boolean) {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
   within(dialog)
@@ -519,4 +527,35 @@ it('marks every tile of a run after its run note is saved', async () => {
     expect(document.querySelectorAll('.note-mark')).toHaveLength(2),
   )
   expect(setNote).toHaveBeenCalledWith('wf/r1', 'fresh')
+})
+
+it('the arrow keys step through the files the grid shows', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  await fireEvent.keyDown(window, { key: 'ArrowRight' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+  await fireEvent.keyDown(window, { key: 'ArrowLeft' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('a.png')
+})
+
+it('an arrow key typed in the note box does not move the selection', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  const before = galleryMetadata.mock.calls.length
+  const box = document.createElement('textarea')
+  document.body.append(box)
+  await fireEvent.keyDown(box, { key: 'ArrowRight' })
+  expect(galleryMetadata.mock.calls.length).toBe(before)
+  box.remove()
+})
+
+it('Delete removes the open file and opens the next', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.keyDown(window, { key: 'Delete' })
+  await answerConfirm(true)
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
 })

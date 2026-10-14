@@ -6,6 +6,8 @@
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach } from '../picks.svelte'
+  import { isEditable } from '../editable'
+  import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
@@ -190,13 +192,17 @@
     )
       return
     const name = selected.name
+    const order = visible.map((f) => f.name)
+    const after = neighbor(order, name, 1) ?? neighbor(order, name, -1)
     try {
       await api.deleteOutput(name)
       files = files.filter((f) => f.name !== name)
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
       picks.drop(name)
-      selected = null
+      // Culling goes on to the next file rather than back to the grid
+      if (after && byName.get(after)) select(byName.get(after)!)
+      else selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
@@ -206,12 +212,32 @@
 
 <svelte:window
   onkeydown={(e) => {
+    if (overlayOpen()) return
     // Escape closes the thing on top, and a dialog answers it itself. The
     // selection is the more recent, more surprising state to be stuck in,
     // so it clears first and the detail panel on a second press
-    if (e.key !== 'Escape' || overlayOpen()) return
-    if (picks.size) picks.clear()
-    else selected = null
+    if (e.key === 'Escape') {
+      if (picks.size) picks.clear()
+      else selected = null
+      return
+    }
+    // Culling a run: step through what the grid shows, delete as you go.
+    // A key typed into the note box, or a focused video seeking, is theirs
+    if (!selected || isEditable(e.target)) return
+    if (e.key === 'ArrowRight' || e.key === 'ArrowLeft') {
+      const next = neighbor(
+        visible.map((f) => f.name),
+        selected.name,
+        e.key === 'ArrowRight' ? 1 : -1,
+      )
+      if (next) {
+        e.preventDefault()
+        select(byName.get(next)!)
+      }
+    } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
+      e.preventDefault()
+      void removeFile()
+    }
   }}
 />
 
