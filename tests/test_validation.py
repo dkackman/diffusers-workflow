@@ -451,6 +451,7 @@ class TestAccelerationWarnings:
         "taylorseer_state_unestimated",
         "compile_fullgraph_with_cache",
         "attention_backend_unavailable",
+        "cache_unsupported",
     )
 
     @staticmethod
@@ -524,6 +525,41 @@ class TestAccelerationWarnings:
     @staticmethod
     def coded(warnings, code):
         return [w for w in warnings if f": {code}:" in w]
+
+    # cache_unsupported (#904): the real pipeline classes, nothing mocked
+
+    @pytest.mark.parametrize(
+        "component_type, names",
+        [
+            ("StableDiffusionPipeline", "no transformer"),
+            ("ZImagePipeline", "ZImageTransformer2DModel"),
+        ],
+    )
+    def test_a_cache_with_nothing_to_attach_to_warns(
+        self, monkeypatch, component_type, names
+    ):
+        definition = self.definition({"type": "first_block"}, steps=30)
+        pipeline = definition["steps"][0]["pipeline"]
+        pipeline["configuration"]["component_type"] = component_type
+
+        found = self.coded(self.run(monkeypatch, definition), "cache_unsupported")
+
+        assert len(found) == 1
+        assert "first_block" in found[0]
+        assert names in found[0] or "transformer component" in found[0]
+
+    def test_a_cache_on_a_transformer_that_supports_it_is_silent(self, monkeypatch):
+        warnings = self.run(monkeypatch, self.definition({"type": "first_block"}, 30))
+
+        assert self.coded(warnings, "cache_unsupported") == []
+
+    def test_no_cache_means_no_cache_unsupported(self, monkeypatch):
+        definition = self.definition(None)
+        definition["steps"][0]["pipeline"]["configuration"]["component_type"] = (
+            "StableDiffusionPipeline"
+        )
+
+        assert self.coded(self.run(monkeypatch, definition), "cache_unsupported") == []
 
     # cache_short_schedule
 

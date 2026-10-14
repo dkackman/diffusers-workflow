@@ -18,6 +18,11 @@ Each of these cost a render to find out in Don's `h3-quality` matrix:
   charging it in `vram_estimate` would turn a warning into a refusal and move
   jobs between cards, so the warning only states the estimate it sits on top
   of.
+- `cache_unsupported`: a cache on a pipeline whose class declares no
+  transformer (a UNet pipeline such as SD 1.5), or whose transformer class has
+  no `enable_cache()` (Z-Image's, in the diffusers this server runs). Read from
+  the pipeline class's constructor alone, nothing is loaded; the run only says
+  "not applied" and carries on uncached.
 - `compile_fullgraph_with_cache`: `fullgraph` forbids the graph break a
   cache's skip decision needs (`docs/ACCELERATION.md`).
 - `attention_backend_unavailable`: a CUDA-only attention backend on a device
@@ -28,7 +33,11 @@ before the run (a null variable, an unknown device) leaves its warning
 silent rather than guessed at.
 """
 
+import inspect
+import typing
+
 from . import get_device_type
+from .introspection import load_pipeline_class
 from .references import iter_steps, render_path
 from .vram_estimate import required_vram_gb
 
@@ -73,6 +82,11 @@ SHORT_SCHEDULE = "cache_short_schedule"
 TAYLORSEER_STATE = "taylorseer_state_unestimated"
 FULLGRAPH_WITH_CACHE = "compile_fullgraph_with_cache"
 BACKEND_UNAVAILABLE = "attention_backend_unavailable"
+CACHE_UNSUPPORTED = "cache_unsupported"
+
+# The component names a cache hook attaches to, as in
+# dw.pipeline_processors.components.get_cache_transformer
+_CACHE_COMPONENTS = ("transformer", "transformer_ref")
 
 
 def _steps(pipeline):
@@ -131,7 +145,40 @@ def _estimate_clause(context):
     )
 
 
-def _cache_warnings(cache, pipeline, path, where, context):
+def _cache_unsupported(component_type):
+    """Why a cache cannot attach to the pipeline class `component_type`
+    names, or None when it can or that cannot be told from the class alone
+    (an unresolvable class, a **kwargs constructor, a component whose type is
+    not a single class)."""
+    if not isinstance(component_type, str):
+        return None
+    try:
+        cls = load_pipeline_class(component_type)
+        parameters = inspect.signature(cls.__init__).parameters
+    except (ValueError, TypeError):
+        return None
+    if any(p.kind == inspect.Parameter.VAR_KEYWORD for p in parameters.values()):
+        return None
+    names = [name for name in _CACHE_COMPONENTS if name in parameters]
+    if not names:
+        return (
+            f"{cls.__name__} has no transformer component to attach a cache to "
+            f"(a UNet pipeline is not supported)"
+        )
+    try:
+        hints = typing.get_type_hints(cls.__init__)
+    except Exception:
+        return None
+    classes = [hints.get(name) for name in names]
+    if all(isinstance(c, type) and not hasattr(c, "enable_cache") for c in classes):
+        return (
+            f"{cls.__name__}'s transformer ({classes[0].__name__}) does not "
+            f"support diffusers' enable_cache()"
+        )
+    return None
+
+
+def _cache_warnings(cache, pipeline, path, where, context, component_type=None):
     cache_type = cache.get("type")
     warnings = []
     steps = _steps(pipeline)
@@ -145,6 +192,12 @@ def _cache_warnings(cache, pipeline, path, where, context):
             f"steps will likely skip nothing (consecutive steps differ too much "
             f"for its threshold) and still perturbs the result{where}; drop the "
             f"cache or run >= {CACHE_MIN_USEFUL_STEPS} steps"
+        )
+    reason = _cache_unsupported(component_type)
+    if reason:
+        warnings.append(
+            f"{path}: {CACHE_UNSUPPORTED}: the '{cache_type}' cache will not be "
+            f"applied: {reason}{where}; the step runs uncached, so drop the cache"
         )
     if cache_type == "taylorseer":
         max_order = cache.get("max_order")
@@ -175,7 +228,12 @@ def acceleration_warnings(context):
         cache = configuration.get("cache")
         if isinstance(cache, dict):
             warnings += _cache_warnings(
-                cache, pipeline, render_path(base + ("cache",)), where, context
+                cache,
+                pipeline,
+                render_path(base + ("cache",)),
+                where,
+                context,
+                configuration.get("component_type"),
             )
 
         backends = [(base + ("attention_backend",), configuration)]
