@@ -331,7 +331,7 @@ references written in the same session.
 | `list_models()` | — | (Catalog) List what the Hugging Face cache holds, largest first |
 | `download_model(repo_id, acknowledged_cost=False)` | `repo_id`, `acknowledged_cost` | Fetch a model repo into the cache. Costs disk and bandwidth, so it passes the gate. Returns as soon as the download starts |
 | `list_downloads()` | — | List downloads the server is running or recently ran |
-| `cancel_download(download_id)` | `download_id` | Stop a running download. Partial files stay cached and resume on a retry |
+| `cancel_download(download_id)` | `download_id` | Stop a running download; the record shows `cancel_requested: true` until it is `cancelled`. Partial files stay cached and resume on a retry |
 | `delete_model(repo, acknowledged_cost=False)` | `repo`, `acknowledged_cost` | Delete every cached revision of one repo. Not recoverable locally |
 | `get_diffusers_state()` | — | Installed diffusers version, its git commit, and any update in flight |
 | `update_diffusers(acknowledged_cost=False)` | `acknowledged_cost` | Upgrade diffusers to GitHub HEAD in the background |
