@@ -16,7 +16,7 @@ from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning
 from .. import download_watch
 from .. import quantized_cache
 from huggingface_hub.errors import HfHubHTTPError
-from .cache_stats import counting_forwards, report_cache_stats
+from .timing import counting_forwards, report_cache_stats
 from .h3_guides import insert_guides
 from .h3_hold import insert_audio_hold
 from .placement import (
@@ -949,7 +949,7 @@ def stateful_cache_context(pipeline, segment=None):
     pipeline that needed that would be setting its own contexts already, and this
     is a no-op for pipelines whose cache is not enabled.
 
-    The call's skip counts are taken here too (dw/pipeline_processors/cache_stats.py):
+    The call's skip counts are taken here too (dw/pipeline_processors/timing.py):
     a forward hook counts each denoiser forward, and the `cache_stats` event
     (naming the chain `segment`, when there is one) goes out before the state
     is reset, the hook removed after it.

@@ -4252,94 +4252,15 @@
         "title": "ShadowedEntry",
         "type": "object"
       },
-      "StepCacheStats": {
-        "additionalProperties": true,
-        "description": "A step cache's skip counts over the step's pipeline calls\n(dw/pipeline_processors/cache_stats.py). Counted for `first_block` and\n`mag`; other types report their type and config with null counts. Open:\na type adds its config keys.",
-        "properties": {
-          "computed": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Forwards that ran every block.",
-            "title": "Computed"
-          },
-          "forwards": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Denoiser forwards, not steps: classifier-free guidance runs two per step.",
-            "title": "Forwards"
-          },
-          "hit_rate": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "skipped / forwards to 3 places; null with no counts.",
-            "title": "Hit Rate"
-          },
-          "skipped": {
-            "anyOf": [
-              {
-                "type": "integer"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "Forwards that reused cached blocks; computed + skipped == forwards.",
-            "title": "Skipped"
-          },
-          "threshold": {
-            "anyOf": [
-              {
-                "type": "number"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "description": "The skip threshold; null for a type without one.",
-            "title": "Threshold"
-          },
-          "type": {
-            "description": "The workflow's `cache.type`.",
-            "title": "Type",
-            "type": "string"
-          }
-        },
-        "required": [
-          "type",
-          "threshold",
-          "forwards",
-          "computed",
-          "skipped",
-          "hit_rate"
-        ],
-        "title": "StepCacheStats",
-        "type": "object"
-      },
       "StepTiming": {
         "additionalProperties": true,
         "description": "Where one pipeline step's time went, on the worker's monotonic clock\n(dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field\nwhose mark never happened is null, never guessed. Open, like the entry.",
         "properties": {
           "cache": {
-            "$ref": "#/components/schemas/StepCacheStats",
-            "description": "Skip counts, on a step that set a `cache`."
+            "additionalProperties": true,
+            "description": "Skip counts, on a step that set a `cache`.",
+            "title": "Cache",
+            "type": "object"
           },
           "compiled": {
             "anyOf": [

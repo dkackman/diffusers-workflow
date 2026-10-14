@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Tests for a step cache's skip counts (dw/pipeline_processors/cache_stats.py).
+"""Tests for a step cache's skip counts (the step-cache section of dw/pipeline_processors/timing.py).
 
 The counts read diffusers' private leader-hook state, so the pin tests below
 fail first when an upgrade moves it. The pipeline tests run a tiny real
@@ -16,7 +16,8 @@ import torch
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
-from dw.pipeline_processors import cache_stats, components
+from dw.pipeline_processors import components
+from dw.pipeline_processors import timing as cache_stats
 from dw.pipeline_processors.timing import StepTimer, timed_step
 
 STEPS = 6

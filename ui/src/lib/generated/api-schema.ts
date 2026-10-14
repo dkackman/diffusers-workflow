@@ -3502,55 +3502,19 @@ export interface components {
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
         };
         /**
-         * StepCacheStats
-         * @description A step cache's skip counts over the step's pipeline calls
-         *     (dw/pipeline_processors/cache_stats.py). Counted for `first_block` and
-         *     `mag`; other types report their type and config with null counts. Open:
-         *     a type adds its config keys.
-         */
-        StepCacheStats: {
-            /**
-             * Computed
-             * @description Forwards that ran every block.
-             */
-            computed: number | null;
-            /**
-             * Forwards
-             * @description Denoiser forwards, not steps: classifier-free guidance runs two per step.
-             */
-            forwards: number | null;
-            /**
-             * Hit Rate
-             * @description skipped / forwards to 3 places; null with no counts.
-             */
-            hit_rate: number | null;
-            /**
-             * Skipped
-             * @description Forwards that reused cached blocks; computed + skipped == forwards.
-             */
-            skipped: number | null;
-            /**
-             * Threshold
-             * @description The skip threshold; null for a type without one.
-             */
-            threshold: number | null;
-            /**
-             * Type
-             * @description The workflow's `cache.type`.
-             */
-            type: string;
-        } & {
-            [key: string]: unknown;
-        };
-        /**
          * StepTiming
          * @description Where one pipeline step's time went, on the worker's monotonic clock
          *     (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
          *     whose mark never happened is null, never guessed. Open, like the entry.
          */
         StepTiming: {
-            /** @description Skip counts, on a step that set a `cache`. */
-            cache?: components["schemas"]["StepCacheStats"];
+            /**
+             * Cache
+             * @description Skip counts, on a step that set a `cache`.
+             */
+            cache?: {
+                [key: string]: unknown;
+            };
             /**
              * Compiled
              * @description The denoiser runs through torch.compile; null when unknown.
