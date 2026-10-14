@@ -20,4 +20,3 @@ it, not restated here. What a multi-shot episode adds:
 - TV-path and cinema-path episodes look like different shows back to back:
   choose the path once, at episode 1, and keep it unless the user says
   otherwise.
-- Choose the path once, at episode 1: TV-path and cinema-path episodes look like different shows back to back.
