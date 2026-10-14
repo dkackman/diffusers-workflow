@@ -28,6 +28,7 @@ def _patched_admit_for(monkeypatch, state):
     seen = {}
     monkeypatch.setattr(admission, "admit", lambda **kw: seen.update(kw))
     monkeypatch.setattr(admission, "ceiling_index", lambda state, workspace: None)
+    monkeypatch.setattr(admission, "lora_index", lambda state: None)
     monkeypatch.setattr(admission, "resolution_library", lambda state, workspace: None)
     monkeypatch.setattr(admission, "server_prompt_library", lambda state: None)
     admission.admit_for(state, "workspace")

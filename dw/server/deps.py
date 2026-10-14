@@ -13,6 +13,8 @@ from typing import Optional
 from fastapi import HTTPException, Request
 
 from .. import references
+from ..adapter_compatibility import catalog_index
+from ..lora_catalog import entry_errors
 from ..realize import strings_with_prefix
 from ..security import SecurityError, validate_asset_reference
 from ..vram_inheritance import (
@@ -175,6 +177,60 @@ def ceiling_index(state, ws):
         return cached[1]
     index = build_index([(name, definition) for name, definition, _ in catalog])
     state.ceiling_indexes[ws.name] = (catalog, index)
+    return index
+
+
+def catalog_entries(state):
+    """(entries, roots, library): every valid entry on the search path by
+    name, the root each came from, and the path. An unreadable or invalid
+    file is logged and skipped - one bad file must not hide the catalog."""
+    library = server_lora_library(state).existing()
+    winners, _hidden = library.entries()
+    entries, roots = {}, {}
+    for name, root in winners.items():
+        path = library.path_in(root, name)
+        if path is None:
+            continue
+        try:
+            with open(path, "r") as file:
+                entry = json.load(file)
+        except (OSError, ValueError) as error:
+            logger.warning(f"Skipping unreadable LoRA entry {name}: {error}")
+            continue
+        problem = entry_errors(entry) if isinstance(entry, dict) else "not an object"
+        if problem:
+            logger.warning(f"Skipping invalid LoRA entry {name}: {problem}")
+            continue
+        entries[name] = entry
+        roots[name] = root
+    return entries, roots, library
+
+
+def lora_index(state):
+    """The LoRA catalog's partitions by file (`adapter_compatibility.
+    catalog_index`), for the adapter checks: one catalog every workspace
+    shares, so one index (#870).
+
+    Built once per distinct listing and kept on the app
+    (`state.lora_indexes`), as `ceiling_index` is: an edited, added or
+    removed entry rebuilds it and nothing else does."""
+    library = server_lora_library(state).existing()
+    listing = []
+    for name, root in library.entries()[0].items():
+        path = library.path_in(root, name)
+        if path is None:
+            continue
+        try:
+            listing.append((name, path, os.path.getmtime(path)))
+        except OSError:
+            continue
+    signature = tuple(listing)
+    cached = getattr(state, "lora_indexes", None)
+    if cached and cached[0] == signature:
+        return cached[1]
+    entries, _roots, _library = catalog_entries(state)
+    index = catalog_index(entries)
+    state.lora_indexes = (signature, index)
     return index
 
 

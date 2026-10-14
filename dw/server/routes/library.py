@@ -71,6 +71,7 @@ from ..catalog import (
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     internal_error,
+    lora_index,
     observed_for_name,
     server_prompt_library,
     writable_prompt_directory,
@@ -405,7 +406,11 @@ def _write_validated(state, ws, name, definition):
     # itself failing is the server's (500), and its message may carry
     # internals the log keeps
     try:
-        errors = candidate.validation_errors()
+        # With the LoRA catalog, as the validate route checks it - a save
+        # the server would refuse to run is refused here too (#870)
+        errors = candidate.validation_errors(
+            context=validation.workflow_context(candidate, lora_index=lora_index(state))
+        )
     except Exception:
         raise internal_error("Workflow validation failed outright on save")
     if errors:

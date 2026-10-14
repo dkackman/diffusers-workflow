@@ -39,7 +39,7 @@ from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .deps import ceiling_index, server_prompt_library
+from .deps import ceiling_index, lora_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
 
@@ -114,6 +114,7 @@ def admit(
     plan_for=None,
     capacity_gb=None,
     capacity_label=None,
+    lora_index=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
@@ -125,7 +126,8 @@ def admit(
 
     `asset_library` and `prompt_library` are the `LibraryPath`s the workspace's
     'asset:' and 'prompt:' references resolve over; `ceiling_index` is the
-    catalog's VRAM ceilings for inherited_vram_warnings.
+    catalog's VRAM ceilings for inherited_vram_warnings; `lora_index` the
+    LoRA catalog's partitions for the adapter checks (`deps.lora_index`).
 
     One ValidationContext serves the whole request: the error pass and the
     warning pass (`validation.WARNING_CHECKS`) read one expansion and one
@@ -177,6 +179,7 @@ def admit(
                 candidate,
                 checked,
                 ceiling_index=ceiling_index,
+                lora_index=lora_index,
                 capacity_gb=capacity_gb,
                 capacity_label=capacity_label,
             )
@@ -436,6 +439,7 @@ def admit_for(state, workspace, **request):
     return admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
+        lora_index=lora_index(state),
         capacity_gb=capacity_gb,
         capacity_label=capacity_label,
         asset_library=resolution_library(state, workspace),

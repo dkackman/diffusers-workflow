@@ -36,6 +36,7 @@ from ...security import (
 )
 from ...workspace import Workspace, forget_workspace_usage
 from ..deps import (
+    catalog_entries,
     lora_library_missing,
     selected_workspace,
     server_lora_library,
@@ -57,32 +58,6 @@ def _named(name):
         return validate_lora_name(bare)
     except InvalidInputError as error:
         raise HTTPException(status_code=404, detail=str(error))
-
-
-def catalog_entries(state):
-    """(entries, roots, library): every valid entry on the search path by
-    name, the root each came from, and the path. An unreadable or invalid
-    file is logged and skipped - one bad file must not hide the catalog."""
-    library = server_lora_library(state).existing()
-    winners, _hidden = library.entries()
-    entries, roots = {}, {}
-    for name, root in winners.items():
-        path = library.path_in(root, name)
-        if path is None:
-            continue
-        try:
-            with open(path, "r") as file:
-                entry = json.load(file)
-        except (OSError, ValueError) as error:
-            logger.warning(f"Skipping unreadable LoRA entry {name}: {error}")
-            continue
-        problem = entry_errors(entry) if isinstance(entry, dict) else "not an object"
-        if problem:
-            logger.warning(f"Skipping invalid LoRA entry {name}: {problem}")
-            continue
-        entries[name] = entry
-        roots[name] = root
-    return entries, roots, library
 
 
 def resolve_model(state, ws, model, partition=None):
