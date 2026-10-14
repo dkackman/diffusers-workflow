@@ -334,6 +334,61 @@ def assess_output(client, name, probe=None, detail=False, workspace=None):
     )
 
 
+def compare_outputs(
+    client, names, at=None, crop=None, baseline=None, max_dimension=384, workspace=None
+):
+    """Two to eight outputs side by side at the same moments, with PSNR,
+    SSIM and mean absolute difference against a baseline (#871). The
+    server builds the grid and measures at source resolution; the grid is
+    held to MAX_RETURNED_BYTES, shrunk whole when over it."""
+    payload = {
+        "names": names,
+        "max_dimension": max_dimension,
+        "max_total_bytes": MAX_RETURNED_BYTES,
+    }
+    for key, value in (("at", at), ("crop", crop), ("baseline", baseline)):
+        if value is not None:
+            payload[key] = value
+    return client.post_json(
+        api_path("api", "gallery", "compare"), payload=payload, workspace=workspace
+    )
+
+
+def compare_summary(result):
+    """The comparison's numbers as the lines a tool reply carries beside
+    the grid: the region measured, then one line per compared output."""
+    lines = [
+        f"baseline: {result['baseline']}",
+        f"region: {result['region']}",
+        "columns: "
+        + ", ".join(
+            str(column["moment"])
+            + (f" (frame {column['frame']})" if column.get("frame") is not None else "")
+            for column in result["columns"]
+        ),
+    ]
+    for entry in result["metrics"]:
+        line = f"- row {entry['row'] + 1} {entry['name']}:"
+        if entry["ssim"] is None:
+            lines.append(f"{line} no metrics - {entry['reason']}")
+            continue
+        for key in ("psnr_db", "ssim", "mean_abs_diff"):
+            summary = entry[key]
+            line += f"  {key} mean {summary['mean']} min {summary['min']}"
+        if entry["psnr_db"].get("identical_columns"):
+            line += f"  ({entry['psnr_db']['identical_columns']} identical columns)"
+        skipped = {cell["reason"] for cell in entry["cells"] if cell["reason"]}
+        if skipped:
+            line += "  skipped: " + "; ".join(sorted(skipped))
+        lines.append(line)
+    if result["fps_differs"]:
+        lines.append("fps_differs: the videos' frame rates differ")
+    if result["downscaled_to"]:
+        lines.append(f"downscaled_to: {result['downscaled_to']} (to fit the budget)")
+    lines.extend(f"note: {note}" for note in result["notes"])
+    return "\n".join(lines)
+
+
 def delete_output(client, name=None, workspace=None, job_id=None):
     """Remove one file from the output directory. The gallery is the output
     directory read back, so this is where a delete belongs.

@@ -1073,6 +1073,23 @@ story wanted is the cut working, and a level step into a quieter scene can
 be the scene. Tell the person what you confirmed, not what the probe
 reported.
 
+**Comparing outputs.** `compare_outputs(names)` (`POST /api/gallery/compare`)
+lays 2-8 outputs (variations, reruns, the same shot with and without a speed
+setting) in one grid, a row per output and a column per moment, every output
+read at the same frame number, and measures each against a `baseline` (default
+the first). Per non-baseline output it reports PSNR (dB, higher is closer;
+`identical` when equal), SSIM (structure on luma, 1.0 identical) and mean
+absolute difference (0-255, lower is closer), at source resolution, per column
+and as mean/min/max. A shared `crop` is the region both shown and measured; one
+box per name is display only and the metrics stay on the full frame; the reply's
+`region` says which. Outputs of a different size get no numbers (never resized).
+A bare PSNR means little alone; these bands, measured on full frames, are a
+reading aid, not thresholds: about 44 dB is rerun noise (same settings,
+nondeterministic kernels); 23-27 dB means the numerics changed (a different
+cache, attention backend or quantization) but the shot is the same; about 19 dB
+means it was re-staged (the composition changed). Look at the grid before
+trusting a number.
+
 **Remediation.** A *recut* reruns only the join over the shots the run
 already made: each entry in `videos` is `output:` + the run's
 `intermediate/` shot file. That is cheap, and generates nothing new. A

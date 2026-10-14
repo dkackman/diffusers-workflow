@@ -96,6 +96,7 @@ block-level group offload: compute-bound, not PCIe-bound.
   warm worker.
 - **`text_kv`**: no measurable effect on Ref2VA.
 - **`taylorseer`**: OOM at this canvas with 4 references.
+- **Did a speed setting change the output?** Run it with and without the setting (same seed) and pass both to `compare_outputs`; read the PSNR against the bands in the workflow guide's *Assessing a run's output* (about 44 dB is rerun noise, 23-27 dB is changed numerics with the same shot, about 19 dB is a re-staged shot).
 
 Open: `first_block` 0.08-0.10 at 30 steps (speed against face cost);
 `first_block` at 20 steps against plain 30; whether P1 holds on a close-up and

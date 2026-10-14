@@ -209,6 +209,36 @@ class MediaTools:
             self.client, name, probe=probe, detail=detail, workspace=workspace
         )
 
+    def compare_outputs(
+        self,
+        names: list[str],
+        at: list[str | float] | None = None,
+        crop: list[int] | list[list[int]] | None = None,
+        baseline: str | None = None,
+        max_dimension: int = 384,
+        workspace: str | None = None,
+    ) -> list[ImageContent | TextContent]:
+        """2-8 outputs as one grid (a row each, a column per `at` moment,
+        the same frame number in all) with PSNR, SSIM and mean abs diff
+        against `baseline` (default the first). One `crop` box is shown
+        and measured; one box per name is shown only. Takes `asset:`."""
+        result = media.compare_outputs(
+            self.client,
+            names,
+            at=at,
+            crop=crop,
+            baseline=baseline,
+            max_dimension=max_dimension,
+            workspace=workspace,
+        )
+        image = result["image"]
+        return [
+            ImageContent(
+                type="image", data=image["data"], mime_type=image["mime_type"]
+            ),
+            TextContent(type="text", text=media.compare_summary(result)),
+        ]
+
     def delete_output(
         self,
         name: str | None = None,

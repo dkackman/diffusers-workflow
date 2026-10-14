@@ -567,6 +567,33 @@ The editor's forms come from these; they are just as usable from scripts:
   they apply `X-DW-Crop` and `X-DW-Downscaled-To`. Takes `?token=`
 - `GET /api/gallery/{name}/frames` takes `max_total_bytes`: over it, every
   tile shrinks to one shared size and `downscaled_to` says which
+- `POST /api/gallery/compare` — two to eight outputs side by side, and how far each is
+  from a baseline; read-only, queues nothing. Body: `names` (2-8 gallery names or
+  `asset:` references, one row each), `at` (1-8 moments, seconds or `"frame:N"`;
+  default 4 evenly spaced frames of the shortest video), `crop` (`[x, y, w, h]`: the
+  region shown and measured; or one box per name, shown only), `baseline` (default
+  the first name), `max_dimension` (default 384, longest side of each cell) and
+  `max_total_bytes`. Moments resolve to one frame index against the baseline (the
+  first video if the baseline is a still) and every output is read at that frame
+  number; a frame past an output's end is a blank cell. A still among videos repeats
+  in every column; all stills give one column and `at` is ignored with a note. A crop
+  must lie wholly inside every output's frame (400 otherwise). Reply: `image` (the
+  grid as base64 PNG: `data`, `mime_type`, `width`, `height`; a row per output under a
+  label band, each cell stamped `frame N`), `downscaled_to` (over `max_total_bytes` the
+  whole grid shrinks, never below 64 px per cell; null when nothing shrank),
+  `baseline`, `region` (`full frame`, `crop [...]`, or `full frame (per-output crops
+  are display only)`), `fps_differs` (videos with different frame rates, so one
+  frame number is not one second), `columns` (`{moment, frame}`), `rows` (name, kind,
+  size, crop, and for a video `frame_count` and `fps`), `metrics` and `notes`. A
+  `metrics` entry per non-baseline output holds `cells` (one per column:
+  `psnr_db`, `ssim`, `mean_abs_diff`, `reason`) and `psnr_db`/`ssim`/`mean_abs_diff`
+  summaries (`mean`, `min`, `max`), measured at source resolution; PSNR is
+  `identical` when equal and SSIM is on luma (11x11 Gaussian window, sigma 1.5). An
+  output whose size differs from the baseline gets null metrics and the `reason`
+  `size differs from baseline: WxH vs WxH`, never a resize; a cell past an end says
+  `past end (N frames)`. Errors: 400 bad request, out-of-bounds crop, every moment
+  past every end, or not an image or video; 404 unknown name; 413 over the decode
+  pixel limit; 422 undecodable file
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
   multi-file selection into one zip, named by each file's gallery-relative
   path so output subfolders survive. A browser cannot zip on its own and
