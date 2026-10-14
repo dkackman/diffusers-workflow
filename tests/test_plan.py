@@ -331,6 +331,12 @@ class TestFingerprintIgnoresWhatCannotChangeTheOutput:
         assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
         assert plan(spec)["fingerprint"] == plan()["fingerprint"]
 
+    def test_an_integral_float_spelled_as_an_int(self, plan):
+        # A client's JSON round trip can turn 12.0 into 12 (#905)
+        spec = definition()
+        spec["variables"]["frames"] = 25.0
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
     def test_shape_and_traits(self, plan):
         spec = definition()
         spec["shape"] = "shot"
