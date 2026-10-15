@@ -753,7 +753,7 @@ def check_script(
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,
-        line_clipped_at_end, speech_where_silent, speech_in_silent_shot,
+        line_clipped_at_end, speech_not_transcribed, speech_where_silent, speech_in_silent_shot,
         unscripted_speech),
         'lines' (expected, heard, similarity, start, end, shot), 'shots'
         (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
