@@ -21,6 +21,8 @@ from ..vram_inheritance import (
     build_index,
     inherited_differences,
     pipeline_frames,
+    pipeline_values,
+    sets_differently,
     template_identity,
 )
 from .observed_cost import declared_drivers
@@ -272,13 +274,37 @@ def _pipeline_steps(definition):
     )
 
 
+def _canvases(definition, arguments=None):
+    """Each pipeline step's `(width, height)`, as `pipeline_values` reads
+    them, None for a step that does not set both as numbers."""
+    widths = pipeline_values(definition, "width", arguments)
+    heights = pipeline_values(definition, "height", arguments)
+    return [(w, h) if w and h else None for w, h in zip(widths, heights)]
+
+
+def _size(value):
+    # A canvas counts by its pixels
+    return value[0] * value[1] if isinstance(value, tuple) else value
+
+
+def _described(values, mean):
+    if not isinstance(values[0], tuple):
+        return _number(mean)
+    if len(set(values)) == 1:
+        width, height = values[0]
+        return f"{_number(width)}x{_number(height)}"
+    return f"{_number(mean)} pixels"
+
+
 def _scale_past_template(definition, template, drivers, arguments):
     """How the workflow's size compares to the template run the bucket was
-    measured on (#821, #851): (factor, reason). The factor is the ratio of
-    pipeline steps times the ratio of mean frames per step - linear, as
-    `derived` re-prices a list of another length - and the reason names
-    each axis that moved. (1, None) when the workflow is the template's
-    size; (None, reason) when its size cannot be compared."""
+    measured on (#821, #851, #866): (factor, reason). The factor is the
+    ratio of pipeline steps times the ratios of the mean frames, inference
+    steps and canvas pixels per step - linear, as `scale_curated` re-prices
+    a catalog figure along the same axes, so the two quote one request
+    alike - and the reason names each axis that moved. (1, None) when the
+    workflow is the template's size; (None, reason) when its size cannot be
+    compared."""
     steps, template_steps = _pipeline_steps(definition), _pipeline_steps(template)
     # The template as the bucket's drivers set it
     bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
@@ -288,18 +314,41 @@ def _scale_past_template(definition, template, drivers, arguments):
         reasons.append(
             f"runs the pipeline in {steps} steps, template measured {template_steps}"
         )
-    # `pipeline_frames` takes the template's variables as the bucket sets them
-    mine = [f for f in pipeline_frames(definition, arguments) if f]
-    theirs = [f for f in pipeline_frames(bucket) if f]
-    if mine and theirs:
-        mean_mine, mean_theirs = sum(mine) / len(mine), sum(theirs) / len(theirs)
-        if mean_mine != mean_theirs:
-            factor *= mean_mine / mean_theirs
-            reasons.append(
-                f"frame count {_number(mean_mine)} vs {_number(mean_theirs)} per step"
-            )
-    elif "frame count" in inherited_differences(definition, bucket, arguments):
-        return None, "frame count differs and cannot be compared"
+    # Each axis read per pipeline step, the template's variables as the
+    # bucket sets them; a step that does not set it as a number is left out
+    for label, keys, mine, theirs in (
+        (
+            "frame count",
+            ("num_frames",),
+            pipeline_frames(definition, arguments),
+            pipeline_frames(bucket),
+        ),
+        (
+            "inference steps",
+            ("num_inference_steps",),
+            pipeline_values(definition, "num_inference_steps", arguments),
+            pipeline_values(bucket, "num_inference_steps"),
+        ),
+        (
+            "canvas",
+            ("width", "height"),
+            _canvases(definition, arguments),
+            _canvases(bucket),
+        ),
+    ):
+        mine = [value for value in mine if value]
+        theirs = [value for value in theirs if value]
+        if mine and theirs:
+            mean_mine = sum(map(_size, mine)) / len(mine)
+            mean_theirs = sum(map(_size, theirs)) / len(theirs)
+            if mean_mine != mean_theirs:
+                factor *= mean_mine / mean_theirs
+                reasons.append(
+                    f"{label} {_described(mine, mean_mine)} vs "
+                    f"{_described(theirs, mean_theirs)} per step"
+                )
+        elif any(sets_differently(definition, bucket, key, arguments) for key in keys):
+            return None, f"{label} differs and cannot be compared"
     return factor, "; ".join(reasons) or None
 
 

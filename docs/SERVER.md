@@ -455,8 +455,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `observed` runs of the catalog template that loads the same pipeline -
   `component_type` + `model_name` + `workflow`, as the VRAM ceiling is
   inherited - with `inherited_from` naming it and `differs` listing what the
-  workflow sets differently among offload, quantization and frame count;
-  validate warns when it does, and never refuses); a composed child's
+  workflow sets differently among offload, quantization, frame count,
+  attention backend, cache and LoRA, with `low_confidence` true when it lists
+  any; more pipeline steps, frames, inference steps or canvas pixels than the
+  template's run re-price it in proportion, as the catalog figure is scaled,
+  with `scaled` naming each axis; validate warns when it does, and never
+  refuses); a composed child's
   cost is added to a curated figure and `partial` is true when a child has
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false; and
