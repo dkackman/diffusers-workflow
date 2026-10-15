@@ -15,6 +15,7 @@ from dw.task_domains import task_argument_errors
 from dw.task_problems import script_lines_errors
 from dw.script_lines import (
     normalize_words,
+    disambiguated,
     parse_lines,
     parse_shots,
     shot_names_error,
@@ -118,8 +119,13 @@ class TestParseLines(unittest.TestCase):
         self.assertEqual(
             parsed,
             [
-                {"text": "Hello", "tokens": ["cutoff"], "shot": None},
-                {"text": "World", "tokens": ["s1"], "shot": None},
+                {
+                    "text": "Hello",
+                    "tokens": ["cutoff"],
+                    "shot": None,
+                    "start_frame": None,
+                },
+                {"text": "World", "tokens": ["s1"], "shot": None, "start_frame": None},
             ],
         )
 
@@ -831,6 +837,38 @@ class TestShotValidation(unittest.TestCase):
         records = [{"name": "A"}, {"name": "A"}]
         message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
         self.assertIn("more than once", message)
+        self.assertIn("start_frame", message)
+
+    def test_start_frame_picks_one_occurrence_of_a_repeated_shot(self):
+        records = [
+            {"name": "A", "start_frame": 0},
+            {"name": "B", "start_frame": 10},
+            {"name": "A", "start_frame": 20},
+        ]
+        lines = parse_lines(
+            [{"text": "x", "shot": "A", "start_frame": 20}, {"text": "y", "shot": "B"}]
+        )
+        self.assertIsNone(shot_names_error(lines, records))
+        resolved = with_full_shot_names(lines, records)
+        self.assertEqual([line["shot"] for line in resolved], ["A#20", "B"])
+        self.assertEqual(
+            [record["name"] for record in disambiguated(records)], ["A#0", "B", "A#20"]
+        )
+
+    def test_a_start_frame_no_occurrence_has_is_refused(self):
+        records = [{"name": "A", "start_frame": 0}, {"name": "A", "start_frame": 20}]
+        lines = parse_lines([{"text": "x", "shot": "A", "start_frame": 5}])
+        self.assertIn("matches no occurrence", shot_names_error(lines, records))
+
+    def test_the_refusal_lists_only_the_nameable_shots(self):
+        records = [
+            {"name": "A", "start_frame": 0},
+            {"name": "A", "start_frame": 20},
+            {"name": "B", "start_frame": 40},
+        ]
+        message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
+        self.assertIn("Shots named without it: 'B'", message)
+        self.assertNotIn("'A', 'B'", message)
 
     def test_a_name_repeated_only_across_files_is_not_a_duplicate(self):
         # shots.duplicate_shot_names groups by file (#644 arch review).

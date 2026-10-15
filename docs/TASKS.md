@@ -3007,7 +3007,7 @@ The step's `result.content_type` must be `"application/json"`; read the answer w
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | The take - a path, `asset:`/`output:` reference, or an earlier step's audio or video (its soundtrack is taken) |
-| `lines` | Yes | The expected lines in order: a list of strings or `{text, shot}` objects, `shot` naming the take's shot the line belongs in. Markup is stripped (below). `[]` means no speech is expected |
+| `lines` | Yes | The expected lines in order: a list of strings or `{text, shot}` objects, `shot` naming the take's shot the line belongs in; a shot name the map holds more than once (a cut joined from episodes sharing names) also needs `start_frame` on the line, `{text, shot, start_frame}`, and findings call it `name#start_frame`. Markup is stripped (below). `[]` means no speech is expected |
 | `shots` | No | The take's shot map, `[{name, start_frame, num_frames, start_sample, num_samples}]`. Default: the take's own `.shots` (an earlier step's video), else the run manifest or `keep_output` sidecar beside an `asset:`/`output:` file - resolved as the assessment probes resolve them (`assess.resolve_shots`). The argument wins over both |
 | `similarity` | No | Least similarity, 0..1, of a line's heard words to its expected words before it is a `line_mismatch` (default `0.85`) |
 | `model_name` | No | HuggingFace ID of a Whisper-class ASR model (default `openai/whisper-base`) |

@@ -769,7 +769,7 @@ by the source, and `validate_workflow` names the entries to add or drop.
    arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
    it takes an audio file or a video's muxed soundtrack directly, and
    `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
-   a line's shot, `[]` for a take that should be silent), then
+   a line's shot (plus `start_frame` when the cut repeats that shot's name), `[]` for a take that should be silent), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
    "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the

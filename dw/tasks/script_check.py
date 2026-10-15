@@ -52,6 +52,7 @@ from ..script_lines import (
     COMMAND,
     REPEAT_MAX_PERIOD,
     REPEAT_RUN_MIN,
+    disambiguated,
     looped_texts,
     normalize_words,
     parse_lines,
@@ -623,7 +624,11 @@ def check_script(
         lines: The expected lines in order - a list of strings or
             {text, shot}, 'shot' naming the take's shot the line belongs in -
             its full recorded name, or the short '@name' of exactly one shot
-            ('cold_open' for 'shot@cold_open').
+            ('cold_open' for 'shot@cold_open'). A name the shot map holds
+            more than once (a cut joined from episodes sharing shot names)
+            needs 'start_frame' on the line to pick the occurrence:
+            {text, shot, start_frame}; findings and 'shots' then call it
+            'name#start_frame'.
             H3 markup (<d>[English] ...</d>, <scenetrans>, <cutoff>,
             [unclear], (S1)) is stripped, and a markup word heard spoken is
             'tag_spoken'. [] means no speech is expected.
@@ -659,6 +664,7 @@ def check_script(
         if refusal:
             raise ValueError(refusal)
         parsed_lines = with_full_shot_names(parsed_lines, records)
+        records = disambiguated(records)
     waveform, rate = waveform_and_rate(audio, sample_rate, COMMAND)
 
     from .audio_transcription import transcribe_audio
