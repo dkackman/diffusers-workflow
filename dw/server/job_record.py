@@ -92,6 +92,7 @@ class Job:
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
         # The note it was submitted with; written as the run note at run_start
         self.note = spec.get("note")
+        self.rerun_of = spec.get("rerun_of")
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
@@ -311,6 +312,7 @@ class Job:
                 else {}
             ),
             **({"note": self.note} if self.note else {}),
+            **({"rerun_of": self.rerun_of} if self.rerun_of else {}),
         }
 
     def detail(self):

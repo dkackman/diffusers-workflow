@@ -60,3 +60,27 @@ it('shows the card a job ran on, and nothing for one with no device', async () =
     container.querySelectorAll('[title="the card this job ran on"]'),
   ).toHaveLength(1)
 })
+
+it('marks a rerun', async () => {
+  data.jobs = [
+    summary({ id: 'r1', workflow: 'a-rerun', rerun_of: 'abc' }),
+    summary({ id: 'r2', workflow: 'fresh' }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('fresh')).toBeTruthy())
+  expect(screen.getByTitle('a rerun of abc')).toBeTruthy()
+  expect(container.querySelectorAll('[title^="a rerun of"]')).toHaveLength(1)
+})
+
+it('shows a queued job as waiting and a started one with its wait', async () => {
+  data.jobs = [
+    summary({ id: 'q1', workflow: 'wq', status: 'queued', started_at: null }),
+    summary({ id: 's1', workflow: 'ws', created_at: 100, started_at: 160 }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('ws')).toBeTruthy())
+  expect(container.textContent).toContain('waiting')
+  expect(
+    container.querySelector('[title="waited 1m 00s in the queue"]'),
+  ).toBeTruthy()
+})

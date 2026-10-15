@@ -109,6 +109,15 @@
     <span class="chip {job.status}">{job.status}</span>
     <code class="muted seed" title="this job's id">{job.id}</code>
     <CopyButton text={job.id} title="copy job id" />
+    {#if job?.rerun_of}
+      <span class="muted"
+        >rerun of <a
+          class="plain"
+          href={wsHref(job.workspace, 'jobs', job.rerun_of)}
+          ><code>{job.rerun_of}</code></a
+        ></span
+      >
+    {/if}
     {#if cancelPending}
       <span
         class="muted"

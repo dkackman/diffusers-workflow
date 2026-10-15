@@ -1,5 +1,6 @@
 <script lang="ts">
   import { formatDuration } from '../format'
+  import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
   import { ChevronDown, ChevronUp, ChevronsUp, Inbox } from '@lucide/svelte'
@@ -74,6 +75,7 @@
 
   const when = (t: number | null) =>
     t ? new Date(t * 1000).toLocaleTimeString() : '—'
+  const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
   const duration = (job: JobSummary) => {
     if (!job.started_at) return ''
     const end = job.finished_at ?? Date.now() / 1000
@@ -137,6 +139,11 @@
               >v{job.run_version}</span
             >
           {/if}
+          {#if job.rerun_of}
+            <span class="wschip muted" title="a rerun of {job.rerun_of}"
+              >rerun</span
+            >
+          {/if}
           {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}
@@ -190,7 +197,20 @@
             {/if}
           {/if}
         </span>
-        <span class="muted started">{when(job.started_at)}</span>
+        {#if job.status === 'queued'}
+          {@const wait = waitOf(job)}
+          <span class="muted started" title="time spent waiting for a card"
+            >waiting {wait === null ? '' : formatDuration(wait)}</span
+          >
+        {:else}
+          {@const wait = waitOf(job)}
+          <span
+            class="muted started"
+            title={wait !== null && wait >= 1
+              ? `waited ${formatDuration(wait)} in the queue`
+              : ''}>{when(job.started_at)}</span
+          >
+        {/if}
         <span class="muted dur">{duration(job)}</span>
         <code class="muted jobid">{job.id}</code>
       </a>

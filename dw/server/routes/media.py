@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from ..api_models import (
     GalleryMetadata,
     NoteSet,
+    StarSet,
 )
 from ...assets import is_asset_reference
 from ...library import ReadOnlyLibraryError
@@ -33,6 +34,7 @@ from ...notes import (
     effective_note,
     read_notes,
     set_file_note,
+    set_file_starred,
     set_run_note,
     set_workspace_note,
 )
@@ -967,3 +969,32 @@ def put_note(
         "note": stored,
         "note_source": source if stored else None,
     }
+
+
+class StarRequest(BaseModel):
+    name: str = Field(description="A gallery file name")
+    starred: bool
+
+
+@router.put("/api/stars", response_model=StarSet)
+def put_star(
+    request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Star or unstar one output file - the "keep" mark a person culls a run
+    with. It lives in the run's notes.json beside the notes, so it is
+    resolved exactly as a file note is, and only a file in a run directory
+    can carry one."""
+    if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
+    if kind != "file":
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    try:
+        starred = set_file_starred(directory, name, body.starred)
+    except OSError:
+        raise internal_error(f"Could not write the star on {body.name!r}")
+    return {"name": body.name, "starred": starred}

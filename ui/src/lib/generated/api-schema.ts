@@ -1406,6 +1406,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Star
+         * @description Star or unstar one output file - the "keep" mark a person culls a run
+         *     with. It lives in the run's notes.json beside the notes, so it is
+         *     resolved exactly as a file note is, and only a file in a run directory
+         *     can carry one.
+         */
+        put: operations["put_star_api_stars_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/diffusers": {
         parameters: {
             query?: never;
@@ -2345,6 +2368,11 @@ export interface components {
             /** Size */
             size: number;
             /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
+            /**
              * Subfolder
              * @description What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.
              */
@@ -2550,6 +2578,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2757,6 +2790,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
@@ -3527,6 +3565,23 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /** StarRequest */
+        StarRequest: {
+            /**
+             * Name
+             * @description A gallery file name
+             */
+            name: string;
+            /** Starred */
+            starred: boolean;
+        };
+        /** StarSet */
+        StarSet: {
+            /** Name */
+            name: string;
+            /** Starred */
+            starred: boolean;
         };
         /**
          * StepTiming
@@ -5881,6 +5936,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_star_api_stars_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarSet"];
                 };
             };
             /** @description Validation Error */

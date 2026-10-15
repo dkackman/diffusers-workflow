@@ -1285,6 +1285,11 @@
             "title": "Size",
             "type": "integer"
           },
+          "starred": {
+            "description": "True when the file is starred; absent otherwise.",
+            "title": "Starred",
+            "type": "boolean"
+          },
           "subfolder": {
             "description": "What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.",
             "title": "Subfolder",
@@ -1792,6 +1797,11 @@
             "description": "Index in the waiting queue; only while queued.",
             "title": "Queue Position",
             "type": "integer"
+          },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
           },
           "run_dir": {
             "anyOf": [
@@ -2344,6 +2354,11 @@
             "description": "Index in the waiting queue; only while queued.",
             "title": "Queue Position",
             "type": "integer"
+          },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
           },
           "run_id": {
             "anyOf": [
@@ -4291,6 +4306,44 @@
           "shadowed_by"
         ],
         "title": "ShadowedEntry",
+        "type": "object"
+      },
+      "StarRequest": {
+        "properties": {
+          "name": {
+            "description": "A gallery file name",
+            "title": "Name",
+            "type": "string"
+          },
+          "starred": {
+            "title": "Starred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "starred"
+        ],
+        "title": "StarRequest",
+        "type": "object"
+      },
+      "StarSet": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starred": {
+            "title": "Starred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "starred"
+        ],
+        "title": "StarSet",
         "type": "object"
       },
       "StepTiming": {
@@ -8576,6 +8629,63 @@
           }
         },
         "summary": "Server Info"
+      }
+    },
+    "/api/stars": {
+      "put": {
+        "description": "Star or unstar one output file - the \"keep\" mark a person culls a run\nwith. It lives in the run's notes.json beside the notes, so it is\nresolved exactly as a file note is, and only a file in a run directory\ncan carry one.",
+        "operationId": "put_star_api_stars_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Star"
       }
     },
     "/api/system/diffusers": {

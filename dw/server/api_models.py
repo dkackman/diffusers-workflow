@@ -387,6 +387,9 @@ class JobSummary(ApiModel):
     historical: bool = sometimes("Read from job history rather than a live job.")
     queue_position: int = sometimes("Index in the waiting queue; only while queued.")
     note: str = sometimes("The note it was submitted with; also its run's note.")
+    rerun_of: str = sometimes(
+        "The job this one reran; absent for a job submitted fresh."
+    )
 
 
 class StepTiming(ApiModel):
@@ -934,6 +937,7 @@ class GalleryFile(ApiModel):
         "consumed; null under the flat layout or when no manifest lists the file."
     )
     note: str = sometimes("The effective note: the file's own, else its run's.")
+    starred: bool = sometimes("True when the file is starred; absent otherwise.")
 
 
 class GalleryList(ApiModel):
@@ -1066,6 +1070,11 @@ class Kept(ApiModel):
     workspace: str
     linked: bool
     shared: bool
+
+
+class StarSet(ApiModel):
+    name: str
+    starred: bool
 
 
 class NoteSet(ApiModel):

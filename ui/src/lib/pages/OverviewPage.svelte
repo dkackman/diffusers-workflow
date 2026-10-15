@@ -1,10 +1,21 @@
 <script lang="ts">
-  import { Images, Inbox, Layers, Play, Plus, Trash2 } from '@lucide/svelte'
+  import {
+    Eye,
+    EyeOff,
+    Images,
+    Inbox,
+    Layers,
+    Play,
+    Plus,
+    Trash2,
+  } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
+  import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
+  import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary } from '../types'
@@ -151,7 +162,7 @@
   {#if recentError}
     <p class="muted">Could not load recent outputs: {recentError}</p>
   {:else if recent === null}
-    <p class="muted">loading…</p>
+    <Skeleton tiles={RECENT} label="loading recent outputs" />
   {:else if recent.length === 0}
     <Empty
       >{#snippet icon()}<Images size={36} strokeWidth={1.5} />{/snippet}Nothing
@@ -190,7 +201,7 @@
     {#if jobsError}
       <p class="muted">Could not load jobs: {jobsError}</p>
     {:else if recentJobs === null}
-      <p class="muted">loading…</p>
+      <Skeleton lines={JOBS} label="loading jobs" />
     {:else if recentJobs.length === 0 && !running}
       <Empty
         >{#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
@@ -235,7 +246,7 @@
     {#if workflowsError}
       <p class="muted">Could not load workflows: {workflowsError}</p>
     {:else if workflows === null}
-      <p class="muted">loading…</p>
+      <Skeleton lines={3} label="loading workflows" />
     {:else if workflows.length === 0}
       <Empty
         >{#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}No
@@ -298,6 +309,15 @@
       Deleting removes the workspace's workflows, assets and outputs on the
       server. The prompt library and the shared asset library are untouched.
     </p>
+    <button
+      class="quiet withicon"
+      onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
+      disabled={name === DEFAULT_WORKSPACE}
+      title="a choice for this browser only - the workspace itself is unchanged"
+    >
+      {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
+        sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
+    </button>
     <button
       class="quiet icon danger"
       onclick={() => deleteWorkspaceWithConfirm(name)}

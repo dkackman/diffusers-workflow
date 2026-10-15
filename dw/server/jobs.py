@@ -231,6 +231,7 @@ class JobManager:
         host_ram_need=None,
         preferred_device=None,
         note=None,
+        rerun_of=None,
     ):
         """Record a job request and queue it.
 
@@ -276,6 +277,8 @@ class JobManager:
 
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
+
+        `rerun_of` is the job this one reruns, recorded so the list can say so.
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -325,6 +328,8 @@ class JobManager:
         spec["warnings"] = list(warnings or [])
         if note:
             spec["note"] = note
+        if rerun_of:
+            spec["rerun_of"] = rerun_of
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
@@ -572,6 +577,7 @@ class JobManager:
             host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
+            rerun_of=job_id,
         )
 
     def _original_device(self, job_id):

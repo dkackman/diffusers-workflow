@@ -1,16 +1,19 @@
 <script lang="ts">
-  import { ImageOff, Pencil, Play } from '@lucide/svelte'
+  import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach } from '../picks.svelte'
+  import { isEditable } from '../editable'
+  import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, GalleryInput, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
+  import { go } from '../router.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
 
@@ -60,7 +63,10 @@
 
   // A file whose run does not say its role counts as final
   const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
-  const filterActive = $derived(filter !== '' || roles.length < 2)
+  let starredOnly = $state(false)
+  const filterActive = $derived(
+    filter !== '' || roles.length < 2 || starredOnly,
+  )
   // Finals lead inside a run only: the server's order (newest first) holds
   // between runs, so runs sit where their newest file put them. The sort is
   // stable, so it holds inside each role too
@@ -69,7 +75,8 @@
     const shown = files.filter(
       (f) =>
         f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        roles.includes(roleOf(f)),
+        roles.includes(roleOf(f)) &&
+        (!starredOnly || f.starred),
     )
     const runs: string[] = []
     for (const f of shown) if (!runs.includes(runKey(f))) runs.push(runKey(f))
@@ -79,6 +86,18 @@
         runs.indexOf(runKey(a)) - runs.indexOf(runKey(b)) || rank(a) - rank(b),
     )
   })
+  async function toggleStar() {
+    if (!selected) return
+    const name = selected.name
+    const next = !selected.starred
+    try {
+      await api.setStarred(name, next)
+      files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
+      if (selected?.name === name) selected = { ...selected, starred: next }
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
   // Never both off: an empty grid is not a state worth offering
   function toggleRole(which: OutputRole) {
     const next = roles.includes(which)
@@ -128,8 +147,20 @@
     busy = false
   }
 
+  // Where the open file stood in the grid when last seen there, so stepping
+  // goes on from that place once a filter or an unstar has hidden it
+  let selectedAt = -1
+  // The grid's order, noting the open file's place while it is still listed
+  function gridOrder() {
+    const order = visible.map((f) => f.name)
+    const at = selected ? order.indexOf(selected.name) : -1
+    if (at !== -1) selectedAt = at
+    return order
+  }
+
   function select(file: GalleryFile) {
     selected = file
+    selectedAt = visible.findIndex((f) => f.name === file.name)
     metadata = null
     metadataLoading = true
     sourceJob = null
@@ -190,30 +221,69 @@
     )
       return
     const name = selected.name
+    const order = gridOrder()
+    const after =
+      neighbor(order, name, 1, selectedAt) ??
+      neighbor(order, name, -1, selectedAt)
     try {
       await api.deleteOutput(name)
       files = files.filter((f) => f.name !== name)
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
       picks.drop(name)
-      selected = null
+      // Culling goes on to the next file rather than back to the grid
+      if (after && byName.get(after)) select(byName.get(after)!)
+      else selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
     }
   }
-</script>
 
-<svelte:window
-  onkeydown={(e) => {
-    // Escape closes the thing on top, and a dialog answers it itself. The
-    // selection is the more recent, more surprising state to be stuck in,
-    // so it clears first and the detail panel on a second press
-    if (e.key !== 'Escape' || overlayOpen()) return
+  // Escape closes the thing on top, and a dialog answers it itself. The
+  // selection is the more recent, more surprising state to be stuck in,
+  // so it clears first and the detail panel on a second press
+  function escape() {
     if (picks.size) picks.clear()
     else selected = null
-  }}
-/>
+  }
+
+  function step(e: KeyboardEvent, by: 1 | -1) {
+    if (!selected) return
+    const next = neighbor(gridOrder(), selected.name, by, selectedAt)
+    const file = next ? byName.get(next) : undefined
+    if (!file) return
+    e.preventDefault()
+    select(file)
+  }
+
+  // A bare S: with Shift, Alt or a command modifier it is someone else's
+  const isStarKey = (e: KeyboardEvent) =>
+    e.key.toLowerCase() === 's' &&
+    !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
+
+  // Culling a run: step through what the grid shows, delete as you go
+  function cullKey(e: KeyboardEvent) {
+    if (e.key === 'ArrowRight') step(e, 1)
+    else if (e.key === 'ArrowLeft') step(e, -1)
+    else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
+      e.preventDefault()
+      void removeFile()
+    } else if (isStarKey(e)) {
+      e.preventDefault()
+      void toggleStar()
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (overlayOpen()) return
+    if (e.key === 'Escape') return escape()
+    // A key typed into the note box, or a focused video seeking, is theirs
+    if (selected && !isEditable(e.target)) cullKey(e)
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="pagehead baseline">
   <h1>Gallery</h1>
@@ -232,6 +302,13 @@
         >{which === 'final' ? 'Final' : 'Intermediate'}</button
       >
     {/each}
+    <button
+      class="rolechip"
+      class:on={starredOnly}
+      aria-pressed={starredOnly}
+      onclick={() => (starredOnly = !starredOnly)}
+      title="only the files you starred">Starred</button
+    >
   </div>
 </div>
 
@@ -251,6 +328,7 @@
   noun="file"
   ondownload={downloadPicked}
   ondelete={removePicked}
+  oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
 />
 
 <FolderGroups
@@ -328,6 +406,10 @@
               class="note-mark"
               title={file.note.split('\n')[0]}
               aria-label="Has a note"><Pencil size={11} /></span
+            >{/if}{#if file.starred}
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}<span class="note-mark" aria-label="Starred"
+              ><Star size={11} fill="currentColor" /></span
             >{/if}</span
         >
       </button>
@@ -347,6 +429,8 @@
     runNote={noteInfo.runNote}
     noteSource={noteInfo.source}
     onnotesaved={refreshNote}
+    starred={!!selected.starred}
+    onstar={toggleStar}
     onremove={removeFile}
     onclose={() => (selected = null)}
   />

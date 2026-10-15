@@ -5,6 +5,7 @@
     ChevronDown,
     ChevronRight,
     Database,
+    Eye,
     FolderOpen,
     Images,
     LayoutDashboard,
@@ -33,6 +34,9 @@
   import { createWorkspaceAndGo } from './workspaceActions'
   import { formatBytes } from './format'
   import { wsColor } from './wsColor'
+  import { groupWorkspaces } from './wsGroups'
+  import { hiddenWorkspaces } from './hiddenWorkspaces.svelte'
+  import { storageGet, storageSet } from './storage'
 
   let {
     collapsed,
@@ -104,6 +108,21 @@
   const sharedActive = (s: SharedSection) =>
     sharedSection === s || (s === 'prompts' && sharedSection === 'prompt-edit')
 
+  const folded = $derived(
+    groupWorkspaces(workspace.names ?? [workspace.current], {
+      hidden: hiddenWorkspaces.names,
+      open: workspace.current,
+    }),
+  )
+  let openGroups = $state(storageGet<string[]>('open-ws-groups', []))
+  function toggleGroup(prefix: string) {
+    openGroups = openGroups.includes(prefix)
+      ? openGroups.filter((p) => p !== prefix)
+      : [...openGroups, prefix]
+    storageSet('open-ws-groups', openGroups)
+  }
+  let showHidden = $state(false)
+
   let adding = $state(false)
   let newName = $state('')
   let addError = $state('')
@@ -123,6 +142,62 @@
   }
 </script>
 
+{#snippet wsRow(name: string)}
+  {#if name === expanded}
+    <!-- The open workspace is one block: a --select rail and tint
+               behind its name and sections, a guide line down its children,
+               so siblings read as outside it -->
+    <div class="ws open" class:flash={switched} style:--ws-dot={wsColor(name)}>
+      {#if collapsed}
+        <span class="dot solo" title={name}></span>
+      {:else}
+        <span class="wsname" title={name}>
+          <ChevronDown size={13} class="chev" />
+          <span class="dot"></span>
+          <span class="name">{name}</span>
+          {#if workspace.usage[name]}
+            <span
+              class="num muted size"
+              title="{workspace.usage[name].files} files"
+              >{formatBytes(workspace.usage[name].bytes)}</span
+            >
+          {/if}
+        </span>
+      {/if}
+      <div class="sections" transition:slide={motion}>
+        {#each WS_ITEMS as item (item.section)}
+          <a
+            class="plain item"
+            href={wsHref(name, item.section)}
+            aria-current={wsSection === item.section ? 'page' : undefined}
+            title={item.label}
+          >
+            <item.icon size={15} />{#if !collapsed}<span class="label"
+                >{item.label}</span
+              >{/if}
+          </a>
+        {/each}
+      </div>
+    </div>
+  {:else if !collapsed}
+    <a
+      class="plain ws shut"
+      href={wsHref(name, 'overview')}
+      title={name}
+      style:--ws-dot={wsColor(name)}
+    >
+      <ChevronRight size={13} class="chev" />
+      <span class="dot"></span>
+      <span class="name">{name}</span>
+      {#if workspace.usage[name]}
+        <span class="num muted size"
+          >{formatBytes(workspace.usage[name].bytes)}</span
+        >
+      {/if}
+    </a>
+  {/if}
+{/snippet}
+
 <aside class:collapsed {inert} aria-label="navigation">
   <div class="top">
     <a class="brand plain" href={wsHref(workspace.current, 'overview')}>dw</a>
@@ -141,65 +216,50 @@
   <nav>
     <div class="group" role="group" aria-label="workspaces">
       {#if !collapsed}<span class="grouplabel muted">Workspaces</span>{/if}
-      {#each workspace.names ?? [workspace.current] as name (name)}
-        {#if name === expanded}
-          <!-- The open workspace is one block: a --select rail and tint
-               behind its name and sections, a guide line down its children,
-               so siblings read as outside it -->
-          <div
-            class="ws open"
-            class:flash={switched}
-            style:--ws-dot={wsColor(name)}
-          >
-            {#if collapsed}
-              <span class="dot solo" title={name}></span>
-            {:else}
-              <span class="wsname" title={name}>
-                <ChevronDown size={13} class="chev" />
-                <span class="dot"></span>
-                <span class="name">{name}</span>
-                {#if workspace.usage[name]}
-                  <span
-                    class="num muted size"
-                    title="{workspace.usage[name].files} files"
-                    >{formatBytes(workspace.usage[name].bytes)}</span
-                  >
-                {/if}
-              </span>
+      {#each folded.entries as entry (entry.kind === 'ws' ? entry.name : `group:${entry.prefix}`)}
+        {#if entry.kind === 'ws'}
+          {@render wsRow(entry.name)}
+        {:else}
+          {@const isOpen =
+            openGroups.includes(entry.prefix) ||
+            entry.names.includes(workspace.current)}
+          {#if collapsed}
+            {#each entry.names as name (name)}{@render wsRow(name)}{/each}
+          {:else}
+            <button
+              class="plain ws shut wsgroup"
+              aria-expanded={isOpen}
+              onclick={() => toggleGroup(entry.prefix)}
+              title="{entry.names.length} workspaces named {entry.prefix}-…"
+            >
+              {#if isOpen}<ChevronDown
+                  size={13}
+                  class="chev"
+                />{:else}<ChevronRight size={13} class="chev" />{/if}
+              <span class="name">{entry.prefix}-…</span>
+              <span class="num muted size">{entry.names.length}</span>
+            </button>
+            {#if isOpen}
+              <div class="groupkids">
+                {#each entry.names as name (name)}{@render wsRow(name)}{/each}
+              </div>
             {/if}
-            <div class="sections" transition:slide={motion}>
-              {#each WS_ITEMS as item (item.section)}
-                <a
-                  class="plain item"
-                  href={wsHref(name, item.section)}
-                  aria-current={wsSection === item.section ? 'page' : undefined}
-                  title={item.label}
-                >
-                  <item.icon size={15} />{#if !collapsed}<span class="label"
-                      >{item.label}</span
-                    >{/if}
-                </a>
-              {/each}
-            </div>
-          </div>
-        {:else if !collapsed}
-          <a
-            class="plain ws shut"
-            href={wsHref(name, 'overview')}
-            title={name}
-            style:--ws-dot={wsColor(name)}
-          >
-            <ChevronRight size={13} class="chev" />
-            <span class="dot"></span>
-            <span class="name">{name}</span>
-            {#if workspace.usage[name]}
-              <span class="num muted size"
-                >{formatBytes(workspace.usage[name].bytes)}</span
-              >
-            {/if}
-          </a>
+          {/if}
         {/if}
       {/each}
+      {#if folded.hidden.length && !collapsed}
+        <button
+          class="bare muted hiddentoggle"
+          aria-expanded={showHidden}
+          onclick={() => (showHidden = !showHidden)}
+          ><Eye size={13} />{folded.hidden.length} hidden</button
+        >
+        {#if showHidden}
+          <div class="groupkids">
+            {#each folded.hidden as name (name)}{@render wsRow(name)}{/each}
+          </div>
+        {/if}
+      {/if}
       {#if !collapsed && workspace.root}
         {#if adding}
           <form
@@ -443,6 +503,22 @@
     border-left-color: var(--select);
     background: color-mix(in srgb, var(--select) 16%, transparent);
     font-weight: 600;
+  }
+  .groupkids {
+    padding-left: var(--space-3);
+  }
+  /* hidden rows carry the "hidden" toggle's label, not a faded colour: an
+     opacity on --muted text falls below AA in both themes */
+  .hiddentoggle {
+    display: inline-flex;
+    gap: 0.35rem;
+    align-items: center;
+    font-size: var(--t-sm);
+    padding: var(--space-1) var(--space-2);
+  }
+  .wsgroup {
+    width: 100%;
+    text-align: left;
   }
   .newws {
     display: flex;

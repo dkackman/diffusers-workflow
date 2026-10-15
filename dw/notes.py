@@ -73,34 +73,49 @@ def read_notes(directory):
     return {"run": run, "files": files}
 
 
-def _store(directory, notes):
+def read_starred(directory):
+    """The names starred in `directory`'s notes.json, as a set."""
+    starred = _read_json(os.path.join(directory, NOTES_FILE_NAME)).get("starred")
+    if not isinstance(starred, list):
+        return set()
+    return {name for name in starred if isinstance(name, str)}
+
+
+def _store(directory, notes, starred):
     path = os.path.join(directory, NOTES_FILE_NAME)
-    if notes["run"] is None and not notes["files"]:
+    if notes["run"] is None and not notes["files"] and not starred:
         try:
             os.remove(path)
         except FileNotFoundError:
             pass
         return
-    write_json_atomic(path, {k: v for k, v in notes.items() if v})
+    data = {k: v for k, v in notes.items() if v}
+    if starred:
+        data["starred"] = sorted(starred)
+    write_json_atomic(path, data)
 
 
 def _update(directory, change):
+    """Read, change and write notes.json under its lock. `change` gets the
+    notes and the starred set and edits them in place - both, so a write of
+    one never drops the other."""
     with _lock(directory):
         notes = read_notes(directory)
-        change(notes)
-        _store(directory, notes)
+        starred = read_starred(directory)
+        change(notes, starred)
+        _store(directory, notes, starred)
 
 
 def set_run_note(directory, note):
     note = clean_note(note)
-    _update(directory, lambda notes: notes.__setitem__("run", note))
+    _update(directory, lambda notes, _starred: notes.__setitem__("run", note))
     return note
 
 
 def set_file_note(directory, name, note):
     note = clean_note(note)
 
-    def change(notes):
+    def change(notes, _starred):
         if note is None:
             notes["files"].pop(name, None)
         else:
@@ -110,9 +125,28 @@ def set_file_note(directory, name, note):
     return note
 
 
+def set_file_starred(directory, name, starred):
+    starred = bool(starred)
+
+    def change(_notes, names):
+        if starred:
+            names.add(name)
+        else:
+            names.discard(name)
+
+    _update(directory, change)
+    return starred
+
+
 def drop_file_note(directory, name):
+    """Forget a deleted file: its note and its star."""
     if os.path.exists(os.path.join(directory, NOTES_FILE_NAME)):
-        set_file_note(directory, name, None)
+
+        def change(notes, names):
+            notes["files"].pop(name, None)
+            names.discard(name)
+
+        _update(directory, change)
 
 
 def effective_note(notes, name):

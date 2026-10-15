@@ -8,6 +8,7 @@ export const WS_SECTIONS = [
   'workflows',
   'jobs',
   'gallery',
+  'compare',
   'assets',
   'edit',
 ] as const

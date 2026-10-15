@@ -1,6 +1,7 @@
 import type {
   AssetDeleted,
   NoteSet,
+  StarSet,
   AssetList,
   ClassList,
   Deleted,
@@ -300,6 +301,12 @@ export const api = {
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',
+    }),
+  setStarred: (name: string, starred: boolean) =>
+    request<StarSet>('/api/stars', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, starred }),
     }),
   outputDownloadUrl: (name: string, workspace?: string) =>
     withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
