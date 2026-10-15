@@ -515,3 +515,43 @@ class TestTheTemplateAndAnInlineCopyAgree:
         assert "steps 30 vs 9" in copied["scaled"]
         assert "canvas 1344x768 vs 960x544" in copied["scaled"]
         assert abs(copied["minutes"] - catalog["minutes"]) <= 0.1
+
+
+class TestTheShippedTemplatesLoraIsCompared:
+    """#866 stage C (bounce): H3's `loras` entry carries its repo as a
+    `variable:` reference inside the list, so the comparison resolves
+    references at any depth - dropping or swapping the turbo LoRA is named."""
+
+    def template(self):
+        import json
+        from pathlib import Path
+
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/templates/minimax/reference-to-video.json"
+        )
+        return json.loads(path.read_text())
+
+    def test_the_defaults_differ_in_nothing(self):
+        template = self.template()
+        assert inherited_differences(template, template) == []
+
+    def test_dropping_the_lora_is_named(self):
+        template = self.template()
+        arguments = {"lora_model_name": None, "lora_weight_name": None}
+        assert inherited_differences(template, template, arguments) == ["LoRA"]
+
+    def test_swapping_the_lora_is_named(self):
+        template = self.template()
+        arguments = {"lora_model_name": "lightx2v/Some-Other-Lora"}
+        assert inherited_differences(template, template, arguments) == ["LoRA"]
+
+
+def test_the_warning_agrees_in_number():
+    def warned(differs):
+        return _inherited_cost_warnings(
+            {"basis": "inherited", "inherited_from": "templates/t", "differs": differs}
+        )[0]
+
+    assert "its LoRA differs from that template" in warned(["LoRA"])
+    assert "its cache, LoRA differ from that template" in warned(["cache", "LoRA"])
