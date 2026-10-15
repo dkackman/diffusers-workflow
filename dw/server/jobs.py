@@ -228,6 +228,7 @@ class JobManager:
         acknowledged_cost=None,
         warnings=None,
         vram_need=None,
+        host_ram_need=None,
         preferred_device=None,
         note=None,
     ):
@@ -265,6 +266,10 @@ class JobManager:
         `vram_need` is the admission's (`Admission.vram_need`): the job
         starts only on a card with that much VRAM (`check_fits` has already
         refused one no card here holds).
+
+        `host_ram_need` is the admission's (`Admission.host_ram_need`): the
+        host RAM the run is projected to hold at its peak, kept on the job
+        as `job.host_ram_need` (#869). Dispatch does not read it yet.
 
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
@@ -322,6 +327,7 @@ class JobManager:
             spec["note"] = note
 
         job = Job(spec)
+        job.host_ram_need = host_ram_need
         with self._lock:
             self.jobs[job.id] = job
             self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
@@ -509,6 +515,7 @@ class JobManager:
         warnings=None,
         arguments=None,
         vram_need=None,
+        host_ram_need=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -562,6 +569,7 @@ class JobManager:
             ),
             warnings=warnings,
             vram_need=vram_need,
+            host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
         )
@@ -823,6 +831,19 @@ class JobManager:
         except Exception as e:
             logger.warning(f"Could not persist job {job.id}: {e}")
         self._trim_terminal_jobs()
+
+    def forget_workspace(self, workspace):
+        """Drop a deleted workspace's finished jobs, in memory and in history
+        (#913), so a workspace later created under the same name lists none
+        of them. Queued or running jobs are the caller's to refuse first."""
+        with self._lock:
+            for job in [
+                j
+                for j in self.jobs.values()
+                if j.status in TERMINAL_STATES and j.spec.get("workspace") == workspace
+            ]:
+                del self.jobs[job.id]
+        return self.history.forget_workspace(workspace)
 
     def _trim_terminal_jobs(self):
         """Drop the oldest finished jobs from memory - history has them, and

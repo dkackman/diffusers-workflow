@@ -19,6 +19,7 @@ import sqlite3
 import threading
 
 from ..workspace import DEFAULT_WORKSPACE_NAME
+from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
 from .job_record import (
     ACK_NONE,
@@ -28,6 +29,16 @@ from .job_record import (
 )
 
 logger = logging.getLogger("dw")
+
+
+def _memory_key_of(job):
+    """The memory key of the definition the job was admitted with, or None -
+    history is never refused a row over a key it could not compute."""
+    try:
+        return memory_key(job.spec.get("definition"), job.spec.get("arguments"))
+    except Exception:
+        logger.debug("No memory key for job %s", job.id, exc_info=True)
+        return None
 
 
 class JobHistory:
@@ -135,6 +146,13 @@ class JobHistory:
             # column and for a job submitted without one
             if "note" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN note TEXT")
+            # What decides the run's host-RAM footprint - its pipelines,
+            # quantization and offload, arguments resolved
+            # (`host_ram_need.memory_key`, #869). NULL for a row predating
+            # the column, which counts as no data rather than a guess, and
+            # for a run that loads no pipeline
+            if "memory_key" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN memory_key TEXT")
             if "device_ordinal" not in columns or "device_card" not in columns:
                 connection.execute(
                     "UPDATE jobs SET"
@@ -168,8 +186,8 @@ class JobHistory:
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
                 " host_memory_job_peak_rss_mb, run_version, device,"
-                " device_ordinal, device_card, note) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " device_ordinal, device_card, note, memory_key) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -199,8 +217,21 @@ class JobHistory:
                     getattr(job, "device_ordinal", None),
                     getattr(job, "device_card", None),
                     getattr(job, "note", None),
+                    _memory_key_of(job),
                 ),
             )
+
+    def peaks_for_key(self, key):
+        """This machine's job peak RSS, in MB, for every successful run with
+        this memory key - inline and renamed runs too, since the key is not
+        the workflow's name (#869). Empty for a key no run has reported."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT host_memory_job_peak_rss_mb FROM jobs WHERE status = ?"
+                " AND memory_key = ? AND host_memory_job_peak_rss_mb IS NOT NULL",
+                (SUCCEEDED, key),
+            ).fetchall()
+        return [row[0] for row in rows]
 
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
@@ -382,6 +413,16 @@ class JobHistory:
                 " WHERE workspace = ? AND workflow_name = ?",
                 (workspace, workflow_name),
             )
+
+    def forget_workspace(self, workspace):
+        """Delete every row recorded in this workspace (#913). A deleted
+        workspace takes its history with it, so a new workspace reusing the
+        name starts with none. Returns the number of rows removed."""
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM jobs WHERE workspace = ?", (workspace,)
+            )
+            return cursor.rowcount
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded

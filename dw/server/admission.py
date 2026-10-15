@@ -27,7 +27,7 @@ from ..assets import (
 )
 from .. import get_device_type, references, validation
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import build_plan
+from ..plan import build_plan, list_entries
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -39,6 +39,7 @@ from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
+from .host_ram_need import projected_peak
 from .deps import ceiling_index, lora_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
@@ -83,6 +84,10 @@ class Admission:
     # What a card must hold to run it, (gb, hard) or None - the worker pool
     # dispatches on it (dw/vram_estimate.py required_vram_gb, #462)
     vram_need: Optional[tuple] = None
+    # The host RAM it is projected to hold at its peak, (mb, basis, runs) or
+    # None for no figure (dw/server/host_ram_need.py, #869). Set by
+    # admit_for, which has the server's history; nothing dispatches on it yet
+    host_ram_need: Optional[tuple] = None
 
     @property
     def ok(self):
@@ -431,12 +436,18 @@ def pool_capacity(state):
     return manager.largest_ceiling()
 
 
-def admit_for(state, workspace, **request):
+def admit_for(
+    state, workspace, *, catalog_name=None, history_workspace=None, **request
+):
     """`admit()` with this server's view of `workspace` - the asset and
     prompt search paths and the catalog's VRAM ceilings, which live on the
-    app's state rather than in the request."""
+    app's state rather than in the request - and, for an admitted request,
+    its projected host-RAM peak from this server's history.
+
+    `catalog_name` and `history_workspace` say whose runs the fit reads, as
+    `ObservedCosts.rows_for` takes them; None for an inline definition."""
     capacity_gb, capacity_label = pool_capacity(state)
-    return admit(
+    admission = admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
         lora_index=lora_index(state),
@@ -446,6 +457,42 @@ def admit_for(state, workspace, **request):
         prompt_library=server_prompt_library(state),
         **request,
     )
+    if admission.ok:
+        admission.host_ram_need = _host_ram_need(
+            state, admission, catalog_name, history_workspace
+        )
+    return admission
+
+
+def _host_ram_need(state, admission, catalog_name, history_workspace):
+    """projected_peak for an admitted request - best effort: a projection
+    that fails leaves no figure rather than refusing a request admission
+    took."""
+    try:
+        manager = getattr(state, "job_manager", None)
+        history = getattr(manager, "history", None)
+        costs = getattr(state, "observed_costs", None)
+        rows = (
+            costs.rows_for(catalog_name, workspace=history_workspace)
+            if costs is not None and catalog_name
+            else []
+        )
+        candidate = admission.workflow
+        definition = candidate.workflow_definition
+        entries = list_entries(
+            definition,
+            {"variables": candidate.folded_variables(admission.arguments)},
+        )
+        return projected_peak(
+            definition,
+            admission.arguments,
+            history,
+            rows=rows,
+            list_entries=entries,
+        )
+    except Exception:
+        logger.debug("Could not project the job's host-RAM peak", exc_info=True)
+        return None
 
 
 def acknowledgement_form(value):

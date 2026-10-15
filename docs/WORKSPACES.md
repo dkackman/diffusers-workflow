@@ -269,6 +269,21 @@ A step served from the step cache (`reused: true`) has no `timing`, nor does a
 task step or a composed (sub-workflow) step. A failed or cancelled step has no
 manifest entry, so no timing. Job summaries and history are unchanged.
 
+### Host-memory history
+
+Each finished job's history row records a `memory_key`: a digest of the
+run's pipeline identities (`component_type`, `model_name`, `workflow` of
+every pipeline step) and every `quantization_config`, `offload` and
+`group_offload` value, with the caller's arguments resolved. The
+workflow's name is not in it, so a renamed or inline copy of a template
+shares the template's history, and a different `weights_dtype` or offload
+is a different key. From it the server projects a run's host-RAM peak:
+`observed` (the largest job peak RSS among this machine's successful runs
+with the same key), else `fit` (the list-run projection from the
+workflow's own history), else no figure. Rows recorded before the column
+existed have no key and count as no data. Validate reports it as
+`plan.host_memory`.
+
 ## Several workspaces on one server
 
 Everything above describes one workspace. `dw.serve` goes one step
