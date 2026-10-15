@@ -1137,8 +1137,12 @@ def test_transcription_input_is_level_independent():
     rng = numpy.random.default_rng(0)
     loud = rng.uniform(-0.5, 0.5, (1, 48000)).astype(numpy.float32)
     quiet = loud * 0.1
-    a, b = level_for_transcription(loud), level_for_transcription(quiet)
+    (a, gain_a), (b, gain_b) = (
+        level_for_transcription(loud),
+        level_for_transcription(quiet),
+    )
+    assert gain_b > gain_a
     assert numpy.allclose(a, b, atol=1e-4)
-    assert float(numpy.abs(a).max()) <= 0.51
+    assert float(numpy.abs(a).max()) <= 1.0
     silent = numpy.zeros((1, 100), dtype=numpy.float32)
-    assert level_for_transcription(silent) is silent
+    assert level_for_transcription(silent) == (silent, 1.0)

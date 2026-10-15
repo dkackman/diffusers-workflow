@@ -42,11 +42,13 @@ Every threshold is a constant below, named in docs/TASKS.md.
 
 import difflib
 import logging
+import math
 from types import SimpleNamespace
 
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
 from ..task_domains import check_arguments
+from ..events import emit_log
 from ..locations import is_http_url
 from ..script_lines import (
     COMMAND,
@@ -175,20 +177,24 @@ UNSCRIPTED_SPEECH = _rule(
 
 # Whisper drops soft speech from a quiet input, so the same shot got different
 # verdicts by level (#925). The transcriber hears the take scaled so its loud
-# end sits here; the level checks keep reading the original waveform.
-TRANSCRIBE_PEAK = 0.5
+# end sits near full scale - a take only 2 dB under that still lost a soft
+# "Uh," that +6 dB brought back; the level checks keep reading the original
+# waveform.
+TRANSCRIBE_PEAK = 0.9
 TRANSCRIBE_MAX_GAIN = 100.0  # 40 dB: a near-silent take is not boosted to noise
 
 
 def level_for_transcription(waveform):
-    """The waveform scaled so its 99.9th-percentile magnitude is TRANSCRIBE_PEAK."""
+    """(waveform, gain) with the 99.9th-percentile magnitude scaled to
+    TRANSCRIBE_PEAK (spikes past full scale clipped); gain is 1.0 for silence."""
     import numpy
 
     loud = float(numpy.percentile(numpy.abs(waveform), 99.9)) if waveform.size else 0.0
     if loud <= 0.0:
-        return waveform
+        return waveform, 1.0
     gain = min(TRANSCRIBE_PEAK / loud, TRANSCRIBE_MAX_GAIN)
-    return (waveform * gain).astype(numpy.float32)
+    leveled = numpy.clip(waveform * gain, -1.0, 1.0).astype(numpy.float32)
+    return leveled, gain
 
 
 def shot_spans(records, sample_rate, fps, duration):
@@ -796,8 +802,13 @@ def check_script(
 
     from .audio_transcription import transcribe_audio
 
+    leveled, gain = level_for_transcription(waveform)
+    emit_log(
+        f"check_script: transcribing at {20 * math.log10(gain):+.1f} dB gain",
+        transcription_gain_db=round(20 * math.log10(gain), 2),
+    )
     transcript = transcribe_audio(
-        level_for_transcription(waveform),
+        leveled,
         device=device,
         sample_rate=rate,
         model_name=model_name,
