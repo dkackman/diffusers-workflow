@@ -59,6 +59,16 @@ Both tiers use the same template (`templates/minimax/reference-to-video`, or
 is an argument on every H3 template, `dialogue-short` included. Set it at
 both tiers on CUDA: it never moves composition.
 
+**`dialogue-short` at 1344x768** (every rung below is that canvas): a shot
+with 4 references must be 124 frames (*Frame ceiling* above). The default
+`shots` list's `tag` (`shots[4]`) is 141 frames with 4 references, so
+`validate_workflow` refuses it at `variables.shots[4]`. Pass your own
+`shots` argument at both tiers: `get_workflow` the template, copy
+`variables.shots`, set `shots[4].num_frames` to 124 (or drop a reference
+from it), and pass the list unchanged at draft and final. A cut you write
+follows the same rule: every 4-reference shot at 124. Check the trimmed
+shot's line still fits 5.17 s.
+
 | Target | Draft | Final | Only these change |
 |---|---|---|---|
 | **TV** (sitcom, social, previs) | **L1**, ~5.4 min | **L7**, ~7.2 min | `weights_dtype` `{int4}` to `{int8}` |
@@ -76,7 +86,7 @@ both tiers on CUDA: it never moves composition.
   the start. The L7 final (3/5) is **not confirmed by ear or in playback**.
 - **Cinema.** The base model: `lora_model_name` `null`, `weights_dtype`
   `{int8}`, 1344x768, `video_shift` 12, `audio_shift` 3. B3 is 12 steps, L5 is
-  30. **P1** is L5 plus the template's `cache` argument
+  30. On `dialogue-short`, add the 124-frame `shots` above at both tiers. **P1** is L5 plus the template's `cache` argument
   `{"type": "first_block", "threshold": 0.05}` (-22%, the same staging and
   faces). Both tiers warn `lora_disabled`. That is expected: the warning asks
   for the base schedule, and these values are it. Never draft at B4 (960x544
