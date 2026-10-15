@@ -414,6 +414,16 @@ class JobHistory:
                 (workspace, workflow_name),
             )
 
+    def forget_workspace(self, workspace):
+        """Delete every row recorded in this workspace (#913). A deleted
+        workspace takes its history with it, so a new workspace reusing the
+        name starts with none. Returns the number of rows removed."""
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM jobs WHERE workspace = ?", (workspace,)
+            )
+            return cursor.rowcount
+
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded
         before events were kept, None for a job history has never seen -

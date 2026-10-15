@@ -832,6 +832,19 @@ class JobManager:
             logger.warning(f"Could not persist job {job.id}: {e}")
         self._trim_terminal_jobs()
 
+    def forget_workspace(self, workspace):
+        """Drop a deleted workspace's finished jobs, in memory and in history
+        (#913), so a workspace later created under the same name lists none
+        of them. Queued or running jobs are the caller's to refuse first."""
+        with self._lock:
+            for job in [
+                j
+                for j in self.jobs.values()
+                if j.status in TERMINAL_STATES and j.spec.get("workspace") == workspace
+            ]:
+                del self.jobs[job.id]
+        return self.history.forget_workspace(workspace)
+
     def _trim_terminal_jobs(self):
         """Drop the oldest finished jobs from memory - history has them, and
         get()/list() fall through to it. Recent ones stay for event replay."""

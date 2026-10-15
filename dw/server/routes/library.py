@@ -302,6 +302,7 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     forget_workspace_usage()
+    manager.forget_workspace(name)
     logger.info(f"Deleted workspace {name}")
     return {"name": name, "deleted": True, "contents": contents}
 
