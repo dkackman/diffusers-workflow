@@ -3287,7 +3287,7 @@ export interface components {
             device: string;
             /**
              * Differs
-             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.
+             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.
              */
             differs?: string[];
             /**
