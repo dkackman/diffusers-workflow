@@ -35,6 +35,7 @@ from .vram_estimate import reference_count
 from .variables import (
     VariableNotFoundError,
     replace_variables,
+    same_number,
     undeclared_variable_references,
 )
 from .vram_estimate import pipeline_identity, vram_estimate_errors
@@ -99,7 +100,9 @@ def _carried(node, key):
     if isinstance(node, dict):
         for name, value in node.items():
             if name == key:
-                values.add(json.dumps(value, sort_keys=True))
+                # By value, not spelling: a client's JSON round trip turns
+                # the template's `lora_scale` 1.0 into 1 (#908)
+                values.add(json.dumps(same_number(value), sort_keys=True))
             values |= _carried(value, key)
     elif isinstance(node, list):
         for item in node:

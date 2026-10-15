@@ -39,6 +39,20 @@ class VariableCycleError(ValueError):
     or through others, inside `resolve_variable_values`."""
 
 
+def same_number(value):
+    """`value` with every integral float spelled as an int, so 12.0 and 12
+    compare and digest alike - the same value to the run (and to the step
+    cache's equality), but a JSON round trip through a client can respell one
+    as the other (#905, #908). A bool is left alone: True is not 1.0 here."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: same_number(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [same_number(item) for item in value]
+    return value
+
+
 def _resolve_variable_reference(value, variables):
     """
     If value is a "variable:name" reference, look it up and return (True, resolved).
