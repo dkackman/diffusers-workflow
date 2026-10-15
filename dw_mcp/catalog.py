@@ -338,7 +338,16 @@ def get_gallery_metadata(
     job = body.get("job")
     hints = []
     if body.get("metadata") is None:
-        if job and job.get("id"):
+        if job and job.get("status") == "forgotten":
+            hints.append(
+                "metadata is null because this file has none embedded, and "
+                f'its job {job.get("id")} is no longer in the server\'s '
+                "history (status 'forgotten'), so get_job_workflow would "
+                "answer 'Unknown job'. What remains is this file's own "
+                "`note` and `inputs` when present, or get_job_workflow of "
+                "an older job that is still listed."
+            )
+        elif job and job.get("id"):
             hints.append(
                 "metadata is null because this file has none embedded - a "
                 "pipeline's image carries it, but video, audio and an image "

@@ -600,3 +600,13 @@ def test_an_upload_under_a_fresh_name_leaves_other_provenance(
     assert up.status_code == 201
     with open(manifest) as handle:
         assert handle.read() == '{"steps": ['
+
+
+def test_a_kept_asset_whose_job_left_history_reports_it_forgotten(
+    client, output_root, make_run
+):
+    """#918: the id stays, but the stale status is not reported as current."""
+    run = run_name(make_run("wf", ["x.png"]), output_root)
+    _keep_with_provenance(client, run, "uploads/x.png")
+    meta = client.get("/api/gallery/asset:uploads/x.png/metadata").json()
+    assert meta["job"] == {"id": "abc", "status": "forgotten"}
