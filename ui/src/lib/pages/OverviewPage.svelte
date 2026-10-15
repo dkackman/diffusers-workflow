@@ -3,6 +3,7 @@
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
+  import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
   import { latestProofs } from '../proofs'
@@ -151,7 +152,7 @@
   {#if recentError}
     <p class="muted">Could not load recent outputs: {recentError}</p>
   {:else if recent === null}
-    <p class="muted">loading…</p>
+    <Skeleton tiles={RECENT} label="loading recent outputs" />
   {:else if recent.length === 0}
     <Empty
       >{#snippet icon()}<Images size={36} strokeWidth={1.5} />{/snippet}Nothing
@@ -190,7 +191,7 @@
     {#if jobsError}
       <p class="muted">Could not load jobs: {jobsError}</p>
     {:else if recentJobs === null}
-      <p class="muted">loading…</p>
+      <Skeleton lines={JOBS} label="loading jobs" />
     {:else if recentJobs.length === 0 && !running}
       <Empty
         >{#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}No jobs
@@ -235,7 +236,7 @@
     {#if workflowsError}
       <p class="muted">Could not load workflows: {workflowsError}</p>
     {:else if workflows === null}
-      <p class="muted">loading…</p>
+      <Skeleton lines={3} label="loading workflows" />
     {:else if workflows.length === 0}
       <Empty
         >{#snippet icon()}<Layers size={36} strokeWidth={1.5} />{/snippet}No
