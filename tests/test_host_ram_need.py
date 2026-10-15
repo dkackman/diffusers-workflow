@@ -116,6 +116,12 @@ class TestMemoryKey:
 
         assert memory_key(definition) is None
 
+    def test_an_undeclared_variable_has_no_key(self):
+        definition = template()
+        definition["variables"].pop("weights_dtype")
+
+        assert memory_key(definition) is None
+
 
 class TestProjectedPeak:
     def test_an_observed_peak_beats_the_fit(self, tmp_path):
