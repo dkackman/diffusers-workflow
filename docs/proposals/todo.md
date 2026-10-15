@@ -37,6 +37,14 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 quality ramp: draft -> final tiers** (#862, stage #882), shipped
+  2026-10-15. A `## Ramp` section in the `minimax-h3` skill's
+  `references/quality-and-speed.md`, not a new skill: TV L1 -> L7, cinema
+  B3 -> L5/P1, ship a close-up draft, with the arguments per rung, what
+  carries (with #861's seed counts), what to approve per tier, how to judge
+  and how to quote cost. Record, including what was deferred (MagCache M2
+  as the cinema-final cache, a top-level skill once a second family has a
+  ladder): `complete/h3-quality-ramp-complete.md`.
 - **Dispatch holds a queued job for host RAM** (#869, stages #909-#910),
   shipped 2026-10-15. A job waits `queued`, with a `queue_wait` event and a
   live `waiting_for`, while its projected peak (the max observed for its
