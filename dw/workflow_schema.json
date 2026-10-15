@@ -783,7 +783,7 @@
                             ]
                         },
                         "num_inference_steps": {
-                            "description": "Required for mag cache type. Must match the pipeline's num_inference_steps.",
+                            "description": "Required for mag cache type. The transformer forwards the call runs: the pipeline's num_inference_steps, except where the scheduler runs fewer (MiniMax-H3 runs one fewer, so a calibration reports one ratio fewer than the call's steps; set this to the count reported).",
                             "type": "integer"
                         },
                         "max_skip_steps": {

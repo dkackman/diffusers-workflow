@@ -876,15 +876,43 @@ class _MagCalibrationHandler(logging.Handler):
             context = _active_cache_context_name(self.transformer)
         except (ValueError, SyntaxError):
             return
-        label = f" [{context}]" if context in ("cond", "uncond") else ""
-        text = (
-            f"MagCache calibration ({len(ratios)} steps){label}: "
-            f"{ratios} \u2014 paste into mag_ratios"
-        )
-        if context == "cond":
-            text += " (classifier-free guidance runs two lists; the cond one is the usual choice)"
-        emit_log(text)
-        emit_warning(text)
+        _report_mag_ratios(ratios, context)
+
+
+def _report_mag_ratios(ratios, context):
+    label = f" [{context}]" if context in ("cond", "uncond") else ""
+    text = (
+        f"MagCache calibration ({len(ratios)} steps){label}: "
+        f"{ratios} \u2014 paste into mag_ratios"
+    )
+    if context == "cond":
+        text += " (classifier-free guidance runs two lists; the cond one is the usual choice)"
+    emit_log(text)
+    emit_warning(text)
+
+
+def _report_unfinished_mag_calibration(transformer):
+    """Report the ratios a calibrating call left in its mag state (#927).
+
+    diffusers logs a calibration only when its step counter reaches the
+    config's num_inference_steps, and a scheduler can run fewer forwards than
+    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
+    with its ratios still in the state, which the call's reset then drops. A
+    call that did finish has nothing left here - diffusers clears the list
+    when it logs - so nothing is reported twice.
+    """
+    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
+        return
+    from diffusers.hooks.mag_cache import MagCacheBlockHook
+
+    for module in transformer.modules():
+        registry = getattr(module, "_diffusers_hook", None)
+        for hook in getattr(registry, "hooks", {}).values():
+            if isinstance(hook, MagCacheBlockHook) and hook.is_tail:
+                for name, state in hook.state_manager._state_cache.items():
+                    if state.calibration_ratios:
+                        _report_mag_ratios(list(state.calibration_ratios), name)
+                return
 
 
 @contextlib.contextmanager
@@ -964,6 +992,8 @@ def stateful_cache_context(pipeline, segment=None):
     try:
         with transformer.cache_context(_CACHE_CONTEXT_NAME):
             yield
+        # Only a call that completed has ratios worth pasting
+        _report_unfinished_mag_calibration(transformer)
     finally:
         try:
             report_cache_stats(counter, segment)
