@@ -442,8 +442,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `width` x `height` and `num_frames` - per entry in a list, summed - that
   the caller moved off the variable defaults a `cost` entry is measured at,
   with `scaled` naming each moved axis; an estimate, not a measurement; a
-  moved driver with no rule to scale by, or a non-numeric value, is
-  `unknown`), `other_device` (no entry for
+  non-numeric value of one of those is `unknown`). Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA, a music
+  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  under whatever basis it has, with `low_confidence` true and `differs`
+  naming the drivers that moved, because it was measured at another setting
+  of them; `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
   so there is nothing honest to extrapolate along) or `inherited` (an

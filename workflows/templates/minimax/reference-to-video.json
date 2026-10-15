@@ -14,7 +14,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "vram_estimate": {
         "base_gb": 16.0,

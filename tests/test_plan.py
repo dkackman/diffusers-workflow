@@ -412,6 +412,61 @@ class TestFingerprintStillChangesWithWhatChangesTheOutput:
 
 
 CATALOG_H3 = "workflows/templates/minimax/reference-to-video.json"
+CATALOG_MUSIC = "workflows/templates/minimax/music.json"
+# The knobs stage B of #866 made cost drivers of every H3 template
+H3_UNSCALABLE = ("weights_dtype", "lora_model_name", "attention_backend", "cache")
+
+
+def _repo_json(path):
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    return json.loads((root / path).read_text())
+
+
+def _minimax_with_h3_drivers():
+    import glob
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    found = []
+    for path in sorted(glob.glob(str(root / "workflows/templates/minimax/*.json"))):
+        drivers = json.loads(pathlib.Path(path).read_text()).get("cost_drivers") or []
+        if "weights_dtype" in drivers:
+            found.append(str(pathlib.Path(path).relative_to(root)))
+    return found
+
+
+@pytest.mark.parametrize("path", _minimax_with_h3_drivers())
+def test_h3_unscalable_drivers_leave_every_fingerprint(plan, path):
+    """Stage 0's pin, held for stage B (#866): declaring H3's unscalable
+    knobs as cost drivers changes no template's plan fingerprint."""
+    template = _repo_json(path)
+    before = copy.deepcopy(template)
+    before["cost_drivers"] = [
+        name for name in template["cost_drivers"] if name not in H3_UNSCALABLE
+    ]
+    assert plan(template)["fingerprint"] == plan(before)["fingerprint"]
+
+
+def test_every_h3_template_with_drivers_declares_its_unscalable_knobs():
+    """#866 stage B: a minimax H3 template that buckets on its size also
+    buckets on the knobs that move its wall clock with no rule to scale by."""
+    import glob
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    missing = []
+    for path in sorted(glob.glob(str(root / "workflows/templates/minimax/*.json"))):
+        definition = json.loads(pathlib.Path(path).read_text())
+        variables = definition.get("variables") or {}
+        if not definition.get("cost_drivers") or "weights_dtype" not in variables:
+            continue
+        absent = [n for n in H3_UNSCALABLE if n not in definition["cost_drivers"]]
+        if absent:
+            missing.append((pathlib.Path(path).name, absent))
+    assert _minimax_with_h3_drivers()
+    assert missing == []
 
 
 class TestTheCatalogH3Template:
@@ -428,11 +483,8 @@ class TestTheCatalogH3Template:
 
     def test_cost_drivers_leave_the_fingerprint(self, plan, template):
         other = copy.deepcopy(template)
-        other["cost_drivers"] = other["cost_drivers"] + [
-            "weights_dtype",
-            "attention_backend",
-            "lora_model_name",
-            "cache",
+        other["cost_drivers"] = [
+            name for name in other["cost_drivers"] if name not in H3_UNSCALABLE
         ]
         del other["vram_estimate"]
         assert plan(template)["fingerprint"] == plan(other)["fingerprint"]
@@ -656,25 +708,29 @@ class TestEstimate:
         spec["cost"] = [cost("cuda", 10.04)]
         assert plan(spec)["estimate"]["minutes"] == 10.0
 
-    def test_a_shifted_unscalable_cost_driver_falls_back_to_unknown(self, plan):
+    def test_a_shifted_unscalable_cost_driver_is_flagged(self, plan):
         """The catalog figure was measured at frames=25; a caller who
         overrides a declared cost_driver away from that value is not
         describing the run the figure was measured for (#267). `frames` is
-        not one of the drivers a figure scales along (#866), so there is
-        nothing to re-price it by."""
+        not one of the drivers a figure scales along, so the figure is kept
+        and flagged rather than withheld (#866, Q4)."""
         spec = definition()
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
 
-    def test_a_shifted_unscalable_driver_is_unknown_on_another_device_too(self, plan):
+    def test_a_shifted_unscalable_driver_is_flagged_on_another_device_too(self, plan):
         """#589: the other_device branch skipped the #267 check, so a 241-frame
-        run was quoted the 121-frame clip's figure."""
+        run was quoted the 121-frame clip's figure with nothing to say so."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert (answer["minutes"], answer["basis"]) == (40.0, "other_device")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
 
     def test_an_unshifted_scalar_cost_driver_still_quotes_the_catalog_figure(
         self, plan
@@ -1174,6 +1230,118 @@ class TestTheCatalogTemplatesScale:
         assert answer["scaled"] == (
             "scaled from the curated 21.2 min: frames 705 vs 637 over shots"
         )
+
+
+class TestUnscalableDrivers:
+    """#866 stage B: a declared scalar driver with no rule to scale by keeps
+    the (scaled) figure, sets `low_confidence` and names itself in
+    `differs`, for every template (Q4)."""
+
+    def test_reference_to_video_in_int8(self, plan):
+        template = _repo_json(CATALOG_H3)
+        answer = plan(template, arguments={"weights_dtype": "{int8}"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["weights_dtype"]
+
+    def test_reference_to_video_without_its_lora_at_thirty_steps(self, plan):
+        template = _repo_json(CATALOG_H3)
+        arguments = {"lora_model_name": None, "num_inference_steps": 30}
+        answer = plan(template, arguments=arguments)["estimate"]
+        # 7.88 x 30/9, scaled and flagged
+        assert (answer["minutes"], answer["basis"]) == (26.3, "derived")
+        assert "steps 30 vs 9" in answer["scaled"]
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["lora_model_name"]
+
+    def test_every_moved_knob_is_named(self, plan):
+        template = _repo_json(CATALOG_H3)
+        arguments = {
+            "weights_dtype": "{int8}",
+            "attention_backend": "native",
+            "cache": {"type": "first_block"},
+        }
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert answer["minutes"] == 7.9
+        assert sorted(answer["differs"]) == [
+            "attention_backend",
+            "cache",
+            "weights_dtype",
+        ]
+
+    def test_reference_to_video_at_its_defaults_is_not_flagged(self, plan):
+        template = _repo_json(CATALOG_H3)
+        answer = plan(template)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert "low_confidence" not in answer
+        assert "differs" not in answer
+
+    def test_the_defaults_passed_explicitly_are_not_flagged(self, plan):
+        template = _repo_json(CATALOG_H3)
+        variables = template["variables"]
+        arguments = {name: variables[name] for name in H3_UNSCALABLE}
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert "low_confidence" not in answer
+
+    def test_music_at_another_duration(self, plan):
+        """#440's case, now a flagged figure rather than `unknown`."""
+        template = _repo_json(CATALOG_MUSIC)
+        answer = plan(template, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (3.6, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["audio_duration"]
+
+    def test_a_thin_bucket_blends_toward_a_flagged_figure(self, plan):
+        """One int8 run, blended toward the int4 catalog figure: the blend
+        leans on a figure measured at another setting, so it says so."""
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(
+            spec, arguments={"frames": 9}, observed=observed(minutes=6, runs=1)
+        )["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["tempered"] is True
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
+
+    def test_a_full_bucket_is_not_flagged(self, plan):
+        """Three runs at the moved setting are a measurement of it."""
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(
+            spec, arguments={"frames": 9}, observed=observed(minutes=6, runs=3)
+        )["estimate"]
+        assert answer["minutes"] == 6.0
+        assert "low_confidence" not in answer
+        assert "differs" not in answer
+
+    def test_a_composed_child_at_another_setting_flags_the_total(self, plan, tmp_path):
+        child = {
+            "id": "child",
+            "cost": [cost("cuda", 5)],
+            "variables": {"weights_dtype": "{int4}"},
+            "cost_drivers": ["weights_dtype"],
+            "steps": [],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "cost": [cost("cuda", 2)],
+            "steps": [
+                {"name": "own", "task": {"command": "x", "arguments": {}}},
+                {
+                    "name": "child",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"weights_dtype": "{int8}"},
+                    },
+                },
+            ],
+        }
+        answer = plan(parent)["estimate"]
+        assert answer["minutes"] == 7.0
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["weights_dtype"]
 
 
 def composing(child_path):
