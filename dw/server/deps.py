@@ -25,6 +25,7 @@ from ..vram_inheritance import (
     sets_differently,
     template_identity,
 )
+from ..plan import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -282,29 +283,25 @@ def _canvases(definition, arguments=None):
     return [(w, h) if w and h else None for w, h in zip(widths, heights)]
 
 
-def _size(value):
-    # A canvas counts by its pixels
-    return value[0] * value[1] if isinstance(value, tuple) else value
-
-
-def _described(values, mean):
-    if not isinstance(values[0], tuple):
-        return _number(mean)
-    if len(set(values)) == 1:
-        width, height = values[0]
-        return f"{_number(width)}x{_number(height)}"
-    return f"{_number(mean)} pixels"
+def _means(keys, values):
+    """{key: the mean over `values`}: one key per value, or a canvas's
+    `("width", "height")` over its `(width, height)` pairs."""
+    if len(keys) == 1:
+        values = [(value,) for value in values]
+    return {
+        key: sum(value[index] for value in values) / len(values)
+        for index, key in enumerate(keys)
+    }
 
 
 def _scale_past_template(definition, template, drivers, arguments):
     """How the workflow's size compares to the template run the bucket was
     measured on (#821, #851, #866): (factor, reason). The factor is the
-    ratio of pipeline steps times the ratios of the mean frames, inference
-    steps and canvas pixels per step - linear, as `scale_curated` re-prices
-    a catalog figure along the same axes, so the two quote one request
-    alike - and the reason names each axis that moved. (1, None) when the
-    workflow is the template's size; (None, reason) when its size cannot be
-    compared."""
+    ratio of pipeline steps times what `scale_curated` makes of the mean
+    frames, inference steps and canvas per pipeline step - one rule, so the
+    catalog figure and this one quote a request alike - and the reason names
+    each axis that moved. (1, None) when the workflow is the template's
+    size; (None, reason) when its size cannot be compared."""
     steps, template_steps = _pipeline_steps(definition), _pipeline_steps(template)
     # The template as the bucket's drivers set it
     bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
@@ -315,19 +312,21 @@ def _scale_past_template(definition, template, drivers, arguments):
             f"runs the pipeline in {steps} steps, template measured {template_steps}"
         )
     # Each axis read per pipeline step, the template's variables as the
-    # bucket sets them; a step that does not set it as a number is left out
+    # bucket sets them, and averaged for `scale_curated`; a step that does
+    # not set it as a number is left out
+    measured, effective = {}, {}
     for label, keys, mine, theirs in (
         (
             "frame count",
-            ("num_frames",),
+            (FRAMES_DRIVER,),
             pipeline_frames(definition, arguments),
             pipeline_frames(bucket),
         ),
         (
             "inference steps",
-            ("num_inference_steps",),
-            pipeline_values(definition, "num_inference_steps", arguments),
-            pipeline_values(bucket, "num_inference_steps"),
+            (STEPS_DRIVER,),
+            pipeline_values(definition, STEPS_DRIVER, arguments),
+            pipeline_values(bucket, STEPS_DRIVER),
         ),
         (
             "canvas",
@@ -339,16 +338,15 @@ def _scale_past_template(definition, template, drivers, arguments):
         mine = [value for value in mine if value]
         theirs = [value for value in theirs if value]
         if mine and theirs:
-            mean_mine = sum(map(_size, mine)) / len(mine)
-            mean_theirs = sum(map(_size, theirs)) / len(theirs)
-            if mean_mine != mean_theirs:
-                factor *= mean_mine / mean_theirs
-                reasons.append(
-                    f"{label} {_described(mine, mean_mine)} vs "
-                    f"{_described(theirs, mean_theirs)} per step"
-                )
+            effective.update(_means(keys, mine))
+            measured.update(_means(keys, theirs))
         elif any(sets_differently(definition, bucket, key, arguments) for key in keys):
             return None, f"{label} differs and cannot be compared"
+    scaled = scale_curated(factor, measured, effective)
+    if scaled is None:
+        return None, "its size is not a positive number"
+    factor, axes = scaled
+    reasons.extend(axes)
     return factor, "; ".join(reasons) or None
 
 
