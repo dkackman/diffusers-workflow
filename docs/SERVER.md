@@ -450,7 +450,12 @@ The editor's forms come from these; they are just as usable from scripts:
   validate warns when it does, and never refuses); a composed child's
   cost is added to a curated figure and `partial` is true when a child has
   none - an `observed` figure already measured the whole run, children
-  included, so nothing is added to it and `partial` is false. `plan` is `null` when
+  included, so nothing is added to it and `partial` is false; and
+  `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
+  peak - `basis` is `observed` (the largest job peak RSS of this machine's
+  successful runs with the same memory key) or `fit` (the list-run projection
+  from the workflow's own history), and the key is absent when there is no
+  figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
