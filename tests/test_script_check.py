@@ -1127,3 +1127,18 @@ def test_check_script_defaults_to_the_one_whisper_model():
 
     default = inspect.signature(script_check.check_script).parameters["model_name"]
     assert default.default is audio_transcription.WHISPER_DEFAULT_MODEL
+
+
+def test_transcription_input_is_level_independent():
+    import numpy
+
+    from dw.tasks.script_check import level_for_transcription
+
+    rng = numpy.random.default_rng(0)
+    loud = rng.uniform(-0.5, 0.5, (1, 48000)).astype(numpy.float32)
+    quiet = loud * 0.1
+    a, b = level_for_transcription(loud), level_for_transcription(quiet)
+    assert numpy.allclose(a, b, atol=1e-4)
+    assert float(numpy.abs(a).max()) <= 0.51
+    silent = numpy.zeros((1, 100), dtype=numpy.float32)
+    assert level_for_transcription(silent) is silent

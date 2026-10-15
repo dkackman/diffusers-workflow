@@ -173,6 +173,24 @@ UNSCRIPTED_SPEECH = _rule(
 )
 
 
+# Whisper drops soft speech from a quiet input, so the same shot got different
+# verdicts by level (#925). The transcriber hears the take scaled so its loud
+# end sits here; the level checks keep reading the original waveform.
+TRANSCRIBE_PEAK = 0.5
+TRANSCRIBE_MAX_GAIN = 100.0  # 40 dB: a near-silent take is not boosted to noise
+
+
+def level_for_transcription(waveform):
+    """The waveform scaled so its 99.9th-percentile magnitude is TRANSCRIBE_PEAK."""
+    import numpy
+
+    loud = float(numpy.percentile(numpy.abs(waveform), 99.9)) if waveform.size else 0.0
+    if loud <= 0.0:
+        return waveform
+    gain = min(TRANSCRIBE_PEAK / loud, TRANSCRIBE_MAX_GAIN)
+    return (waveform * gain).astype(numpy.float32)
+
+
 def shot_spans(records, sample_rate, fps, duration):
     """Each shot record as {name, start, end} in seconds on the take, or None
     when one cannot be placed. Placed by `assess.sample_span`, the rule the
@@ -779,7 +797,7 @@ def check_script(
     from .audio_transcription import transcribe_audio
 
     transcript = transcribe_audio(
-        waveform,
+        level_for_transcription(waveform),
         device=device,
         sample_rate=rate,
         model_name=model_name,
