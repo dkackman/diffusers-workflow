@@ -1,11 +1,21 @@
 <script lang="ts">
-  import { Images, Inbox, Layers, Play, Plus, Trash2 } from '@lucide/svelte'
+  import {
+    Eye,
+    EyeOff,
+    Images,
+    Inbox,
+    Layers,
+    Play,
+    Plus,
+    Trash2,
+  } from '@lucide/svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import NoteEditor from '../ui/NoteEditor.svelte'
   import Skeleton from '../ui/Skeleton.svelte'
   import { WORKSPACE } from '../references'
   import { formatBytes } from '../format'
+  import { hiddenWorkspaces, setHidden } from '../hiddenWorkspaces.svelte'
   import { latestProofs } from '../proofs'
   import { wsHref } from '../routes'
   import type { GalleryFile, JobSummary } from '../types'
@@ -299,6 +309,15 @@
       Deleting removes the workspace's workflows, assets and outputs on the
       server. The prompt library and the shared asset library are untouched.
     </p>
+    <button
+      class="quiet withicon"
+      onclick={() => setHidden(name, !hiddenWorkspaces.names.includes(name))}
+      disabled={name === DEFAULT_WORKSPACE}
+      title="a choice for this browser only - the workspace itself is unchanged"
+    >
+      {#if hiddenWorkspaces.names.includes(name)}<Eye size={14} />Show in
+        sidebar{:else}<EyeOff size={14} />Hide from sidebar{/if}
+    </button>
     <button
       class="quiet icon danger"
       onclick={() => deleteWorkspaceWithConfirm(name)}
