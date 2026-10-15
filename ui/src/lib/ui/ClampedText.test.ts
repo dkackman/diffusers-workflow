@@ -53,4 +53,14 @@ describe('ClampedText', () => {
     render(ClampedText, { props: { text: '- **one**', markdown: true } })
     expect(screen.getByText('one').tagName).toBe('STRONG')
   })
+
+  it('fades only text the clamp actually hides', () => {
+    fakeHeights(40, 40)
+    const fits = render(ClampedText, { props: { text: 'short' } })
+    expect(screen.getByText('short').classList.contains('faded')).toBe(false)
+    fits.unmount()
+    fakeHeights(400, 80)
+    render(ClampedText, { props: { text: 'long text' } })
+    expect(screen.getByText('long text').classList.contains('faded')).toBe(true)
+  })
 })

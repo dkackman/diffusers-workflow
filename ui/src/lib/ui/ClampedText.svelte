@@ -59,6 +59,7 @@
   <div
     class="text"
     class:clamped={!expanded}
+    class:faded={overflows && !expanded}
     class:plain={!markdown}
     style:--lines={lines}
     bind:this={el}
@@ -92,6 +93,8 @@
   .clamped {
     max-height: calc(var(--lines) * 1.5em);
     overflow: hidden;
+  }
+  .faded {
     mask-image: linear-gradient(to bottom, #000 70%, transparent);
   }
   .more {

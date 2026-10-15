@@ -34,6 +34,24 @@ describe('parseInline', () => {
       { kind: 'text', text: '[x](javascript:alert(1))' },
     ])
   })
+  it('does not backtrack on unclosed links', () => {
+    for (const src of ['[a]('.repeat(1000), '[a](b'.repeat(800)]) {
+      const t = performance.now()
+      expect(parseInline(src)).toEqual([{ kind: 'text', text: src }])
+      expect(performance.now() - t).toBeLessThan(100)
+    }
+  })
+  it('links a url with balanced parentheses', () => {
+    expect(parseInline('[w](https://en.wikipedia.org/wiki/Foo_(bar))')).toEqual(
+      [
+        {
+          kind: 'link',
+          href: 'https://en.wikipedia.org/wiki/Foo_(bar)',
+          children: [{ kind: 'text', text: 'w' }],
+        },
+      ],
+    )
+  })
   it('leaves snake_case alone', () => {
     expect(parseInline('cold_minutes and warm_minutes')).toEqual([
       { kind: 'text', text: 'cold_minutes and warm_minutes' },

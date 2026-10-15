@@ -34,7 +34,7 @@ export function safeHref(url: string): string | null {
 // One alternation, tried left to right at each position: code first, so a
 // `**` inside backticks stays literal
 const INLINE =
-  /`([^`]+)`|\*\*(.+?)\*\*|\*([^*\s][^*]*?)\*|\[([^\]]+)\]\(([^)\s]+(?:\([^)\s]*\))?[^)\s]*)\)/g
+  /`([^`]+)`|\*\*(.+?)\*\*|\*([^*\s][^*]*?)\*|\[([^\]]+)\]\(([^()\s]+(?:\([^()\s]*\)[^()\s]*)?)\)/g
 
 function pushText(out: Inline[], text: string) {
   if (!text) return
