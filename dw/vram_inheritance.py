@@ -122,11 +122,48 @@ def inherited_differences(definition, template, arguments=None):
     short phrases (#797, #866). A figure inherited from `template` is an
     approximation to the extent these differ. `arguments` (the caller's)
     override `definition`'s variables."""
-    return [
+    differs = [
         label
         for label, key in _COST_SETTINGS
         if sets_differently(definition, template, key, arguments)
     ]
+    # A reference is encoded and attended on every pass, so a count other
+    # than the template's moves the cost (#915); it is named, not scaled
+    if reference_counts(definition, arguments) != reference_counts(template):
+        differs.append("reference count")
+    return differs
+
+
+def reference_counts(definition, arguments=None):
+    """The set of `references` list lengths the pipeline steps of
+    `definition` pass, `variable:` references resolved. A step whose
+    `references` is an `item:` reference counts each entry of its
+    `for_each` list variable that carries a `references` list (#915)."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    counts = set()
+    for step in definition.get("steps") or []:
+        if not isinstance(step, dict) or not isinstance(step.get("pipeline"), dict):
+            continue
+        for value in _carried_values(_substituted(step, variables), "references"):
+            if isinstance(value, list):
+                counts.add(len(value))
+            elif isinstance(value, str) and value.startswith("item:"):
+                each = _substituted(step.get("for_each"), variables)
+                for entry in each if isinstance(each, list) else []:
+                    listed = (
+                        entry.get(value[len("item:") :])
+                        if isinstance(entry, dict)
+                        else None
+                    )
+                    if isinstance(listed, list):
+                        counts.add(len(listed))
+    return counts
+
+
+def _carried_values(node, key):
+    """Every value `key` carries anywhere under `node`."""
+    return [json.loads(text) for text in _carried(node, key)]
 
 
 def sets_differently(definition, template, key, arguments=None):

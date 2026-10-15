@@ -164,6 +164,28 @@ class TestDifferences:
         )
         assert differs == ["frame count"]
 
+    def test_a_reference_count_other_than_the_templates_is_named(self):
+        def refs(n):
+            return [{"from_file": f"r{i}"} for i in range(n)]
+
+        def with_refs(value, **top):
+            d = definition("inline")
+            step = d["steps"][0]
+            step["run"]["references"] = value
+            d.update(top)
+            return d
+
+        template = with_refs(refs(2))
+        assert inherited_differences(with_refs(refs(2)), template) == []
+        assert inherited_differences(with_refs(refs(3)), template) == [
+            "reference count"
+        ]
+        # per-entry references, read off the step's for_each list
+        entries = [{"references": refs(2)}, {"references": refs(3)}]
+        each = with_refs("item:references", variables={"shots": entries})
+        each["steps"][0]["for_each"] = "variable:shots"
+        assert "reference count" in inherited_differences(each, template)
+
 
 class TestThePlanReportsIt:
     def test_the_estimate_is_inherited_and_the_validate_answer_warns(self, tmp_path):
