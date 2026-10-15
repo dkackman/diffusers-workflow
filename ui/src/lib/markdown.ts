@@ -75,55 +75,70 @@ const startsBlock = (line: string) =>
   BULLET.test(line) ||
   NUMBERED.test(line)
 
+// Each reader takes the block starting at lines[i] and returns it with the
+// index just past it, or null when the line does not start that kind
+
+type Read = { block: Block; next: number } | null
+
+function readFence(lines: string[], i: number): Read {
+  if (!FENCE.test(lines[i])) return null
+  const body: string[] = []
+  i++
+  while (i < lines.length && !FENCE.test(lines[i])) body.push(lines[i++])
+  // Past the closing fence, or past the end when it never closed
+  return { block: { kind: 'code', text: body.join('\n') }, next: i + 1 }
+}
+
+function readHeading(lines: string[], i: number): Read {
+  const heading = HEADING.exec(lines[i])
+  if (!heading) return null
+  return {
+    block: {
+      kind: 'heading',
+      level: heading[1].length as 1 | 2 | 3,
+      children: parseInline(heading[2]),
+    },
+    next: i + 1,
+  }
+}
+
+function readList(lines: string[], i: number): Read {
+  const list = [BULLET, NUMBERED].find((re) => re.test(lines[i]))
+  if (!list) return null
+  const items: Inline[][] = []
+  while (i < lines.length && list.test(lines[i]))
+    items.push(parseInline(list.exec(lines[i++])![1]))
+  return { block: { kind: 'list', ordered: list === NUMBERED, items }, next: i }
+}
+
+// A paragraph runs until a blank line or the start of another block; its
+// single newlines are kept as line breaks - notes are written as lines, not
+// reflowed prose
+function readParagraph(lines: string[], i: number): Read {
+  const children: Inline[] = []
+  while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) {
+    if (children.length) children.push({ kind: 'br' })
+    children.push(...parseInline(lines[i++]))
+  }
+  return { block: { kind: 'paragraph', children }, next: i }
+}
+
 export function parseMarkdown(src: string): Block[] {
   const lines = src.replace(/\r\n?/g, '\n').split('\n')
   const blocks: Block[] = []
   let i = 0
   while (i < lines.length) {
-    const line = lines[i]
-    if (!line.trim()) {
+    if (!lines[i].trim()) {
       i++
       continue
     }
-    if (FENCE.test(line)) {
-      const body: string[] = []
-      i++
-      while (i < lines.length && !FENCE.test(lines[i])) body.push(lines[i++])
-      i++ // the closing fence, or past the end when it never closed
-      blocks.push({ kind: 'code', text: body.join('\n') })
-      continue
-    }
-    const heading = HEADING.exec(line)
-    if (heading) {
-      blocks.push({
-        kind: 'heading',
-        level: heading[1].length as 1 | 2 | 3,
-        children: parseInline(heading[2]),
-      })
-      i++
-      continue
-    }
-    const list = BULLET.test(line)
-      ? BULLET
-      : NUMBERED.test(line)
-        ? NUMBERED
-        : null
-    if (list) {
-      const items: Inline[][] = []
-      while (i < lines.length && list.test(lines[i]))
-        items.push(parseInline(list.exec(lines[i++])![1]))
-      blocks.push({ kind: 'list', ordered: list === NUMBERED, items })
-      continue
-    }
-    // A paragraph runs until a blank line or the start of another block;
-    // its single newlines are kept as line breaks - notes are written as
-    // lines, not reflowed prose
-    const children: Inline[] = []
-    while (i < lines.length && lines[i].trim() && !startsBlock(lines[i])) {
-      if (children.length) children.push({ kind: 'br' })
-      children.push(...parseInline(lines[i++]))
-    }
-    blocks.push({ kind: 'paragraph', children })
+    const read =
+      readFence(lines, i) ??
+      readHeading(lines, i) ??
+      readList(lines, i) ??
+      readParagraph(lines, i)!
+    blocks.push(read.block)
+    i = read.next
   }
   return blocks
 }

@@ -242,19 +242,26 @@
   }
 
   // One file asks for its library name; a dropped batch keeps each file's
-  // own, since a prompt per file would be a dialog storm
-  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
-    if (!files.length) return
-    let names: (string | undefined)[] = files.map(() => undefined)
-    if (files.length === 1) {
-      const assetName = window.prompt(
-        `Upload — name in the ${target} asset library:`,
-        files[0].name,
-      )
-      if (assetName === null) return
-      names = [assetName || undefined]
-    }
-    busy = true
+  // own, since a prompt per file would be a dialog storm. Null is a cancel
+  function askNames(
+    files: File[],
+    target: 'workspace' | 'shared',
+  ): (string | undefined)[] | null {
+    if (files.length !== 1) return files.map(() => undefined)
+    const assetName = window.prompt(
+      `Upload — name in the ${target} asset library:`,
+      files[0].name,
+    )
+    return assetName === null ? null : [assetName || undefined]
+  }
+
+  // Each file in turn, so one failing does not stop the rest; what failed
+  // comes back as "name: reason" lines
+  async function sendAll(
+    files: File[],
+    names: (string | undefined)[],
+    target: 'workspace' | 'shared',
+  ): Promise<string[]> {
     const failed: string[] = []
     for (const [i, file] of files.entries()) {
       try {
@@ -271,6 +278,15 @@
         )
       }
     }
+    return failed
+  }
+
+  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
+    if (!files.length) return
+    const names = askNames(files, target)
+    if (!names) return
+    busy = true
+    const failed = await sendAll(files, names, target)
     if (files.length > 1 && failed.length < files.length)
       notify.success(
         `Uploaded ${files.length - failed.length} of ${files.length} files`,

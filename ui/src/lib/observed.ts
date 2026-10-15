@@ -13,24 +13,34 @@ export function observedText(observed: Observed): string | null {
   return minutes === null ? null : `${formatMinutes(minutes)} here`
 }
 
-export function observedTitle(observed: Observed): string | null {
-  if (!observed) return null
-  const parts: string[] = []
-  const warm = num(observed.warm_minutes)
-  const cold = num(observed.cold_minutes)
-  if (warm !== null)
-    parts.push(
-      `${formatMinutes(warm)} with the model loaded (${runs(num(observed.warm_runs) ?? 0)})`,
-    )
-  if (cold !== null)
-    parts.push(
-      `${formatMinutes(cold)} from cold (${runs(num(observed.cold_runs) ?? 0)})`,
-    )
-  if (!parts.length) return null
+// One clause per measured state, or nothing when that state has no runs
+function timing(minutes: number | null, label: string, n: unknown) {
+  return minutes === null
+    ? []
+    : [`${formatMinutes(minutes)} ${label} (${runs(num(n) ?? 0)})`]
+}
+
+// Where and since when: the card's name in parentheses, the date it began
+function provenance(observed: Record<string, unknown>) {
   const card = observed.name ?? observed.device
   const since =
     typeof observed.since === 'string'
       ? ` since ${observed.since.slice(0, 10)}`
       : ''
-  return `measured on this server${card ? ` (${card})` : ''}: ${parts.join(', ')}; ${runs(num(observed.runs) ?? 0)}${since}`
+  return { card: card ? ` (${card})` : '', since }
+}
+
+export function observedTitle(observed: Observed): string | null {
+  if (!observed) return null
+  const parts = [
+    ...timing(
+      num(observed.warm_minutes),
+      'with the model loaded',
+      observed.warm_runs,
+    ),
+    ...timing(num(observed.cold_minutes), 'from cold', observed.cold_runs),
+  ]
+  if (!parts.length) return null
+  const { card, since } = provenance(observed)
+  return `measured on this server${card}: ${parts.join(', ')}; ${runs(num(observed.runs) ?? 0)}${since}`
 }
