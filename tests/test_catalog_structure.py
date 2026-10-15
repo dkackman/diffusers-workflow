@@ -966,7 +966,7 @@ def test_every_readme_link_resolves(path):
 
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
-    "workflows/templates/minimax/dialogue-short.json": 42,
+    "workflows/templates/minimax/dialogue-short.json": 21.2,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -982,7 +982,11 @@ def test_the_cut_templates_quote_a_measured_cost(path, minutes):
     LoRA on those templates at 9 - so their figures went with the schedule
     they described rather than being scaled, `cost` being measured and never
     derived. The three here kept their step count and their canvas; only
-    which adapter loads changed, at the same rank and file size."""
+    which adapter loads changed, at the same rank and file size.
+
+    dialogue-short's 42 was measured at 1344x768, not its 960x544 defaults;
+    a cost entry is measured at the variable defaults, so #866 re-priced it
+    to 42 x 960*544 / (1344*768) = 21.2."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"
