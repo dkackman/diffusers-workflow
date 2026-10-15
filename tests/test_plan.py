@@ -12,6 +12,7 @@ from dw.plan import (
     PLACEMENT_RESULT_KEYS,
     build_plan,
     gate_warnings,
+    scale_curated,
 )
 from dw.validation import unseeded_cache_warnings
 from dw.runs import new_run_id
@@ -655,17 +656,18 @@ class TestEstimate:
         spec["cost"] = [cost("cuda", 10.04)]
         assert plan(spec)["estimate"]["minutes"] == 10.0
 
-    def test_a_shifted_scalar_cost_driver_falls_back_to_unknown(self, plan):
+    def test_a_shifted_unscalable_cost_driver_falls_back_to_unknown(self, plan):
         """The catalog figure was measured at frames=25; a caller who
         overrides a declared cost_driver away from that value is not
-        describing the run the figure was measured for, and `_repriced`
-        only re-prices a for_each list's length, not a bare variable (#267)."""
+        describing the run the figure was measured for (#267). `frames` is
+        not one of the drivers a figure scales along (#866), so there is
+        nothing to re-price it by."""
         spec = definition()
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
 
-    def test_a_shifted_scalar_driver_is_unknown_on_another_device_too(self, plan):
+    def test_a_shifted_unscalable_driver_is_unknown_on_another_device_too(self, plan):
         """#589: the other_device branch skipped the #267 check, so a 241-frame
         run was quoted the 121-frame clip's figure."""
         spec = definition()
@@ -692,9 +694,10 @@ class TestEstimate:
         answer = plan(spec, arguments={"shots": shots})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
 
-    def test_a_shifted_per_entry_field_in_a_list_driver_is_unknown(self, plan):
+    def test_a_shifted_per_entry_field_in_a_list_driver_is_scaled(self, plan):
         """#593: a per-shot num_frames outside the values the default entries
-        were measured with has no matching bucket, same as a scalar (#267)."""
+        were measured with has no matching bucket, same as a scalar (#267) -
+        so the figure is scaled by the frames summed over the list (#866)."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["shots"]
@@ -710,20 +713,26 @@ class TestEstimate:
             {"name": "x", "prompt": "p", "num_frames": 243},
             {"name": "y", "prompt": "p", "num_frames": 243},
         ]
+        # Another device's figure stays other_device, scaled (#589)
         kept = plan(spec, arguments={"shots": same})["estimate"]
-        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        assert (kept["minutes"], kept["basis"]) == (37.4, "other_device")
+        assert kept["scaled"].endswith("frames 248 vs 265 over shots")
         moved = plan(spec, arguments={"shots": long})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        assert (moved["minutes"], moved["basis"]) == (73.4, "other_device")
         as_text = [dict(entry, num_frames=str(entry["num_frames"])) for entry in long]
         moved = plan(spec, arguments={"shots": as_text})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        assert (moved["minutes"], moved["basis"]) == (73.4, "other_device")
         same_text = [dict(entry, num_frames="124") for entry in same]
         kept = plan(spec, arguments={"shots": same_text})["estimate"]
-        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        assert (kept["minutes"], kept["basis"]) == (37.4, "other_device")
+        default = plan(spec)["estimate"]
+        assert (default["minutes"], default["basis"]) == (40.0, "other_device")
+        assert "scaled" not in default
 
-    def test_a_lengthened_list_with_a_shifted_field_is_unknown_not_derived(self, plan):
+    def test_a_lengthened_list_with_a_shifted_field_scales_both(self, plan):
         """#796: the derived basis scaled by entry count and skipped the #593
-        field check, so 6 shots with one at 345 frames was quoted confidently."""
+        field check, so 6 shots with one at 345 frames was quoted confidently.
+        The count and the mean frames per entry now both scale (#866)."""
         spec = definition()
         spec["cost_drivers"] = ["shots"]
         spec["variables"]["shots"] = [
@@ -732,9 +741,14 @@ class TestEstimate:
         same = [{"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(10)]
         kept = plan(spec, arguments={"shots": same})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (20.0, "derived")
+        assert "scaled" not in kept
         long = same[:9] + [{"name": "z", "prompt": "p", "num_frames": 345}]
         moved = plan(spec, arguments={"shots": long})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        # 4 min x 10/5 shots x (1461/10)/(620/5) frames per shot
+        assert (moved["minutes"], moved["basis"]) == (23.6, "derived")
+        assert moved["scaled"] == (
+            "scaled from the curated 20 min: frames 1461 vs 620 over shots"
+        )
 
     def test_position_fields_do_not_block_a_derived_figure(self, plan):
         """#796: start_frame/cut_frames grow with the count; only num_frames
@@ -760,7 +774,8 @@ class TestEstimate:
         long = [dict(e) for e in spec["variables"]["shots"]]
         long[3]["num_frames"] = 345
         answer = plan(spec, arguments={"shots": long}, observed=observed())["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        # The observed 8.04 is withheld; the curated 10 is scaled instead
+        assert (answer["minutes"], answer["basis"]) == (14.5, "derived")
 
     def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
         """#772: a windows list whose entries carry an `index` label priced
@@ -934,6 +949,233 @@ class TestLowConfidenceObservedEstimate:
         assert answer["low_confidence"] is True
 
 
+def scalable(minutes=10):
+    """The fixture with steps and a canvas as declared cost drivers, its
+    curated figure measured at their defaults (#866)."""
+    spec = definition()
+    spec["cost"] = [cost("cuda", minutes)]
+    spec["variables"].update({"num_inference_steps": 9, "width": 960, "height": 544})
+    spec["cost_drivers"] = ["num_inference_steps", "width", "height", "shots"]
+    return spec
+
+
+class TestDriverScaling:
+    """#866: a curated figure is measured at the workflow's variable
+    defaults; a run that moves steps, the canvas or the frames is quoted
+    scaled along them rather than as no figure at all."""
+
+    def test_the_defaults_quote_the_curated_figure(self, plan):
+        answer = plan(scalable())["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+        assert "scaled" not in answer
+
+    def test_steps_scale_in_proportion(self, plan):
+        answer = plan(scalable(), arguments={"num_inference_steps": 30})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (33.3, "derived")
+        assert answer["scaled"] == "scaled from the curated 10 min: steps 30 vs 9"
+
+    def test_the_canvas_scales_by_its_area(self, plan):
+        arguments = {"width": 1344, "height": 768}
+        answer = plan(scalable(), arguments=arguments)["estimate"]
+        # 10 x 1344.768 / 960.544
+        assert (answer["minutes"], answer["basis"]) == (19.8, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: canvas 1344x768 vs 960x544"
+        )
+
+    def test_one_side_of_the_canvas_scales_too(self, plan):
+        answer = plan(scalable(), arguments={"width": 1920})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+        assert "canvas 1920x544 vs 960x544" in answer["scaled"]
+
+    def test_per_entry_frames_scale_by_their_sum(self, plan):
+        spec = scalable()
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "one", "num_frames": 124},
+            {"name": "b", "prompt": "two", "num_frames": 141},
+        ]
+        shots = [
+            {"name": "a", "prompt": "one", "num_frames": 124},
+            {"name": "b", "prompt": "two", "num_frames": 345},
+        ]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        # 10 x 469/265: the same two shots, one of them longer
+        assert (answer["minutes"], answer["basis"]) == (17.7, "derived")
+        assert answer["scaled"].endswith("frames 469 vs 265 over shots")
+
+    def test_a_list_not_priced_by_length_scales_by_the_sum_alone(self, plan):
+        """No for_each runs over `takes`, so its length prices nothing - the
+        summed frames carry the whole ratio, length and all."""
+        spec = scalable()
+        spec["variables"]["takes"] = [{"num_frames": 100}]
+        spec["cost_drivers"] = spec["cost_drivers"] + ["takes"]
+        takes = [{"num_frames": 100}, {"num_frames": 150}]
+        answer = plan(spec, arguments={"takes": takes})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (25.0, "derived")
+        assert answer["scaled"].endswith("frames 250 vs 100 over takes")
+
+    def test_steps_canvas_and_frames_multiply(self, plan):
+        spec = scalable()
+        spec["variables"]["frames"] = 124
+        spec["variables"]["num_frames"] = 124
+        spec["steps"][0]["pipeline"]["arguments"]["num_frames"] = "variable:num_frames"
+        spec["cost_drivers"] = spec["cost_drivers"] + ["num_frames"]
+        arguments = {
+            "num_inference_steps": 30,
+            "width": 1344,
+            "height": 768,
+            "num_frames": 248,
+        }
+        answer = plan(spec, arguments=arguments)["estimate"]
+        # 10 x 30/9 x 1344.768/960.544 x 248/124
+        assert (answer["minutes"], answer["basis"]) == (131.8, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: steps 30 vs 9, "
+            "canvas 1344x768 vs 960x544, frames 248 vs 124"
+        )
+
+    def test_it_multiplies_with_the_list_length(self, plan):
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(4)]
+        arguments = {"shots": shots, "num_inference_steps": 18}
+        answer = plan(scalable(), arguments=arguments)["estimate"]
+        # 10 x 4/2 shots x 18/9 steps
+        assert (answer["minutes"], answer["basis"]) == (40.0, "derived")
+        assert answer["scaled"] == "scaled from the curated 20 min: steps 18 vs 9"
+
+    def test_a_non_numeric_value_stays_unknown(self, plan):
+        # A text default keeps a text argument as text; an int one would
+        # have cast "wide" away to the default before the plan saw it
+        spec = scalable()
+        spec["variables"]["width"] = "960"
+        answer = plan(spec, arguments={"width": "wide"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert "scaled" not in answer
+
+    def test_a_number_spelled_as_text_scales(self, plan):
+        answer = plan(scalable(), arguments={"num_inference_steps": "18"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+
+    def test_another_devices_figure_stays_other_device(self, plan):
+        spec = scalable()
+        spec["cost"] = [cost("mps", 40)]
+        answer = plan(spec, arguments={"num_inference_steps": 18})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (80.0, "other_device")
+        assert answer["scaled"] == "scaled from the curated 40 min: steps 18 vs 9"
+
+    def test_a_thin_observed_figure_tempers_toward_the_scaled_one(self, plan):
+        arguments = {"num_inference_steps": 18}
+        thin = observed(minutes=24, runs=1)
+        answer = plan(scalable(), arguments=arguments, observed=thin)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["tempered"] is True
+        assert answer["curated_minutes"] == 20.0
+        assert 20.0 < answer["minutes"] < 24.0
+        assert answer["scaled"] == "scaled from the curated 10 min: steps 18 vs 9"
+
+    def test_a_settled_observed_figure_is_not_scaled(self, plan):
+        arguments = {"num_inference_steps": 18}
+        answer = plan(scalable(), arguments=arguments, observed=observed(minutes=24))[
+            "estimate"
+        ]
+        assert (answer["minutes"], answer["basis"]) == (24.0, "observed")
+        assert "scaled" not in answer
+
+
+class TestScalingAccuracy:
+    """#866's bar: each measured pair on the RTX 3090 (#851's B and L runs)
+    is predicted within 30% by scaling the other."""
+
+    @pytest.mark.parametrize(
+        "measured, defaults, effective, actual",
+        [
+            # B4 -> B1: steps 12 -> 30 at 960x544
+            (
+                6.6,
+                {"num_inference_steps": 12, "width": 960, "height": 544},
+                {"num_inference_steps": 30, "width": 960, "height": 544},
+                15.1,
+            ),
+            # B4 -> B5: canvas 960x544 -> 1344x768 at 12 steps
+            (
+                6.6,
+                {"num_inference_steps": 12, "width": 960, "height": 544},
+                {"num_inference_steps": 12, "width": 1344, "height": 768},
+                11.8,
+            ),
+            # B3 -> L5: steps 12 -> 30 at 1344x768
+            (
+                12.9,
+                {"num_inference_steps": 12, "width": 1344, "height": 768},
+                {"num_inference_steps": 30, "width": 1344, "height": 768},
+                29.5,
+            ),
+        ],
+    )
+    def test_within_thirty_percent(self, measured, defaults, effective, actual):
+        minutes, axes = scale_curated(measured, defaults, effective)
+        assert axes
+        assert abs(minutes - actual) / actual < 0.30
+
+    def test_nothing_moved_is_the_figure_itself(self):
+        defaults = {"num_inference_steps": 9, "width": 960, "height": 544}
+        assert scale_curated(7.88, defaults, dict(defaults)) == (7.88, [])
+
+    def test_a_moved_non_number_is_none(self):
+        defaults = {"num_inference_steps": 9}
+        assert scale_curated(7.88, defaults, {"num_inference_steps": None}) is None
+
+
+CATALOG_DIALOGUE = "workflows/templates/minimax/dialogue-short.json"
+
+
+class TestTheCatalogTemplatesScale:
+    """#866 on the real templates: H3's reference-to-video and the
+    dialogue-short sequence, measured at their defaults."""
+
+    @staticmethod
+    def load(path):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return json.loads((root / path).read_text())
+
+    def test_reference_to_video_at_its_defaults(self, plan):
+        answer = plan(self.load(CATALOG_H3))["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert "scaled" not in answer
+
+    def test_reference_to_video_at_thirty_steps(self, plan):
+        template = self.load(CATALOG_H3)
+        answer = plan(template, arguments={"num_inference_steps": 30})["estimate"]
+        # 7.88 x 30/9
+        assert (answer["minutes"], answer["basis"]) == (26.3, "derived")
+        assert "steps 30 vs 9" in answer["scaled"]
+
+    def test_reference_to_video_at_the_larger_canvas(self, plan):
+        template = self.load(CATALOG_H3)
+        arguments = {"width": 1344, "height": 768}
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (15.6, "derived")
+        assert "canvas 1344x768 vs 960x544" in answer["scaled"]
+
+    def test_dialogue_short_at_its_defaults(self, plan):
+        answer = plan(self.load(CATALOG_DIALOGUE))["estimate"]
+        assert answer["basis"] == "catalog"
+        assert answer["minutes"] == pytest.approx(21, abs=0.5)
+
+    def test_dialogue_short_with_one_shot_longer(self, plan):
+        template = self.load(CATALOG_DIALOGUE)
+        shots = copy.deepcopy(template["variables"]["shots"])
+        assert [shot["num_frames"] for shot in shots] == [124, 124, 124, 124, 141]
+        shots[0]["num_frames"] = 192
+        answer = plan(template, arguments={"shots": shots})["estimate"]
+        # 21.2 x 705/637 frames
+        assert (answer["minutes"], answer["basis"]) == (23.5, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 21.2 min: frames 705 vs 637 over shots"
+        )
+
+
 def composing(child_path):
     return {
         "id": "parent",
@@ -1015,11 +1257,11 @@ class TestSubWorkflowEstimate:
         # the parent's own basis is what is reported
         assert answer["basis"] == "catalog"
 
-    def test_a_composed_childs_shifted_scalar_driver_is_unpriced(self, plan, tmp_path):
+    def test_a_composed_childs_shifted_scalar_driver_is_scaled(self, plan, tmp_path):
         """The composing step's own `arguments` are what the child actually
         runs with, not its declared defaults - a scalar cost_driver moved
         away from the value the child's catalog cost was measured against
-        is the same #267 failure one level down (#341)."""
+        is the same #267 case one level down (#341), scaled (#866)."""
         child = {
             "id": "child",
             "cost": [cost("cuda", 5)],
@@ -1031,8 +1273,12 @@ class TestSubWorkflowEstimate:
         parent = composing("child.json")
         parent["steps"][1]["workflow"]["arguments"] = {"num_frames": 345}
         answer = plan(parent)["estimate"]
-        assert (answer["minutes"], answer["partial"]) == (2.0, True)
-        assert answer["unpriced"] == ["child.json"]
+        # 2 of its own + 5 x 345/124
+        assert (answer["minutes"], answer["partial"]) == (15.9, False)
+        assert (answer["basis"], answer["unpriced"]) == ("derived", [])
+        assert answer["scaled"] == (
+            "child.json: scaled from the curated 5 min: frames 345 vs 124"
+        )
 
     def test_a_composed_child_at_its_default_is_still_priced(self, plan, tmp_path):
         """The companion case: a composing step that passes the child's own
@@ -1166,16 +1412,16 @@ class TestSubWorkflowEstimate:
         assert answer["basis"] == "unknown"
         assert answer["partial"] is False
 
-    def test_a_composed_childs_shifted_scalar_driver_stays_unpriced_despite_default_bucket_history(
+    def test_a_composed_childs_shifted_scalar_driver_is_scaled_despite_default_bucket_history(
         self, plan, tmp_path
     ):
         """The observed-history rollup must not paper over a shifted scalar
         driver by quoting the *default* bucket's figure just because it
         exists - `observed_for_child` is called with the composing step's
         own arguments, and answering None for the shifted bucket falls
-        through to the catalog path's `_scalar_driver_shifted` unpriced
-        check rather than silently reusing the default bucket's history
-        (#341)."""
+        through to the catalog path's driver check rather than silently
+        reusing the default bucket's history (#341), which now scales the
+        child's figure (#866)."""
         child = {
             "id": "child",
             "cost": [cost("cuda", 5)],
@@ -1207,8 +1453,8 @@ class TestSubWorkflowEstimate:
 
         answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
         assert calls == [{"num_frames": 345}]
-        assert answer["basis"] == "unknown"
-        assert (answer["minutes"], answer["partial"]) == (None, False)
+        assert answer["basis"] == "derived"
+        assert (answer["minutes"], answer["partial"]) == (13.9, False)
 
     def test_a_composed_childs_observed_history_is_bucketed_by_the_composing_steps_arguments(
         self, plan, tmp_path

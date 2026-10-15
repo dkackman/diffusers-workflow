@@ -62,6 +62,39 @@ describe('describePlan', () => {
     expect(figure.tone).toBe('warn')
   })
 
+  it('a figure scaled along moved drivers says what moved', () => {
+    const [, figure] = describePlan({
+      ...base,
+      list_entries: {},
+      estimate: {
+        ...base.estimate,
+        minutes: 26.3,
+        basis: 'derived',
+        scaled: 'scaled from the curated 7.9 min: steps 30 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      '~26.3 min on cuda - estimated (scaled from the curated 7.9 min: steps 30 vs 9), from a figure measured on RTX 3090',
+    )
+    expect(figure.tone).toBe('warn')
+  })
+
+  it('a scaled figure from another accelerator says what moved too', () => {
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        minutes: 80,
+        basis: 'other_device',
+        device: 'mps',
+        scaled: 'scaled from the curated 40 min: steps 18 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      'no figure for mps - 80 min was measured on RTX 3090 (scaled from the curated 40 min: steps 18 vs 9)',
+    )
+  })
+
   it('a figure from another accelerator is a warning, not a quote', () => {
     const [, figure] = describePlan({
       ...base,

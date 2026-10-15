@@ -470,44 +470,184 @@ def _list_entry_field_shifted(default_entries, effective_entries):
     return False
 
 
-def _per_entry_variable(cost, device):
-    """The list variable the cost entry priced for `device` (else the first,
-    as `_price` chooses) re-prices by a measured per-entry rate, or None."""
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    chosen = next((e for e in entries if e.get("device") == device), None)
-    if chosen is None and entries:
-        chosen = entries[0]
-    per = chosen.get("per_entry") if chosen else None
-    return per.get("variable") if isinstance(per, dict) else None
+# The generic diffusers argument names a curated figure scales along when a
+# run moves one off the default it was measured at (#866). Any other declared
+# driver has no rule to scale by, so moving it leaves no figure (#267).
+STEPS_DRIVER = "num_inference_steps"
+FRAMES_DRIVER = "num_frames"
+SCALABLE_DRIVERS = (STEPS_DRIVER, "width", "height", FRAMES_DRIVER)
 
 
-def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
-    """Whether a declared, non-list `cost_driver` was overridden away from
-    the default value the curated `cost` was measured against (#267).
+def _positive(value):
+    """A driver value as a positive finite number, or None."""
+    number = _driver_comparable(value)
+    if isinstance(number, float) and math.isfinite(number) and number > 0:
+        return number
+    return None
 
-    A list driver is `_repriced`'s to catch - it changes the plan's list
-    count, not a bare variable's value. This only asks about a scalar one,
-    which `_repriced` never looks at, so a `catalog` figure measured for one
-    `num_frames` silently priced a run at a different one.
+
+def _shown(number):
+    return f"{round(number, 1):g}"
+
+
+def scale_curated(minutes, defaults, effective):
+    """`minutes` measured at `defaults`, scaled to a run at `effective`, as
+    (minutes, axes), or None when a moved value is not a number (#866).
+
+    Both are {driver: value} over `SCALABLE_DRIVERS`. Plain proportional
+    scaling - steps/steps0 x (w.h)/(w0.h0) x frames/frames0 - with no fixed
+    term for the model load and decode, so it over-quotes a little when a
+    value rises and under-quotes when one falls. `axes` names each axis that
+    moved, for a caller to read ("steps 30 vs 9"); empty when none did.
+    """
+    moved = {
+        name
+        for name in SCALABLE_DRIVERS
+        if name in effective
+        and _driver_comparable(effective[name])
+        != _driver_comparable(defaults.get(name))
+    }
+    if not moved:
+        return minutes, []
+    values = {}
+    for name in SCALABLE_DRIVERS:
+        if name not in effective:
+            continue
+        pair = (_positive(defaults.get(name)), _positive(effective[name]))
+        if None in pair:
+            if name in moved:
+                return None
+            continue
+        values[name] = pair
+    factor = 1.0
+    axes = []
+    if STEPS_DRIVER in moved:
+        was, now = values[STEPS_DRIVER]
+        factor *= now / was
+        axes.append(f"steps {_shown(now)} vs {_shown(was)}")
+    canvas = [name for name in ("width", "height") if name in moved]
+    for name in canvas:
+        was, now = values[name]
+        factor *= now / was
+    if canvas and "width" in values and "height" in values:
+        (w0, w), (h0, h) = values["width"], values["height"]
+        axes.append(f"canvas {_shown(w)}x{_shown(h)} vs {_shown(w0)}x{_shown(h0)}")
+    else:
+        axes.extend(
+            f"{name} {_shown(values[name][1])} vs {_shown(values[name][0])}"
+            for name in canvas
+        )
+    if FRAMES_DRIVER in moved:
+        was, now = values[FRAMES_DRIVER]
+        factor *= now / was
+        axes.append(f"frames {_shown(now)} vs {_shown(was)}")
+    return minutes * factor, axes
+
+
+def _entry_frames(entries):
+    """The per-entry `num_frames` of a list's entries as numbers, or None
+    when an entry carries none (or a non-numeric one)."""
+    if not isinstance(entries, list) or not entries:
+        return None
+    frames = []
+    for entry in entries:
+        number = (
+            _positive(entry.get(FRAMES_DRIVER)) if isinstance(entry, dict) else None
+        )
+        if number is None:
+            return None
+        frames.append(number)
+    return frames
+
+
+def _list_frames_scaling(name, default_entries, effective_entries, list_entries):
+    """A list driver's per-entry frames as (factor, axis) - (1.0, None) when
+    they did not move - or None when they moved in a way that cannot be
+    scaled (#593, #866).
+
+    The frames a list renders are the sum over its entries. When the list's
+    length is already priced (`_repriced`, a `per_entry` rate), only the
+    mean per entry is left to scale, so the two multiply to the summed ratio
+    rather than counting the length twice.
+    """
+    measured = _entry_frames(default_entries)
+    running = _entry_frames(effective_entries)
+    if measured is None or running is None:
+        # Nothing to sum on one side: only a frame count outside the values
+        # the default entries carried leaves no figure, as before (#593)
+        if _list_entry_field_shifted(default_entries, effective_entries):
+            return None
+        return 1.0, None
+    was, now = sum(measured), sum(running)
+    if was == now:
+        return 1.0, None
+    factor = now / was
+    if name in list_entries:
+        factor = (now / len(running)) / (was / len(measured))
+        if math.isclose(factor, 1.0):
+            return 1.0, None
+    return factor, f"frames {_shown(now)} vs {_shown(was)} over {name}"
+
+
+def _driver_scaling(definition, expanded, list_entries):
+    """How far the declared `cost_drivers` moved the run away from the
+    defaults the curated `cost` was measured at, as (factor, axes), or None
+    when one moved in a way nothing can scale (#267, #866).
+
+    A list driver's length is `_repriced`'s to price; here only its entries'
+    `num_frames` are. A scalar one in `SCALABLE_DRIVERS` scales in
+    proportion; any other scalar driver that moved leaves no figure.
     """
     defaults = definition.get("variables") or {}
     effective = expanded.get("variables") or {}
+    factor = 1.0
+    axes = []
+    at_default = {}
+    running = {}
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
         if isinstance(default_value, list):
-            # A list the cost prices per entry is already extrapolated in
-            # either direction; its entries' index/name fields are labels,
-            # not cost fields (#772)
-            if name != per_entry and _list_entry_field_shifted(
-                default_value, effective.get(name)
-            ):
-                return True
+            frames = _list_frames_scaling(
+                name, default_value, effective.get(name), list_entries
+            )
+            if frames is None:
+                return None
+            factor *= frames[0]
+            if frames[1]:
+                axes.append(frames[1])
             continue
         if name in list_entries:
             continue
-        if _driver_comparable(effective.get(name)) != _driver_comparable(default_value):
-            return True
-    return False
+        if name in SCALABLE_DRIVERS:
+            at_default[name] = default_value
+            running[name] = effective.get(name)
+        elif _driver_comparable(effective.get(name)) != _driver_comparable(
+            default_value
+        ):
+            return None
+    scaled = scale_curated(factor, at_default, running)
+    if scaled is None:
+        return None
+    return scaled[0], scaled[1] + axes
+
+
+def _scaled(price, scaling):
+    """`price` scaled by a `_driver_scaling` answer: `derived` once any axis
+    moved (another device's figure stays `other_device`, as `_price` keeps it
+    for a resized list - #589), with `scaled` saying from what."""
+    if scaling is None:
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    factor, axes = scaling
+    if not axes or price["minutes"] is None:
+        return price
+    basis = OTHER_DEVICE if price["basis"] == OTHER_DEVICE else DERIVED
+    return {
+        **price,
+        "minutes": price["minutes"] * factor,
+        "basis": basis,
+        "scaled": f"scaled from the curated {_shown(price['minutes'])} min: "
+        + ", ".join(axes),
+    }
 
 
 def _entry_cost_field_shifted(definition, expanded):
@@ -523,23 +663,15 @@ def _entry_cost_field_shifted(definition, expanded):
 
 
 def _own_price(definition, expanded, list_entries, device, measured_entries):
-    """The workflow's own price, reset to unknown when a scalar driver moved."""
+    """The workflow's own price, scaled along the cost drivers that moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     # `derived` and `per_entry` are re-priced by entry count alone, so a
-    # per-entry num_frames outside the measured values needs the same check (#796)
-    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY) and (
-        _scalar_driver_shifted(
-            definition,
-            expanded,
-            list_entries,
-            _per_entry_variable(definition.get("cost"), device),
-        )
-    ):
-        # A scalar cost_driver (H3's num_frames, say) moved away from the
-        # value the curated cost was measured against, and _repriced only
-        # re-prices a for_each list's length - so the catalog figure would
-        # otherwise be quoted for a run it was never measured for (#267)
-        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    # per-entry num_frames is scaled as well (#796)
+    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY):
+        # _repriced only re-prices a for_each list's length, so a moved scalar
+        # cost_driver (H3's num_inference_steps, say) is scaled here rather
+        # than quoted at the figure measured for the defaults (#267, #866)
+        own = _scaled(own, _driver_scaling(definition, expanded, list_entries))
     return own
 
 
@@ -601,21 +733,17 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child_list_entries = _list_entries(child_definition, child_expanded)
     child = _price(child_cost, device, child_list_entries, child_measured_entries)
     if (
-        child["basis"] in (CATALOG, OTHER_DEVICE)
+        child["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY)
         and child_definition is not None
-        and _scalar_driver_shifted(
-            child_definition,
-            child_expanded,
-            child_list_entries,
-            _per_entry_variable(child_cost, device),
-        )
     ):
-        # A scalar cost_driver the composing step overrode (H3's
-        # num_frames at 345 against a default of 124, say) is the
-        # same #267 failure one level down - the child's own
-        # catalog figure was never measured for the value this
-        # step actually passes it (#341)
-        child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+        # A cost_driver the composing step overrode (H3's num_frames at 345
+        # against a default of 124, say) is the same #267 case one level
+        # down - the child's figure was measured at its defaults, so it is
+        # scaled to the value this step actually passes it (#341, #866)
+        child = _scaled(
+            child,
+            _driver_scaling(child_definition, child_expanded, child_list_entries),
+        )
     return child
 
 
@@ -632,6 +760,7 @@ class _ChildTotals:
         self.runs = []
         self.measured_on = set()
         self.bases = []
+        self.scaled = []
 
     def add(self, path, child, observed):
         self.had_child = True
@@ -646,6 +775,8 @@ class _ChildTotals:
             self.unpriced_children.append(path)
             return
         self.bases.append((child["basis"], child.get("measured_on")))
+        if child.get("scaled"):
+            self.scaled.append(f"{path}: {child['scaled']}")
         if self.minutes is not None:
             self.minutes += child["minutes"]
         else:
@@ -704,6 +835,10 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
         devices = {on for _, on in totals.bases}
         if len(devices) == 1:
             top_measured_on = next(iter(devices))
+    if top_basis == CATALOG and any(basis == DERIVED for basis, _ in totals.bases):
+        # A child scaled for the arguments its step passes is an estimate,
+        # so the sum is one too (#866)
+        top_basis = DERIVED
     rounded = round(minutes, 1) if minutes is not None else None
     result = {
         "minutes": rounded,
@@ -715,6 +850,9 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
         "runs": top_runs,
         "cached_minutes": _cached_minutes(rounded, cached_steps, total_steps),
     }
+    scaled = ([own["scaled"]] if own.get("scaled") else []) + totals.scaled
+    if scaled and minutes is not None and top_basis != OBSERVED:
+        result["scaled"] = "; ".join(scaled)
     if top_basis == OBSERVED:
         # The rolled-up-from-children case (#268): no curated figure of the
         # parent's own exists to blend toward (that is this branch's own
@@ -751,8 +889,10 @@ def estimate(
     ones it was measured with, 'per_entry' that total re-priced from a
     measured per-entry rate, and 'derived' re-priced by extrapolating the
     stored total linearly over a list whose length the caller changed
-    (#85) - an estimate, not a measurement, and the only alternative to
-    quoting a 5-shot figure for a 10-shot run.
+    (#85), or scaled along the steps, canvas or frames moved off the
+    defaults it was measured at (#866, `scale_curated`) - an estimate, not
+    a measurement, and the only alternative to quoting a 5-shot figure for
+    a 10-shot run.
 
     `measured_entries` is what the stored defaults carry, which is the
     list the catalog figure was measured against; without it a catalog
@@ -779,6 +919,12 @@ def estimate(
         measured = None
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
+        if measured.get("tempered") and own.get("scaled"):
+            # What it blended toward was scaled for this run's drivers, and
+            # `curated_minutes` alone does not say so (#866)
+            measured["scaled"] = "; ".join(
+                part for part in (measured.get("scaled"), own["scaled"]) if part
+            )
         measured["cached_minutes"] = _cached_minutes(
             measured["minutes"], cached_steps, total_steps
         )
