@@ -472,7 +472,8 @@ def _list_entry_field_shifted(default_entries, effective_entries):
 
 # The generic diffusers argument names a curated figure scales along when a
 # run moves one off the default it was measured at (#866). Any other declared
-# driver has no rule to scale by, so moving it leaves no figure (#267).
+# scalar driver (H3's weights_dtype, a music audio_duration) has no rule to
+# scale by, so moving it keeps the figure and flags it (`_scaled`).
 STEPS_DRIVER = "num_inference_steps"
 FRAMES_DRIVER = "num_frames"
 SCALABLE_DRIVERS = (STEPS_DRIVER, "width", "height", FRAMES_DRIVER)
@@ -591,12 +592,15 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
 
 def _driver_scaling(definition, expanded, list_entries):
     """How far the declared `cost_drivers` moved the run away from the
-    defaults the curated `cost` was measured at, as (factor, axes), or None
-    when one moved in a way nothing can scale (#267, #866).
+    defaults the curated `cost` was measured at, as (factor, axes, unscaled),
+    or None when a scalable one moved to a value that is not a number, or a
+    list's frames moved in a way nothing can scale (#267, #866).
 
     A list driver's length is `_repriced`'s to price; here only its entries'
     `num_frames` are. A scalar one in `SCALABLE_DRIVERS` scales in
-    proportion; any other scalar driver that moved leaves no figure.
+    proportion. Any other scalar driver that moved has no rule to scale by,
+    for every template: its name goes in `unscaled`, and the figure is kept
+    but flagged (#866, Q4).
     """
     defaults = definition.get("variables") or {}
     effective = expanded.get("variables") or {}
@@ -604,6 +608,7 @@ def _driver_scaling(definition, expanded, list_entries):
     axes = []
     at_default = {}
     running = {}
+    unscaled = []
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
         if isinstance(default_value, list):
@@ -624,21 +629,28 @@ def _driver_scaling(definition, expanded, list_entries):
         elif _driver_comparable(effective.get(name)) != _driver_comparable(
             default_value
         ):
-            return None
+            unscaled.append(name)
     scaled = scale_curated(factor, at_default, running)
     if scaled is None:
         return None
-    return scaled[0], scaled[1] + axes
+    return scaled[0], scaled[1] + axes, unscaled
 
 
 def _scaled(price, scaling):
     """`price` scaled by a `_driver_scaling` answer: `derived` once any axis
     moved (another device's figure stays `other_device`, as `_price` keeps it
-    for a resized list - #589), with `scaled` saying from what."""
+    for a resized list - #589), with `scaled` saying from what. A driver with
+    no rule to scale by that moved leaves the basis alone, and is named in
+    `differs` with `low_confidence` set: the figure was measured at another
+    setting of it (#866)."""
     if scaling is None:
         return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
-    factor, axes = scaling
-    if not axes or price["minutes"] is None:
+    factor, axes, unscaled = scaling
+    if price["minutes"] is None:
+        return price
+    if unscaled:
+        price = {**price, "differs": list(unscaled), "low_confidence": True}
+    if not axes:
         return price
     basis = OTHER_DEVICE if price["basis"] == OTHER_DEVICE else DERIVED
     return {
@@ -761,6 +773,7 @@ class _ChildTotals:
         self.measured_on = set()
         self.bases = []
         self.scaled = []
+        self.differs = []
 
     def add(self, path, child, observed):
         self.had_child = True
@@ -777,10 +790,16 @@ class _ChildTotals:
         self.bases.append((child["basis"], child.get("measured_on")))
         if child.get("scaled"):
             self.scaled.append(f"{path}: {child['scaled']}")
+        if not observed:
+            self.differs.extend(child.get("differs") or [])
         if self.minutes is not None:
             self.minutes += child["minutes"]
         else:
             self.minutes = child["minutes"]
+
+
+def _unique(names):
+    return list(dict.fromkeys(names))
 
 
 def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
@@ -853,6 +872,12 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
     scaled = ([own["scaled"]] if own.get("scaled") else []) + totals.scaled
     if scaled and minutes is not None and top_basis != OBSERVED:
         result["scaled"] = "; ".join(scaled)
+    differs = _unique((own.get("differs") or []) + totals.differs)
+    if differs and minutes is not None and top_basis != OBSERVED:
+        # A figure, own or a child's, measured at another setting of a driver
+        # nothing scales (#866)
+        result["differs"] = differs
+        result["low_confidence"] = True
     if top_basis == OBSERVED:
         # The rolled-up-from-children case (#268): no curated figure of the
         # parent's own exists to blend toward (that is this branch's own
@@ -925,6 +950,13 @@ def estimate(
             measured["scaled"] = "; ".join(
                 part for part in (measured.get("scaled"), own["scaled"]) if part
             )
+        if measured.get("tempered") and own.get("differs"):
+            # It blended toward a figure measured at another setting of a
+            # driver nothing scales (#866)
+            measured["differs"] = _unique(
+                (measured.get("differs") or []) + own["differs"]
+            )
+            measured["low_confidence"] = True
         measured["cached_minutes"] = _cached_minutes(
             measured["minutes"], cached_steps, total_steps
         )

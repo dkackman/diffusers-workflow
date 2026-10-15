@@ -6,7 +6,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "variables": {
         "idea": "Task: I2VA. Duration: 5.17 seconds. Idea: a blown glass figure's tentacles writhe as it speaks in a deep, echoing voice, calling forth ancient ancestors.",
