@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Dispatch holds a queued job for host RAM** (#869, stages #909-#910),
+  shipped 2026-10-15. A job waits `queued`, with a `queue_wait` event and a
+  live `waiting_for`, while its projected peak (the max observed for its
+  memory key, else the list fit) won't fit beside the running jobs. It is
+  never refused, and never held alone. Record, including what was deferred
+  (a validate "would wait" prediction, frame count in the key):
+  `complete/host-ram-dispatch-gate-complete.md`.
 - **`plan.estimate` scales the curated figure** (#866, stages #905-#908),
   shipped 2026-10-15. A move of `num_inference_steps`, `width`/`height` or
   `num_frames` off the defaults now scales the catalog or inherited figure

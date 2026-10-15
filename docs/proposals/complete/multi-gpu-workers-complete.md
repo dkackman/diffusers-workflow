@@ -106,7 +106,8 @@ Every shape change is additive: none is a `breaking-change`.
 ## Deferred, and what brings each back
 
 - **Host-RAM admission gate** (Q3). *Back when:* a field report of a
-  cross-job OOM kill.
+  cross-job OOM kill. That came as #869, and the gate shipped (dispatch
+  delays, never refuses): `host-ram-dispatch-gate-complete.md`.
 - **An `overlapped` flag on jobs, excluded from observed cost** (Q4).
   *Back when:* the contention skew in cold medians is measured.
 - **`list_workflows`' cost listing per card.** It still quotes the
