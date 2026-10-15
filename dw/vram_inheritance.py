@@ -32,7 +32,11 @@ import json
 from .for_each import ForEachError, expand_for_each
 from .vram_estimate import KEY as ESTIMATE_KEY
 from .vram_estimate import reference_count
-from .variables import VariableNotFoundError, replace_variables
+from .variables import (
+    VariableNotFoundError,
+    replace_variables,
+    undeclared_variable_references,
+)
 from .vram_estimate import pipeline_identity, vram_estimate_errors
 
 KIND = "vram_projection_inherited"
@@ -168,11 +172,22 @@ def sets_differently(definition, template, key, arguments=None):
     """Whether `definition`'s steps set `key` to other values than
     `template`'s, `variable:` references resolved (`arguments` override
     `definition`'s variables)."""
+    return _found_expanded(
+        definition, key, _compared_variables(definition, arguments)
+    ) != _found_expanded(template, key, _compared_variables(template))
+
+
+def _compared_variables(definition, arguments=None):
+    """`definition`'s variables, `arguments` over them, with every name its
+    references use but it doesn't declare set to null. A copy that leaves out
+    a variable whose default is null (`lora_alpha`) then drops that key as
+    the template it was copied from does, instead of comparing the reference
+    text against nothing (#866)."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    return _found_expanded(definition, key, variables) != _found_expanded(
-        template, key, template.get("variables") or {}
-    )
+    for _, name in undeclared_variable_references(definition):
+        variables.setdefault(name, None)
+    return variables
 
 
 def _found_expanded(definition, key, variables):

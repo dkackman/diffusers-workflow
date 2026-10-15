@@ -456,10 +456,11 @@ The editor's forms come from these; they are just as usable from scripts:
   `component_type` + `model_name` + `workflow`, as the VRAM ceiling is
   inherited - with `inherited_from` naming it and `differs` listing what the
   workflow sets differently among offload, quantization, frame count,
-  attention backend, cache and LoRA, with `low_confidence` true when it lists
-  any; more pipeline steps, frames, inference steps or canvas pixels than the
-  template's run re-price it in proportion, as the catalog figure is scaled,
-  with `scaled` naming each axis; validate warns when it does, and never
+  attention backend, cache and LoRA; more pipeline steps, frames, inference
+  steps or canvas pixels than the template's run re-price it in proportion,
+  as the catalog figure is scaled, with `scaled` naming each axis; an
+  inherited figure has `low_confidence` true when `differs` lists anything
+  or the figure was scaled; validate warns when it does, and never
   refuses); a composed child's
   cost is added to a curated figure and `partial` is true when a child has
   none - an `observed` figure already measured the whole run, children
