@@ -29,7 +29,9 @@ the pre-queue check covers every server submission.
 
 import json
 
+from .for_each import ForEachError, expand_for_each
 from .vram_estimate import KEY as ESTIMATE_KEY
+from .vram_estimate import reference_count
 from .variables import VariableNotFoundError, replace_variables
 from .vram_estimate import pipeline_identity, vram_estimate_errors
 
@@ -135,35 +137,22 @@ def inherited_differences(definition, template, arguments=None):
 
 
 def reference_counts(definition, arguments=None):
-    """The set of `references` list lengths the pipeline steps of
-    `definition` pass, `variable:` references resolved. A step whose
-    `references` is an `item:` reference counts each entry of its
-    `for_each` list variable that carries a `references` list (#915)."""
+    """The set of reference counts the pipeline steps of `definition` pass,
+    `variable:` references resolved and `for_each` expanded, so each member
+    step counts its own entry's `references` (#915). A step's count is
+    `vram_estimate.reference_count`'s, the one the VRAM projection uses."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    counts = set()
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict) or not isinstance(step.get("pipeline"), dict):
-            continue
-        for value in _carried_values(_substituted(step, variables), "references"):
-            if isinstance(value, list):
-                counts.add(len(value))
-            elif isinstance(value, str) and value.startswith("item:"):
-                each = _substituted(step.get("for_each"), variables)
-                for entry in each if isinstance(each, list) else []:
-                    listed = (
-                        entry.get(value[len("item:") :])
-                        if isinstance(entry, dict)
-                        else None
-                    )
-                    if isinstance(listed, list):
-                        counts.add(len(listed))
-    return counts
-
-
-def _carried_values(node, key):
-    """Every value `key` carries anywhere under `node`."""
-    return [json.loads(text) for text in _carried(node, key)]
+    steps = _substituted(definition.get("steps"), variables)
+    try:
+        expanded = expand_for_each({"steps": steps}).get("steps")
+    except ForEachError:
+        return set()
+    return {
+        reference_count(step["pipeline"].get("arguments"))
+        for step in expanded or []
+        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
+    }
 
 
 def sets_differently(definition, template, key, arguments=None):

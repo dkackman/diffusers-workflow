@@ -171,7 +171,10 @@ class TestDifferences:
         def with_refs(value, **top):
             d = definition("inline")
             step = d["steps"][0]
-            step["run"]["references"] = value
+            step["pipeline"] = {
+                **step["pipeline"],
+                "arguments": {"references": value},
+            }
             d.update(top)
             return d
 
@@ -184,6 +187,20 @@ class TestDifferences:
         entries = [{"references": refs(2)}, {"references": refs(3)}]
         each = with_refs("item:references", variables={"shots": entries})
         each["steps"][0]["for_each"] = "variable:shots"
+        assert "reference count" in inherited_differences(each, template)
+        # the optional form with a default, and a null source, count as the
+        # run counts them
+        optional = [
+            {"references": refs(2) + [{"from_file": None}]},
+            {"label": "no references of its own"},
+        ]
+        each = with_refs(
+            {"item": "references", "default": refs(2)},
+            variables={"shots": optional, "num_frames": 124},
+        )
+        each["steps"][0]["for_each"] = "variable:shots"
+        assert "reference count" not in inherited_differences(each, template)
+        each["variables"]["shots"][1]["references"] = refs(3)
         assert "reference count" in inherited_differences(each, template)
 
 
