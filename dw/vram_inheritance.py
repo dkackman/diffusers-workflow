@@ -30,7 +30,8 @@ the pre-queue check covers every server submission.
 import json
 
 from .vram_estimate import KEY as ESTIMATE_KEY
-from .vram_estimate import _resolved, pipeline_identity, vram_estimate_errors
+from .variables import VariableNotFoundError, replace_variables
+from .vram_estimate import pipeline_identity, vram_estimate_errors
 
 KIND = "vram_projection_inherited"
 
@@ -51,28 +52,52 @@ def template_identity(definition):
     return identities.pop()
 
 
-def _deep_resolved(value, variables):
-    """`value` with every `variable:` reference in it resolved, at any depth -
-    a `loras` list carries its repo as a reference inside each entry (#866)."""
-    if isinstance(value, dict):
-        return {name: _deep_resolved(item, variables) for name, item in value.items()}
-    if isinstance(value, list):
-        return [_deep_resolved(item, variables) for item in value]
-    return _resolved(value, variables)
-
-
 def _found(node, key, variables):
-    """Every value `key` carries anywhere under `node`, its `variable:`
-    references resolved against `variables`, as sorted JSON text."""
+    """Every value `key` carries anywhere under `node`, as sorted JSON text,
+    after `node`'s `variable:` references are substituted the way a run
+    substitutes them (`replace_variables`: at any depth, and a key whose
+    reference resolves to null dropped). A `loras` list carries its repo as
+    a reference inside each entry (#866)."""
+    return _carried(_substituted(node, variables), key)
+
+
+def _substituted(node, variables):
+    """`replace_variables(node, variables)`, except that a reference to a
+    variable `variables` doesn't declare stays as written instead of failing
+    the whole node, so the rest of it is still compared."""
+    try:
+        return replace_variables(node, variables)
+    except VariableNotFoundError:
+        pass
+    if isinstance(node, dict):
+        result = {}
+        for name, value in node.items():
+            try:
+                result.update(replace_variables({name: value}, variables))
+            except VariableNotFoundError:
+                result[name] = _substituted(value, variables)
+        return result
+    if isinstance(node, list):
+        result = []
+        for item in node:
+            try:
+                result.extend(replace_variables([item], variables))
+            except VariableNotFoundError:
+                result.append(_substituted(item, variables))
+        return result
+    return node
+
+
+def _carried(node, key):
     values = set()
     if isinstance(node, dict):
         for name, value in node.items():
             if name == key:
-                values.add(json.dumps(_deep_resolved(value, variables), sort_keys=True))
-            values |= _found(value, key, variables)
+                values.add(json.dumps(value, sort_keys=True))
+            values |= _carried(value, key)
     elif isinstance(node, list):
         for item in node:
-            values |= _found(item, key, variables)
+            values |= _carried(item, key)
     return values
 
 

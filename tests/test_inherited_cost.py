@@ -555,3 +555,18 @@ def test_the_warning_agrees_in_number():
 
     assert "its LoRA differs from that template" in warned(["LoRA"])
     assert "its cache, LoRA differ from that template" in warned(["cache", "LoRA"])
+
+
+def test_the_comparison_substitutes_as_the_run_does():
+    """#866 stage C (arch review): `_found` reads a step through
+    `replace_variables`, so a `variable:` resolving to null drops its key as
+    the run does, rather than comparing a value the run never sees."""
+    from dw.vram_inheritance import _found
+
+    steps = [{"pipeline": {"loras": [{"model_name": "variable:lora"}]}}]
+    assert _found(steps, "loras", {"lora": None}) == {"[{}]"}
+    assert _found(steps, "loras", {"lora": "a/b"}) == {'[{"model_name": "a/b"}]'}
+    # An undeclared name stays as written; the rest of the step still resolves
+    mixed = [{"run": {"width": "variable:missing", "num_frames": "variable:n"}}]
+    assert _found(mixed, "num_frames", {"n": 124}) == {"124"}
+    assert _found(mixed, "width", {"n": 124}) == {'"variable:missing"'}
