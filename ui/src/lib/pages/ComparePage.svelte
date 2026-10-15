@@ -48,6 +48,9 @@
   }
 
   async function load(wanted: string[]) {
+    length = 0
+    time = 0
+    playing = false
     const { files } = await api.gallery()
     const byName = new Map(files.map((f) => [f.name, f]))
     cells = await Promise.all(
@@ -65,15 +68,20 @@
 
   const differing = $derived(differingArguments(cells.map((c) => c.meta)))
 
-  // One transport for every video: the first is the clock the slider reads
+  // One transport for every video
   let videos = $state<HTMLVideoElement[]>([])
   let playing = $state(false)
   let time = $state(0)
   let length = $state(0)
+  // The first video is the clock the slider reads, whatever cells precede it
+  const clock = $derived(cells.findIndex((c) => c.file?.kind === 'video'))
   const present = () => videos.filter(Boolean)
   function playPause() {
     playing = !playing
-    for (const v of present()) void (playing ? v.play() : v.pause())
+    for (const v of present()) {
+      if (!playing) v.pause()
+      else void Promise.resolve(v.play()).catch(() => (playing = false))
+    }
   }
   function seek(to: number) {
     time = to
@@ -126,7 +134,7 @@
             muted
             playsinline
             ontimeupdate={(e) => {
-              if (i === 0) time = e.currentTarget.currentTime
+              if (i === clock) time = e.currentTarget.currentTime
             }}
             onloadedmetadata={(e) => {
               length = Math.max(length, e.currentTarget.duration)

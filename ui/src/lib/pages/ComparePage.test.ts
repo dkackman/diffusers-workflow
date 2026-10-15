@@ -1,4 +1,4 @@
-import { cleanup, render, screen } from '@testing-library/svelte'
+import { cleanup, fireEvent, render, screen } from '@testing-library/svelte'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 const file = (name: string, kind = 'image') => ({
@@ -16,7 +16,14 @@ const file = (name: string, kind = 'image') => ({
 vi.mock('../api', () => ({
   api: {
     gallery: () =>
-      Promise.resolve({ files: [file('wf/r1/a.png'), file('wf/r2/b.png')] }),
+      Promise.resolve({
+        files: [
+          file('wf/r1/a.png'),
+          file('wf/r2/b.png'),
+          file('wf/v1.mp4', 'video'),
+          file('wf/v2.mp4', 'video'),
+        ],
+      }),
     galleryMetadata: (name: string) =>
       Promise.resolve({
         metadata: {
@@ -44,5 +51,21 @@ describe('ComparePage', () => {
   it('says when a file is gone', async () => {
     render(ComparePage, { props: { names: ['wf/r1/a.png', 'wf/gone.png'] } })
     expect(await screen.findByText(/no longer in the gallery/)).toBeTruthy()
+  })
+  it('reads the clock from the first video, not the first cell', async () => {
+    const { container } = render(ComparePage, {
+      props: { names: ['wf/r1/a.png', 'wf/v1.mp4', 'wf/v2.mp4'] },
+    })
+    await screen.findByLabelText('position in every video')
+    const [first, second] = container.querySelectorAll('video')
+    const slider = screen.getByLabelText(
+      'position in every video',
+    ) as HTMLInputElement
+    second.currentTime = 7
+    await fireEvent(second, new Event('timeupdate'))
+    expect(slider.value).toBe('0')
+    first.currentTime = 3
+    await fireEvent(first, new Event('timeupdate'))
+    expect(screen.getByText('3.00 s')).toBeTruthy()
   })
 })
