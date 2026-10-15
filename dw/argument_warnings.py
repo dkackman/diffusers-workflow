@@ -6,11 +6,7 @@ neighbours switched off (`crossfade_ms` with nothing trimmed, and the like).
 Best effort and advisory: nothing here refuses a workflow.
 """
 
-import diffusers
-
 from . import references
-from .arguments import is_escaped
-from .type_helpers import NON_TYPE_KEYS
 from .introspection import CLASS_NAME_PATTERN, unknown_call_arguments
 from .variables import undeclared_variable_references
 
@@ -152,46 +148,6 @@ def _inert_match_levels_dbfs_warnings(step, command, arguments):
     ]
 
 
-def _unbraced_type_warnings(node, values, path=""):
-    """A `*_type`/`*_dtype` key loads its value as a diffusers type unless it
-    is written `{name}`, so a variable handed to one with no braces
-    (`weights_dtype: "int8"`) passed validation and failed after the model
-    loaded with `module diffusers has no attribute int8` (#926). Only a bare
-    name is checked: a dotted one is the trust gate's, and a name diffusers
-    does define is a real type."""
-    found = []
-    if isinstance(node, dict):
-        for key, value in node.items():
-            here = f"{path}.{key}" if path else key
-            if (
-                isinstance(key, str)
-                and (key == "dtype" or key.endswith(("_dtype", "_type")))
-                and key not in NON_TYPE_KEYS
-                and references.is_ref(references.VARIABLE, value)
-            ):
-                name = references.ref_name(references.VARIABLE, value)
-                given = values.get(name)
-                if (
-                    isinstance(given, str)
-                    and given
-                    and "." not in given
-                    and not is_escaped(given)
-                    and not hasattr(diffusers, given)
-                ):
-                    found.append(
-                        f"{here}: variable '{name}' is '{given}', but a "
-                        f"'{key}' value loads as a diffusers type and "
-                        f"'{given}' is not one; a type or quantization name "
-                        f'that is only a name needs braces: "{{{given}}}"'
-                    )
-            else:
-                found.extend(_unbraced_type_warnings(value, values, here))
-    elif isinstance(node, list):
-        for index, item in enumerate(node):
-            found.extend(_unbraced_type_warnings(item, values, f"{path}[{index}]"))
-    return found
-
-
 def workflow_argument_warnings(workflow_definition, arguments=None):
     """Best-effort pre-load check of a workflow's arguments.
 
@@ -220,9 +176,6 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
             f"{path}: '{references.make_ref(references.VARIABLE, name)}' names no declared variable{hint}; "
             f"declared: {', '.join(declared) or '<none>'}"
         )
-    warnings.extend(
-        _unbraced_type_warnings(workflow_definition.get("steps", []), values, "steps")
-    )
     for step in workflow_definition.get("steps", []):
         task = step.get("task")
         if task and isinstance(task.get("arguments"), dict):

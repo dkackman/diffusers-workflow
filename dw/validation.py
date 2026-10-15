@@ -64,7 +64,11 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
-from .type_references import component_name_errors, component_type_errors
+from .type_references import (
+    component_name_errors,
+    component_type_errors,
+    unbraced_type_warnings,
+)
 from .variable_constraints import (
     ConstraintReferenceError,
     constraint_errors,
@@ -585,6 +589,12 @@ WARNING_CHECKS = [
     Check(
         "workflow_argument_warnings",
         lambda c: workflow_argument_warnings(c.definition, c.arguments),
+    ),
+    # A type or quantization name written without braces, which the run loads
+    # as a diffusers attribute and fails on (dw/type_references.py, #926)
+    Check(
+        "unbraced_type_warnings",
+        lambda c: unbraced_type_warnings(c.expanded, c.source_indices),
     ),
     # A value a declared constraint will round up - the silent half of #96:
     # the run changed the caller's frame count and only the server's log

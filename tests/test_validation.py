@@ -300,6 +300,7 @@ def test_a_childs_pathless_finding_is_placed_at_the_sub_workflow_step(
 
 WARNING_ORDER = [
     "workflow_argument_warnings",
+    "unbraced_type_warnings",
     "constraint_warnings",
     "entry_field_warnings",
     "unseeded_cache_warnings",
