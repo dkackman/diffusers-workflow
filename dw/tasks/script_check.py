@@ -83,6 +83,17 @@ GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
 # finished into a quiet tail
 CLIP_TAIL_SECONDS = 0.25
+# Audible speech the transcript has no words for (#923): Whisper can drop a
+# passage from its text on a longer input (the ad-lib heard in a short file
+# is gone), and the word alignment hands that time to a neighbouring word,
+# which stretches. A gap between a line's words,
+# or a word, lasting UNHEARD_MIN_SECONDS or more, whose interior - trimmed by
+# UNHEARD_MARGIN_SECONDS each side - holds a window above UNHEARD_FLOOR_DBFS,
+# is speech the words do not account for. The floor is far above the
+# dead-air floor so room tone and a pause's tail do not trip it
+UNHEARD_MIN_SECONDS = 1.0
+UNHEARD_MARGIN_SECONDS = 0.25
+UNHEARD_FLOOR_DBFS = -40.0
 # REPEAT_RUN_MIN and REPEAT_MAX_PERIOD, the repetition-loop guard, live in
 # dw/script_lines.py beside the detector, which transcribe_audio shares
 
@@ -91,11 +102,19 @@ THRESHOLDS = {
     "guard_floor_dbfs": GUARD_FLOOR_DBFS,
     "guard_window_seconds": GUARD_WINDOW_SECONDS,
     "clip_tail_seconds": CLIP_TAIL_SECONDS,
+    "unheard_min_seconds": UNHEARD_MIN_SECONDS,
+    "unheard_margin_seconds": UNHEARD_MARGIN_SECONDS,
+    "unheard_floor_dbfs": UNHEARD_FLOOR_DBFS,
     "repeat_run_min": REPEAT_RUN_MIN,
     "repeat_max_period": REPEAT_MAX_PERIOD,
 }
 
-LINE_RULES = ("line_mismatch", "tag_spoken", "line_clipped_at_end")
+LINE_RULES = (
+    "line_mismatch",
+    "tag_spoken",
+    "line_clipped_at_end",
+    "speech_not_transcribed",
+)
 SILENT_RULES = ("speech_where_silent",)
 SHOT_RULES = ("speech_in_silent_shot", "unscripted_speech")
 
@@ -119,6 +138,13 @@ TAG_SPOKEN = _rule(
     None,
     "a markup word from this line was heard spoken aloud - the model read the"
     " tag as dialogue",
+)
+SPEECH_NOT_TRANSCRIBED = _rule(
+    "speech_not_transcribed",
+    UNHEARD_FLOOR_DBFS,
+    "audible sound lasting this many seconds sits between the line's words, or"
+    " inside one stretched word, with no word for it - the transcript left speech"
+    " out and the line's timing absorbed it; listen",
 )
 SPEECH_WHERE_SILENT = _rule(
     "speech_where_silent",
@@ -468,6 +494,9 @@ def check(
             findings.extend(
                 _clipped_findings(mono, sample_rate, tails, index, own, shot)
             )
+            findings.extend(
+                _untranscribed_findings(mono, sample_rate, index, own, shot)
+            )
             previous_end = end
 
     findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
@@ -532,6 +561,40 @@ def _silent_take(heard, discarded, spans, shots_source):
             for rule in LINE_RULES + SHOT_RULES
         ],
     }
+
+
+def _untranscribed_findings(mono, sample_rate, index, own, shot):
+    """speech_not_transcribed: audible sound in a gap the line's words leave
+    - between two of them - or inside one word stretched over
+    UNHEARD_MIN_SECONDS (#923). Not the gap before a line's first word: a pause
+    between shots may hold music or ambience above the floor."""
+    intervals = [(a["end"], b["start"]) for a, b in zip(own, own[1:])]
+    findings = []
+    for start, end in intervals:
+        if end - start >= UNHEARD_MIN_SECONDS:
+            findings.append(_untranscribed(mono, sample_rate, index, start, end, shot))
+    for word in own:
+        # A word is sound itself: only its interior past the margins is a gap
+        if (
+            word["end"] - word["start"]
+            >= UNHEARD_MIN_SECONDS + 2 * UNHEARD_MARGIN_SECONDS
+        ):
+            findings.append(
+                _untranscribed(
+                    mono, sample_rate, index, word["start"], word["end"], shot
+                )
+            )
+    return [found for found in findings if found is not None]
+
+
+def _untranscribed(mono, sample_rate, index, start, end, shot):
+    lo, hi = start + UNHEARD_MARGIN_SECONDS, end - UNHEARD_MARGIN_SECONDS
+    level = word_level(mono, sample_rate, lo, hi)
+    if level is None or level <= UNHEARD_FLOOR_DBFS:
+        return None
+    at = _at(index, seconds=start, shot=shot)
+    at["end"] = _round(end)
+    return finding(SPEECH_NOT_TRANSCRIBED, _round(end - start, 2), at)
 
 
 def _clipped_findings(mono, sample_rate, tails, index, own, shot):

@@ -655,6 +655,42 @@ class TestUnscriptedSpeech(unittest.TestCase):
         self.assertEqual(rules(answer, "unscripted_speech"), [])
 
 
+class TestSpeechNotTranscribed(unittest.TestCase):
+    LINES = [{"text": "alpha bravo charlie delta", "shot": "A"}]
+
+    def test_sound_in_a_gap_between_a_lines_words_is_a_finding(self):
+        # The ASR dropped an ad-lib between "bravo" and "charlie"
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["line"], 0)
+        self.assertEqual(found["at"]["shot"], "A")
+        self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
+        self.assertAlmostEqual(found["at"]["end"], 4.0, places=2)
+
+    def test_a_stretched_word_over_sound_is_a_finding(self):
+        chunks = [
+            {"start": 0.0, "end": 0.4, "text": " alpha"},
+            {"start": 0.5, "end": 3.0, "text": " bravo"},
+            {"start": 3.0, "end": 3.4, "text": " charlie"},
+            {"start": 3.5, "end": 3.9, "text": " delta"},
+        ]
+        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["seconds"], 0.5)
+
+    def test_a_quiet_gap_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(2.0)])
+        answer = shot_run(self.LINES, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_a_short_gap_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 1.5)
+        answer = shot_run(self.LINES, chunks, mono=voiced(3.0))
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+
 class TestSpeechInSilentShot(unittest.TestCase):
     LINES = [{"text": "alpha bravo", "shot": "A"}]
 
