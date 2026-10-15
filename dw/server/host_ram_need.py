@@ -29,6 +29,7 @@ import json
 import logging
 
 from ..host_memory_projection import projected_mb
+from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
 
@@ -37,19 +38,6 @@ logger = logging.getLogger("dw")
 # Where a run's host-RAM footprint changes without its pipeline changing.
 # group_offload is offload by another name: it streams weights from host RAM
 _SETTINGS = ("quantization_config", "offload", "group_offload")
-
-
-def _substituted(node, variables):
-    """`node` with every `variable:` reference resolved, however deep -
-    `_found` resolves only a value that is itself a reference, and
-    `weights_dtype` sits inside a quantization config."""
-    if isinstance(node, dict):
-        return {key: _substituted(value, variables) for key, value in node.items()}
-    if isinstance(node, list):
-        return [_substituted(item, variables) for item in node]
-    if isinstance(node, str) and node.startswith("variable:"):
-        return variables.get(node[len("variable:") :], node)
-    return node
 
 
 def _pipeline_steps(node):
@@ -66,13 +54,19 @@ def _pipeline_steps(node):
 
 def memory_key(definition, arguments=None):
     """The run's memory key as a short hex digest, or None for a definition
-    that loads no pipeline it can name (a task-only workflow)."""
+    that loads no pipeline it can name (a task-only workflow) or that
+    references a variable it doesn't declare."""
     if not isinstance(definition, dict):
         return None
     variables = definition.get("variables")
     variables = dict(variables) if isinstance(variables, dict) else {}
     variables.update(arguments or {})
-    steps = _substituted(definition.get("steps"), variables)
+    # Deep substitution, not `_found`'s: `weights_dtype` sits inside a
+    # quantization config rather than being one
+    try:
+        steps = replace_variables(definition.get("steps"), variables)
+    except VariableNotFoundError:
+        return None
     identities = {pipeline_identity(step) for step in _pipeline_steps(steps)}
     identities.discard(None)
     if not identities:
