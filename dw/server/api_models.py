@@ -993,7 +993,8 @@ class GalleryMetadata(ApiModel):
     run_id: str
     version: int | None
     media: dict[str, Any] | None = Field(
-        description="The probe of an audio or video file; null for an image."
+        description="The probe of an audio or video file, or an image's kind, width, height "
+        "and mode; null for another file."
     )
     findings: list[LevelFinding]
     role: Literal["final", "intermediate"] | None = sometimes(

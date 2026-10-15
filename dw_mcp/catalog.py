@@ -296,7 +296,12 @@ def list_gallery(
 
 
 def get_gallery_metadata(
-    client, name, envelope=False, workspace=None, interval_seconds=None
+    client,
+    name,
+    envelope=False,
+    workspace=None,
+    interval_seconds=None,
+    include_workflow=True,
 ):
     """Metadata embedded in a saved file: the full workflow that made it -
     the exact workflow, arguments and seed, so a result can be reproduced
@@ -326,9 +331,12 @@ def get_gallery_metadata(
     measure, and the default answer has to stay small. `interval_seconds`
     (0.05 to 3600, default 1.0) narrows the bins; a finer-than-default width
     that would need over 2400 of them is refused with the interval that fits."""
-    params = {"envelope": "true"} if envelope else None
+    params = {"envelope": "true"} if envelope else {}
     if envelope and interval_seconds is not None:
         params["interval_seconds"] = interval_seconds
+    if not include_workflow:
+        params["include_workflow"] = "false"
+    params = params or None
     body = client.get_json(
         api_path("api", "gallery", name, "metadata"),
         params=params,

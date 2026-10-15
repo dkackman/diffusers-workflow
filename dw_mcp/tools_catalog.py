@@ -307,6 +307,7 @@ class CatalogTools:
         envelope: bool = False,
         workspace: str | None = None,
         interval_seconds: float | None = None,
+        include_workflow: bool = True,
     ) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it, so a result can be
@@ -314,8 +315,9 @@ class CatalogTools:
         and video `metadata` is null and `next` names
         `get_job_workflow(job_id)` when known. `media` carries duration,
         sample rate, channels, fps, size and level - how an agent that
-        cannot listen checks a deliverable; `media.shots` places a joined
-        video's shots.
+        cannot listen checks a deliverable, or an image's measured
+        `width`/`height`; `media.shots` places a joined video's shots.
+        `include_workflow=false` omits the large embedded workflow.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: a shot's last frame, a seam's hole, where a
@@ -339,6 +341,7 @@ class CatalogTools:
             envelope=envelope,
             workspace=workspace,
             interval_seconds=interval_seconds,
+            include_workflow=include_workflow,
         )
 
     def list_guides(

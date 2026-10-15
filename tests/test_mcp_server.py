@@ -1700,7 +1700,10 @@ def test_the_stated_tool_count_is_the_registered_one():
 # 2026-10-14 (#886, #867 stage 2): get_job_events' description names the
 # `cache_stats` kind (+15 description) - measured at 15_004.25 (9_485 /
 # 5_009 / 510.25); the ceiling moves to 15_005 with 0.75 of headroom.
-SURFACE_BUDGET = 15_005
+# 2026-10-15 (#922): get_gallery_metadata gains `include_workflow` and says an
+# image's `media` is its measured size (+46) - measured at 15_051.25; the
+# ceiling moves to 15_052 with 0.75 of headroom.
+SURFACE_BUDGET = 15_052
 
 
 @pytest.mark.asyncio

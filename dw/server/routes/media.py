@@ -111,6 +111,7 @@ def gallery_metadata(
     name: str,
     envelope: bool = False,
     interval_seconds: float = 1.0,
+    include_workflow: bool = True,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Generation metadata embedded in a saved image ('workflow' inside
@@ -132,6 +133,12 @@ def gallery_metadata(
     would need more than 2400 bins at a finer-than-default width is
     refused (422) with the interval that fits; the default width is
     never refused for length (#823).
+
+    An image's `media` is its measured `{kind, width, height, mode}`,
+    read from the file header (#922) - not the width/height arguments
+    the pipeline was asked for. `include_workflow=false` drops the
+    embedded `metadata.workflow` (the whole definition, often 20 KB) and
+    leaves the rest of `metadata` with `workflow_omitted: true`.
 
     `name` may also be an 'asset:' reference, and then it is the input
     asset of that name that is described rather than an output (#127).
@@ -193,16 +200,27 @@ def gallery_metadata(
             inputs = run_inputs(split[0])
             notes = _note_fields(read_notes(split[0]), split[1])
     metadata = read_embedded_metadata(path)
+    if metadata is not None and not include_workflow and "workflow" in metadata:
+        metadata = {
+            **{k: v for k, v in metadata.items() if k != "workflow"},
+            "workflow_omitted": True,
+        }
     extension = os.path.splitext(path)[1].lower()
+    kind = MEDIA_KINDS.get(extension)
     try:
-        media = (
-            probe_media(path, envelope=envelope, interval_seconds=interval_seconds)
-            if MEDIA_KINDS.get(extension) in ("audio", "video")
-            else None
-        )
+        if kind in ("audio", "video"):
+            media = probe_media(
+                path, envelope=envelope, interval_seconds=interval_seconds
+            )
+        elif kind == "image":
+            media = _image_media(path)
+        else:
+            media = None
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if media is not None and source == "output":
+    if kind == "image":
+        pass  # no shots in a still
+    elif media is not None and source == "output":
         # Where each shot of a joined video sits, as the run that wrote
         # it recorded (dw/shots.py) - null for a file not joined from shots
         media["shots"] = recorded_shots(ws.outputs, name)
@@ -224,6 +242,24 @@ def gallery_metadata(
         "inputs": inputs,
         **notes,
     }
+
+
+def _image_media(path):
+    """An image's `media` block - kind, pixel size and mode - read from
+    the header alone, so no pixel is decoded; None for a file Pillow cannot
+    read (#922)."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return {
+                "kind": "image",
+                "width": image.width,
+                "height": image.height,
+                "mode": image.mode,
+            }
+    except (OSError, ValueError, SyntaxError):
+        return None
 
 
 def _note_fields(notes, name):
