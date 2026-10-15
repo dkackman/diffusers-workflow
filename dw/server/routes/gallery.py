@@ -20,7 +20,7 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
-from ...notes import NOTES_FILE_NAME, drop_file_note, effective_note, read_notes
+from ...notes import NOTES_FILE_NAME, drop_file_note, effective_note, read_notes, read_starred
 from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
@@ -73,6 +73,7 @@ def _gallery_entries(root, ws):
     versions_by_folder = {}
     # And one read of each run's notes.json, for the same reason
     notes_by_run = {}
+    starred_by_run = {}
 
     def _version(folder, run_id):
         if not run_id:
@@ -129,6 +130,10 @@ def _gallery_entries(root, ws):
             note = effective_note(notes_by_run[split[0]], split[1])[0]
             if note:
                 entry["note"] = note
+            if split[0] not in starred_by_run:
+                starred_by_run[split[0]] = read_starred(split[0])
+            if split[1] in starred_by_run[split[0]]:
+                entry["starred"] = True
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:
             entry["absolute_url"] = absolute_url

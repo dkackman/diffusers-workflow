@@ -17,6 +17,8 @@
     <dd>previous / next file (gallery details)</dd>
     <dt><kbd>Delete</kbd> or <kbd>⌘</kbd> + <kbd>⌫</kbd></dt>
     <dd>delete the open file and show the next (gallery details)</dd>
+    <dt><kbd>S</kbd></dt>
+    <dd>star / unstar the open file (gallery details)</dd>
     <dt><kbd>?</kbd></dt>
     <dd>show this help</dd>
   </dl>

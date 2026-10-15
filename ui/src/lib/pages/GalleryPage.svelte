@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ImageOff, Pencil, Play } from '@lucide/svelte'
+  import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
@@ -62,7 +62,10 @@
 
   // A file whose run does not say its role counts as final
   const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
-  const filterActive = $derived(filter !== '' || roles.length < 2)
+  let starredOnly = $state(false)
+  const filterActive = $derived(
+    filter !== '' || roles.length < 2 || starredOnly,
+  )
   // Finals lead inside a run only: the server's order (newest first) holds
   // between runs, so runs sit where their newest file put them. The sort is
   // stable, so it holds inside each role too
@@ -71,7 +74,8 @@
     const shown = files.filter(
       (f) =>
         f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        roles.includes(roleOf(f)),
+        roles.includes(roleOf(f)) &&
+        (!starredOnly || f.starred),
     )
     const runs: string[] = []
     for (const f of shown) if (!runs.includes(runKey(f))) runs.push(runKey(f))
@@ -81,6 +85,18 @@
         runs.indexOf(runKey(a)) - runs.indexOf(runKey(b)) || rank(a) - rank(b),
     )
   })
+  async function toggleStar() {
+    if (!selected) return
+    const name = selected.name
+    const next = !selected.starred
+    try {
+      await api.setStarred(name, next)
+      files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
+      if (selected?.name === name) selected = { ...selected, starred: next }
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
   // Never both off: an empty grid is not a state worth offering
   function toggleRole(which: OutputRole) {
     const next = roles.includes(which)
@@ -237,6 +253,9 @@
     } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
       e.preventDefault()
       void removeFile()
+    } else if (e.key === 's' && !e.metaKey && !e.ctrlKey) {
+      e.preventDefault()
+      void toggleStar()
     }
   }}
 />
@@ -258,6 +277,13 @@
         >{which === 'final' ? 'Final' : 'Intermediate'}</button
       >
     {/each}
+    <button
+      class="rolechip"
+      class:on={starredOnly}
+      aria-pressed={starredOnly}
+      onclick={() => (starredOnly = !starredOnly)}
+      title="only the files you starred">Starred</button
+    >
   </div>
 </div>
 
@@ -354,6 +380,10 @@
               class="note-mark"
               title={file.note.split('\n')[0]}
               aria-label="Has a note"><Pencil size={11} /></span
+            >{/if}{#if file.starred}
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}<span class="note-mark" aria-label="Starred"
+              ><Star size={11} fill="currentColor" /></span
             >{/if}</span
         >
       </button>
@@ -373,6 +403,8 @@
     runNote={noteInfo.runNote}
     noteSource={noteInfo.source}
     onnotesaved={refreshNote}
+    starred={!!selected.starred}
+    onstar={toggleStar}
     onremove={removeFile}
     onclose={() => (selected = null)}
   />

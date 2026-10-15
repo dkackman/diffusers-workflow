@@ -826,6 +826,12 @@ one that would leave its root is a 404 (a name a workspace cannot take, or
 an invalid asset name, a 400), and a write that fails a 500. Notes are free
 metadata and need no `acknowledged_cost`.
 
+`PUT /api/stars` with `{"name": <gallery file name>, "starred": true|false}`
+stars or unstars one output file - the "keep" mark for culling a run. A star
+is stored in the run's `notes.json` (`"starred": [...]`) beside its notes, and
+the gallery listing carries `"starred": true` on a starred file. Only a file
+in a run directory can be starred; a run, asset or workspace target is a 400.
+
 Notes are set at creation too:
 
 - `POST /api/jobs` takes `note`. It is kept on the job (`note` in every job

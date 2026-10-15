@@ -631,7 +631,7 @@ export interface paths {
          *     back the same way it reads a kept file's shots (#556). `run_id`/
          *     `version` are that source run's own - `job.id` is still the one to
          *     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-         *     of its own to reopen.
+         *     of its own to reopen. `inputs` is the source run's too (#902).
          */
         get: operations["gallery_metadata_api_gallery__name__metadata_get"];
         put?: never;
@@ -1399,6 +1399,29 @@ export interface paths {
          */
         get: operations["server_info_api_server_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Star
+         * @description Star or unstar one output file - the "keep" mark a person culls a run
+         *     with. It lives in the run's notes.json beside the notes, so it is
+         *     resolved exactly as a file note is, and only a file in a run directory
+         *     can carry one.
+         */
+        put: operations["put_star_api_stars_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2344,6 +2367,11 @@ export interface components {
             run_id: string;
             /** Size */
             size: number;
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /**
              * Subfolder
              * @description What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.
@@ -3506,6 +3534,23 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /** StarRequest */
+        StarRequest: {
+            /**
+             * Name
+             * @description A gallery file name
+             */
+            name: string;
+            /** Starred */
+            starred: boolean;
+        };
+        /** StarSet */
+        StarSet: {
+            /** Name */
+            name: string;
+            /** Starred */
+            starred: boolean;
         };
         /**
          * StepTiming
@@ -5860,6 +5905,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_star_api_stars_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarSet"];
                 };
             };
             /** @description Validation Error */
