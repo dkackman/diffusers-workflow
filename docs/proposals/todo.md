@@ -37,6 +37,17 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`plan.estimate` scales the curated figure** (#866, stages #905-#908),
+  shipped 2026-10-15. A move of `num_inference_steps`, `width`/`height` or
+  `num_frames` off the defaults now scales the catalog or inherited figure
+  in proportion (`basis: "derived"`, `scaled` names the axes) instead of
+  quoting `unknown` or the flat figure. Any other declared driver (H3
+  weights, LoRA, attention, cache) keeps the figure with `low_confidence`
+  and `differs`. The fingerprint and step cache are keyed only by what
+  changes the output. Record, including what was cut (compile as a driver,
+  the learned fixed + per-pass fit) and follow-ups #911 and #912:
+  `complete/estimate-scaling-complete.md`.
+
 - **H3 adapter check reads the LoRA catalog first** (#870, stage #888),
   shipped 2026-10-14. On the server, validate and admission look up the
   LoRA in the shared catalog: a `proven` entry whose `workflow` puts it on
