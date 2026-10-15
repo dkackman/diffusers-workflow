@@ -581,3 +581,27 @@ it('the S key stars the open file', async () => {
   await fireEvent.keyDown(window, { key: 's' })
   await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
 })
+
+it('the S key leaves a bare s to the page: Shift-S does nothing', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.keyDown(window, { key: 'S', shiftKey: true })
+  expect(setStarred).not.toHaveBeenCalled()
+})
+
+it('unstarring the open file under Starred steps on from its place', async () => {
+  listing.files = [
+    { ...file('a.png'), starred: true },
+    { ...file('b.png'), starred: true },
+    file('c.png'),
+  ]
+  await renderGallery()
+  await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  await fireEvent.keyDown(window, { key: 's' })
+  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', false))
+  await waitFor(() => expect(screen.queryByTitle('a.png')).toBeNull())
+  await fireEvent.keyDown(window, { key: 'ArrowRight' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+})
