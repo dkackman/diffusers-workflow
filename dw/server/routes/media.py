@@ -165,8 +165,10 @@ def gallery_metadata(
         kept = kept_provenance(path)
         if kept:
             job = kept.get("job")
-            if job and job.get("id") and (
-                request.app.state.job_manager.get(job["id"]) is None
+            if (
+                job
+                and job.get("id")
+                and (request.app.state.job_manager.get(job["id"]) is None)
             ):
                 # Pruned from history (the cap, or a deleted workspace):
                 # the id is a record, not something get_job_workflow can

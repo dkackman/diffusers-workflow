@@ -341,7 +341,7 @@ def get_gallery_metadata(
         if job and job.get("status") == "forgotten":
             hints.append(
                 "metadata is null because this file has none embedded, and "
-                f'its job {job.get("id")} is no longer in the server\'s '
+                f"its job {job.get('id')} is no longer in the server's "
                 "history (status 'forgotten'), so get_job_workflow would "
                 "answer 'Unknown job'. What remains is this file's own "
                 "`note` and `inputs` when present, or get_job_workflow of "
