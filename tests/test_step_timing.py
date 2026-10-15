@@ -534,3 +534,47 @@ def test_default_clock_does_not_sync_on_cpu(monkeypatch):
     monkeypatch.setattr(timing_module, "get_device_type", lambda: "cpu")
     monkeypatch.setattr(torch.mps, "synchronize", lambda: pytest.fail("synced on cpu"))
     StepTimer().load_started()
+
+
+def _passes(clock, timer, cached, first, steady):
+    timer.load_cached(cached)
+    marked(
+        clock,
+        timer,
+        (0.0, "call_started"),
+        (1.0, "denoise_started"),
+        (1.0 + first, "pass_ended"),
+        (1.0 + first + steady, "pass_ended"),
+        (1.0 + first + 2 * steady, "pass_ended"),
+        (2.0 + first + 2 * steady, "call_ended"),
+    )
+
+
+def test_a_cached_pipeline_whose_first_pass_dwarfs_the_rest_warns_once(monkeypatch):
+    """#924: 202 s then 37 s/pass on a loaded pipeline is said, not silent."""
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _passes(clock, timer, True, 202.0, 37.0)
+    assert len(warnings) == 1
+    assert warnings[0]["kind"] == "first_pass_slow"
+    assert warnings[0]["first_pass_s"] == 202.0
+    assert warnings[0]["pass_s"] == 37.0
+
+
+@pytest.mark.parametrize(
+    "cached, first, steady",
+    [(True, 29.0, 28.4), (True, 60.0, 37.0), (False, 202.0, 37.0)],
+)
+def test_no_warning_for_a_normal_first_pass_or_a_fresh_load(
+    monkeypatch, cached, first, steady
+):
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _passes(clock, timer, cached, first, steady)
+    assert warnings == []

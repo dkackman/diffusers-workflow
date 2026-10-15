@@ -38,6 +38,10 @@ logger = logging.getLogger("dw")
 
 _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
 
+# A first pass this much slower than a steady one, on a loaded pipeline, is
+# worth a warning (#924)
+_SLOW_FIRST_PASS_EXTRA_S = 30.0
+
 
 def _synced_clock():
     """The monotonic clock, read after the device has finished its queued work.
@@ -137,6 +141,39 @@ class StepTimer:
         segment = self._current_segment()
         if segment is not None:
             segment.pass_ends.append(self._clock())
+            self._warn_on_slow_first_pass(segment)
+
+    def _warn_on_slow_first_pass(self, segment):
+        """Say so once when a cached pipeline's first pass dwarfs the steady one.
+
+        The pipeline is loaded, so the minutes are not a load. A later entry
+        that runs the cached pipeline at a larger shape (more frames) pays a
+        one-off warm-up on its first pass - re-allocation, offload buffers,
+        kernels meeting a new shape - and without a word the consumer sees only
+        a `phase_stall` (#924). Judged at the second pass interval, when a
+        steady pass is known."""
+        passes = segment.pass_ends
+        if (
+            len(passes) != 3
+            or self._load_cached is not True
+            or segment.denoise_started is None
+        ):
+            return
+        first = passes[0] - segment.denoise_started
+        steady = passes[2] - passes[1]
+        if first - steady < _SLOW_FIRST_PASS_EXTRA_S or first < steady * 3:
+            return
+        emit_warning(
+            f"First denoise pass took {first:.0f}s against {steady:.0f}s for "
+            "the passes after it, with the pipeline already loaded: a one-off "
+            "warm-up (typically a cached pipeline meeting a larger shape than "
+            "it last ran, such as more frames). Later passes run at the "
+            "steady rate.",
+            kind="first_pass_slow",
+            first_pass_s=round(first, 1),
+            pass_s=round(steady, 1),
+            step=self.step,
+        )
 
     def call_ended(self):
         segment = self._current_segment()
