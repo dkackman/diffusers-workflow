@@ -51,14 +51,24 @@ def template_identity(definition):
     return identities.pop()
 
 
+def _deep_resolved(value, variables):
+    """`value` with every `variable:` reference in it resolved, at any depth -
+    a `loras` list carries its repo as a reference inside each entry (#866)."""
+    if isinstance(value, dict):
+        return {name: _deep_resolved(item, variables) for name, item in value.items()}
+    if isinstance(value, list):
+        return [_deep_resolved(item, variables) for item in value]
+    return _resolved(value, variables)
+
+
 def _found(node, key, variables):
-    """Every value `key` carries anywhere under `node`, a `variable:`
-    reference resolved against `variables`, as sorted JSON text."""
+    """Every value `key` carries anywhere under `node`, its `variable:`
+    references resolved against `variables`, as sorted JSON text."""
     values = set()
     if isinstance(node, dict):
         for name, value in node.items():
             if name == key:
-                values.add(json.dumps(_resolved(value, variables), sort_keys=True))
+                values.add(json.dumps(_deep_resolved(value, variables), sort_keys=True))
             values |= _found(value, key, variables)
     elif isinstance(node, list):
         for item in node:
