@@ -438,7 +438,12 @@ The editor's forms come from these; they are just as usable from scripts:
   ones it was measured with), `per_entry` (re-priced from a measured
   per-entry rate, when the entry carries `per_entry`), `derived` (the
   stored total extrapolated linearly over a list whose length the caller
-  changed - an estimate, not a measurement), `other_device` (no entry for
+  changed, or scaled in proportion along `num_inference_steps`,
+  `width` x `height` and `num_frames` - per entry in a list, summed - that
+  the caller moved off the variable defaults a `cost` entry is measured at,
+  with `scaled` naming each moved axis; an estimate, not a measurement; a
+  moved driver with no rule to scale by, or a non-numeric value, is
+  `unknown`), `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
   so there is nothing honest to extrapolate along) or `inherited` (an

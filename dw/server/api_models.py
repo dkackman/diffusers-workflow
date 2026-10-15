@@ -627,7 +627,10 @@ class PlanEstimate(ApiModel):
         "when nothing does."
     )
     scaled: str = sometimes(
-        "With basis `inherited`: why the template's minutes were re-priced "
+        "With basis `derived` (or `other_device`, or a tempered `observed`): "
+        "what the curated figure was scaled along - steps, canvas or frames "
+        "moved off the variable defaults it was measured at (#866). With basis "
+        "`inherited`: why the template's minutes were re-priced "
         "linearly (more pipeline steps or frames than the template run measured) "
         "- an approximation, with `low_confidence` true."
     )

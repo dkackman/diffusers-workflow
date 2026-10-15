@@ -708,7 +708,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a measured per-entry rate re-priced for your list; `catalog` is a
    measured total for a run whose lists are the ones it was measured with;
    `derived` is that total extrapolated over a list you changed the length
-   of - say it is an estimate; `inherited` is an inline workflow priced
+   of, or scaled along the steps, canvas or frames you moved off the
+   defaults it was measured at (`scaled` names each axis that moved) - say
+   it is an estimate; `inherited` is an inline workflow priced
    from this box's runs of the catalog template with the same pipeline
    (`inherited_from`) - say it is an approximation, and relay the warning
    if offload, quantization or frame count differ; `other_device` is a figure from another
@@ -977,7 +979,12 @@ longer than that is truncated with an ellipsis in every listing.
 Declare `shape`, `traits` or `summary` at the top level only when derivation
 gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
-never derived — leave it absent until a run has been measured. That makes it
+never derived — leave it absent until a run has been measured. A `cost` entry
+is measured at the workflow's variable defaults: a run that moves
+`num_inference_steps`, `width`/`height` or `num_frames` (per entry in a list,
+summed) is quoted scaled in proportion to them, so a figure measured at some
+other size or step count is re-priced to the defaults before it is written
+(dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). That makes it
 the catalog's verified marker as well: an entry carrying `cost` has been run
 to completion on the device it names, and one without has only been authored
 — its description may still say what it has not been able to check (VRAM at
