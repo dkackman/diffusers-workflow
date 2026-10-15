@@ -572,6 +572,7 @@ it('stars the open file and can filter to starred files', async () => {
   expect(setStarred).toHaveBeenCalledWith('a.png', true)
   await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
   expect(screen.queryByTitle('b.png')).toBeNull()
+  expect(screen.getByTitle('a.png')).toBeTruthy()
 })
 
 it('the S key stars the open file', async () => {

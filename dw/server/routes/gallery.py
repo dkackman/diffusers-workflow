@@ -20,7 +20,13 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
-from ...notes import NOTES_FILE_NAME, drop_file_note, effective_note, read_notes, read_starred
+from ...notes import (
+    NOTES_FILE_NAME,
+    drop_file_note,
+    effective_note,
+    read_notes,
+    read_starred,
+)
 from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,

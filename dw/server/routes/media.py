@@ -985,10 +985,14 @@ def put_star(
     resolved exactly as a file note is, and only a file in a run directory
     can carry one."""
     if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
-        raise HTTPException(status_code=400, detail="Only an output file can be starred")
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
     directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
     if kind != "file":
-        raise HTTPException(status_code=400, detail="Only an output file can be starred")
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
     try:
         starred = set_file_starred(directory, name, body.starred)
     except OSError:

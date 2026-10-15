@@ -253,7 +253,12 @@
     } else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
       e.preventDefault()
       void removeFile()
-    } else if (e.key === 's' && !e.metaKey && !e.ctrlKey) {
+    } else if (
+      e.key.toLowerCase() === 's' &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey
+    ) {
       e.preventDefault()
       void toggleStar()
     }
