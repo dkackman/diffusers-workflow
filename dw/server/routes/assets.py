@@ -514,6 +514,13 @@ def keep_output_as_asset(
         if job
         else None
     )
+    if job:
+        # The asset now names this job, so deleting the workspace must not
+        # take its row (#917)
+        try:
+            request.app.state.job_manager.history.mark_kept(job["id"])
+        except Exception as e:
+            logger.warning(f"Could not mark job {job['id']} kept: {e}")
     record_kept_shots(
         os.path.dirname(destination),
         os.path.basename(destination),

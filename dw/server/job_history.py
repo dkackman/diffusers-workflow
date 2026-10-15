@@ -157,6 +157,10 @@ class JobHistory:
             # row before the column
             if "rerun_of" not in columns:
                 connection.execute("ALTER TABLE jobs ADD COLUMN rerun_of TEXT")
+            # 1 once a kept asset's provenance names the job (#917), so a
+            # workspace delete leaves the row for get_job_workflow to read
+            if "kept" not in columns:
+                connection.execute("ALTER TABLE jobs ADD COLUMN kept INTEGER DEFAULT 0")
             if "device_ordinal" not in columns or "device_card" not in columns:
                 connection.execute(
                     "UPDATE jobs SET"
@@ -421,15 +425,30 @@ class JobHistory:
                 (workspace, workflow_name),
             )
 
+    def mark_kept(self, job_id):
+        """Record that a kept asset's provenance names this job (#917), so
+        `forget_workspace` leaves its row."""
+        with self._lock, self._connect() as connection:
+            connection.execute("UPDATE jobs SET kept = 1 WHERE id = ?", (job_id,))
+
     def forget_workspace(self, workspace):
-        """Delete every row recorded in this workspace (#913). A deleted
+        """Delete the rows recorded in this workspace (#913). A deleted
         workspace takes its history with it, so a new workspace reusing the
-        name starts with none. Returns the number of rows removed."""
+        name starts with none. A job a kept asset names (#917) survives, its
+        workspace renamed to one no workspace can be called, so
+        `get_job_workflow` still resolves the asset's provenance. Returns
+        the number of rows removed."""
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM jobs WHERE workspace = ?", (workspace,)
+                "DELETE FROM jobs WHERE workspace = ? AND COALESCE(kept, 0) = 0",
+                (workspace,),
             )
-            return cursor.rowcount
+            removed = cursor.rowcount
+            connection.execute(
+                "UPDATE jobs SET workspace = ? WHERE workspace = ?",
+                (f"{workspace} (deleted)", workspace),
+            )
+            return removed
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded

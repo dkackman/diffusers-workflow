@@ -31,3 +31,16 @@ def test_forgetting_a_workspace_leaves_a_same_named_one_empty(tmp_path):
     assert history.recent_summaries(workspace="sweep") == []
     assert [r["id"] for r in history.recent_summaries(workspace="other")] == ["c"]
     assert history.get("a") is None
+
+
+def test_a_job_a_kept_asset_names_survives_its_workspace(tmp_path):
+    history = JobHistory(str(tmp_path / "jobs.sqlite"))
+    history.record(_job("a", "sweep"))
+    history.record(_job("b", "sweep"))
+    history.mark_kept("a")
+
+    assert history.forget_workspace("sweep") == 1
+
+    assert history.recent_summaries(workspace="sweep") == []
+    assert history.get("b") is None
+    assert history.get("a")["status"] == "succeeded"
