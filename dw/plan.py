@@ -889,8 +889,10 @@ def estimate(
     ones it was measured with, 'per_entry' that total re-priced from a
     measured per-entry rate, and 'derived' re-priced by extrapolating the
     stored total linearly over a list whose length the caller changed
-    (#85) - an estimate, not a measurement, and the only alternative to
-    quoting a 5-shot figure for a 10-shot run.
+    (#85), or scaled along the steps, canvas or frames moved off the
+    defaults it was measured at (#866, `scale_curated`) - an estimate, not
+    a measurement, and the only alternative to quoting a 5-shot figure for
+    a 10-shot run.
 
     `measured_entries` is what the stored defaults carry, which is the
     list the catalog figure was measured against; without it a catalog
