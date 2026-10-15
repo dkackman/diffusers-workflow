@@ -999,7 +999,12 @@ reports the result as `observed` beside the curated `cost`, so a 345-frame
 run never informs a 124-frame figure and a list driver buckets on its length.
 Declaring none is not neutral: the figure then falls back to runs that
 overrode nothing at all, which most real runs do, so a measured workflow with
-no drivers keeps answering "unknown". Each name must be a variable the
+no drivers keeps answering "unknown". A driver the estimate cannot scale
+along - anything but steps, width, height and frames, such as a weights
+dtype, a LoRA name or an audio duration - still splits the buckets (a text
+value buckets by its exact value). When a run moves one off its default, the
+curated figure is kept but carries `low_confidence: true`, and `differs`
+names the drivers, since it was measured at the default. Each name must be a variable the
 workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
 that is not, since a driver bucketing on nothing looks exactly like a driver
 that works.

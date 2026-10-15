@@ -624,7 +624,9 @@ class PlanEstimate(ApiModel):
     differs: list[str] = sometimes(
         "With basis `inherited`: what this workflow sets differently from "
         "`inherited_from` among offload, quantization and frame count; empty "
-        "when nothing does."
+        "when nothing does. Otherwise: the cost drivers with no rule to scale "
+        "by that moved off the default the figure was measured at, with "
+        "`low_confidence` true."
     )
     scaled: str = sometimes(
         "With basis `derived` (or `other_device`, or a tempered `observed`): "
