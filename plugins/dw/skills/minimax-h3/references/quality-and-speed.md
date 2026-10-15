@@ -39,13 +39,97 @@ shift the LoRA names.
 - **Steps**: the base floor is 12. 8 steps duplicated a character (B6).
 - **Two-character shots at 960x544 smear** (~60 px faces): render them at
   1344x768 from the start, not at 544 and upscaled.
-- **Draft then final**: a 12-step draft (~13 min) of the wide, then the
-  30-step final with `first_block` 0.05 (~23 min). Draft to final carries
-  blocking but not always props.
+- **Draft then final**: pick the path by target and render a cheap draft
+  before the final. See *Ramp* below.
 - **Submit freely**: the server holds a second heavy job, queued with
   `waiting_for`, until host RAM frees.
 - **Frame ceiling** at 1344x768 with 4 references is 124; 141 was refused
   (23.9 GB > 23.6). Write to 124 or drop a reference.
+
+## Ramp
+
+Spend GPU time on quality in two tiers: a draft to approve the shot, then a
+final of the same shot. Pick the path by the target **before the first
+render**, because a draft only carries to a final on its own path.
+
+### 1. Pick the path
+
+Both tiers use the same template (`templates/minimax/reference-to-video`, or
+`templates/minimax/dialogue-short` for a cut). `attention_backend=sage_hub`
+is an argument on every H3 template, `dialogue-short` included. Set it at
+both tiers on CUDA: it never moves composition.
+
+| Target | Draft | Final | Only these change |
+|---|---|---|---|
+| **TV** (sitcom, social, previs) | **L1**, ~5.4 min | **L7**, ~7.2 min | `weights_dtype` `{int4}` to `{int8}` |
+| **Cinema** (realistic faces) | **B3**, ~12.9 min | **L5**, ~29.5 min, or **P1**, ~23.1 min | `num_inference_steps` 12 to 30; P1 adds `cache` |
+| **Close-up** | **C1**, ~13.9 min | ship the draft | nothing |
+
+- **TV.** Both rungs are 1344x768 on the 4-step Ref2VA v0.1 LoRA:
+  `lora_model_name` `lightx2v/Minimax-h3-Turbo`, `lora_weight_name`
+  `minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors`,
+  `num_inference_steps` 5, `video_shift` 12, `audio_shift` 3. L1 is
+  `weights_dtype` `{int4}`, L7 is `{int8}`. **L0** (the same at 960x544,
+  ~3.5 min) is a throwaway sketch only. Its staging did carry to L7 (below),
+  but it smeared a face at both new seeds, so a face can't be approved on it,
+  and two-character shots at 960x544 smear. Render those at 1344x768 from
+  the start. The L7 final (3/5) is **not confirmed by ear or in playback**.
+- **Cinema.** The base model: `lora_model_name` `null`, `weights_dtype`
+  `{int8}`, 1344x768, `video_shift` 12, `audio_shift` 3. B3 is 12 steps, L5 is
+  30. **P1** is L5 plus the template's `cache` argument
+  `{"type": "first_block", "threshold": 0.05}` (-22%, the same staging and
+  faces). Both tiers warn `lora_disabled`. That is expected: the warning asks
+  for the base schedule, and these values are it. Never draft at B4 (960x544
+  int4 base) for a 1344x768 final: its staging held on only 2 of 4 seeds.
+- **Close-ups**: C1 is B3's arguments on a close-up shot. It scores 4/5 at
+  12 steps (C1 = C2), so the draft is the deliverable.
+
+### 2. What carries from draft to final
+
+The composition rules under *Quality ladder* hold: attention never moves
+staging, and neither does base step count; a different LoRA family
+re-stages; so does int4 against int8 on the base model. On top of those:
+
+- keep the seed, canvas, prompt and references identical between the tiers;
+- blocking carries, but props and set dressing sometimes don't (a jacket on
+  a chair in C1 only).
+
+Measured (#861) on seeds 42, 7 and 1234, judged by Don: B3 -> P1, C1 -> C2
+and L0 -> L7 each held staging on **3 of 3** seeds. L1 = L7 (the TV pair
+itself) is measured on **1 seed** (42). B4 -> B5 held on only 2 of 4 seeds
+(42, 7, 1234, 99). At seed 1234, B5 (int4) staged like B3 (int8): on the
+base model the canvas moved staging more than the weights did. That is one
+seed against the int4/int8 rule, which stands until it's measured further.
+
+### 3. What to approve at each tier
+
+- **Draft:** blocking, line delivery, timing and head count. Re-roll the
+  seed or the prompt here, and only here.
+- **Final:** faces, skin and hair. On these paths a final that re-stages
+  usually has an argument the table doesn't allow: diff its arguments
+  against the draft's before suspecting the seed.
+
+### 4. How to judge
+
+- Face crops at native resolution, at fixed frames
+  (`get_output_frames`), the same frames at both tiers.
+- A contact sheet (`get_output_frames(count=12)`) for staging.
+- `check-script` for the lines.
+- A 1-5 face score, recorded on the run with `set_note`.
+
+Claude can't judge audio by ear (voice timbre, lip-sync feel, room sound)
+or motion (smear, flicker) in playback. Say so in the note, and ask a
+human for those.
+
+### 5. Cost
+
+Quote `validate_workflow`'s `plan.estimate` for each tier, draft plus
+final. It scales by steps, canvas and frames (#866), but not by
+`weights_dtype`, `attention_backend`, `cache` or a null LoRA. When one of
+those moves it sets `low_confidence` and names the variable in `differs`.
+With `sage_hub` set, every rung above moves one. Quote that rung's minutes
+from the ladder instead (they were measured with `sage_hub`), and say which
+figure you are quoting.
 
 ## Prompting the base model
 

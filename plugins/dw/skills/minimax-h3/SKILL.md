@@ -98,7 +98,7 @@ section).
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
-- Smeary faces: int8 base model, `references/quality-and-speed.md`.
+- Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
 - CUDA: `attention_backend=sage_hub` (null elsewhere; mps fails at run).
 - Fit a crowd's action to what it holds: candle-holders asked to clap
   rendered three-handed people.
