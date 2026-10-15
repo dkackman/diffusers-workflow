@@ -219,7 +219,7 @@ class TestScaledWhenItScales:
         inline["steps"][0]["run"] = {"num_frames": 248}
         block = inherited(inline, self.CATALOG, self.HISTORY)
         assert block["cold_minutes"] == 16.0
-        assert "frame count 248 vs 124" in block["scaled"]
+        assert "frames 248 vs 124" in block["scaled"]
         assert "frame count" in block["differs"]
 
     def test_steps_and_frames_multiply(self):
@@ -284,7 +284,7 @@ class TestVariableFrameCountAndWithheldReason:
         inline = definition("inline", num_frames=248)
         block = inherited(inline, self.CATALOG, self.HISTORY)
         assert block["cold_minutes"] == 16.0
-        assert "frame count 248 vs 124" in block["scaled"]
+        assert "frames 248 vs 124" in block["scaled"]
 
     def test_variable_frames_and_steps_multiply(self):
         inline = definition("inline", num_frames=248)
@@ -349,7 +349,7 @@ class TestScaledByStepsAndCanvas:
     def test_thirty_steps_scale_by_the_step_ratio(self):
         block = inherited(sized("inline", steps=30), self.CATALOG, self.HISTORY)
         assert block["cold_minutes"] == 8.0 * 30 / 9
-        assert "inference steps 30 vs 9" in block["scaled"]
+        assert "steps 30 vs 9" in block["scaled"]
 
     def test_a_larger_canvas_scales_by_the_pixel_ratio(self):
         block = inherited(
@@ -368,7 +368,7 @@ class TestScaledByStepsAndCanvas:
         assert block["cold_minutes"] == pytest.approx(
             8.0 * 30 / 9 * (1344 * 768) / (960 * 544)
         )
-        assert "inference steps" in block["scaled"] and "canvas" in block["scaled"]
+        assert "steps" in block["scaled"] and "canvas" in block["scaled"]
 
     def test_a_bucket_at_those_values_is_not_scaled_again(self):
         history = {
@@ -403,7 +403,7 @@ class TestScaledByStepsAndCanvas:
             )["estimate"]
         assert estimate["basis"] == "inherited"
         assert estimate["minutes"] == round(8.0 * 30 / 9 * 1.9765, 1)
-        assert "inference steps 30 vs 9" in estimate["scaled"]
+        assert "steps 30 vs 9" in estimate["scaled"]
         assert "canvas 1344x768 vs 960x544" in estimate["scaled"]
 
 
@@ -512,6 +512,6 @@ class TestTheTemplateAndAnInlineCopyAgree:
         block["device"] = None
         copied = planned(inline, lambda arguments: block)
         assert copied["basis"] == "inherited"
-        assert "inference steps 30 vs 9" in copied["scaled"]
+        assert "steps 30 vs 9" in copied["scaled"]
         assert "canvas 1344x768 vs 960x544" in copied["scaled"]
         assert abs(copied["minutes"] - catalog["minutes"]) <= 0.1
