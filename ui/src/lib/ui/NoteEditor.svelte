@@ -4,8 +4,8 @@
   import ClampedText from './ClampedText.svelte'
 
   // A note on a workspace, asset, run or file: shown as a safe Markdown
-  // subset (never HTML), edited in place. The server owns the 4000-character limit and says so in its
-  // error, which stays on screen beside the box
+  // subset (never HTML), edited in place. The server owns the 4000-character
+  // limit and says so in its error, which stays on screen beside the box
   let {
     note,
     target,
