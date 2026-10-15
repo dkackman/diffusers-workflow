@@ -4,11 +4,14 @@ Observed cost history is keyed by catalog name, so an inline copy of a
 template had none. `inherited_observed` finds the catalog template with the
 same pipeline identity (the key `dw/vram_inheritance.py` matches on) and
 quotes its runs under `basis: "inherited"`, warning where the inline
-workflow's offload, quantization or frame count differ.
+workflow's offload, quantization, frame count, attention backend, cache or
+LoRA differ, and scaling its minutes by its size (#851, #866).
 """
 
 from types import SimpleNamespace
 from unittest.mock import patch
+
+import pytest
 
 import dw.plan
 from dw.plan import build_plan
@@ -317,3 +320,198 @@ class TestVariableFrameCountAndWithheldReason:
         assert estimate["inherited_from"] == "templates/t"
         assert estimate["withheld"] == "not priced: why"
         assert "withheld" in _inherited_cost_warnings(estimate)[0]
+
+
+def sized(name, steps=9, width=960, height=544, **extra):
+    """`definition` whose step also sets inference steps and a canvas."""
+    workflow = definition(name, **extra)
+    workflow["variables"].update(
+        {"num_inference_steps": steps, "width": width, "height": height}
+    )
+    workflow["cost_drivers"] += ["num_inference_steps", "width", "height"]
+    workflow["steps"][0]["run"].update(
+        {
+            "num_inference_steps": "variable:num_inference_steps",
+            "width": "variable:width",
+            "height": "variable:height",
+        }
+    )
+    return workflow
+
+
+class TestScaledByStepsAndCanvas:
+    """#866 stage C: the inherited figure scales by the inference-step and
+    canvas ratios too, as the catalog figure does (`scale_curated`)."""
+
+    HISTORY = {"templates/t": [run(8 * MINUTE, {})]}
+    CATALOG = [("templates/t", sized("t"))]
+
+    def test_thirty_steps_scale_by_the_step_ratio(self):
+        block = inherited(sized("inline", steps=30), self.CATALOG, self.HISTORY)
+        assert block["cold_minutes"] == 8.0 * 30 / 9
+        assert "inference steps 30 vs 9" in block["scaled"]
+
+    def test_a_larger_canvas_scales_by_the_pixel_ratio(self):
+        block = inherited(
+            sized("inline", width=1344, height=768), self.CATALOG, self.HISTORY
+        )
+        assert block["cold_minutes"] == 8.0 * (1344 * 768) / (960 * 544)
+        assert "canvas 1344x768 vs 960x544" in block["scaled"]
+
+    def test_the_callers_arguments_scale_it_and_the_axes_multiply(self):
+        block = inherited(
+            sized("inline"),
+            self.CATALOG,
+            self.HISTORY,
+            {"num_inference_steps": 30, "width": 1344, "height": 768},
+        )
+        assert block["cold_minutes"] == pytest.approx(
+            8.0 * 30 / 9 * (1344 * 768) / (960 * 544)
+        )
+        assert "inference steps" in block["scaled"] and "canvas" in block["scaled"]
+
+    def test_a_bucket_at_those_values_is_not_scaled_again(self):
+        history = {
+            "templates/t": [
+                run(8 * MINUTE, {}),
+                run(20 * MINUTE, {"num_inference_steps": 30}),
+            ]
+        }
+        block = inherited(sized("inline", steps=30), self.CATALOG, history)
+        assert block["cold_minutes"] == 20.0
+        assert "scaled" not in block
+
+    def test_a_canvas_that_cannot_be_compared_is_withheld(self):
+        inline = sized("inline")
+        inline["steps"][0]["run"]["width"] = "variable:missing"
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        assert "canvas differs and cannot be compared" in block["withheld"]
+
+    def test_the_plan_quotes_it_inherited_and_scaled(self, tmp_path):
+        inline = sized("inline", steps=30, width=1344, height=768)
+        block = inherited(inline, self.CATALOG, {"templates/t": [run(8 * MINUTE)] * 3})
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            estimate = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: block,
+            )["estimate"]
+        assert estimate["basis"] == "inherited"
+        assert estimate["minutes"] == round(8.0 * 30 / 9 * 1.9765, 1)
+        assert "inference steps 30 vs 9" in estimate["scaled"]
+        assert "canvas 1344x768 vs 960x544" in estimate["scaled"]
+
+
+class TestAttentionCacheAndLoraDiffer:
+    """#866 stage C: the attention backend, cache and LoRA a step sets are
+    named in `differs`, and a figure measured at others is low confidence."""
+
+    def with_settings(self, name, attention=None, cache=None, lora="acme/turbo"):
+        workflow = definition(name)
+        pipeline = {
+            **PIPELINE,
+            "configuration": {
+                **PIPELINE["configuration"],
+                "components": {"transformer": {"attention_backend": attention}},
+                "cache": cache,
+            },
+            "loras": [{"model_name": lora}] if lora else [],
+        }
+        workflow["steps"][0]["pipeline"] = pipeline
+        return workflow
+
+    def test_each_is_named(self):
+        template = self.with_settings("t")
+        assert inherited_differences(self.with_settings("i"), template) == []
+        assert inherited_differences(
+            self.with_settings("i", attention="native"), template
+        ) == ["attention backend"]
+        assert inherited_differences(
+            self.with_settings("i", cache={"type": "fbc"}), template
+        ) == ["cache"]
+        assert inherited_differences(self.with_settings("i", lora=None), template) == [
+            "LoRA"
+        ]
+
+    def test_the_plan_flags_it_low_confidence(self, tmp_path):
+        inline = self.with_settings("inline", attention="native")
+        block = inherited(
+            inline,
+            [("templates/t", self.with_settings("t"))],
+            {"templates/t": [run(8 * MINUTE, {"num_frames": 124})] * 3},
+        )
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            estimate = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: block,
+            )["estimate"]
+        assert estimate["basis"] == "inherited"
+        assert estimate["minutes"] == 8.0
+        assert estimate["differs"] == ["attention backend"]
+        assert estimate["low_confidence"] is True
+
+
+class TestTheTemplateAndAnInlineCopyAgree:
+    """#866 stage C: the catalog path (`scale_curated`) and the inherited path
+    quote the same request alike - an inline copy of the shipped H3
+    reference-to-video and the template itself, at the same arguments."""
+
+    ARGUMENTS = {"num_inference_steps": 30, "width": 1344, "height": 768}
+
+    def test_the_same_minutes_within_rounding(self, tmp_path):
+        import copy
+        import json
+        from pathlib import Path
+
+        path = (
+            Path(__file__).resolve().parents[1]
+            / "workflows/templates/minimax/reference-to-video.json"
+        )
+        template = json.loads(path.read_text())
+        curated = template["cost"][0]["minutes"]
+        inline = copy.deepcopy(template)
+        del inline["cost"], inline["cost_drivers"]
+
+        def planned(definition, observed):
+            candidate = workflow_from_definition(
+                definition, str(tmp_path), str(tmp_path), str(tmp_path)
+            )
+            with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+                return build_plan(
+                    candidate,
+                    self.ARGUMENTS,
+                    device="cuda",
+                    lookup_sizes=False,
+                    observed=observed,
+                )["estimate"]
+
+        # The template has no run at these arguments: its curated figure,
+        # scaled
+        catalog = planned(template, lambda arguments: None)
+        assert catalog["basis"] == "derived"
+
+        # Its runs at the defaults took the curated minutes; the inline copy
+        # inherits them, scaled from the default bucket
+        block = inherited(
+            inline,
+            [("templates/minimax/reference-to-video", template)],
+            {"templates/minimax/reference-to-video": [run(curated * MINUTE)] * 3},
+            self.ARGUMENTS,
+        )
+        block["device"] = None
+        copied = planned(inline, lambda arguments: block)
+        assert copied["basis"] == "inherited"
+        assert "inference steps 30 vs 9" in copied["scaled"]
+        assert "canvas 1344x768 vs 960x544" in copied["scaled"]
+        assert abs(copied["minutes"] - catalog["minutes"]) <= 0.1

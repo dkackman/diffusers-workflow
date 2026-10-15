@@ -1027,6 +1027,10 @@ def _observed(observed, device):
         estimate["basis"] = INHERITED
         estimate["inherited_from"] = inherited_from
         estimate["differs"] = list(observed.get("differs") or [])
+        if estimate["differs"]:
+            # Measured at another attention backend, cache, LoRA, offload or
+            # quantization than this run's: kept, but flagged (#866)
+            estimate["low_confidence"] = True
         if observed.get("scaled"):
             # Re-priced linearly from the template's size (#851): an
             # approximation, not a measurement

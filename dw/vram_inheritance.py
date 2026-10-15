@@ -67,50 +67,69 @@ def _found(node, key, variables):
 
 
 # What changes a pipeline's cost without changing its identity (#797):
-# (label, key) pairs read wherever a step sets them
+# (label, key) pairs read wherever a step sets them. The last three are the
+# keys a pipeline step sets its attention backend, step cache and LoRAs
+# under (#866)
 _COST_SETTINGS = (
     ("offload", "offload"),
     ("quantization", "quantization_config"),
     ("frame count", "num_frames"),
+    ("attention backend", "attention_backend"),
+    ("cache", "cache"),
+    ("LoRA", "loras"),
 )
 
 
 def inherited_differences(definition, template, arguments=None):
     """What `definition` sets differently from `template` among the things
     that move a pipeline's cost without changing which pipeline it is -
-    offload, quantization, frame count - as short phrases (#797). A figure
-    inherited from `template` is an approximation to the extent these
-    differ. `arguments` (the caller's) override `definition`'s variables."""
-    variables = dict(definition.get("variables") or {})
-    variables.update(arguments or {})
-    template_variables = template.get("variables") or {}
-    differs = []
-    for label, key in _COST_SETTINGS:
-        mine = _found(definition.get("steps"), key, variables)
-        theirs = _found(template.get("steps"), key, template_variables)
-        if mine != theirs:
-            differs.append(label)
-    return differs
+    offload, quantization, frame count, attention backend, cache, LoRA - as
+    short phrases (#797, #866). A figure inherited from `template` is an
+    approximation to the extent these differ. `arguments` (the caller's)
+    override `definition`'s variables."""
+    return [
+        label
+        for label, key in _COST_SETTINGS
+        if sets_differently(definition, template, key, arguments)
+    ]
 
 
-def pipeline_frames(definition, arguments=None):
-    """The frame count each pipeline step sets (`num_frames`, a `variable:`
-    reference resolved; `arguments` override the variables), None for a
-    step that sets none or a non-numeric one - for scaling an inherited
-    price by frame count (#851)."""
+def sets_differently(definition, template, key, arguments=None):
+    """Whether `definition`'s steps set `key` to other values than
+    `template`'s, `variable:` references resolved (`arguments` override
+    `definition`'s variables)."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    frames = []
+    mine = _found(definition.get("steps"), key, variables)
+    theirs = _found(template.get("steps"), key, template.get("variables") or {})
+    return mine != theirs
+
+
+def pipeline_values(definition, key, arguments=None):
+    """The number each pipeline step sets `key` to (a `variable:` reference
+    resolved; `arguments` override the variables; the largest where a step
+    sets it twice), None for a step that sets none or a non-numeric one -
+    for scaling an inherited price along it (#851, #866)."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    found = []
     for step in definition.get("steps") or []:
         if not isinstance(step, dict) or not isinstance(step.get("pipeline"), dict):
             continue
-        counts = [
+        numbers = [
             value
-            for value in map(json.loads, _found(step, "num_frames", variables))
+            for value in map(json.loads, _found(step, key, variables))
             if isinstance(value, (int, float)) and not isinstance(value, bool)
         ]
-        frames.append(max(counts) if counts else None)
-    return frames
+        found.append(max(numbers) if numbers else None)
+    return found
+
+
+def pipeline_frames(definition, arguments=None):
+    """The frame count each pipeline step sets (`num_frames`), as
+    `pipeline_values` reads it - for scaling an inherited price by frame
+    count (#851)."""
+    return pipeline_values(definition, "num_frames", arguments)
 
 
 def declarations(catalog):
