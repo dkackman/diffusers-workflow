@@ -913,6 +913,7 @@ def enhance(
             workspace=ws.name,
             warnings=admission.warnings,
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
         )
         return manager.describe(job)
     except Exception:

@@ -100,6 +100,9 @@ class Job:
         # rss when it caused no growth (#272). None for a run that never got
         # a memory_info message at all
         self.host_memory_job_peak_rss_mb = None
+        # The host RAM it was projected to hold at its peak when admitted,
+        # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
+        self.host_ram_need = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because

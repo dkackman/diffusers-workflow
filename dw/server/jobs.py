@@ -228,6 +228,7 @@ class JobManager:
         acknowledged_cost=None,
         warnings=None,
         vram_need=None,
+        host_ram_need=None,
         preferred_device=None,
         note=None,
     ):
@@ -265,6 +266,10 @@ class JobManager:
         `vram_need` is the admission's (`Admission.vram_need`): the job
         starts only on a card with that much VRAM (`check_fits` has already
         refused one no card here holds).
+
+        `host_ram_need` is the admission's (`Admission.host_ram_need`): the
+        host RAM the run is projected to hold at its peak, kept on the job
+        as `job.host_ram_need` (#869). Dispatch does not read it yet.
 
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
@@ -322,6 +327,7 @@ class JobManager:
             spec["note"] = note
 
         job = Job(spec)
+        job.host_ram_need = host_ram_need
         with self._lock:
             self.jobs[job.id] = job
             self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
@@ -509,6 +515,7 @@ class JobManager:
         warnings=None,
         arguments=None,
         vram_need=None,
+        host_ram_need=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -562,6 +569,7 @@ class JobManager:
             ),
             warnings=warnings,
             vram_need=vram_need,
+            host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
         )

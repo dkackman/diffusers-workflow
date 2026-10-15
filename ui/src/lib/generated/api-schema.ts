@@ -631,7 +631,7 @@ export interface paths {
          *     back the same way it reads a kept file's shots (#556). `run_id`/
          *     `version` are that source run's own - `job.id` is still the one to
          *     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-         *     of its own to reopen.
+         *     of its own to reopen. `inputs` is the source run's too (#902).
          */
         get: operations["gallery_metadata_api_gallery__name__metadata_get"];
         put?: never;
@@ -3223,6 +3223,8 @@ export interface components {
             estimate: components["schemas"]["PlanEstimate"];
             /** Fingerprint */
             fingerprint: string;
+            /** @description The host RAM this run is projected to hold at its peak, from this machine's own history (#869); absent when there is no figure. */
+            host_memory?: components["schemas"]["PlanHostMemory"];
             /** List Entries */
             list_entries: {
                 [key: string]: number;
@@ -3289,6 +3291,25 @@ export interface components {
              * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
              */
             withheld?: string;
+        };
+        /** PlanHostMemory */
+        PlanHostMemory: {
+            /**
+             * Basis
+             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.
+             * @enum {string}
+             */
+            basis: "observed" | "fit";
+            /**
+             * Projected Mb
+             * @description The host RAM, in MB, this run is projected to hold at its peak.
+             */
+            projected_mb: number;
+            /**
+             * Runs
+             * @description How many runs the figure is read from.
+             */
+            runs: number;
         };
         /** PromptCard */
         PromptCard: {

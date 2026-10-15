@@ -26,7 +26,9 @@ def test_the_context_takes_a_pool_ceiling_instead(tmp_path, monkeypatch):
 
 def _patched_admit_for(monkeypatch, state):
     seen = {}
-    monkeypatch.setattr(admission, "admit", lambda **kw: seen.update(kw))
+    monkeypatch.setattr(
+        admission, "admit", lambda **kw: seen.update(kw) or SimpleNamespace(ok=False)
+    )
     monkeypatch.setattr(admission, "ceiling_index", lambda state, workspace: None)
     monkeypatch.setattr(admission, "lora_index", lambda state: None)
     monkeypatch.setattr(admission, "resolution_library", lambda state, workspace: None)
