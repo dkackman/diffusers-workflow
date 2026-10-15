@@ -61,6 +61,7 @@ from ..deps import (
     workspace_for,
 )
 from ..exports import export_job
+from ..host_ram_need import host_memory_block
 from ..http_security import query_token_ok
 from ..job_record import (
     ACK_BOUND,
@@ -151,6 +152,9 @@ def submit_job(
                 if form == ACK_BOUND
                 else None
             ),
+            # Whose runs project its host-RAM peak (#869)
+            catalog_name=catalog_name_for(resolved, source),
+            history_workspace=(workspace.name if source and source.writable else None),
         )
         # Refuses what admission refused, and a job too big for every card
         manager.check_fits(admission)
@@ -195,6 +199,7 @@ def submit_job(
             warnings=admission.warnings,
             # What a card must hold to run it: the pool dispatches on it
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
             note=note,
         )
         return manager.describe(job)
@@ -430,6 +435,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             plan_for=(
                 bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
             ),
+            catalog_name=spec.get("catalog_name"),
         )
         # Refuses what admission refused, and a job too big for every card
         manager.check_fits(admission)
@@ -454,6 +460,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             arguments=arguments,
             admitted=admission.workflow,
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -840,6 +847,8 @@ def validate_workflow(
             # "check the document", explicit is "check a run with these
             # arguments" (#364)
             supplied="arguments" in request.model_fields_set,
+            catalog_name=catalog_name,
+            history_workspace=(workspace.name if source and source.writable else None),
             plan_for=lambda candidate, vram_need: _validation_plan(
                 state,
                 candidate,
@@ -910,6 +919,11 @@ def validate_workflow(
         answer["checked_arguments"] = sorted(request.arguments)
     answer["plan"] = admission.plan
     if answer["plan"]:
+        # What host RAM this run is projected to hold at its peak, and
+        # from what (#869); no key when there is no figure
+        host_memory = host_memory_block(admission.host_ram_need)
+        if host_memory:
+            answer["plan"]["host_memory"] = host_memory
         # cached_steps is 0 both when nothing hit and when the probe ran
         # against the wrong workspace's output root (#184) - echoing
         # what it was actually probed against turns the second case

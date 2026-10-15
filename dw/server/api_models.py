@@ -642,6 +642,18 @@ class PlanEstimate(ApiModel):
     )
 
 
+class PlanHostMemory(ApiModel):
+    projected_mb: int = Field(
+        description="The host RAM, in MB, this run is projected to hold at its peak."
+    )
+    basis: Literal["observed", "fit"] = Field(
+        description="`observed`: the largest job peak of this machine's successful "
+        "runs with the same pipelines, quantization and offload; `fit`: projected "
+        "from this workflow's own runs for the requested list length."
+    )
+    runs: int = Field(description="How many runs the figure is read from.")
+
+
 class Plan(ApiModel):
     fingerprint: str
     steps: int
@@ -657,6 +669,10 @@ class Plan(ApiModel):
     downloads_required: list[RequiredDownload]
     estimate: PlanEstimate
     workspace: str
+    host_memory: PlanHostMemory = sometimes(
+        "The host RAM this run is projected to hold at its peak, from this "
+        "machine's own history (#869); absent when there is no figure."
+    )
 
 
 class ValidationResult(ApiModel):
