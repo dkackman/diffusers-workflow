@@ -143,16 +143,25 @@ def reference_counts(definition, arguments=None):
     `vram_estimate.reference_count`'s, the one the VRAM projection uses."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    steps = _substituted(definition.get("steps"), variables)
-    try:
-        expanded = expand_for_each({"steps": steps}).get("steps")
-    except ForEachError:
+    expanded = _expanded_steps(definition, variables)
+    if expanded is None:
         return set()
     return {
         reference_count(step["pipeline"].get("arguments"))
-        for step in expanded or []
+        for step in expanded
         if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
     }
+
+
+def _expanded_steps(definition, variables):
+    """`definition`'s steps with `variables` substituted and `for_each`
+    expanded as the run does, so `item:` references carry each entry's own
+    value; None when the expansion fails."""
+    steps = _substituted(definition.get("steps"), variables)
+    try:
+        return expand_for_each({"steps": steps}).get("steps") or []
+    except ForEachError:
+        return None
 
 
 def sets_differently(definition, template, key, arguments=None):
@@ -161,9 +170,18 @@ def sets_differently(definition, template, key, arguments=None):
     `definition`'s variables)."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    mine = _found(definition.get("steps"), key, variables)
-    theirs = _found(template.get("steps"), key, template.get("variables") or {})
-    return mine != theirs
+    return _found_expanded(definition, key, variables) != _found_expanded(
+        template, key, template.get("variables") or {}
+    )
+
+
+def _found_expanded(definition, key, variables):
+    # A for_each step's `item:` references resolve per entry, so the value an
+    # entry sets is compared, not the reference text (#916)
+    expanded = _expanded_steps(definition, variables)
+    if expanded is None:
+        return _found(definition.get("steps"), key, variables)
+    return _carried(expanded, key)
 
 
 def pipeline_values(definition, key, arguments=None):

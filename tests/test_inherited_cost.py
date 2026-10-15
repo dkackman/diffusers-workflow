@@ -203,6 +203,27 @@ class TestDifferences:
         each["variables"]["shots"][1]["references"] = refs(3)
         assert "reference count" in inherited_differences(each, template)
 
+    def test_a_for_each_whose_entries_match_the_templates_frames_is_not_named(self):
+        def with_frames(value, **top):
+            d = definition("inline")
+            step = d["steps"][0]
+            step["pipeline"] = {
+                **step["pipeline"],
+                "arguments": {"num_frames": value},
+            }
+            d.update(top)
+            return d
+
+        template = with_frames(124)
+        shots = [{"num_frames": 124}, {"num_frames": 124}]
+        each = with_frames(
+            "item:num_frames", variables={"shots": shots, "num_frames": 124}
+        )
+        each["steps"][0]["for_each"] = "variable:shots"
+        assert inherited_differences(each, template) == []
+        each["variables"]["shots"][1]["num_frames"] = 209
+        assert inherited_differences(each, template) == ["frame count"]
+
 
 class TestThePlanReportsIt:
     def test_the_estimate_is_inherited_and_the_validate_answer_warns(self, tmp_path):
