@@ -2578,6 +2578,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2785,6 +2790,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.

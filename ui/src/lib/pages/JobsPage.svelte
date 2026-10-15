@@ -139,6 +139,11 @@
               >v{job.run_version}</span
             >
           {/if}
+          {#if job.rerun_of}
+            <span class="wschip muted" title="a rerun of {job.rerun_of}"
+              >rerun</span
+            >
+          {/if}
           {#if scope === 'all' && (workspace.names?.length ?? 0) > 1}
             <span class="wschip muted" title="workspace">{job.workspace}</span>
           {/if}

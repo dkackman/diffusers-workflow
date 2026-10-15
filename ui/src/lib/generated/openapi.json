@@ -1798,6 +1798,11 @@
             "title": "Queue Position",
             "type": "integer"
           },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
+          },
           "run_dir": {
             "anyOf": [
               {
@@ -2349,6 +2354,11 @@
             "description": "Index in the waiting queue; only while queued.",
             "title": "Queue Position",
             "type": "integer"
+          },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
           },
           "run_id": {
             "anyOf": [
