@@ -1246,3 +1246,187 @@ def test_a_worker_that_dies_under_a_requested_cancel_reads_as_cancelled(tmp_path
     job.cancel_requested = True
     outcome = job_results.consume_results(job, Dead(), None, str(tmp_path), None)
     assert outcome == ("cancelled", None, None)
+
+
+# ---------------------------------------------------------------- host RAM
+
+
+GB = 1024
+
+
+class TestHostRamGate:
+    """#869: a job that fits a free card waits while the host's RAM can't hold
+    it beside the running jobs, with the readings faked."""
+
+    @pytest.fixture
+    def host(self, monkeypatch):
+        """The host's MemAvailable and each worker's RSS, as a test sets them."""
+        readings = {"available_mb": 64 * GB, "rss": {}}
+        monkeypatch.setattr(
+            "dw.server.jobs.host_memory_stats",
+            lambda: (
+                None
+                if readings["available_mb"] is None
+                else {"available_mb": readings["available_mb"]}
+            ),
+        )
+        monkeypatch.setattr(
+            "dw.server.jobs._worker_rss_mb",
+            lambda slot: readings["rss"].get(slot.device),
+        )
+        return readings
+
+    @staticmethod
+    def submit(manager, name, host_gb=None, vram_need=None):
+        return manager.submit(
+            admitted=admitted_for(manager, valid_workflow(name)),
+            workflow=valid_workflow(name),
+            vram_need=vram_need,
+            host_ram_need=None if host_gb is None else (host_gb * GB, "observed", 1),
+        )
+
+    def _two_cards(self, pool):
+        first, second = Gate(), Gate()
+        manager = pool(card(first, "cuda:0", 24), card(second, "cuda:1", 24))
+        return manager, first, second
+
+    @staticmethod
+    def queue_waits(job):
+        return [e for e in job.events if e.get("event") == "queue_wait"]
+
+    def test_a_job_the_host_cannot_hold_beside_the_running_one_is_held(
+        self, pool, host
+    ):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        host["available_mb"] = 40 * GB
+        running = self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 30 * GB
+        host["available_mb"] = 10 * GB
+
+        held = self.submit(manager, "held", host_gb=30)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.status == "queued"
+        assert held.waiting_for == "waiting for host RAM: needs ~30 GB, ~10 GB free"
+        assert not second_gate.started.is_set()
+        assert manager.get(held.id).summary()["waiting_for"] == held.waiting_for
+
+        # The running job finishing is what frees the RAM and wakes dispatch
+        host["available_mb"] = 40 * GB
+        first_gate.release.set()
+        wait_for(running, {"succeeded"})
+        wait_for(held, {"running", "succeeded"})
+        assert held.waiting_for is None
+        assert "waiting_for" not in held.summary()
+        second_gate.release.set()
+        wait_for(held, {"succeeded"})
+
+    def test_memory_freed_outside_dw_starts_the_held_job_on_the_recheck(
+        self, pool, host, monkeypatch
+    ):
+        monkeypatch.setattr("dw.server.jobs.HOST_RAM_RECHECK_SECONDS", 0.05)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+
+        # Nothing in dw wakes the dispatcher: only the timer sees this
+        host["available_mb"] = 40 * GB
+        second_gate.wait_started()
+        wait_for(held, {"running"})
+
+    def test_a_smaller_job_starts_past_a_held_one(self, pool, host):
+        gates = [Gate(), Gate(), Gate()]
+        manager = pool(*(card(g, f"cuda:{i}", 24) for i, g in enumerate(gates)))
+        self.submit(manager, "running", host_gb=10)
+        gates[0].wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 12 * GB
+
+        big = self.submit(manager, "big", host_gb=30)
+        small = self.submit(manager, "small", host_gb=4)
+        wait_for(small, {"running"})
+        assert big.status == "queued"
+        assert big.waiting_for is not None
+        assert small.waiting_for is None
+
+    def test_a_job_alone_is_never_held(self, pool, host):
+        host["available_mb"] = 1 * GB
+        manager = pool(card(success_script, "cuda:0", 24))
+        job = self.submit(manager, "alone", host_gb=200)
+        wait_for(job, {"succeeded"})
+        assert not self.queue_waits(job)
+
+    def test_a_job_with_no_figure_is_never_held(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["available_mb"] = 0
+        unknown = self.submit(manager, "unknown")
+        second_gate.wait_started()
+        wait_for(unknown, {"running"})
+        assert not self.queue_waits(unknown)
+
+    def test_no_host_reading_means_no_gate(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["available_mb"] = None
+        job = self.submit(manager, "unread", host_gb=30)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+        assert not self.queue_waits(job)
+
+    def test_the_growth_a_still_loading_job_has_left_is_charged(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "loading", host_gb=30)
+        first_gate.wait_started()
+        # 40 GB free now, but the loading job will take 25 GB more of it
+        host["rss"]["cuda:0"] = 5 * GB
+        host["available_mb"] = 40 * GB
+        held = self.submit(manager, "next", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.waiting_for == "waiting for host RAM: needs ~20 GB, ~15 GB free"
+        assert not second_gate.started.is_set()
+
+    def test_the_idle_worker_it_would_reuse_counts_as_free(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"] = {"cuda:0": 10 * GB, "cuda:1": 15 * GB}
+        host["available_mb"] = 10 * GB
+        job = self.submit(manager, "reuses", host_gb=20)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+
+    def test_the_event_fires_once_per_hold(self, pool, host, monkeypatch):
+        monkeypatch.setattr("dw.server.jobs.HOST_RAM_RECHECK_SECONDS", 0.02)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        time.sleep(0.2)  # several rechecks, each still held
+        waits = self.queue_waits(held)
+        assert len(waits) == 1
+        assert waits[0]["reason"] == "host_ram"
+        assert waits[0]["message"] == held.waiting_for
+        assert not held.warnings
+
+    def test_cancel_clears_waiting_for_and_the_bookkeeping(self, pool, host):
+        manager, first_gate, _ = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert manager.cancel(held.id) == "cancelled"
+        assert held.waiting_for is None
+        assert "waiting_for" not in held.summary()
+        assert held.id not in manager._host_needs

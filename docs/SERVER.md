@@ -211,7 +211,7 @@ running:
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
-| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
+| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
 
 Each worker runs one job at a time, so with one device (the default) one job
 runs at a time; submissions queue in order, and the waiting portion of the
@@ -236,8 +236,26 @@ newest job whatever the workers' sizes; nothing is written with one worker, and
 a write the kernel refuses is a warning on the job. Under systemd the unit needs
 `OOMPolicy=continue` (`scripts/dw-serve.service` sets it): the default `stop`
 answers one worker's OOM kill by stopping the whole server, every other job
-with it. There is no
-host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
+with it. A
+queued job may also carry a projected host-RAM peak (see
+`host_ram_need`, #869). When it fits a free card, dispatch checks host RAM
+too: available is `MemAvailable` less, for each running job, what that job's
+projected peak still has to add beyond its worker's resident size now, and
+the job is held while its peak exceeds available plus the resident size of
+the idle worker it would reuse. A running job with no figure is charged
+nothing extra, since `MemAvailable` already reflects what it holds. Backfill
+applies: a smaller job behind a held one may start. With no other job
+running a job is never held, so it waits only for running jobs, never
+forever; a job with no figure is never held; and where the host's RAM cannot
+be read (macOS without psutil) there is no gate. With one card only one job
+runs, so the gate is never exercised. A held job is re-checked every 10 s,
+since memory can free outside dw. The hold emits one `queue_wait` event
+(`reason: "host_ram"`, message `waiting for host RAM: needs ~N GB, ~M GB
+free`; not a `warning`, so nothing lands in the job's `warnings`), and job
+detail and summaries carry `waiting_for` - that message - only while the job
+is queued and held. The web UI shows it beside "#n in line". The gate never
+refuses a submit (#243); it only delays a start, and the OOM ranking above
+(#881) stays the backstop for a wrong projection.
 Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card
 whose worker last ran the same workflow (the same file, or an inline

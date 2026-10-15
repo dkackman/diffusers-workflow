@@ -615,6 +615,12 @@ export interface paths {
          *     refused (422) with the interval that fits; the default width is
          *     never refused for length (#823).
          *
+         *     An image's `media` is its measured `{kind, width, height, mode}`,
+         *     read from the file header (#922) - not the width/height arguments
+         *     the pipeline was asked for. `include_workflow=false` drops the
+         *     embedded `metadata.workflow` (the whole definition, often 20 KB) and
+         *     leaves the rest of `metadata` with `workflow_omitted: true`.
+         *
          *     `name` may also be an 'asset:' reference, and then it is the input
          *     asset of that name that is described rather than an output (#127).
          *     The numbers here - duration, frame count, fps, sample rate - are
@@ -2427,7 +2433,7 @@ export interface components {
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
-             * @description The probe of an audio or video file; null for an image.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.
              */
             media: {
                 [key: string]: unknown;
@@ -2604,6 +2610,11 @@ export interface components {
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Traceback */
             traceback: string | null;
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /** Warnings */
             warnings: string[];
             /**
@@ -2812,6 +2823,11 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /**
              * Workflow
              * @description Null only on a row recorded before the workflow was stored.
@@ -4735,6 +4751,7 @@ export interface operations {
             query?: {
                 envelope?: boolean;
                 interval_seconds?: number;
+                include_workflow?: boolean;
                 workspace?: string | null;
             };
             header?: never;

@@ -10,7 +10,7 @@ Scope is v1, by the repo owner's own sign-off on the issue: observed, not
 curated (no author-declared memory figure - `host_memory_job_peak_rss_mb` is
 a worker-reported field, not a schema key); warn, not refuse (host RAM headroom
 is a property of *this machine*, not something a caller chose, so it never
-blocks a run); no cross-machine normalization; and a cold start - no history
+refuses a run; dispatch may delay a start on the figure, #869); no cross-machine normalization; and a cold start - no history
 for this workflow at all - means no check, the same rule `observed_cost.py`
 uses for GPU minutes.
 """

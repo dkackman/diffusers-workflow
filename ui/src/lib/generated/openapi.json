@@ -1449,7 +1449,7 @@
                 "type": "null"
               }
             ],
-            "description": "The probe of an audio or video file; null for an image.",
+            "description": "The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.",
             "title": "Media"
           },
           "metadata": {
@@ -1873,6 +1873,11 @@
               }
             ],
             "title": "Traceback"
+          },
+          "waiting_for": {
+            "description": "Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.",
+            "title": "Waiting For",
+            "type": "string"
           },
           "warnings": {
             "items": {
@@ -2407,6 +2412,11 @@
               "cancelled"
             ],
             "title": "Status",
+            "type": "string"
+          },
+          "waiting_for": {
+            "description": "Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.",
+            "title": "Waiting For",
             "type": "string"
           },
           "workflow": {
@@ -6796,7 +6806,7 @@
     },
     "/api/gallery/{name}/metadata": {
       "get": {
-        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen. `inputs` is the source run's too (#902).",
+        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\nAn image's `media` is its measured `{kind, width, height, mode}`,\nread from the file header (#922) - not the width/height arguments\nthe pipeline was asked for. `include_workflow=false` drops the\nembedded `metadata.workflow` (the whole definition, often 20 KB) and\nleaves the rest of `metadata` with `workflow_omitted: true`.\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen. `inputs` is the source run's too (#902).",
         "operationId": "gallery_metadata_api_gallery__name__metadata_get",
         "parameters": [
           {
@@ -6826,6 +6836,16 @@
               "default": 1.0,
               "title": "Interval Seconds",
               "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_workflow",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Workflow",
+              "type": "boolean"
             }
           },
           {
