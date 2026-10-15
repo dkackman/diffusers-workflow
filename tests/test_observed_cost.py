@@ -239,6 +239,21 @@ class TestTaskOnlyHasNoWarmState:
         assert observed["cold_minutes"] == 12.0 and observed["cold_runs"] == 24
         assert "warm_minutes" not in observed
 
+    def test_a_task_only_workflow_without_drivers_counts_runs_with_overrides(self):
+        """#921: templates/check-script is called with its own audio and
+        lines every time; none of that makes runs incomparable."""
+        definition = workflow(None, input_audio="asset:take.wav", lines=None)
+        definition["steps"] = [{"name": "check", "task": "check_script"}]
+        args = {"input_audio": "asset:other.mp4", "lines": ["a", "b"]}
+
+        observed = observed_for(
+            definition,
+            [run(5, args), run(6, {"lines": ["x"]}), run(5, {})],
+            arguments=args,
+        )
+
+        assert observed["runs"] == 3 and observed["cold_runs"] == 3
+
     def test_a_pipeline_step_keeps_the_ordinary_had_load_split(self):
         """A workflow that does load a model is unaffected - the split still
         comes from what the run actually logged."""
