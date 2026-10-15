@@ -1,22 +1,35 @@
 <script lang="ts">
+  import { isRemembered, remember } from '../expandedNotes'
+
   // Text that may run long - a note, a description, a docstring - shown at
   // most `lines` lines until the reader expands it, so one long entry does
   // not push the rest of the page out of view. The toggle shows only when
   // the clamp actually hides text, measured while collapsed and again on a
   // resize; new text starts collapsed
-  let { text, lines = 4 }: { text: string; lines?: number } = $props()
+  let {
+    text,
+    lines = 4,
+    rememberKey,
+  }: { text: string; lines?: number; rememberKey?: string } = $props()
 
-  let expanded = $state(false)
+  const recalled = () => (rememberKey ? isRemembered(rememberKey) : false)
+  let expanded = $state(recalled())
   let overflows = $state(false)
   let el = $state<HTMLElement>()
 
   // svelte-ignore state_referenced_locally
-  let seen = text
+  let seen = `${rememberKey ?? ''}\u0000${text}`
   $effect(() => {
-    if (text === seen) return
-    seen = text
-    expanded = false
+    const now = `${rememberKey ?? ''}\u0000${text}`
+    if (now === seen) return
+    seen = now
+    expanded = recalled()
   })
+
+  function toggle() {
+    expanded = !expanded
+    if (rememberKey) remember(rememberKey, expanded)
+  }
 
   $effect(() => {
     void text
@@ -47,8 +60,7 @@
       type="button"
       class="bare more"
       aria-expanded={expanded}
-      onclick={() => (expanded = !expanded)}
-      >{expanded ? 'Show less' : 'Show more'}</button
+      onclick={toggle}>{expanded ? 'Show less' : 'Show more'}</button
     >
   {/if}
 </div>

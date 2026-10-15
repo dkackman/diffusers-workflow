@@ -93,7 +93,13 @@
     <div class="shown">
       <span class="label muted">{label}</span>
       {#if shown}
-        <div class="text"><ClampedText text={shown} {lines} /></div>
+        <div class="text">
+          <ClampedText
+            text={shown}
+            {lines}
+            rememberKey={`${workspace ?? ''}|${target}`}
+          />
+        </div>
       {:else}
         <p class="text muted">{placeholder}</p>
       {/if}
