@@ -13,6 +13,7 @@
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, GalleryInput, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
+  import { go } from '../router.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
   import RoleTag from '../gallery/RoleTag.svelte'
 
@@ -308,6 +309,7 @@
   noun="file"
   ondownload={downloadPicked}
   ondelete={removePicked}
+  oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
 />
 
 <FolderGroups

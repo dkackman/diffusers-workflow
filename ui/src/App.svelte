@@ -47,6 +47,7 @@
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import ComparePage from './lib/pages/ComparePage.svelte'
   import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
@@ -385,6 +386,7 @@
         {:else}<WorkflowsPage examples />{/if}
       {:else if view.section === 'overview'}<OverviewPage />
       {:else if view.section === 'gallery'}<GalleryPage />
+      {:else if view.section === 'compare'}<ComparePage names={view.rest} />
       {:else if view.section === 'assets'}<AssetsPage />
       {:else if view.section === 'edit'}<EditorPage
           name={view.rest.join('/')}
