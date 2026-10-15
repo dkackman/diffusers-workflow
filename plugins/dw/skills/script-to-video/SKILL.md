@@ -78,6 +78,7 @@ live there, not here.
 
 Render two to four representative shots first (a dialogue shot, an action
 shot, the hardest cut) and judge them before the full batch.
+For H3 shots, `dw:minimax-h3`'s quality-and-speed reference (*Ramp*) has the draft and final tiers and what to approve at each.
 
 `validate_workflow` against the chosen template with the assembled `shots`
 argument, read `plan.estimate` and `plan.downloads_required`, and state the
