@@ -606,6 +606,22 @@ class TestTheShippedTemplatesLoraIsCompared:
         arguments = {"lora_model_name": "lightx2v/Some-Other-Lora"}
         assert inherited_differences(template, template, arguments) == ["LoRA"]
 
+    def test_a_copy_without_its_null_variables_differs_in_nothing(self):
+        """#866 stage C (C-F485 bounce): an inline copy that leaves out the
+        variables whose default is null (`lora_alpha`) compares as if they
+        resolved to null, the way the template's own declarations do."""
+        template = self.template()
+        copy = dict(template)
+        copy["variables"] = {
+            name: value
+            for name, value in template["variables"].items()
+            if value is not None
+        }
+        assert "lora_alpha" not in copy["variables"]
+        assert inherited_differences(copy, template) == []
+        arguments = {"lora_model_name": "lightx2v/Some-Other-Lora"}
+        assert inherited_differences(copy, template, arguments) == ["LoRA"]
+
 
 def test_the_warning_agrees_in_number():
     def warned(differs):
