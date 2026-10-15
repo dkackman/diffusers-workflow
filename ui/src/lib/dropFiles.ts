@@ -14,8 +14,10 @@ export interface DropOptions {
 export const dropFiles: Action<HTMLElement, DropOptions> = (node, initial) => {
   let options = initial
   let depth = 0
+  // A file drag is always claimed, even while disabled: left alone, the
+  // browser would navigate to the dropped file and lose the page (and any
+  // upload in flight). Only the highlight and the hand-over are gated
   const carriesFiles = (e: DragEvent) =>
-    !options.disabled &&
     Array.from(e.dataTransfer?.types ?? []).includes('Files')
   const clear = () => {
     depth = 0
@@ -25,12 +27,13 @@ export const dropFiles: Action<HTMLElement, DropOptions> = (node, initial) => {
     if (!carriesFiles(e)) return
     e.preventDefault()
     depth++
-    node.classList.add('dropping')
+    if (!options.disabled) node.classList.add('dropping')
   }
   const over = (e: DragEvent) => {
     if (!carriesFiles(e)) return
     e.preventDefault()
-    if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy'
+    if (e.dataTransfer)
+      e.dataTransfer.dropEffect = options.disabled ? 'none' : 'copy'
   }
   const leave = () => {
     if (depth > 0 && --depth === 0) node.classList.remove('dropping')
@@ -39,6 +42,7 @@ export const dropFiles: Action<HTMLElement, DropOptions> = (node, initial) => {
     if (!carriesFiles(e)) return
     e.preventDefault()
     clear()
+    if (options.disabled) return
     const files = Array.from(e.dataTransfer?.files ?? []).filter(
       (f) => options.accept?.(f) ?? true,
     )

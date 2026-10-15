@@ -238,17 +238,17 @@
     const files = Array.from(input.files ?? [])
     // Clear it either way, so picking the same file twice still fires
     input.value = ''
-    await uploadFiles(files)
+    await uploadFiles(files, uploadTarget)
   }
 
   // One file asks for its library name; a dropped batch keeps each file's
   // own, since a prompt per file would be a dialog storm
-  async function uploadFiles(files: File[]) {
+  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
     if (!files.length) return
     let names: (string | undefined)[] = files.map(() => undefined)
     if (files.length === 1) {
       const assetName = window.prompt(
-        `Upload — name in the ${uploadTarget} asset library:`,
+        `Upload — name in the ${target} asset library:`,
         files[0].name,
       )
       if (assetName === null) return
@@ -261,7 +261,7 @@
         const result = await api.uploadMedia(
           file,
           names[i],
-          uploadTarget === 'shared',
+          target === 'shared',
         )
         if (files.length === 1)
           notify.success(`Uploaded as ${result.reference ?? result.url}`)
@@ -314,7 +314,13 @@
   }}
 />
 
-<div class="dropzone" use:dropFiles={{ ondrop: uploadFiles, disabled: busy }}>
+<div
+  class="dropzone"
+  use:dropFiles={{
+    ondrop: (files) => uploadFiles(files, shared ? 'shared' : 'workspace'),
+    disabled: busy,
+  }}
+>
   <div class="pagehead">
     <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
     <span class="num muted">{shownCount} files</span>
@@ -344,7 +350,8 @@
 
   <HintBar storageKey="assets-hint-dismissed">
     An asset is input a workflow names by reference: an argument set to
-    asset:name loads this file at run time, whatever run produced it.
+    asset:name loads this file at run time, whatever run produced it. Drop files
+    anywhere on the page to upload them here.
     {#if shared}
       The shared library follows you between workspaces; an examples library is
       read-only.

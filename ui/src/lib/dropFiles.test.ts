@@ -29,11 +29,39 @@ describe('dropFiles', () => {
     action?.destroy?.()
   })
 
-  it('ignores drops while disabled', () => {
+  it('claims but ignores drops while disabled', () => {
     const node = document.createElement('div')
     const ondrop = vi.fn()
     dropFiles(node, { ondrop, disabled: true })
-    node.dispatchEvent(dragEvent('drop', [new File(['x'], 'a.png')]))
+    const drop = dragEvent('drop', [new File(['x'], 'a.png')])
+    node.dispatchEvent(drop)
+    expect(drop.defaultPrevented).toBe(true)
+    expect(ondrop).not.toHaveBeenCalled()
+  })
+
+  it('keeps the mark until the last leave', () => {
+    const node = document.createElement('div')
+    const child = document.createElement('span')
+    node.append(child)
+    dropFiles(node, { ondrop: vi.fn() })
+    const f = [new File(['x'], 'a.png')]
+    node.dispatchEvent(dragEvent('dragenter', f))
+    child.dispatchEvent(dragEvent('dragenter', f))
+    node.dispatchEvent(dragEvent('dragleave', f))
+    expect(node.classList.contains('dropping')).toBe(true)
+    child.dispatchEvent(dragEvent('dragleave', f))
+    expect(node.classList.contains('dropping')).toBe(false)
+  })
+
+  it('clears the mark when disabled flips on mid-drag', () => {
+    const node = document.createElement('div')
+    const ondrop = vi.fn()
+    const action = dropFiles(node, { ondrop })
+    const f = [new File(['x'], 'a.png')]
+    node.dispatchEvent(dragEvent('dragenter', f))
+    action?.update?.({ ondrop, disabled: true })
+    node.dispatchEvent(dragEvent('drop', f))
+    expect(node.classList.contains('dropping')).toBe(false)
     expect(ondrop).not.toHaveBeenCalled()
   })
 })

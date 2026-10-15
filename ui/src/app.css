@@ -560,13 +560,6 @@ button.frame:hover {
   max-width: 440px;
   z-index: var(--layer-modal);
 }
-/* A drop target with files hovering over it (dropFiles.ts). Ink, not
-   --select: it is the pointer's place, not a selection */
-.dropping {
-  outline: 2px dashed var(--ink);
-  outline-offset: 4px;
-}
-
 .ui-sheet-wide {
   min-width: min(420px, 92vw);
   max-width: 480px;
@@ -577,6 +570,13 @@ button.frame:hover {
   max-height: 86vh;
   display: flex;
   flex-direction: column;
+}
+
+/* A drop target with files hovering over it (dropFiles.ts). Ink, not
+   --select: it is the pointer's place, not a selection */
+.dropping {
+  outline: 2px dashed var(--ink);
+  outline-offset: 4px;
 }
 .ui-message {
   margin: 0 0 var(--space-4);
