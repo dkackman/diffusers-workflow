@@ -1368,3 +1368,16 @@ class TestOutputKeys:
         other = copy.deepcopy(spec)
         other["steps"][0]["result"]["subfolder"] = "elsewhere"
         assert _runs_of(tmp_path, spec, other) == 2
+
+    def test_a_file_base_name_is_a_miss(self, tmp_path):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["steps"][0]["result"]["file_base_name"] = "renamed"
+        assert _runs_of(tmp_path, spec, other) == 2
+
+    def test_a_seed_is_a_miss(self, tmp_path):
+        # The fingerprint leaves the seed out (#85); the cache never does
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["seed"] = 43
+        assert _runs_of(tmp_path, spec, other) == 2
