@@ -18,13 +18,7 @@
   import { isEditable } from './lib/editable'
   import { notify } from './lib/toast'
   import { wsHref } from './lib/routes'
-  import {
-    endedSince,
-    endedTitle,
-    finishedText,
-    runningIds,
-    tabTitle,
-  } from './lib/jobWatch'
+  import { endedTitle, finishedText, nextWatch, tabTitle } from './lib/jobWatch'
   import {
     alertFinished,
     alertMode,
@@ -66,9 +60,8 @@
   const currentJob = $derived(health?.current_job ?? null)
   const view = $derived(route.view)
 
-  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts). The
-  // first poll only learns what is running - a job already going when the
-  // page opened has not "just finished" when the next poll misses it
+  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts); what
+  // a poll means for the watched jobs is nextWatch's to decide
   let watched: string[] | null = null
   let runningJob = $state<JobDetail | null>(null)
   let othersRunning = $state(0)
@@ -76,15 +69,15 @@
   let alertsOn = $state(storageGet<boolean>('alert-finished', false))
 
   async function watchJobs(info: HealthInfo | null) {
-    // A failed poll says nothing about the jobs - treating it as "none
-    // running" would announce every running job as finished
-    if (!info) return
-    const now = runningIds(info)
-    const ended = watched === null ? [] : endedSince(watched, now)
-    watched = now
-    othersRunning = Math.max(0, now.length - 1)
-    runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
-    for (const id of ended) {
+    const next = nextWatch(watched, info)
+    watched = next.watched
+    // A failed poll leaves the title showing what it last knew
+    if (info) {
+      const now = next.running
+      othersRunning = Math.max(0, now.length - 1)
+      runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
+    }
+    for (const id of next.ended) {
       const job = await api.getJob(id).catch(() => null)
       if (job && TERMINAL_STATUSES.includes(job.status)) announce(job)
     }

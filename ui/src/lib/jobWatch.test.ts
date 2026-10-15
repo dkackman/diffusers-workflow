@@ -4,6 +4,7 @@ import {
   BASE_TITLE,
   endedSince,
   endedTitle,
+  nextWatch,
   percentDone,
   runningIds,
   tabTitle,
@@ -35,6 +36,33 @@ describe('runningIds', () => {
 describe('endedSince', () => {
   it('is what was running and is not now', () => {
     expect(endedSince(['a', 'b'], ['b', 'c'])).toEqual(['a'])
+  })
+})
+
+describe('nextWatch', () => {
+  it('first poll learns what is running and ends nothing', () => {
+    expect(nextWatch(null, health(['a', 'b']))).toEqual({
+      watched: ['a', 'b'],
+      ended: [],
+      running: ['a', 'b'],
+    })
+  })
+  it('a failed poll ends nothing and keeps what was watched', () => {
+    expect(nextWatch(['a', 'b'], null)).toEqual({
+      watched: ['a', 'b'],
+      ended: [],
+      running: ['a', 'b'],
+    })
+    expect(nextWatch(null, null).watched).toBeNull()
+  })
+  it('a later real poll ends only the job that vanished', () => {
+    const next = nextWatch(['a', 'b'], health(['b', 'c']))
+    expect(next.ended).toEqual(['a'])
+    expect(next.watched).toEqual(['b', 'c'])
+  })
+  it('a real poll after a failed one still ends a vanished job', () => {
+    const kept = nextWatch(['a'], null).watched
+    expect(nextWatch(kept, health([])).ended).toEqual(['a'])
   })
 })
 

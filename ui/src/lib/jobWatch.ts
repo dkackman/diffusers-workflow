@@ -30,6 +30,28 @@ export function endedSince(
   return before.filter((id) => !now.includes(id))
 }
 
+export type Watch = {
+  watched: string[] | null
+  ended: string[]
+  running: string[]
+}
+
+/** One health poll's step: what is running now and which watched jobs ended.
+ * The first poll (`watched` null) only learns what is running - a job
+ * already going when the page opened has not "just finished" when the next
+ * poll misses it. A failed poll (`info` null) says nothing about the jobs:
+ * reading it as "none running" would announce every running job as
+ * finished, so it leaves the state as it was. */
+export function nextWatch(
+  watched: string[] | null,
+  info: HealthInfo | null,
+): Watch {
+  if (!info) return { watched, ended: [], running: watched ?? [] }
+  const running = runningIds(info)
+  const ended = watched === null ? [] : endedSince(watched, running)
+  return { watched: running, ended, running }
+}
+
 /** 0-99: steps behind it plus how far the current step's denoise loop is.
  * Never 100 - a running job is not done. Null with nothing to go on. */
 export function percentDone(progress: JobDetail['progress']): number | null {
