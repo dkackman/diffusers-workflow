@@ -104,6 +104,9 @@ class Job:
         # The host RAM it was projected to hold at its peak when admitted,
         # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
         self.host_ram_need = None
+        # Why dispatch is holding it while it is queued - "waiting for host
+        # RAM: ..." - or None; a live state, never a warning (#869)
+        self.waiting_for = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -309,6 +312,11 @@ class Job:
             **(
                 {"cancel_requested": True}
                 if self.cancel_requested and self.status == RUNNING
+                else {}
+            ),
+            **(
+                {"waiting_for": self.waiting_for}
+                if self.waiting_for and self.status == QUEUED
                 else {}
             ),
             **({"note": self.note} if self.note else {}),

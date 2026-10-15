@@ -42,7 +42,8 @@ shift the LoRA names.
 - **Draft then final**: a 12-step draft (~13 min) of the wide, then the
   30-step final with `first_block` 0.05 (~23 min). Draft to final carries
   blocking but not always props.
-- **One int8 job at a time**: host RAM.
+- **Submit freely**: the server holds a second heavy job, queued with
+  `waiting_for`, until host RAM frees.
 - **Frame ceiling** at 1344x768 with 4 references is 124; 141 was refused
   (23.9 GB > 23.6). Write to 124 or drop a reference.
 

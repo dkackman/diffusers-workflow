@@ -231,6 +231,8 @@ _SLIM_KEYS = (
     # can be told apart from a run on the slower card
     "device",
     "queue_position",
+    # Why a queued job is held though a card is free (#869)
+    "waiting_for",
     "warnings",
     "error",
     "event_count",

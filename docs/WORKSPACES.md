@@ -456,9 +456,9 @@ dw already has.
 4. **One `run_workflow` per variant, with a `note`.** The note's first line
    is the overrides, `steps=8` or `steps=20 attention=sage`, so a listing
    that clips notes still shows which variant is which. Call `wait_for_job`
-   until the variant finishes before submitting the next. Dispatch is not
-   yet aware of host RAM (#869), so two large variants on two cards can run
-   the host out of memory together.
+   until the variant finishes before submitting the next. The server holds a
+   second large variant until the host can hold it beside the first (see
+   [SERVER.md](SERVER.md)), so waiting is for ordering, not for memory.
 
 5. **Only the latest run of a step is cached.** The step cache holds one
    entry per workflow step: its most recent run. A variant whose step and

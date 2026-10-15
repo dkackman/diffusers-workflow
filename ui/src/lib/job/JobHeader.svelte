@@ -130,6 +130,13 @@
         >#{job.queue_position + 1} in line</span
       >
     {/if}
+    {#if job.waiting_for}
+      <span
+        class="muted"
+        title="a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+        >{job.waiting_for}</span
+      >
+    {/if}
     {#if seed !== undefined}
       <code
         class="muted seed"
