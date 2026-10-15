@@ -2643,6 +2643,26 @@ is pinned to, not for every workspace that happens to hold a matching run.
 Deleting a workspace takes its cache entries with it, the same as deleting
 its `outputs/` directory would.
 
+The step cache is also per card and per workflow identity. Identity is the stored
+workflow's name, or an inline workflow's `id`; entries are keyed on the definition `id`
+and step name (`StepCache.get` in `dw/step_cache.py`), and an inline job's identity is
+`("inline", id)` (`workflow_identity` in `dw/worker_protocol.py`). Switching identity on a
+card empties that card's cache (the worker's `_cleanup_all` calls `step_cache.clear()`),
+so:
+
+- running any other workflow on the card in between starts the next run cold: A, then B,
+  then A runs the second A cold. This is the common case. On a multi-card server
+  warm-identity routing (`choose_slot` in `dw/server/pool.py`) mostly avoids it unless
+  that card is busy; on a single card it happens every time.
+- a renamed copy, a new inline `id`, or switching between a stored workflow and its
+  inline copy also starts cold.
+
+To reuse cached upstream steps, rerun the same workflow (same name, or the same inline
+`id`), for example with `rerun_job` or changed arguments. Only arguments that reach
+*later* steps leave the earlier steps cached: changing an argument the expensive first
+step reads re-runs that step. To check before running, `validate_workflow`'s
+`plan.cached_steps` says how many steps would be reused.
+
 ## Type System
 
 Dynamic type conversion applies to certain values:
