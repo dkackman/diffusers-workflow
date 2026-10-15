@@ -6,6 +6,7 @@
     Bell,
     BellOff,
     Braces,
+    ChevronDown,
     KeyRound,
     Menu,
     Moon,
@@ -18,7 +19,13 @@
   import { isEditable } from './lib/editable'
   import { notify } from './lib/toast'
   import { wsHref } from './lib/routes'
-  import { endedTitle, finishedText, nextWatch, tabTitle } from './lib/jobWatch'
+  import {
+    endedTitle,
+    finishedText,
+    nextWatch,
+    runningIds,
+    tabTitle,
+  } from './lib/jobWatch'
   import {
     alertFinished,
     alertMode,
@@ -58,6 +65,14 @@
   let statusTrigger = $state<HTMLElement | null>(null)
   let tokenTrigger = $state<HTMLElement | null>(null)
   const currentJob = $derived(health?.current_job ?? null)
+  // One job per card: with more than one running, the chip cannot link to
+  // them all, so it joins the status trigger and the popover lists each
+  const running = $derived(health ? runningIds(health) : [])
+  const statusLabel = $derived(
+    running.length > 1
+      ? `${running.length} jobs running - server & worker status`
+      : 'server & worker status',
+  )
   const view = $derived(route.view)
 
   // The tab title and the finish alert (jobWatch.ts, finishAlert.ts); what
@@ -246,29 +261,38 @@
         <Breadcrumb />
         <span class="flex"></span>
         <div class="state">
-          {#if currentJob}
+          {#if running.length === 1}
             <!-- The one thing worth pinning to every page: what the GPU is
              doing, and a way straight to it. The legacy '#/jobs/<id>' form is
-             deliberate: health.current_job carries no workspace, so the legacy
+             deliberate: health carries no workspace for the job, so the legacy
              redirect plus JobPage's correction is how it lands under the job's
              own workspace -->
             <a
               class="plain live"
-              href="#/jobs/{currentJob}"
+              href="#/jobs/{running[0]}"
               title="go to the job"
             >
               <span class="pulse-dot"></span>running
             </a>
           {/if}
+          {#snippet busy()}
+            <!-- Inside the trigger rather than beside it: a second button
+             opening the same popover would read as a press outside it -->
+            <span class="live">
+              <span class="pulse-dot"></span>{running.length} running
+              <ChevronDown size={13} />
+            </span>
+          {/snippet}
           {#if metered.length}
             <button
               class="bare vram"
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title={meterTitle(metered) || 'VRAM allocated'}
-              aria-label="server & worker status"
+              aria-label={statusLabel}
               aria-expanded={statusOpen}
             >
+              {#if running.length > 1}{@render busy()}{/if}
               <span class="meters">
                 {#each metered as card, i (card.device ?? i)}
                   <span class="meter">
@@ -290,10 +314,11 @@
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title="server & worker status"
-              aria-label="server & worker status"
+              aria-label={statusLabel}
               aria-expanded={statusOpen}
             >
-              {currentJob ? 'status' : 'idle'}
+              {#if running.length > 1}{@render busy()}
+              {:else}{currentJob ? 'status' : 'idle'}{/if}
             </button>
           {/if}
           <StatusPopover
