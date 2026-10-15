@@ -3,7 +3,7 @@
   import { setNote } from '../api'
   import ClampedText from './ClampedText.svelte'
 
-  // A note on a workspace, asset, run or file: shown as plain text, edited
+  // A note on a workspace, asset, run or file: shown as a safe Markdown subset (never HTML), edited
   // in place. The server owns the 4000-character limit and says so in its
   // error, which stays on screen beside the box
   let {
@@ -77,6 +77,10 @@
       rows="4"
       aria-label={label}
       {placeholder}></textarea>
+    <p class="hint muted">
+      Markdown: # heading · - list · **bold** · *italic* · `code` ·
+      [link](https://…)
+    </p>
     <div class="actions">
       <button type="button" class="quiet" onclick={save} disabled={saving}
         >Save</button
@@ -97,6 +101,7 @@
           <ClampedText
             text={shown}
             {lines}
+            markdown
             rememberKey={`${workspace ?? ''}|${target}`}
           />
         </div>
@@ -136,6 +141,10 @@
     font: inherit;
     background: var(--panel-2);
     color: var(--ink);
+  }
+  .hint {
+    font-size: var(--t-sm);
+    margin: 0.25rem 0 0;
   }
   .actions {
     display: flex;

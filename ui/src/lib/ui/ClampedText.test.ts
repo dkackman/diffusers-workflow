@@ -47,4 +47,10 @@ describe('ClampedText', () => {
       false,
     )
   })
+
+  it('renders markdown as elements when asked', () => {
+    fakeHeights(40, 40)
+    render(ClampedText, { props: { text: '- **one**', markdown: true } })
+    expect(screen.getByText('one').tagName).toBe('STRONG')
+  })
 })
