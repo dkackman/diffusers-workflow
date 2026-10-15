@@ -97,7 +97,7 @@ THRESHOLDS = {
 
 LINE_RULES = ("line_mismatch", "tag_spoken", "line_clipped_at_end")
 SILENT_RULES = ("speech_where_silent",)
-SHOT_RULES = ("speech_in_silent_shot",)
+SHOT_RULES = ("speech_in_silent_shot", "unscripted_speech")
 
 
 def _rule(name, threshold, says):
@@ -138,6 +138,12 @@ SPEECH_IN_SILENT_SHOT = _rule(
     0,
     "no line names this shot, and this many words were heard in it above the"
     " dead-air floor and outside a repetition loop",
+)
+UNSCRIPTED_SPEECH = _rule(
+    "unscripted_speech",
+    0,
+    "this many words were heard inside a shot that has a scripted line, matched to"
+    " no line - a line spoken twice (see 'repeats_line'), or an ad-lib; listen",
 )
 
 
@@ -475,6 +481,9 @@ def check(
     if no_shot is None:
         rules_applied.extend(SHOT_RULES)
         findings.extend(_silent_shot_findings(spans, parsed_lines, heard, claimed))
+        findings.extend(
+            _unscripted_findings(spans, parsed_lines, expected, heard, unassigned)
+        )
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
 
@@ -581,6 +590,42 @@ def _silent_shot_findings(spans, parsed_lines, heard, claimed):
     return findings
 
 
+def _unscripted_findings(spans, parsed_lines, expected, heard, unassigned):
+    """unscripted_speech: heard words align left to no line that sit inside a
+    shot a line names. `repeats_line` is set when the shot's words, in order,
+    contain one of its lines' words again."""
+    findings = []
+    for span in spans:
+        lines = [
+            expected[i]
+            for i, line in enumerate(parsed_lines)
+            if line["shot"] == span["name"]
+        ]
+        if not lines:
+            continue
+        inside = [
+            heard[j]
+            for j, _ in unassigned
+            if _heard_shot(spans, heard[j]) == span["name"]
+        ]
+        if not inside:
+            continue
+        at = _at(None, inside[0], shot=span["name"])
+        words = [word["word"] for word in inside]
+        at["end"] = _round(inside[-1]["end"])
+        at["repeats_line"] = any(
+            line and _contains(words, line) for line in lines
+        ) or any(line and _contains(line, words) for line in lines)
+        findings.append(finding(UNSCRIPTED_SPEECH, len(inside), at))
+    return findings
+
+
+def _contains(words, part):
+    """Whether `part` occurs in `words` as a contiguous run."""
+    size = len(part)
+    return any(words[i : i + size] == part for i in range(len(words) - size + 1))
+
+
 def _heard_entry(word):
     return {
         "text": word["text"],
@@ -645,7 +690,8 @@ def check_script(
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,
-        line_clipped_at_end, speech_where_silent, speech_in_silent_shot),
+        line_clipped_at_end, speech_where_silent, speech_in_silent_shot,
+        unscripted_speech),
         'lines' (expected, heard, similarity, start, end, shot), 'shots'
         (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
         level and reason), 'unmatched' (heard words aligned to no line), 'transcript',

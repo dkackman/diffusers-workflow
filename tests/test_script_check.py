@@ -379,7 +379,7 @@ class TestCheckAlignment(unittest.TestCase):
         self.assertEqual(answer["rules_applied"], list(script_check.LINE_RULES))
         self.assertEqual(
             [s["rule"] for s in answer["rules_skipped"]],
-            ["speech_where_silent", "speech_in_silent_shot"],
+            ["speech_where_silent", "speech_in_silent_shot", "unscripted_speech"],
         )
         self.assertTrue(all(s["reason"] for s in answer["rules_skipped"]))
 
@@ -633,6 +633,26 @@ class TestShotPlacement(unittest.TestCase):
         self.assertEqual(found[0]["at"]["line"], 1)
         self.assertEqual(found[0]["at"]["seconds"], 3.0)
         self.assertEqual(found[0]["at"]["shot"], "B")
+
+
+class TestUnscriptedSpeech(unittest.TestCase):
+    def test_a_line_spoken_twice_in_its_shot_is_a_finding(self):
+        chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["value"], 3)
+        self.assertEqual(found["at"]["shot"], "A")
+        self.assertTrue(found["at"]["repeats_line"])
+
+    def test_an_ad_lib_in_a_scripted_shot_is_not_a_repeat(self):
+        chunks = words("alpha bravo", 0.0) + words("zulu yankee", 1.0)
+        answer = shot_run([{"text": "alpha bravo", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertFalse(found["at"]["repeats_line"])
+
+    def test_clean_take_has_none(self):
+        answer = shot_run([{"text": "alpha bravo", "shot": "A"}], words("alpha bravo"))
+        self.assertEqual(rules(answer, "unscripted_speech"), [])
 
 
 class TestSpeechInSilentShot(unittest.TestCase):
