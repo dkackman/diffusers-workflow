@@ -255,11 +255,29 @@ def output_only(doc):
     return doc
 
 
+def _same_number(value):
+    """`value` with every integral float spelled as an int, so 12.0 and 12
+    digest alike - the same value to the run (and to the step cache's
+    equality), but a JSON round trip through a client can respell one as
+    the other (#905). A bool is left alone: True is not 1.0 here."""
+    if isinstance(value, float) and value.is_integer():
+        return int(value)
+    if isinstance(value, dict):
+        return {key: _same_number(item) for key, item in value.items()}
+    if isinstance(value, (list, tuple)):
+        return [_same_number(item) for item in value]
+    return value
+
+
 def _canonical_digest(doc):
     # default=repr: a realized 'constant:' can be any Python value, and the
     # fingerprint only needs it to be stable, not round-trippable
     serialized = json.dumps(
-        doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
+        _same_number(doc),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=repr,
     )
     return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
 

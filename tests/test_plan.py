@@ -331,6 +331,12 @@ class TestFingerprintIgnoresWhatCannotChangeTheOutput:
         assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
         assert plan(spec)["fingerprint"] == plan()["fingerprint"]
 
+    def test_an_integral_float_spelled_as_an_int(self, plan):
+        # A client's JSON round trip can turn 12.0 into 12 (#905)
+        spec = definition()
+        spec["variables"]["frames"] = 25.0
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
     def test_shape_and_traits(self, plan):
         spec = definition()
         spec["shape"] = "shot"
@@ -429,6 +435,30 @@ class TestTheCatalogH3Template:
         ]
         del other["vram_estimate"]
         assert plan(template)["fingerprint"] == plan(other)["fingerprint"]
+
+    def test_a_client_round_trip_keeps_it(self, plan, template):
+        # The inline get_workflow JSON comes back with video_shift 12.0 as
+        # 12 (and its kin); the by-name form keeps the float (#905)
+        def respell(value):
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, dict):
+                return {key: respell(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [respell(item) for item in value]
+            return value
+
+        inline = respell(template)
+        # The template does hold one, or this checks nothing
+        assert json.dumps(inline) != json.dumps(template)
+        assert plan(template)["fingerprint"] == plan(inline)["fingerprint"]
+
+    def test_the_seed_stays_out(self, plan, template):
+        # The #85 contract: an acknowledgement buys the cost, not the seed
+        assert (
+            plan(template, arguments={"seed": 42})["fingerprint"]
+            == plan(template, arguments={"seed": 43})["fingerprint"]
+        )
 
     @pytest.mark.parametrize(
         "arguments",
