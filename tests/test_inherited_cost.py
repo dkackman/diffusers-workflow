@@ -622,6 +622,48 @@ class TestTheShippedTemplatesLoraIsCompared:
         arguments = {"lora_model_name": "lightx2v/Some-Other-Lora"}
         assert inherited_differences(copy, template, arguments) == ["LoRA"]
 
+    def test_a_client_round_trip_differs_in_nothing(self, tmp_path):
+        """#866 stage C (second C-F485 bounce): an MCP client's JSON round
+        trip respells the template's `lora_scale` 1.0 as 1. The copy, sent
+        the way the tester's was (seed set, prompt replaced, catalog keys
+        dropped), is quoted from the template's runs with nothing named and
+        no low confidence: a number compares by value, not spelling."""
+        from dw.variables import same_number
+
+        template = self.template()
+        copy = same_number(template)
+        assert copy["variables"]["lora_scale"] == 1
+        assert isinstance(copy["variables"]["lora_scale"], int)
+        for key in ("cost", "cost_drivers", "summary", "vram_estimate"):
+            copy.pop(key, None)
+        copy.pop("variable_constraints", None)
+        copy["variables"]["seed"] = 42
+        copy["variables"]["prompt"] = "a lighthouse at dusk"
+
+        assert inherited_differences(copy, template) == []
+        block = inherited(
+            copy,
+            [("templates/minimax/reference-to-video", template)],
+            {"templates/minimax/reference-to-video": [run(8 * MINUTE)] * 3},
+        )
+        assert block["differs"] == []
+        candidate = workflow_from_definition(
+            copy, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            estimate = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: {**block, "device": None},
+            )["estimate"]
+        assert estimate["basis"] == "inherited"
+        assert not estimate.get("differs")
+        assert not estimate.get("low_confidence")
+        # A scale that really differs is still named
+        assert inherited_differences(copy, template, {"lora_scale": 0.5}) == ["LoRA"]
+
 
 def test_the_warning_agrees_in_number():
     def warned(differs):
