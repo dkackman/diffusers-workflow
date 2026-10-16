@@ -38,7 +38,7 @@ Status: draft, probes on lem in progress.
 | P1d distilled t2i bf16, 1024², 16 steps, vendor `man_dog` caption, seed 7, transformer + text encoder + VAE `device: cuda` | 9cc1ce441555 | **Passed.** 24 s total: load 10.1 s, encode 0.4 s, denoise 12.1 s (0.8 s/step), decode 0.4 s. 19.2 GB allocated, 22.1 GB reserved peak at decode (1.7 GB free). The image follows the caption element by element |
 | P2 pup via `text_generation` as-is, `t2i` system prompt, `man_dog` request | a5471561de18 | Ran (22 s, cuda:1); vendor-style caption, but it opens mid-phrase in lowercase ("medium-wide outdoor photograph ...") |
 | P2b chat template check | (script) | The template's default opens `<think>\n` (thinking on); `enable_thinking=False` gives `<think>\n\n</think>\n\n`. P2 ran in thinking mode |
-| P3 single edit / multi-reference | | |
+| P3 multi-reference edit: `image` a list of two `{"location": url}` refs (BFL examples/inputs 2.png mug, 3.png dog, commit bbfe317d), BFL upsampled mugprint caption, seed 23, 1024², 16 steps | cc7fb1b29091 | **Passed.** The list arrives as PIL images; the output printed the dog on the mug and kept the scene. 45 s total: encode 0.5 s, denoise 41.0 s (2.6 s/step, references add tokens), decode 0.3 s. 19.2 GB allocated, 22.1 GB reserved peak |
 
 What P1 settled:
 

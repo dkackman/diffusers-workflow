@@ -683,6 +683,12 @@ TEMPLATE_PIPELINE_KEYS = {
     "ip-adapter.json": {
         "main": "a67c769c0ee881e36aa15b62f8226a233c1e4b93542a8caaf5eab5715cb9f556"
     },
+    "flux3/image-edit.json": {
+        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
+    "flux3/multi-reference.json": {
+        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
     "flux3/text-to-image.json": {
         "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
     },
