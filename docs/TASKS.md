@@ -2850,6 +2850,16 @@ Generate or expand text using a local language model. Useful for expanding short
 | `repetition_penalty` | No | Vision path only (default: 1.15) — see below |
 | `generate_kwargs` | No | Anything else to pass to the model's `generate()` — `no_repeat_ngram_size`, `top_p`, `min_new_tokens`. Merged last, so it overrides the settings above |
 | `max_new_tokens` | No | Maximum tokens to generate (default: 500) |
+| `chat_template_kwargs` | No | Extra keyword arguments for the model's chat template (for a template that takes switches such as a thinking toggle) |
+| `revision` | No | Model revision (branch, tag or commit) to load `model_name` at |
+
+`image` may also be a list of images, each sent as its own picture in the one user message.
+
+`system_prompt` may name a file in a Hugging Face repo instead of carrying the text,
+for a vendor that ships its prompt instructions there:
+`{"from_hub": {"repo": "owner/name", "file": "system_prompts.json", "revision": "<40-hex commit>", "key": "t2i"}}`.
+The revision must be a full commit, so the text can't move under the workflow. A `.json`
+file takes `key` to pick one string; any other file is read whole.
 
 ### Writing a prompt from a picture
 

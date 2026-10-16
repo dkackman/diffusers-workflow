@@ -1,5 +1,8 @@
 """Tests for text_generation task."""
 
+import json as _json
+import os
+import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
@@ -8,6 +11,7 @@ from dw.tasks.text_generation import (
     _DEFAULT_MODEL,
     DEFAULT_VISION_MODEL,
     _VISION_REPETITION_PENALTY,
+    resolve_system_prompt,
 )
 
 
@@ -429,6 +433,106 @@ class TestTextGenerationLoadDevice(unittest.TestCase):
         kwargs = mock_pipeline.call_args[1]
         self.assertEqual(kwargs["device_map"], "cuda")
         self.assertNotIn("device", kwargs)
+
+
+PIN = "3f3edb52b2c55de0d49feab28598b68f7f8e4830"
+
+
+def _spec(**over):
+    spec = {
+        "repo": "black-forest-labs/flux-3-image-klein-pup",
+        "file": "system_prompts.json",
+        "revision": PIN,
+        "key": "t2i",
+    }
+    spec.update(over)
+    return {"from_hub": spec}
+
+
+class TestSystemPromptFromHub(unittest.TestCase):
+    def setUp(self):
+
+        self.dir = tempfile.mkdtemp()
+        self.json_path = os.path.join(self.dir, "system_prompts.json")
+        with open(self.json_path, "w") as f:
+            _json.dump({"t2i": "expand the request", "i2i": "edit it", "n": 3}, f)
+
+    def test_a_string_or_none_passes_through(self):
+        self.assertEqual(resolve_system_prompt("plain"), "plain")
+        self.assertIsNone(resolve_system_prompt(None))
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_the_key_s_text_is_returned_from_the_pinned_file(self, download):
+        download.return_value = self.json_path
+        self.assertEqual(resolve_system_prompt(_spec()), "expand the request")
+        download.assert_called_once_with(
+            "black-forest-labs/flux-3-image-klein-pup",
+            "system_prompts.json",
+            revision=PIN,
+        )
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_a_missing_key_names_the_keys_the_file_has(self, download):
+        download.return_value = self.json_path
+        with self.assertRaises(ValueError) as caught:
+            resolve_system_prompt(_spec(key="t2v"))
+        self.assertIn("i2i", str(caught.exception))
+        self.assertIn("t2i", str(caught.exception))
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_a_value_that_is_not_text_is_refused(self, download):
+        download.return_value = self.json_path
+        with self.assertRaises(ValueError):
+            resolve_system_prompt(_spec(key="n"))
+
+    def test_a_short_hash_or_branch_is_refused(self):
+        for revision in ("3f3edb52", "main", PIN.upper()):
+            with self.assertRaises(ValueError) as caught:
+                resolve_system_prompt(_spec(revision=revision))
+            self.assertIn("40", str(caught.exception))
+
+    def test_a_path_that_escapes_the_repo_is_refused(self):
+        for file in (
+            "../secrets.json",
+            "/etc/passwd",
+            "a\\b.json",
+            "",
+            "x/../../y.json",
+        ):
+            with self.assertRaises(ValueError):
+                resolve_system_prompt(_spec(file=file))
+
+    def test_a_bad_repo_id_is_refused(self):
+        from dw.security import InvalidInputError
+
+        with self.assertRaises((ValueError, InvalidInputError)):
+            resolve_system_prompt(_spec(repo="https://evil.example/x"))
+
+    def test_an_unknown_field_or_shape_is_refused(self):
+        for bad in (
+            {"from_hub": {**_spec()["from_hub"], "branch": "main"}},
+            {"from_url": "x"},
+            ["t2i"],
+        ):
+            with self.assertRaises(ValueError):
+                resolve_system_prompt(bad)
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_generate_text_sends_the_resolved_text(self, download, mock_pipeline):
+        download.return_value = self.json_path
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text(
+            "a dog", device="cpu", model_name="m/from-hub", system_prompt=_spec()
+        )
+
+        messages = pipe.call_args[0][0]
+        self.assertEqual(
+            messages[0], {"role": "system", "content": "expand the request"}
+        )
 
 
 if __name__ == "__main__":

@@ -11,9 +11,15 @@ prompt guesses is there. That is the difference between an image-conditioned
 workflow whose prompt agrees with its keyframe and one whose prompt fights it.
 """
 
+import json
 import logging
+import re
+from pathlib import PurePosixPath
+
+from huggingface_hub import hf_hub_download
 from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
+from ..locations import validate_hub_repo_id
 from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
@@ -82,6 +88,91 @@ def _build_messages(prompt, system_prompt, images):
     return messages
 
 
+# A pinned prompt has to stay pinned: a short hash can become ambiguous and a
+# branch moves, so only a full commit is accepted
+_FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
+_FROM_HUB_FIELDS = {"repo", "file", "revision", "key"}
+
+
+def _hub_file(file):
+    """A file path inside a repo, refused if it could name anything outside it."""
+    if not isinstance(file, str) or not file or "\\" in file:
+        raise ValueError(
+            f"system_prompt.from_hub.file must be a path inside the repo, got {file!r}"
+        )
+    path = PurePosixPath(file)
+    if path.is_absolute() or ".." in path.parts:
+        raise ValueError(
+            f"system_prompt.from_hub.file must be a path inside the repo, got {file!r}"
+        )
+    return file
+
+
+def resolve_system_prompt(value):
+    """The system prompt text, reading it from a Hub repo when one is named.
+
+    Some vendors ship the instructions their model was trained against as a
+    file in its repo, and change them. Naming the file and a full commit runs
+    exactly that text without copying it into a workflow, where it would
+    drift from the source.
+
+    Args:
+        value: None, the text itself, or {"from_hub": {"repo", "file",
+            "revision", "key"}}. `revision` is a full 40-character commit.
+            A .json file takes `key` to pick one string out of a top-level
+            object; any other file is read whole as text
+
+    Raises:
+        ValueError: On any other shape, a revision that is not a full commit,
+            a file path that leaves the repo, a missing key, or a value that
+            is not text
+    """
+    if value is None or isinstance(value, str):
+        return value
+    if (
+        not isinstance(value, dict)
+        or set(value) != {"from_hub"}
+        or not isinstance(value["from_hub"], dict)
+    ):
+        raise ValueError(
+            'system_prompt must be text or {"from_hub": {"repo", "file", "revision", "key"}}'
+        )
+    spec = value["from_hub"]
+    unknown = set(spec) - _FROM_HUB_FIELDS
+    if unknown:
+        raise ValueError(f"system_prompt.from_hub does not take {sorted(unknown)}")
+    repo = validate_hub_repo_id(spec.get("repo"), what="system_prompt.from_hub.repo")
+    file = _hub_file(spec.get("file"))
+    revision = spec.get("revision")
+    if not isinstance(revision, str) or not _FULL_COMMIT.match(revision):
+        raise ValueError(
+            "system_prompt.from_hub.revision must be a full 40-character lowercase "
+            f"commit hash, so the text cannot change under the workflow; got {revision!r}"
+        )
+    key = spec.get("key")
+
+    path = hf_hub_download(repo, file, revision=revision)
+    with open(path, encoding="utf-8") as f:
+        if file.endswith(".json"):
+            data = json.load(f)
+        else:
+            data = f.read()
+    if key is not None:
+        if not isinstance(data, dict) or key not in data:
+            keys = sorted(data) if isinstance(data, dict) else []
+            raise ValueError(
+                f"system_prompt.from_hub: {file} at {revision[:8]} has no key {key!r}; "
+                f"it has {keys}"
+            )
+        data = data[key]
+    if not isinstance(data, str) or not data.strip():
+        raise ValueError(
+            f"system_prompt.from_hub: {file}{'[' + repr(key) + ']' if key else ''} "
+            "is not text"
+        )
+    return data
+
+
 def generate_text(prompt, device="cpu", **kwargs):
     """Generate text from a prompt using a local language model.
 
@@ -114,7 +205,8 @@ def generate_text(prompt, device="cpu", **kwargs):
     # A workflow declaring an optional image passes it through as null when the
     # caller supplies none, and an empty string is the same statement
     images = _images(kwargs.get("image", None) or None)
-    system_prompt = kwargs.get("system_prompt", None)
+    # Resolved before anything loads, so a bad reference costs nothing
+    system_prompt = resolve_system_prompt(kwargs.get("system_prompt", None))
     max_new_tokens = int(kwargs.get("max_new_tokens", 500))
     revision = kwargs.get("revision", None)
     chat_template_kwargs = kwargs.get("chat_template_kwargs") or {}
