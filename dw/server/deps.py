@@ -26,7 +26,7 @@ from ..vram_inheritance import (
     sets_differently,
     template_identity,
 )
-from ..plan import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
+from ..cost_scaling import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
