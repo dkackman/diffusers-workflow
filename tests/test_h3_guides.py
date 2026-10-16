@@ -11,7 +11,6 @@ from PIL import Image
 
 from dw.media_types import AudioVideo
 from dw.pipeline_processors import h3_guides, h3_hold, h3_rules
-from dw.pipeline_processors import pipeline as pipeline_module
 from dw.pipeline_processors.h3_guides import (
     LAYOUT_ANCHORS,
     default_num_frames,
@@ -848,7 +847,7 @@ def guided():
 def warnings_seen(monkeypatch):
     seen = []
     monkeypatch.setattr(
-        pipeline_module, "emit_warning", lambda message, **data: seen.append(message)
+        h3_guides, "emit_warning", lambda message, **data: seen.append(message)
     )
     return seen
 
@@ -978,7 +977,7 @@ class TestWithGuideAudio:
             read.append(location)
             return AudioVideo(clip(5), np.ones((2, 10), np.float32), 16000)
 
-        monkeypatch.setattr(pipeline_module, "load_audio_video", load)
+        monkeypatch.setattr(h3_guides, "load_audio_video", load)
         result = Pipeline._with_guides(
             ns(guided), {"guides": [{"video": "clip.mp4", "frame": 0, "audio": True}]}
         )

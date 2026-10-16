@@ -20,7 +20,10 @@ resolution and reference count are not in it either (#869's D3).
     successful runs with the same key (the max, not a median: under-
     projecting is the failure this exists for);
   - `fit`: `host_memory_projection`'s projection for a list run, from this
-    workflow's own history;
+    workflow's own history - also ahead of `observed` when it is the larger
+    for a shape that holds its pipeline across the list, since the key
+    leaves list length out and a longer list outgrows the observed max
+    (#910);
   - otherwise None - no figure.
 """
 
@@ -28,7 +31,7 @@ import hashlib
 import json
 import logging
 
-from ..host_memory_projection import projected_mb
+from ..host_memory_projection import projected_mb, releases_between_iterations
 from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
@@ -86,12 +89,21 @@ def projected_peak(definition, arguments, history, *, rows=None, list_entries=No
     them, and `list_entries` the request's list lengths - the fit's inputs,
     absent for an inline definition, which has no history by name.
     """
+    fit = projected_mb(definition, list_entries, rows or [])
     key = memory_key(definition, arguments)
     if key is not None and history is not None:
         peaks = history.peaks_for_key(key)
         if peaks:
+            # The key leaves list length out, so a resident list longer than
+            # any observed one outgrows the observed max: the fit's growth is
+            # taken when it is the larger, as validate's warning quotes (#910)
+            if (
+                fit is not None
+                and fit["projected_mb"] > max(peaks)
+                and not releases_between_iterations(definition)
+            ):
+                return fit["projected_mb"], "fit", fit["runs"]
             return max(peaks), "observed", len(peaks)
-    fit = projected_mb(definition, list_entries, rows or [])
     if fit is not None:
         return fit["projected_mb"], "fit", fit["runs"]
     return None

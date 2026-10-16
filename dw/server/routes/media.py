@@ -88,8 +88,9 @@ from ..outputs import (
     job_provenance,
     resolve_output_file,
     run_directory,
+    consumed_in,
+    listed_file_role,
     run_inputs,
-    run_roles,
     strip_output_prefix,
     validated_run_split,
     workspace_asset_library,
@@ -196,7 +197,13 @@ def gallery_metadata(
         # run directory the manifest is read from is a validator's output
         split = validated_run_split(ws.outputs, path)
         if split:
-            role = run_roles(split[0]).get(split[1])
+            # The role the listing shows: demoted once a later run read
+            # the file (#928)
+            relative = os.path.relpath(path, os.path.realpath(ws.outputs))
+            consumed = relative.replace(os.sep, "/") in consumed_in(
+                request.app.state, ws
+            )
+            role = listed_file_role(split[0], split[1], consumed)
             inputs = run_inputs(split[0])
             notes = _note_fields(read_notes(split[0]), split[1])
     metadata = read_embedded_metadata(path)

@@ -7,7 +7,7 @@ largest card (`largest_ceiling_gb`), affinity (`choose_slot`) and the
 host-RAM wait (`host_ram_wait`): the cards share one host's RAM, so a job
 that fits a free card may still wait for a running one to finish. The
 JobManager (`dw/server/jobs.py`) calls them under its own lock where the
-answer must agree with dispatch (`JobManager.route`, `_next_dispatch`).
+answer must agree with dispatch (`JobManager.route`, `dispatch.Dispatcher._next_dispatch`).
 """
 
 import logging

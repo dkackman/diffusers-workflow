@@ -21,11 +21,12 @@ from ..vram_inheritance import (
     build_index,
     inherited_differences,
     pipeline_frames,
+    pipeline_steps,
     pipeline_values,
     sets_differently,
     template_identity,
 )
-from ..plan import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
+from ..cost_scaling import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -267,14 +268,6 @@ def asset_users(state, ws):
     return users
 
 
-def _pipeline_steps(definition):
-    return sum(
-        1
-        for step in definition.get("steps") or []
-        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
-    )
-
-
 def _canvases(definition, arguments=None):
     """Each pipeline step's `(width, height)`, as `pipeline_values` reads
     them, None for a step that does not set both as numbers."""
@@ -302,9 +295,15 @@ def _scale_past_template(definition, template, drivers, arguments):
     catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
     size; (None, reason) when its size cannot be compared."""
-    steps, template_steps = _pipeline_steps(definition), _pipeline_steps(template)
     # The template as the bucket's drivers set it
     bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
+    # Counted with for_each expanded, so a list longer than the one the
+    # bucket ran (a fallback to the template's default bucket) re-prices by
+    # its member count
+    steps = len(pipeline_steps(definition, arguments))
+    template_steps = len(pipeline_steps(bucket))
+    if not steps or not template_steps:
+        return None, "its pipeline step count cannot be compared"
     factor, reasons = 1.0, []
     if steps != template_steps:
         factor *= steps / template_steps

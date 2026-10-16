@@ -116,6 +116,14 @@ Once every shot exists, hand off to `templates/assemble-and-score` (or the
 a series) for the recut/bed/match_levels/normalize/pair pass. That skill
 already owns this step - do not re-derive it here.
 
+The shots, narration, score or cues, stills and references are ingredients
+the assembly consumes: a workflow you write or copy for one sets
+`"role": "intermediate"` in its saving step's `result`, so it reads as
+intermediate in the gallery (which opens on finals) before the assembly
+runs. Only the assembly's cut is final. Once a later run reads a file
+through `output:` or an `asset:` kept from it, the gallery lists that file
+as intermediate on its own.
+
 A sung multi-shot piece is reviewed by its lip-sync target: run
 `get_guide("tasks", section="Checking the lip-sync target")` on the cut
 before delivering it.

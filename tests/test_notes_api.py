@@ -98,10 +98,15 @@ def asset_entry(client, name):
 
 def snapshot(root):
     """Every file under root with its bytes - what a refused write must not
-    change."""
+    change. The job history's SQLite file and its -wal/-shm sidecars are left
+    out: the client fixture keeps them beside the studio, and a WAL
+    checkpoint rewrites their bytes on the connection's schedule, not the
+    request's."""
     found = {}
     for current, _dirs, names in os.walk(root):
         for name in names:
+            if name.startswith("jobs.sqlite"):
+                continue
             path = os.path.join(current, name)
             with open(path, "rb") as handle:
                 found[path] = handle.read()

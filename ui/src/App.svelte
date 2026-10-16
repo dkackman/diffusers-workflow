@@ -3,8 +3,6 @@
   import { cardReadings, meterText, meterTitle } from './lib/cardMemory'
   import {
     BookOpen,
-    Bell,
-    BellOff,
     Braces,
     ChevronDown,
     KeyRound,
@@ -26,12 +24,8 @@
     runningIds,
     tabTitle,
   } from './lib/jobWatch'
-  import {
-    alertFinished,
-    alertMode,
-    enableAlerts,
-    unlockChime,
-  } from './lib/finishAlert'
+  import { alertFinished, alertMode, unlockChime } from './lib/finishAlert'
+  import { alerts } from './lib/alerts.svelte'
   import { storageGet, storageSet } from './lib/storage'
   import type { HealthInfo, JobDetail, MemoryInfo } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
@@ -39,6 +33,7 @@
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
+  import AlertToggle from './lib/AlertToggle.svelte'
   import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
@@ -81,7 +76,6 @@
   let runningJob = $state<JobDetail | null>(null)
   let othersRunning = $state(0)
   let endedMark = $state<string | null>(null)
-  let alertsOn = $state(storageGet<boolean>('alert-finished', false))
 
   async function watchJobs(info: HealthInfo | null) {
     const next = nextWatch(watched, info)
@@ -108,22 +102,8 @@
       if (job.status === 'succeeded') notify.success(text)
       else notify.error(text)
     }
-    if (alertsOn && document.hidden)
+    if (alerts.on && document.hidden)
       alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
-  }
-
-  async function toggleAlerts() {
-    if (alertsOn) {
-      alertsOn = false
-    } else if (await enableAlerts()) {
-      alertsOn = true
-    } else {
-      notify.error(
-        'The browser blocked notifications for this site - allow them in its site settings',
-      )
-      return
-    }
-    storageSet('alert-finished', alertsOn)
   }
 
   $effect(() => {
@@ -136,7 +116,7 @@
     // A chime may only play after a gesture; after a reload the first
     // click anywhere is that gesture
     const unlock = () => {
-      if (alertsOn && alertMode() === 'chime') unlockChime()
+      if (alerts.on && alertMode() === 'chime') unlockChime()
     }
     document.addEventListener('visibilitychange', back)
     window.addEventListener('pointerdown', unlock, { once: true })
@@ -338,21 +318,7 @@
             <KeyRound size={15} />
           </button>
           <TokenPopover bind:open={tokenOpen} anchor={tokenTrigger} />
-          <button
-            class="bare icon"
-            onclick={toggleAlerts}
-            aria-pressed={alertsOn}
-            aria-label={alertsOn
-              ? 'stop job-finished alerts'
-              : 'alert me when a job finishes'}
-            title={alertsOn
-              ? 'alerts on - click to stop'
-              : alertMode() === 'chime'
-                ? 'chime when a job finishes while this tab is in the background (this page is not a secure origin, so desktop notifications are unavailable)'
-                : 'notify me when a job finishes while this tab is in the background'}
-          >
-            {#if alertsOn}<Bell size={15} />{:else}<BellOff size={15} />{/if}
-          </button>
+          <AlertToggle />
           <button
             class="bare icon"
             onclick={cycleTheme}

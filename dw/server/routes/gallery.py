@@ -48,7 +48,8 @@ from ..outputs import (
     iter_gallery_files,
     resolve_output_file,
     run_directory,
-    run_roles,
+    consumed_in,
+    listed_file_role,
     served_url,
     split_run_name,
     strip_output_prefix,
@@ -67,7 +68,7 @@ RUN_BOOKKEEPING_FILES = frozenset(
 )
 
 
-def _gallery_entries(root, ws):
+def _gallery_entries(root, ws, consumed=frozenset()):
     entries = []
     try:
         files = list(iter_gallery_files(root))
@@ -129,7 +130,11 @@ def _gallery_entries(root, ws):
         }
         # None under the flat layout, and for a file no manifest lists
         split = split_run_name(root, relative_name) if run_id else None
-        entry["role"] = run_roles(split[0]).get(split[1]) if split else None
+        entry["role"] = (
+            listed_file_role(split[0], split[1], relative_name in consumed)
+            if split
+            else None
+        )
         if split:
             if split[0] not in notes_by_run:
                 notes_by_run[split[0]] = read_notes(split[0])
@@ -193,6 +198,7 @@ def _orphan_entries(root):
     "/api/gallery", response_model=GalleryList, response_model_exclude_unset=True
 )
 def gallery(
+    request: Request,
     limit: int = 200,
     offset: int = 0,
     folder: Optional[str] = None,
@@ -238,7 +244,9 @@ def gallery(
     stays proportional to the page size rather than the library size.
 
     Each entry carries `role`, `final` or `intermediate` (null for a
-    flat-layout file or one no manifest lists). `role` is a repeatable
+    flat-layout file or one no manifest lists); a file a later run read
+    lists as intermediate unless its step declared it final
+    (dw/roles.py rule 4). `role` is a repeatable
     filter; a null role counts as final. Omitted, every file is listed."""
     if role:
         unknown = sorted(set(role) - set(ROLES))
@@ -263,7 +271,8 @@ def gallery(
                 "workspace": ws.name,
             }
         )
-    entries = _gallery_entries(ws.outputs, ws)
+    # Read once for the listing: which files a later run read (#928)
+    entries = _gallery_entries(ws.outputs, ws, consumed_in(request.app.state, ws))
     folders = sorted({e["folder"] for e in entries} | {""})
     subfolders = sorted({e["subfolder"] for e in entries} | {""})
     if folder is not None:

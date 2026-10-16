@@ -341,7 +341,9 @@ export interface paths {
          *     stays proportional to the page size rather than the library size.
          *
          *     Each entry carries `role`, `final` or `intermediate` (null for a
-         *     flat-layout file or one no manifest lists). `role` is a repeatable
+         *     flat-layout file or one no manifest lists); a file a later run read
+         *     lists as intermediate unless its step declared it final
+         *     (dw/roles.py rule 4). `role` is a repeatable
          *     filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
@@ -2363,7 +2365,7 @@ export interface components {
             note?: string;
             /**
              * Role
-             * @description `final` for a deliverable, `intermediate` for a file a later step consumed; null under the flat layout or when no manifest lists the file.
+             * @description `final` for a deliverable, `intermediate` for a file a later step or run consumed; null under the flat layout or when no manifest lists the file.
              */
             role?: ("final" | "intermediate") | null;
             /**

@@ -61,19 +61,24 @@ export function describePlan(plan: Plan): PlanLine[] {
   return lines
 }
 
+/** The qualifiers every priced figure carries: the card it was measured
+ * on, what it was scaled along (#866: steps, canvas or frames moved off the
+ * defaults it was measured at), and the steps it leaves unpriced. */
+function qualifiers(estimate: Plan['estimate']) {
+  const { measured_on, partial, unpriced, scaled } = estimate
+  return {
+    card: measured_on ? `measured on ${measured_on}` : 'measured',
+    along: scaled ? ` (${scaled})` : '',
+    missing: partial ? `, plus unpriced: ${(unpriced ?? []).join(', ')}` : '',
+  }
+}
+
 function figure(plan: Plan): PlanLine {
-  const { minutes, basis, device, measured_on, partial, unpriced, scaled } =
-    plan.estimate
-  const card = measured_on ? `measured on ${measured_on}` : 'measured'
-  const missing = partial
-    ? `, plus unpriced: ${(unpriced ?? []).join(', ')}`
-    : ''
+  const { minutes, basis, device } = plan.estimate
   if (basis === 'unknown' || minutes === null) {
     return { text: 'no measured cost', tone: 'warn' }
   }
-  // What a figure was scaled along (#866): steps, canvas or frames moved
-  // off the defaults it was measured at
-  const along = scaled ? ` (${scaled})` : ''
+  const { card, along, missing } = qualifiers(plan.estimate)
   if (basis === 'other_device') {
     return {
       text: `no figure for ${device} - ${minutes} min was ${card}${along}${missing}`,
@@ -95,7 +100,7 @@ function figure(plan: Plan): PlanLine {
   }
   const repriced = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
   return {
-    text: `~${minutes} min on ${device} - ${repriced}${card}${missing}`,
+    text: `~${minutes} min on ${device} - ${repriced}${card}${along}${missing}`,
     tone: 'plain',
   }
 }

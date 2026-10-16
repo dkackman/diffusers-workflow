@@ -60,9 +60,8 @@ guard, so it has to be a deliberate, first step rather than an implicit one.
 
 Save each portrait prompt with `save_prompt` under one folder for the series
 and reference it as `prompt:<series>/<character>` from every episode.
-`list_prompts(tag="<series>")` is then the cast list, and a character
-described the same way in episode 6 as in episode 1 is a reference rather
-than a paragraph retyped - which is the drift this skill exists to stop.
+`list_prompts(tag="<series>")` is then the cast list, and a character is
+referenced, never retyped - retyping is the drift this skill exists to stop.
 
 The same goes for a long shot list: a `run_workflow` call carrying 26 prompts
 is ~50 KB. `save_prompt(name, {"text": ...})` each shot under a series-prefixed name (the library
@@ -76,9 +75,13 @@ voice clip, and the shot list's cast entry (`script-to-video` step 2) points at 
 ## 1-5. Per episode: generate, then recut, bed, match_levels, normalize, pair
 
 Generate the episode's shots with `templates/minimax/dialogue-short` (or
-`music-video`), `shots` referencing the fixed cast from step 0. Each shot
-is its own H3 generation, so cast drift *within* one episode does not
-happen - only *across* episodes does, which is what step 0 closes.
+`music-video`), `shots` referencing the fixed cast from step 0. Drift
+happens across episodes, not within one; step 0 closes it.
+
+A workflow you write for an ingredient - a shot, narration, a score or cue,
+a still, a reference - sets `"role": "intermediate"` in its saving step's
+`result`, so it reads as intermediate before the recut runs; only the
+episode's cut is final. (A file a later run reads drops to intermediate.)
 
 **Optional look, before the recut.** Not a beat and skippable: to give
 every episode one look, grade each shot with `apply_lut` and one shared
@@ -125,8 +128,7 @@ composes into, not something to re-derive:
   episode lower still. Match episodes **downward** anyway: pick one series `target_lufs`
   that every episode can reach - in practice, about the quietest episode
   the ceiling holds back - and pass that same value on every episode's
-  `assemble-and-score` run. Don't pick the loudest episode's loudness and
-  ask the others to climb to it. A `target_lufs_capped` warning on an
+  `assemble-and-score` run. A `target_lufs_capped` warning on an
   episode means that episode's own peak sets the series' ceiling; lower the
   series `target_lufs` rather than accepting the mismatch. Only when the
   series should sit louder than its most dynamic episode allows (e.g. -16
@@ -177,10 +179,8 @@ as a whole; `integrated_lufs` (BS.1770, whole-track) is the field that
 answers that, and is what to compare across episodes. A peak-normalized
 episode with one loud outlier (a studio-audience laugh, a sting) can sit
 1-2 LU quieter than its neighbors even at the same -3 dBFS peak ceiling -
-that gap is `target_lufs`'s to close, matched downward to a series-wide
-value every episode's ceiling allows (see the **normalize** bullet above);
-`target_lufs` alone cannot raise a capped episode to meet a louder one -
-`limit: true` can, for a series that must sit louder (same bullet). To confirm every
+that gap is `target_lufs`'s to close, matched downward (the **normalize**
+bullet; `limit: true` for a series that must sit louder). To confirm every
 line rendered rather than judging it by ear, run `templates/check-script`
 against the episode's script: `validate_workflow(name="templates/check-script",
 arguments={"input_audio": "output:<name>", "lines": [...]})` first (free; it

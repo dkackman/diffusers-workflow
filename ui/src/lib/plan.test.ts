@@ -95,6 +95,23 @@ describe('describePlan', () => {
     )
   })
 
+  it('a re-priced figure scaled along a child says what moved', () => {
+    // dw/plan.py names `scaled` for every basis but observed, so the
+    // plain branch must carry it as the warn branches do
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        basis: 'per_entry',
+        scaled: 'scaled from the curated 7.9 min: steps 30 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      '~42 min on cuda - re-priced for 5 shots, measured on RTX 3090 (scaled from the curated 7.9 min: steps 30 vs 9)',
+    )
+    expect(figure.tone).toBe('plain')
+  })
+
   it('a figure from another accelerator is a warning, not a quote', () => {
     const [, figure] = describePlan({
       ...base,

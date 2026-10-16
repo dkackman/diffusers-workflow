@@ -441,7 +441,7 @@ class TestDownloadRepoCancel:
         cancel = threading.Event()
         fetched = []
 
-        def fake_hub_download(repo_id, filename, revision, tqdm_class):
+        def fake_hub_download(repo_id, filename, revision, tqdm_class, **kwargs):
             fetched.append(filename)
             cancel.set()
 
@@ -462,3 +462,83 @@ class TestDownloadRepoCancel:
             else:
                 raise AssertionError("expected DownloadCancelled")
         assert len(fetched) == 1
+
+
+class TestDownloadRepoMainRef:
+    """#899 regression: per-file hf_hub_download pinned to a commit hash never
+    writes refs/main, so a pulled repo read as incomplete and offline loads
+    could not resolve 'main'. _download_repo writes it once every file is in."""
+
+    SHA = "0123456789abcdef0123456789abcdef01234567"
+
+    def run(self, tmp_path, fake_hub_download, cancel=None):
+        import threading
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from dw.hub_cache import _download_repo
+
+        cancel = cancel or threading.Event()
+        info = SimpleNamespace(
+            sha=self.SHA,
+            siblings=[SimpleNamespace(rfilename=name) for name in ("a.bin", "b.bin")],
+        )
+        tracker = SimpleNamespace(_cancel_event=cancel)
+        with (
+            mock.patch("huggingface_hub.HfApi") as api,
+            mock.patch("huggingface_hub.hf_hub_download", fake_hub_download),
+        ):
+            api.return_value.repo_info.return_value = info
+            _download_repo("acme/tiny", tracker, max_workers=1, cache_dir=tmp_path)
+
+    def fake_writer(self, tmp_path, on_fetch=None):
+        def fake_hub_download(repo_id, filename, revision, tqdm_class, cache_dir):
+            assert revision == self.SHA
+            snapshot = (
+                tmp_path / "models--acme--tiny" / "snapshots" / revision / filename
+            )
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            snapshot.write_bytes(b"x")
+            if on_fetch:
+                on_fetch(filename)
+
+        return fake_hub_download
+
+    def test_a_completed_download_writes_refs_main_at_the_sha(self, tmp_path):
+        self.run(tmp_path, self.fake_writer(tmp_path))
+        ref = tmp_path / "models--acme--tiny" / "refs" / "main"
+        assert ref.read_text() == self.SHA
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+        # The temp file the ref was written through is gone
+        assert os.listdir(ref.parent) == ["main"]
+
+    def test_a_cancelled_download_writes_no_ref(self, tmp_path):
+        import threading
+
+        from dw.hub_cache import DownloadCancelled
+
+        cancel = threading.Event()
+        with pytest.raises(DownloadCancelled):
+            self.run(
+                tmp_path,
+                self.fake_writer(tmp_path, on_fetch=lambda _: cancel.set()),
+                cancel=cancel,
+            )
+        assert not (tmp_path / "models--acme--tiny" / "refs" / "main").exists()
+
+    def test_a_cancel_after_the_last_file_writes_no_ref(self, tmp_path):
+        import threading
+
+        cancel = threading.Event()
+        names = []
+
+        def on_fetch(name):
+            names.append(name)
+            if len(names) == 2:
+                cancel.set()
+
+        from dw.hub_cache import DownloadCancelled
+
+        with pytest.raises(DownloadCancelled):
+            self.run(tmp_path, self.fake_writer(tmp_path, on_fetch), cancel=cancel)
+        assert not (tmp_path / "models--acme--tiny" / "refs" / "main").exists()
