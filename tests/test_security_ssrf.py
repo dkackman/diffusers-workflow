@@ -786,3 +786,17 @@ class TestHuggingFaceTokenScope:
         monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
         transport = _encode("https://evil.example/encode", monkeypatch)
         assert not _carried_token(transport.sent[0])
+
+
+class TestImageListElementsAreValidated:
+    """An `image` argument may be a list (text_generation sends every one to a
+    model); each element goes through the same location check as a lone string."""
+
+    def test_a_blocked_url_in_a_list_is_refused(self, untrusted, no_real_sockets):
+        import pytest
+
+        from dw.arguments import realize_args
+
+        arguments = {"image": ["http://169.254.169.254/x.png"]}
+        with pytest.raises(Exception, match="Refusing to fetch an image"):
+            realize_args(arguments)

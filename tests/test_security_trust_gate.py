@@ -779,6 +779,51 @@ class TestOnlyConstructibleClassesUntrusted:
 # --------------------------------------------------- validate-time probes
 
 
+class TestRemoteGenerateCodeUntrusted:
+    """text_generation's generate_kwargs reach model.generate(), and
+    `custom_generate` there makes transformers download a repo's
+    custom_generate/generate.py and run it. Untrusted, both it and
+    trust_remote_code are refused before the model loads or the Hub is asked."""
+
+    @pytest.mark.parametrize(
+        "settings",
+        [
+            pytest.param(
+                {"custom_generate": "attacker/repo", "trust_remote_code": True},
+                id="both",
+            ),
+            pytest.param({"custom_generate": "attacker/repo"}, id="custom_generate"),
+            pytest.param({"trust_remote_code": True}, id="trust_remote_code"),
+        ],
+    )
+    @pytest.mark.parametrize("image", [None, "https://example.com/a.png"])
+    def test_refused_before_the_model_loads(
+        self, untrusted, no_network, monkeypatch, settings, image
+    ):
+        from dw.tasks import text_generation
+
+        loader = MagicMock()
+        monkeypatch.setattr(text_generation, "hf_pipeline", loader)
+        key = next(iter(settings))
+        with pytest.raises(UntrustedWorkflowError, match=f"'{key}'.*trusted"):
+            text_generation.generate_text(
+                "a cat",
+                device="cpu",
+                model_name="m/untrusted-generate",
+                image=image,
+                generate_kwargs=settings,
+            )
+        loader.assert_not_called()
+        assert list(no_network) == []
+
+    def test_trusted_lets_them_through(self, trusted):
+        from dw.trust import require_trusted_generate_arguments
+
+        require_trusted_generate_arguments(
+            {"custom_generate": "a/b", "trust_remote_code": True}, "text_generation"
+        )
+
+
 def _probe_recorder(info):
     """A `probe=` callable that records every path it is asked about.
 

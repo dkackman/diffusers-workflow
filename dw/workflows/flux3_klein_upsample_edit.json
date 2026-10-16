@@ -1,0 +1,51 @@
+{
+    "id": "flux3_klein_upsample_edit",
+    "description": "Expands an edit instruction into the caption FLUX 3 Image Klein was trained on, with Black Forest Labs' own prompt upsampler, flux-3-image-klein-pup, a Qwen3.5-9B fine-tune. The upsampler sees every reference in order, as the pipeline will. At least one image is required: an empty list produces a caption written without seeing the image. The instruction is wrapped in the three-line scaffold that is BFL's I2I_SCAFFOLD from src/flux3/pup.py at commit bbfe317d in github.com/black-forest-labs/flux-3-image-klein. The weights and the image-edit system prompt are both pinned to pup commit 3f3edb52, and the prompt is read from the repo's system_prompts.json rather than copied. Thinking is switched off and decoding is greedy with no repetition penalty, as BFL runs it. BFL resizes each reference to a pixel budget (1 MP for one reference, 724x724 for two, 512x512 for three or more) before the upsampler sees it, while transformers' processor applies its own sizing, so the two can describe small details differently. About 18 GB in bf16.",
+    "variables": {
+        "instruction": "put a red bandana around the dog's neck",
+        "images": [],
+        "device": "cuda"
+    },
+    "steps": [
+        {
+            "name": "scaffold",
+            "task": {
+                "command": "compose_text",
+                "arguments": {
+                    "parts": [
+                        "Reference images follow in order (the first image, the second image, ...).\nUser request: ",
+                        "variable:instruction",
+                        "\nOutput the caption."
+                    ],
+                    "separator": ""
+                }
+            },
+            "result": {"content_type": "text/plain", "save": false}
+        },
+        {
+            "name": "upsample",
+            "task": {
+                "command": "text_generation",
+                "arguments": {
+                    "prompt": "previous_result:scaffold",
+                    "image": "variable:images",
+                    "model_name": "black-forest-labs/flux-3-image-klein-pup",
+                    "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                    "system_prompt": {
+                        "from_hub": {
+                            "repo": "black-forest-labs/flux-3-image-klein-pup",
+                            "file": "system_prompts.json",
+                            "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                            "key": "i2i"
+                        }
+                    },
+                    "chat_template_kwargs": {"enable_thinking": false},
+                    "max_new_tokens": 3584,
+                    "repetition_penalty": 1.0,
+                    "device": "variable:device"
+                }
+            },
+            "result": {"content_type": "text/plain", "save": false}
+        }
+    ]
+}
