@@ -15,7 +15,7 @@ import sqlite3
 import pytest
 from fastapi.testclient import TestClient
 
-from dw.host_memory_projection import projected_mb
+from dw.host_memory_projection import host_memory_warnings, projected_mb
 from dw.server.app import create_app
 from dw.server.host_ram_need import host_memory_block, memory_key, projected_peak
 from dw.server.job_history import JobHistory
@@ -187,6 +187,103 @@ class TestProjectedPeak:
         other = projected_peak(definition, {"weights_dtype": "{int8}"}, history)
 
         assert other is None
+
+
+def shots_definition(released=False):
+    """A for_each over a shot list, holding its pipeline resident across the
+    list (the accumulating shape) unless `released`."""
+    step = {
+        "name": "shot",
+        "for_each": "variable:shots",
+        "pipeline": {
+            "configuration": {"component_type": "ModularPipeline"},
+            "from_pretrained_arguments": {"model_name": "acme/video"},
+        },
+        "run": {"prompt": "item:prompt"},
+    }
+    if released:
+        step["release_pipeline"] = True
+    return {
+        "id": "shots",
+        "variables": {"shots": [{"prompt": "a"}]},
+        "steps": [step],
+    }
+
+
+def shot_rows(*runs):
+    """Fit rows of (shot count, peak MB)."""
+    return [
+        {
+            "host_memory_job_peak_rss_mb": peak,
+            "arguments": json.dumps({"shots": [{"prompt": "p"}] * count}),
+        }
+        for count, peak in runs
+    ]
+
+
+class TestALongerListThanObserved:
+    """#910: the memory key leaves list length out, so for an accumulating
+    shape the observed max (from shorter lists) under-projects a longer one;
+    the fit's growth is taken when it is the larger, so dispatch, the plan's
+    host_memory and validate's warning agree."""
+
+    def _history(self, tmp_path, definition):
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        for job_id, count, peak in (("a", 2, 20000), ("b", 4, 30000)):
+            history.record(
+                recorded_job(
+                    job_id,
+                    definition,
+                    peak,
+                    arguments={"shots": [{"prompt": "p"}] * count},
+                )
+            )
+        return history
+
+    def test_an_accumulating_list_takes_the_larger_fit(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        rows = shot_rows((2, 20000), (4, 30000))
+
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=rows,
+            list_entries={"shots": 8},
+        )
+
+        assert need == (50000, "fit", 2)
+        warnings = host_memory_warnings(definition, {"shots": 8}, rows, 40000)
+        assert warnings and "~50000 MB" in warnings[0]
+
+    def test_a_list_inside_the_observed_range_keeps_the_observed_max(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 3},
+            history,
+            rows=shot_rows((2, 20000), (4, 30000)),
+            list_entries={"shots": 3},
+        )
+
+        assert need == (30000, "observed", 2)
+
+    def test_a_released_list_keeps_the_observed_max(self, tmp_path):
+        definition = shots_definition(released=True)
+        history = self._history(tmp_path, definition)
+
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=shot_rows((2, 20000), (4, 30000)),
+            list_entries={"shots": 8},
+        )
+
+        assert need == (30000, "observed", 2)
 
 
 def old_shape_database(path):

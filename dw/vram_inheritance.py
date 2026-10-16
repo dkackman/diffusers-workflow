@@ -202,17 +202,34 @@ def _found_expanded(definition, key, variables):
     return _carried(expanded, key)
 
 
+def pipeline_steps(definition, arguments=None):
+    """The pipeline steps `definition` runs, `variable:` references resolved
+    (`arguments` override the variables) and `for_each` expanded, so a
+    six-entry list is six steps, each with its entry's `item:` values - the
+    count and values an inherited price is scaled by (#851). The authored
+    steps when the expansion fails."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    steps = _expanded_steps(definition, variables)
+    if steps is None:
+        steps = definition.get("steps") or []
+    return [
+        step
+        for step in steps
+        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
+    ]
+
+
 def pipeline_values(definition, key, arguments=None):
     """The number each pipeline step sets `key` to (a `variable:` reference
     resolved; `arguments` override the variables; the largest where a step
     sets it twice), None for a step that sets none or a non-numeric one -
-    for scaling an inherited price along it (#851, #866)."""
+    for scaling an inherited price along it (#851, #866). A `for_each`
+    step is read per member, as `pipeline_steps` expands it."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
     found = []
-    for step in definition.get("steps") or []:
-        if not isinstance(step, dict) or not isinstance(step.get("pipeline"), dict):
-            continue
+    for step in pipeline_steps(definition, arguments):
         numbers = [
             value
             for value in map(json.loads, _found(step, key, variables))
