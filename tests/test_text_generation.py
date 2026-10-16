@@ -6,6 +6,8 @@ import tempfile
 import unittest
 from unittest.mock import patch, MagicMock
 
+import pytest
+
 from dw.tasks.text_generation import (
     generate_text,
     _DEFAULT_MODEL,
@@ -15,49 +17,64 @@ from dw.tasks.text_generation import (
 )
 
 
+# Each dw target is patched once here; a class opts in with usefixtures and
+# reads the mock off self, so no test carries a patch of its own
+@pytest.fixture
+def fake_pipeline(request):
+    """hf_pipeline replaced for one test, as self.mock_pipeline."""
+    with patch("dw.tasks.text_generation.hf_pipeline") as mock_pipeline:
+        request.instance.mock_pipeline = mock_pipeline
+        yield mock_pipeline
+
+
+@pytest.fixture
+def fake_hub_download(request):
+    """hf_hub_download replaced for one test, as self.download."""
+    with patch("dw.tasks.text_generation.hf_hub_download") as download:
+        request.instance.download = download
+        yield download
+
+
+@pytest.mark.usefixtures("fake_pipeline")
 class TestTextGeneration(unittest.TestCase):
     """Tests for the generate_text function."""
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_returns_generated_string(self, mock_pipeline):
+    def test_returns_generated_string(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "an expanded detailed prompt"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         result = generate_text("a cat", device="cpu")
 
         self.assertEqual(result, "an expanded detailed prompt")
-        mock_pipeline.assert_called_once()
+        self.mock_pipeline.assert_called_once()
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_uses_default_model(self, mock_pipeline):
+    def test_uses_default_model(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "output"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text("test", device="cpu")
 
-        call_kwargs = mock_pipeline.call_args
+        call_kwargs = self.mock_pipeline.call_args
         self.assertEqual(call_kwargs[1]["model"], _DEFAULT_MODEL)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_custom_model_name(self, mock_pipeline):
+    def test_custom_model_name(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "output"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "test", device="cpu", model_name="meta-llama/Llama-3.2-1B-Instruct"
         )
 
-        call_kwargs = mock_pipeline.call_args
+        call_kwargs = self.mock_pipeline.call_args
         self.assertEqual(call_kwargs[1]["model"], "meta-llama/Llama-3.2-1B-Instruct")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_system_prompt_included(self, mock_pipeline):
+    def test_system_prompt_included(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "output"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "a cat",
@@ -75,11 +92,10 @@ class TestTextGeneration(unittest.TestCase):
         self.assertEqual(messages[1]["role"], "user")
         self.assertEqual(messages[1]["content"], "a cat")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_no_system_prompt(self, mock_pipeline):
+    def test_no_system_prompt(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "output"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text("a cat", device="cpu")
 
@@ -88,31 +104,28 @@ class TestTextGeneration(unittest.TestCase):
         self.assertEqual(len(messages), 1)
         self.assertEqual(messages[0]["role"], "user")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_max_new_tokens(self, mock_pipeline):
+    def test_max_new_tokens(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "output"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text("test", device="cpu", max_new_tokens=200)
 
         call_args = pipe.call_args
         self.assertEqual(call_args[1]["max_new_tokens"], 200)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_strips_whitespace(self, mock_pipeline):
+    def test_strips_whitespace(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "  some text with spaces  \n"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         result = generate_text("test", device="cpu")
         self.assertEqual(result, "some text with spaces")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_chat_template_kwargs_reach_the_text_template(self, mock_pipeline):
+    def test_chat_template_kwargs_reach_the_text_template(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "a cat",
@@ -125,11 +138,10 @@ class TestTextGeneration(unittest.TestCase):
             pipe.call_args[1]["tokenizer_encode_kwargs"], {"enable_thinking": False}
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_chat_template_kwargs_reach_the_vision_template(self, mock_pipeline):
+    def test_chat_template_kwargs_reach_the_vision_template(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "a cat",
@@ -141,11 +153,10 @@ class TestTextGeneration(unittest.TestCase):
 
         self.assertIs(pipe.call_args[1]["enable_thinking"], False)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_no_chat_template_kwargs_passes_nothing_extra(self, mock_pipeline):
+    def test_no_chat_template_kwargs_passes_nothing_extra(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text("a cat", device="cpu", model_name="m/no-chat-kwargs")
 
@@ -157,21 +168,19 @@ class TestTextGeneration(unittest.TestCase):
                 "a cat", device="cpu", chat_template_kwargs=["enable_thinking"]
             )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_revision_reaches_the_loader(self, mock_pipeline):
+    def test_revision_reaches_the_loader(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text("a cat", device="cpu", model_name="m/revision", revision="a" * 40)
 
-        self.assertEqual(mock_pipeline.call_args[1]["revision"], "a" * 40)
+        self.assertEqual(self.mock_pipeline.call_args[1]["revision"], "a" * 40)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_list_of_images_becomes_one_part_each_in_order(self, mock_pipeline):
+    def test_a_list_of_images_becomes_one_part_each_in_order(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "edit",
@@ -186,13 +195,12 @@ class TestTextGeneration(unittest.TestCase):
             ["https://example.com/1.png", "https://example.com/2.png"],
         )
         self.assertEqual(user[2], {"type": "text", "text": "edit"})
-        self.assertEqual(mock_pipeline.call_args[0][0], "image-text-to-text")
+        self.assertEqual(self.mock_pipeline.call_args[0][0], "image-text-to-text")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_an_empty_or_all_null_image_list_is_the_text_path(self, mock_pipeline):
+    def test_an_empty_or_all_null_image_list_is_the_text_path(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         for empty in ([], [None]):
             generate_text(
@@ -201,10 +209,9 @@ class TestTextGeneration(unittest.TestCase):
                 model_name=f"m/empty-{len(empty)}",
                 image=empty,
             )
-            self.assertEqual(mock_pipeline.call_args[0][0], "text-generation")
+            self.assertEqual(self.mock_pipeline.call_args[0][0], "text-generation")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_non_scalar_chat_template_value_is_refused(self, mock_pipeline):
+    def test_a_non_scalar_chat_template_value_is_refused(self):
         with self.assertRaisesRegex(ValueError, "enable_thinking"):
             generate_text(
                 "a cat",
@@ -212,14 +219,11 @@ class TestTextGeneration(unittest.TestCase):
                 model_name="m/nonscalar",
                 chat_template_kwargs={"enable_thinking": {"a": 1}},
             )
-        mock_pipeline.assert_not_called()
+        self.mock_pipeline.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_reserved_chat_template_key_is_refused_before_any_call(
-        self, mock_pipeline
-    ):
+    def test_a_reserved_chat_template_key_is_refused_before_any_call(self):
         pipe = MagicMock()
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
         for key in ("images", "tools", "tokenizer_encode_kwargs"):
             with self.assertRaisesRegex(ValueError, f"'{key}'.*not a chat-template"):
                 generate_text(
@@ -238,11 +242,10 @@ class TestTextGeneration(unittest.TestCase):
                 )
         pipe.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_legitimate_setting_passes_on_both_paths(self, mock_pipeline):
+    def test_a_legitimate_setting_passes_on_both_paths(self):
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
         settings = {"enable_thinking": False, "effort": "low", "n": 2, "t": 0.5}
 
         generate_text(
@@ -259,6 +262,7 @@ class TestTextGeneration(unittest.TestCase):
         self.assertIs(pipe.call_args[1]["enable_thinking"], False)
 
 
+@pytest.mark.usefixtures("fake_pipeline")
 class TestTextGenerationWithImage(unittest.TestCase):
     """An image switches generation onto a vision-language pipeline."""
 
@@ -273,33 +277,29 @@ class TestTextGenerationWithImage(unittest.TestCase):
         mock_pipeline.return_value = pipe
         return pipe
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_image_selects_the_vision_pipeline(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_image_selects_the_vision_pipeline(self):
+        self._mock_pipe(self.mock_pipeline)
 
         generate_text("describe it", device="cpu", image=self._make_image())
 
-        self.assertEqual(mock_pipeline.call_args[0][0], "image-text-to-text")
+        self.assertEqual(self.mock_pipeline.call_args[0][0], "image-text-to-text")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_no_image_stays_on_text_generation(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_no_image_stays_on_text_generation(self):
+        self._mock_pipe(self.mock_pipeline)
 
         generate_text("a cat", device="cpu")
 
-        self.assertEqual(mock_pipeline.call_args[0][0], "text-generation")
+        self.assertEqual(self.mock_pipeline.call_args[0][0], "text-generation")
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_image_uses_the_vision_default_model(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_image_uses_the_vision_default_model(self):
+        self._mock_pipe(self.mock_pipeline)
 
         generate_text("describe it", device="cpu", image=self._make_image())
 
-        self.assertEqual(mock_pipeline.call_args[1]["model"], DEFAULT_VISION_MODEL)
+        self.assertEqual(self.mock_pipeline.call_args[1]["model"], DEFAULT_VISION_MODEL)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_vision_content_is_typed_parts(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_vision_content_is_typed_parts(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
         image = self._make_image()
 
         generate_text(
@@ -321,9 +321,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
             ],
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_string_image_is_passed_as_a_url(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_string_image_is_passed_as_a_url(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text("describe it", device="cpu", image="https://example.com/cat.jpg")
 
@@ -332,9 +331,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
             content[0], {"type": "image", "url": "https://example.com/cat.jpg"}
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_sampling_is_disabled_through_generate_kwargs(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_sampling_is_disabled_through_generate_kwargs(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text("describe it", device="cpu", image=self._make_image())
 
@@ -343,9 +341,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
         self.assertIs(pipe.call_args[1]["generate_kwargs"]["do_sample"], False)
         self.assertNotIn("do_sample", pipe.call_args[1])
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_vision_defaults_to_a_repetition_penalty(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_vision_defaults_to_a_repetition_penalty(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text("describe it", device="cpu", image=self._make_image())
 
@@ -356,9 +353,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
             _VISION_REPETITION_PENALTY,
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_repetition_penalty_is_overridable(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_repetition_penalty_is_overridable(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text(
             "describe it",
@@ -371,9 +367,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
             pipe.call_args[1]["generate_kwargs"]["repetition_penalty"], 1.2
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_text_path_takes_no_repetition_penalty(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_text_path_takes_no_repetition_penalty(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text("a cat", device="cpu")
 
@@ -381,9 +376,8 @@ class TestTextGenerationWithImage(unittest.TestCase):
         # the output of every workflow already using them
         self.assertNotIn("generate_kwargs", pipe.call_args[1])
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_text_and_vision_variants_cache_separately(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_text_and_vision_variants_cache_separately(self):
+        self._mock_pipe(self.mock_pipeline)
 
         # Same model name under both pipelines - they are not interchangeable,
         # so the cache must not hand one back for the other
@@ -392,11 +386,12 @@ class TestTextGenerationWithImage(unittest.TestCase):
             "a cat", device="cpu", model_name="some/model", image=self._make_image()
         )
 
-        self.assertEqual(mock_pipeline.call_count, 2)
-        tasks = [call[0][0] for call in mock_pipeline.call_args_list]
+        self.assertEqual(self.mock_pipeline.call_count, 2)
+        tasks = [call[0][0] for call in self.mock_pipeline.call_args_list]
         self.assertEqual(tasks, ["text-generation", "image-text-to-text"])
 
 
+@pytest.mark.usefixtures("fake_pipeline")
 class TestGenerateKwargsPassThrough(unittest.TestCase):
     """Anything generate() understands can be set from a workflow."""
 
@@ -411,9 +406,8 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
         mock_pipeline.return_value = pipe
         return pipe
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_reaches_the_text_pipeline(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_reaches_the_text_pipeline(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text(
             "a cat", device="cpu", generate_kwargs={"no_repeat_ngram_size": 25}
@@ -421,9 +415,8 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
 
         self.assertEqual(pipe.call_args[1]["no_repeat_ngram_size"], 25)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_reaches_the_vision_pipeline(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_reaches_the_vision_pipeline(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text(
             "describe it",
@@ -436,9 +429,8 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
             pipe.call_args[1]["generate_kwargs"]["no_repeat_ngram_size"], 25
         )
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_overrides_what_the_task_decided(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_overrides_what_the_task_decided(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
 
         generate_text(
             "describe it",
@@ -452,6 +444,7 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
         )
 
 
+@pytest.mark.usefixtures("fake_pipeline")
 class TestGenerateKwargsAreFiltered(unittest.TestCase):
     """generate_kwargs reach the pipeline call, so they are checked first.
 
@@ -466,9 +459,8 @@ class TestGenerateKwargsAreFiltered(unittest.TestCase):
         mock_pipeline.return_value = pipe
         return pipe
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_trusted_workflows_may_name_remote_generate_code(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_trusted_workflows_may_name_remote_generate_code(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
         settings = {"custom_generate": "someone/decoder", "trust_remote_code": True}
         with patch("dw.trust.workflows_are_trusted", return_value=True):
             generate_text(
@@ -477,8 +469,7 @@ class TestGenerateKwargsAreFiltered(unittest.TestCase):
         self.assertEqual(pipe.call_args[1]["custom_generate"], "someone/decoder")
         self.assertIs(pipe.call_args[1]["trust_remote_code"], True)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_structural_key_is_refused_before_any_load(self, mock_pipeline):
+    def test_a_structural_key_is_refused_before_any_load(self):
         for key in (
             "tokenizer_encode_kwargs",
             "prefix",
@@ -495,10 +486,9 @@ class TestGenerateKwargsAreFiltered(unittest.TestCase):
                         image=image,
                         generate_kwargs={key: "x"},
                     )
-        mock_pipeline.assert_not_called()
+        self.mock_pipeline.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_a_nested_value_is_refused(self, mock_pipeline):
+    def test_a_nested_value_is_refused(self):
         for bad in ({"a": 1}, [{"a": 1}], [[1]]):
             with self.assertRaisesRegex(ValueError, "sequence_bias"):
                 generate_text(
@@ -509,11 +499,10 @@ class TestGenerateKwargsAreFiltered(unittest.TestCase):
                 )
         with self.assertRaisesRegex(ValueError, "must be an object"):
             generate_text("a cat", device="cpu", generate_kwargs=["top_p"])
-        mock_pipeline.assert_not_called()
+        self.mock_pipeline.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_legitimate_settings_pass_on_both_paths(self, mock_pipeline):
-        pipe = self._mock_pipe(mock_pipeline)
+    def test_legitimate_settings_pass_on_both_paths(self):
+        pipe = self._mock_pipe(self.mock_pipeline)
         settings = {"no_repeat_ngram_size": 3, "stop_strings": ["\n\n"]}
 
         generate_text(
@@ -534,6 +523,7 @@ class TestGenerateKwargsAreFiltered(unittest.TestCase):
         self.assertEqual(forwarded["stop_strings"], ["\n\n"])
 
 
+@pytest.mark.usefixtures("fake_pipeline")
 class TestTextGenerationLoadDevice(unittest.TestCase):
     """How the model gets onto the device it runs on.
 
@@ -551,23 +541,21 @@ class TestTextGenerationLoadDevice(unittest.TestCase):
         mock_pipeline.return_value = pipe
         return pipe
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_mps_loads_on_cpu_then_moves(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_mps_loads_on_cpu_then_moves(self):
+        self._mock_pipe(self.mock_pipeline)
 
         generate_text("test", device="mps")
 
-        kwargs = mock_pipeline.call_args[1]
+        kwargs = self.mock_pipeline.call_args[1]
         self.assertEqual(kwargs["device"], "mps")
         self.assertNotIn("device_map", kwargs)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    def test_other_devices_still_use_device_map(self, mock_pipeline):
-        self._mock_pipe(mock_pipeline)
+    def test_other_devices_still_use_device_map(self):
+        self._mock_pipe(self.mock_pipeline)
 
         generate_text("test", device="cuda")
 
-        kwargs = mock_pipeline.call_args[1]
+        kwargs = self.mock_pipeline.call_args[1]
         self.assertEqual(kwargs["device_map"], "cuda")
         self.assertNotIn("device", kwargs)
 
@@ -586,6 +574,7 @@ def _spec(**over):
     return {"from_hub": spec}
 
 
+@pytest.mark.usefixtures("fake_pipeline", "fake_hub_download")
 class TestSystemPromptFromHub(unittest.TestCase):
     def setUp(self):
         meta = patch("dw.tasks.text_generation.get_hf_file_metadata")
@@ -601,28 +590,25 @@ class TestSystemPromptFromHub(unittest.TestCase):
         self.assertEqual(resolve_system_prompt("plain"), "plain")
         self.assertIsNone(resolve_system_prompt(None))
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_the_key_s_text_is_returned_from_the_pinned_file(self, download):
-        download.return_value = self.json_path
+    def test_the_key_s_text_is_returned_from_the_pinned_file(self):
+        self.download.return_value = self.json_path
         self.assertEqual(resolve_system_prompt(_spec()), "expand the request")
-        download.assert_called_once_with(
+        self.download.assert_called_once_with(
             "black-forest-labs/flux-3-image-klein-pup",
             "system_prompts.json",
             revision=PIN,
             token=False,
         )
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_a_missing_key_names_the_keys_the_file_has(self, download):
-        download.return_value = self.json_path
+    def test_a_missing_key_names_the_keys_the_file_has(self):
+        self.download.return_value = self.json_path
         with self.assertRaises(ValueError) as caught:
             resolve_system_prompt(_spec(key="t2v"))
         self.assertIn("i2i", str(caught.exception))
         self.assertIn("t2i", str(caught.exception))
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_a_value_that_is_not_text_is_refused(self, download):
-        download.return_value = self.json_path
+    def test_a_value_that_is_not_text_is_refused(self):
+        self.download.return_value = self.json_path
         with self.assertRaises(ValueError):
             resolve_system_prompt(_spec(key="n"))
 
@@ -658,18 +644,16 @@ class TestSystemPromptFromHub(unittest.TestCase):
                 resolve_system_prompt(bad)
             self.assertIn("system_prompt.from_hub.repo", str(caught.exception))
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_the_hub_is_asked_anonymously_before_the_download(self, download):
-        download.return_value = self.json_path
+    def test_the_hub_is_asked_anonymously_before_the_download(self):
+        self.download.return_value = self.json_path
         order = MagicMock()
         order.attach_mock(self.metadata, "metadata")
-        order.attach_mock(download, "download")
+        order.attach_mock(self.download, "download")
         resolve_system_prompt(_spec())
         self.assertEqual([c[0] for c in order.mock_calls], ["metadata", "download"])
         self.assertIs(self.metadata.call_args.kwargs["token"], False)
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_a_file_the_hub_will_not_serve_publicly_is_refused(self, download):
+    def test_a_file_the_hub_will_not_serve_publicly_is_refused(self):
         from huggingface_hub.errors import HfHubHTTPError
 
         class _Gated(HfHubHTTPError):
@@ -682,39 +666,35 @@ class TestSystemPromptFromHub(unittest.TestCase):
                 resolve_system_prompt(_spec())
             self.assertIn("public file", str(caught.exception))
             self.assertIs(caught.exception.__cause__, err)
-        download.assert_not_called()
+        self.download.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_an_oversize_file_is_refused_before_downloading(self, download):
+    def test_an_oversize_file_is_refused_before_downloading(self):
         self.metadata.return_value = MagicMock(size=1024 * 1024 + 1)
         with self.assertRaises(ValueError):
             resolve_system_prompt(_spec())
-        download.assert_not_called()
+        self.download.assert_not_called()
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_a_file_of_unknown_size_is_refused_before_downloading(self, download):
+    def test_a_file_of_unknown_size_is_refused_before_downloading(self):
         self.metadata.return_value = MagicMock(size=None)
         with self.assertRaisesRegex(ValueError, "no size"):
             resolve_system_prompt(_spec())
-        download.assert_not_called()
+        self.download.assert_not_called()
 
     def test_a_non_string_key_is_refused(self):
         for key in (["t2i"], {"a": 1}, 3):
             with self.assertRaises(ValueError):
                 resolve_system_prompt(_spec(key=key))
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_the_download_never_carries_the_server_token(self, download):
-        download.return_value = self.json_path
+    def test_the_download_never_carries_the_server_token(self):
+        self.download.return_value = self.json_path
         resolve_system_prompt(_spec())
-        self.assertIs(download.call_args.kwargs["token"], False)
+        self.assertIs(self.download.call_args.kwargs["token"], False)
 
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_an_oversize_file_is_refused_unread(self, download):
+    def test_an_oversize_file_is_refused_unread(self):
         big = os.path.join(self.dir, "big.txt")
         with open(big, "wb") as f:
             f.truncate(1024 * 1024 + 1)
-        download.return_value = big
+        self.download.return_value = big
         with patch("builtins.open", side_effect=AssertionError("read")):
             with self.assertRaises(ValueError):
                 resolve_system_prompt(_spec(file="big.txt", key=None))
@@ -734,13 +714,11 @@ class TestSystemPromptFromHub(unittest.TestCase):
             with self.assertRaises(ValueError):
                 resolve_system_prompt(bad)
 
-    @patch("dw.tasks.text_generation.hf_pipeline")
-    @patch("dw.tasks.text_generation.hf_hub_download")
-    def test_generate_text_sends_the_resolved_text(self, download, mock_pipeline):
-        download.return_value = self.json_path
+    def test_generate_text_sends_the_resolved_text(self):
+        self.download.return_value = self.json_path
         pipe = MagicMock()
         pipe.return_value = [{"generated_text": "out"}]
-        mock_pipeline.return_value = pipe
+        self.mock_pipeline.return_value = pipe
 
         generate_text(
             "a dog", device="cpu", model_name="m/from-hub", system_prompt=_spec()
