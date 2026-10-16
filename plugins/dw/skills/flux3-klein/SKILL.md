@@ -14,8 +14,8 @@ says not to run it without one: a short prompt gives a generic picture.
 ## Before anything
 
 1. `get_server_info`: the device. The templates place every component on
-   `cuda`. Apple Silicon is unmeasured (about 20 GB of unified memory plus
-   activations, by the vendor's sizes); on `mps` say so before spending, and
+   `cuda`. Apple Silicon is unmeasured (the same 19 GB of weights in unified
+   memory, plus activations); on `mps` say so before spending, and
    on `cpu` stop.
 2. `get_diffusers_state`, then `list_classes` for
    `Flux3DistilledModularPipeline`. The modular pipeline is in diffusers
@@ -59,7 +59,8 @@ argument, or `output:` for an earlier run's file.
 ## Hard rules
 
 - 16 steps, no guidance and no negative prompt. The distilled model is a
-  flow map; BFL's code refuses any guidance but none. Leave
+  flow map; BFL's reference code raises on any guidance other than None
+  or 1.0. Leave
   `num_inference_steps` at 16 (trained for 4-16) and add no
   `guidance_scale` or `negative_prompt` to a workflow you write.
 - `width` and `height` are multiples of 16 (the VAE's 8x times the 2x2
@@ -128,10 +129,15 @@ What goes wrong, and where to look:
 - An edit that changed more than was asked: Klein can alter content outside
   the requested region (BFL's fix for that is API-only). Narrow the
   instruction, or try another seed; compare with `compare_outputs`.
-- A small detail of a reference rendered wrong: the upsampler sees each
-  reference reduced (about 1 MP or less) and can misdescribe fine detail. Read
-  the caption with `get_output_text`, correct it, and run text-to-image or
-  the edit with the corrected caption.
+- A small detail of a reference rendered wrong: the upsampler can
+  misdescribe fine detail in a reference, and dw sizes references for it
+  differently from BFL's own pipeline. Read the caption with
+  `get_output_text`. The edit templates always re-upsample: their
+  prompt is the upsampler's output and they have no caption variable. Either narrow the
+  instruction and rerun, or reuse the corrected caption: `get_workflow` on
+  the edit template, and compose a one-step workflow from its Klein step
+  with the caption as `prompt` and the same image list. Text-to-image is no
+  answer here, since it drops the references.
 - A boxed element missing or spilling over: boxes are hints, not masks.
   Enlarge the box or describe the element more, in the prose and the table.
 

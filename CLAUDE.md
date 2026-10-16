@@ -72,8 +72,8 @@ The guides in `docs/`, by topic:
 
 `.claude-plugin/marketplace.json` publishes the `dw` plugin in `plugins/dw/`: one
 composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`,
-`kandinsky-6`, `flux3-klein`) that chooses a template for a request's shape and states the family's
-hard rules, plus
+`kandinsky-6`, `flux3-klein`) that chooses a template for a request's shape and
+states the family's hard rules, plus
 cross-cutting composition skills (`script-to-video`, `series-episodes`) - shapes above
 the families that orchestrate the decision trees and cast consistency across multiple
 generations. Every skill the directory holds is named in `plugins/dw/README.md` and here,
