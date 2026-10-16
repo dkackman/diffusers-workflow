@@ -127,6 +127,43 @@ def concat_videos(
         videos, match_levels, match_levels_dbfs, sample_rate
     )
 
+    frames, audio, shots = _joined_tracks(
+        videos,
+        names,
+        clips,
+        waveforms,
+        sample_rate,
+        trim_frames,
+        fps,
+        crossfade_ms,
+        audio_bleed_ms,
+        audio_bleed_gain_db,
+        seam_fade_ms,
+    )
+
+    _warn_fps_override(videos, names, fps)
+    audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
+    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _joined_tracks(
+    videos,
+    names,
+    clips,
+    waveforms,
+    sample_rate,
+    trim_frames,
+    fps,
+    crossfade_ms,
+    audio_bleed_ms,
+    audio_bleed_gain_db,
+    seam_fade_ms,
+):
+    """The prepared inputs joined end to end, as (frames, audio, shots):
+    each video's frames after its head trim, its soundtrack joined at the
+    seam, and a shot record for where it landed. `audio` is None when no
+    input carries any."""
     frames, audio, audio_native_rate = [], None, None
     # Where each video landed, measured on the joined picture and track as
     # they grow - never derived from the frame count, so a track that runs
@@ -181,11 +218,7 @@ def concat_videos(
             )
             _record_seam_fade(shots[first_shot[index]], applied)
         audio_native_rate = getattr(video, "sample_rate", None)
-
-    _warn_fps_override(videos, names, fps)
-    audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
-    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+    return frames, audio, shots
 
 
 def _record_seam_fade(shot, applied):

@@ -22,7 +22,7 @@ import os
 import numpy
 from PIL import Image, ImageDraw, ImageFont
 
-from . import media
+from . import media, references
 from .media_frames import compose_grid, evenly_spaced_indices, moment_index, parse_crop
 
 MAX_COMPARE_NAMES = 8
@@ -360,7 +360,7 @@ def _cell(frame, box, max_dimension):
 def short_name(name):
     """A row's label: an asset reference as given, an output as its run id
     and file (the workflow folder is the same across a comparison)."""
-    if name.startswith("asset:"):
+    if references.is_ref(references.ASSET, name):
         return name
     parts = name.replace(os.sep, "/").split("/")
     return "/".join(parts[-2:])

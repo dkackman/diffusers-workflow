@@ -12,8 +12,8 @@ from dw.plan import (
     PLACEMENT_RESULT_KEYS,
     build_plan,
     gate_warnings,
-    scale_curated,
 )
+from dw.cost_scaling import scale_curated
 from dw.validation import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
