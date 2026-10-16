@@ -524,6 +524,7 @@ class TestSystemPromptFromHub(unittest.TestCase):
             "black-forest-labs/flux-3-image-klein-pup",
             "system_prompts.json",
             revision=PIN,
+            token=False,
         )
 
     @patch("dw.tasks.text_generation.hf_hub_download")
@@ -547,15 +548,51 @@ class TestSystemPromptFromHub(unittest.TestCase):
             self.assertIn("40", str(caught.exception))
 
     def test_a_path_that_escapes_the_repo_is_refused(self):
+        from dw.security import InvalidInputError, PathTraversalError
+
         for file in (
             "../secrets.json",
             "/etc/passwd",
             "a\\b.json",
             "",
             "x/../../y.json",
+            "a\x00b.json",
+            "~/x",
+            "C:x",
+            "./x",
+            "a//b",
         ):
-            with self.assertRaises(ValueError):
+            with self.assertRaises((ValueError, InvalidInputError, PathTraversalError)):
                 resolve_system_prompt(_spec(file=file))
+
+    def test_a_missing_or_non_string_repo_is_refused(self):
+        omitted = _spec()
+        del omitted["from_hub"]["repo"]
+        for bad in (omitted, _spec(repo=None), _spec(repo=3)):
+            with self.assertRaises(ValueError) as caught:
+                resolve_system_prompt(bad)
+            self.assertIn("system_prompt.from_hub.repo", str(caught.exception))
+
+    def test_a_non_string_key_is_refused(self):
+        for key in (["t2i"], {"a": 1}, 3):
+            with self.assertRaises(ValueError):
+                resolve_system_prompt(_spec(key=key))
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_the_download_never_carries_the_server_token(self, download):
+        download.return_value = self.json_path
+        resolve_system_prompt(_spec())
+        self.assertIs(download.call_args.kwargs["token"], False)
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_an_oversize_file_is_refused_unread(self, download):
+        big = os.path.join(self.dir, "big.txt")
+        with open(big, "wb") as f:
+            f.truncate(1024 * 1024 + 1)
+        download.return_value = big
+        with patch("builtins.open", side_effect=AssertionError("read")):
+            with self.assertRaises(ValueError):
+                resolve_system_prompt(_spec(file="big.txt", key=None))
 
     def test_a_bad_repo_id_is_refused(self):
         from dw.security import InvalidInputError

@@ -2859,7 +2859,9 @@ Generate or expand text using a local language model. Useful for expanding short
 for a vendor that ships its prompt instructions there:
 `{"from_hub": {"repo": "owner/name", "file": "system_prompts.json", "revision": "<40-hex commit>", "key": "t2i"}}`.
 The revision must be a full commit, so the text can't move under the workflow. A `.json`
-file takes `key` to pick one string; any other file is read whole.
+file takes `key` to pick one string; any other file is read whole. Only public repos are
+reachable (the download never uses the server's Hugging Face token), and a file over 1 MiB
+is refused.
 
 ### Writing a prompt from a picture
 

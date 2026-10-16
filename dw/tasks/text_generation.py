@@ -13,13 +13,13 @@ workflow whose prompt agrees with its keyframe and one whose prompt fights it.
 
 import json
 import logging
+import os
 import re
-from pathlib import PurePosixPath
 
 from huggingface_hub import hf_hub_download
 from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
-from ..locations import validate_hub_repo_id
+from ..locations import validate_hub_repo_id, validate_weight_name
 from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
@@ -94,18 +94,8 @@ _FULL_COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _FROM_HUB_FIELDS = {"repo", "file", "revision", "key"}
 
 
-def _hub_file(file):
-    """A file path inside a repo, refused if it could name anything outside it."""
-    if not isinstance(file, str) or not file or "\\" in file:
-        raise ValueError(
-            f"system_prompt.from_hub.file must be a path inside the repo, got {file!r}"
-        )
-    path = PurePosixPath(file)
-    if path.is_absolute() or ".." in path.parts:
-        raise ValueError(
-            f"system_prompt.from_hub.file must be a path inside the repo, got {file!r}"
-        )
-    return file
+# A system prompt is a page of instructions; anything bigger is not one
+_MAX_PROMPT_FILE_BYTES = 1024 * 1024
 
 
 def resolve_system_prompt(value):
@@ -141,8 +131,13 @@ def resolve_system_prompt(value):
     unknown = set(spec) - _FROM_HUB_FIELDS
     if unknown:
         raise ValueError(f"system_prompt.from_hub does not take {sorted(unknown)}")
-    repo = validate_hub_repo_id(spec.get("repo"), what="system_prompt.from_hub.repo")
-    file = _hub_file(spec.get("file"))
+    repo = spec.get("repo")
+    if not isinstance(repo, str) or not repo:
+        raise ValueError(
+            f"system_prompt.from_hub.repo must be a Hub repo id string, got {repo!r}"
+        )
+    repo = validate_hub_repo_id(repo, what="system_prompt.from_hub.repo")
+    file = validate_weight_name(spec.get("file"), what="system_prompt.from_hub.file")
     revision = spec.get("revision")
     if not isinstance(revision, str) or not _FULL_COMMIT.match(revision):
         raise ValueError(
@@ -150,8 +145,17 @@ def resolve_system_prompt(value):
             f"commit hash, so the text cannot change under the workflow; got {revision!r}"
         )
     key = spec.get("key")
+    if key is not None and not isinstance(key, str):
+        raise ValueError(f"system_prompt.from_hub.key must be a string, got {key!r}")
 
-    path = hf_hub_download(repo, file, revision=revision)
+    # token=False: the server's own Hub login must not reach a private or gated
+    # file on a workflow's say-so, since the text is echoed into outputs
+    path = hf_hub_download(repo, file, revision=revision, token=False)
+    if os.path.getsize(path) > _MAX_PROMPT_FILE_BYTES:
+        raise ValueError(
+            f"system_prompt.from_hub: {file} is larger than "
+            f"{_MAX_PROMPT_FILE_BYTES} bytes, too big for a system prompt"
+        )
     with open(path, encoding="utf-8") as f:
         if file.endswith(".json"):
             data = json.load(f)
