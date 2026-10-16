@@ -506,7 +506,10 @@ def _spec(**over):
 
 class TestSystemPromptFromHub(unittest.TestCase):
     def setUp(self):
-
+        meta = patch("dw.tasks.text_generation.get_hf_file_metadata")
+        self.metadata = meta.start()
+        self.addCleanup(meta.stop)
+        self.metadata.return_value = MagicMock(size=100)
         self.dir = tempfile.mkdtemp()
         self.json_path = os.path.join(self.dir, "system_prompts.json")
         with open(self.json_path, "w") as f:
@@ -572,6 +575,39 @@ class TestSystemPromptFromHub(unittest.TestCase):
             with self.assertRaises(ValueError) as caught:
                 resolve_system_prompt(bad)
             self.assertIn("system_prompt.from_hub.repo", str(caught.exception))
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_the_hub_is_asked_anonymously_before_the_download(self, download):
+        download.return_value = self.json_path
+        order = MagicMock()
+        order.attach_mock(self.metadata, "metadata")
+        order.attach_mock(download, "download")
+        resolve_system_prompt(_spec())
+        self.assertEqual([c[0] for c in order.mock_calls], ["metadata", "download"])
+        self.assertIs(self.metadata.call_args.kwargs["token"], False)
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_a_file_the_hub_will_not_serve_publicly_is_refused(self, download):
+        from huggingface_hub.errors import HfHubHTTPError
+
+        class _Gated(HfHubHTTPError):
+            def __init__(self, message):
+                Exception.__init__(self, message)
+
+        for err in (Exception("boom"), _Gated("403 gated"), OSError("offline")):
+            self.metadata.side_effect = err
+            with self.assertRaises(ValueError) as caught:
+                resolve_system_prompt(_spec())
+            self.assertIn("public file", str(caught.exception))
+            self.assertIs(caught.exception.__cause__, err)
+        download.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_an_oversize_file_is_refused_before_downloading(self, download):
+        self.metadata.return_value = MagicMock(size=1024 * 1024 + 1)
+        with self.assertRaises(ValueError):
+            resolve_system_prompt(_spec())
+        download.assert_not_called()
 
     def test_a_non_string_key_is_refused(self):
         for key in (["t2i"], {"a": 1}, 3):

@@ -16,7 +16,7 @@ import logging
 import os
 import re
 
-from huggingface_hub import hf_hub_download
+from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
 from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
 from ..locations import validate_hub_repo_id, validate_weight_name
@@ -147,6 +147,25 @@ def resolve_system_prompt(value):
     key = spec.get("key")
     if key is not None and not isinstance(key, str):
         raise ValueError(f"system_prompt.from_hub.key must be a string, got {key!r}")
+
+    # hf_hub_download answers a full commit from the local cache without asking
+    # the Hub, so files the server fetched with its own login (gated or private
+    # repos) would be readable by any workflow. Ask the Hub, anonymously, first,
+    # and fail closed on any error rather than fall back to the cache
+    try:
+        metadata = get_hf_file_metadata(
+            hf_hub_url(repo, file, revision=revision), token=False
+        )
+    except Exception as e:
+        raise ValueError(
+            f"system_prompt.from_hub: {repo}/{file} at {revision[:8]} is not a "
+            f"public file the Hub will serve without credentials ({type(e).__name__})"
+        ) from e
+    if metadata.size is not None and metadata.size > _MAX_PROMPT_FILE_BYTES:
+        raise ValueError(
+            f"system_prompt.from_hub: {file} is larger than "
+            f"{_MAX_PROMPT_FILE_BYTES} bytes, too big for a system prompt"
+        )
 
     # token=False: the server's own Hub login must not reach a private or gated
     # file on a workflow's say-so, since the text is echoed into outputs

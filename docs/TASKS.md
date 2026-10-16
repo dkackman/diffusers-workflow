@@ -2861,7 +2861,8 @@ for a vendor that ships its prompt instructions there:
 The revision must be a full commit, so the text can't move under the workflow. A `.json`
 file takes `key` to pick one string; any other file is read whole. Only public repos are
 reachable (the download never uses the server's Hugging Face token), and a file over 1 MiB
-is refused.
+is refused. The Hub is asked, without credentials, whether the file is public before every
+use, so `from_hub` needs network access even when the file is already cached.
 
 ### Writing a prompt from a picture
 
