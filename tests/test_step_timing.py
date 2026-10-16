@@ -319,6 +319,63 @@ def test_the_denoise_hook_is_removed_when_forward_never_ran():
     assert not module._forward_pre_hooks
 
 
+def _compiled_linear(**options):
+    """A tiny Linear compiled in place the way `apply_compile` does it, or a
+    skip where torch.compile cannot run on this platform."""
+    module = torch.nn.Linear(2, 2)
+    try:
+        module.compile(**options)
+        module(torch.zeros(1, 2))
+    except Exception as error:  # pragma: no cover - platform dependent
+        pytest.skip(f"torch.compile is unavailable here: {error}")
+    return module
+
+
+def test_a_fullgraph_compiled_denoiser_runs_and_still_gets_the_start_mark():
+    # A forward pre-hook runs inside the compiled `_call_impl`, where its
+    # clock read is untraceable and fullgraph=True fails the first step
+    module = _compiled_linear(fullgraph=True)
+    original = module._compiled_call_impl
+    timer = StepTimer()
+
+    with timed_step(timer):
+        timer.call_started()
+        with denoise_start_hook(module):
+            module(torch.zeros(1, 2))
+            first = timer._segments[0].denoise_started
+            module(torch.zeros(1, 2))
+
+    assert first is not None
+    assert timer._segments[0].denoise_started == first
+    assert module._compiled_call_impl is original
+
+
+def test_a_compiled_denoiser_is_restored_when_forward_never_ran():
+    module = torch.nn.Linear(2, 2)
+    original = lambda *args, **kwargs: None  # noqa: E731
+    module._compiled_call_impl = original
+
+    with denoise_start_hook(module):
+        assert module._compiled_call_impl is not original
+
+    assert module._compiled_call_impl is original
+
+
+def test_repeated_blocks_compiled_keeps_the_pre_hook_on_the_eager_parent():
+    child = _compiled_linear(fullgraph=True)
+    parent = torch.nn.Sequential(child)
+    timer = StepTimer()
+
+    with timed_step(timer):
+        timer.call_started()
+        with denoise_start_hook(parent):
+            assert len(parent._forward_pre_hooks) == 1
+            parent(torch.zeros(1, 2))
+            assert not parent._forward_pre_hooks
+
+    assert timer._segments[0].denoise_started is not None
+
+
 def test_a_plain_module_is_not_compiled():
     assert is_compiled(torch.nn.Sequential(torch.nn.Linear(2, 2))) is False
 
