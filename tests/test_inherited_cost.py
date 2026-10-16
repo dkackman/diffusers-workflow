@@ -332,6 +332,88 @@ class TestScaledWhenItScales:
         assert block["cold_minutes"] == 8.0
 
 
+def shot_list(count, num_frames=124):
+    return [{"prompt": f"p{n}", "num_frames": num_frames} for n in range(count)]
+
+
+def shots_definition(name, shots):
+    return {
+        "id": name,
+        "variables": {"shots": shots},
+        "cost_drivers": ["shots"],
+        "steps": [
+            {
+                "name": "shot",
+                "for_each": "variable:shots",
+                "pipeline": PIPELINE,
+                "run": {"num_frames": "item:num_frames", "prompt": "item:prompt"},
+            }
+        ],
+    }
+
+
+class TestAListLongerThanTheFallbackBucket:
+    """A for_each step is one pipeline step per entry: an inline copy with
+    more entries than the default bucket the template ran is priced from
+    that bucket only once it is scaled by the expanded member count (#851
+    regression - 6 x 124 frames was quoted as 3 x 124's minutes)."""
+
+    CATALOG = [("templates/t", shots_definition("t", shot_list(3)))]
+    HISTORY = {"templates/t": [run(30 * MINUTE, {"shots": shot_list(3)})]}
+
+    def test_the_template_sized_list_is_not_scaled(self):
+        block = inherited(
+            shots_definition("inline", shot_list(3)), self.CATALOG, self.HISTORY
+        )
+        assert block["cold_minutes"] == 30.0
+        assert "scaled" not in block
+
+    def test_an_inline_six_shot_copy_scales_by_members(self):
+        block = inherited(
+            shots_definition("inline", shot_list(6)), self.CATALOG, self.HISTORY
+        )
+        assert block["cold_minutes"] == 60.0
+        assert "6 steps, template measured 3" in block["scaled"]
+
+    def test_a_six_shot_argument_scales_by_members(self):
+        block = inherited(
+            shots_definition("inline", shot_list(3)),
+            self.CATALOG,
+            self.HISTORY,
+            {"shots": shot_list(6)},
+        )
+        assert block["cold_minutes"] == 60.0
+        assert "6 steps, template measured 3" in block["scaled"]
+
+    def test_shorter_shots_scale_by_members_and_frames(self):
+        block = inherited(
+            shots_definition("inline", shot_list(6, num_frames=62)),
+            self.CATALOG,
+            self.HISTORY,
+        )
+        assert block["cold_minutes"] == 30.0
+        assert "6 steps" in block["scaled"] and "62 vs 124" in block["scaled"]
+
+    def test_the_plan_quotes_it_low_confidence(self, tmp_path):
+        inline = shots_definition("inline", shot_list(6))
+        block = inherited(inline, self.CATALOG, self.HISTORY)
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            plan = build_plan(
+                candidate,
+                {},
+                device="cpu",
+                lookup_sizes=False,
+                observed=lambda arguments: block,
+            )
+        estimate = plan["estimate"]
+        assert estimate["basis"] == "inherited"
+        assert estimate["minutes"] == 60.0
+        assert estimate["low_confidence"] is True
+
+
 class TestVariableFrameCountAndWithheldReason:
     """#851 bounce: a frame count written as `variable:num_frames` that the
     template never ran at still prices from the template's default bucket, and
