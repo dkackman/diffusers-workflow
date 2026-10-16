@@ -3,7 +3,8 @@
 A `StepTimer` is opened around one step by the step loop
 (`dw/workflow_run.py`) and fed marks from wherever they happen: the load
 around `create_step_action`, the pipeline call in `Pipeline._call_pipeline`,
-the first denoiser forward (a self-removing pre-forward hook) or the opening
+the first denoiser call (a self-removing pre-forward hook, or a wrapper
+around a whole-compiled denoiser's compiled call) or the opening
 of a modular pipeline's denoise bar (`progress.py`), each step callback or bar
 advance, and the result save. Its `timing()` is the dict a step's manifest
 entry carries as `timing`.
@@ -287,12 +288,45 @@ def is_compiled(module):
 
 @contextlib.contextmanager
 def denoise_start_hook(module):
-    """Mark denoise start at the first forward of `module`, then remove the
-    hook: one clock read, so a compiled denoiser sees it once and never
-    again. Removed on the way out too, for a call that never reached it."""
+    """Mark denoise start at the first call of `module`, then stop marking:
+    one clock read, so a compiled denoiser sees it once and never again.
+    Undone on the way out too, for a call that never reached it.
+
+    Where the mark is taken depends on how the denoiser is compiled. Eager, or
+    compiled by its repeated blocks, it is a self-removing forward pre-hook on
+    the denoiser, which runs eagerly. Compiled whole (`compile` without
+    `repeated_blocks`, which `module.compile()` does by setting
+    `_compiled_call_impl`), a pre-hook would run inside the compiled
+    `_call_impl`: Dynamo cannot trace the clock read (`time.monotonic`, the
+    device sync), so `fullgraph: true` fails the first denoise step and a
+    non-fullgraph compile breaks its graph there. So a whole-compiled
+    denoiser has its `_compiled_call_impl` wrapped instead, for this call
+    only: the wrapper marks before handing over to the compiled callable, so
+    the mark is outside the compiled region and is the same instant a
+    pre-hook would have stamped, and `first_pass_s` and the slow-first-pass
+    warning (#924) read the same in both cases."""
     if module is None or not hasattr(module, "register_forward_pre_hook"):
         yield
         return
+
+    compiled_call = getattr(module, "_compiled_call_impl", None)
+    if compiled_call is not None:
+        marked = False
+
+        def first_call(*args, **kwargs):
+            nonlocal marked
+            if not marked:
+                marked = True
+                mark("denoise_started")
+            return compiled_call(*args, **kwargs)
+
+        module._compiled_call_impl = first_call
+        try:
+            yield
+        finally:
+            module._compiled_call_impl = compiled_call
+        return
+
     handle = None
 
     def first_forward(_module, _inputs):
