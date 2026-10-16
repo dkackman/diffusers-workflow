@@ -272,7 +272,7 @@ class CatalogTools:
         carries `folder` (the workflow), `subfolder` (the step's chosen
         subfolder, '' for none; `subfolder=` filters on it) and `role`:
         `final` is a deliverable, `intermediate` a file a later step
-        consumed, null with no run. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
+        or run consumed, null with no run. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
 
         Entries carry `run_id` and `version`, the run's stable ordinal
         (the web UI's `v5`) - quote it to a person. `folder=` plus
@@ -282,8 +282,8 @@ class CatalogTools:
         only bookkeeping (manifest.json, workflow.json, job.json) as
         `runs`, each `{name, mtime}` - output deleted, or a run that failed
         before writing anything; `name` is what `delete_output` accepts.
-        A run that wrote any file is not listed. `subfolder` does not
-        apply. Whether an entry is junk is yours to decide.
+        A run that wrote a file is not listed. `subfolder` is
+        ignored. Whether an entry is junk is yours to decide.
 
         `workspace` scopes one call without switching the session.
 

@@ -595,8 +595,10 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable. Each entry also
   carries `role`, `final` or `intermediate` (null for a flat-layout file with
-  no run), and `GET /api/gallery?role=final` lists only those (repeatable; a
-  null role counts as final). See `dw/roles.py` for how a role is decided;
+  no run; `intermediate` once a later run read the file, unless the step's
+  `result.role` declared it), and `GET /api/gallery?role=final` lists only
+  those (repeatable; a null role counts as final). See `dw/roles.py` for how
+  a role is decided;
   the metadata route reports the file's `role` and the run's `inputs` too
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step

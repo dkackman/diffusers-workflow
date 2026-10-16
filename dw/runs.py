@@ -136,7 +136,13 @@ def _runs_newest_first(directory):
         return []
 
 
-def _resolve_segments(directory, parts, reference, root):
+def _started_before(run, before):
+    """Whether `run` started no later than the run id `before` - the second
+    a run id opens with - and is not that run itself."""
+    return run != before and run[:_RUN_ID_STAMP_LENGTH] <= before[:_RUN_ID_STAMP_LENGTH]
+
+
+def _resolve_segments(directory, parts, reference, root, before=None):
     """Build the path a name stands for, expanding 'latest' or 'v<N>' where
     it names a run.
 
@@ -156,6 +162,9 @@ def _resolve_segments(directory, parts, reference, root):
     'latest' or 'v4' segment in a directory that holds no runs is a name
     like any other, so a workflow or a file called either stays reachable.
 
+    `before`, a run id, narrows 'latest' to the runs that started before
+    it - what 'latest' named when that run read it.
+
     Returns the path, or None when runs were found and none of them holds
     the file.
     """
@@ -166,6 +175,8 @@ def _resolve_segments(directory, parts, reference, root):
         runs = _runs_newest_first(directory)
         if runs:
             for run in runs:
+                if before and not _started_before(run, before):
+                    continue
                 candidate = _resolve_segments(
                     os.path.join(directory, run), rest, reference, root
                 )
@@ -199,10 +210,12 @@ def _resolve_segments(directory, parts, reference, root):
             if candidate and os.path.isfile(candidate):
                 return candidate
         return None
-    return _resolve_segments(os.path.join(directory, part), rest, reference, root)
+    return _resolve_segments(
+        os.path.join(directory, part), rest, reference, root, before
+    )
 
 
-def resolve_output_reference(reference, root=None):
+def resolve_output_reference(reference, root=None, before=None):
     """Resolve an 'output:' reference to the file it names.
 
     The name is a path under the output directory - '<workflow>/<run
@@ -217,6 +230,8 @@ def resolve_output_reference(reference, root=None):
         reference: The 'output:...' string
         root: The output directory to resolve against; defaults to the run
             in progress, else the workspace's outputs
+        before: A run id: 'latest' then names the newest run that started
+            before it, as it did when that run read the reference
 
     Returns:
         The validated absolute path of the file
@@ -236,7 +251,7 @@ def resolve_output_reference(reference, root=None):
     name = validate_output_reference(name.strip())
     root = root or output_root()
 
-    resolved = _resolve_segments(root, name.split("/"), reference, root)
+    resolved = _resolve_segments(root, name.split("/"), reference, root, before)
     if resolved is None:
         raise ValueError(
             f"Output '{name}' not found under {root} - no run of that workflow "
@@ -352,6 +367,15 @@ def is_run_id(segment):
     return bool(RUN_ID_PATTERN.match(segment or ""))
 
 
+def iter_run_directories(root):
+    """Every run directory under an output root. A run directory holds no
+    run directories of its own, so the walk stops at each."""
+    for current, dirs, _names in os.walk(root):
+        if is_run_id(os.path.basename(current)):
+            dirs[:] = []
+            yield current
+
+
 def split_run_path(relative_path):
     """The three parts of a run-relative path: (identity, run id, subfolder).
 
@@ -399,6 +423,8 @@ RUN_VERSION_KEY = "version"
 
 # The length of a run id before any '-N' counter a same-second rerun takes
 _RUN_ID_BASE_LENGTH = len("20260101-000000-00000000")
+# And of the UTC second it opens with
+_RUN_ID_STAMP_LENGTH = len("20260101-000000")
 
 # Recorded ordinals by manifest path, keyed on the manifest's stat so an
 # edited or replaced manifest is read again. A recorded number never changes,

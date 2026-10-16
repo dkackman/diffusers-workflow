@@ -293,3 +293,119 @@ def test_role_cache_is_lru_and_safe_under_threads(tmp_path, write_run, monkeypat
     run_roles(runs[4])
     kept = {key[0] for key in outputs._ROLE_CACHE}
     assert runs[0] in kept and runs[1] not in kept
+
+
+# A file a later run consumed reads as intermediate (#928)
+
+SHOT_RUN = "20261015-000000-aaaaaaaa"
+CUT_RUN = "20261015-010000-bbbbbbbb"
+
+
+def _shot_and_cut(output_root, write_run, reference, **shot_entry):
+    write_run(
+        output_root,
+        "shots",
+        SHOT_RUN,
+        [{"step": "shot", "files": ["final/shot.png"], "role": "final", **shot_entry}],
+        files=["final/shot.png"],
+    )
+    write_run(
+        output_root,
+        "assembly",
+        CUT_RUN,
+        [{"step": "cut", "files": ["final/cut.png"], "role": "final"}],
+        files=["final/cut.png"],
+        inputs=[{"reference": reference, "kind": reference.split(":", 1)[0]}],
+    )
+
+
+def _roles(client, **params):
+    listing = client.get("/api/gallery", params=params).json()["files"]
+    return {f["label"]: f.get("role") for f in listing}
+
+
+def test_a_file_a_later_run_read_lists_as_intermediate(
+    gallery_client, output_root, write_run
+):
+    _shot_and_cut(output_root, write_run, "output:shots/latest/final/shot.png")
+    assert _roles(gallery_client) == {"shot.png": "intermediate", "cut.png": "final"}
+    assert _roles(gallery_client, role="final") == {"cut.png": "final"}
+    assert _roles(gallery_client, role="intermediate") == {"shot.png": "intermediate"}
+    meta = gallery_client.get(
+        f"/api/gallery/shots/{SHOT_RUN}/final/shot.png/metadata"
+    ).json()
+    assert meta["role"] == "intermediate"
+
+
+def test_a_declared_final_stays_final(gallery_client, output_root, write_run):
+    _shot_and_cut(
+        output_root,
+        write_run,
+        "output:shots/v1/final/shot.png",
+        role_declared=True,
+    )
+    assert _roles(gallery_client, role="final") == {
+        "shot.png": "final",
+        "cut.png": "final",
+    }
+
+
+def test_a_pre_roles_file_a_later_run_read_stays_unknown(
+    gallery_client, output_root, write_run
+):
+    write_run(
+        output_root,
+        "shots",
+        SHOT_RUN,
+        [{"step": "shot", "files": ["shot.png"]}],
+        files=["shot.png"],
+    )
+    write_run(
+        output_root,
+        "assembly",
+        CUT_RUN,
+        [{"step": "cut", "files": ["cut.png"], "role": "final"}],
+        files=["cut.png"],
+        inputs=[{"reference": f"output:shots/{SHOT_RUN}/shot.png", "kind": "output"}],
+    )
+    assert _roles(gallery_client)["shot.png"] is None
+
+
+def test_an_asset_kept_from_a_file_demotes_it(tmp_path, write_run):
+    from fastapi.testclient import TestClient
+
+    from dw.runs import record_kept_shots
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+    from dw.workspace import Workspace
+
+    from .test_server import ScriptedWorkerManager, success_script
+
+    studio = Workspace(tmp_path / "studio", "studio").ensure()
+    manager = JobManager(
+        studio.outputs,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=studio.workflows,
+    )
+    app = create_app(
+        workflow_dir=studio.workflows,
+        output_dir=studio.outputs,
+        job_manager=manager,
+        prompt_dir=studio.prompts,
+        asset_dir=studio.assets,
+        workspace=studio.root,
+    )
+    with TestClient(app, base_url="http://localhost") as client:
+        name = client.get("/api/gallery").json()["workspace"]
+        os.makedirs(studio.assets, exist_ok=True)
+        with open(os.path.join(studio.assets, "hero.png"), "wb") as handle:
+            handle.write(b"\x89PNG\r\n\x1a\n")
+        record_kept_shots(
+            studio.assets,
+            "hero.png",
+            None,
+            {"workspace": name, "source": f"shots/{SHOT_RUN}/final/shot.png"},
+        )
+        _shot_and_cut(studio.outputs, write_run, "asset:hero.png")
+        assert _roles(client)["shot.png"] == "intermediate"

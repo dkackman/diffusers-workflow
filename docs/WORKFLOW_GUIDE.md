@@ -273,8 +273,11 @@ document, which is where a draft that validates still fails.
 When exploring variations, pass `note` to `run_workflow` saying what each run
 tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
 note is shown with every file the run made. Each file carries a `role`
-(`final` or `intermediate`) inferred from how a step's output is used; set
-`result.role` on a step to override it when the default is wrong.
+(`final` or `intermediate`) inferred from how a step's output is used - a file
+a later run reads (`output:`, or an `asset:` kept from it) lists as
+intermediate too; set `result.role` on a step to override it when the default
+is wrong, and set `"role": "intermediate"` on a workflow whose deliverable is an
+ingredient a later assembly consumes.
 
 ### References
 
