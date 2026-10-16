@@ -78,13 +78,13 @@
         roles.includes(roleOf(f)) &&
         (!starredOnly || f.starred),
     )
-    const runs: string[] = []
-    for (const f of shown) if (!runs.includes(runKey(f))) runs.push(runKey(f))
+    // Each run's place is the index of its first (newest) file. Built
+    // back to front so the first file's index is the one that sticks; a
+    // Map keeps this linear at thousands of files
+    const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
+    const place = (f: GalleryFile) => runs.get(runKey(f))!
     const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
-    return shown.sort(
-      (a, b) =>
-        runs.indexOf(runKey(a)) - runs.indexOf(runKey(b)) || rank(a) - rank(b),
-    )
+    return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
   })
   async function toggleStar() {
     if (!selected) return
