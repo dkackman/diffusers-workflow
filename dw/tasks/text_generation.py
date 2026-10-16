@@ -42,15 +42,28 @@ def _image_part(image):
     return {"type": "image", "url" if isinstance(image, str) else "image": image}
 
 
-def _build_messages(prompt, system_prompt, image):
+def _images(image):
+    """The images a call carries, as a list in order, or None for none.
+
+    A template's optional reference list arrives as [] or [None] when the
+    caller supplied nothing, and that is the same statement as no image.
+    """
+    if image is None:
+        return None
+    images = list(image) if isinstance(image, (list, tuple)) else [image]
+    images = [i for i in images if i is not None and i != ""]
+    return images or None
+
+
+def _build_messages(prompt, system_prompt, images):
     """Chat messages in the shape the chosen pipeline expects.
 
     Text-generation models take plain string content. Vision models take a
-    list of typed parts, because the image is a part of the message rather
-    than something alongside it.
+    list of typed parts, because the images are part of the message rather
+    than something alongside it - every image first, in order, then the text.
     """
     messages = []
-    if image is None:
+    if images is None:
         if system_prompt is not None:
             messages.append({"role": "system", "content": system_prompt})
         messages.append({"role": "user", "content": prompt})
@@ -62,7 +75,8 @@ def _build_messages(prompt, system_prompt, image):
         messages.append(
             {
                 "role": "user",
-                "content": [_image_part(image), {"type": "text", "text": prompt}],
+                "content": [_image_part(i) for i in images]
+                + [{"type": "text", "text": prompt}],
             }
         )
     return messages
@@ -81,8 +95,13 @@ def generate_text(prompt, device="cpu", **kwargs):
                 accept one - a text-only model will fail to load as one.
             system_prompt: Optional system instruction for the model.
             max_new_tokens: Max tokens to generate (default: 500).
-            image: Optional PIL image, URL or path. Its presence is what
-                selects the vision pipeline.
+            image: Optional PIL image, URL or path, or a list of them - every
+                one goes to the model, in order. Its presence is what selects
+                the vision pipeline; an empty list is no image.
+            chat_template_kwargs: Settings for the model's chat template,
+                such as {"enable_thinking": false} for a Qwen3 model that
+                must not reason before answering.
+            revision: The model repo's commit, branch or tag to load.
             repetition_penalty: Vision pipeline only (default: 1.15). Raise it
                 if a model still repeats itself, or set 1.0 to disable.
             generate_kwargs: Anything else to hand the model's generate() -
@@ -94,11 +113,18 @@ def generate_text(prompt, device="cpu", **kwargs):
     """
     # A workflow declaring an optional image passes it through as null when the
     # caller supplies none, and an empty string is the same statement
-    image = kwargs.get("image", None) or None
+    images = _images(kwargs.get("image", None) or None)
     system_prompt = kwargs.get("system_prompt", None)
     max_new_tokens = int(kwargs.get("max_new_tokens", 500))
+    revision = kwargs.get("revision", None)
+    chat_template_kwargs = kwargs.get("chat_template_kwargs") or {}
+    if not isinstance(chat_template_kwargs, dict):
+        raise ValueError(
+            "text_generation: chat_template_kwargs must be an object of settings "
+            f"for the chat template, got {type(chat_template_kwargs).__name__}"
+        )
 
-    if image is None:
+    if images is None:
         pipeline_task = "text-generation"
         model_name = kwargs.get("model_name", _DEFAULT_MODEL)
     else:
@@ -110,6 +136,8 @@ def generate_text(prompt, device="cpu", **kwargs):
     def load_pipe():
         logger.info(f"Generating text with {model_name} on {device}")
         placement = hf_pipeline_placement(device)
+        if revision is not None:
+            placement = {**placement, "revision": revision}
         return hf_pipeline(
             pipeline_task,
             model=model_name,
@@ -120,35 +148,52 @@ def generate_text(prompt, device="cpu", **kwargs):
     # The task is part of the identity - the same model name can be loaded
     # under either pipeline, and they are not interchangeable
     pipe = cached_model(
-        ("text_generation", pipeline_task, model_name, str(device), str(dtype)),
+        (
+            "text_generation",
+            pipeline_task,
+            model_name,
+            str(revision),
+            str(device),
+            str(dtype),
+        ),
         load_pipe,
     )
 
-    messages = _build_messages(prompt, system_prompt, image)
+    messages = _build_messages(prompt, system_prompt, images)
 
     # Decoding is greedy, so the same input returns the same text every run -
     # which is what a workflow wants, and why there is nothing here to seed
     generation = {"do_sample": False}
-    if image is not None:
+    if images is not None:
         generation["repetition_penalty"] = float(
             kwargs.get("repetition_penalty", _VISION_REPETITION_PENALTY)
         )
     # Last, so a workflow can override anything decided above
     generation.update(kwargs.get("generate_kwargs") or {})
 
-    return _generate(pipe, messages, image, max_new_tokens, generation)
+    return _generate(
+        pipe, messages, images, max_new_tokens, generation, chat_template_kwargs
+    )
 
 
-def _generate(pipe, messages, image, max_new_tokens, generation):
+def _generate(pipe, messages, images, max_new_tokens, generation, chat_template_kwargs):
     """Run the pipeline, which each path calls differently."""
-    if image is None:
+    if images is None:
         # This pipeline collects anything it does not name into the arguments it
-        # forwards to generate(), so settings go in as plain keywords
+        # forwards to generate(), so settings go in as plain keywords. Chat
+        # template settings have their own argument, which it hands to
+        # apply_chat_template
+        extra = (
+            {"tokenizer_encode_kwargs": chat_template_kwargs}
+            if chat_template_kwargs
+            else {}
+        )
         results = pipe(
             messages,
             max_new_tokens=max_new_tokens,
             return_full_text=False,
             **generation,
+            **extra,
         )
     else:
         # Images live inside the messages, so the chat goes in as `text` - the
@@ -156,12 +201,15 @@ def _generate(pipe, messages, image, max_new_tokens, generation):
         # settings have to go through generate_kwargs here: anything else this
         # pipeline does not name explicitly is forwarded to the processor and
         # dropped, so a bare do_sample=False would leave sampling on. Passing
-        # max_new_tokens both ways is an error, so it stays a direct argument
+        # max_new_tokens both ways is an error, so it stays a direct argument.
+        # Keywords this pipeline does not name go to the processor's
+        # apply_chat_template, which is where the chat template settings belong
         results = pipe(
             text=messages,
             max_new_tokens=max_new_tokens,
             return_full_text=False,
             generate_kwargs=generation,
+            **chat_template_kwargs,
         )
 
     text = results[0]["generated_text"].strip()

@@ -104,6 +104,101 @@ class TestTextGeneration(unittest.TestCase):
         result = generate_text("test", device="cpu")
         self.assertEqual(result, "some text with spaces")
 
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_chat_template_kwargs_reach_the_text_template(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text(
+            "a cat",
+            device="cpu",
+            model_name="m/text-chat-kwargs",
+            chat_template_kwargs={"enable_thinking": False},
+        )
+
+        self.assertEqual(
+            pipe.call_args[1]["tokenizer_encode_kwargs"], {"enable_thinking": False}
+        )
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_chat_template_kwargs_reach_the_vision_template(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text(
+            "a cat",
+            device="cpu",
+            model_name="m/vision-chat-kwargs",
+            image="https://example.com/a.png",
+            chat_template_kwargs={"enable_thinking": False},
+        )
+
+        self.assertIs(pipe.call_args[1]["enable_thinking"], False)
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_no_chat_template_kwargs_passes_nothing_extra(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text("a cat", device="cpu", model_name="m/no-chat-kwargs")
+
+        self.assertNotIn("tokenizer_encode_kwargs", pipe.call_args[1])
+
+    def test_chat_template_kwargs_must_be_a_mapping(self):
+        with self.assertRaises(ValueError):
+            generate_text(
+                "a cat", device="cpu", chat_template_kwargs=["enable_thinking"]
+            )
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_revision_reaches_the_loader(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text("a cat", device="cpu", model_name="m/revision", revision="a" * 40)
+
+        self.assertEqual(mock_pipeline.call_args[1]["revision"], "a" * 40)
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_list_of_images_becomes_one_part_each_in_order(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        generate_text(
+            "edit",
+            device="cpu",
+            model_name="m/image-list",
+            image=["https://example.com/1.png", "https://example.com/2.png"],
+        )
+
+        user = pipe.call_args[1]["text"][-1]["content"]
+        self.assertEqual(
+            [part.get("url") for part in user[:2]],
+            ["https://example.com/1.png", "https://example.com/2.png"],
+        )
+        self.assertEqual(user[2], {"type": "text", "text": "edit"})
+        self.assertEqual(mock_pipeline.call_args[0][0], "image-text-to-text")
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_an_empty_or_all_null_image_list_is_the_text_path(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+
+        for empty in ([], [None]):
+            generate_text(
+                "a cat",
+                device="cpu",
+                model_name=f"m/empty-{len(empty)}",
+                image=empty,
+            )
+            self.assertEqual(mock_pipeline.call_args[0][0], "text-generation")
+
 
 class TestTextGenerationWithImage(unittest.TestCase):
     """An image switches generation onto a vision-language pipeline."""
