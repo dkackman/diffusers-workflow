@@ -1,0 +1,66 @@
+{
+    "id": "Flux3KleinT2I",
+    "description": "FLUX 3 Image Klein (distilled, 5.6B) text to image, the baseline of the FLUX 3 templates. The prompt here is already a full caption - BFL's own upsampled caption for their man walking a dog example - because Klein was trained on long upsampler captions and turns short prompts into generic pictures; upsample-then-generate shows how to get one from a short request. Sixteen steps with no guidance: the distilled model is a flow map, so it takes no guidance scale and no negative prompt. Width and height must be multiples of 16, up to 4096. Every component is placed on the GPU explicitly, about 19 GB of bf16 weights, which fits a 24 GB card at 1024x1024 with under 2 GB to spare. The weights are gated under the FLUX Kommunity License: accept it on the model page and log in with hf auth login first.",
+    "cost_drivers": [
+        "width",
+        "height"
+    ],
+    "variables": {
+        "prompt": "prompt:flux3/man_dog",
+        "width": 1024,
+        "height": 1024,
+        "seed": 7
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": 16,
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
