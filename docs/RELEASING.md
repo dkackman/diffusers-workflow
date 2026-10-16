@@ -19,11 +19,15 @@ queued job waits for host RAM rather than being OOM-killed.
 
 **Roles and notes** (#855-#858)
 
-<!-- #928 roles across runs: pending -->
-
 - Gallery files are tagged final or intermediate (inferred when a workflow
   doesn't say), and the gallery opens on finals. A run lists what it was
   Made from.
+- A file a later run in the workspace read, through `output:` or an asset
+  kept from it, lists as intermediate, so a project's shots, narration and
+  score step aside once the cut that uses them exists. A step that sets
+  `result.role: "final"` stays final. The `script-to-video` and
+  `series-episodes` skills have ingredient workflows declare
+  `"role": "intermediate"` (#928).
 - Runs, files, assets and workspaces take an optional note: `note` on
   `run_workflow`, `upload_asset` and `keep_output`, and MCP `set_note`.
   Every listing carries notes; the web UI edits them in place as Markdown.
@@ -103,7 +107,7 @@ queued job waits for host RAM rather than being OOM-killed.
   denoise step after the timing hook.
 - FasterCache runs on FLUX.1-dev (#897); denoise time on mps is no longer
   billed to decode (#896).
-- The UI's ratchet check and gallery sort are faster.
+- The gallery's sort no longer stalls each keystroke on a large library.
 
 **Dependencies and deploy**
 
