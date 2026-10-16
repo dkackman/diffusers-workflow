@@ -686,6 +686,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "flux3/image-edit.json": {
         "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
     },
+    "flux3/layout-boxes.json": {
+        "layout_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
     "flux3/multi-reference.json": {
         "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
     },

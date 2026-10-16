@@ -165,3 +165,15 @@ def test_multi_reference_states_the_ten_reference_cap_and_the_naming():
     description = load(os.path.join(TEMPLATES, "multi-reference.json"))["description"]
     assert "10 references" in description
     assert "<ref_image_0>" in description
+
+
+def test_the_layout_caption_carries_tags_and_a_0_to_1000_box_table():
+    with open(os.path.join(ROOT, "prompts", "flux3", "balloons_layout.json")) as f:
+        text = json.load(f)["text"]
+    table = json.loads(text[text.index("["):])
+    assert table and all({"id", "bbox", "desc"} <= set(row) for row in table)
+    for row in table:
+        assert f"<{row['id']}>" in text
+        top, left, bottom, right = row["bbox"]
+        assert 0 <= top < bottom <= 1000 and 0 <= left < right <= 1000
+    assert klein_steps(load(os.path.join(TEMPLATES, "layout-boxes.json")))
