@@ -173,6 +173,61 @@ def resolve_system_prompt(value):
     return data
 
 
+# The pipelines' and apply_chat_template's own structural arguments. Chat
+# template settings are splatted into those calls, so one of these in a
+# workflow (which is untrusted) would not set a template variable - it would
+# hand transformers an image or video to fetch that dw never validated, or
+# change what the template call does (tokenize, tools, the template itself)
+_RESERVED_CHAT_TEMPLATE_KEYS = frozenset(
+    {
+        "images",
+        "videos",
+        "audio",
+        "audios",
+        "text",
+        "timeout",
+        "processor_kwargs",
+        "generate_kwargs",
+        "max_new_tokens",
+        "return_full_text",
+        "return_tensors",
+        "tokenize",
+        "return_dict",
+        "chat_template",
+        "add_generation_prompt",
+        "continue_final_message",
+        "tools",
+        "documents",
+        "tokenizer_encode_kwargs",
+    }
+)
+
+
+def _validated_chat_template_kwargs(value):
+    """Chat template settings: an object of JSON scalars, none of them one of
+    the call's own structural arguments."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            "text_generation: chat_template_kwargs must be an object of settings "
+            f"for the chat template, got {type(value).__name__}"
+        )
+    for key, setting in value.items():
+        if key in _RESERVED_CHAT_TEMPLATE_KEYS:
+            raise ValueError(
+                f"text_generation: chat_template_kwargs key '{key}' is not a "
+                "chat-template setting - it is an argument of the generation "
+                "call itself"
+            )
+        if setting is not None and not isinstance(setting, (bool, int, float, str)):
+            raise ValueError(
+                f"text_generation: chat_template_kwargs value for '{key}' must be "
+                f"a boolean, number, string or null, got {type(setting).__name__}"
+            )
+    return value
+
+
 def generate_text(prompt, device="cpu", **kwargs):
     """Generate text from a prompt using a local language model.
 
@@ -209,12 +264,9 @@ def generate_text(prompt, device="cpu", **kwargs):
     system_prompt = resolve_system_prompt(kwargs.get("system_prompt", None))
     max_new_tokens = int(kwargs.get("max_new_tokens", 500))
     revision = kwargs.get("revision", None)
-    chat_template_kwargs = kwargs.get("chat_template_kwargs") or {}
-    if not isinstance(chat_template_kwargs, dict):
-        raise ValueError(
-            "text_generation: chat_template_kwargs must be an object of settings "
-            f"for the chat template, got {type(chat_template_kwargs).__name__}"
-        )
+    chat_template_kwargs = _validated_chat_template_kwargs(
+        kwargs.get("chat_template_kwargs")
+    )
 
     if images is None:
         pipeline_task = "text-generation"

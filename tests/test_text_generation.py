@@ -203,6 +203,61 @@ class TestTextGeneration(unittest.TestCase):
             )
             self.assertEqual(mock_pipeline.call_args[0][0], "text-generation")
 
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_non_scalar_chat_template_value_is_refused(self, mock_pipeline):
+        with self.assertRaisesRegex(ValueError, "enable_thinking"):
+            generate_text(
+                "a cat",
+                device="cpu",
+                model_name="m/nonscalar",
+                chat_template_kwargs={"enable_thinking": {"a": 1}},
+            )
+        mock_pipeline.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_reserved_chat_template_key_is_refused_before_any_call(
+        self, mock_pipeline
+    ):
+        pipe = MagicMock()
+        mock_pipeline.return_value = pipe
+        for key in ("images", "tools", "tokenizer_encode_kwargs"):
+            with self.assertRaisesRegex(ValueError, f"'{key}'.*not a chat-template"):
+                generate_text(
+                    "a cat",
+                    device="cpu",
+                    model_name="m/reserved-vision",
+                    image="https://example.com/a.png",
+                    chat_template_kwargs={key: "http://169.254.169.254/x"},
+                )
+            with self.assertRaisesRegex(ValueError, f"'{key}'.*not a chat-template"):
+                generate_text(
+                    "a cat",
+                    device="cpu",
+                    model_name="m/reserved-text",
+                    chat_template_kwargs={key: "x"},
+                )
+        pipe.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_legitimate_setting_passes_on_both_paths(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "out"}]
+        mock_pipeline.return_value = pipe
+        settings = {"enable_thinking": False, "effort": "low", "n": 2, "t": 0.5}
+
+        generate_text(
+            "a cat", device="cpu", model_name="m/ok-text", chat_template_kwargs=settings
+        )
+        self.assertEqual(pipe.call_args[1]["tokenizer_encode_kwargs"], settings)
+        generate_text(
+            "a cat",
+            device="cpu",
+            model_name="m/ok-vision",
+            image="https://example.com/a.png",
+            chat_template_kwargs=settings,
+        )
+        self.assertIs(pipe.call_args[1]["enable_thinking"], False)
+
 
 class TestTextGenerationWithImage(unittest.TestCase):
     """An image switches generation onto a vision-language pipeline."""
