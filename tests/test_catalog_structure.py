@@ -484,7 +484,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_850 for the whole-object `cache` variable on the same nineteen H3
 # templates (#865, stage #884, 2026-10-13), measured at 10_800: about 42
 # tokens, so first_block on a long base-model schedule is an argument too.
-COMPACT_BUDGET = 10_850
+# Then to 11_400 for the five FLUX 3 Klein templates (#930, 2026-10-15),
+# measured at 11_256: a new family, its summaries already trimmed to the idea
+# each template adds, with about 85 tokens held for its Task 9 cost blocks.
+COMPACT_BUDGET = 11_400
 FILTERED_BUDGET = 1_500
 
 
