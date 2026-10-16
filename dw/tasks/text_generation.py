@@ -20,6 +20,7 @@ from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
 from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
 from ..locations import validate_hub_repo_id, validate_weight_name
+from ..trust import require_trusted_generate_arguments
 from .model_cache import cached_model, hf_pipeline_placement
 
 logger = logging.getLogger("dw")
@@ -161,7 +162,15 @@ def resolve_system_prompt(value):
             f"system_prompt.from_hub: {repo}/{file} at {revision[:8]} is not a "
             f"public file the Hub will serve without credentials ({type(e).__name__})"
         ) from e
-    if metadata.size is not None and metadata.size > _MAX_PROMPT_FILE_BYTES:
+    # No size is no promise the file is small, so it is refused rather than
+    # downloaded on trust
+    if metadata.size is None:
+        raise ValueError(
+            f"system_prompt.from_hub: the Hub reported no size for {file}, so it "
+            f"cannot be checked against the {_MAX_PROMPT_FILE_BYTES}-byte limit "
+            "before downloading"
+        )
+    if metadata.size > _MAX_PROMPT_FILE_BYTES:
         raise ValueError(
             f"system_prompt.from_hub: {file} is larger than "
             f"{_MAX_PROMPT_FILE_BYTES} bytes, too big for a system prompt"
@@ -200,7 +209,9 @@ def resolve_system_prompt(value):
 # template settings are splatted into those calls, so one of these in a
 # workflow (which is untrusted) would not set a template variable - it would
 # hand transformers an image or video to fetch that dw never validated, or
-# change what the template call does (tokenize, tools, the template itself)
+# change what the template call does (tokenize, tools, the template itself).
+# The rest are the calls' other named parameters: one of those is a refusal
+# here, before the model loads, rather than a TypeError after it has
 _RESERVED_CHAT_TEMPLATE_KEYS = frozenset(
     {
         "images",
@@ -222,8 +233,41 @@ _RESERVED_CHAT_TEMPLATE_KEYS = frozenset(
         "tools",
         "documents",
         "tokenizer_encode_kwargs",
+        "conversation",
+        "padding",
+        "truncation",
+        "max_length",
+        "return_assistant_tokens_mask",
+        "sanitize_control_tokens",
+        "tokenizer_kwargs",
+        "load_audio_from_video",
+        "return_type",
+        "return_text",
+        "stop_sequence",
+        "clean_up_tokenization_spaces",
+        "skip_special_tokens",
+        "inputs",
+        "text_inputs",
+        "batch_size",
+        "num_workers",
+        "prefix",
+        "handle_long_generation",
     }
 )
+
+# generate_kwargs go into the same calls - splatted into the text pipeline's,
+# handed whole to the vision pipeline's generate() - so the call's own
+# arguments are refused there too, along with the text pipeline's
+# preprocessing switches
+_RESERVED_GENERATE_KEYS = _RESERVED_CHAT_TEMPLATE_KEYS | {
+    "tokenizer_encode_kwargs",
+    "prefix",
+    "handle_long_generation",
+}
+
+
+def _is_scalar(value):
+    return value is None or isinstance(value, (bool, int, float, str))
 
 
 def _validated_chat_template_kwargs(value):
@@ -243,10 +287,43 @@ def _validated_chat_template_kwargs(value):
                 "chat-template setting - it is an argument of the generation "
                 "call itself"
             )
-        if setting is not None and not isinstance(setting, (bool, int, float, str)):
+        if not _is_scalar(setting):
             raise ValueError(
                 f"text_generation: chat_template_kwargs value for '{key}' must be "
                 f"a boolean, number, string or null, got {type(setting).__name__}"
+            )
+    return value
+
+
+def _validated_generate_kwargs(value):
+    """Generation settings: an object of JSON scalars or lists of them
+    (stop_strings is a list), none of them one of the call's own arguments,
+    and none that runs code from the Hub unless workflows are trusted."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            "text_generation: generate_kwargs must be an object of settings for "
+            f"the model's generate(), got {type(value).__name__}"
+        )
+    # First: custom_generate's value is a plain string, so nothing below would
+    # stop it
+    require_trusted_generate_arguments(value, "text_generation")
+    for key, setting in value.items():
+        if key in _RESERVED_GENERATE_KEYS:
+            raise ValueError(
+                f"text_generation: generate_kwargs key '{key}' is not a "
+                "generation setting - it is an argument of the pipeline call "
+                "itself"
+            )
+        if not (
+            _is_scalar(setting)
+            or (isinstance(setting, list) and all(_is_scalar(v) for v in setting))
+        ):
+            raise ValueError(
+                f"text_generation: generate_kwargs value for '{key}' must be a "
+                "boolean, number, string, null or a list of those, got "
+                f"{type(setting).__name__}"
             )
     return value
 
@@ -274,8 +351,11 @@ def generate_text(prompt, device="cpu", **kwargs):
             repetition_penalty: Vision pipeline only (default: 1.15). Raise it
                 if a model still repeats itself, or set 1.0 to disable.
             generate_kwargs: Anything else to hand the model's generate() -
-                no_repeat_ngram_size, top_p, min_new_tokens and so on. Merged
-                over what this function sets, so it can override those too.
+                no_repeat_ngram_size, top_p, min_new_tokens, stop_strings and
+                so on. Merged over what this function sets, so it can override
+                those too. Values are scalars or lists of scalars; the call's
+                own arguments are refused, and custom_generate and
+                trust_remote_code need trusted workflows.
 
     Returns:
         Generated text string.
@@ -290,6 +370,7 @@ def generate_text(prompt, device="cpu", **kwargs):
     chat_template_kwargs = _validated_chat_template_kwargs(
         kwargs.get("chat_template_kwargs")
     )
+    generate_kwargs = _validated_generate_kwargs(kwargs.get("generate_kwargs"))
 
     if images is None:
         pipeline_task = "text-generation"
@@ -336,7 +417,7 @@ def generate_text(prompt, device="cpu", **kwargs):
             kwargs.get("repetition_penalty", _VISION_REPETITION_PENALTY)
         )
     # Last, so a workflow can override anything decided above
-    generation.update(kwargs.get("generate_kwargs") or {})
+    generation.update(generate_kwargs)
 
     return _generate(
         pipe, messages, images, max_new_tokens, generation, chat_template_kwargs

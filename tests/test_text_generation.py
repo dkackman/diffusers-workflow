@@ -452,6 +452,88 @@ class TestGenerateKwargsPassThrough(unittest.TestCase):
         )
 
 
+class TestGenerateKwargsAreFiltered(unittest.TestCase):
+    """generate_kwargs reach the pipeline call, so they are checked first.
+
+    The untrusted refusal of custom_generate and trust_remote_code lives with
+    the other trust gate tests, in tests/test_security_trust_gate.py; this
+    suite runs trusted (tests/conftest.py).
+    """
+
+    def _mock_pipe(self, mock_pipeline):
+        pipe = MagicMock()
+        pipe.return_value = [{"generated_text": "output"}]
+        mock_pipeline.return_value = pipe
+        return pipe
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_trusted_workflows_may_name_remote_generate_code(self, mock_pipeline):
+        pipe = self._mock_pipe(mock_pipeline)
+        settings = {"custom_generate": "someone/decoder", "trust_remote_code": True}
+        with patch("dw.trust.workflows_are_trusted", return_value=True):
+            generate_text(
+                "a cat", device="cpu", model_name="m/trusted", generate_kwargs=settings
+            )
+        self.assertEqual(pipe.call_args[1]["custom_generate"], "someone/decoder")
+        self.assertIs(pipe.call_args[1]["trust_remote_code"], True)
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_structural_key_is_refused_before_any_load(self, mock_pipeline):
+        for key in (
+            "tokenizer_encode_kwargs",
+            "prefix",
+            "handle_long_generation",
+            "max_new_tokens",
+            "images",
+        ):
+            for image in (None, "https://example.com/a.png"):
+                with self.assertRaisesRegex(ValueError, f"'{key}'.*not a generation"):
+                    generate_text(
+                        "a cat",
+                        device="cpu",
+                        model_name="m/structural",
+                        image=image,
+                        generate_kwargs={key: "x"},
+                    )
+        mock_pipeline.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_a_nested_value_is_refused(self, mock_pipeline):
+        for bad in ({"a": 1}, [{"a": 1}], [[1]]):
+            with self.assertRaisesRegex(ValueError, "sequence_bias"):
+                generate_text(
+                    "a cat",
+                    device="cpu",
+                    model_name="m/nested",
+                    generate_kwargs={"sequence_bias": bad},
+                )
+        with self.assertRaisesRegex(ValueError, "must be an object"):
+            generate_text("a cat", device="cpu", generate_kwargs=["top_p"])
+        mock_pipeline.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_pipeline")
+    def test_legitimate_settings_pass_on_both_paths(self, mock_pipeline):
+        pipe = self._mock_pipe(mock_pipeline)
+        settings = {"no_repeat_ngram_size": 3, "stop_strings": ["\n\n"]}
+
+        generate_text(
+            "a cat", device="cpu", model_name="m/legit", generate_kwargs=settings
+        )
+        self.assertEqual(pipe.call_args[1]["no_repeat_ngram_size"], 3)
+        self.assertEqual(pipe.call_args[1]["stop_strings"], ["\n\n"])
+
+        generate_text(
+            "a cat",
+            device="cpu",
+            model_name="m/legit-vision",
+            image="https://example.com/a.png",
+            generate_kwargs=settings,
+        )
+        forwarded = pipe.call_args[1]["generate_kwargs"]
+        self.assertEqual(forwarded["no_repeat_ngram_size"], 3)
+        self.assertEqual(forwarded["stop_strings"], ["\n\n"])
+
+
 class TestTextGenerationLoadDevice(unittest.TestCase):
     """How the model gets onto the device it runs on.
 
@@ -606,6 +688,13 @@ class TestSystemPromptFromHub(unittest.TestCase):
     def test_an_oversize_file_is_refused_before_downloading(self, download):
         self.metadata.return_value = MagicMock(size=1024 * 1024 + 1)
         with self.assertRaises(ValueError):
+            resolve_system_prompt(_spec())
+        download.assert_not_called()
+
+    @patch("dw.tasks.text_generation.hf_hub_download")
+    def test_a_file_of_unknown_size_is_refused_before_downloading(self, download):
+        self.metadata.return_value = MagicMock(size=None)
+        with self.assertRaisesRegex(ValueError, "no size"):
             resolve_system_prompt(_spec())
         download.assert_not_called()
 
