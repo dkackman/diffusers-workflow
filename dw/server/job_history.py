@@ -12,6 +12,7 @@ cost read (#693). A database that predates the two gets them backfilled from
 `device` in SQL when it is first opened, so no reader parses the label.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -172,6 +173,7 @@ class JobHistory:
                     " WHERE device IS NOT NULL"
                 )
 
+    @contextlib.contextmanager
     def _connect(self):
         # WAL mode lets a reader (the web UI polling job status, an MCP
         # get_job call) proceed without blocking behind whatever write the
@@ -180,9 +182,15 @@ class JobHistory:
         # duration of a write. journal_mode is a property of the database
         # file, not the connection, but PRAGMA is cheap and idempotent, so
         # it is set on every connect rather than assumed to have stuck.
-        connection = sqlite3.connect(self.db_path, timeout=5)
-        connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        #
+        # The block commits on success and rolls back on an exception (what
+        # sqlite3's own context manager does), then closes the connection:
+        # one left to GC checkpoints the WAL whenever it is collected,
+        # rewriting jobs.sqlite at an arbitrary later moment.
+        with contextlib.closing(sqlite3.connect(self.db_path, timeout=5)) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            with connection:
+                yield connection
 
     def record(self, job):
         # The spec's workflow_name/warnings are derived; keep what rerun needs
