@@ -148,7 +148,10 @@ def test_upsample_then_generate_feeds_the_builtin_caption_to_klein():
     first, second = definition["steps"]
     assert first["workflow"]["path"] == "builtin:flux3_klein_upsample.json"
     assert first["release_models"] is True
-    assert second["pipeline"]["arguments"]["prompt"] == f"previous_result:{first['name']}"
+    assert first["result"]["subfolder"] == "intermediate"
+    assert (
+        second["pipeline"]["arguments"]["prompt"] == f"previous_result:{first['name']}"
+    )
 
 
 @pytest.mark.parametrize("name", ["image-edit.json", "multi-reference.json"])
@@ -157,8 +160,14 @@ def test_the_edit_templates_show_the_upsampler_the_pipeline_s_references(name):
     upsample = next(s for s in definition["steps"] if "workflow" in s)
     assert upsample["workflow"]["path"] == "builtin:flux3_klein_upsample_edit.json"
     (klein,) = klein_steps(definition)
-    assert upsample["workflow"]["arguments"]["images"] == klein["pipeline"]["arguments"]["image"]
-    assert klein["pipeline"]["arguments"]["prompt"] == f"previous_result:{upsample['name']}"
+    assert (
+        upsample["workflow"]["arguments"]["images"]
+        == klein["pipeline"]["arguments"]["image"]
+    )
+    assert (
+        klein["pipeline"]["arguments"]["prompt"]
+        == f"previous_result:{upsample['name']}"
+    )
 
 
 def test_multi_reference_states_the_ten_reference_cap_and_the_naming():
@@ -170,7 +179,7 @@ def test_multi_reference_states_the_ten_reference_cap_and_the_naming():
 def test_the_layout_caption_carries_tags_and_a_0_to_1000_box_table():
     with open(os.path.join(ROOT, "prompts", "flux3", "balloons_layout.json")) as f:
         text = json.load(f)["text"]
-    table = json.loads(text[text.index("["):])
+    table = json.loads(text[text.index("[") :])
     assert table and all({"id", "bbox", "desc"} <= set(row) for row in table)
     for row in table:
         assert f"<{row['id']}>" in text
