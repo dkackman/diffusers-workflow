@@ -1263,7 +1263,7 @@ class TestHostRamGate:
         """The host's MemAvailable and each worker's RSS, as a test sets them."""
         readings = {"available_mb": 64 * GB, "rss": {}}
         monkeypatch.setattr(
-            "dw.server.jobs.host_memory_stats",
+            "dw.server.dispatch.host_memory_stats",
             lambda: (
                 None
                 if readings["available_mb"] is None
@@ -1271,7 +1271,7 @@ class TestHostRamGate:
             ),
         )
         monkeypatch.setattr(
-            "dw.server.jobs._worker_rss_mb",
+            "dw.server.dispatch._worker_rss_mb",
             lambda slot: readings["rss"].get(slot.device),
         )
         return readings
@@ -1324,7 +1324,7 @@ class TestHostRamGate:
     def test_memory_freed_outside_dw_starts_the_held_job_on_the_recheck(
         self, pool, host, monkeypatch
     ):
-        monkeypatch.setattr("dw.server.jobs.HOST_RAM_RECHECK_SECONDS", 0.05)
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.05)
         manager, first_gate, second_gate = self._two_cards(pool)
         self.submit(manager, "running", host_gb=10)
         first_gate.wait_started()
@@ -1403,7 +1403,7 @@ class TestHostRamGate:
         wait_for(job, {"running"})
 
     def test_the_event_fires_once_per_hold(self, pool, host, monkeypatch):
-        monkeypatch.setattr("dw.server.jobs.HOST_RAM_RECHECK_SECONDS", 0.02)
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)
         manager, first_gate, second_gate = self._two_cards(pool)
         self.submit(manager, "running", host_gb=10)
         first_gate.wait_started()
