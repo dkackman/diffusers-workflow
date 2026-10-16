@@ -747,8 +747,8 @@ class GalleryFile(ApiModel):
         "An audio or video file's length, with `media=true`."
     )
     role: Literal["final", "intermediate"] | None = sometimes(
-        "`final` for a deliverable, `intermediate` for a file a later step "
-        "consumed; null under the flat layout or when no manifest lists the file."
+        "`final` for a deliverable, `intermediate` for a file a later step or "
+        "run consumed; null under the flat layout or when no manifest lists the file."
     )
     note: str = sometimes("The effective note: the file's own, else its run's.")
     starred: bool = sometimes("True when the file is starred; absent otherwise.")
