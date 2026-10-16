@@ -66,9 +66,19 @@ settings*:
    code's - stated in the description).
 4. `multi-reference.json` - 2-10 references named `<ref_image_N>` in the caption; the
    10 cap is a `variable_constraints` rule because diffusers does not enforce it.
-5. `layout-boxes.json` - `<id>` caption + 0-1000 box table (`t2i_bbox`).
-6. A 24 GB recipe, from the P1 measurement: bf16 with on-demand residency if it fits,
-   else SDNQ int8 on the transformer and text encoder (the H3 pattern).
+5. `layout-boxes.json` - `<id>` caption + 0-1000 box table, written in the box format
+   directly as the HF card shows. Upsampled boxes (`t2i_bbox`) need BFL's
+   `bbox.plan`/`bbox.reconcile` scaffolding, so they're a follow-up.
+
+No separate 24 GB recipe: P1 showed bf16 with every component placed fits the card at
+1024², so the templates above are the 24 GB recipe. SDNQ int8 (the H3 pattern) waits
+until a larger size or an edit is measured not to fit.
+
+The upsampler builtins (`builtin:flux3_klein_upsample.json`,
+`builtin:flux3_klein_upsample_edit.json`) carry the pinned pup settings once. The edit
+one wraps the instruction in BFL's three-line `I2I_SCAFFOLD` (`src/flux3/pup.py` at
+bbfe317d) with `compose_text`. BFL's presence penalty (1.5 for text-to-image) has no
+transformers `generate()` equivalent and is left out.
 
 Plus `workflows/models/flux3-klein.json` and the family README.
 
