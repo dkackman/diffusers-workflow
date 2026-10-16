@@ -686,6 +686,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "flux3/text-to-image.json": {
         "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
     },
+    "flux3/upsample-then-generate.json": {
+        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
     "kandinsky6/generate-and-upscale.json": {
         "text_to_video": "3095873d2e63833c2e8c8048379035840694ca108309e544ff17a0722b4ee51a",
         "upscale": "838beb7eefde695da365c37927645fc388ab8feeaf8e1bc1695440cbd2b54fdd",

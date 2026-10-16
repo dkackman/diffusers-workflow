@@ -141,3 +141,11 @@ def test_the_16_pixel_grid_is_the_vae_scale_times_the_2x2_packing():
     # Source check: the multiple is derived from the loaded VAE, so it cannot
     # be read without weights; 8 (VAE) * 2 (packing) = 16 is the vendor's.
     assert "vae_scale_factor * 2" in inspect.getsource(before_denoise)
+
+
+def test_upsample_then_generate_feeds_the_builtin_caption_to_klein():
+    definition = load(os.path.join(TEMPLATES, "upsample-then-generate.json"))
+    first, second = definition["steps"]
+    assert first["workflow"]["path"] == "builtin:flux3_klein_upsample.json"
+    assert first["release_models"] is True
+    assert second["pipeline"]["arguments"]["prompt"] == f"previous_result:{first['name']}"

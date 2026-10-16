@@ -1,0 +1,81 @@
+{
+    "id": "Flux3KleinUpsampleThenGenerate",
+    "description": "FLUX 3 Image Klein from a short request, the way Black Forest Labs say to run it: their prompt upsampler first expands the request into the long caption Klein was trained on, then Klein draws from that caption. The upsampler is about 18 GB and Klein about 19 GB in bf16, which do not fit a 24 GB card together, so the upsample step sets release_models and the upsampler is freed before Klein loads. The caption is saved as an intermediate so it can be read, edited or reused as the prompt of text-to-image without paying for the upsampler again. Sixteen steps with no guidance or negative prompt, as the distilled model takes neither. Width and height must be multiples of 16, up to 4096. The weights are gated under the FLUX Kommunity License: accept it on the model page and log in with hf auth login first.",
+    "summary": "FLUX 3 Klein image from a short request, expanded by BFL's upsampler first.",
+    "cost_drivers": [
+        "width",
+        "height"
+    ],
+    "variables": {
+        "request": "A man walking with his dog, afternoon sun",
+        "width": 1024,
+        "height": 1024,
+        "seed": 7
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "upsample",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:flux3_klein_upsample.json",
+                "arguments": {
+                    "prompt": "variable:request"
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "text_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "previous_result:upsample",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": 16,
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
