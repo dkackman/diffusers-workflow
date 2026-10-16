@@ -12,6 +12,7 @@ cost read (#693). A database that predates the two gets them backfilled from
 `device` in SQL when it is first opened, so no reader parses the label.
 """
 
+import contextlib
 import json
 import logging
 import os
@@ -19,6 +20,7 @@ import sqlite3
 import threading
 
 from ..workspace import DEFAULT_WORKSPACE_NAME
+from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
 from .job_record import (
     ACK_NONE,
@@ -28,6 +30,107 @@ from .job_record import (
 )
 
 logger = logging.getLogger("dw")
+
+
+def _memory_key_of(job):
+    """The memory key of the definition the job was admitted with, or None -
+    history is never refused a row over a key it could not compute."""
+    try:
+        return memory_key(job.spec.get("definition"), job.spec.get("arguments"))
+    except Exception:
+        logger.debug("No memory key for job %s", job.id, exc_info=True)
+        return None
+
+
+# The columns added since the table was first written, in the order they
+# were added: a database missing one gets it by ALTER, and its rows keep the
+# column's default (NULL unless the DDL says otherwise)
+_ADDED_COLUMNS = (
+    # Databases written before events were persisted
+    ("events", "TEXT"),
+    # The workspace the job ran in; rows before it are backfilled to
+    # 'default' (`JobHistory.__init__`)
+    ("workspace", "TEXT DEFAULT 'default'"),
+    # The catalog name the job was run from, beside `workflow` (the
+    # definition's id). Ids are not unique across a catalog forever; names
+    # are, and a later runtime-by-workflow join wants the exact one. Rows
+    # before this column stay NULL: old history is unjoinable, new history
+    # is exact
+    ("workflow_name", "TEXT"),
+    # Which run of the workflow this job was - the directory under the
+    # output root that holds its manifest and its realized workflow. NULL
+    # for every row predating run tracking, and the manager refuses to
+    # guess one from file paths
+    ("run_id", "TEXT"),
+    ("run_dir", "TEXT"),
+    # That run's ordinal among the workflow's runs - the 'v4' the gallery
+    # shows. NULL before the column, and for a job that never opened a run
+    ("run_version", "INTEGER"),
+    # Which form of cost acknowledgement queued the job. Rows before the
+    # column are 'none' - nothing recorded is nothing recorded
+    ("acknowledged", "TEXT DEFAULT 'none'"),
+    # The worker's own high-water mark for this run (#243) - NULL for a row
+    # predating the column and for any run that never reported one
+    # (cancelled/errored before the worker's final memory_info)
+    ("host_memory_peak_rss_mb", "REAL"),
+    # This job's own contribution to that process-lifetime figure - growth
+    # since the job's first phase-boundary reading, or its current rss when
+    # it caused no growth (#272). NULL for a row predating the column and
+    # for any run that never got a memory_info message at all
+    ("host_memory_job_peak_rss_mb", "REAL"),
+    # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090" (#462).
+    # NULL for a row predating the column: which card that was is not
+    # known, and guessing would mislabel a box whose card has been swapped
+    ("device", "TEXT"),
+    # The same card as two fields - its ordinal ("cuda:1") and its name
+    # ("NVIDIA GeForce RTX 3090") - so rerun affinity and observed cost read
+    # them rather than parse `device` (#693). `device` stays the label
+    # every reader returns. Rows before the columns are backfilled from it
+    # once (`_BACKFILL_DEVICE_FIELDS`)
+    ("device_ordinal", "TEXT"),
+    ("device_card", "TEXT"),
+    # The note the job was submitted with. NULL for a row before the column
+    # and for a job submitted without one
+    ("note", "TEXT"),
+    # What decides the run's host-RAM footprint - its pipelines,
+    # quantization and offload, arguments resolved
+    # (`host_ram_need.memory_key`, #869). NULL for a row predating the
+    # column, which counts as no data rather than a guess, and for a run
+    # that loads no pipeline
+    ("memory_key", "TEXT"),
+    # The job a rerun reran. NULL for a fresh submit and for every row
+    # before the column
+    ("rerun_of", "TEXT"),
+    # 1 once a kept asset's provenance names the job (#917), so a workspace
+    # delete leaves the row for get_job_workflow to read
+    ("kept", "INTEGER DEFAULT 0"),
+)
+
+# `device_ordinal`/`device_card` from `device`, in SQL: an ordinal never
+# holds a space, so the label splits at its first one, and a label with none
+# (`cpu`, `mps`) is all ordinal with no card
+_BACKFILL_DEVICE_FIELDS = (
+    "UPDATE jobs SET"
+    " device_ordinal = CASE WHEN INSTR(device, ' ') > 0"
+    " THEN SUBSTR(device, 1, INSTR(device, ' ') - 1)"
+    " ELSE device END,"
+    " device_card = CASE WHEN INSTR(device, ' ') > 0"
+    " THEN SUBSTR(device, INSTR(device, ' ') + 1) END"
+    " WHERE device IS NOT NULL"
+)
+
+
+def _add_missing_columns(connection):
+    """ALTER in each `_ADDED_COLUMNS` column the jobs table lacks; the names
+    added. ALTER is the whole migration - the column and its DDL are this
+    module's constants, never input."""
+    present = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+    added = set()
+    for column, ddl in _ADDED_COLUMNS:
+        if column not in present:
+            connection.execute(f"ALTER TABLE jobs ADD COLUMN {column} {ddl}")
+            added.add(column)
+    return added
 
 
 class JobHistory:
@@ -57,91 +160,18 @@ class JobHistory:
                     error TEXT,
                     events TEXT
                 )""")
-            # Databases written before events were persisted are missing the
-            # column; ALTER is the whole migration, and rows keep NULL
-            columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
-            if "events" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN events TEXT")
+            added = _add_missing_columns(connection)
             # Every row predating workspaces belongs to the default one -
             # history that cannot say which workspace a job ran in stops
             # making sense the moment there are two
-            if "workspace" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN workspace TEXT DEFAULT 'default'"
-                )
+            if "workspace" in added:
                 connection.execute(
                     "UPDATE jobs SET workspace = 'default' WHERE workspace IS NULL"
                 )
-            # The catalog name the job was run from, beside `workflow` (the
-            # definition's id). Ids are not unique across a catalog forever;
-            # names are, and a later runtime-by-workflow join wants the exact
-            # one. Rows before this column stay NULL: old history is
-            # unjoinable, new history is exact
-            if "workflow_name" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN workflow_name TEXT")
-            # Which run of the workflow this job was - the directory under the
-            # output root that holds its manifest and its realized workflow.
-            # NULL for every row predating run tracking, and the manager
-            # refuses to guess one from file paths
-            if "run_id" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_id TEXT")
-            if "run_dir" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_dir TEXT")
-            # That run's ordinal among the workflow's runs - the 'v4' the
-            # gallery shows. NULL before the column, and for a job that
-            # never opened a run
-            if "run_version" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN run_version INTEGER")
-            # Which form of cost acknowledgement queued the job. Rows before
-            # the column are 'none' - nothing recorded is nothing recorded
-            if "acknowledged" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN acknowledged TEXT DEFAULT 'none'"
-                )
-            # The worker's own high-water mark for this run (#243) - NULL for
-            # a row predating the column and for any run that never reported
-            # one (cancelled/errored before the worker's final memory_info)
-            if "host_memory_peak_rss_mb" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN host_memory_peak_rss_mb REAL"
-                )
-            # This job's own contribution to that process-lifetime figure -
-            # growth since the job's first phase-boundary reading, or its
-            # current rss when it caused no growth (#272). NULL for a row
-            # predating the column and for any run that never got a
-            # memory_info message at all
-            if "host_memory_job_peak_rss_mb" not in columns:
-                connection.execute(
-                    "ALTER TABLE jobs ADD COLUMN host_memory_job_peak_rss_mb REAL"
-                )
-            # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090"
-            # (#462). NULL for a row predating the column: which card that
-            # was is not known, and guessing would mislabel a box whose
-            # card has been swapped
-            if "device" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN device TEXT")
-            # The same card as two fields - its ordinal ("cuda:1") and its
-            # name ("NVIDIA GeForce RTX 3090") - so rerun affinity and
-            # observed cost read them rather than parse `device` (#693).
-            # `device` stays the label every reader returns. Rows before the
-            # columns are backfilled from it once, in SQL: an ordinal never
-            # holds a space, so the label splits at its first one, and a
-            # label with none (`cpu`, `mps`) is all ordinal with no card
-            if "device_ordinal" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN device_ordinal TEXT")
-            if "device_card" not in columns:
-                connection.execute("ALTER TABLE jobs ADD COLUMN device_card TEXT")
-            if "device_ordinal" not in columns or "device_card" not in columns:
-                connection.execute(
-                    "UPDATE jobs SET"
-                    " device_ordinal = CASE WHEN INSTR(device, ' ') > 0"
-                    " THEN SUBSTR(device, 1, INSTR(device, ' ') - 1)"
-                    " ELSE device END,"
-                    " device_card = CASE WHEN INSTR(device, ' ') > 0"
-                    " THEN SUBSTR(device, INSTR(device, ' ') + 1) END"
-                    " WHERE device IS NOT NULL"
-                )
+            if "device_ordinal" in added or "device_card" in added:
+                connection.execute(_BACKFILL_DEVICE_FIELDS)
 
+    @contextlib.contextmanager
     def _connect(self):
         # WAL mode lets a reader (the web UI polling job status, an MCP
         # get_job call) proceed without blocking behind whatever write the
@@ -150,9 +180,15 @@ class JobHistory:
         # duration of a write. journal_mode is a property of the database
         # file, not the connection, but PRAGMA is cheap and idempotent, so
         # it is set on every connect rather than assumed to have stuck.
-        connection = sqlite3.connect(self.db_path, timeout=5)
-        connection.execute("PRAGMA journal_mode=WAL")
-        return connection
+        #
+        # The block commits on success and rolls back on an exception (what
+        # sqlite3's own context manager does), then closes the connection:
+        # one left to GC checkpoints the WAL whenever it is collected,
+        # rewriting jobs.sqlite at an arbitrary later moment.
+        with contextlib.closing(sqlite3.connect(self.db_path, timeout=5)) as connection:
+            connection.execute("PRAGMA journal_mode=WAL")
+            with connection:
+                yield connection
 
     def record(self, job):
         # The spec's workflow_name/warnings are derived; keep what rerun needs
@@ -164,8 +200,8 @@ class JobHistory:
                 " error, events, workspace, workflow_name, run_id, run_dir,"
                 " acknowledged, host_memory_peak_rss_mb,"
                 " host_memory_job_peak_rss_mb, run_version, device,"
-                " device_ordinal, device_card) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " device_ordinal, device_card, note, memory_key, rerun_of) VALUES"
+                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     job.id,
                     job.workflow_name,
@@ -194,8 +230,23 @@ class JobHistory:
                     getattr(job, "device", None),
                     getattr(job, "device_ordinal", None),
                     getattr(job, "device_card", None),
+                    getattr(job, "note", None),
+                    _memory_key_of(job),
+                    getattr(job, "rerun_of", None),
                 ),
             )
+
+    def peaks_for_key(self, key):
+        """This machine's job peak RSS, in MB, for every successful run with
+        this memory key - inline and renamed runs too, since the key is not
+        the workflow's name (#869). Empty for a key no run has reported."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT host_memory_job_peak_rss_mb FROM jobs WHERE status = ?"
+                " AND memory_key = ? AND host_memory_job_peak_rss_mb IS NOT NULL",
+                (SUCCEEDED, key),
+            ).fetchall()
+        return [row[0] for row in rows]
 
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
@@ -210,7 +261,10 @@ class JobHistory:
         query = (
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id, acknowledged, run_version,"
-            " device FROM jobs"
+            " device, note, run_dir,"
+            " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END,"
+            " rerun_of"
+            " FROM jobs"
         )
         params = []
         clauses = []
@@ -243,6 +297,13 @@ class JobHistory:
                 "run_version": row[10],
                 "device": row[11],
                 "historical": True,
+                # Only when set: JobSummary.note is absent, never null
+                **({"note": row[12]} if row[12] else {}),
+                # Where the run is, for the list to read its current note
+                # from; JobManager.list takes these off before serving
+                "_run_dir": row[13],
+                "_output_dir": row[14],
+                **({"rerun_of": row[15]} if row[15] else {}),
             }
             for row in rows
         ]
@@ -253,7 +314,7 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device FROM jobs WHERE id = ?",
+                " run_version, device, note, rerun_of FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -369,6 +430,31 @@ class JobHistory:
                 " WHERE workspace = ? AND workflow_name = ?",
                 (workspace, workflow_name),
             )
+
+    def mark_kept(self, job_id):
+        """Record that a kept asset's provenance names this job (#917), so
+        `forget_workspace` leaves its row."""
+        with self._lock, self._connect() as connection:
+            connection.execute("UPDATE jobs SET kept = 1 WHERE id = ?", (job_id,))
+
+    def forget_workspace(self, workspace):
+        """Delete the rows recorded in this workspace (#913). A deleted
+        workspace takes its history with it, so a new workspace reusing the
+        name starts with none. A job a kept asset names (#917) survives, its
+        workspace renamed to one no workspace can be called, so
+        `get_job_workflow` still resolves the asset's provenance. Returns
+        the number of rows removed."""
+        with self._lock, self._connect() as connection:
+            cursor = connection.execute(
+                "DELETE FROM jobs WHERE workspace = ? AND COALESCE(kept, 0) = 0",
+                (workspace,),
+            )
+            removed = cursor.rowcount
+            connection.execute(
+                "UPDATE jobs SET workspace = ? WHERE workspace = ?",
+                (f"{workspace} (deleted)", workspace),
+            )
+            return removed
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded
@@ -494,4 +580,6 @@ class JobHistory:
             "traceback": None,
             "event_count": len(events) if isinstance(events, list) else 0,
             "historical": True,
+            **({"note": row[19]} if row[19] else {}),
+            **({"rerun_of": row[20]} if row[20] else {}),
         }

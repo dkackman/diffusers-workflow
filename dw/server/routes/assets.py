@@ -22,6 +22,15 @@ from ..api_models import (
     Kept,
     Uploaded,
 )
+from ...notes import (
+    MAX_NOTE_LENGTH,
+    NoteTooLong,
+    clean_note,
+    drop_file_note,
+    effective_note,
+    read_notes,
+    set_file_note,
+)
 from ...references import ASSET, make_ref
 from ...runs import record_kept_shots, recorded_shots
 from ...security import (
@@ -54,6 +63,8 @@ from ..outputs import (
     resolve_output_file,
     served_url,
     strip_output_prefix,
+    run_inputs,
+    validated_run_split,
 )
 
 logger = logging.getLogger("dw")
@@ -62,8 +73,49 @@ router = APIRouter()
 
 
 def _write_bytes(path, data):
-    with open(path, "wb") as f:
-        f.write(data)
+    """Write a file whole, then rename it into place. An upload over an
+    existing name replaces that file rather than writing into it: the old
+    one may be a hard link - of a run's file (keep_output) or of another
+    workspace's asset (copy_to_workspace) - and an in-place write would
+    change those bytes too."""
+    partial = f"{path}.{uuid.uuid4().hex}.part"
+    try:
+        with open(partial, "wb") as f:
+            f.write(data)
+        os.replace(partial, path)
+    except BaseException:
+        try:
+            os.remove(partial)
+        except OSError:
+            pass
+        raise
+
+
+def _note_or_400(note):
+    try:
+        return clean_note(note)
+    except (NoteTooLong, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _note_entry(path, notes_by_directory):
+    """{"note": ...} for the asset at `path` when it has one, else {} -
+    reading each directory's notes.json once into `notes_by_directory`."""
+    directory = os.path.dirname(path)
+    if directory not in notes_by_directory:
+        notes_by_directory[directory] = read_notes(directory)["files"]
+    note = notes_by_directory[directory].get(os.path.basename(path))
+    return {"note": note} if note else {}
+
+
+def _describe_new_asset(path, note):
+    """What the library records beside a file just written at `path` (a
+    validated path): its note, or none - which drops a note an earlier file
+    of that name left. Best effort: the file is already in place."""
+    try:
+        set_file_note(os.path.dirname(path), os.path.basename(path), note)
+    except OSError as e:
+        logger.warning(f"Could not write the note beside {path}: {e}")
 
 
 UPLOADS_SUBDIR = "uploads"
@@ -94,6 +146,10 @@ async def upload_media(
     filename: str,
     asset_name: Optional[str] = None,
     shared: bool = False,
+    note: Optional[str] = Query(
+        default=None,
+        description=f"A note on the asset, at most {MAX_NOTE_LENGTH} characters",
+    ),
     ws: Workspace = Depends(selected_workspace),
 ):
     """Save a browser-picked image, video or audio file into the asset library's
@@ -111,7 +167,8 @@ async def upload_media(
     'cast/priya-voice.wav' rather than the random one a browser upload
     gets - which is what makes a recurring cast's references readable
     in every workflow that carries them. It may name a folder, is
-    confined to the library the way `keep_output`'s is, and takes the
+    confined the way `keep_output`'s is but placed under `uploads/`
+    (not at the library root, as `keep_output`'s is), and takes the
     uploaded file's extension when it has none of its own. Without it
     the name stays random, so two uploads of the same file never
     collide.
@@ -119,7 +176,12 @@ async def upload_media(
     `shared` puts it in the library every workspace under this root
     shares rather than in this workspace's own - a recurring cast that
     episode four, in a workspace of its own, still has to reach.
+
+    `note` is kept beside it (the directory's notes.json). An upload over an
+    existing name takes its own note, or none: not the old file's, and not
+    the old file's kept provenance either.
     """
+    note = _note_or_400(note)
     extension = os.path.splitext(os.path.basename(filename))[1].lower()
     if extension not in ALLOWED_UPLOAD_EXTENSIONS:
         raise HTTPException(
@@ -175,11 +237,21 @@ async def upload_media(
     except SecurityError as e:
         raise HTTPException(status_code=400, detail=str(e))
     os.makedirs(os.path.dirname(dest), exist_ok=True)
+    # Taken before the write: only a file this one replaces can have left a
+    # kept record behind, and a fresh name leaves the directory's alone
+    replaced = os.path.exists(dest)
 
     # Off the event loop: a 200 MB write would otherwise stall every SSE
     # stream and poll for its duration
     await run_in_threadpool(_write_bytes, dest, body)
     logger.info(f"Saved upload {filename!r} -> {dest}")
+    _describe_new_asset(dest, note)
+    if replaced:
+        try:
+            # A kept file this one replaced left its provenance and shots
+            record_kept_shots(os.path.dirname(dest), os.path.basename(dest), None, None)
+        except OSError as e:
+            logger.warning(f"Could not clear the kept record beside {dest}: {e}")
     path = f"/inputs/{UPLOADS_SUBDIR}/{quote(name)}"
     result = {
         "reference": make_ref(ASSET, f"{UPLOADS_SUBDIR}/{name}"),
@@ -253,14 +325,14 @@ def list_assets(
                 stat = os.stat(path)
             except OSError:
                 continue
-            found[(root, relative)] = (folder, kind, stat)
+            found[(root, relative)] = (folder, kind, stat, path)
             names.append(relative)
         return names
 
     winners, hidden = library.entries(media_names)
 
     def summary(name, root):
-        folder, kind, stat = found[(root.root, name)]
+        folder, kind, stat, _path = found[(root.root, name)]
         return {
             "name": name,
             "reference": make_ref(ASSET, name),
@@ -272,13 +344,19 @@ def list_assets(
             "writable": root.writable,
         }
 
+    # One read of each directory's notes.json per listing
+    notes_by_directory = {}
     users = asset_users(request.app.state, ws)
     assets = []
     for name, root in winners.items():
         asset_path = f"/inputs/{quote(name)}"
         # `url` is for the editor's own preview - fetchable the same way
         # an upload's URL is
-        asset_entry = {**summary(name, root), "url": served_url(asset_path, ws)}
+        asset_entry = {
+            **summary(name, root),
+            "url": served_url(asset_path, ws),
+            **_note_entry(found[(root.root, name)][3], notes_by_directory),
+        }
         absolute_url = absolute_served_url(asset_path, ws)
         if absolute_url is not None:
             asset_entry["absolute_url"] = absolute_url
@@ -327,6 +405,12 @@ class KeepRequest(BaseModel):
         description="Keep it in the library every workspace under this "
         "root shares, rather than in this workspace's own",
     )
+    note: Optional[str] = Field(
+        default=None,
+        description=f"A note on the kept asset, at most {MAX_NOTE_LENGTH} "
+        "characters; the source file's effective note when omitted, and "
+        "none when empty",
+    )
 
 
 @router.post(
@@ -352,10 +436,17 @@ def keep_output_as_asset(
     multi-gigabyte video to reuse one frame would be paying for the
     round trip twice.
     """
+    note = _note_or_400(body.note)
     library = writable_asset_directory(request.app.state, ws, body.shared)
 
     kept_name = strip_output_prefix(body.name)
     source = resolve_output_file(request.app.state, kept_name, ws.outputs)
+    if body.note is None:
+        # The note the file carried where it was made: its own, else its
+        # run's. Only when no note was given - an empty one keeps none
+        split = validated_run_split(ws.outputs, source)
+        if split:
+            note = effective_note(read_notes(split[0]), split[1])[0]
     asset_name = body.asset_name or os.path.basename(kept_name)
     # The kept file's own extension when the name carries none, and a
     # refusal when it carries a contradicting one - exactly what the
@@ -407,6 +498,10 @@ def keep_output_as_asset(
     job, source_run_id, source_version = job_provenance(
         request.app.state, kept_name, ws
     )
+    # The assets and outputs the source run was built from, so the lineage
+    # outlives the run and its workspace (#902)
+    run_split = validated_run_split(ws.outputs, source)
+    source_inputs = run_inputs(run_split[0]) if run_split else None
     provenance = (
         {
             "job": job,
@@ -414,16 +509,26 @@ def keep_output_as_asset(
             "version": source_version,
             "workspace": ws.name,
             "source": kept_name,
+            **({"inputs": source_inputs} if source_inputs else {}),
         }
         if job
         else None
     )
+    if job:
+        # The asset now names this job, so deleting the workspace must not
+        # take its row (#917)
+        try:
+            request.app.state.job_manager.history.mark_kept(job["id"])
+        except Exception as e:
+            logger.warning(f"Could not mark job {job['id']} kept: {e}")
     record_kept_shots(
         os.path.dirname(destination),
         os.path.basename(destination),
         recorded_shots(ws.outputs, kept_name),
         provenance,
     )
+
+    _describe_new_asset(destination, note)
 
     logger.info(f"Kept output {body.name} as {make_ref(ASSET, asset_name)}")
     return {
@@ -500,6 +605,14 @@ def delete_asset(
             raise HTTPException(status_code=403, detail=str(refusal))
         os.remove(path)
         logger.info(f"Deleted {make_ref(ASSET, relative)} ({path})")
+        # Its note, provenance and shots go with it, or a later file of the
+        # same name inherits them. Best effort: the file is already gone
+        directory, file_name = os.path.dirname(path), os.path.basename(path)
+        try:
+            drop_file_note(directory, file_name)
+            record_kept_shots(directory, file_name, None, None)
+        except OSError as e:
+            logger.warning(f"Could not clear what {path} left beside it: {e}")
         forget_workspace_usage()
         return {
             "name": relative,

@@ -5,6 +5,7 @@ import gc
 import importlib
 import inspect
 import logging
+import traceback
 from .config_objects import (
     get_quantization_configuration,
     get_cache_configuration,
@@ -23,6 +24,7 @@ from .components import (
     get_component,
     load_and_configure_scheduler,
     load_component,
+    captured_mag_calibration,
     stateful_cache_context,
 )
 from .placement import (
@@ -30,7 +32,7 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
-from .h3_guides import guide_audio_waveform, guide_frames_array, guides_refusal
+from .h3_guides import guides_refusal, prepared_guide
 from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_rules import (
     GUIDES_INPUT,
@@ -39,11 +41,10 @@ from .h3_rules import (
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
-    guide_frame_problem,
     refine_problems,
-    snap_guide_length,
 )
 from .progress import reported_blocks, reported_progress_bars
+from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
 from ..type_helpers import has_method
 from ..trust import (
@@ -56,9 +57,7 @@ from diffusers import attention_backend
 # dw.prompt_weighting (transformers) and diffusers.hooks (peft, bitsandbytes) are
 # imported where they are used - at module scope they add seconds to every startup
 
-from ..argument_media import fetch_video
-from ..tasks.video_utils import load_audio_video
-from ..events import WorkflowCancelled, emit_phase, emit_warning, get_context
+from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
 
@@ -408,7 +407,12 @@ class Pipeline:
             # Enable diffusers built-in cache acceleration on transformer
             cache_config = get_cache_configuration(self.configuration)
             if cache_config is not None:
-                enable_cache_on_transformer(self.pipeline, cache_config)
+                enable_cache_on_transformer(
+                    self.pipeline,
+                    cache_config,
+                    distilled_explicit="is_guidance_distilled"
+                    in self.configuration["cache"],
+                )
 
             # Configure the schedulers if specified - a pipeline that denoises two
             # modalities against two schedules configures each of them separately
@@ -633,13 +637,25 @@ class Pipeline:
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
         emit_phase("generating", detail=self.segment_label or self.name)
+        denoiser = _denoiser(self.pipeline)
+        mark("call_started", compiled=is_compiled(denoiser))
         with contextlib.ExitStack() as stack:
             if attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
+                emit_log(
+                    f"Using attention backend: {attn_backend}",
+                    attention_backend=str(attn_backend),
+                )
                 stack.enter_context(attention_backend(attn_backend))
 
-            stack.enter_context(stateful_cache_context(self.pipeline))
-            if not self._takes_step_callback():
+            stack.enter_context(captured_mag_calibration(self.pipeline, arguments))
+            stack.enter_context(
+                stateful_cache_context(self.pipeline, segment=self.segment_label)
+            )
+            if self._takes_step_callback():
+                # Encode ends where the denoiser first runs
+                stack.enter_context(denoise_start_hook(denoiser))
+            else:
                 # A modular pipeline takes no step callback at all, so this
                 # is the only per-step signal it has: the denoise blocks
                 # drive a tqdm bar, and a bar that reports each advance is
@@ -651,7 +667,24 @@ class Pipeline:
                     reported_blocks(self.pipeline, self.segment_label or self.name)
                 )
 
-            return self.pipeline(**arguments)
+            try:
+                output = self.pipeline(**arguments)
+            except IndexError as e:
+                cache = self.configuration.get("cache")
+                if (
+                    isinstance(cache, dict)
+                    and cache.get("type") == "faster"
+                    and not cache.get("is_guidance_distilled")
+                    and "faster_cache" in "".join(traceback.format_tb(e.__traceback__))
+                ):
+                    raise ValueError(
+                        f"Step '{self.name}': the faster cache failed ({e}). It "
+                        f"assumes a cond/uncond batch of 2; a guidance-distilled "
+                        f"model (FLUX.1-dev) needs cache.is_guidance_distilled: true"
+                    ) from e
+                raise
+            mark("call_ended")
+            return output
 
     def _with_held_audio(self, arguments):
         """`hold_audio` as the reference the H3 hold block takes, and the
@@ -721,7 +754,7 @@ class Pipeline:
                 f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
             )
         prepared = [
-            _prepared_guide(where, index, guide, self.base_dir)
+            prepared_guide(where, index, guide, self.base_dir)
             for index, guide in enumerate(guides)
         ]
         arguments[GUIDES_INPUT] = prepared
@@ -774,6 +807,7 @@ class Pipeline:
         num_steps = arguments.get("num_inference_steps", None)
 
         def on_step_end(pipe, step_index, timestep, callback_kwargs):
+            mark("pass_ended")
             total = getattr(pipe, "_num_timesteps", None) or num_steps
             run_context.emit("pipeline_step", step=step_index + 1, total_steps=total)
             # Past the last step the pipeline still has to decode the latents,
@@ -884,57 +918,12 @@ class Pipeline:
                     component.to(torch_dtype)
 
 
-def _prepared_guide(where, index, guide, base_dir):
-    """One `guides` entry checked and read: its clip as uint8 frames cut to
-    a whole-latent length, with its soundtrack when it asks for one."""
-    if not isinstance(guide, dict):
-        raise ValueError(
-            f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
-        )
-    unknown = sorted(set(guide) - {"video", "frame", "audio"})
-    if unknown:
-        raise ValueError(
-            f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
-            f"{{video, frame}}, with an optional 'audio'"
-        )
-    if "video" not in guide or "frame" not in guide:
-        raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
-    problem = guide_frame_problem(guide["frame"])
-    if problem:
-        raise ValueError(f"{where}[{index}]: {problem}")
-    with_audio = guide.get("audio", False)
-    if not isinstance(with_audio, bool):
-        raise ValueError(
-            f"{where}[{index}]: 'audio' must be true or false, got "
-            f"{type(with_audio).__name__}"
-        )
-    video = guide["video"]
-    if isinstance(video, str) or (isinstance(video, dict) and with_audio):
-        # Read with its soundtrack only when the guide holds it
-        video = (
-            load_audio_video(video, base_dir)
-            if with_audio
-            else fetch_video(video, base_dir)
-        )
-    try:
-        frames = guide_frames_array(video)
-        audio, sample_rate = guide_audio_waveform(video) if with_audio else (None, None)
-    except ValueError as error:
-        raise ValueError(f"{where}[{index}]: {error}") from error
-    length = snap_guide_length(frames.shape[0])
-    if length != frames.shape[0]:
-        emit_warning(
-            f"{where}[{index}]: a guide clip encodes to whole latents only at "
-            f"1, 5 or 17m + 5 frames, so its {frames.shape[0]} frames are cut "
-            f"to the first {length}"
-        )
-        frames = frames[:length]
-    return {
-        "video": frames,
-        "frame": guide["frame"],
-        "audio": audio,
-        "sample_rate": sample_rate,
-    }
+def _denoiser(pipeline):
+    """The module whose forward is one denoise pass, or None."""
+    from .components import get_cache_transformer
+
+    denoiser = get_cache_transformer(pipeline)
+    return denoiser if denoiser is not None else getattr(pipeline, "unet", None)
 
 
 def warn_if_safety_checker_blanked(output):

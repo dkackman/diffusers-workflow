@@ -2,6 +2,7 @@ import torch
 import contextlib
 import logging
 from ..events import WorkflowCancelled, emit_phase, get_context
+from .timing import mark
 
 logger = logging.getLogger("dw")
 
@@ -105,6 +106,7 @@ def reported_progress_bars(pipeline):
     run_context = get_context()
 
     def on_advance(done, total):
+        mark("pass_ended")
         run_context.emit("pipeline_step", step=done, total_steps=total)
         # Past the last step there is still the decode, which on video is
         # minutes with the bar sitting at 100%
@@ -123,6 +125,9 @@ def reported_progress_bars(pipeline):
         patched.append((holder, original, "progress_bar" in vars(holder)))
 
         def reporting(iterable=None, total=None, _original=original):
+            # The denoise bar opening is where a modular pipeline's encode
+            # ends - it has no step callback to hang a forward hook off
+            mark("denoise_started")
             bar = _original(iterable=iterable, total=total)
             if total is None and iterable is not None:
                 # An iterated bar's total is the length of what it iterates,

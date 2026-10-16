@@ -1,5 +1,6 @@
 import {
   cleanup,
+  fireEvent,
   render,
   screen,
   waitFor,
@@ -87,9 +88,12 @@ const uploadMedia = vi.hoisted(() =>
     () => Promise.resolve({ reference: 'asset:uploads/x.png' }),
   ),
 )
+const setNote = vi.hoisted(() => vi.fn())
 vi.mock('../api', () => ({
+  setNote: (t: string, n: string | null) => setNote(t, n),
   api: {
     listAssets: () => listAssets(),
+    galleryMetadata: () => new Promise(() => {}),
     deleteAsset: (name: string) => deleteAsset(name),
     archiveAssets: (names: string[]) => archiveAssets(names),
     uploadMedia: (file: File, assetName?: string, shared?: boolean) =>
@@ -631,4 +635,46 @@ it('names the workflows that use an asset in its details', async () => {
 
   const link = await waitFor(() => screen.getByRole('link', { name: 'ep/two' }))
   expect(link.getAttribute('href')).toContain('workflows/ep/two')
+})
+
+it('keeps a saved note on the asset when it is selected again', async () => {
+  setNote.mockResolvedValue({
+    target: 'asset:iris.png',
+    note: 'hero shot',
+    note_source: null,
+  })
+  await renderAssets()
+  screen.getByLabelText('show details for iris.png').click()
+  await fireEvent.click(
+    await screen.findByRole('button', { name: /edit note/i }),
+  )
+  await fireEvent.input(screen.getByLabelText('Note'), {
+    target: { value: 'hero shot' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
+  screen.getByLabelText('show details for cast/priya.jpg').click()
+  await waitFor(() => expect(screen.queryByText('hero shot')).toBeNull())
+  screen.getByLabelText('show details for iris.png').click()
+  await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
+})
+
+it('a drop on the shared page uploads to the shared library without a button click', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [asset('shared/logo.png', 'common')]
+  await renderAssets('logo.png', true)
+
+  vi.stubGlobal(
+    'prompt',
+    vi.fn(() => 'dropped.png'),
+  )
+  const file = new File(['x'], 'dropped.png', { type: 'image/png' })
+  const drop = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', {
+    value: { types: ['Files'], files: [file] },
+  })
+  document.querySelector('.dropzone')!.dispatchEvent(drop)
+
+  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true)
 })

@@ -13,6 +13,12 @@
     <dd>validate &amp; run (workflow editor)</dd>
     <dt><kbd>Esc</kbd></dt>
     <dd>close this help, the gallery drawer, and other panels</dd>
+    <dt><kbd>←</kbd> / <kbd>→</kbd></dt>
+    <dd>previous / next file (gallery details)</dd>
+    <dt><kbd>Delete</kbd> or <kbd>⌘</kbd> + <kbd>⌫</kbd></dt>
+    <dd>delete the open file and show the next (gallery details)</dd>
+    <dt><kbd>S</kbd></dt>
+    <dd>star / unstar the open file (gallery details)</dd>
     <dt><kbd>?</kbd></dt>
     <dd>show this help</dd>
   </dl>

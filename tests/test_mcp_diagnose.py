@@ -1,12 +1,13 @@
 """Running and diagnosing jobs. The gate on run_workflow is the point: a
 run costs GPU time on an engine that runs one job at a time."""
 
+import json
 import time
 
 import httpx
 import pytest
 
-from dw_mcp import diagnose
+from dw_mcp import catalog, diagnose
 from dw_mcp.client import DwApiError, DwClient
 
 WORKFLOW = {"id": "w", "steps": []}
@@ -806,3 +807,81 @@ def test_a_bad_wait_cap_keeps_the_default(raw, caplog):
 def test_a_wait_cap_is_read_from_the_environment():
     assert diagnose._max_wait_seconds(None) == diagnose.DEFAULT_MAX_WAIT_SECONDS
     assert diagnose._max_wait_seconds("120") == 120.0
+
+
+def test_run_forwards_a_note_only_when_given():
+    client, seen = submitting()
+    diagnose.run_workflow(
+        client, workflow_path="w.json", acknowledged_cost=True, note="seed sweep 1/4"
+    )
+    assert json.loads(seen[0]["body"])["note"] == "seed sweep 1/4"
+
+    client, seen = submitting()
+    diagnose.run_workflow(client, workflow_path="w.json", acknowledged_cost=True)
+    assert "note" not in json.loads(seen[0]["body"])
+
+
+def test_set_note_puts_target_and_note():
+    from dw_mcp import assets
+
+    client, seen = scripted(
+        {
+            ("PUT", "/api/notes"): (
+                200,
+                {"target": "wf/run", "note": "shift 5", "note_source": "run"},
+            )
+        }
+    )
+    result = assets.set_note(client, "wf/run", "shift 5")
+    assert seen[0]["key"] == ("PUT", "/api/notes")
+    assert json.loads(seen[0]["body"]) == {"target": "wf/run", "note": "shift 5"}
+    assert result["note_source"] == "run"
+
+
+def test_set_note_none_clears():
+    from dw_mcp import assets
+
+    client, seen = scripted({("PUT", "/api/notes"): (200, {})})
+    assets.set_note(client, "asset:a.png", None)
+    assert json.loads(seen[0]["body"]) == {"target": "asset:a.png", "note": None}
+
+
+def test_set_note_workspace_pins_the_call():
+    from dw_mcp import assets
+
+    client, seen = scripted({("PUT", "/api/notes"): (200, {})})
+    assets.set_note(client, "wf/run", "n", workspace="music-video")
+    assert seen[0]["params"]["workspace"] == "music-video"
+    assets.set_note(client, "wf/run", "n")
+    assert "workspace" not in seen[1]["params"]
+
+
+def test_list_jobs_clips_long_notes():
+    body = {"jobs": [{"id": "j", "note": "x" * 500}, {"id": "k", "note": "hi"}]}
+    client, _ = scripted({("GET", "/api/jobs"): (200, body)})
+    jobs = {j["id"]: j for j in catalog.list_jobs(client)["jobs"]}
+    assert len(jobs["j"]["note"]) == 201 and jobs["j"]["note_truncated"] is True
+    assert jobs["k"]["note"] == "hi" and "note_truncated" not in jobs["k"]
+
+
+def test_clip_note_leaves_other_entries_alone():
+    from dw_mcp.client import clip_note
+
+    assert clip_note({"name": "a"}) == {"name": "a"}
+    assert clip_note({"note": None}) == {"note": None}
+
+
+def test_gallery_clips_long_notes_but_metadata_does_not():
+    gallery = {"files": [{"name": "a.png", "note": "x" * 500, "role": "final"}]}
+    client, _ = scripted({("GET", "/api/gallery"): (200, gallery)})
+    entry = catalog.list_gallery(client)["files"][0]
+    assert len(entry["note"]) <= 201 and entry["note_truncated"] is True
+
+    gallery = {"files": [{"name": "a.png", "note": "short"}]}
+    client, _ = scripted({("GET", "/api/gallery"): (200, gallery)})
+    entry = catalog.list_gallery(client)["files"][0]
+    assert entry["note"] == "short" and "note_truncated" not in entry
+
+    meta = {"note": "y" * 500}
+    client, _ = scripted({("GET", "/api/gallery/a.png/metadata"): (200, meta)})
+    assert len(catalog.get_gallery_metadata(client, "a.png")["note"]) == 500

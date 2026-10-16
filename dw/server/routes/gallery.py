@@ -12,7 +12,7 @@ import shutil
 from typing import Optional
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, Request
+from fastapi import APIRouter, Depends, HTTPException, Query, Request
 from fastapi.responses import JSONResponse
 
 from ..api_models import (
@@ -20,6 +20,14 @@ from ..api_models import (
     OutputDeleted,
 )
 from ...media import probe_media
+from ...notes import (
+    NOTES_FILE_NAME,
+    drop_file_note,
+    effective_note,
+    read_notes,
+    read_starred,
+)
+from ...roles import ROLES
 from ...runs import (
     MANIFEST_FILE_NAME,
     REALIZED_FILE_NAME,
@@ -39,7 +47,11 @@ from ..outputs import (
     archive_selection,
     iter_gallery_files,
     resolve_output_file,
+    run_directory,
+    consumed_in,
+    listed_file_role,
     served_url,
+    split_run_name,
     strip_output_prefix,
 )
 
@@ -51,10 +63,12 @@ router = APIRouter()
 # about itself. A run whose directory holds nothing else is an orphan
 # (see _iter_orphan_runs, #170) whatever shape its output would have had.
 # job.json is what an export bundle writes, listed defensively.
-RUN_BOOKKEEPING_FILES = frozenset({MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json"})
+RUN_BOOKKEEPING_FILES = frozenset(
+    {MANIFEST_FILE_NAME, REALIZED_FILE_NAME, "job.json", NOTES_FILE_NAME}
+)
 
 
-def _gallery_entries(root, ws):
+def _gallery_entries(root, ws, consumed=frozenset()):
     entries = []
     try:
         files = list(iter_gallery_files(root))
@@ -64,6 +78,9 @@ def _gallery_entries(root, ws):
     # a run of fifty files would otherwise re-read the same manifests
     # fifty times
     versions_by_folder = {}
+    # And one read of each run's notes.json, for the same reason
+    notes_by_run = {}
+    starred_by_run = {}
 
     def _version(folder, run_id):
         if not run_id:
@@ -111,6 +128,23 @@ def _gallery_entries(root, ws):
             "mtime": stat.st_mtime,
             "label": label,
         }
+        # None under the flat layout, and for a file no manifest lists
+        split = split_run_name(root, relative_name) if run_id else None
+        entry["role"] = (
+            listed_file_role(split[0], split[1], relative_name in consumed)
+            if split
+            else None
+        )
+        if split:
+            if split[0] not in notes_by_run:
+                notes_by_run[split[0]] = read_notes(split[0])
+            note = effective_note(notes_by_run[split[0]], split[1])[0]
+            if note:
+                entry["note"] = note
+            if split[0] not in starred_by_run:
+                starred_by_run[split[0]] = read_starred(split[0])
+            if split[1] in starred_by_run[split[0]]:
+                entry["starred"] = True
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:
             entry["absolute_url"] = absolute_url
@@ -164,6 +198,7 @@ def _orphan_entries(root):
     "/api/gallery", response_model=GalleryList, response_model_exclude_unset=True
 )
 def gallery(
+    request: Request,
     limit: int = 200,
     offset: int = 0,
     folder: Optional[str] = None,
@@ -171,6 +206,7 @@ def gallery(
     only_orphans: bool = False,
     version: Optional[int] = None,
     media: bool = False,
+    role: Optional[list[str]] = Query(None),
     ws: Workspace = Depends(selected_workspace),
 ):
     """A page of media files in the output directory, newest first.
@@ -205,7 +241,20 @@ def gallery(
     by, since size and mtime are misleading proxies for length (#356).
     Off by default and bounded by `limit`: only the page actually
     returned is probed, not the whole listing, so the cost of asking
-    stays proportional to the page size rather than the library size."""
+    stays proportional to the page size rather than the library size.
+
+    Each entry carries `role`, `final` or `intermediate` (null for a
+    flat-layout file or one no manifest lists); a file a later run read
+    lists as intermediate unless its step declared it final
+    (dw/roles.py rule 4). `role` is a repeatable
+    filter; a null role counts as final. Omitted, every file is listed."""
+    if role:
+        unknown = sorted(set(role) - set(ROLES))
+        if unknown:
+            raise HTTPException(
+                status_code=400,
+                detail=f"unknown role {unknown}; roles are {list(ROLES)}",
+            )
     if only_orphans:
         entries = _orphan_entries(ws.outputs)
         offset = max(0, offset)
@@ -222,7 +271,8 @@ def gallery(
                 "workspace": ws.name,
             }
         )
-    entries = _gallery_entries(ws.outputs, ws)
+    # Read once for the listing: which files a later run read (#928)
+    entries = _gallery_entries(ws.outputs, ws, consumed_in(request.app.state, ws))
     folders = sorted({e["folder"] for e in entries} | {""})
     subfolders = sorted({e["subfolder"] for e in entries} | {""})
     if folder is not None:
@@ -231,6 +281,9 @@ def gallery(
         entries = [e for e in entries if e["subfolder"] == subfolder]
     if version is not None:
         entries = [e for e in entries if e["version"] == version]
+    if role:
+        wanted = set(role)
+        entries = [e for e in entries if (e.get("role") or "final") in wanted]
     offset = max(0, offset)
     limit = max(0, limit)
     page = entries[offset : offset + limit]
@@ -274,7 +327,7 @@ def archive_outputs(
 
 # What a run directory holds besides its media: the engine writes them to
 # describe the run, and the gallery - which lists media - never shows them
-RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME)
+RUN_SIDECARS = (MANIFEST_FILE_NAME, REALIZED_FILE_NAME, NOTES_FILE_NAME)
 
 
 def _prune_empty_run_directory(name, root):
@@ -324,25 +377,6 @@ def _prune_empty_run_directory(name, root):
     return run_id
 
 
-def _run_directory(name, root):
-    """The run directory `<identity>/<run id>` names, or None.
-
-    A run that failed before it wrote anything still has a directory and a
-    manifest, and no gallery name addresses it - so the name of the
-    directory itself is the only handle there can be (#134).
-    """
-    parts = [part for part in (name or "").split("/") if part]
-    if not parts or not is_run_id(parts[-1]):
-        return None
-    try:
-        path = validate_path(
-            os.path.join(root, "/".join(parts)), root, allow_create=False
-        )
-    except SecurityError:
-        return None
-    return path if os.path.isdir(path) else None
-
-
 @router.delete(
     "/api/gallery/{name:path}",
     response_model=OutputDeleted,
@@ -359,7 +393,7 @@ def delete_output(
     on a run that failed before it wrote any media (#134).
     """
     name = strip_output_prefix(name)
-    run_dir = _run_directory(name, ws.outputs)
+    run_dir = run_directory(name, ws.outputs)
     if run_dir is not None:
         return {
             "name": name,
@@ -370,6 +404,17 @@ def delete_output(
     path = resolve_output_file(request.app.state, name, ws.outputs)
     os.remove(path)
     logger.info(f"Deleted output file {name}")
+    split = split_run_name(ws.outputs, name)
+    if split is not None:
+        # The note describes the file; it goes with it. Best effort: the file
+        # is already gone, so a note that cannot be rewritten is not a failure
+        try:
+            note_dir = validate_path(split[0], ws.outputs, allow_create=False)
+            drop_file_note(note_dir, split[1])
+        except SecurityError:
+            pass
+        except OSError as e:
+            logger.warning(f"Could not drop the note for {name}: {e}")
     swept = _prune_empty_run_directory(name, ws.outputs)
     forget_workspace_usage()
     return {"name": name, "deleted": True, "run_swept": swept}

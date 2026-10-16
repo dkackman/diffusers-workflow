@@ -3,7 +3,7 @@ time. Each is a pass-through - the API's shapes are already the ones the
 web UI consumes, and reshaping them here would only add a second thing to
 keep in sync."""
 
-from dw_mcp.client import DwApiError, api_path, project
+from dw_mcp.client import DwApiError, api_path, clip_note, project
 
 
 def list_workflows(
@@ -214,7 +214,7 @@ def list_jobs(client, limit=20, status=None, workspace=None):
     body = client.get_json("/api/jobs", params=params or None)
     # The API answers oldest first - the order the web UI's list renders in.
     # An agent reads the top of a tool result, so the newest job belongs there
-    jobs = list(reversed(body.get("jobs") or []))
+    jobs = [clip_note(job) for job in reversed(body.get("jobs") or [])]
     total = body.get("total", len(jobs))
     answer = {"jobs": jobs, "returned": len(jobs), "total": total}
     if total > len(jobs):
@@ -235,6 +235,7 @@ def list_gallery(
     folder=None,
     version=None,
     media=False,
+    role=None,
 ):
     """Generated media in the output directory, newest first. `subfolder`
     narrows to one in-run subfolder ('final', 'intermediate', '' for files
@@ -267,8 +268,13 @@ def list_gallery(
     `media=True` adds `duration_seconds` to each audio/video entry in the
     page returned, probed the way `get_gallery_metadata` measures a file -
     enough to pick between two takes without one metadata call per
-    candidate. Off by default; a plain call carries no `duration_seconds`."""
+    candidate. Off by default; a plain call carries no `duration_seconds`.
+
+    Each file carries `role` (`final`, `intermediate`, or null with no run);
+    `role=[...]` keeps only those, null counting as final."""
     params = {"limit": limit}
+    if role:
+        params["role"] = list(role)
     if subfolder is not None:
         params["subfolder"] = subfolder
     if folder is not None:
@@ -279,11 +285,23 @@ def list_gallery(
         params["only_orphans"] = "true"
     if media:
         params["media"] = "true"
-    return client.get_json("/api/gallery", params=params, workspace=workspace)
+    result = client.get_json("/api/gallery", params=params, workspace=workspace)
+    files = result.get("files") if isinstance(result, dict) else None
+    if isinstance(files, list):
+        result = {
+            **result,
+            "files": [clip_note(f) if isinstance(f, dict) else f for f in files],
+        }
+    return result
 
 
 def get_gallery_metadata(
-    client, name, envelope=False, workspace=None, interval_seconds=None
+    client,
+    name,
+    envelope=False,
+    workspace=None,
+    interval_seconds=None,
+    include_workflow=True,
 ):
     """Metadata embedded in a saved file: the full workflow that made it -
     the exact workflow, arguments and seed, so a result can be reproduced
@@ -313,9 +331,12 @@ def get_gallery_metadata(
     measure, and the default answer has to stay small. `interval_seconds`
     (0.05 to 3600, default 1.0) narrows the bins; a finer-than-default width
     that would need over 2400 of them is refused with the interval that fits."""
-    params = {"envelope": "true"} if envelope else None
+    params = {"envelope": "true"} if envelope else {}
     if envelope and interval_seconds is not None:
         params["interval_seconds"] = interval_seconds
+    if not include_workflow:
+        params["include_workflow"] = "false"
+    params = params or None
     body = client.get_json(
         api_path("api", "gallery", name, "metadata"),
         params=params,
@@ -325,10 +346,21 @@ def get_gallery_metadata(
     job = body.get("job")
     hints = []
     if body.get("metadata") is None:
-        if job and job.get("id"):
+        if job and job.get("status") == "forgotten":
             hints.append(
-                "metadata is null because only an image (PNG/JPEG/WebP) "
-                "carries it embedded - this file's job is known, and "
+                "metadata is null because this file has none embedded, and "
+                f"its job {job.get('id')} is no longer in the server's "
+                "history (status 'forgotten'), so get_job_workflow would "
+                "answer 'Unknown job'. What remains is this file's own "
+                "`note` and `inputs` when present, or get_job_workflow of "
+                "an older job that is still listed."
+            )
+        elif job and job.get("id"):
+            hints.append(
+                "metadata is null because this file has none embedded - a "
+                "pipeline's image carries it, but video, audio and an image "
+                "a task step wrote (get_last_frame, a crop) do not. "
+                "This file's job is known, and "
                 f'get_job_workflow(job_id="{job["id"]}") returns the exact '
                 "workflow, arguments and seed that produced it."
             )

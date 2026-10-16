@@ -38,6 +38,27 @@ class WorkspaceTools:
         the result says so."""
         return workspaces.create_workspace(self.client, name, use=use)
 
+    def copy_to_workspace(
+        self,
+        destination: str,
+        runs: list[str] | None = None,
+        assets: list[str] | None = None,
+        source: str | None = None,
+    ) -> dict:
+        """Copy runs and assets from one workspace into another. runs:
+        '<workflow>/<run id>' as list_gallery names it, or a bare
+        '<workflow>' for all its runs. assets: paths as after asset:, a
+        folder ('proj/') for all under it; each keeps its path, note and
+        shots. source defaults to this session's workspace. Media is
+        hard-linked, so a copy costs little disk. What the destination
+        already has is skipped; a different file at an asset's path refuses
+        the whole request; a vN it already uses is renumbered and reported.
+        Copied runs get no job record: they show in list_gallery and resolve
+        as output: refs, not in list_jobs. To move, copy then delete."""
+        return workspaces.copy_to_workspace(
+            self.client, destination, runs, assets, source=source
+        )
+
     def delete_workspace(self, name: str, acknowledged_cost: bool = False) -> dict:
         """Permanently delete a workspace and every workflow, asset and
         generated file in it. Refuses without acknowledged_cost=True, and

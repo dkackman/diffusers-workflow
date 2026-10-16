@@ -44,6 +44,8 @@ RERUN_SPEC_KEYS = (
     # what the original run was consented to, kept for the record - a
     # rerun's own request decides its form
     "acknowledged_cost",
+    # the note it was submitted with, carried to the rerun's own run
+    "note",
 )
 
 # A long run emits thousands of progress events; the tail is what explains
@@ -88,6 +90,9 @@ class Job:
         self.device_card = None
         # Which form of cost acknowledgement queued this job (#85)
         self.acknowledged = spec.get("acknowledged") or ACK_NONE
+        # The note it was submitted with; written as the run note at run_start
+        self.note = spec.get("note")
+        self.rerun_of = spec.get("rerun_of")
         # The worker's own high-water mark for this run, from its final
         # memory_info message - None for a run that never got that far (#243)
         self.host_memory_peak_rss_mb = None
@@ -96,6 +101,12 @@ class Job:
         # rss when it caused no growth (#272). None for a run that never got
         # a memory_info message at all
         self.host_memory_job_peak_rss_mb = None
+        # The host RAM it was projected to hold at its peak when admitted,
+        # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
+        self.host_ram_need = None
+        # Why dispatch is holding it while it is queued - "waiting for host
+        # RAM: ..." - or None; a live state, never a warning (#869)
+        self.waiting_for = None
         self.events = []
         # The running summary a poll reads - see _note_progress. Kept as the
         # events arrive rather than derived from the log on request, because
@@ -295,6 +306,21 @@ class Job:
             "run_version": self.run_version,
             "device": self.device,
             "acknowledged": self.acknowledged,
+            # A cancel asked of a running job that has not stopped yet: a
+            # model load or a task has no checkpoint, so the job stays
+            # `running` for a while after the request (#892)
+            **(
+                {"cancel_requested": True}
+                if self.cancel_requested and self.status == RUNNING
+                else {}
+            ),
+            **(
+                {"waiting_for": self.waiting_for}
+                if self.waiting_for and self.status == QUEUED
+                else {}
+            ),
+            **({"note": self.note} if self.note else {}),
+            **({"rerun_of": self.rerun_of} if self.rerun_of else {}),
         }
 
     def detail(self):

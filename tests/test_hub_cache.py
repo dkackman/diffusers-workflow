@@ -2,6 +2,7 @@
 deleting it through huggingface_hub's own strategy."""
 
 import json
+import os
 
 import pytest
 
@@ -68,7 +69,11 @@ def make_pipeline_repo(
     (repo / "refs" / "main").write_text(commit)
     index = {"_class_name": "SomePipeline"}
     for component in components or {}:
-        index[component] = ["diffusers", "SomeComponent"]
+        weightless = component in ("scheduler", "tokenizer")
+        index[component] = [
+            "diffusers",
+            "SomeScheduler" if weightless else "SomeComponent",
+        ]
     (snapshot / "model_index.json").write_text(json.dumps(index))
     for component, files in (components or {}).items():
         folder = snapshot / component
@@ -181,6 +186,69 @@ class TestRepoDownloadIncomplete:
         )
 
 
+class TestConfigOnlyComponents:
+    """#894: FLUX.1-dev with every component folder holding only its small
+    config files read as fully cached, and the run then pulled ~33 GB."""
+
+    def _repo(self, tmp_path, classes, files):
+        repo = make_pipeline_repo(tmp_path, components=files)
+        snapshot = next((repo / "snapshots").iterdir())
+        index = json.loads((snapshot / "model_index.json").read_text())
+        for name, cls in classes.items():
+            index[name] = ["diffusers", cls]
+        (snapshot / "model_index.json").write_text(json.dumps(index))
+        return snapshot
+
+    def test_a_weight_bearing_component_with_only_a_config_is_incomplete(
+        self, tmp_path
+    ):
+        self._repo(
+            tmp_path,
+            {
+                "transformer": "FluxTransformer2DModel",
+                "scheduler": "FlowMatchEulerDiscreteScheduler",
+            },
+            {"transformer": ["config.json"], "scheduler": ["scheduler_config.json"]},
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    def test_weightless_components_alone_are_complete(self, tmp_path):
+        self._repo(
+            tmp_path,
+            {
+                "scheduler": "FlowMatchEulerDiscreteScheduler",
+                "tokenizer": "CLIPTokenizer",
+            },
+            {"scheduler": ["scheduler_config.json"], "tokenizer": ["vocab.json"]},
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is False
+
+    def test_a_shard_named_by_the_index_but_absent_is_incomplete(self, tmp_path):
+        snapshot = self._repo(
+            tmp_path,
+            {"transformer": "FluxTransformer2DModel"},
+            {"transformer": ["m-00001-of-00002.safetensors"]},
+        )
+        (snapshot / "transformer" / "m.safetensors.index.json").write_text(
+            json.dumps(
+                {
+                    "weight_map": {
+                        "a": "m-00001-of-00002.safetensors",
+                        "b": "m-00002-of-00002.safetensors",
+                    }
+                }
+            )
+        )
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+    def test_a_dangling_weight_symlink_is_incomplete(self, tmp_path):
+        snapshot = self._repo(
+            tmp_path, {"transformer": "FluxTransformer2DModel"}, {"transformer": []}
+        )
+        os.symlink(tmp_path / "gone", snapshot / "transformer" / "model.safetensors")
+        assert repo_download_incomplete("acme/pipe", cache_dir=tmp_path) is True
+
+
 class FakeSibling:
     def __init__(self, size):
         self.size = size
@@ -246,6 +314,36 @@ class TestDownloadManager:
         gate.set()
         status = self.wait_status(manager, started["id"], ["cancelled"])
         assert status["downloaded"] < 100
+
+    def test_cancel_shows_pending_then_aborts_xet_and_ends_cancelled(self):
+        """#899: the record says the cancel is pending, the xet session is
+        aborted, and the library's own error from the abort is a cancel."""
+        import threading
+        from unittest import mock
+
+        from dw.hub_cache import DownloadManager
+
+        release = threading.Event()
+
+        def stuck_download(repo_id, tqdm_class=None):
+            release.wait(5)
+            raise RuntimeError("xet session aborted")
+
+        manager = DownloadManager(
+            download_fn=stuck_download,
+            info_fn=lambda repo_id: FakeInfo([10]),
+        )
+        started = manager.start("acme/tiny")
+        assert started["cancel_requested"] is False
+        with mock.patch("dw.hub_cache._abort_xet_session") as abort:
+            pending = manager.cancel(started["id"])
+        abort.assert_called_once()
+        assert pending["status"] == "downloading"
+        assert pending["cancel_requested"] is True
+        release.set()
+        status = self.wait_status(manager, started["id"], ["cancelled"])
+        assert status["cancel_requested"] is False
+        assert status["error"] is None
 
     def test_xet_aggregate_bars_count_file_bytes_once(self):
         """huggingface_hub's xet path builds two aggregate bars from the
@@ -328,3 +426,119 @@ class TestDownloadManager:
         manager.cancel(started["id"])
         gate.set()
         self.wait_status(manager, started["id"], ["cancelled"])
+
+
+class TestDownloadRepoCancel:
+    def test_cancel_skips_files_not_yet_started(self):
+        """#899: after a cancel no queued file starts (snapshot_download's
+        pool ran them all). Runs the real _download_repo loop."""
+        import threading
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from dw.hub_cache import DownloadCancelled, _download_repo
+
+        cancel = threading.Event()
+        fetched = []
+
+        def fake_hub_download(repo_id, filename, revision, tqdm_class, **kwargs):
+            fetched.append(filename)
+            cancel.set()
+
+        info = SimpleNamespace(
+            sha="abc",
+            siblings=[SimpleNamespace(rfilename=f"f{i}") for i in range(20)],
+        )
+        tracker = SimpleNamespace(_cancel_event=cancel)
+        with (
+            mock.patch("huggingface_hub.HfApi") as api,
+            mock.patch("huggingface_hub.hf_hub_download", fake_hub_download),
+        ):
+            api.return_value.repo_info.return_value = info
+            try:
+                _download_repo("acme/tiny", tracker, max_workers=1)
+            except DownloadCancelled:
+                pass
+            else:
+                raise AssertionError("expected DownloadCancelled")
+        assert len(fetched) == 1
+
+
+class TestDownloadRepoMainRef:
+    """#899 regression: per-file hf_hub_download pinned to a commit hash never
+    writes refs/main, so a pulled repo read as incomplete and offline loads
+    could not resolve 'main'. _download_repo writes it once every file is in."""
+
+    SHA = "0123456789abcdef0123456789abcdef01234567"
+
+    def run(self, tmp_path, fake_hub_download, cancel=None):
+        import threading
+        from types import SimpleNamespace
+        from unittest import mock
+
+        from dw.hub_cache import _download_repo
+
+        cancel = cancel or threading.Event()
+        info = SimpleNamespace(
+            sha=self.SHA,
+            siblings=[SimpleNamespace(rfilename=name) for name in ("a.bin", "b.bin")],
+        )
+        tracker = SimpleNamespace(_cancel_event=cancel)
+        with (
+            mock.patch("huggingface_hub.HfApi") as api,
+            mock.patch("huggingface_hub.hf_hub_download", fake_hub_download),
+        ):
+            api.return_value.repo_info.return_value = info
+            _download_repo("acme/tiny", tracker, max_workers=1, cache_dir=tmp_path)
+
+    def fake_writer(self, tmp_path, on_fetch=None):
+        def fake_hub_download(repo_id, filename, revision, tqdm_class, cache_dir):
+            assert revision == self.SHA
+            snapshot = (
+                tmp_path / "models--acme--tiny" / "snapshots" / revision / filename
+            )
+            snapshot.parent.mkdir(parents=True, exist_ok=True)
+            snapshot.write_bytes(b"x")
+            if on_fetch:
+                on_fetch(filename)
+
+        return fake_hub_download
+
+    def test_a_completed_download_writes_refs_main_at_the_sha(self, tmp_path):
+        self.run(tmp_path, self.fake_writer(tmp_path))
+        ref = tmp_path / "models--acme--tiny" / "refs" / "main"
+        assert ref.read_text() == self.SHA
+        assert repo_download_incomplete("acme/tiny", cache_dir=tmp_path) is False
+        # The temp file the ref was written through is gone
+        assert os.listdir(ref.parent) == ["main"]
+
+    def test_a_cancelled_download_writes_no_ref(self, tmp_path):
+        import threading
+
+        from dw.hub_cache import DownloadCancelled
+
+        cancel = threading.Event()
+        with pytest.raises(DownloadCancelled):
+            self.run(
+                tmp_path,
+                self.fake_writer(tmp_path, on_fetch=lambda _: cancel.set()),
+                cancel=cancel,
+            )
+        assert not (tmp_path / "models--acme--tiny" / "refs" / "main").exists()
+
+    def test_a_cancel_after_the_last_file_writes_no_ref(self, tmp_path):
+        import threading
+
+        cancel = threading.Event()
+        names = []
+
+        def on_fetch(name):
+            names.append(name)
+            if len(names) == 2:
+                cancel.set()
+
+        from dw.hub_cache import DownloadCancelled
+
+        with pytest.raises(DownloadCancelled):
+            self.run(tmp_path, self.fake_writer(tmp_path, on_fetch), cancel=cancel)
+        assert not (tmp_path / "models--acme--tiny" / "refs" / "main").exists()

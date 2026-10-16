@@ -1,6 +1,9 @@
 <script lang="ts">
   import { Trash2, X } from '@lucide/svelte'
   import CopyButton from '../CopyButton.svelte'
+  import { api } from '../api'
+  import NoteEditor from '../ui/NoteEditor.svelte'
+  import { ASSET } from '../references'
   import type { AssetFile } from '../types'
   import { formatBytes, formatMtime } from '../format'
   import { wsHref } from '../routes'
@@ -13,12 +16,36 @@
     busy,
     onremove,
     onclose,
+    onnotesaved,
   }: {
     asset: AssetFile
     busy: boolean
     onremove: (asset: AssetFile) => void
     onclose: () => void
+    /** The note the server stored, so the page can carry it on the asset */
+    onnotesaved?: (note: string | null) => void
   } = $props()
+
+  // Where a kept asset came from, when keep_output recorded it: the
+  // workflow and run version of the job that wrote the file
+  let keptFrom = $state('')
+  $effect(() => {
+    const reference = asset.reference
+    keptFrom = ''
+    let stale = false
+    api
+      .galleryMetadata(reference)
+      .then((r) => {
+        if (stale || !r.job) return
+        const workflow =
+          typeof r.job.workflow === 'string' ? r.job.workflow : r.job.id
+        keptFrom = `kept from ${workflow}${r.version ? ` v${r.version}` : ''}`
+      })
+      .catch(() => {})
+    return () => {
+      stale = true
+    }
+  })
 </script>
 
 <div class="detail panel">
@@ -63,6 +90,9 @@
       aria-label="close details"><X size={14} /></button
     >
   </div>
+  {#if keptFrom}
+    <p class="usedby muted">{keptFrom}</p>
+  {/if}
   {#if asset.used_by?.length}
     <p class="usedby muted">
       used by
@@ -72,6 +102,11 @@
         >{/each}
     </p>
   {/if}
+  <NoteEditor
+    note={asset.note}
+    target={`${ASSET}${asset.name}`}
+    onsaved={(note) => onnotesaved?.(note)}
+  />
   <div class="body">
     {#if asset.kind === 'image'}
       <img src={asset.url} alt={asset.name} />

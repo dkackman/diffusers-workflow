@@ -78,6 +78,7 @@ live there, not here.
 
 Render two to four representative shots first (a dialogue shot, an action
 shot, the hardest cut) and judge them before the full batch.
+For H3 shots, `dw:minimax-h3`'s quality-and-speed reference (*Ramp*) has the draft and final tiers and what to approve at each.
 
 `validate_workflow` against the chosen template with the assembled `shots`
 argument, read `plan.estimate` and `plan.downloads_required`, and state the
@@ -85,6 +86,9 @@ cost before calling `run_workflow`. Only pass `acknowledged_cost` once a
 human (or an explicit pre-authorization) has signed off - this is a real
 gate, not a formality, and skipping it here is the one thing this skill
 must not do even when running unattended.
+
+Pass `note` on each `run_workflow` naming the shot and what the run tests,
+and `set_note` the take you keep: the note shows on every file it made.
 
 ## Run and judge
 
@@ -111,6 +115,14 @@ Once every shot exists, hand off to `templates/assemble-and-score` (or the
 `dw:series-episodes` five-beat procedure, if this script is one episode of
 a series) for the recut/bed/match_levels/normalize/pair pass. That skill
 already owns this step - do not re-derive it here.
+
+The shots, narration, score or cues, stills and references are ingredients
+the assembly consumes: a workflow you write or copy for one sets
+`"role": "intermediate"` in its saving step's `result`, so it reads as
+intermediate in the gallery (which opens on finals) before the assembly
+runs. Only the assembly's cut is final. Once a later run reads a file
+through `output:` or an `asset:` kept from it, the gallery lists that file
+as intermediate on its own.
 
 A sung multi-shot piece is reviewed by its lip-sync target: run
 `get_guide("tasks", section="Checking the lip-sync target")` on the cut

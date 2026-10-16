@@ -62,6 +62,56 @@ describe('describePlan', () => {
     expect(figure.tone).toBe('warn')
   })
 
+  it('a figure scaled along moved drivers says what moved', () => {
+    const [, figure] = describePlan({
+      ...base,
+      list_entries: {},
+      estimate: {
+        ...base.estimate,
+        minutes: 26.3,
+        basis: 'derived',
+        scaled: 'scaled from the curated 7.9 min: steps 30 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      '~26.3 min on cuda - estimated (scaled from the curated 7.9 min: steps 30 vs 9), from a figure measured on RTX 3090',
+    )
+    expect(figure.tone).toBe('warn')
+  })
+
+  it('a scaled figure from another accelerator says what moved too', () => {
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        minutes: 80,
+        basis: 'other_device',
+        device: 'mps',
+        scaled: 'scaled from the curated 40 min: steps 18 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      'no figure for mps - 80 min was measured on RTX 3090 (scaled from the curated 40 min: steps 18 vs 9)',
+    )
+  })
+
+  it('a re-priced figure scaled along a child says what moved', () => {
+    // dw/plan.py names `scaled` for every basis but observed, so the
+    // plain branch must carry it as the warn branches do
+    const [, figure] = describePlan({
+      ...base,
+      estimate: {
+        ...base.estimate,
+        basis: 'per_entry',
+        scaled: 'scaled from the curated 7.9 min: steps 30 vs 9',
+      },
+    })
+    expect(figure.text).toBe(
+      '~42 min on cuda - re-priced for 5 shots, measured on RTX 3090 (scaled from the curated 7.9 min: steps 30 vs 9)',
+    )
+    expect(figure.tone).toBe('plain')
+  })
+
   it('a figure from another accelerator is a warning, not a quote', () => {
     const [, figure] = describePlan({
       ...base,

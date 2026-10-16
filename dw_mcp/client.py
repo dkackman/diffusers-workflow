@@ -35,6 +35,20 @@ def project(entry, fields):
     return {key: entry.get(key) for key in fields if key in entry}
 
 
+NOTE_CLIP = 200
+
+
+def clip_note(entry, limit=NOTE_CLIP):
+    """`entry` with a `note` over `limit` characters cut to its first `limit`
+    plus an ellipsis, and `note_truncated` set - so a listing of many notes
+    stays small and says which ones to read in full (get_job,
+    get_gallery_metadata)."""
+    note = entry.get("note")
+    if isinstance(note, str) and len(note) > limit:
+        return {**entry, "note": note[:limit] + "\u2026", "note_truncated": True}
+    return entry
+
+
 def is_loopback_url(url):
     """True when `url` names this machine's loopback interface - the case
     where an unauthenticated dw.serve is only reachable by this user."""
@@ -99,8 +113,11 @@ def path_segment(name):
     and the server's own path-traversal check never runs on it. Quoting
     keeps the literal bytes intact on the wire, so it is the server's own
     validation - not this client - that decides what a name is allowed to
-    contain.
+    contain. A segment that is only dots ('.', '..') is not touched by
+    `quote`, so its dots are encoded too: unencoded, httpx would drop it.
     """
+    if name and name.strip(".") == "":
+        return "%2E" * len(name)
     return quote(name, safe="")
 
 

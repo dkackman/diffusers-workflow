@@ -27,6 +27,7 @@ from ..api_models import (
     WorkflowDeleted,
     WorkflowList,
     WorkflowSaved,
+    WorkspaceCopied,
     WorkspaceDeleted,
     WorkspaceInfo,
     WorkspaceList,
@@ -36,6 +37,8 @@ from ...schema import format_validation_errors, load_schema, validate_data
 from ... import references, validation
 from ...security import InvalidInputError, SecurityError, validate_prompt_reference
 from ...workflow import Workflow
+from ...workspace_copy import CopyRefused, copy_between
+from ...notes import read_workspace_note
 from ...library import (
     builtin_root,
     ReadOnlyLibraryError,
@@ -68,6 +71,7 @@ from ..catalog import (
 from ..catalog_shape import derive_catalog_metadata, project_listing
 from ..deps import (
     internal_error,
+    lora_index,
     observed_for_name,
     server_prompt_library,
     writable_prompt_directory,
@@ -114,6 +118,9 @@ def list_workspaces(request: Request):
         # workspace_usage - a listing is a glance, and a job writing
         # into outputs moves the number continuously anyway
         entry["usage"] = workspace_usage(space)
+        note = read_workspace_note(space.root) if space.root else None
+        if note:
+            entry["note"] = note
         described.append(entry)
     return {
         "workspace_root": root.root if root else None,
@@ -142,6 +149,95 @@ def add_workspace(http_request: Request, request: WorkspaceRequest):
     forget_workspace_usage()
     logger.info(f"Created workspace {request.name} at {created.root}")
     return created.describe()
+
+
+class WorkspaceCopyRequest(BaseModel):
+    source: Optional[str] = Field(
+        default=None, description="Workspace to copy from; the default when omitted"
+    )
+    runs: list[str] = Field(
+        default_factory=list,
+        description="`<workflow>/<run id>` entries, or a bare `<workflow>` for "
+        "all its runs",
+    )
+    assets: list[str] = Field(
+        default_factory=list,
+        description="Asset-library files or folders, as written after `asset:` "
+        "(`proj/clip.mp4`, `proj/`); each keeps its library-relative path",
+    )
+
+
+def _copy_side(state, root, name):
+    """A workspace a copy names, by name: the default when None."""
+    if name is None or name == DEFAULT_WORKSPACE_NAME:
+        return named_workspace(
+            root, DEFAULT_WORKSPACE_NAME, prompts_root=state.prompt_dir
+        )
+    try:
+        known = name in workspace_names(root)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    if not known:
+        raise HTTPException(status_code=404, detail=f"No such workspace: {name}")
+    try:
+        return named_workspace(root, name, prompts_root=state.prompt_dir)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+@router.post(
+    "/api/workspaces/{destination:path}/copy",
+    response_model=WorkspaceCopied,
+    response_model_exclude_unset=True,
+)
+def copy_into_workspace(
+    http_request: Request, destination: str, request: WorkspaceCopyRequest
+):
+    """Copy runs and asset-library entries from another workspace into this one.
+
+    Media is hard-linked where the filesystem allows, so a copy costs
+    little disk; sidecars are copied, and an asset's note and kept shots are
+    merged into the destination folder's. All or nothing: a run already
+    here, or an asset with identical bytes, is skipped as `already_present`;
+    a run whose job is still running, or a different file at an asset's
+    path, refuses the whole request (409, naming each) with nothing written.
+    A move is a copy, then `DELETE` of the source runs and assets.
+    """
+    state = http_request.app.state
+    manager = state.job_manager
+    root = workspace_root(state)
+    if not request.runs and not request.assets:
+        raise HTTPException(
+            status_code=400, detail="Name at least one run or asset to copy"
+        )
+    source_name = request.source or DEFAULT_WORKSPACE_NAME
+    if source_name == destination:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Source and destination are both '{destination}' - name "
+            f"another workspace to copy into",
+        )
+    target = _copy_side(state, root, destination)
+    source = _copy_side(state, root, source_name)
+    with manager._lock:
+        active = [
+            job.run_dir
+            for job in manager.jobs.values()
+            if job.status not in TERMINAL_STATES
+            and (job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME) == source_name
+            and getattr(job, "run_dir", None)
+        ]
+    try:
+        return copy_between(
+            source, target, request.runs, request.assets, active_runs=active
+        )
+    except CopyRefused as e:
+        detail = (
+            {"message": str(e), "conflicts": e.conflicts} if e.conflicts else str(e)
+        )
+        raise HTTPException(status_code=e.status, detail=detail)
+    except (SecurityError, InvalidInputError, ValueError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
 
 
 @router.delete(
@@ -206,6 +302,7 @@ def remove_workspace(request: Request, name: str, acknowledged: bool = False):
     except (ValueError, FileNotFoundError) as e:
         raise HTTPException(status_code=400, detail=str(e))
     forget_workspace_usage()
+    manager.forget_workspace(name)
     logger.info(f"Deleted workspace {name}")
     return {"name": name, "deleted": True, "contents": contents}
 
@@ -310,7 +407,11 @@ def _write_validated(state, ws, name, definition):
     # itself failing is the server's (500), and its message may carry
     # internals the log keeps
     try:
-        errors = candidate.validation_errors()
+        # With the LoRA catalog, as the validate route checks it - a save
+        # the server would refuse to run is refused here too (#870)
+        errors = candidate.validation_errors(
+            context=validation.workflow_context(candidate, lora_index=lora_index(state))
+        )
     except Exception:
         raise internal_error("Workflow validation failed outright on save")
     if errors:
@@ -329,6 +430,9 @@ def _write_validated(state, ws, name, definition):
     warnings += validation.run_warning_check(
         candidate, "null_variable_argument_warnings", None
     )
+    # An acceleration setting that can't pay off is said where the
+    # workflow is kept, too, not only at validate and submit (#887)
+    warnings += validation.run_warning_check(candidate, "acceleration_warnings", None)
     if not metadata["summary"]:
         warnings.append(
             "No summary: add a 'description' (its first sentence becomes "
@@ -810,6 +914,7 @@ def enhance(
             workspace=ws.name,
             warnings=admission.warnings,
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
         )
         return manager.describe(job)
     except Exception:

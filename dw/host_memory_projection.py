@@ -10,7 +10,7 @@ Scope is v1, by the repo owner's own sign-off on the issue: observed, not
 curated (no author-declared memory figure - `host_memory_job_peak_rss_mb` is
 a worker-reported field, not a schema key); warn, not refuse (host RAM headroom
 is a property of *this machine*, not something a caller chose, so it never
-blocks a run); no cross-machine normalization; and a cold start - no history
+refuses a run; dispatch may delay a start on the figure, #869); no cross-machine normalization; and a cold start - no history
 for this workflow at all - means no check, the same rule `observed_cost.py`
 uses for GPU minutes.
 """
@@ -148,7 +148,9 @@ def _fit_peak_model(medians):
     return base, slope, low, high
 
 
-def _already_survived(rows, list_entries, requested, projected_mb, variables):
+def _already_survived(
+    rows, list_entries, requested, projected_mb, variables, released=False
+):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
 
@@ -159,15 +161,85 @@ def _already_survived(rows, list_entries, requested, projected_mb, variables):
     completed data point, not a guess: warning about a peak already reached
     without incident tells a caller nothing they don't already know from ten
     minutes ago.
+
+    A `released` shape holds one entry's pipeline at a time, so its peak does
+    not scale with the list: a successful run at that peak survived it
+    whatever length that run had (#901 - dialogue-short's ~125 GB was reached
+    by runs of 5 and fewer shots alike, all of which finished). The
+    `released` projection is the largest peak among successful rows, so this
+    holds by construction; the check stays so the rule is stated in one
+    place.
     """
     for row in rows:
         peak = row.get("host_memory_job_peak_rss_mb")
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
+        if released:
+            return True
         count = _row_count(row, list_entries, variables)
         if count is not None and count >= requested:
             return True
     return False
+
+
+def _projection(definition, list_entries, rows):
+    """The projected peak and how it was reached, or None when there is no
+    list, no history, or nothing seedable to project for.
+
+    Returns `(projected_mb, shape, requested, released, variables)` - the
+    figure and the words `host_memory_warnings` quotes it in.
+    """
+    requested = _requested_count(list_entries)
+    if requested is None or not rows:
+        return None
+    if not _has_seedable_step(definition):
+        # A task-only workflow loads no model to accumulate across entries -
+        # the failure mode this module projects for doesn't apply to it
+        return None
+    variables = definition.get("variables") or {}
+    peaks = [row.get("host_memory_job_peak_rss_mb") for row in rows]
+    peaks = [value for value in peaks if isinstance(value, (int, float))]
+    if not peaks:
+        # Cold start: history exists for this workflow, but no run of it
+        # ever reported a host-memory reading - nothing to project from
+        return None
+    released = releases_between_iterations(definition)
+    if released:
+        projected = max(peaks)
+        shape = f"~{round(projected)} MB, the largest single iteration observed"
+    else:
+        medians = _peak_by_count(rows, list_entries, variables)
+        if not medians:
+            return None
+        base, slope, low_count, high_count = _fit_peak_model(medians)
+        projected = base + slope * requested
+        if low_count == high_count:
+            shape = (
+                f"~{round(projected)} MB at {requested} entries, based on "
+                f"this workflow's own {low_count}-entry runs with no larger "
+                "history yet to project growth from"
+            )
+        else:
+            shape = (
+                f"~{round(projected)} MB at {requested} entries, "
+                f"extrapolated from runs of {low_count} and {high_count} entries"
+            )
+    return projected, shape, requested, released, variables
+
+
+def projected_mb(definition, list_entries, rows):
+    """`{"projected_mb", "runs"}` for a list run's projected host-memory
+    peak, or None - the figure `host_memory_warnings` compares with the
+    ceiling, for a caller that wants the number rather than a warning
+    (`dw/server/host_ram_need.py`, #869). `runs` counts the rows that
+    reported a peak."""
+    projection = _projection(definition, list_entries, rows)
+    if projection is None:
+        return None
+    runs = sum(
+        isinstance(row.get("host_memory_job_peak_rss_mb"), (int, float)) for row in rows
+    )
+    return {"projected_mb": projection[0], "runs": runs}
 
 
 def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
@@ -181,45 +253,18 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     right after a heavy one no longer inherits the heavy job's peak).
     `ceiling_mb` is this box's own RAM, scaled by `CEILING_FRACTION`; the
     caller reads that once per request rather than this module importing
-    `host_memory` for a per-validate syscall.
+    `host_memory` for a per-validate syscall. The projection itself is
+    `_projection`'s, shared with `projected_mb`.
     """
-    requested = _requested_count(list_entries)
-    if requested is None or not rows or not ceiling_mb:
+    if not ceiling_mb:
         return []
-    if not _has_seedable_step(definition):
-        # A task-only workflow loads no model to accumulate across entries -
-        # the failure mode this module projects for doesn't apply to it
+    projection = _projection(definition, list_entries, rows)
+    if projection is None:
         return []
-    variables = definition.get("variables") or {}
-    peaks = [row["host_memory_job_peak_rss_mb"] for row in rows]
-    peaks = [value for value in peaks if isinstance(value, (int, float))]
-    if not peaks:
-        # Cold start: history exists for this workflow, but no run of it
-        # ever reported a host-memory reading - nothing to project from
+    projected, shape, requested, released, variables = projection
+    if projected <= ceiling_mb:
         return []
-    if releases_between_iterations(definition):
-        projected_mb = max(peaks)
-        shape = f"~{round(projected_mb)} MB, the largest single iteration observed"
-    else:
-        medians = _peak_by_count(rows, list_entries, variables)
-        if not medians:
-            return []
-        base, slope, low_count, high_count = _fit_peak_model(medians)
-        projected_mb = base + slope * requested
-        if low_count == high_count:
-            shape = (
-                f"~{round(projected_mb)} MB at {requested} entries, based on "
-                f"this workflow's own {low_count}-entry runs with no larger "
-                "history yet to project growth from"
-            )
-        else:
-            shape = (
-                f"~{round(projected_mb)} MB at {requested} entries, "
-                f"extrapolated from runs of {low_count} and {high_count} entries"
-            )
-    if projected_mb <= ceiling_mb:
-        return []
-    if _already_survived(rows, list_entries, requested, projected_mb, variables):
+    if _already_survived(rows, list_entries, requested, projected, variables, released):
         return []
     return [
         f"Projected host memory for this run ({shape}) exceeds this "

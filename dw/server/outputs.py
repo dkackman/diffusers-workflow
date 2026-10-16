@@ -10,7 +10,9 @@ import logging
 import os
 import shutil
 import tempfile
+import threading
 import zipfile
+from collections import OrderedDict
 from datetime import datetime
 from urllib.parse import quote
 
@@ -30,8 +32,13 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
+from ..notes import read_notes
+from ..roles import ROLE_DECLARED_KEY, consumed_outputs, entry_role, listed_role
 from ..runs import (
+    MANIFEST_FILE_NAME,
+    _read_manifest,
     is_output_reference,
+    is_run_id,
     record_run_versions,
     run_lock_path,
     run_versions,
@@ -463,3 +470,208 @@ def delete_run_directory(run_dir, root):
     logger.info(f"Deleted run directory {os.path.relpath(run_dir, root)}")
     forget_workspace_usage()
     return os.path.basename(run_dir)
+
+
+def split_run_name(root, relative_name):
+    """A gallery file name's run directory and its path inside that run:
+    'wf/20261012-000003-dddddddd/final/b.png' -> (<root>/wf/<run id>,
+    'final/b.png'). None for a flat-layout file, which has no run."""
+    parts = [part for part in (relative_name or "").split("/") if part]
+    for position, segment in enumerate(parts[:-1]):
+        if is_run_id(segment):
+            run_dir = os.path.join(root, *parts[: position + 1])
+            return run_dir, "/".join(parts[position + 1 :])
+    return None
+
+
+def validated_run_split(root, path):
+    """`split_run_name` for a file already resolved under `root` (a
+    validator's return value): (run directory, name inside it), the
+    directory itself validated against `root`, or None for a flat-layout
+    file. Measured from root's real path, since `path` is a real path and a
+    root under a symlink would otherwise relativise to '../..'."""
+    relative = os.path.relpath(path, os.path.realpath(root)).replace(os.sep, "/")
+    split = split_run_name(root, relative)
+    if split is None:
+        return None
+    try:
+        return validate_path(split[0], root, allow_create=False), split[1]
+    except SecurityError:
+        return None
+
+
+def run_directory(name, root):
+    """The run directory `<identity>/<run id>` names, validated against
+    `root`, or None when `name` is not one.
+
+    A run that failed before it wrote anything still has a directory and a
+    manifest, and no gallery name addresses it - so the name of the
+    directory itself is the only handle there can be (#134).
+    """
+    parts = [part for part in (name or "").split("/") if part]
+    if not parts or not is_run_id(parts[-1]):
+        return None
+    try:
+        path = validate_path(
+            os.path.join(root, "/".join(parts)), root, allow_create=False
+        )
+    except SecurityError:
+        return None
+    return path if os.path.isdir(path) else None
+
+
+# Roles by (run directory, manifest mtime): a listing asks for every file
+# of a run, and the manifest it came from has not changed since the last ask.
+# Least recently used goes first; an entry is a small dict, so the limit
+# sits well above the runs one workspace holds. Listings run on the
+# threadpool, so every touch holds the lock
+_ROLE_CACHE = OrderedDict()
+_ROLE_CACHE_LIMIT = 8192
+_ROLE_CACHE_LOCK = threading.Lock()
+_INPUT_KINDS = ("asset", "output")
+
+
+def run_roles(run_dir):
+    """Each file of a run, by path relative to the run directory ('/'
+    separated), mapped to the role its manifest entry records. An entry
+    without one (a run that predates roles) is left out - unknown, not
+    guessed. {} when the manifest is unreadable."""
+    return _run_role_record(run_dir)[0]
+
+
+def declared_files(run_dir):
+    """The files of a run whose role the step declared (`role_declared`,
+    dw/roles.py rule 1), by the same names `run_roles` uses."""
+    return _run_role_record(run_dir)[1]
+
+
+def listed_file_role(run_dir, name, consumed):
+    """The role a listing shows for file `name` of a run: its recorded role,
+    demoted when `consumed` (dw/roles.py rule 4)."""
+    return listed_role(
+        run_roles(run_dir).get(name), name in declared_files(run_dir), consumed
+    )
+
+
+def consumed_in(state, ws):
+    """`consumed_outputs` over a workspace's outputs, its assets found down
+    the search path a run resolves 'asset:' in. Once per listing."""
+    library = resolution_library(state, ws)
+
+    def find_asset(name):
+        try:
+            validate_asset_reference(name)
+        except SecurityError:
+            return None
+        found = library.find(name)
+        return found[0] if found else None
+
+    return consumed_outputs(ws.outputs, find_asset, ws.name)
+
+
+def _run_role_record(run_dir):
+    """(roles, declared names) a run's manifest records, cached on its stat."""
+    try:
+        key = (
+            run_dir,
+            os.stat(os.path.join(run_dir, MANIFEST_FILE_NAME)).st_mtime_ns,
+        )
+    except OSError:
+        return {}, frozenset()
+    with _ROLE_CACHE_LOCK:
+        if key in _ROLE_CACHE:
+            _ROLE_CACHE.move_to_end(key)
+            return _ROLE_CACHE[key]
+    manifest = _read_manifest(run_dir) or {}
+    roles, declared = {}, set()
+    for entry in manifest.get("steps") or []:
+        role = entry_role(entry)
+        if role:
+            for name in entry.get("files") or []:
+                roles[str(name).replace(os.sep, "/")] = role
+                if entry.get(ROLE_DECLARED_KEY) is True:
+                    declared.add(str(name).replace(os.sep, "/"))
+    record = (roles, frozenset(declared))
+    with _ROLE_CACHE_LOCK:
+        _ROLE_CACHE[key] = record
+        _ROLE_CACHE.move_to_end(key)
+        while len(_ROLE_CACHE) > _ROLE_CACHE_LIMIT:
+            _ROLE_CACHE.popitem(last=False)
+    return record
+
+
+def run_inputs(run_dir):
+    """The inputs a run's manifest recorded, or None when it has none. Only
+    well-formed entries: a str reference of a kind the engine records."""
+    inputs = (_read_manifest(run_dir) or {}).get("inputs")
+    if not isinstance(inputs, list):
+        return None
+    return [
+        {"reference": entry["reference"], "kind": entry["kind"]}
+        for entry in inputs
+        if isinstance(entry, dict)
+        and isinstance(entry.get("reference"), str)
+        and entry.get("kind") in _INPUT_KINDS
+    ]
+
+
+def job_run_directory(root, run_dir):
+    """A job's run directory under its validated output root, or None when
+    the job never opened one or the directory is gone."""
+    if not run_dir:
+        return None
+    try:
+        path = validate_path(os.path.join(root, run_dir), root, allow_create=False)
+    except SecurityError:
+        return None
+    return path if os.path.isdir(path) else None
+
+
+def with_run_note(summary, path):
+    """`summary` with the run's current note from its notes.json - a note
+    edited after submission replaces the one the job was submitted with,
+    and a cleared one removes it. Unchanged when `path` is None."""
+    if path is None:
+        return summary
+    summary = {key: value for key, value in summary.items() if key != "note"}
+    note = read_notes(path)["run"]
+    return {**summary, "note": note} if note else summary
+
+
+def with_run_state(detail, root, run_dir, roles=True):
+    """A job's detail with what its run directory says now: the run note,
+    and each manifest entry's role. The worker reports the manifest it held
+    in memory, which carries no roles - so each entry takes the role
+    `run_roles` gives its files; a run from before roles stays without. `roles` false leaves the manifest alone."""
+    path = job_run_directory(root, run_dir)
+    if path is None:
+        return detail
+    detail = with_run_note(detail, path)
+    roles = run_roles(path) if roles else None
+    manifest = detail.get("manifest")
+    if not roles or not isinstance(manifest, list):
+        return detail
+    entries = []
+    for entry in manifest:
+        if isinstance(entry, dict) and entry_role(entry) is None:
+            role = next(
+                (
+                    roles[name]
+                    for name in (
+                        _run_relative(root, path, f) for f in entry.get("files") or []
+                    )
+                    if name in roles
+                ),
+                None,
+            )
+            if role:
+                entry = {**entry, "role": role}
+        entries.append(entry)
+    return {**detail, "manifest": entries}
+
+
+def _run_relative(root, run_path, name):
+    """A job manifest's file name (relative to the output root) as the run
+    directory's manifest names it, '/' separated."""
+    full = os.path.normpath(os.path.join(root, str(name)))
+    return os.path.relpath(full, run_path).replace(os.sep, "/")

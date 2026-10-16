@@ -7,6 +7,7 @@ import os
 import pytest
 from fastapi.testclient import TestClient
 
+from dw.server import deps
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.server.routes import loras as lora_routes
@@ -230,6 +231,112 @@ class TestWrites:
         response = server.get("/api/loras", params={"model": "models/listy"})
         assert response.status_code == 400
         assert "models/listy" in response.json()["detail"]
+
+
+PEOPLE = "fal/MiniMax-H3-Realism-People-LoRA"
+PEOPLE_FILE = "h3-realism-people-t2v-i2v-r2v.safetensors"
+H3_TEMPLATE = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "workflows",
+    "templates",
+    "minimax",
+    "reference-to-video.json",
+)
+
+
+def people_entry(status, **overrides):
+    return entry(
+        model_name=PEOPLE,
+        weight_name=PEOPLE_FILE,
+        base_models=["MiniMaxAI/MiniMax-H3"],
+        workflow=["t2va", "fl2va"],
+        status=status,
+        **({"evidence": [{"note": "R3"}]} if status == "proven" else {}),
+        **overrides,
+    )
+
+
+def h3_people(workflow, for_each=None):
+    """The shipped reference-to-video template, its adapters swapped for
+    the realism file and its workflow for `workflow`."""
+    with open(H3_TEMPLATE, encoding="utf-8") as file:
+        definition = json.load(file)
+    # The ceiling is the host's business, not this check's
+    definition.pop("vram_estimate", None)
+    for step in definition["steps"]:
+        pipeline = step.get("pipeline") or {}
+        if pipeline.get("loras"):
+            pipeline["from_pretrained_arguments"]["workflow"] = workflow
+            pipeline["loras"] = [{"model_name": PEOPLE, "weight_name": PEOPLE_FILE}]
+            if for_each:
+                step["for_each"] = for_each
+    return definition
+
+
+def validated(server, workflow):
+    return server.post(
+        "/api/validate", json={"workflow": workflow}, params={"sizes": False}
+    ).json()
+
+
+class TestTheCatalogPlacesAnAdapter:
+    """#870: the server's validate reads the catalog before the file name."""
+
+    def test_a_trial_entry_warns_and_promoting_it_refuses(self, server):
+        assert (
+            server.put(
+                "/api/loras/minimax-h3/people", json={"entry": people_entry("trial")}
+            ).status_code
+            == 200
+        )
+        trial = validated(server, h3_people("ref2va"))
+        assert trial["valid"] is True, trial
+        assert any(
+            "minimax-h3/people" in warning and "trial" in warning
+            for warning in trial["warnings"]
+        ), trial["warnings"]
+        # The proven copy wins the shared file, and the listing changed
+        assert (
+            server.put(
+                "/api/loras/minimax-h3/people-proven",
+                json={"entry": people_entry("proven")},
+            ).status_code
+            == 200
+        )
+        proven = validated(server, h3_people("ref2va"))
+        assert proven["valid"] is False
+        assert "minimax-h3/people-proven" in proven["errors"][0]["message"]
+        clean = validated(server, h3_people("fl2va"))
+        assert clean["valid"] is True
+        assert not any(PEOPLE_FILE in warning for warning in clean["warnings"])
+
+    def test_one_build_per_listing_for_every_member(self, server, monkeypatch):
+        server.put(
+            "/api/loras/minimax-h3/people", json={"entry": people_entry("proven")}
+        )
+        builds = []
+        real = deps.catalog_index
+
+        def counted(entries):
+            builds.append(len(entries))
+            return real(entries)
+
+        monkeypatch.setattr(deps, "catalog_index", counted)
+        server.app.state.lora_indexes = None
+        workflow = h3_people(
+            "ref2va", for_each=[{"name": "wide"}, {"name": "closeup"}, {"name": "cu"}]
+        )
+        first = validated(server, workflow)
+        second = validated(server, workflow)
+        assert len(builds) == 1, builds
+        for answer in (first, second):
+            assert answer["valid"] is False
+            adapters = [
+                error
+                for error in answer["errors"]
+                if "minimax-h3/people" in error["message"]
+            ]
+            assert len(adapters) == 3, answer["errors"]
 
 
 @pytest.fixture

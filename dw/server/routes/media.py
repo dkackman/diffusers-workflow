@@ -1,5 +1,7 @@
 """The media routes under `/api/gallery/{name:path}`: metadata, assessment,
-audio, frames, thumbnail and download of one output or asset.
+audio, frames, thumbnail and download of one output or asset - and
+`PUT /api/notes`, which sets the note on an output, a run, an asset or a
+workspace (dw/notes.py holds the stores).
 
 Registered before the gallery router, so these GETs sit ahead of the greedy
 `DELETE /api/gallery/{name:path}`, as they always have. `video_shape` is looked
@@ -10,17 +12,33 @@ import base64
 import io
 import mimetypes
 import os
-from typing import Literal, Optional
+from typing import Literal, Optional, Union
 
 import av
 from PIL import Image
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import FileResponse, Response
+from pydantic import BaseModel, Field
 
 from ..api_models import (
     GalleryMetadata,
+    NoteSet,
+    StarSet,
 )
 from ...assets import is_asset_reference
+from ...library import ReadOnlyLibraryError
+from ...notes import (
+    MAX_NOTE_LENGTH,
+    NoteTooLong,
+    clean_note,
+    effective_note,
+    read_notes,
+    set_file_note,
+    set_file_starred,
+    set_run_note,
+    set_workspace_note,
+)
+from ...references import ASSET, WORKSPACE, is_ref, ref_name
 from ...media import (
     MAX_INLINE_AUDIO_BYTES,
     NoSoundtrack,
@@ -31,6 +49,7 @@ from ...media import (
     projected_wav_base64_size,
     video_shape,
 )
+from ... import media_compare
 from ...media_frames import (
     contact_sheet,
     first_frame,
@@ -40,10 +59,21 @@ from ...media_frames import (
 )
 from ...writers import read_embedded_metadata
 from ...runs import kept_provenance, recorded_shots, shots_beside
-from ...security import MAX_DECODE_PIXELS
-from ...workspace import Workspace
+from ...security import (
+    MAX_DECODE_PIXELS,
+    SecurityError,
+    validate_asset_reference,
+    validate_path,
+)
+from ...workspace import DEFAULT_WORKSPACE_NAME, Workspace
 from ..assess import assess, level_findings, unknown_probe
-from ..deps import selected_workspace
+from ..deps import (
+    asset_library_missing,
+    internal_error,
+    selected_workspace,
+    workspace_for,
+    workspace_root,
+)
 from ..http_security import query_token_ok
 from ..inline_media import (
     encode_within_budget,
@@ -57,7 +87,13 @@ from ..outputs import (
     asset_file,
     job_provenance,
     resolve_output_file,
+    run_directory,
+    consumed_in,
+    listed_file_role,
+    run_inputs,
     strip_output_prefix,
+    validated_run_split,
+    workspace_asset_library,
 )
 
 router = APIRouter()
@@ -76,6 +112,7 @@ def gallery_metadata(
     name: str,
     envelope: bool = False,
     interval_seconds: float = 1.0,
+    include_workflow: bool = True,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Generation metadata embedded in a saved image ('workflow' inside
@@ -98,6 +135,12 @@ def gallery_metadata(
     refused (422) with the interval that fits; the default width is
     never refused for length (#823).
 
+    An image's `media` is its measured `{kind, width, height, mode}`,
+    read from the file header (#922) - not the width/height arguments
+    the pipeline was asked for. `include_workflow=false` drops the
+    embedded `metadata.workflow` (the whole definition, often 20 KB) and
+    leaves the rest of `metadata` with `workflow_omitted: true`.
+
     `name` may also be an 'asset:' reference, and then it is the input
     asset of that name that is described rather than an output (#127).
     The numbers here - duration, frame count, fps, sample rate - are
@@ -114,17 +157,34 @@ def gallery_metadata(
     back the same way it reads a kept file's shots (#556). `run_id`/
     `version` are that source run's own - `job.id` is still the one to
     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-    of its own to reopen."""
+    of its own to reopen. `inputs` is the source run's too (#902)."""
     run_id, version = "", None
+    role, inputs = None, None
+    notes = {}
     name = strip_output_prefix(name)
     if is_asset_reference(name):
         path = asset_file(request.app.state, name, ws)
         source, job = "asset", None
+        # An asset's note is its own entry in its directory's notes.json;
+        # an asset library has no runs, so no run note
+        own = read_notes(os.path.dirname(path))["files"].get(os.path.basename(path))
+        if own:
+            notes = {"note": own, "note_source": "file"}
         kept = kept_provenance(path)
         if kept:
             job = kept.get("job")
+            if (
+                job
+                and job.get("id")
+                and (request.app.state.job_manager.get(job["id"]) is None)
+            ):
+                # Pruned from history (the cap, or a deleted workspace):
+                # the id is a record, not something get_job_workflow can
+                # open, so the stale status is not reported as current (#918)
+                job = {**job, "status": "forgotten"}
             run_id = kept.get("run_id") or ""
             version = kept.get("version")
+            inputs = kept.get("inputs") or None
     else:
         path = resolve_output_file(request.app.state, name, ws.outputs)
         source = "output"
@@ -133,17 +193,41 @@ def gallery_metadata(
         # call, so it confirms the right file was reached rather than
         # sending the caller back to the listing
         job, run_id, version = job_provenance(request.app.state, name, ws)
+        # Split the validated path, not the raw route parameter, so the
+        # run directory the manifest is read from is a validator's output
+        split = validated_run_split(ws.outputs, path)
+        if split:
+            # The role the listing shows: demoted once a later run read
+            # the file (#928)
+            relative = os.path.relpath(path, os.path.realpath(ws.outputs))
+            consumed = relative.replace(os.sep, "/") in consumed_in(
+                request.app.state, ws
+            )
+            role = listed_file_role(split[0], split[1], consumed)
+            inputs = run_inputs(split[0])
+            notes = _note_fields(read_notes(split[0]), split[1])
     metadata = read_embedded_metadata(path)
+    if metadata is not None and not include_workflow and "workflow" in metadata:
+        metadata = {
+            **{k: v for k, v in metadata.items() if k != "workflow"},
+            "workflow_omitted": True,
+        }
     extension = os.path.splitext(path)[1].lower()
+    kind = MEDIA_KINDS.get(extension)
     try:
-        media = (
-            probe_media(path, envelope=envelope, interval_seconds=interval_seconds)
-            if MEDIA_KINDS.get(extension) in ("audio", "video")
-            else None
-        )
+        if kind in ("audio", "video"):
+            media = probe_media(
+                path, envelope=envelope, interval_seconds=interval_seconds
+            )
+        elif kind == "image":
+            media = _image_media(path)
+        else:
+            media = None
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if media is not None and source == "output":
+    if kind == "image":
+        pass  # no shots in a still
+    elif media is not None and source == "output":
         # Where each shot of a joined video sits, as the run that wrote
         # it recorded (dw/shots.py) - null for a file not joined from shots
         media["shots"] = recorded_shots(ws.outputs, name)
@@ -161,7 +245,36 @@ def gallery_metadata(
         "version": version,
         "media": media,
         "findings": level_findings(media),
+        "role": role,
+        "inputs": inputs,
+        **notes,
     }
+
+
+def _image_media(path):
+    """An image's `media` block - kind, pixel size and mode - read from
+    the header alone, so no pixel is decoded; None for a file Pillow cannot
+    read (#922)."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return {
+                "kind": "image",
+                "width": image.width,
+                "height": image.height,
+                "mode": image.mode,
+            }
+    except (OSError, ValueError, SyntaxError):
+        return None
+
+
+def _note_fields(notes, name):
+    """The metadata route's note keys for file `name` of a run, each only
+    when set."""
+    note, source = effective_note(notes, name)
+    fields = {"note": note, "note_source": source, "run_note": notes["run"]}
+    return {key: value for key, value in fields.items() if value}
 
 
 @router.get("/api/gallery/{name:path}/assess")
@@ -529,6 +642,123 @@ def _encoded_tile(tile, image):
     return encoded
 
 
+class CompareRequest(BaseModel):
+    names: list[str] = Field(
+        description="2 to 8 outputs (or `asset:` references), one row each"
+    )
+    at: Optional[list[Union[float, str]]] = Field(
+        None,
+        description='1 to 8 moments - seconds, or "frame:N" - read at the same '
+        "frame number in every output; default 4 evenly spaced frames",
+    )
+    crop: Optional[Union[list[int], list[list[int]]]] = Field(
+        None,
+        description="[x, y, width, height] in source pixels, the region shown "
+        "and measured; or one box per name, shown only",
+    )
+    baseline: Optional[str] = Field(
+        None,
+        description="The output the others are measured against; default the first",
+    )
+    max_dimension: int = Field(384, description="Longest side of each grid cell")
+    max_total_bytes: Optional[int] = Field(
+        None, description="A budget on the grid's base64 size"
+    )
+
+
+def _compare_source(state, ws, name):
+    """One output of a comparison, resolved and opened: a still decoded
+    (413/422 as `open_bounded` refuses), a video's shape read."""
+    name = strip_output_prefix(name)
+    if is_asset_reference(name):
+        path = asset_file(state, name, ws)
+    else:
+        path = resolve_output_file(state, name, ws.outputs)
+    kind = MEDIA_KINDS.get(os.path.splitext(path)[1].lower())
+    if kind == "image":
+        return {"name": name, "kind": kind, "image": open_bounded(path, name)}
+    if kind != "video":
+        raise HTTPException(
+            status_code=400, detail=f"{name} is not an image or a video"
+        )
+    try:
+        shape = video_shape(path)
+    except (av.FFmpegError, ValueError) as e:
+        raise HTTPException(
+            status_code=422, detail=f"{name} could not be decoded as a video: {e}"
+        )
+    if shape["width"] * shape["height"] > MAX_DECODE_PIXELS:
+        raise HTTPException(
+            status_code=413,
+            detail=f"{name} is {shape['width']}x{shape['height']}, more than the "
+            f"{MAX_DECODE_PIXELS:,} pixels a frame is decoded from",
+        )
+    return {"name": name, "kind": kind, "path": path, "shape": shape}
+
+
+@router.post("/api/gallery/compare")
+def gallery_compare(
+    request: Request, body: CompareRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Two to eight outputs side by side at the same moments, and how far
+    each is from a baseline (#871): one grid, a row per output and a
+    column per moment, plus PSNR, SSIM and mean absolute difference per
+    non-baseline output at source resolution. Moments resolve to one
+    frame index against the baseline (or the first video) and every
+    output is read at that frame; one past an output's end is a blank
+    cell. A single `crop` is the region shown and measured; one box per
+    name is shown only, and the metrics stay on the full frame. Outputs
+    of different sizes get no metrics, and say why. Stills join a video
+    comparison as the same image in every column. `max_total_bytes`
+    shrinks the whole grid, and `downscaled_to` says to what."""
+    try:
+        baseline_row, crop_mode = media_compare.check_request(
+            body.names, body.at, body.crop, body.baseline
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    state = request.app.state
+    sources = [_compare_source(state, ws, name) for name in body.names]
+    limit = max(1, int(body.max_dimension))
+    try:
+        answer = media_compare.compare(
+            sources, body.at, body.crop, baseline_row, crop_mode, limit
+        )
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    except media_compare.UnreadableMedia as e:
+        raise HTTPException(status_code=422, detail=str(e))
+
+    grid = answer.pop("grid")
+    downscaled_to = None
+    if body.max_total_bytes is not None:
+        # Each cell kept at least FRAME_MIN_DIMENSION on its longest side
+        # however far the budget shrinks the grid
+        cells = max(len(sources), len(answer["columns"]))
+        longest = max(grid.size)
+        (grid,), downscaled_to = fit_tiles_within_budget(
+            [grid], longest, body.max_total_bytes, floor=FRAME_MIN_DIMENSION * cells
+        )
+        if downscaled_to is not None and max(grid.size) >= longest:
+            # Already at the floor: shrinking further would not leave a
+            # cell legible, so the grid goes over budget and says so
+            downscaled_to = None
+            answer["notes"].append(
+                "over `max_total_bytes`: the grid is already as small as it "
+                "can be and stay legible"
+            )
+    return {
+        "image": {
+            "data": base64.b64encode(png_bytes(grid)).decode("ascii"),
+            "mime_type": "image/png",
+            "width": grid.width,
+            "height": grid.height,
+        },
+        "downscaled_to": downscaled_to,
+        **answer,
+    }
+
+
 @router.get("/api/gallery/{name:path}/image")
 @query_token_ok
 def gallery_image(
@@ -673,3 +903,150 @@ def download_output(
     """Serve one output file as a forced download rather than an inline view."""
     path = resolve_output_file(request.app.state, name, ws.outputs)
     return FileResponse(path, filename=os.path.basename(name))
+
+
+class NoteRequest(BaseModel):
+    target: str = Field(
+        description="What the note is on: a gallery file name, a run directory "
+        "`<identity>/<run id>`, `asset:<name>` or `workspace:<name>`"
+    )
+    note: Optional[str] = Field(
+        default=None,
+        description=f"At most {MAX_NOTE_LENGTH} characters; null or '' clears it",
+    )
+
+
+def _workspace_note_target(state, name):
+    """The root a `workspace:<name>` target writes workspace.json into."""
+    if not name:
+        raise HTTPException(
+            status_code=400, detail="Name a workspace: workspace:<name>"
+        )
+    if name == DEFAULT_WORKSPACE_NAME:
+        root = state.default_workspace.root
+        if not root:
+            raise HTTPException(
+                status_code=409,
+                detail="This server has no workspace root, so the default "
+                "workspace has nowhere to keep a note",
+            )
+        return root
+    # 400 for a name a workspace cannot take, 404 for one that is not there
+    selected = workspace_for(state, name)
+    try:
+        return validate_path(
+            selected.root, workspace_root(state).root, allow_create=False
+        )
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+
+
+def _asset_note_target(state, ws, name):
+    """(directory, file name) of the asset an `asset:<name>` target names -
+    resolved the way the asset delete resolves it, read-only roots refused."""
+    library = workspace_asset_library(state, ws)
+    if not library.roots():
+        raise asset_library_missing()
+    try:
+        relative = validate_asset_reference(name)
+    except SecurityError as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    found = library.find(relative)
+    if not found:
+        raise HTTPException(status_code=404, detail=f"No such asset: {relative}")
+    path, root = found
+    try:
+        library.require_writable(root, relative)
+    except ReadOnlyLibraryError as refusal:
+        raise HTTPException(status_code=403, detail=str(refusal))
+    return os.path.dirname(path), os.path.basename(path)
+
+
+def resolve_note_target(state, ws, target):
+    """(directory, name, kind) for a note target, kind one of "workspace",
+    "run" and "file" (an asset is a file in its library directory). Every
+    directory is a validator's return value against a non-None root, or the
+    server's own configured default root. Raises the route's 400/403/404/409.
+    """
+    if is_ref(WORKSPACE, target):
+        name = ref_name(WORKSPACE, target).strip()
+        return _workspace_note_target(state, name), None, "workspace"
+    if is_asset_reference(target):
+        name = ref_name(ASSET, target).strip()
+        directory, file_name = _asset_note_target(state, ws, name)
+        return directory, file_name, "file"
+    name = strip_output_prefix(target)
+    run_dir = run_directory(name, ws.outputs)
+    if run_dir is not None:
+        return run_dir, None, "run"
+    path = resolve_output_file(state, name, ws.outputs)
+    split = validated_run_split(ws.outputs, path)
+    if split is None:
+        raise HTTPException(
+            status_code=409,
+            detail=f"{name} is not in a run directory, and notes need a run directory",
+        )
+    return split[0], split[1], "file"
+
+
+@router.put("/api/notes", response_model=NoteSet, response_model_exclude_unset=True)
+def put_note(
+    request: Request, body: NoteRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Set or clear the note on a run, a file, an asset or a workspace.
+
+    `target` is a gallery file name (that file's own note), a run directory
+    `<identity>/<run id>` (the run note every file of the run falls back to),
+    `asset:<name>` or `workspace:<name>` ('default' for the root's own). The
+    answer is the target's effective note after the write: a file with no
+    note of its own answers with its run's, and `note_source` says which.
+    """
+    try:
+        note = clean_note(body.note)
+    except (NoteTooLong, TypeError) as e:
+        raise HTTPException(status_code=400, detail=str(e))
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.target)
+    try:
+        if kind == "workspace":
+            stored, source = set_workspace_note(directory, note), None
+        elif kind == "run":
+            stored, source = set_run_note(directory, note), "run"
+        else:
+            set_file_note(directory, name, note)
+            stored, source = effective_note(read_notes(directory), name)
+    except OSError:
+        raise internal_error(f"Could not write the note on {body.target!r}")
+    return {
+        "target": body.target,
+        "note": stored,
+        "note_source": source if stored else None,
+    }
+
+
+class StarRequest(BaseModel):
+    name: str = Field(description="A gallery file name")
+    starred: bool
+
+
+@router.put("/api/stars", response_model=StarSet)
+def put_star(
+    request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Star or unstar one output file - the "keep" mark a person culls a run
+    with. It lives in the run's notes.json beside the notes, so it is
+    resolved exactly as a file note is, and only a file in a run directory
+    can carry one."""
+    if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
+    if kind != "file":
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    try:
+        starred = set_file_starred(directory, name, body.starred)
+    except OSError:
+        raise internal_error(f"Could not write the star on {body.name!r}")
+    return {"name": body.name, "starred": starred}

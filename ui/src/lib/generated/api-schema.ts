@@ -339,6 +339,12 @@ export interface paths {
          *     Off by default and bounded by `limit`: only the page actually
          *     returned is probed, not the whole listing, so the cost of asking
          *     stays proportional to the page size rather than the library size.
+         *
+         *     Each entry carries `role`, `final` or `intermediate` (null for a
+         *     flat-layout file or one no manifest lists); a file a later run read
+         *     lists as intermediate unless its step declared it final
+         *     (dw/roles.py rule 4). `role` is a repeatable
+         *     filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
         put?: never;
@@ -367,6 +373,36 @@ export interface paths {
          *     RAM - and unlinked once the response has been sent.
          */
         post: operations["archive_outputs_api_gallery_archive_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/gallery/compare": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Gallery Compare
+         * @description Two to eight outputs side by side at the same moments, and how far
+         *     each is from a baseline (#871): one grid, a row per output and a
+         *     column per moment, plus PSNR, SSIM and mean absolute difference per
+         *     non-baseline output at source resolution. Moments resolve to one
+         *     frame index against the baseline (or the first video) and every
+         *     output is read at that frame; one past an output's end is a blank
+         *     cell. A single `crop` is the region shown and measured; one box per
+         *     name is shown only, and the metrics stay on the full frame. Outputs
+         *     of different sizes get no metrics, and say why. Stills join a video
+         *     comparison as the same image in every column. `max_total_bytes`
+         *     shrinks the whole grid, and `downscaled_to` says to what.
+         */
+        post: operations["gallery_compare_api_gallery_compare_post"];
         delete?: never;
         options?: never;
         head?: never;
@@ -581,6 +617,12 @@ export interface paths {
          *     refused (422) with the interval that fits; the default width is
          *     never refused for length (#823).
          *
+         *     An image's `media` is its measured `{kind, width, height, mode}`,
+         *     read from the file header (#922) - not the width/height arguments
+         *     the pipeline was asked for. `include_workflow=false` drops the
+         *     embedded `metadata.workflow` (the whole definition, often 20 KB) and
+         *     leaves the rest of `metadata` with `workflow_omitted: true`.
+         *
          *     `name` may also be an 'asset:' reference, and then it is the input
          *     asset of that name that is described rather than an output (#127).
          *     The numbers here - duration, frame count, fps, sample rate - are
@@ -597,7 +639,7 @@ export interface paths {
          *     back the same way it reads a kept file's shots (#556). `run_id`/
          *     `version` are that source run's own - `job.id` is still the one to
          *     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-         *     of its own to reopen.
+         *     of its own to reopen. `inputs` is the source run's too (#902).
          */
         get: operations["gallery_metadata_api_gallery__name__metadata_get"];
         put?: never;
@@ -1150,10 +1192,36 @@ export interface paths {
         put?: never;
         /**
          * Cancel Download
-         * @description Request cancellation; takes effect at the next progress tick.
+         * @description Request cancellation; `cancel_requested` shows until it is terminal.
          *     Partial files stay in the cache and resume on a retry.
          */
         post: operations["cancel_download_api_models_downloads__download_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/notes": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Note
+         * @description Set or clear the note on a run, a file, an asset or a workspace.
+         *
+         *     `target` is a gallery file name (that file's own note), a run directory
+         *     `<identity>/<run id>` (the run note every file of the run falls back to),
+         *     `asset:<name>` or `workspace:<name>` ('default' for the root's own). The
+         *     answer is the target's effective note after the write: a file with no
+         *     note of its own answers with its run's, and `note_source` says which.
+         */
+        put: operations["put_note_api_notes_put"];
+        post?: never;
         delete?: never;
         options?: never;
         head?: never;
@@ -1346,6 +1414,29 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/stars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Star
+         * @description Star or unstar one output file - the "keep" mark a person culls a run
+         *     with. It lives in the run's notes.json beside the notes, so it is
+         *     resolved exactly as a file note is, and only a file in a run directory
+         *     can carry one.
+         */
+        put: operations["put_star_api_stars_put"];
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/system/diffusers": {
         parameters: {
             query?: never;
@@ -1461,7 +1552,8 @@ export interface paths {
          *     'cast/priya-voice.wav' rather than the random one a browser upload
          *     gets - which is what makes a recurring cast's references readable
          *     in every workflow that carries them. It may name a folder, is
-         *     confined to the library the way `keep_output`'s is, and takes the
+         *     confined the way `keep_output`'s is but placed under `uploads/`
+         *     (not at the library root, as `keep_output`'s is), and takes the
          *     uploaded file's extension when it has none of its own. Without it
          *     the name stays random, so two uploads of the same file never
          *     collide.
@@ -1469,6 +1561,10 @@ export interface paths {
          *     `shared` puts it in the library every workspace under this root
          *     shares rather than in this workspace's own - a recurring cast that
          *     episode four, in a workspace of its own, still has to reach.
+         *
+         *     `note` is kept beside it (the directory's notes.json). An upload over an
+         *     existing name takes its own note, or none: not the old file's, and not
+         *     the old file's kept provenance either.
          */
         post: operations["upload_media_api_uploads_post"];
         delete?: never;
@@ -1658,6 +1754,34 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/api/workspaces/{destination}/copy": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Copy Into Workspace
+         * @description Copy runs and asset-library entries from another workspace into this one.
+         *
+         *     Media is hard-linked where the filesystem allows, so a copy costs
+         *     little disk; sidecars are copied, and an asset's note and kept shots are
+         *     merged into the destination folder's. All or nothing: a run already
+         *     here, or an asset with identical bytes, is skipped as `already_present`;
+         *     a run whose job is still running, or a different file at an asset's
+         *     path, refuses the whole request (409, naming each) with nothing written.
+         *     A move is a copy, then `DELETE` of the source runs and assets.
+         */
+        post: operations["copy_into_workspace_api_workspaces__destination__copy_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/api/workspaces/{name}": {
         parameters: {
             query?: never;
@@ -1819,6 +1943,11 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Note
+             * @description The asset's note, when it has one.
+             */
+            note?: string;
+            /**
              * Origin
              * @description Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.
              * @enum {string}
@@ -1934,6 +2063,53 @@ export interface components {
             classes: string[];
             /** Kind */
             kind: string;
+        };
+        /** CompareRequest */
+        CompareRequest: {
+            /**
+             * At
+             * @description 1 to 8 moments - seconds, or "frame:N" - read at the same frame number in every output; default 4 evenly spaced frames
+             */
+            at?: (number | string)[] | null;
+            /**
+             * Baseline
+             * @description The output the others are measured against; default the first
+             */
+            baseline?: string | null;
+            /**
+             * Crop
+             * @description [x, y, width, height] in source pixels, the region shown and measured; or one box per name, shown only
+             */
+            crop?: number[] | number[][] | null;
+            /**
+             * Max Dimension
+             * @description Longest side of each grid cell
+             * @default 384
+             */
+            max_dimension: number;
+            /**
+             * Max Total Bytes
+             * @description A budget on the grid's base64 size
+             */
+            max_total_bytes?: number | null;
+            /**
+             * Names
+             * @description 2 to 8 outputs (or `asset:` references), one row each
+             */
+            names: string[];
+        };
+        /** CopiedItems */
+        CopiedItems: {
+            /**
+             * Assets
+             * @description Library-relative path of each asset file copied.
+             */
+            assets: string[];
+            /**
+             * Runs
+             * @description `<workflow>/<run id>` of each run copied.
+             */
+            runs: string[];
         };
         /** Deleted */
         Deleted: {
@@ -2183,12 +2359,27 @@ export interface components {
             /** Name */
             name: string;
             /**
+             * Note
+             * @description The effective note: the file's own, else its run's.
+             */
+            note?: string;
+            /**
+             * Role
+             * @description `final` for a deliverable, `intermediate` for a file a later step or run consumed; null under the flat layout or when no manifest lists the file.
+             */
+            role?: ("final" | "intermediate") | null;
+            /**
              * Run Id
              * @description The run that wrote the file, `''` under the flat layout.
              */
             run_id: string;
             /** Size */
             size: number;
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /**
              * Subfolder
              * @description What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.
@@ -2201,6 +2392,16 @@ export interface components {
              * @description That run's ordinal among the workflow's runs - what the grid shows as `v4`. Never renumbered, so a deleted sibling leaves a gap. Null when there is no run.
              */
             version: number | null;
+        };
+        /** GalleryInput */
+        GalleryInput: {
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "asset" | "output";
+            /** Reference */
+            reference: string;
         };
         /** GalleryList */
         GalleryList: {
@@ -2226,10 +2427,15 @@ export interface components {
         GalleryMetadata: {
             /** Findings */
             findings: components["schemas"]["LevelFinding"][];
+            /**
+             * Inputs
+             * @description The `asset:` and `output:` references the run read; null for a run that recorded none.
+             */
+            inputs?: components["schemas"]["GalleryInput"][] | null;
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
-             * @description The probe of an audio or video file; null for an image.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.
              */
             media: {
                 [key: string]: unknown;
@@ -2243,8 +2449,29 @@ export interface components {
             } | null;
             /** Name */
             name: string;
+            /**
+             * Note
+             * @description The effective note: the file's own, else its run's.
+             */
+            note?: string;
+            /**
+             * Note Source
+             * @description Whose note `note` is.
+             * @enum {string}
+             */
+            note_source?: "file" | "run";
+            /**
+             * Role
+             * @description The file's role in its run; null when the run does not say.
+             */
+            role?: ("final" | "intermediate") | null;
             /** Run Id */
             run_id: string;
+            /**
+             * Run Note
+             * @description The note of the run that wrote the file.
+             */
+            run_note?: string;
             /**
              * Source
              * @enum {string}
@@ -2341,6 +2568,11 @@ export interface components {
              */
             manifest: components["schemas"]["ManifestEntry"][] | null;
             /**
+             * Note
+             * @description The note it was submitted with; also its run's note.
+             */
+            note?: string;
+            /**
              * Output Kinds
              * @description Each output file's kind; null for a kind the gallery does not show. On GET /api/jobs/{id} only.
              */
@@ -2354,6 +2586,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2375,6 +2612,11 @@ export interface components {
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Traceback */
             traceback: string | null;
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /** Warnings */
             warnings: string[];
             /**
@@ -2505,6 +2747,11 @@ export interface components {
              */
             base_dir?: string | null;
             /**
+             * Note
+             * @description A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens
+             */
+            note?: string | null;
+            /**
              * Workflow
              * @description Inline workflow definition
              */
@@ -2547,10 +2794,20 @@ export interface components {
             /** Id */
             id: string;
             /**
+             * Note
+             * @description The note it was submitted with; also its run's note.
+             */
+            note?: string;
+            /**
              * Queue Position
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
@@ -2568,6 +2825,11 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /**
              * Workflow
              * @description Null only on a row recorded before the workflow was stored.
@@ -2620,6 +2882,11 @@ export interface components {
              * @description The generated file to keep, as the gallery names it
              */
             name: string;
+            /**
+             * Note
+             * @description A note on the kept asset, at most 4000 characters; the source file's effective note when omitted, and none when empty
+             */
+            note?: string | null;
             /**
              * Overwrite
              * @description Replace an asset already under that name
@@ -2704,6 +2971,12 @@ export interface components {
              * @description The step was served from the step cache: these files are an earlier run's, republished, and nothing was generated for them this time.
              */
             reused?: boolean;
+            /**
+             * Role
+             * @description The step's role in its run, as the run's manifest.json records it. Absent while the run is going, or for a run from before roles.
+             * @enum {string}
+             */
+            role?: "final" | "intermediate";
             /** Step */
             step: string;
             /**
@@ -2711,6 +2984,8 @@ export interface components {
              * @description The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.
              */
             subfolder?: string;
+            /** @description Where the step's time went. Only on a pipeline step that ran: a reused step, a task or a composed step has none. */
+            timing?: components["schemas"]["StepTiming"];
         } & {
             [key: string]: unknown;
         };
@@ -2820,6 +3095,12 @@ export interface components {
         };
         /** ModelDownload */
         ModelDownload: {
+            /**
+             * Cancel Requested
+             * @description A cancel was requested and the download has not yet stopped: it is stopping, not still pulling.
+             * @default false
+             */
+            cancel_requested: boolean;
             /** Downloaded */
             downloaded: number;
             /** Error */
@@ -2883,6 +3164,34 @@ export interface components {
              * @description up, down, front, or back
              */
             direction: string;
+        };
+        /** NoteRequest */
+        NoteRequest: {
+            /**
+             * Note
+             * @description At most 4000 characters; null or '' clears it
+             */
+            note?: string | null;
+            /**
+             * Target
+             * @description What the note is on: a gallery file name, a run directory `<identity>/<run id>`, `asset:<name>` or `workspace:<name>`
+             */
+            target: string;
+        };
+        /** NoteSet */
+        NoteSet: {
+            /**
+             * Note
+             * @description The effective note after the write.
+             */
+            note: string | null;
+            /**
+             * Note Source
+             * @description Whose note `note` is; null for a workspace or no note.
+             */
+            note_source: ("file" | "run") | null;
+            /** Target */
+            target: string;
         };
         /** OutputDeleted */
         OutputDeleted: {
@@ -2970,6 +3279,8 @@ export interface components {
             estimate: components["schemas"]["PlanEstimate"];
             /** Fingerprint */
             fingerprint: string;
+            /** @description The host RAM this run is projected to hold at its peak, from this machine's own history (#869); absent when there is no figure. */
+            host_memory?: components["schemas"]["PlanHostMemory"];
             /** List Entries */
             list_entries: {
                 [key: string]: number;
@@ -2994,7 +3305,7 @@ export interface components {
             device: string;
             /**
              * Differs
-             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.
+             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.
              */
             differs?: string[];
             /**
@@ -3019,6 +3330,11 @@ export interface components {
             priced_for?: string;
             /** Runs */
             runs: number | null;
+            /**
+             * Scaled
+             * @description With basis `derived` (or `other_device`, or a tempered `observed`): what the curated figure was scaled along - steps, canvas or frames moved off the variable defaults it was measured at (#866). With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
+             */
+            scaled?: string;
             /** Tempered */
             tempered?: boolean;
             /**
@@ -3026,6 +3342,30 @@ export interface components {
              * @description What contributed nothing to `minutes` when `partial` is true - the workflow's own id when its own steps went unpriced, else the path of each composed child with no cost block or observed history. When `minutes` is null it still names the composed children that left it unpriced (`partial` is then false); empty when nothing composed went unpriced.
              */
             unpriced: string[];
+            /**
+             * Withheld
+             * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
+             */
+            withheld?: string;
+        };
+        /** PlanHostMemory */
+        PlanHostMemory: {
+            /**
+             * Basis
+             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.
+             * @enum {string}
+             */
+            basis: "observed" | "fit";
+            /**
+             * Projected Mb
+             * @description The host RAM, in MB, this run is projected to hold at its peak.
+             */
+            projected_mb: number;
+            /**
+             * Runs
+             * @description How many runs the figure is read from.
+             */
+            runs: number;
         };
         /** PromptCard */
         PromptCard: {
@@ -3244,6 +3584,95 @@ export interface components {
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
         };
+        /** StarRequest */
+        StarRequest: {
+            /**
+             * Name
+             * @description A gallery file name
+             */
+            name: string;
+            /** Starred */
+            starred: boolean;
+        };
+        /** StarSet */
+        StarSet: {
+            /** Name */
+            name: string;
+            /** Starred */
+            starred: boolean;
+        };
+        /**
+         * StepTiming
+         * @description Where one pipeline step's time went, on the worker's monotonic clock
+         *     (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
+         *     whose mark never happened is null, never guessed. Open, like the entry.
+         */
+        StepTiming: {
+            /**
+             * Cache
+             * @description Skip counts, on a step that set a `cache`.
+             */
+            cache?: {
+                [key: string]: unknown;
+            };
+            /**
+             * Compiled
+             * @description The denoiser runs through torch.compile; null when unknown.
+             */
+            compiled: boolean | null;
+            /**
+             * Decode S
+             * @description Last pass's end to the call's return: VAE decode and post-processing.
+             */
+            decode_s: number | null;
+            /**
+             * Denoise S
+             * @description First denoiser forward to the last pass's end; the whole call when the pipeline reports no passes.
+             */
+            denoise_s: number | null;
+            /**
+             * Encode S
+             * @description Call start to the first denoiser forward: prompt encoding and preparation.
+             */
+            encode_s: number | null;
+            /**
+             * First Pass S
+             * @description The first pass, which carries any compile warm-up.
+             */
+            first_pass_s: number | null;
+            /**
+             * Load Cached
+             * @description The pipeline came from the worker's cache; false if any part was loaded fresh, null when the step loaded nothing.
+             */
+            load_cached: boolean | null;
+            /**
+             * Load S
+             * @description Loading or fetching the step's pipeline, cached or not.
+             */
+            load_s: number | null;
+            /**
+             * Pass S
+             * @description Median of passes 2..n, wall time at step boundaries; null with fewer than two passes.
+             */
+            pass_s: number | null;
+            /**
+             * Passes
+             * @description Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps.
+             */
+            passes: number | null;
+            /**
+             * Save S
+             * @description Writing the step's files.
+             */
+            save_s: number | null;
+            /**
+             * Segments
+             * @description Pipeline calls summed into this timing: chain segments or iterations; 1 for a plain step.
+             */
+            segments: number;
+        } & {
+            [key: string]: unknown;
+        };
         /** TaskList */
         TaskList: {
             /** Assessment */
@@ -3347,6 +3776,16 @@ export interface components {
              * @description The card as a job record's device names it.
              */
             name: string | null;
+            /**
+             * Oom Score Adj
+             * @description The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.
+             */
+            oom_score_adj?: number;
+            /**
+             * Pid
+             * @description The worker process's pid; absent while it is not running.
+             */
+            pid?: number;
             /**
              * Vram Gb
              * @description What the card holds, in the GB a catalog cost entry is written in.
@@ -3506,6 +3945,60 @@ export interface components {
             /** Workspace */
             workspace: string;
         };
+        /**
+         * WorkspaceCopied
+         * @description What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).
+         */
+        WorkspaceCopied: {
+            /**
+             * Already Present
+             * @description Runs the destination already held (`<workflow>/<run id>`) and assets it held with identical bytes (library-relative path) - skipped.
+             */
+            already_present: string[];
+            /** Bytes Copied */
+            bytes_copied: number;
+            /** Bytes Linked */
+            bytes_linked: number;
+            copied: components["schemas"]["CopiedItems"];
+            /** Destination */
+            destination: string;
+            /**
+             * Renumbered
+             * @description Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.
+             */
+            renumbered: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+            /** Source */
+            source: string;
+            /**
+             * Warnings
+             * @description `unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.
+             */
+            warnings: {
+                [key: string]: unknown;
+            };
+        };
+        /** WorkspaceCopyRequest */
+        WorkspaceCopyRequest: {
+            /**
+             * Assets
+             * @description Asset-library files or folders, as written after `asset:` (`proj/clip.mp4`, `proj/`); each keeps its library-relative path
+             */
+            assets?: string[];
+            /**
+             * Runs
+             * @description `<workflow>/<run id>` entries, or a bare `<workflow>` for all its runs
+             */
+            runs?: string[];
+            /**
+             * Source
+             * @description Workspace to copy from; the default when omitted
+             */
+            source?: string | null;
+        };
         /** WorkspaceDeleted */
         WorkspaceDeleted: {
             /**
@@ -3530,6 +4023,11 @@ export interface components {
             default: boolean;
             /** Name */
             name: string;
+            /**
+             * Note
+             * @description The workspace's note, when it has one; listings only.
+             */
+            note?: string;
             /** Outputs */
             outputs: string;
             /** Prompts */
@@ -3937,6 +4435,7 @@ export interface operations {
                 only_orphans?: boolean;
                 version?: number | null;
                 media?: boolean;
+                role?: string[] | null;
                 workspace?: string | null;
             };
             header?: never;
@@ -3977,6 +4476,41 @@ export interface operations {
         requestBody: {
             content: {
                 "application/json": components["schemas"]["ArchiveRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": unknown;
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    gallery_compare_api_gallery_compare_post: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CompareRequest"];
             };
         };
         responses: {
@@ -4219,6 +4753,7 @@ export interface operations {
             query?: {
                 envelope?: boolean;
                 interval_seconds?: number;
+                include_workflow?: boolean;
                 workspace?: string | null;
             };
             header?: never;
@@ -5104,6 +5639,41 @@ export interface operations {
             };
         };
     };
+    put_note_api_notes_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["NoteRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["NoteSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     pipelines_api_pipelines_get: {
         parameters: {
             query?: never;
@@ -5398,6 +5968,41 @@ export interface operations {
             };
         };
     };
+    put_star_api_stars_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarSet"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
     diffusers_state_api_system_diffusers_get: {
         parameters: {
             query?: never;
@@ -5508,6 +6113,8 @@ export interface operations {
                 filename: string;
                 asset_name?: string | null;
                 shared?: boolean;
+                /** @description A note on the asset, at most 4000 characters */
+                note?: string | null;
                 workspace?: string | null;
             };
             header?: never;
@@ -5858,6 +6465,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["WorkspaceInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    copy_into_workspace_api_workspaces__destination__copy_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                destination: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["WorkspaceCopyRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["WorkspaceCopied"];
                 };
             };
             /** @description Validation Error */

@@ -8,7 +8,7 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.13.0"
+version = "0.14.0-alpha.1"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -173,6 +173,7 @@ ignore = ["E501"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]
 "tests/test_server_jobs.py" = ["F811"]
+"tests/test_stars.py" = ["F811"]
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

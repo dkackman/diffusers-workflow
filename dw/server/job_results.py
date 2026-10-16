@@ -26,6 +26,8 @@ from ..worker_protocol import (
     WorkflowLoaded,
     parse_reply,
 )
+from ..notes import set_run_note
+from ..security import SecurityError, validate_path
 from .job_record import CANCELLED, FAILED, SUCCEEDED
 from .outputs import output_kinds
 
@@ -98,7 +100,23 @@ def record_progress(job, event, output_dir):
         job.run_id = event.get("run_id")
         job.run_dir = event.get("run_dir")
         job.run_version = event.get("version")
+        if getattr(job, "note", None) and job.run_dir:
+            write_run_note(job, output_dir)
     job.add_event(event)
+
+
+def write_run_note(job, output_dir):
+    """The note the job was submitted with, as its run's note. The server
+    writes notes.json, never the engine, so this happens here, when the
+    worker reports the run directory. Never fatal: the note is worth less
+    than the run."""
+    try:
+        run_dir = validate_path(
+            os.path.join(output_dir, job.run_dir), output_dir, allow_create=False
+        )
+        set_run_note(run_dir, job.note)
+    except (SecurityError, OSError) as e:
+        logger.warning(f"Could not write the run note for job {job.id}: {e}")
 
 
 def record_run_memory(job, info, slot, record_memory):
@@ -147,6 +165,11 @@ def consume_results(job, manager, slot, output_dir, record_memory):
             # against a queue nobody is reading
             detail = manager.crash_details()
             manager.mark_crashed()
+            if job.cancel_requested:
+                # Terminated by JobManager's cancel escalation (#892), or
+                # died on its own with the job already asked to stop: the
+                # outcome the caller wanted either way
+                return (CANCELLED, None, None)
             reason = f"Worker process died: {detail or e}"
             logger.error(f"Job {job.id}: {reason}")
             return (FAILED, reason, None)

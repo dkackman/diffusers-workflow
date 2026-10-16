@@ -15,9 +15,11 @@ from dw.task_domains import task_argument_errors
 from dw.task_problems import script_lines_errors
 from dw.script_lines import (
     normalize_words,
+    disambiguated,
     parse_lines,
     parse_shots,
     shot_names_error,
+    with_full_shot_names,
     strip_markup,
 )
 from dw.tasks import script_check
@@ -117,8 +119,13 @@ class TestParseLines(unittest.TestCase):
         self.assertEqual(
             parsed,
             [
-                {"text": "Hello", "tokens": ["cutoff"], "shot": None},
-                {"text": "World", "tokens": ["s1"], "shot": None},
+                {
+                    "text": "Hello",
+                    "tokens": ["cutoff"],
+                    "shot": None,
+                    "start_frame": None,
+                },
+                {"text": "World", "tokens": ["s1"], "shot": None, "start_frame": None},
             ],
         )
 
@@ -372,7 +379,7 @@ class TestCheckAlignment(unittest.TestCase):
         self.assertEqual(answer["rules_applied"], list(script_check.LINE_RULES))
         self.assertEqual(
             [s["rule"] for s in answer["rules_skipped"]],
-            ["speech_where_silent", "speech_in_silent_shot"],
+            ["speech_where_silent", "speech_in_silent_shot", "unscripted_speech"],
         )
         self.assertTrue(all(s["reason"] for s in answer["rules_skipped"]))
 
@@ -628,6 +635,62 @@ class TestShotPlacement(unittest.TestCase):
         self.assertEqual(found[0]["at"]["shot"], "B")
 
 
+class TestUnscriptedSpeech(unittest.TestCase):
+    def test_a_line_spoken_twice_in_its_shot_is_a_finding(self):
+        chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
+        answer = shot_run([{"text": "alpha bravo charlie", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["value"], 3)
+        self.assertEqual(found["at"]["shot"], "A")
+        self.assertTrue(found["at"]["repeats_line"])
+
+    def test_an_ad_lib_in_a_scripted_shot_is_not_a_repeat(self):
+        chunks = words("alpha bravo", 0.0) + words("zulu yankee", 1.0)
+        answer = shot_run([{"text": "alpha bravo", "shot": "A"}], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertFalse(found["at"]["repeats_line"])
+
+    def test_clean_take_has_none(self):
+        answer = shot_run([{"text": "alpha bravo", "shot": "A"}], words("alpha bravo"))
+        self.assertEqual(rules(answer, "unscripted_speech"), [])
+
+
+class TestSpeechNotTranscribed(unittest.TestCase):
+    LINES = [{"text": "alpha bravo charlie delta", "shot": "A"}]
+
+    def test_sound_in_a_gap_between_a_lines_words_is_a_finding(self):
+        # The ASR dropped an ad-lib between "bravo" and "charlie"
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["line"], 0)
+        self.assertEqual(found["at"]["shot"], "A")
+        self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
+        self.assertAlmostEqual(found["at"]["end"], 4.0, places=2)
+
+    def test_a_stretched_word_over_sound_is_a_finding(self):
+        chunks = [
+            {"start": 0.0, "end": 0.4, "text": " alpha"},
+            {"start": 0.5, "end": 3.0, "text": " bravo"},
+            {"start": 3.0, "end": 3.4, "text": " charlie"},
+            {"start": 3.5, "end": 3.9, "text": " delta"},
+        ]
+        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["seconds"], 0.5)
+
+    def test_a_quiet_gap_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(2.0)])
+        answer = shot_run(self.LINES, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_a_short_gap_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 1.5)
+        answer = shot_run(self.LINES, chunks, mono=voiced(3.0))
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+
 class TestSpeechInSilentShot(unittest.TestCase):
     LINES = [{"text": "alpha bravo", "shot": "A"}]
 
@@ -830,6 +893,38 @@ class TestShotValidation(unittest.TestCase):
         records = [{"name": "A"}, {"name": "A"}]
         message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
         self.assertIn("more than once", message)
+        self.assertIn("start_frame", message)
+
+    def test_start_frame_picks_one_occurrence_of_a_repeated_shot(self):
+        records = [
+            {"name": "A", "start_frame": 0},
+            {"name": "B", "start_frame": 10},
+            {"name": "A", "start_frame": 20},
+        ]
+        lines = parse_lines(
+            [{"text": "x", "shot": "A", "start_frame": 20}, {"text": "y", "shot": "B"}]
+        )
+        self.assertIsNone(shot_names_error(lines, records))
+        resolved = with_full_shot_names(lines, records)
+        self.assertEqual([line["shot"] for line in resolved], ["A#20", "B"])
+        self.assertEqual(
+            [record["name"] for record in disambiguated(records)], ["A#0", "B", "A#20"]
+        )
+
+    def test_a_start_frame_no_occurrence_has_is_refused(self):
+        records = [{"name": "A", "start_frame": 0}, {"name": "A", "start_frame": 20}]
+        lines = parse_lines([{"text": "x", "shot": "A", "start_frame": 5}])
+        self.assertIn("matches no occurrence", shot_names_error(lines, records))
+
+    def test_the_refusal_lists_only_the_nameable_shots(self):
+        records = [
+            {"name": "A", "start_frame": 0},
+            {"name": "A", "start_frame": 20},
+            {"name": "B", "start_frame": 40},
+        ]
+        message = shot_names_error(parse_lines([{"text": "x", "shot": "A"}]), records)
+        self.assertIn("Shots named without it: 'B'", message)
+        self.assertNotIn("'A', 'B'", message)
 
     def test_a_name_repeated_only_across_files_is_not_a_duplicate(self):
         # shots.duplicate_shot_names groups by file (#644 arch review).
@@ -840,6 +935,50 @@ class TestShotValidation(unittest.TestCase):
     def test_known_names_and_untagged_lines_pass(self):
         lines = parse_lines([{"text": "x", "shot": "B"}, "y"])
         self.assertIsNone(shot_names_error(lines, self.RECORDS))
+
+    def test_a_short_member_name_matches_the_one_shot_carrying_it(self):
+        records = [
+            {"name": "x-shot@cold_open.0-0.0.mp4"},
+            {"name": "x-shot@cold_open_two.0-0.0.mp4"},
+        ]
+        lines = parse_lines([{"text": "x", "shot": "cold_open"}])
+        self.assertIsNone(shot_names_error(lines, records))
+        resolved = with_full_shot_names(lines, records)
+        self.assertEqual(resolved[0]["shot"], "x-shot@cold_open.0-0.0.mp4")
+
+    def test_member_keys_come_from_the_for_each_separator(self):
+        from dw.references import member_keys
+
+        self.assertEqual(member_keys("shot@cold_open"), ["cold_open"])
+        self.assertEqual(member_keys("x-shot@cold_open.0-0.0.mp4"), ["cold_open"])
+        self.assertEqual(member_keys("plain.mp4"), [])
+
+    def test_a_valid_variable_name_comes_back_whole_as_a_member_key(self):
+        # A for_each entry's name is checked by validate_variable_name; the
+        # key member_keys reads back must end exactly where that rule does,
+        # for every character either could meet
+        import string
+
+        from dw.for_each import member_name
+        from dw.references import member_keys
+        from dw.security import InvalidInputError, validate_variable_name
+
+        for char in string.printable:
+            key = f"a{char}b"
+            filename = member_name("shot", key) + ".0-0.0.mp4"
+            try:
+                validate_variable_name(key)
+            except InvalidInputError:
+                self.assertNotEqual(member_keys(filename)[:1], [key], repr(char))
+            else:
+                self.assertEqual(member_keys(filename), [key], repr(char))
+
+    def test_a_short_name_two_shots_carry_is_refused(self):
+        records = [{"name": "a-shot@open.mp4"}, {"name": "b-shot@open.mp4"}]
+        message = shot_names_error(
+            parse_lines([{"text": "x", "shot": "open"}]), records
+        )
+        self.assertIn("more than one", message)
 
     def test_parse_shots(self):
         self.assertIsNone(parse_shots(None))
@@ -988,3 +1127,22 @@ def test_check_script_defaults_to_the_one_whisper_model():
 
     default = inspect.signature(script_check.check_script).parameters["model_name"]
     assert default.default is audio_transcription.WHISPER_DEFAULT_MODEL
+
+
+def test_transcription_input_is_level_independent():
+    import numpy
+
+    from dw.tasks.script_check import level_for_transcription
+
+    rng = numpy.random.default_rng(0)
+    loud = rng.uniform(-0.5, 0.5, (1, 48000)).astype(numpy.float32)
+    quiet = loud * 0.1
+    (a, gain_a), (b, gain_b) = (
+        level_for_transcription(loud),
+        level_for_transcription(quiet),
+    )
+    assert gain_b > gain_a
+    assert numpy.allclose(a, b, atol=1e-4)
+    assert float(numpy.abs(a).max()) <= 1.0
+    silent = numpy.zeros((1, 100), dtype=numpy.float32)
+    assert level_for_transcription(silent) == (silent, 1.0)

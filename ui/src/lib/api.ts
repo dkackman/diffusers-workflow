@@ -1,5 +1,7 @@
 import type {
   AssetDeleted,
+  NoteSet,
+  StarSet,
   AssetList,
   ClassList,
   Deleted,
@@ -276,7 +278,14 @@ export const api = {
     ),
   // Loads the whole gallery in one request, like listWorkflows/listPrompts -
   // the limit just needs to exceed any real output directory's file count
-  gallery: () => request<GalleryList>('/api/gallery?limit=100000'),
+  // `roles` narrows to those roles server-side (repeated `role` parameters;
+  // a null role counts as final there). The page filters on the client, so
+  // it asks for none
+  gallery: (roles?: string[]) => {
+    const params = new URLSearchParams({ limit: '100000' })
+    for (const role of roles ?? []) params.append('role', role)
+    return request<GalleryList>(`/api/gallery?${params}`)
+  },
   // `workspace`, when given, names the file's own workspace and wins over
   // whatever is currently selected in the picker - mirrors `outputUrl`, since
   // a job page must read its own files from where they were written
@@ -292,6 +301,12 @@ export const api = {
   deleteOutput: (name: string) =>
     request<OutputDeleted>(`/api/gallery/${encodePath(name)}`, {
       method: 'DELETE',
+    }),
+  setStarred: (name: string, starred: boolean) =>
+    request<StarSet>('/api/stars', {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, starred }),
     }),
   outputDownloadUrl: (name: string, workspace?: string) =>
     withToken(`/api/gallery/${encodePath(name)}/download`, workspace),
@@ -431,6 +446,27 @@ export async function fetchOutputText(
   const response = await fetch(outputUrl(path, undefined, workspace))
   if (!response.ok) throw new Error(`Could not read ${name}`)
   return response.text()
+}
+
+/** Set (or, with null, clear) the note on a workspace, asset, run or file.
+ * A file name or run directory is read in the picked workspace, unless
+ * `workspace` names another - a job page edits the run of the job's own
+ * workspace, wherever the picker has since moved. */
+export function setNote(
+  target: string,
+  note: string | null,
+  workspace?: string,
+): Promise<NoteSet> {
+  const path = '/api/notes'
+  return request<NoteSet>(
+    workspace === undefined ? path : scopeTo(path, workspace),
+    {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ target, note }),
+    },
+    { scope: workspace === undefined },
+  )
 }
 
 export const TERMINAL_STATUSES = ['succeeded', 'failed', 'cancelled']

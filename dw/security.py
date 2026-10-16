@@ -9,6 +9,8 @@ from pathlib import Path
 from urllib.parse import urlparse
 from typing import Union, List, Optional
 
+from .references import VARIABLE_NAME_CHARACTERS
+
 logger = logging.getLogger("dw")
 
 # Security constants
@@ -307,7 +309,7 @@ def validate_variable_name(name: str) -> str:
         raise InvalidInputError("Variable name cannot be empty")
 
     # Allow only alphanumeric characters, underscores, and hyphens
-    if not re.match(r"^[a-zA-Z_][a-zA-Z0-9_-]*\Z", name):
+    if not re.match(rf"^[a-zA-Z_][{re.escape(VARIABLE_NAME_CHARACTERS)}]*\Z", name):
         raise InvalidInputError(f"Invalid variable name: {name}")
 
     if len(name) > MAX_VARIABLE_NAME_LENGTH:
@@ -492,8 +494,12 @@ def validate_asset_reference(name: str) -> str:
 # checked by the validate_path that joins the name onto the output root -
 # and a name still may not *start* with it.
 OUTPUT_REFERENCE_CHARACTERS = r"[\w.@-]"
-OUTPUT_REFERENCE_PATTERN = r"^[\w][\w.@-]*(/[\w][\w.@-]*){1,6}\Z"
+_OUTPUT_SEGMENT = r"[\w][\w.@-]*"
+OUTPUT_REFERENCE_PATTERN = rf"^{_OUTPUT_SEGMENT}(/{_OUTPUT_SEGMENT}){{1,6}}\Z"
 MAX_OUTPUT_REFERENCE_LENGTH = 500
+# A run, or every run of one workflow: an output name cut short of its
+# file, so whatever a copy between workspaces takes can be named after it
+OUTPUT_PREFIX_PATTERN = rf"^{_OUTPUT_SEGMENT}(/{_OUTPUT_SEGMENT}){{0,6}}\Z"
 
 
 def validate_output_reference(name: str) -> str:
@@ -521,6 +527,27 @@ def validate_output_reference(name: str) -> str:
         "Output name",
         "an output is named by the workflow that made it, the run, and the "
         "file, like 'ltx2/Gyre/latest/Gyre-still.0-0.0.png'",
+        allowed=OUTPUT_REFERENCE_CHARACTERS,
+    )
+
+
+def validate_output_prefix(name: str) -> str:
+    """
+    Validate the leading segments of an output name: `<workflow>/<run id>`
+    or a bare `<workflow>`, as a copy between workspaces names runs. The
+    segment rule is validate_output_reference's; containment is checked by
+    the validate_path that joins the name.
+
+    Raises:
+        InvalidInputError: If name is invalid
+    """
+    return _validate_name(
+        name,
+        OUTPUT_PREFIX_PATTERN,
+        MAX_OUTPUT_REFERENCE_LENGTH,
+        "Run name",
+        "name a run as '<workflow>/<run id>', as the gallery lists it, or a "
+        "bare '<workflow>' for all its runs",
         allowed=OUTPUT_REFERENCE_CHARACTERS,
     )
 

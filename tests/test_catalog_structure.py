@@ -305,6 +305,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
     # fields of the plan's entries, which music-video's shots then take
     "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
+    # the pipeline's 'cache' block it writes inline, not the H3 templates'
+    # variable of that name
+    "workflows/templates/step-caching.json": {"cache"},
 }
 
 
@@ -474,7 +477,14 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_700 for the `attention_backend` variable on the four MiniMax-H3
 # family baselines (2026-10-10), measured at 10_676 with six: the knob behind the
 # measured 28-33% per-step gain from sage_hub, null by default.
-COMPACT_BUDGET = 10_700
+# Then to 10_800 for the same variable on every other MiniMax-H3 template (#865,
+# stage #883, 2026-10-13), measured at 10_758: about 79 tokens across fifteen
+# templates, so the cinema path's sage_hub is an argument on the shots, chains
+# and episodes rather than a JSON edit.
+# Then to 10_850 for the whole-object `cache` variable on the same nineteen H3
+# templates (#865, stage #884, 2026-10-13), measured at 10_800: about 42
+# tokens, so first_block on a long base-model schedule is an argument too.
+COMPACT_BUDGET = 10_850
 FILTERED_BUDGET = 1_500
 
 
@@ -571,6 +581,146 @@ def test_the_remote_code_check_sees_nested_keys():
     assert [k for k, _ in _walk(definition) if k in REMOTE_CODE_KEYS] == [
         "custom_pipeline"
     ]
+
+
+H3_MODEL = "MiniMaxAI/MiniMax-H3"
+
+
+def _h3_steps(definition):
+    return [
+        step
+        for step in definition.get("steps", [])
+        if (step.get("pipeline") or {})
+        .get("from_pretrained_arguments", {})
+        .get("model_name")
+        == H3_MODEL
+    ]
+
+
+def _transformers(step):
+    components = step["pipeline"]["configuration"].get("components", {})
+    # t2va/fl2va load `transformer`, ref2va loads `transformer_ref`
+    return {
+        k: v for k, v in components.items() if k in ("transformer", "transformer_ref")
+    }
+
+
+H3_TEMPLATES = [path for path in TEMPLATES if _h3_steps(load(path))]
+
+
+def test_there_are_h3_templates():
+    assert len(H3_TEMPLATES) >= 19
+
+
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_every_h3_transformer_step_wires_attention_backend(path):
+    """sage_hub is 23-33% faster per step and lossless on CUDA, and the only way
+    to reach it from `arguments` is a template variable wired to the
+    transformer (#865). Every H3 template exposes it, null by default so mps
+    and cpu keep the process default; one that doesn't makes the cinema path
+    a JSON edit again."""
+    definition = load(path)
+
+    assert definition["variables"].get("attention_backend", "missing") is None, (
+        f"{path} declares no attention_backend variable defaulting to null"
+    )
+    for step in _h3_steps(definition):
+        transformers = _transformers(step)
+        assert transformers, f"{path} step '{step['name']}' configures no transformer"
+        for name, component in transformers.items():
+            assert component.get("attention_backend") == "variable:attention_backend", (
+                f"{path} step '{step['name']}' does not wire {name}.attention_backend"
+            )
+
+
+def test_only_h3_steps_wire_attention_backend():
+    """The Z-Image stills and the Music3 song beside an H3 shot keep the process
+    default: the variable reaches the H3 transformer and nothing else."""
+    for path in H3_TEMPLATES:
+        definition = load(path)
+        h3 = {step["name"] for step in _h3_steps(definition)}
+        for step in definition["steps"]:
+            if step["name"] in h3:
+                continue
+            assert "attention_backend" not in json.dumps(step), (
+                f"{path} step '{step['name']}' is not H3 but sets attention_backend"
+            )
+
+
+@pytest.mark.parametrize("path", H3_TEMPLATES)
+def test_every_h3_transformer_step_wires_cache(path):
+    """first_block 0.05 is -22% at 30 base steps, and the only way to reach it
+    from `arguments` is a whole-object `cache` variable on the H3 step (#865).
+    Null by default: an installed hook changes the output even when it skips
+    nothing, so null is the only off."""
+    definition = load(path)
+
+    assert definition["variables"].get("cache", "missing") is None, (
+        f"{path} declares no cache variable defaulting to null"
+    )
+    for step in _h3_steps(definition):
+        assert step["pipeline"]["configuration"].get("cache") == "variable:cache", (
+            f"{path} step '{step['name']}' does not wire configuration.cache"
+        )
+
+
+def test_only_h3_steps_wire_cache():
+    for path in H3_TEMPLATES:
+        definition = load(path)
+        h3 = {step["name"] for step in _h3_steps(definition)}
+        for step in definition["steps"]:
+            if step["name"] in h3:
+                continue
+            assert "variable:cache" not in json.dumps(step), (
+                f"{path} step '{step['name']}' is not H3 but wires cache"
+            )
+
+
+def _dialogue_short_after_substitution(**overrides):
+    from dw.variables import replace_variables
+
+    definition = load(
+        os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "dialogue-short.json"
+        )
+    )
+    variables = {**definition["variables"], **overrides}
+    return {
+        step["name"]: replace_variables(step, variables) for step in definition["steps"]
+    }
+
+
+def test_attention_backend_reaches_only_the_h3_shot():
+    steps = _dialogue_short_after_substitution(attention_backend="sage_hub")
+
+    shot = steps["shot"]["pipeline"]["configuration"]["components"]["transformer_ref"]
+    assert shot["attention_backend"] == "sage_hub"
+    for name, step in steps.items():
+        if name != "shot":
+            assert "sage_hub" not in json.dumps(step), name
+
+
+def test_cache_reaches_only_the_h3_shot():
+    cache = {"type": "first_block", "threshold": 0.05}
+    steps = _dialogue_short_after_substitution(cache=cache)
+
+    assert steps["shot"]["pipeline"]["configuration"]["cache"] == cache
+    for name, step in steps.items():
+        if name != "shot":
+            assert "first_block" not in json.dumps(step), name
+
+
+def test_a_default_cache_drops_the_key():
+    steps = _dialogue_short_after_substitution()
+
+    assert "cache" not in steps["shot"]["pipeline"]["configuration"]
+
+
+def test_a_default_attention_backend_drops_the_key():
+    steps = _dialogue_short_after_substitution()
+
+    shot = steps["shot"]["pipeline"]["configuration"]["components"]["transformer_ref"]
+    assert "attention_backend" not in shot
 
 
 def _step(definition, name):
@@ -816,7 +966,7 @@ def test_every_readme_link_resolves(path):
 
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
-    "workflows/templates/minimax/dialogue-short.json": 42,
+    "workflows/templates/minimax/dialogue-short.json": 21.2,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -832,7 +982,11 @@ def test_the_cut_templates_quote_a_measured_cost(path, minutes):
     LoRA on those templates at 9 - so their figures went with the schedule
     they described rather than being scaled, `cost` being measured and never
     derived. The three here kept their step count and their canvas; only
-    which adapter loads changed, at the same rank and file size."""
+    which adapter loads changed, at the same rank and file size.
+
+    dialogue-short's 42 was measured at 1344x768, not its 960x544 defaults;
+    a cost entry is measured at the variable defaults, so #866 re-priced it
+    to 42 x 960*544 / (1344*768) = 21.2."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"

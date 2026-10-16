@@ -27,6 +27,7 @@ import shutil
 from dataclasses import dataclass, field
 
 from .. import references
+from ..notes import NOTES_FILE_NAME
 from ..realize import strings_with_prefix
 from ..runs import (
     MANIFEST_FILE_NAME,
@@ -243,6 +244,7 @@ def export_job(manager, job_id, workspace_root, asset_library, overwrite=False):
             "steps": detail.get("manifest") or [],
         }
     _write_json(summary, target, MANIFEST_FILE_NAME, manifest)
+    _copy_notes(summary, target, output_root, run_dir)
 
     record = {key: detail.get(key) for key in JOB_RECORD_KEYS}
     record["realized"] = realized is not None
@@ -273,6 +275,20 @@ def _run_manifest(output_root, run_dir):
     except (SecurityError, OSError, ValueError) as e:
         logger.debug(f"No run manifest to export from {run_dir}: {e}")
         return None
+
+
+def _copy_notes(summary, target, output_root, run_dir):
+    """The run's notes.json beside the manifest, when it has one."""
+    if not run_dir:
+        return
+    try:
+        source = validate_path(
+            os.path.join(output_root, run_dir, NOTES_FILE_NAME), output_root
+        )
+    except SecurityError:
+        return
+    if os.path.isfile(source):
+        _copy(summary, source, target, NOTES_FILE_NAME, NOTES_FILE_NAME)
 
 
 def _copy_assets(summary, workflow, target, asset_library):

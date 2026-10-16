@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest'
-import { api, fetchOutputText } from './api'
+import { api, fetchOutputText, setNote } from './api'
 
 type Stub = {
   ok: boolean
@@ -287,5 +287,24 @@ describe('job export', () => {
       setApiToken('')
     }
     expect(api.exportZipUrl('/exports/j1.zip')).toBe('/exports/j1.zip')
+  })
+})
+
+describe('setNote', () => {
+  it('scopes to a named workspace, not the picker', async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await setNote('wf/run-1', 'n', 'studio')
+    expect(calls[0][0]).toBe('/api/notes?workspace=studio')
+    expect(calls[0][1]?.method).toBe('PUT')
+    expect(JSON.parse(String(calls[0][1]?.body))).toEqual({
+      target: 'wf/run-1',
+      note: 'n',
+    })
+  })
+
+  it("uses the picker's workspace when none is named", async () => {
+    const calls = stubFetch({ ok: true, body: {} })
+    await setNote('wf/run-1', null)
+    expect(calls[0][0]).toBe('/api/notes')
   })
 })

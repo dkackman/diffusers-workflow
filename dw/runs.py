@@ -136,7 +136,13 @@ def _runs_newest_first(directory):
         return []
 
 
-def _resolve_segments(directory, parts, reference, root):
+def _started_before(run, before):
+    """Whether `run` started no later than the run id `before` - the second
+    a run id opens with - and is not that run itself."""
+    return run != before and run[:_RUN_ID_STAMP_LENGTH] <= before[:_RUN_ID_STAMP_LENGTH]
+
+
+def _resolve_segments(directory, parts, reference, root, before=None):
     """Build the path a name stands for, expanding 'latest' or 'v<N>' where
     it names a run.
 
@@ -156,6 +162,9 @@ def _resolve_segments(directory, parts, reference, root):
     'latest' or 'v4' segment in a directory that holds no runs is a name
     like any other, so a workflow or a file called either stays reachable.
 
+    `before`, a run id, narrows 'latest' to the runs that started before
+    it - what 'latest' named when that run read it.
+
     Returns the path, or None when runs were found and none of them holds
     the file.
     """
@@ -166,6 +175,8 @@ def _resolve_segments(directory, parts, reference, root):
         runs = _runs_newest_first(directory)
         if runs:
             for run in runs:
+                if before and not _started_before(run, before):
+                    continue
                 candidate = _resolve_segments(
                     os.path.join(directory, run), rest, reference, root
                 )
@@ -199,10 +210,12 @@ def _resolve_segments(directory, parts, reference, root):
             if candidate and os.path.isfile(candidate):
                 return candidate
         return None
-    return _resolve_segments(os.path.join(directory, part), rest, reference, root)
+    return _resolve_segments(
+        os.path.join(directory, part), rest, reference, root, before
+    )
 
 
-def resolve_output_reference(reference, root=None):
+def resolve_output_reference(reference, root=None, before=None):
     """Resolve an 'output:' reference to the file it names.
 
     The name is a path under the output directory - '<workflow>/<run
@@ -217,6 +230,8 @@ def resolve_output_reference(reference, root=None):
         reference: The 'output:...' string
         root: The output directory to resolve against; defaults to the run
             in progress, else the workspace's outputs
+        before: A run id: 'latest' then names the newest run that started
+            before it, as it did when that run read the reference
 
     Returns:
         The validated absolute path of the file
@@ -236,7 +251,7 @@ def resolve_output_reference(reference, root=None):
     name = validate_output_reference(name.strip())
     root = root or output_root()
 
-    resolved = _resolve_segments(root, name.split("/"), reference, root)
+    resolved = _resolve_segments(root, name.split("/"), reference, root, before)
     if resolved is None:
         raise ValueError(
             f"Output '{name}' not found under {root} - no run of that workflow "
@@ -352,6 +367,15 @@ def is_run_id(segment):
     return bool(RUN_ID_PATTERN.match(segment or ""))
 
 
+def iter_run_directories(root):
+    """Every run directory under an output root. A run directory holds no
+    run directories of its own, so the walk stops at each."""
+    for current, dirs, _names in os.walk(root):
+        if is_run_id(os.path.basename(current)):
+            dirs[:] = []
+            yield current
+
+
 def split_run_path(relative_path):
     """The three parts of a run-relative path: (identity, run id, subfolder).
 
@@ -399,6 +423,8 @@ RUN_VERSION_KEY = "version"
 
 # The length of a run id before any '-N' counter a same-second rerun takes
 _RUN_ID_BASE_LENGTH = len("20260101-000000-00000000")
+# And of the UTC second it opens with
+_RUN_ID_STAMP_LENGTH = len("20260101-000000")
 
 # Recorded ordinals by manifest path, keyed on the manifest's stat so an
 # edited or replaced manifest is read again. A recorded number never changes,
@@ -680,6 +706,80 @@ def open_run(output_dir, file_spec, workflow_id, run_id):
     return candidate, version
 
 
+def copy_runs_in(source_identity_dir, identity_dir, run_ids, place):
+    """Bring runs of one identity in from another workspace and settle their
+    numbers - the copy's counterpart of `open_run` (dw/workspace_copy.py).
+
+    `place(run_id)` puts one run folder at `<identity_dir>/<run_id>`. It is
+    called under the identity's run lock, oldest run first, so no run can
+    open between a copy landing and its number being written down.
+
+    A copied run keeps the version it had in the source unless the
+    destination already holds that number; then every run of this call is
+    numbered after the destination's highest, in run-id order. The
+    destination's unrecorded runs are pinned first (`record_run_versions`):
+    a copied run sorting among them would otherwise move their ranked
+    numbers. The number is written into the copied manifest - a copy, never
+    a link - so the source's stays as it was.
+
+    Returns:
+        {run id: {"from": old, "to": new}} for each run whose number changed
+    """
+    source_versions = run_versions(source_identity_dir)
+    run_ids = sorted(run_ids, key=run_id_sort_key)
+    renumbered = {}
+    with FileLock(run_lock_path(identity_dir)):
+        os.makedirs(identity_dir, exist_ok=True)
+        held = set(record_run_versions(identity_dir).values())
+        wanted = [source_versions.get(run_id) for run_id in run_ids]
+        collides = any(v is not None and v in held for v in wanted)
+        next_number = max(held, default=0) + 1
+        for run_id, version in zip(run_ids, wanted):
+            place(run_id)
+            if version is None:
+                continue
+            new = version
+            if collides:
+                new, next_number = next_number, next_number + 1
+            # Pinned even when unchanged: a source run that recorded no
+            # number was ranked, and its rank in the destination is not
+            # the one it had
+            _pin_version(os.path.join(identity_dir, run_id), new)
+            if new != version:
+                renumbered[run_id] = {"from": version, "to": new}
+    return renumbered
+
+
+def _pin_version(run_dir, version):
+    """Record a run's ordinal in its manifest. A run with no readable
+    manifest is left alone, and stays ranked."""
+    manifest = _read_manifest(run_dir)
+    if manifest is None or manifest.get(RUN_VERSION_KEY) == version:
+        return
+    manifest[RUN_VERSION_KEY] = version
+    write_json_atomic(os.path.join(run_dir, MANIFEST_FILE_NAME), manifest)
+
+
+def identity_run_ids(identity_dir):
+    """Every run id under one workflow identity, oldest first."""
+    return _run_ids(identity_dir)
+
+
+def write_json_atomic(path, data):
+    """Write `data` as JSON to `path` by a temp file and a rename, so a
+    reader never sees half a file. Raises OSError."""
+    directory = os.path.dirname(path)
+    os.makedirs(directory, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=directory, prefix=f".{os.path.basename(path)}-")
+    try:
+        with os.fdopen(fd, "w") as file:
+            json.dump(data, file, indent=2, default=str)
+        os.replace(tmp_path, path)
+    except OSError:
+        os.unlink(tmp_path)
+        raise
+
+
 def write_manifest(run_dir, manifest):
     """Record what a run did, beside what it made.
 
@@ -690,15 +790,7 @@ def write_manifest(run_dir, manifest):
     """
     path = os.path.join(run_dir, MANIFEST_FILE_NAME)
     try:
-        os.makedirs(run_dir, exist_ok=True)
-        fd, tmp_path = tempfile.mkstemp(dir=run_dir, prefix=f".{MANIFEST_FILE_NAME}-")
-        try:
-            with os.fdopen(fd, "w") as file:
-                json.dump(manifest, file, indent=2, default=str)
-            os.replace(tmp_path, path)
-        except OSError:
-            os.unlink(tmp_path)
-            raise
+        write_json_atomic(path, manifest)
     except OSError as e:
         logger.warning(f"Could not write {path}: {e}")
         return None

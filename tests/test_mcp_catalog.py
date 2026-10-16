@@ -322,6 +322,26 @@ def test_gallery_metadata_points_at_get_job_workflow_when_embedded_is_null():
     assert "c68bc29607ec" in result["next"]
 
 
+def test_gallery_metadata_null_hint_does_not_claim_a_png_carries_it():
+    """#903: a task step's PNG has null metadata; the hint must not say
+    images carry it."""
+    body = {
+        "name": "ws/20261014-104901-39d691b0/ws-frame.0-0.0.png",
+        "source": "output",
+        "metadata": None,
+        "job": {"id": "6cee0715fc6f", "status": "succeeded"},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/" + body["name"] + "/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, body["name"])
+
+    assert "only an image" not in result["next"]
+    assert "task step" in result["next"]
+    assert "6cee0715fc6f" in result["next"]
+
+
 def test_gallery_metadata_says_a_kept_asset_has_no_recorded_job():
     """#556: a kept asset with no recorded job (kept before provenance
     tracking, or from a file with no job history) still answers 'job: null',
@@ -412,3 +432,55 @@ def test_full_get_workflow_without_history_has_no_observed_key():
     )
 
     assert "observed" not in catalog.get_workflow(client, "w")
+
+
+def test_list_gallery_forwards_role_as_a_repeated_parameter():
+    seen = {}
+
+    def handler(request):
+        seen["roles"] = request.url.params.get_list("role")
+        return httpx.Response(200, json={"files": []})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+    catalog.list_gallery(client)
+    assert seen["roles"] == []
+
+    catalog.list_gallery(client, role=["final"])
+    assert seen["roles"] == ["final"]
+
+    catalog.list_gallery(client, role=["final", "intermediate"])
+    assert seen["roles"] == ["final", "intermediate"]
+
+
+def test_gallery_metadata_does_not_promise_a_forgotten_job():
+    """#918: a kept asset's job pruned from history reports 'forgotten', and
+    the hint must not point at get_job_workflow, which would say Unknown job."""
+    body = {
+        "name": "asset:qa-cast/ep182-episode.mp4",
+        "source": "asset",
+        "metadata": None,
+        "job": {"id": "ad1adcb65d6d", "status": "forgotten"},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/asset:qa-cast/ep182-episode.mp4/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, "asset:qa-cast/ep182-episode.mp4")
+
+    assert "no longer in the server" in result["next"]
+    assert 'get_job_workflow(job_id="ad1adcb65d6d")' not in result["next"]
+
+
+def test_gallery_metadata_asks_the_server_to_leave_out_the_workflow():
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"name": "a.png", "metadata": None})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    catalog.get_gallery_metadata(client, "a.png", include_workflow=False)
+    catalog.get_gallery_metadata(client, "a.png")
+
+    assert seen == [{"include_workflow": "false"}, {}]

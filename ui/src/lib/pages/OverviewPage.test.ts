@@ -57,7 +57,12 @@ vi.mock('../api', () => ({
         default: 'default',
         workspaces: [
           { name: 'default', default: true },
-          { name: 'studio', default: false, usage: { files: 4, bytes: 4096 } },
+          {
+            name: 'studio',
+            default: false,
+            usage: { files: 4, bytes: 4096 },
+            note: 'client moodboards',
+          },
         ],
       }),
     deleteWorkspace: (n: string, a?: boolean) => deleteWorkspace(n, a),
@@ -93,6 +98,13 @@ it('an empty workspace shows empty states, not empty frames', async () => {
   expect(document.querySelectorAll('.frame')).toHaveLength(0)
   expect(screen.getByText(/no jobs yet/i)).toBeTruthy()
   expect(screen.getByText(/no workflows yet/i)).toBeTruthy()
+})
+
+it('shows the workspace note', async () => {
+  render(OverviewPage)
+  await waitFor(() =>
+    expect(screen.getByText('client moodboards')).toBeTruthy(),
+  )
 })
 
 it('a failed panel shows its own error, and the rest still load', async () => {

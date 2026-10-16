@@ -571,6 +571,13 @@ button.frame:hover {
   display: flex;
   flex-direction: column;
 }
+
+/* A drop target with files hovering over it (dropFiles.ts). Ink, not
+   --select: it is the pointer's place, not a selection */
+.dropping {
+  outline: 2px dashed var(--ink);
+  outline-offset: 4px;
+}
 .ui-message {
   margin: 0 0 var(--space-4);
   white-space: pre-line;

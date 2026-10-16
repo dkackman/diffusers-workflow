@@ -35,7 +35,7 @@
         },
         "cost": {
             "type": "array",
-            "description": "Measured runs, one per device the maintainer measured on. Never derived; absent means unknown. 'minutes' is the whole run's wall clock on a worker that has to load the models - what a consumer actually waits through, not the denoise loop alone; on a video template the two differ by minutes.",
+            "description": "Measured runs, one per device the maintainer measured on, each measured at the workflow's variable defaults: a run that moves num_inference_steps, width/height or num_frames off them is quoted scaled in proportion (plan basis 'derived'), so a figure measured anywhere else must be re-priced to the defaults before it is written. Never invented without a run; absent means unknown. 'minutes' is the whole run's wall clock on a worker that has to load the models - what a consumer actually waits through, not the denoise loop alone; on a video template the two differ by minutes.",
             "items": {
                 "type": "object",
                 "required": ["device", "vram_gb", "minutes"],
@@ -757,8 +757,12 @@
                     }
                 },
                 "cache": {
-                    "description": "Enable diffusers built-in cache acceleration on the transformer. Hooks auto-reset between inference runs.",
-                    "type": "object",
+                    "description": "Enable diffusers built-in cache acceleration on the transformer. Hooks auto-reset between inference runs. Accepts a 'variable:' reference to a whole cache object; a variable that resolves to null means no cache, and the object it resolves to is checked against this shape at validate.",
+                    "type": [
+                        "object",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "properties": {
                         "type": {
                             "description": "Cache algorithm: first_block (simplest, broadest support), faster (video-oriented, experimental), mag (magnitude-based, needs num_inference_steps), taylorseer (Taylor series approximation), text_kv (text key-value cache).",
@@ -779,7 +783,7 @@
                             ]
                         },
                         "num_inference_steps": {
-                            "description": "Required for mag cache type. Must match the pipeline's num_inference_steps.",
+                            "description": "Required for mag cache type. The transformer forwards the call runs: the pipeline's num_inference_steps, except where the scheduler runs fewer (MiniMax-H3 runs one fewer, so a calibration reports one ratio fewer than the call's steps; set this to the count reported).",
                             "type": "integer"
                         },
                         "max_skip_steps": {
@@ -805,7 +809,7 @@
                             ]
                         },
                         "calibrate": {
-                            "description": "Run mag cache in calibration mode: skip nothing, and log the magnitude ratios for this model at the end of the run so they can be pasted into mag_ratios. Default: false.",
+                            "description": "Run mag cache in calibration mode: skip nothing, and report the magnitude ratios for this model at the end of the run as a job warning and log event, so they can be pasted into mag_ratios. Under classifier-free guidance run as separate cond and uncond passes two lists are reported, labeled [cond] and [uncond]; use the cond one. A pipeline whose transformer does not support enable_cache() (a UNet such as SD 1.5, Z-Image) runs uncached with a job warning and reports nothing. Default: false.",
                             "type": "boolean"
                         },
                         "cache_interval": {
@@ -815,6 +819,10 @@
                         "max_order": {
                             "description": "Taylor series order for taylorseer cache. Higher = better approximation, more memory. Default: 1.",
                             "type": "integer"
+                        },
+                        "is_guidance_distilled": {
+                            "description": "For faster cache: set true when the model is guidance-distilled (FLUX.1-dev, FLUX.1-Krea-dev), where guidance_scale is an embedding and the transformer sees a batch of 1, not a cond/uncond pair. Without it faster fails at the first step with 'tuple index out of range'. Default: false.",
+                            "type": "boolean"
                         }
                     },
                     "required": [
@@ -1239,6 +1247,13 @@
                 "subfolder": {
                     "description": "A subfolder of the run directory this step's files are written into, as a relative path like 'final' or 'shots/act-1'. Optional: without it the files land at the root of the run directory as they always have. By convention a step whose output the user will be shown is 'final' and everything else is 'intermediate', which is how a consumer tells the deliverable from the scratch files without knowing the workflow; the engine treats no name specially. May be a 'variable:' or, inside a for_each step, an 'item:' reference. Each segment must start with a letter, digit or underscore; '..' and '\\' are refused.",
                     "type": "string"
+                },
+                "role": {
+                    "description": "What this step's files are to whoever looks at the run: 'final' (a deliverable) or 'intermediate' (made for a later step). Optional: without it a subfolder named 'final' or 'intermediate' decides, else a step a later media-writing step consumes is intermediate and every other step is final. May be a 'variable:' reference.",
+                    "anyOf": [
+                        {"enum": ["final", "intermediate"]},
+                        {"type": "string", "pattern": "^variable:"}
+                    ]
                 },
                 "fps": {
                     "description": "Frames per second - only used when output is video. Defaults to the rate the frames themselves carry (a chain's 'fps', a join's own rate, the rate of the file a task read) and to 8 only when nothing knows better. Set it to write at a rate other than the source's - a deliberate slow motion - which the run then warns about. May be a 'variable:' or, inside a for_each step, an 'item:' reference, resolved the same way 'subfolder' is - the resolved value must be a positive whole number; a fractional rate is refused, since the video writer would silently truncate rather than honor it.",

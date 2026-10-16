@@ -6,6 +6,8 @@
   import FolderGroups from '../FolderGroups.svelte'
   import { leafOf } from '../grouping'
   import HintBar from '../HintBar.svelte'
+  import { formatMinutes } from '../format'
+  import { observedText, observedTitle } from '../observed'
   import { latestProofs } from '../proofs'
   import { sharedHref, wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
@@ -129,11 +131,6 @@
     filter !== '' || shape !== '' || traits.length > 0,
   )
 
-  /** Minutes for a person: under one is '<1 min', anything else keeps the
-   * measured value ('~3 min', '~1.5 min') rather than rounding it away. */
-  const formatMinutes = (minutes: number) =>
-    minutes < 1 ? '<1 min' : `~${Number(minutes.toFixed(2))} min`
-
   /** The one measurement a card shows: the first the maintainer recorded.
    * '~3 min · 22 GB', with the accelerator moved to the tooltip - the card
    * has room for the numbers, not for the hardware they came from. */
@@ -156,6 +153,8 @@
       const where = measured.name ?? measured.device
       lines.push(`measured on ${where}`)
     }
+    const seen = observedTitle(detail?.observed)
+    if (seen) lines.push(seen)
     if (detail?.writable === false)
       lines.push(`read-only, from the ${detail.origin} directory`)
     return lines.join('\n')
@@ -296,6 +295,9 @@
              competing for the meta row's leftovers -->
         {#if detail?.cost?.length}
           <span class="cost num muted">{formatCost(detail.cost)}</span>
+        {/if}
+        {#if !detail?.cost?.length && observedText(detail?.observed)}
+          <span class="cost num muted">{observedText(detail?.observed)}</span>
         {/if}
         {#if detail?.summary || detail?.description}
           <span class="carddesc muted"

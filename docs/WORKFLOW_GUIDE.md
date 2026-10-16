@@ -270,6 +270,15 @@ produces the shape it needs, and is about to write JSON. `get_schema` says what
 is *well-formed*; this section says what the engine *does* with a well-formed
 document, which is where a draft that validates still fails.
 
+When exploring variations, pass `note` to `run_workflow` saying what each run
+tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
+note is shown with every file the run made. Each file carries a `role`
+(`final` or `intermediate`) inferred from how a step's output is used - a file
+a later run reads (`output:`, or an `asset:` kept from it) lists as
+intermediate too; set `result.role` on a step to override it when the default
+is wrong, and set `"role": "intermediate"` on a workflow whose deliverable is an
+ingredient a later assembly consumes.
+
 ### References
 
 An argument value is a reference when it begins with one of these prefixes.
@@ -702,7 +711,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a measured per-entry rate re-priced for your list; `catalog` is a
    measured total for a run whose lists are the ones it was measured with;
    `derived` is that total extrapolated over a list you changed the length
-   of - say it is an estimate; `inherited` is an inline workflow priced
+   of, or scaled along the steps, canvas or frames you moved off the
+   defaults it was measured at (`scaled` names each axis that moved) - say
+   it is an estimate; `inherited` is an inline workflow priced
    from this box's runs of the catalog template with the same pipeline
    (`inherited_from`) - say it is an approximation, and relay the warning
    if offload, quantization or frame count differ; `other_device` is a figure from another
@@ -761,7 +772,7 @@ by the source, and `validate_workflow` names the entries to add or drop.
    arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
    it takes an audio file or a video's muxed soundtrack directly, and
    `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
-   a line's shot, `[]` for a take that should be silent), then
+   a line's shot (plus `start_frame` when the cut repeats that shot's name), `[]` for a take that should be silent), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
    "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
@@ -971,7 +982,12 @@ longer than that is truncated with an ellipsis in every listing.
 Declare `shape`, `traits` or `summary` at the top level only when derivation
 gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
-never derived — leave it absent until a run has been measured. That makes it
+never derived — leave it absent until a run has been measured. A `cost` entry
+is measured at the workflow's variable defaults: a run that moves
+`num_inference_steps`, `width`/`height` or `num_frames` (per entry in a list,
+summed) is quoted scaled in proportion to them, so a figure measured at some
+other size or step count is re-priced to the defaults before it is written
+(dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). That makes it
 the catalog's verified marker as well: an entry carrying `cost` has been run
 to completion on the device it names, and one without has only been authored
 — its description may still say what it has not been able to check (VRAM at
@@ -986,7 +1002,12 @@ reports the result as `observed` beside the curated `cost`, so a 345-frame
 run never informs a 124-frame figure and a list driver buckets on its length.
 Declaring none is not neutral: the figure then falls back to runs that
 overrode nothing at all, which most real runs do, so a measured workflow with
-no drivers keeps answering "unknown". Each name must be a variable the
+no drivers keeps answering "unknown". A driver the estimate cannot scale
+along - anything but steps, width, height and frames, such as a weights
+dtype, a LoRA name or an audio duration - still splits the buckets (a text
+value buckets by its exact value). When a run moves one off its default, the
+curated figure is kept but carries `low_confidence: true`, and `differs`
+names the drivers, since it was measured at the default. Each name must be a variable the
 workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
 that is not, since a driver bucketing on nothing looks exactly like a driver
 that works.
@@ -1066,6 +1087,23 @@ checked and accepted is simply left alone. A `seam_frame_jump` at a cut the
 story wanted is the cut working, and a level step into a quieter scene can
 be the scene. Tell the person what you confirmed, not what the probe
 reported.
+
+**Comparing outputs.** `compare_outputs(names)` (`POST /api/gallery/compare`)
+lays 2-8 outputs (variations, reruns, the same shot with and without a speed
+setting) in one grid, a row per output and a column per moment, every output
+read at the same frame number, and measures each against a `baseline` (default
+the first). Per non-baseline output it reports PSNR (dB, higher is closer;
+`identical` when equal), SSIM (structure on luma, 1.0 identical) and mean
+absolute difference (0-255, lower is closer), at source resolution, per column
+and as mean/min/max. A shared `crop` is the region both shown and measured; one
+box per name is display only and the metrics stay on the full frame; the reply's
+`region` says which. Outputs of a different size get no numbers (never resized).
+A bare PSNR means little alone; these bands, measured on full frames, are a
+reading aid, not thresholds: about 44 dB is rerun noise (same settings,
+nondeterministic kernels); 23-27 dB means the numerics changed (a different
+cache, attention backend or quantization) but the shot is the same; about 19 dB
+means it was re-staged (the composition changed). Look at the grid before
+trusting a number.
 
 **Remediation.** A *recut* reruns only the join over the shots the run
 already made: each entry in `videos` is `output:` + the run's
@@ -1219,6 +1257,9 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
+  Every MiniMax-H3 template wires an `attention_backend` variable (default `null`) here,
+  on its H3 step's `transformer` or `transformer_ref`; see
+  [ACCELERATION.md](ACCELERATION.md) for `sage_hub` and what it needs.
 - `attn_processor_type` — the attention processor the component runs, constructed with no
   arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
   those two; this covers any other component that carries attention (LTX-2.5's
@@ -1516,9 +1557,17 @@ A `cache` block speeds up inference by skipping redundant computation:
 `cache` wraps diffusers' own cache hooks - `type` is one of `first_block`, `faster`,
 `mag`, `taylorseer` or `text_kv`, each with its own tuning fields (`threshold`,
 `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `cache_interval`,
-`max_order`, `mag_ratios`, `calibrate` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
+`max_order`, `mag_ratios`, `calibrate`, `is_guidance_distilled` — see [dw/workflow_schema.json](../dw/workflow_schema.json) for which
 fields apply to which type). See
 [workflows/templates/step-caching.json](../workflows/templates/step-caching.json).
+
+`cache` can also be a whole-object `variable:` reference, which must resolve to a cache
+object or to `null`. A variable resolving to `null` drops the key: no cache, and the only
+true "off", since an installed `first_block` hook changes the output even when it skips
+nothing. The substituted object is checked against the cache shape at validate, so
+`{"type": "bogus"}` or a bare `"first_block"` is refused, naming the field. Every
+MiniMax-H3 template exposes a `cache` variable (default `null`) on its H3 step:
+`"arguments": {"cache": {"type": "first_block", "threshold": 0.05}}`.
 
 ### Device and Dtype
 
@@ -2608,6 +2657,26 @@ same seed, same arguments - do not share a cache entry, so
 is pinned to, not for every workspace that happens to hold a matching run.
 Deleting a workspace takes its cache entries with it, the same as deleting
 its `outputs/` directory would.
+
+The step cache is also per card and per workflow identity. Identity is the stored
+workflow's name, or an inline workflow's `id`; entries are keyed on the definition `id`
+and step name (`StepCache.get` in `dw/step_cache.py`), and an inline job's identity is
+`("inline", id)` (`workflow_identity` in `dw/worker_protocol.py`). Switching identity on a
+card empties that card's cache (the worker's `_cleanup_all` calls `step_cache.clear()`),
+so:
+
+- running any other workflow on the card in between starts the next run cold: A, then B,
+  then A runs the second A cold. This is the common case. On a multi-card server
+  warm-identity routing (`choose_slot` in `dw/server/pool.py`) mostly avoids it unless
+  that card is busy; on a single card it happens every time.
+- a renamed copy, a new inline `id`, or switching between a stored workflow and its
+  inline copy also starts cold.
+
+To reuse cached upstream steps, rerun the same workflow (same name, or the same inline
+`id`), for example with `rerun_job` or changed arguments. Only arguments that reach
+*later* steps leave the earlier steps cached: changing an argument the expensive first
+step reads re-runs that step. To check before running, `validate_workflow`'s
+`plan.cached_steps` says how many steps would be reused.
 
 ## Type System
 

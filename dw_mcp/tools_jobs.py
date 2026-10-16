@@ -21,6 +21,7 @@ class JobTools:
         acknowledged_cost: bool | dict = False,
         workspace: str | None = None,
         wait_seconds: int = 0,
+        note: str | None = None,
     ) -> dict:
         """Queue a workflow for generation. This costs GPU time: a run
         occupies a GPU for minutes and the engine runs one job per GPU.
@@ -49,7 +50,10 @@ class JobTools:
         "downloads": [...the non-null repos in plan.downloads_required]} from
         the validate plan; the server refuses with 409, naming the new
         plan, if the run's shape changed since. Bare true is for a plan
-        that was null."""
+        that was null.
+
+        `note`: what this run is for, shown on every file it writes
+        ('testing video_shift 5 against 3'). Give each variation its own."""
         return diagnose.run_workflow(
             self.client,
             workflow_path=workflow_path,
@@ -60,6 +64,7 @@ class JobTools:
             acknowledged_cost=acknowledged_cost,
             workspace=workspace,
             wait_seconds=wait_seconds,
+            note=note,
         )
 
     # The cap is a number a caller paces against, so the description
@@ -80,7 +85,9 @@ class JobTools:
         declared - by convention `final` is the deliverable, `intermediate`
         the scratch work, and '' a step that said nothing. A step served
         from the step cache is marked `reused`, with the earlier run's
-        files. On failure, read the error and traceback before changing
+        files. A pipeline step's entry carries `timing`, where its time
+        went (`get_guide("workspaces", section="Step timing")`). On failure,
+        read the error and traceback before changing
         anything. `device` is the card the job ran or is running on, e.g.
         `cuda:1 NVIDIA GeForce RTX 3090`; null for jobs from before
         multi-GPU. `acknowledged` says which form of cost acknowledgement
@@ -113,7 +120,8 @@ class JobTools:
         difference between two events. For 'is it still moving?' the
         `progress` block on get_job/wait_for_job is cheaper than a page of
         events. `kinds` (e.g. `["log", "warning"]`, or a warning's `kind`)
-        filters the page - `memory` events otherwise dominate it.
+        filters the page - `memory` events otherwise dominate it;
+        `cache_stats` is a step cache's skip counts, once per call.
 
         A `kind: "phase_stall"` entry is a watchdog notice, not progress - it
         fires every ~30s a phase goes quiet, not evidence of a hang by
@@ -165,9 +173,9 @@ class JobTools:
         )
 
     def cancel_job(self, job_id: str) -> dict:
-        """Ask a queued or running job to stop. Cooperative: a running job
-        stops at the next step or denoise-step boundary, not instantly.
-        Deliberately not gated - it ends a cost rather than starting one."""
+        """Stop a queued or running job at its next step or denoise-step
+        boundary; a load is killed after 30 s (`cancel_requested` till then).
+        Not gated - it ends a cost rather than starting one."""
         return diagnose.cancel_job(self.client, job_id)
 
     def rerun_job(

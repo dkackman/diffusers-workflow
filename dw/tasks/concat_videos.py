@@ -12,12 +12,14 @@ import logging
 
 import numpy
 
-from ..dsp import as_channels_samples
-from ..events import emit_log, emit_warning
+from ..dsp import as_channels_samples, level_dbfs
+from ..events import emit_log, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..shots import measured_num_samples, nested_shots, shot_record, trimmed_shots
 from ..task_domains import frames_to_samples
+from .assess import sample_span
 from .joins import (
+    INNER_LEVEL_STEP_WARN_DB,
     bleed_join,
     equal_power_crossfade_join,
     fit_audio_to_frames,
@@ -97,7 +99,10 @@ def concat_videos(
             land 10 dB apart routinely, and that jump is the one seam
             artifact none of the fade controls can hide, because it is not
             at the seam but either side of it. Left off, a spread wide
-            enough to hear is logged as a warning
+            enough to hear is logged as a warning. Each input is levelled
+            as one unit: an input that is itself a join (it carries
+            media.shots) keeps the level steps between its own shots, and
+            one wider than 3 dB is reported as an inner_level_step warning
         match_levels_dbfs: The level match_levels moves every shot to -
             defaults to -1 dBFS for "peak" and -20 dBFS for "rms". A shot
             that would clip at the target is held at -0.5 dBFS peak instead,
@@ -122,6 +127,43 @@ def concat_videos(
         videos, match_levels, match_levels_dbfs, sample_rate
     )
 
+    frames, audio, shots = _joined_tracks(
+        videos,
+        names,
+        clips,
+        waveforms,
+        sample_rate,
+        trim_frames,
+        fps,
+        crossfade_ms,
+        audio_bleed_ms,
+        audio_bleed_gain_db,
+        seam_fade_ms,
+    )
+
+    _warn_fps_override(videos, names, fps)
+    audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
+    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
+    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+
+
+def _joined_tracks(
+    videos,
+    names,
+    clips,
+    waveforms,
+    sample_rate,
+    trim_frames,
+    fps,
+    crossfade_ms,
+    audio_bleed_ms,
+    audio_bleed_gain_db,
+    seam_fade_ms,
+):
+    """The prepared inputs joined end to end, as (frames, audio, shots):
+    each video's frames after its head trim, its soundtrack joined at the
+    seam, and a shot record for where it landed. `audio` is None when no
+    input carries any."""
     frames, audio, audio_native_rate = [], None, None
     # Where each video landed, measured on the joined picture and track as
     # they grow - never derived from the frame count, so a track that runs
@@ -176,11 +218,7 @@ def concat_videos(
             )
             _record_seam_fade(shots[first_shot[index]], applied)
         audio_native_rate = getattr(video, "sample_rate", None)
-
-    _warn_fps_override(videos, names, fps)
-    audio, written_fps = _fitted_audio(frames, audio, sample_rate, fps, videos, shots)
-    logger.debug(f"Concatenated {len(videos)} videos into {len(frames)} frames")
-    return AudioVideo(frames, audio, sample_rate, fps=written_fps, shots=shots)
+    return frames, audio, shots
 
 
 def _record_seam_fade(shot, applied):
@@ -223,13 +261,54 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
     names, videos = load_named_inputs(videos)
     clips = [frames_as_pil_list(v) for v in videos]
     check_same_frame_size(clips, "concat_videos")
+    native = _input_waveforms(videos)
+    if match_levels:
+        _warn_inner_level_steps(videos, names, native, match_levels)
     waveforms, sample_rate = reconcile_sample_rates(
-        "concat_videos", videos, names, _input_waveforms(videos), sample_rate
+        "concat_videos", videos, names, native, sample_rate
     )
     waveforms = level_waveforms(
         "concat_videos", waveforms, match_levels, match_levels_dbfs, names
     )
     return names, videos, clips, waveforms, sample_rate
+
+
+def _warn_inner_level_steps(videos, names, waveforms, measure):
+    """Say so when match_levels levels a multi-shot input as one unit and its
+    own shots differ by more than assess_output's seam_level_step threshold (shared with it), placing
+    shots with assess.sample_span:
+    the step between them survives the join (#876)."""
+    # A later pair_audio replaces the track, so the step is never heard (#800)
+    if get_context().audio_replaced_downstream:
+        return
+    for video, name, waveform in zip(videos, names, waveforms):
+        shots = getattr(video, "shots", None)
+        if waveform is None or not shots or len(shots) < 2:
+            continue
+        levels = []
+        for shot in shots:
+            start, count, _ = sample_span(shot, video)
+            if start is None or not count:
+                continue
+            level = level_dbfs(waveform[:, start : start + count], measure)
+            if level is not None:
+                levels.append(level)
+        if len(levels) < 2:
+            continue
+        spread = max(levels) - min(levels)
+        if spread > INNER_LEVEL_STEP_WARN_DB:
+            emit_warning(
+                f"concat_videos: {name} is itself a join of {len(shots)} shots "
+                f"whose {measure} levels span {spread:.1f} dB - match_levels "
+                "levels an input as one unit, so that step survives the join. "
+                "Trim it into its shots (trim_video per media.shots entry) and "
+                "join those to level them",
+                kind="inner_level_step",
+                command="concat_videos",
+                video=name,
+                spread_db=round(spread, 1),
+                measure=measure,
+            )
 
 
 def _fitted_audio(frames, audio, sample_rate, fps, videos, shots):

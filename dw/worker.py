@@ -552,7 +552,16 @@ class WorkflowWorker:
         """
         request_id = command.get("request_id")
         try:
-            workflow, _ = self._load_workflow(command, command["output_dir"])
+            workflow, identity = self._load_workflow(command, command["output_dir"])
+            # The run's identity switch (_prepare_workflow) clears the step
+            # cache before the job starts, so a different warm identity
+            # means nothing would be served (#911)
+            if (
+                self.workflow_identity is not None
+                and identity != self.workflow_identity
+            ):
+                self._reply(ProbeCacheReply(request_id=request_id, cached=[]))
+                return
             asset_token = (
                 activate_asset_dir(command["asset_dir"])
                 if command.get("asset_dir")

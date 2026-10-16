@@ -6,7 +6,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "variables": {
         "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles, until now still, begin to writhe, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, says <d>[English] Rise now. The old ones are listening.</d> As the words land its central mass swells and contracts once, and the caustics on the surface below ripple with it. The camera pushes in with small amplitude at slow speed toward the figure's core through the final seconds, holding the writhing tentacles at the edges of frame.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch. A distant, slow swell of moving air rises beneath the voice and falls away after it.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, rising very slowly in intensity across the clip with no discernible melody or pulse.",
@@ -26,7 +30,8 @@
         "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "seed": null,
-        "attention_backend": null
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -146,7 +151,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",

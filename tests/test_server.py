@@ -1616,6 +1616,41 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_metadata_measures_an_image_and_can_omit_the_workflow(server, tmp_path):
+    """#922: an image's `media` was null, so its size was only in the
+    arguments the pipeline was asked for; `include_workflow=false` drops
+    the embedded definition."""
+    from PIL import Image
+    from dw.writers import embed_image_metadata
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        metadata = {"step_name": "gen", "workflow": valid_workflow("from_image")}
+        embed_image_metadata(
+            Image.new("RGB", (6, 4)),
+            str(outputs / "m.0-0.0.jpg"),
+            "image/jpeg",
+            metadata,
+        )
+        full = client.get("/api/gallery/m.0-0.0.jpg/metadata").json()
+        assert full["media"] == {
+            "kind": "image",
+            "width": 6,
+            "height": 4,
+            "mode": "RGB",
+        }
+        assert full["findings"] == []
+        assert full["metadata"]["workflow"]["id"] == "from_image"
+
+        lean = client.get(
+            "/api/gallery/m.0-0.0.jpg/metadata?include_workflow=false"
+        ).json()
+        assert "workflow" not in lean["metadata"]
+        assert lean["metadata"]["workflow_omitted"] is True
+        assert lean["metadata"]["step_name"] == "gen"
+        assert lean["media"]["width"] == 6
+
+
 def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
     """A generated mp3 answered metadata: null and nothing else, so every
     duration and level check was ffprobe by hand. The route now says what
@@ -1640,7 +1675,12 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert shot["media"]["frame_count"] == 12
 
         still = client.get("/api/gallery/still-gen.0-0.0.png/metadata").json()
-        assert still["media"] is None
+        assert still["media"] == {
+            "kind": "image",
+            "width": 4,
+            "height": 4,
+            "mode": "RGB",
+        }
 
 
 def test_gallery_metadata_accepts_an_output_reference(server, tmp_path):
@@ -6068,7 +6108,12 @@ def test_gallery_metadata_reads_an_asset_reference(asset_server, tmp_path):
         # an image asset carries no media block, the same as an image output
         still = client.get("/api/gallery/asset:still.png/metadata").json()
         assert still["source"] == "asset"
-        assert still["media"] is None
+        assert still["media"] == {
+            "kind": "image",
+            "width": 4,
+            "height": 4,
+            "mode": "RGB",
+        }
 
         # and an output is unchanged - it still says where it came from
         write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)

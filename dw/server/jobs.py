@@ -20,6 +20,8 @@ This module owns the queue, the dispatcher and the job history readers. The
 rest lives beside it, and JobManager keeps a thin delegator for every name a
 route or test calls:
 - `dw/server/pool.py`: WorkerSlot and the lock-free fit and affinity policy;
+- `dw/server/dispatch.py`: the queue scan picking the next job and card,
+  with the host-RAM hold (`Dispatcher`, a mixin of JobManager);
 - `dw/server/job_results.py`: folding a run's worker messages into its Job;
 - `dw/server/worker_memory.py`: a card's memory reading, cache probe and
   memory clear.
@@ -40,9 +42,10 @@ import logging
 import threading
 from contextlib import contextmanager
 
+from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
 from ..devices import device_ordinal
-from ..host_memory import process_rss_mb
+from ..host_memory import process_rss_mb, read_oom_score_adj
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
 from ..security import (
@@ -56,8 +59,10 @@ from .. import references
 from ..runs import REALIZED_FILE_NAME
 from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
-from . import job_results, pool, worker_memory
+from . import dispatch, job_results, pool, worker_memory
+from .dispatch import Dispatcher
 from .job_history import JobHistory
+from .outputs import job_run_directory, with_run_note
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -79,12 +84,16 @@ logger = logging.getLogger("dw")
 # history only, so a long-running server's memory stays bounded
 TERMINAL_JOBS_KEPT = 20
 
+# How long a cancel waits for a worker in a phase with no checkpoint (a model
+# load, a task) before the worker is terminated (#892)
+CANCEL_GRACE_SECONDS = 30.0
+
 
 class JobsActive(Exception):
     """A job is running or queued."""
 
 
-class JobManager:
+class JobManager(Dispatcher):
     """Queues jobs and dispatches them onto one worker process per card."""
 
     def __init__(
@@ -129,6 +138,9 @@ class JobManager:
         self._wake = threading.Condition(self._lock)
         # The VRAM each job needs to start, by job id (dispatch reads it)
         self._needs = {}
+        # The host RAM (MB) each job is projected to peak at, by job id - only
+        # jobs with a figure; dispatch holds one the host can't fit (#869)
+        self._host_needs = {}
         # The card a rerun prefers - the original's ordinal - by job id
         self._preferred = {}
         # Callers holding dispatch (hold_dispatch): while any does, no queued
@@ -222,7 +234,10 @@ class JobManager:
         acknowledged_cost=None,
         warnings=None,
         vram_need=None,
+        host_ram_need=None,
         preferred_device=None,
+        note=None,
+        rerun_of=None,
     ):
         """Record a job request and queue it.
 
@@ -259,8 +274,18 @@ class JobManager:
         starts only on a card with that much VRAM (`check_fits` has already
         refused one no card here holds).
 
+        `host_ram_need` is the admission's (`Admission.host_ram_need`): the
+        host RAM the run is projected to hold at its peak, kept on the job
+        as `job.host_ram_need` (#869). The job waits to start while the
+        host cannot hold it beside the running jobs (`_host_ram_wait`).
+
         `preferred_device` is the card ('cuda:1') the job goes to when that
         card is free and fits it - a rerun's original card (`rerun`).
+
+        `note` is the run's note, already cleaned (`admitted_note`): kept on
+        the job and written into the run directory when the run opens.
+
+        `rerun_of` is the job this one reruns, recorded so the list can say so.
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -308,11 +333,18 @@ class JobManager:
         if asset_dir:
             spec["asset_dir"] = asset_dir
         spec["warnings"] = list(warnings or [])
+        if note:
+            spec["note"] = note
+        if rerun_of:
+            spec["rerun_of"] = rerun_of
 
         job = Job(spec)
+        job.host_ram_need = host_ram_need
         with self._lock:
             self.jobs[job.id] = job
             self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
+            if host_ram_need:
+                self._host_needs[job.id] = host_ram_need[0]
             if preferred_device:
                 self._preferred[job.id] = preferred_device
         job.add_event({"event": "job_status", "status": QUEUED})
@@ -497,6 +529,7 @@ class JobManager:
         warnings=None,
         arguments=None,
         vram_need=None,
+        host_ram_need=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -550,7 +583,10 @@ class JobManager:
             ),
             warnings=warnings,
             vram_need=vram_need,
+            host_ram_need=host_ram_need,
             preferred_device=self._original_device(job_id),
+            note=spec.get("note"),
+            rerun_of=job_id,
         )
 
     def _original_device(self, job_id):
@@ -581,6 +617,13 @@ class JobManager:
         workspaces existed. `statuses` filters to a set of job states
         ('queued', 'running', 'succeeded', 'failed', 'cancelled'); omitted,
         every state is listed."""
+        return self.list_page(workspace, statuses)[0]
+
+    def list_page(self, workspace=None, statuses=None, limit=None):
+        """`list`'s jobs cut to the newest `limit` (every one when None),
+        and how many matched before the cut. Each run's current note is
+        read after the cut, so a small page does not read the notes of
+        the whole history."""
         statuses = set(statuses) if statuses else None
         with self._lock:
             live = sorted(self.jobs.values(), key=lambda j: j.created_at)
@@ -595,14 +638,31 @@ class JobManager:
                 continue
             if job.id in positions:
                 summary["queue_position"] = positions[job.id]
-            summaries.append(summary)
+            output_dir = job.spec.get("output_dir")
+            summaries.append((summary, output_dir, job.run_dir))
         for historical in self.history.recent_summaries(
             workspace=workspace, statuses=statuses
         ):
+            run_dir = historical.pop("_run_dir", None)
+            output_dir = historical.pop("_output_dir", None)
             if historical["id"] not in live_ids:
-                summaries.append(historical)
-        summaries.sort(key=lambda summary: summary["created_at"] or 0)
-        return summaries
+                summaries.append((historical, output_dir, run_dir))
+        summaries.sort(key=lambda entry: entry[0]["created_at"] or 0)
+        total = len(summaries)
+        if limit is not None:
+            # the newest are the interesting ones and the list is oldest
+            # first, so the cut comes off the front; max(0, ...) because a
+            # bare negative start would be read from the end instead
+            summaries = summaries[max(0, total - limit) :] if limit else []
+        return [self._current_note(*entry) for entry in summaries], total
+
+    def _current_note(self, summary, output_dir, run_dir):
+        """The summary with its run's current note (outputs.with_run_note),
+        when the run directory is still there."""
+        if not run_dir:
+            return summary
+        root = validate_output_path(output_dir or self.output_dir, None)
+        return with_run_note(summary, job_run_directory(root, run_dir))
 
     # ------------------------------------------------------------ cancel/stop
 
@@ -619,8 +679,7 @@ class JobManager:
             if job.status == QUEUED:
                 if job.id in self._pending:
                     self._pending.remove(job.id)
-                self._needs.pop(job.id, None)
-                self._preferred.pop(job.id, None)
+                self._forget_dispatch(job)
                 self._finish(job, CANCELLED)
                 return job.status
             slot = self._slot_running(job.id)
@@ -633,7 +692,41 @@ class JobManager:
                     slot.manager.cancel()
                 except Exception as e:
                     logger.warning(f"Could not send cancel for job {job_id}: {e}")
+                self._escalate_cancel(slot, job)
         return job.status
+
+    def _escalate_cancel(self, slot, job):
+        """A model load or a task step never reaches the checkpoint that
+        honors a cancel, and a cold download can last hours. Once the grace
+        period has passed and the job is still in such a phase, the worker
+        is terminated and the job ends cancelled (#892); it respawns for the
+        next job."""
+        timer = threading.Timer(
+            CANCEL_GRACE_SECONDS, self._terminate_if_stuck, args=(slot, job)
+        )
+        timer.daemon = True
+        timer.start()
+
+    def _terminate_if_stuck(self, slot, job):
+        with self._lock:
+            stuck = (
+                job.status == RUNNING
+                and slot.current_job_id == job.id
+                and job.phase in NON_INTERRUPTIBLE_PHASES
+            )
+        if not stuck:
+            return
+        job.add_event(
+            {
+                "event": "log",
+                "message": f"Cancel still pending in phase '{job.phase}' after "
+                f"{CANCEL_GRACE_SECONDS:g}s: terminating the worker",
+            }
+        )
+        try:
+            slot.manager.terminate_worker()
+        except Exception as e:
+            logger.warning(f"Could not terminate the worker for job {job.id}: {e}")
 
     def move(self, job_id, direction):
         """Reorder a queued job: 'up'/'down' swap with a neighbour,
@@ -657,6 +750,9 @@ class JobManager:
             else:
                 index = min(len(self._pending), index + 1)
             self._pending.insert(index, job_id)
+            # The order decides which job the next pass tries first, a held
+            # one included (#869)
+            self._wake.notify()
             return list(self._pending)
 
     def shutdown(self):
@@ -687,7 +783,10 @@ class JobManager:
                     picked = self._next_dispatch()
                     if picked is not None:
                         break
-                    self._wake.wait()
+                    # Host RAM frees outside dw too, so a job held for it is
+                    # looked at again on a timer, not only on a wake (#869)
+                    held = any(self._held_for_host_ram())
+                    self._wake.wait(dispatch.HOST_RAM_RECHECK_SECONDS if held else None)
                 slot, job = picked
                 job.status = RUNNING
                 job.started_at = time.time()
@@ -707,36 +806,6 @@ class JobManager:
                 self._job_threads.add(thread)
             thread.start()
 
-    def _next_dispatch(self):
-        """(slot, job) for the first queued job, in queue order, that fits
-        a free card - the one it has an affinity for (`_choose_slot`) - or
-        None. A job too big for every free card keeps its place, and the
-        scan goes on past it: a smaller job behind it takes the card
-        meanwhile (backfill). Called holding _lock."""
-        if self._dispatch_holds:
-            return None
-        free = [slot for slot in self.slots if slot.current_job_id is None]
-        if not free:
-            return None
-        for job_id in list(self._pending):
-            job = self.jobs.get(job_id)
-            if job is None or job.status != QUEUED:
-                self._pending.remove(job_id)  # cancelled while waiting
-                self._needs.pop(job_id, None)
-                self._preferred.pop(job_id, None)
-                continue
-            need = self._needs.get(job_id)
-            fitting = [slot for slot in free if slot.fits(need)]
-            if fitting:
-                slot = pool.choose_slot(
-                    fitting, self._job_identity(job), self._preferred.get(job_id)
-                )
-                self._pending.remove(job_id)
-                self._needs.pop(job_id, None)
-                self._preferred.pop(job_id, None)
-                return slot, job
-        return None
-
     def _slot_running(self, job_id):
         """The slot whose worker is running `job_id`, or None."""
         with self._lock:
@@ -752,6 +821,19 @@ class JobManager:
         except Exception as e:
             logger.warning(f"Could not persist job {job.id}: {e}")
         self._trim_terminal_jobs()
+
+    def forget_workspace(self, workspace):
+        """Drop a deleted workspace's finished jobs, in memory and in history
+        (#913), so a workspace later created under the same name lists none
+        of them. Queued or running jobs are the caller's to refuse first."""
+        with self._lock:
+            for job in [
+                j
+                for j in self.jobs.values()
+                if j.status in TERMINAL_STATES and j.spec.get("workspace") == workspace
+            ]:
+                del self.jobs[job.id]
+        return self.history.forget_workspace(workspace)
 
     def _trim_terminal_jobs(self):
         """Drop the oldest finished jobs from memory - history has them, and
@@ -786,7 +868,7 @@ class JobManager:
                     outcome = (CANCELLED, None, None)
                 else:
                     manager.ensure_worker(self.log_level)
-                    self._rank_for_oom(slot)
+                    self._rank_for_oom(slot, job)
                     command = Execute(
                         # The snapshot admission checked, which the worker runs
                         # as it is rather than reading the file again
@@ -828,24 +910,41 @@ class JobManager:
             status, error, traceback_text = outcome
             self._finish(job, status, error=error, traceback_text=traceback_text)
 
-    def _rank_for_oom(self, slot):
-        """A worker this call just started is scored for the kernel's OOM
-        killer above every other live worker, so a host-RAM squeeze kills
-        the later-started worker - one job - rather than whichever is
-        largest. Nothing is written while it is the only worker, so one card
-        runs exactly as before."""
+    def _rank_for_oom(self, slot, job=None):
+        """Score the dispatching worker 1000 for the kernel's OOM killer and
+        put every other live worker back to its spawn-time floor, on every
+        dispatch, so a host-RAM squeeze kills the newest job whatever the
+        workers' sizes (#881). The floor rather than 0: an unprivileged write
+        below it is refused (WorkerManager.reset_oom_score_adj). Nothing is
+        written while it is the only worker, so one card runs exactly as
+        before. A write the kernel refuses is a warning on the job, since a
+        tie at 1000 is the failure this exists to prevent."""
         manager = slot.manager
-        pid = manager.pid() if hasattr(manager, "pid") else None
-        if pid is None or pid == slot.ranked_pid:
+        if not hasattr(manager, "set_oom_score_adj"):
             return
-        slot.ranked_pid = pid
         others = [
             other.manager for other in self.slots if other is not slot and other.alive()
         ]
-        if not others or not hasattr(manager, "set_oom_score_adj"):
+        if not others:
             return
-        highest = max((other.oom_score_adj or 0) for other in others)
-        manager.set_oom_score_adj(min(1000, highest + 100))
+        refused = []
+        if manager.set_oom_score_adj(1000) is False:
+            refused.append((manager, 1000))
+        for other in others:
+            if (
+                hasattr(other, "reset_oom_score_adj")
+                and other.reset_oom_score_adj() is False
+            ):
+                refused.append((other, other.oom_score_floor or 0))
+        for worker, value in refused:
+            message = (
+                f"Could not set oom_score_adj to {value} on the {worker.device} "
+                f"worker (pid {worker.pid()}): a host-RAM squeeze may not kill "
+                "the newest job first"
+            )
+            logger.warning(message)
+            if job is not None:
+                job.add_event({"event": "warning", "message": message})
 
     def is_busy(self):
         """True while a job is running on any card or queued - the window in
@@ -917,6 +1016,11 @@ class JobManager:
             rss = process_rss_mb(pid) if pid is not None else None
             if rss is not None:
                 entry["host_memory_rss_mb"] = rss
+            if pid is not None and slot.alive():
+                entry["pid"] = pid
+                adj = read_oom_score_adj(pid)
+                if adj is not None:
+                    entry["oom_score_adj"] = adj
             described.append(entry)
         return described
 

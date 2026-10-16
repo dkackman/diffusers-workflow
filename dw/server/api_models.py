@@ -13,57 +13,69 @@ Routes declare `response_model_exclude_unset=True`: a key the handler did
 not emit stays absent rather than arriving as null.
 """
 
-import logging
-import os
-
 from typing import Any, Literal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import ConfigDict, Field
 
 from .admission import AcknowledgedCost
-from .catalog_shape import SHAPES, TRAITS
+from .api_models_base import STRICT, ApiModel, send_rejected_responses, sometimes
+from .api_models_library import (
+    Origin,
+    Shape,
+    Trait,
+    LibraryRoot,
+    ShadowedEntry,
+    DiskUsage,
+    WorkspaceInfo,
+    WorkspaceList,
+    WorkspaceDeleted,
+    CopiedItems,
+    WorkspaceCopied,
+    WorkflowCost,
+    WorkflowCard,
+    BuiltinWorkflows,
+    WorkflowList,
+    WorkflowSaved,
+    WorkflowDeleted,
+    PromptCard,
+    PromptList,
+    PromptSaved,
+    Deleted,
+    EnhancerPreset,
+    EnhancerPresets,
+)
 
-STRICT = os.environ.get("DW_STRICT_RESPONSES") == "1"
-
-logger = logging.getLogger(__name__)
-
-
-class ApiModel(BaseModel):
-    model_config = ConfigDict(extra="forbid" if STRICT else "allow")
-
-
-def send_rejected_responses(app) -> None:
-    """Make runtime leniency cover a declared field of the wrong type too,
-    not just an undeclared key: the response is logged and sent as the
-    handler built it, with the route's own status. Some routes have acted
-    by then - POST /api/jobs has queued the job - and a 500 would invite a
-    retry that does it twice. Installed by create_app outside strict mode."""
-    from fastapi.encoders import jsonable_encoder
-    from fastapi.exceptions import ResponseValidationError
-    from fastapi.responses import JSONResponse
-
-    async def send_as_built(request, exc: ResponseValidationError):
-        route = request.scope.get("route")
-        logger.error(
-            "Response for %s %s does not match its model: %s",
-            request.method,
-            request.url.path,
-            exc.errors(),
-        )
-        return JSONResponse(
-            jsonable_encoder(exc.body),
-            status_code=getattr(route, "status_code", None) or 200,
-        )
-
-    app.add_exception_handler(ResponseValidationError, send_as_built)
-
-
-def sometimes(description: str | None = None) -> Any:
-    """A key the handler emits only in some states, and never as null when
-    it does: typed as its value, defaulting to an unvalidated None that
-    `response_model_exclude_unset` keeps out of the payload. The generated
-    type is then `key?: T`, not `key?: T | null`."""
-    return Field(default=None, description=description)
+# The library's models live in api_models_library, and the base in
+# api_models_base; every route and test imports them from here
+__all__ = [
+    "STRICT",
+    "ApiModel",
+    "send_rejected_responses",
+    "sometimes",
+    "Origin",
+    "Shape",
+    "Trait",
+    "LibraryRoot",
+    "ShadowedEntry",
+    "DiskUsage",
+    "WorkspaceInfo",
+    "WorkspaceList",
+    "WorkspaceDeleted",
+    "CopiedItems",
+    "WorkspaceCopied",
+    "WorkflowCost",
+    "WorkflowCard",
+    "BuiltinWorkflows",
+    "WorkflowList",
+    "WorkflowSaved",
+    "WorkflowDeleted",
+    "PromptCard",
+    "PromptList",
+    "PromptSaved",
+    "Deleted",
+    "EnhancerPreset",
+    "EnhancerPresets",
+]
 
 
 # ----------------------------------------------------------------- system
@@ -79,6 +91,12 @@ class WorkerInfo(ApiModel):
     alive: bool
     host_memory_rss_mb: float = sometimes(
         "The worker process's resident host memory; absent while it is not running."
+    )
+    pid: int = sometimes("The worker process's pid; absent while it is not running.")
+    oom_score_adj: int = sometimes(
+        "The worker's kernel oom_score_adj, read from /proc at call time (1000 for "
+        "the latest dispatch's worker in a pool, else the value it was spawned "
+        "with); absent where unreadable."
     )
 
 
@@ -243,6 +261,11 @@ class ModelDownload(ApiModel):
     error: str | None
     started_at: int | float
     finished_at: int | float | None
+    cancel_requested: bool = Field(
+        default=False,
+        description="A cancel was requested and the download has not yet "
+        "stopped: it is stopping, not still pulling.",
+    )
 
 
 class ModelDownloads(ApiModel):
@@ -375,6 +398,62 @@ class JobSummary(ApiModel):
     )
     historical: bool = sometimes("Read from job history rather than a live job.")
     queue_position: int = sometimes("Index in the waiting queue; only while queued.")
+    waiting_for: str = sometimes(
+        "Why dispatch is holding this queued job though a card is free - "
+        "'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and "
+        "held. It starts when a running job frees the RAM."
+    )
+    note: str = sometimes("The note it was submitted with; also its run's note.")
+    rerun_of: str = sometimes(
+        "The job this one reran; absent for a job submitted fresh."
+    )
+
+
+class StepTiming(ApiModel):
+    """Where one pipeline step's time went, on the worker's monotonic clock
+    (dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field
+    whose mark never happened is null, never guessed. Open, like the entry."""
+
+    model_config = ConfigDict(extra="allow")
+
+    load_s: float | None = Field(
+        description="Loading or fetching the step's pipeline, cached or not."
+    )
+    load_cached: bool | None = Field(
+        description="The pipeline came from the worker's cache; false if any "
+        "part was loaded fresh, null when the step loaded nothing."
+    )
+    encode_s: float | None = Field(
+        description="Call start to the first denoiser forward: prompt "
+        "encoding and preparation."
+    )
+    denoise_s: float | None = Field(
+        description="First denoiser forward to the last pass's end; the whole "
+        "call when the pipeline reports no passes."
+    )
+    passes: int | None = Field(
+        description="Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps."
+    )
+    first_pass_s: float | None = Field(
+        description="The first pass, which carries any compile warm-up."
+    )
+    pass_s: float | None = Field(
+        description="Median of passes 2..n, wall time at step boundaries; "
+        "null with fewer than two passes."
+    )
+    compiled: bool | None = Field(
+        description="The denoiser runs through torch.compile; null when unknown."
+    )
+    decode_s: float | None = Field(
+        description="Last pass's end to the call's return: VAE decode and "
+        "post-processing."
+    )
+    save_s: float | None = Field(description="Writing the step's files.")
+    segments: int = Field(
+        description="Pipeline calls summed into this timing: chain segments "
+        "or iterations; 1 for a plain step."
+    )
+    cache: dict[str, Any] = sometimes("Skip counts, on a step that set a `cache`.")
 
 
 class ManifestEntry(ApiModel):
@@ -395,6 +474,14 @@ class ManifestEntry(ApiModel):
         "earlier run's, republished, and nothing was generated for them this time."
     )
     parent_step: str = sometimes("The composing step a rolled-up entry came from.")
+    role: Literal["final", "intermediate"] = sometimes(
+        "The step's role in its run, as the run's manifest.json records it. "
+        "Absent while the run is going, or for a run from before roles."
+    )
+    timing: StepTiming = sometimes(
+        "Where the step's time went. Only on a pipeline step that ran: a "
+        "reused step, a task or a composed step has none."
+    )
 
 
 class JobProgress(ApiModel):
@@ -557,12 +644,39 @@ class PlanEstimate(ApiModel):
     differs: list[str] = sometimes(
         "With basis `inherited`: what this workflow sets differently from "
         "`inherited_from` among offload, quantization and frame count; empty "
-        "when nothing does."
+        "when nothing does. Otherwise: the cost drivers with no rule to scale "
+        "by that moved off the default the figure was measured at, with "
+        "`low_confidence` true."
+    )
+    scaled: str = sometimes(
+        "With basis `derived` (or `other_device`, or a tempered `observed`): "
+        "what the curated figure was scaled along - steps, canvas or frames "
+        "moved off the variable defaults it was measured at (#866). With basis "
+        "`inherited`: why the template's minutes were re-priced "
+        "linearly (more pipeline steps or frames than the template run measured) "
+        "- an approximation, with `low_confidence` true."
+    )
+    withheld: str = sometimes(
+        "With basis `unknown` and `inherited_from` set: why the template's runs "
+        "could not be re-priced for this workflow (its size cannot be compared "
+        "to the template's)."
     )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
         "as `cuda:1 NVIDIA GeForce RTX 3090`."
     )
+
+
+class PlanHostMemory(ApiModel):
+    projected_mb: int = Field(
+        description="The host RAM, in MB, this run is projected to hold at its peak."
+    )
+    basis: Literal["observed", "fit"] = Field(
+        description="`observed`: the largest job peak of this machine's successful "
+        "runs with the same pipelines, quantization and offload; `fit`: projected "
+        "from this workflow's own runs for the requested list length."
+    )
+    runs: int = Field(description="How many runs the figure is read from.")
 
 
 class Plan(ApiModel):
@@ -580,6 +694,10 @@ class Plan(ApiModel):
     downloads_required: list[RequiredDownload]
     estimate: PlanEstimate
     workspace: str
+    host_memory: PlanHostMemory = sometimes(
+        "The host RAM this run is projected to hold at its peak, from this "
+        "machine's own history (#869); absent when there is no figure."
+    )
 
 
 class ValidationResult(ApiModel):
@@ -598,184 +716,10 @@ class ValidationResult(ApiModel):
     )
 
 
-# ---------------------------------------------------------------- library
+# --------------------------------------------------------- gallery, assets
 
-Origin = Literal["workspace", "common", "examples", "builtin"]
 # Assets have no packaged (builtin) library
 AssetOrigin = Literal["workspace", "common", "examples"]
-Shape = Literal[SHAPES]
-Trait = Literal[TRAITS]
-
-
-class LibraryRoot(ApiModel):
-    root: str
-    origin: Origin
-    writable: bool
-
-
-class ShadowedEntry(ApiModel):
-    name: str
-    origin: Origin
-    shadowed_by: Origin
-
-
-class DiskUsage(ApiModel):
-    files: int
-    bytes: int
-
-
-class WorkspaceInfo(ApiModel):
-    name: str
-    default: bool
-    root: str | None
-    workflows: str
-    assets: str | None
-    outputs: str
-    prompts: str | None
-    common_assets: str | None
-    usage: DiskUsage = sometimes("Roughly how much disk it holds; listings only.")
-
-
-class WorkspaceList(ApiModel):
-    workspace_root: str | None
-    default: str
-    workspaces: list[WorkspaceInfo]
-
-
-class WorkspaceDeleted(ApiModel):
-    name: str
-    deleted: bool
-    contents: dict[str, DiskUsage] = Field(description="What it held, per folder.")
-
-
-class WorkflowCost(ApiModel):
-    """A measured run, as the workflow's own `cost` block declares it."""
-
-    model_config = ConfigDict(extra="allow")
-
-    device: str
-    name: str = sometimes()
-    vram_gb: int | float
-    minutes: int | float
-
-
-class WorkflowCard(ApiModel):
-    """One workflow's entry in the full listing (the agent's
-    `view=compact` answer is a different, smaller shape outside this
-    model)."""
-
-    kinds: list[str]
-    steps: int
-    variables: int
-    variable_names: list[str]
-    description: str
-    configures: str = sometimes(
-        "For a model config: the template it is a tuned instance of; '' for a "
-        "template. Absent when the file could not be read."
-    )
-    configures_missing: str = sometimes("A `configures` that names no workflow.")
-    prompt_refs: list[str]
-    shape: Shape = Field(description="What the workflow makes, derived by the server.")
-    traits: list[Trait] = Field(
-        description="Sorted, independent facts about how the output is made or what "
-        "it needs."
-    )
-    summary: str = Field(
-        description="The description's first sentence, clipped - what a card shows."
-    )
-    lists: dict[str, Any]
-    constraints: dict[str, Any]
-    cost_drivers: dict[str, Any]
-    cost: list[WorkflowCost] | None = Field(
-        description="Measured runs, one per device the maintainer measured on. Null "
-        "means unknown - never derived."
-    )
-    observed: dict[str, Any] = sometimes("This box's own history for it.")
-    origin: Origin
-    writable: bool = Field(
-        description="False for a read-only source: offer save-a-copy, not delete."
-    )
-
-
-class BuiltinWorkflows(ApiModel):
-    workflows: list[str] = Field(
-        description="The packaged fragments a sub-workflow step names as "
-        "`builtin:<name>.json`, each as what follows the prefix."
-    )
-
-
-class WorkflowList(ApiModel):
-    workspace: str
-    libraries: list[LibraryRoot] = Field(
-        description="The search path in order; the writable workspace root is where "
-        "a save lands, whatever library a workflow was read from."
-    )
-    workflows: list[str]
-    details: dict[str, WorkflowCard]
-    shadowed: list[ShadowedEntry]
-    cost_basis: str
-
-
-class WorkflowSaved(ApiModel):
-    name: str
-    workspace: str
-    origin: Origin
-    warnings: list[str]
-    shape: Shape
-    traits: list[Trait]
-    summary: str
-
-
-class WorkflowDeleted(ApiModel):
-    name: str
-    workspace: str
-    origin: Origin
-    deleted: bool
-
-
-class PromptCard(ApiModel):
-    description: str
-    intended_model: str
-    tags: list[str]
-    text: str = sometimes("Absent when the listing was asked for without text.")
-    text_chars: int = sometimes("The text's length, in place of `text`.")
-    origin: Origin = Field(
-        description="Which library the prompt came from, and whether a save can "
-        "reach it."
-    )
-    writable: bool
-
-
-class PromptList(ApiModel):
-    libraries: list[LibraryRoot]
-    prompts: list[str]
-    details: dict[str, PromptCard]
-    shadowed: list[ShadowedEntry]
-
-
-class PromptSaved(ApiModel):
-    name: str
-
-
-class Deleted(ApiModel):
-    name: str
-    deleted: bool
-
-
-class EnhancerPreset(ApiModel):
-    key: str
-    label: str
-    default_model: str
-    models: list[str]
-    intended_models: list[str]
-    placeholder: str
-
-
-class EnhancerPresets(ApiModel):
-    presets: list[EnhancerPreset]
-
-
-# --------------------------------------------------------- gallery, assets
 
 
 class GalleryFile(ApiModel):
@@ -802,6 +746,12 @@ class GalleryFile(ApiModel):
     duration_seconds: int | float | None = sometimes(
         "An audio or video file's length, with `media=true`."
     )
+    role: Literal["final", "intermediate"] | None = sometimes(
+        "`final` for a deliverable, `intermediate` for a file a later step or "
+        "run consumed; null under the flat layout or when no manifest lists the file."
+    )
+    note: str = sometimes("The effective note: the file's own, else its run's.")
+    starred: bool = sometimes("True when the file is starred; absent otherwise.")
 
 
 class GalleryList(ApiModel):
@@ -840,6 +790,11 @@ class LevelFinding(ApiModel):
     says: str
 
 
+class GalleryInput(ApiModel):
+    reference: str
+    kind: Literal["asset", "output"]
+
+
 class GalleryMetadata(ApiModel):
     name: str
     source: Literal["output", "asset"]
@@ -850,9 +805,20 @@ class GalleryMetadata(ApiModel):
     run_id: str
     version: int | None
     media: dict[str, Any] | None = Field(
-        description="The probe of an audio or video file; null for an image."
+        description="The probe of an audio or video file, or an image's kind, width, height "
+        "and mode; null for another file."
     )
     findings: list[LevelFinding]
+    role: Literal["final", "intermediate"] | None = sometimes(
+        "The file's role in its run; null when the run does not say."
+    )
+    inputs: list[GalleryInput] | None = sometimes(
+        "The `asset:` and `output:` references the run read; null for a run "
+        "that recorded none."
+    )
+    note: str = sometimes("The effective note: the file's own, else its run's.")
+    run_note: str = sometimes("The note of the run that wrote the file.")
+    note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
 
 
 class AssetLibraryRoot(ApiModel):
@@ -880,6 +846,7 @@ class AssetFile(ApiModel):
         "This workspace's own workflows that name it in an `asset:` reference, "
         "when any do"
     )
+    note: str = sometimes("The asset's note, when it has one.")
 
 
 class ShadowedAsset(ApiModel):
@@ -918,6 +885,19 @@ class Kept(ApiModel):
     workspace: str
     linked: bool
     shared: bool
+
+
+class StarSet(ApiModel):
+    name: str
+    starred: bool
+
+
+class NoteSet(ApiModel):
+    target: str
+    note: str | None = Field(description="The effective note after the write.")
+    note_source: Literal["file", "run"] | None = Field(
+        description="Whose note `note` is; null for a workspace or no note."
+    )
 
 
 class AssetDeleted(ApiModel):

@@ -5,9 +5,12 @@
   "base_models": [
     "MiniMaxAI/MiniMax-H3"
   ],
-  "workflow": "t2va",
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
   "description": "Realistic people and faces; stacks as a second adapter on the 8-step turbo",
-  "use_when": "People, crowds or faces should look photoreal; tried on T2VA only. It tightens framing against a prompt's wide shot",
+  "use_when": "People, crowds or faces should look photoreal on T2VA or FL2VA, not reference-to-video (inert there). It tightens framing against a prompt's wide shot",
   "scale": {
     "default": 0.7,
     "range": [
@@ -23,6 +26,10 @@
     {
       "note": "Best arm of the 2026-10-03 eval, about 6 s over the 9.5 min 768p baseline; 1.0 and a second prompt untested",
       "issue": 585
+    },
+    {
+      "note": "h3-quality matrix R3: 4/5 faces better on FL2VA/I2VA; the ref2va run was inert, as its header's base_model minimax-h3-fl2va says",
+      "issue": 870
     }
   ],
   "license": "other",

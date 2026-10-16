@@ -263,6 +263,18 @@ def test_api_path_quotes_dot_segments_so_they_cannot_traverse():
     assert api_path("api", "workflows", "../escape") == "/api/workflows/..%2Fescape"
 
 
+@pytest.mark.parametrize("name,encoded", [(".", "%2E"), ("..", "%2E%2E")])
+def test_api_path_encodes_a_segment_that_is_only_dots(name, encoded):
+    # quote() leaves '.' alone, and httpx drops a bare '.' or '..' segment
+    assert api_path("api", "workspaces", name, "copy") == (
+        f"/api/workspaces/{encoded}/copy"
+    )
+
+
+def test_api_path_keeps_dots_inside_a_name():
+    assert api_path("api", "workflows", "v1.2") == "/api/workflows/v1.2"
+
+
 # Every dw_mcp handler module that talks to the API must build request paths
 # through `api_path`, not by hand - `path_segment` alone is easy to forget on
 # one call site among many, and a bare f-string skips quoting entirely. This

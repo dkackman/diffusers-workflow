@@ -144,6 +144,43 @@ def test_a_database_without_the_columns_is_migrated(tmp_path):
     assert row["run_id"] is None and row["run_dir"] is None
 
 
+def test_a_v0_13_0_database_gains_the_columns_added_since(tmp_path):
+    """A jobs.sqlite as v0.13.0 wrote it - every column through
+    device_card, none of note/memory_key/rerun_of/kept - opens, gains the
+    four, and keeps its card fields as they were."""
+    import sqlite3
+
+    path = str(tmp_path / "v0.13.0.sqlite")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+            " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+            " spec TEXT, manifest TEXT, warnings TEXT, error TEXT, events TEXT,"
+            " workspace TEXT DEFAULT 'default', workflow_name TEXT, run_id TEXT,"
+            " run_dir TEXT, run_version INTEGER, acknowledged TEXT DEFAULT 'none',"
+            " host_memory_peak_rss_mb REAL, host_memory_job_peak_rss_mb REAL,"
+            " device TEXT, device_ordinal TEXT, device_card TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, status, workspace, device, device_ordinal,"
+            " device_card) VALUES ('old-1', 'succeeded', 'w', 'cuda:1 Card',"
+            " 'cuda:1', 'Card')"
+        )
+
+    history = JobHistory(path)
+    with history._connect() as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        kept = connection.execute("SELECT kept FROM jobs").fetchone()[0]
+    assert {"note", "memory_key", "rerun_of", "kept"} <= columns
+    assert kept == 0
+    row = history.get("old-1")
+    assert row["workspace"] == "w" and "note" not in row and "rerun_of" not in row
+    assert history.device_ordinal("old-1") == "cuda:1"
+    assert history.peaks_for_key("any") == []
+    # Opening it again finds nothing left to add
+    JobHistory(path)
+
+
 def _for_each_workflow(**overrides):
     """Copied from tests/test_workflow.py's helper of the same name (Task 5) -
     not imported across test modules, per that task's convention."""

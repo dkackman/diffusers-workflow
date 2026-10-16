@@ -68,14 +68,17 @@ EXPECTED_TOOLS = {
     "enhance_prompt",
     "get_output_text",
     "assess_output",
+    "compare_outputs",
     "download_output",
     "delete_output",
     "list_assets",
     "upload_asset",
     "keep_output",
+    "set_note",
     "delete_asset",
     "list_workspaces",
     "use_workspace",
+    "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
 }
@@ -101,8 +104,10 @@ READ_ONLY_TOOLS = EXPECTED_TOOLS - {
     "delete_output",
     "upload_asset",
     "keep_output",
+    "set_note",
     "delete_asset",
     "use_workspace",
+    "copy_to_workspace",
     "create_workspace",
     "delete_workspace",
 }
@@ -540,6 +545,37 @@ def _a_file_to_upload():
     return path
 
 
+# What POST /api/gallery/compare answers for two outputs, one measured
+COMPARE_BODY = {
+    "image": {
+        "data": base64.b64encode(PNG_1X1).decode("ascii"),
+        "mime_type": "image/png",
+        "width": 1,
+        "height": 1,
+    },
+    "downscaled_to": None,
+    "baseline": "a.mp4",
+    "region": "full frame",
+    "fps_differs": False,
+    "columns": [{"moment": "frame:0", "frame": 0}],
+    "rows": [],
+    "metrics": [
+        {
+            "name": "b.mp4",
+            "row": 1,
+            "reason": None,
+            "cells": [
+                {"psnr_db": 31.2, "ssim": 0.91, "mean_abs_diff": 2.5, "reason": None}
+            ],
+            "psnr_db": {"mean": 31.2, "min": 31.2, "max": 31.2},
+            "ssim": {"mean": 0.91, "min": 0.91, "max": 0.91},
+            "mean_abs_diff": {"mean": 2.5, "min": 2.5, "max": 2.5},
+        }
+    ],
+    "notes": [],
+}
+
+
 TOOL_WIRING = [
     ("list_guides", {}, "GET", "/api/guides"),
     (
@@ -684,6 +720,12 @@ TOOL_WIRING = [
     ("get_output_text", {"name": "enhanced.txt"}, "GET", "/outputs/enhanced.txt"),
     ("assess_output", {"name": "cut.mp4"}, "GET", "/api/gallery/cut.mp4/assess"),
     (
+        "compare_outputs",
+        {"names": ["a.mp4", "b.mp4"]},
+        "POST",
+        "/api/gallery/compare",
+    ),
+    (
         "download_output",
         {
             "name": "out.png",
@@ -700,10 +742,17 @@ TOOL_WIRING = [
         "POST",
         "/api/assets/keep",
     ),
+    ("set_note", {"target": "wf/run", "note": "keeper"}, "PUT", "/api/notes"),
     ("delete_asset", {"name": "hero.png"}, "DELETE", "/api/assets/hero.png"),
     ("list_workspaces", {}, "GET", "/api/workspaces"),
     ("use_workspace", {"name": "default"}, "GET", "/api/workspaces"),
     ("create_workspace", {"name": "shots"}, "POST", "/api/workspaces"),
+    (
+        "copy_to_workspace",
+        {"destination": "shots", "runs": ["wf/20261013-120000-0123abcd"]},
+        "POST",
+        "/api/workspaces/shots/copy",
+    ),
     (
         "delete_workspace",
         {"name": "shots", "acknowledged_cost": True},
@@ -760,6 +809,8 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
                     ],
                 },
             )
+        if request.url.path.endswith("/compare"):
+            return httpx.Response(200, json=COMPARE_BODY)
         if request.url.path.startswith("/outputs/"):
             return httpx.Response(
                 200, content=PNG_1X1, headers={"content-type": "image/png"}
@@ -776,6 +827,64 @@ async def test_each_tool_calls_its_endpoint(name, arguments, method, path):
         seen = seen[:1]
     assert seen == [(method, path)]
     assert result.content
+
+
+def test_compare_summary_names_the_region_and_the_row_means():
+    """The reply beside the grid carries the region measured and each
+    output's mean PSNR and SSIM."""
+    text = media.compare_summary(COMPARE_BODY)
+
+    assert "region: full frame" in text
+    assert "- row 2 b.mp4:" in text
+    assert "psnr_db mean 31.2" in text and "ssim mean 0.91" in text
+
+
+def test_compare_summary_says_why_an_output_has_no_metrics():
+    """An output the baseline could not be measured against says why."""
+    body = {
+        **COMPARE_BODY,
+        "metrics": [
+            {
+                "name": "b.mp4",
+                "row": 1,
+                "reason": "size differs from baseline: 32x16 vs 64x32",
+                "cells": [],
+                "psnr_db": None,
+                "ssim": None,
+                "mean_abs_diff": None,
+            }
+        ],
+    }
+
+    assert (
+        "- row 2 b.mp4: no metrics - size differs from baseline: 32x16 vs 64x32"
+        in media.compare_summary(body)
+    )
+
+
+def test_compare_outputs_posts_the_budget_and_omits_what_is_unset():
+    """The handler holds the grid to MAX_RETURNED_BYTES and sends only the
+    optional fields the caller set."""
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=COMPARE_BODY)
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    media.compare_outputs(client, ["a.mp4", "b.mp4"])
+    media.compare_outputs(
+        client, ["a.mp4", "b.mp4"], at=[0, "frame:3"], baseline="b.mp4"
+    )
+
+    assert sent[0] == {
+        "names": ["a.mp4", "b.mp4"],
+        "max_dimension": 384,
+        "max_total_bytes": media.MAX_RETURNED_BYTES,
+    }
+    assert sent[1]["at"] == [0, "frame:3"] and sent[1]["baseline"] == "b.mp4"
+    assert "crop" not in sent[1]
 
 
 class RecordingServer:
@@ -1200,6 +1309,7 @@ WRAPPER_HANDLER_MAP = {
     "rerun_job": (diagnose, "rerun_job"),
     "get_output_text": (media, "get_output_text"),
     "assess_output": (media, "assess_output"),
+    "compare_outputs": (media, "compare_outputs"),
     "enhance_prompt": (prompts, "enhance_prompt"),
     "download_output": (media, "download_output"),
     "get_gallery_metadata": (catalog, "get_gallery_metadata"),
@@ -1569,7 +1679,31 @@ def test_the_stated_tool_count_is_the_registered_one():
 # tokens) - measured 14_246.25 before and 14_262.25 after (9_281.75 /
 # 4_470.25 / 510.25). Text trimmed since 10-07 left room, so the ceiling
 # stays, 2.75 of headroom.
-SURFACE_BUDGET = 14_265
+# 2026-10-13 (#859, #853 stage A): copy_to_workspace (121.25 description +
+# 84.75 schema) - measured at 14_470.25 (9_276.25 / 4_683.75 / 510.25); the
+# ceiling moves to 14_471 with 0.75 of headroom.
+# 2026-10-13 (#859 bounce): set_note, documented since the notes feature but
+# never registered, is registered (66.75 description + 83.25 schema) -
+# measured at 14_620.25 (9_343 / 4_767 / 510.25); the ceiling moves to
+# 14_621 with 0.75 of headroom.
+# 2026-10-13 (#860, #853 stage B): copy_to_workspace takes assets (its
+# description names them; the schema gains the parameter, runs optional) -
+# measured at 14_699.5 (9_381 / 4_808 / 510.5); the ceiling moves to 14_700
+# with 0.5 of headroom.
+# 2026-10-13 (#885, #867 stage 1): get_job's description names a manifest
+# entry's `timing` and the guide section for it (+28.5 description) - measured
+# at 14_728 (9_409.5 / 4_808.25 / 510.25); the ceiling moves to 14_728 with
+# none to spare.
+# 2026-10-14 (#889, #871 stage A): compare_outputs (60.75 description +
+# 200.75 schema - `crop` is one box or one per name) - measured at 14_989.25
+# (9_470 / 5_009 / 510.25); the ceiling moves to 14_990 with 0.75 of headroom.
+# 2026-10-14 (#886, #867 stage 2): get_job_events' description names the
+# `cache_stats` kind (+15 description) - measured at 15_004.25 (9_485 /
+# 5_009 / 510.25); the ceiling moves to 15_005 with 0.75 of headroom.
+# 2026-10-15 (#922): get_gallery_metadata gains `include_workflow` and says an
+# image's `media` is its measured size (+46) - measured at 15_051.25; the
+# ceiling moves to 15_052 with 0.75 of headroom.
+SURFACE_BUDGET = 15_052
 
 
 @pytest.mark.asyncio

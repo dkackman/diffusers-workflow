@@ -7,14 +7,18 @@
             "device": "cuda",
             "name": "RTX 3090",
             "vram_gb": 24,
-            "minutes": 42
+            "minutes": 21.2
         }
     ],
     "cost_drivers": [
         "shots",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "vram_estimate": {
         "base_gb": 16.0,
@@ -25,7 +29,7 @@
             "height",
             "num_frames"
         ],
-        "reason": "Ref2VA holds every reference's encoding resident beside the video latents, so the ceiling is a fixed base, a per-voxel term for the VAE decode's conv3d activation (width * height * num_frames), and a per-reference term. Classified against the 24 GB entry from the #479 field report (lem, RTX 3090 24 GB, int4 + 768p turbo LoRA, 9 steps, 2026-09-25/26) at 1344x768: 175 frames x 2 refs, 209 x 2 and 175 x 3 ran (projected 22.83, 23.77 and 23.83 GB); 209 x 3 OOM'd in reference encode needing a further 5.1 GB and 260 x 1 OOM'd at denoise step 1 needing a further 4.8 GB (projected 24.77 and 24.18 GB). The refused allocations are lower bounds, not peaks, so this is a classification with about 0.2 GB of margin either side, not a fitted curve. bytes_per_voxel is unchanged from #324's calibration (job 282172105da1); base_gb drops 0.3 GB now the references are counted separately"
+        "reason": "Ref2VA holds every reference's encoding resident beside the video latents, so the ceiling is a fixed base, a per-voxel term for the VAE decode's conv3d activation (width * height * num_frames), and a per-reference term. Classified against the 24 GB entry from the #479 field report (lem, RTX 3090 24 GB, int4 + 768p turbo LoRA, 9 steps, 2026-09-25/26) at 1344x768: 175 frames x 2 refs, 209 x 2 and 175 x 3 ran (projected 22.83, 23.77 and 23.83 GB); 209 x 3 OOM'd in reference encode needing a further 5.1 GB and 260 x 1 OOM'd at denoise step 1 needing a further 4.8 GB (projected 24.77 and 24.18 GB). The refused allocations are lower bounds, not peaks, so this is a classification with about 0.2 GB of margin either side, not a fitted curve. bytes_per_voxel is unchanged from #324's calibration (job 282172105da1); base_gb drops 0.3 GB now the references are counted separately. The cost entry's 42 min was that field run at 1344x768; re-priced to these 960x544 defaults it is 42 x 960*544 / (1344*768) = 21.2 (#866)"
     },
     "variables": {
         "character_a_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
@@ -143,7 +147,9 @@
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
-        "seed": 42
+        "seed": 42,
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -290,6 +296,7 @@
                     },
                     "components": {
                         "transformer_ref": {
+                            "attention_backend": "variable:attention_backend",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
@@ -319,7 +326,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",

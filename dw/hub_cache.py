@@ -11,7 +11,9 @@ revisions it found inside the cache directory.
 import json
 import logging
 import os
+import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -112,13 +114,25 @@ def _snapshot_dir(repo_dir):
     return snapshot if os.path.isdir(snapshot) else None
 
 
-def _component_incomplete(folder, variant):
+# Component classes that carry no weights: a folder holding only config
+# files is whole for them
+_WEIGHTLESS_CLASS_MARKERS = ("Scheduler", "Tokenizer", "Processor", "Extractor")
+
+
+def _component_incomplete(folder, variant, class_name=None):
     """Whether a diffusers pipeline component's folder is missing files a
-    load would need. A component with no weight files at all (a scheduler
-    or tokenizer config) is complete once its folder exists; one with
-    weight files is checked against the requested `variant` only when that
-    variant is actually in play, since an unvarianted component (most
-    schedulers, safety checkers) never carries a tagged file."""
+    load would need. The rule, by `class_name` (#894):
+
+    - A weightless class (Scheduler, Tokenizer, Processor, Extractor - see
+      `_WEIGHTLESS_CLASS_MARKERS`) is complete once its folder exists and is
+      non-empty.
+    - Any other class is weight-bearing: it is incomplete with no weight
+      files (an earlier pull that stopped after the configs), with a weight
+      file that is a dangling symlink (its blob never arrived), or with a
+      shard named by a `*.index.json` weight_map that is absent.
+    - The `variant` check applies only when a variant is actually
+      requested, since an unvarianted component (most schedulers, safety
+      checkers) never carries a tagged file."""
     if not os.path.isdir(folder):
         return True
     try:
@@ -127,10 +141,30 @@ def _component_incomplete(folder, variant):
         return True
     if not entries:
         return True
-    if not variant:
-        return False
     weight_files = [e for e in entries if e.endswith(_WEIGHT_SUFFIXES)]
+    # A weight-bearing component whose folder holds only configs (an earlier
+    # pull that stopped after the small files) is not whole (#894)
     if not weight_files:
+        return isinstance(class_name, str) and not any(
+            marker in class_name for marker in _WEIGHTLESS_CLASS_MARKERS
+        )
+    # A symlink whose blob is gone is a file that never arrived
+    if any(not os.path.exists(os.path.join(folder, e)) for e in weight_files):
+        return True
+    for name in entries:
+        if name.endswith(".safetensors.index.json") or name.endswith(".bin.index.json"):
+            try:
+                with open(os.path.join(folder, name)) as f:
+                    shards = set(json.load(f).get("weight_map", {}).values())
+            except (OSError, ValueError, AttributeError):
+                continue
+            if any(
+                os.path.basename(shard) != shard
+                or not os.path.exists(os.path.join(folder, shard))
+                for shard in shards
+            ):
+                return True
+    if not variant:
         return False
     return not any(f".{variant}." in name for name in weight_files)
 
@@ -146,8 +180,8 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
     `*.incomplete` blob (huggingface_hub's own marker for a file mid-transfer)
     anywhere in the repo's `blobs/` makes the repo incomplete outright. Past
     that, a diffusers pipeline repo (one with a `model_index.json` in its
-    current snapshot) is checked component by component, for the requested
-    `variant`; a plain checkpoint/LoRA repo (no `model_index.json`) has
+    current snapshot) is checked component by component, by its class and
+    for the requested `variant` (see `_component_incomplete`); a plain checkpoint/LoRA repo (no `model_index.json`) has
     nothing further to check beyond its blobs.  This is not a full hub
     file-list diff - it does not fetch the repo's file list from the hub, so
     a file that was never attempted at all on an otherwise-untouched repo
@@ -197,7 +231,8 @@ def repo_download_incomplete(repo_id, cache_dir=None, variant=None):
         # downloads_required a yes/no oracle for directories on the box
         if os.path.basename(key) != key or key in (".", ".."):
             continue
-        if _component_incomplete(os.path.join(snapshot, key), variant):
+        class_name = value[1] if len(value) > 1 else None
+        if _component_incomplete(os.path.join(snapshot, key), variant, class_name):
             return True
     return False
 
@@ -233,7 +268,7 @@ class DownloadManager:
 
     One thread per download; progress is fed by a tqdm-compatible tracker
     that snapshot_download instantiates per file, so the counters aggregate
-    across the file pool. Cancellation raises out of the next progress tick;
+    across the file pool. Cancellation raises out of the next progress tick (and aborts the xet session);
     huggingface_hub's partial files remain resumable, so a cancelled or
     failed download picks up where it stopped when retried.
     """
@@ -243,9 +278,9 @@ class DownloadManager:
     def __init__(self, download_fn=None, info_fn=None):
         # Injectable for tests - the defaults reach the network
         if download_fn is None or info_fn is None:
-            from huggingface_hub import HfApi, snapshot_download
+            from huggingface_hub import HfApi
 
-            download_fn = download_fn or snapshot_download
+            download_fn = download_fn or _download_repo
             info_fn = info_fn or (
                 lambda repo_id: HfApi().repo_info(repo_id, files_metadata=True)
             )
@@ -278,6 +313,9 @@ class DownloadManager:
                 "error": None,
                 "started_at": time.time(),
                 "finished_at": None,
+                # True from cancel() until the download is terminal, so a
+                # consumer can tell "stopping" from "still pulling" (#899)
+                "cancel_requested": False,
                 # Set before the entry is published: cancel() reaches for this
                 # the moment the id is visible, and assigning it after the
                 # lock left a window where cancelling raised KeyError
@@ -310,13 +348,19 @@ class DownloadManager:
         except DownloadCancelled:
             self._finish(entry, "cancelled")
         except Exception as e:
-            self._finish(entry, "failed", str(e))
+            # An aborted xet transfer surfaces as whatever the library
+            # raises; a requested cancel is a cancel, not a failure
+            if cancel_event.is_set():
+                self._finish(entry, "cancelled")
+            else:
+                self._finish(entry, "failed", str(e))
 
     def _finish(self, entry, status, error=None):
         with self._lock:
             entry["status"] = status
             entry["error"] = error
             entry["finished_at"] = time.time()
+            entry["cancel_requested"] = False
 
     def _add_progress(self, entry, n):
         with self._lock:
@@ -324,13 +368,25 @@ class DownloadManager:
 
     def cancel(self, download_id):
         """Request cancellation; returns the status dict or None if unknown.
-        Takes effect at the download's next progress tick."""
+        The record shows `cancel_requested` until it is terminal. A plain
+        download stops at its next chunk; an xet transfer, which ticks only
+        as it writes a file, is aborted outright (#899)."""
+        abort_xet = False
         with self._lock:
             entry = self._downloads.get(download_id)
             if entry is None:
                 return None
             if entry["status"] == "downloading":
                 entry["_cancel"].set()
+                entry["cancel_requested"] = True
+                # The xet session is process-wide: abort it only when no
+                # other download shares it
+                abort_xet = all(
+                    other is entry or other["status"] != "downloading"
+                    for other in self._downloads.values()
+                )
+        if abort_xet:
+            _abort_xet_session()
         return self.status(download_id)
 
     def status(self, download_id):
@@ -363,6 +419,91 @@ class DownloadManager:
         excess = len(finished) - self.KEEP_FINISHED
         for entry in finished[: max(0, excess)]:
             del self._downloads[entry["id"]]
+
+
+def _download_repo(repo_id, tqdm_class, max_workers=4, cache_dir=None):
+    """Fetch every file of repo_id, stopping promptly on a cancel (#899).
+
+    Stands in for `snapshot_download`, whose file pool runs every queued file
+    to the end after a cancel (its worker threads swallow the tracker's
+    exception, and aborting the xet session only ends the files in flight).
+    Here each file checks the cancel event before it starts, so a cancel
+    leaves at most the aborted in-flight files behind.
+
+    Every file is pinned to the commit `repo_info` resolved for `main`, and
+    hf_hub_download writes no ref for a commit-hash revision, so this writes
+    `refs/main` itself once every file is in and no cancel came - without it
+    `repo_download_incomplete` reads the pull as unfinished and an offline
+    load cannot resolve `main`. A cancelled pull writes no ref."""
+    from concurrent.futures import ThreadPoolExecutor
+
+    from huggingface_hub import HfApi, hf_hub_download
+
+    cancel_event = tqdm_class._cancel_event
+    # repo_info's default revision is `main` - the ref written below
+    info = HfApi().repo_info(repo_id)
+    files = [sibling.rfilename for sibling in info.siblings or []]
+
+    def fetch(filename):
+        if cancel_event.is_set():
+            raise DownloadCancelled()
+        hf_hub_download(
+            repo_id,
+            filename=filename,
+            revision=info.sha,
+            tqdm_class=tqdm_class,
+            cache_dir=cache_dir,
+        )
+
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
+        for future in [pool.submit(fetch, name) for name in files]:
+            future.result()
+    finally:
+        pool.shutdown(wait=True, cancel_futures=True)
+    if cancel_event.is_set():
+        raise DownloadCancelled()
+    _write_main_ref(repo_id, info.sha, cache_dir)
+
+
+_COMMIT_HASH = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _write_main_ref(repo_id, commit, cache_dir=None):
+    """Point repo_id's `refs/main` at `commit`, atomically: a temp file in
+    the refs folder, then os.replace over the ref."""
+    if not isinstance(commit, str) or not _COMMIT_HASH.match(commit):
+        # The ref names a snapshot folder; anything but a commit hash is
+        # not a value to write into the cache
+        raise ValueError(f"'{repo_id}' resolved to no commit hash: {commit!r}")
+    resolved = _resolved_cache_dir(cache_dir)
+    repo_dir = validate_path(
+        os.path.join(resolved, _repo_folder_name(repo_id)), resolved
+    )
+    refs_dir = validate_path(os.path.join(repo_dir, "refs"), repo_dir)
+    ref_path = validate_path(os.path.join(refs_dir, "main"), refs_dir)
+    os.makedirs(refs_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=refs_dir, prefix=".main.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(commit)
+        os.replace(tmp_path, ref_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
+
+
+def _abort_xet_session():
+    """Stop in-flight hf_xet transfers (the hub's own KeyboardInterrupt path)."""
+    try:
+        from huggingface_hub.utils._xet import abort_xet_session
+
+        abort_xet_session()
+    except Exception as e:
+        logger.debug(f"Could not abort the xet session: {e}")
 
 
 def _public(entry):

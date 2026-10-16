@@ -5,6 +5,7 @@ import os as _os
 _os.environ.setdefault("DW_STRICT_RESPONSES", "1")
 
 import gc
+import json
 import pytest
 import os
 import tempfile
@@ -190,3 +191,69 @@ def mock_pipeline():
             return type("MockOutput", (), {"images": ["mock_image"]})()
 
     return MockPipeline()
+
+
+@pytest.fixture
+def write_run():
+    """Build a fake run directory: `write_run(root, identity, run_id, steps,
+    realized=None, files=(), inputs=None)` writes the media `files` (paths
+    relative to the run), a manifest.json carrying `steps` and, when given,
+    `inputs`, and a workflow.json from `realized`. Returns the run directory."""
+
+    def build(root, identity, run_id, steps, realized=None, files=(), inputs=None):
+        run_dir = os.path.join(root, identity, run_id)
+        os.makedirs(run_dir, exist_ok=True)
+        for name in files:
+            path = os.path.join(run_dir, name)
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path, "wb") as handle:
+                handle.write(b"\x89PNG\r\n\x1a\n")
+        manifest = {
+            "run_id": run_id,
+            "version": 1,
+            "status": "succeeded",
+            "steps": steps,
+        }
+        if inputs is not None:
+            manifest["inputs"] = inputs
+        with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
+            json.dump(manifest, handle)
+        if realized is not None:
+            with open(os.path.join(run_dir, "workflow.json"), "w") as handle:
+                json.dump(realized, handle)
+        return run_dir
+
+    return build
+
+
+@pytest.fixture
+def output_root(tmp_path):
+    """The output directory `gallery_client` serves."""
+    return str(tmp_path / "outputs")
+
+
+@pytest.fixture
+def gallery_client(tmp_path, output_root):
+    """A TestClient on an app with no jobs, over `output_root`."""
+    from fastapi.testclient import TestClient
+
+    from dw.server.app import create_app
+    from dw.server.jobs import JobManager
+
+    from .test_server import ScriptedWorkerManager, success_script
+
+    os.makedirs(output_root, exist_ok=True)
+    for sub in ("workflows", "prompts"):
+        os.makedirs(tmp_path / sub, exist_ok=True)
+    manager = JobManager(
+        output_root,
+        worker_manager=ScriptedWorkerManager(success_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+    )
+    app = create_app(
+        workflow_dir=str(tmp_path / "workflows"),
+        output_dir=output_root,
+        job_manager=manager,
+        prompt_dir=str(tmp_path / "prompts"),
+    )
+    return TestClient(app, base_url="http://localhost")

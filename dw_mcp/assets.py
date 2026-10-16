@@ -14,7 +14,7 @@ import os
 from urllib.parse import urlsplit
 
 from dw_mcp import confine
-from dw_mcp.client import UNSHAREABLE_HOSTS, DwApiError, api_path, project
+from dw_mcp.client import UNSHAREABLE_HOSTS, DwApiError, api_path, clip_note, project
 
 # Twin of the server's own limit (dw/server/routes/assets.py). Checked here as well so
 # a 200MB file fails before it is read and pushed, not after
@@ -131,12 +131,12 @@ def _confine_source(path, roots, named, client, workspace=None):
 
 # What a compact asset entry keeps: enough to name and choose one, nothing
 # that only opening or previewing it needs
-ASSET_SUMMARY_FIELDS = ("name", "reference", "kind", "size", "origin")
+ASSET_SUMMARY_FIELDS = ("name", "reference", "kind", "size", "origin", "note")
 
 
 def _summarised_asset_entries(entries):
     return [
-        project(entry, ASSET_SUMMARY_FIELDS)
+        clip_note(project(entry, ASSET_SUMMARY_FIELDS))
         for entry in entries
         if isinstance(entry, dict)
     ]
@@ -228,8 +228,24 @@ def delete_asset(client, name, workspace=None):
     return client.delete_json(api_path("api", "assets", name), workspace=workspace)
 
 
+def set_note(client, target, note, workspace=None):
+    """Set (or clear, with None or '') the note on a run, an output file, an
+    asset ('asset:<name>') or a workspace ('workspace:<name>'). `workspace`
+    pins this one call, as `delete_asset`'s does: a run or file name is read
+    in that workspace rather than the session's."""
+    return client.put_json(
+        "/api/notes", {"target": target, "note": note}, workspace=workspace
+    )
+
+
 def keep_output(
-    client, name, asset_name=None, overwrite=False, shared=False, workspace=None
+    client,
+    name,
+    asset_name=None,
+    overwrite=False,
+    shared=False,
+    workspace=None,
+    note=None,
 ):
     """Keep a generated file as an input asset, under a stable name.
 
@@ -253,6 +269,7 @@ def keep_output(
             "asset_name": asset_name,
             "overwrite": overwrite,
             "shared": shared,
+            "note": note,
         },
         workspace=workspace,
     )
@@ -265,6 +282,7 @@ def upload_asset(
     asset_name=None,
     shared=False,
     workspace=None,
+    note=None,
 ):
     """Put an image, video or audio file into the server's asset library and
     get back the reference a workflow can use.
@@ -291,7 +309,9 @@ def upload_asset(
     required so the upload has a name and extension to be validated against.
 
     `asset_name` is the name it is stored under - 'cast/priya-voice.wav'
-    rather than the random one an upload gets by default. A recurring cast
+    rather than the random one an upload gets by default. It lands under
+    `uploads/` ('asset:uploads/cast/priya-voice.wav'), not at the library
+    root as `keep_output`'s `asset_name` does. A recurring cast
     referenced as 'asset:uploads/084eaecc....wav' in every workflow cannot
     be told apart without opening each file, which is the whole reason to
     name one (2026-09-11). With `file_path`, the extension comes from the
@@ -312,7 +332,12 @@ def upload_asset(
 
     if content is not None:
         return _upload_inline(
-            client, content, asset_name=asset_name, shared=shared, workspace=workspace
+            client,
+            content,
+            asset_name=asset_name,
+            shared=shared,
+            workspace=workspace,
+            note=note,
         )
 
     path = os.path.abspath(os.path.expanduser(str(file_path)))
@@ -353,6 +378,8 @@ def upload_asset(
         params["asset_name"] = asset_name
     if shared:
         params["shared"] = "true"
+    if note:
+        params["note"] = note
     result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     # A server with no asset library refuses the upload (409) - there is
     # nothing an `asset:` argument could name. One with a library gives the
@@ -366,7 +393,9 @@ def upload_asset(
     }
 
 
-def _upload_inline(client, content, asset_name=None, shared=False, workspace=None):
+def _upload_inline(
+    client, content, asset_name=None, shared=False, workspace=None, note=None
+):
     """The `content=` path of upload_asset - bytes with no path behind
     them, so nothing here is confined or read off any disk (#203)."""
     if not asset_name:
@@ -400,6 +429,8 @@ def _upload_inline(client, content, asset_name=None, shared=False, workspace=Non
     params = {"filename": asset_name, "asset_name": asset_name}
     if shared:
         params["shared"] = "true"
+    if note:
+        params["note"] = note
     result = client.post_bytes("/api/uploads", body, params=params, workspace=workspace)
     return {
         "reference": result.get("reference"),

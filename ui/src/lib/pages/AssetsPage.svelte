@@ -9,6 +9,7 @@
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
+  import { dropFiles } from '../dropFiles'
   import HintBar from '../HintBar.svelte'
   import { confirmDialog } from '../confirm.svelte'
   import BulkBar from '../BulkBar.svelte'
@@ -61,6 +62,17 @@
   let collapsed = $state<Record<string, boolean>>(
     storageGet(COLLAPSE_KEY, {} as Record<string, boolean>),
   )
+
+  // Carry a saved note onto the listing and the pick, so selecting the asset
+  // again shows it rather than what was fetched before the edit
+  function saveNote(note: string | null) {
+    if (!selected) return
+    const name = selected.name
+    const patch = (a: AssetFile) =>
+      a.name === name ? { ...a, note: note ?? undefined } : a
+    assets = assets.map(patch)
+    selected = patch(selected)
+  }
 
   function load() {
     return api
@@ -223,30 +235,65 @@
 
   async function upload(event: Event) {
     const input = event.target as HTMLInputElement
-    const file = input.files?.[0]
+    const files = Array.from(input.files ?? [])
     // Clear it either way, so picking the same file twice still fires
     input.value = ''
-    if (!file) return
-    const suggestion = file.name
+    await uploadFiles(files, uploadTarget)
+  }
+
+  // One file asks for its library name; a dropped batch keeps each file's
+  // own, since a prompt per file would be a dialog storm. Null is a cancel
+  function askNames(
+    files: File[],
+    target: 'workspace' | 'shared',
+  ): (string | undefined)[] | null {
+    if (files.length !== 1) return files.map(() => undefined)
     const assetName = window.prompt(
-      `Upload — name in the ${uploadTarget} asset library:`,
-      suggestion,
+      `Upload — name in the ${target} asset library:`,
+      files[0].name,
     )
-    if (assetName === null) return
-    busy = true
-    try {
-      const result = await api.uploadMedia(
-        file,
-        assetName || undefined,
-        uploadTarget === 'shared',
-      )
-      notify.success(`Uploaded as ${result.reference ?? result.url}`)
-      await load()
-    } catch (e) {
-      notify.error(e instanceof Error ? e.message : String(e))
-    } finally {
-      busy = false
+    return assetName === null ? null : [assetName || undefined]
+  }
+
+  // Each file in turn, so one failing does not stop the rest; what failed
+  // comes back as "name: reason" lines
+  async function sendAll(
+    files: File[],
+    names: (string | undefined)[],
+    target: 'workspace' | 'shared',
+  ): Promise<string[]> {
+    const failed: string[] = []
+    for (const [i, file] of files.entries()) {
+      try {
+        const result = await api.uploadMedia(
+          file,
+          names[i],
+          target === 'shared',
+        )
+        if (files.length === 1)
+          notify.success(`Uploaded as ${result.reference ?? result.url}`)
+      } catch (e) {
+        failed.push(
+          `${file.name}: ${e instanceof Error ? e.message : String(e)}`,
+        )
+      }
     }
+    return failed
+  }
+
+  async function uploadFiles(files: File[], target: 'workspace' | 'shared') {
+    if (!files.length) return
+    const names = askNames(files, target)
+    if (!names) return
+    busy = true
+    const failed = await sendAll(files, names, target)
+    if (files.length > 1 && failed.length < files.length)
+      notify.success(
+        `Uploaded ${files.length - failed.length} of ${files.length} files`,
+      )
+    if (failed.length) notify.error(failed.join('\n'))
+    busy = false
+    await load()
   }
 
   async function remove(asset: AssetFile) {
@@ -283,130 +330,141 @@
   }}
 />
 
-<div class="pagehead">
-  <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
-  <span class="num muted">{shownCount} files</span>
-  <span class="flex"></span>
-  {#if !shared && elsewhereCount}
-    <a
-      class="sharedlink plain muted"
-      href={sharedHref('assets')}
-      title="the shared library every workspace under this root can use"
-      >shared <span class="num">{elsewhereCount}</span></a
-    >
-  {/if}
-  <input class="filter" placeholder="filter…" bind:value={filter} />
-  <!-- One input for every section: which library the file lands in is
-       uploadTarget, set by whichever button opened it -->
-  <input
-    class="hiddenfile"
-    type="file"
-    accept="image/*,video/*,audio/*"
-    bind:this={fileInput}
-    onchange={upload}
-  />
-</div>
-
-{#if error}<p class="muted">Could not read the asset library: {error}</p>{/if}
-
-<HintBar storageKey="assets-hint-dismissed">
-  An asset is input a workflow names by reference: an argument set to asset:name
-  loads this file at run time, whatever run produced it.
-  {#if shared}
-    The shared library follows you between workspaces; an examples library is
-    read-only.
-  {:else}
-    This workspace's own assets come first, and a name here hides the same name
-    in the shared library. Shared assets are listed here only when one of this
-    workspace's workflows names them; the rest are on the Shared assets page.
-  {/if}
-</HintBar>
-
-{#if loaded && !error && shownCount === 0}
-  <Empty>
-    {#snippet icon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
-    Nothing in the asset library yet — upload a file, or keep one from the gallery.
+<div
+  class="dropzone"
+  use:dropFiles={{
+    ondrop: (files) => uploadFiles(files, shared ? 'shared' : 'workspace'),
+    disabled: busy,
+  }}
+>
+  <div class="pagehead">
+    <h1>{shared ? 'Shared assets' : 'Assets'}</h1>
+    <span class="num muted">{shownCount} files</span>
+    <span class="flex"></span>
     {#if !shared && elsewhereCount}
-      The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
-      more.
+      <a
+        class="sharedlink plain muted"
+        href={sharedHref('assets')}
+        title="the shared library every workspace under this root can use"
+        >shared <span class="num">{elsewhereCount}</span></a
+      >
     {/if}
-  </Empty>
-{/if}
+    <input class="filter" placeholder="filter…" bind:value={filter} />
+    <!-- One input for every section: which library the file lands in is
+       uploadTarget, set by whichever button opened it -->
+    <input
+      class="hiddenfile"
+      type="file"
+      multiple
+      accept="image/*,video/*,audio/*"
+      bind:this={fileInput}
+      onchange={upload}
+    />
+  </div>
 
-<BulkBar
-  {picks}
-  visible={ordered.length}
-  {filterActive}
-  {busy}
-  noun="asset"
-  ondownload={downloadPicked}
-  ondelete={removePicked}
-/>
+  {#if error}<p class="muted">Could not read the asset library: {error}</p>{/if}
 
-{#each sections as section (section.origin)}
-  <LibraryRow
-    {section}
-    open={isOpen(section.origin)}
-    {shared}
+  <HintBar storageKey="assets-hint-dismissed">
+    An asset is input a workflow names by reference: an argument set to
+    asset:name loads this file at run time, whatever run produced it. Drop files
+    anywhere on the page to upload them here.
+    {#if shared}
+      The shared library follows you between workspaces; an examples library is
+      read-only.
+    {:else}
+      This workspace's own assets come first, and a name here hides the same
+      name in the shared library. Shared assets are listed here only when one of
+      this workspace's workflows names them; the rest are on the Shared assets
+      page.
+    {/if}
+  </HintBar>
+
+  {#if loaded && !error && shownCount === 0}
+    <Empty>
+      {#snippet icon()}<FolderOpen size={36} strokeWidth={1.5} />{/snippet}
+      Nothing in the asset library yet — upload a file, or keep one from the gallery.
+      {#if !shared && elsewhereCount}
+        The <a href={sharedHref('assets')}>shared library</a> has {elsewhereCount}
+        more.
+      {/if}
+    </Empty>
+  {/if}
+
+  <BulkBar
+    {picks}
+    visible={ordered.length}
+    {filterActive}
     {busy}
-    ontoggle={() => toggleLibrary(section.origin)}
-    onupload={startUpload}
+    noun="asset"
+    ondownload={downloadPicked}
+    ondelete={removePicked}
   />
 
-  {#if isOpen(section.origin)}
-    <FolderGroups
-      names={section.assets.map((a) => a.name)}
-      groupOf={(name) => folderByName.get(name) ?? ''}
-      collapseKey="collapsed-asset-folders-{section.origin}"
-      {filterActive}
-      minColumn="150px"
-    >
-      {#snippet card(name)}
-        {@const asset = byName.get(name)!}
-        <div class="cellwrap" class:picked={picks.has(name)}>
-          <!-- A sibling of the cell rather than a child: a checkbox nested in
+  {#each sections as section (section.origin)}
+    <LibraryRow
+      {section}
+      open={isOpen(section.origin)}
+      {shared}
+      {busy}
+      ontoggle={() => toggleLibrary(section.origin)}
+      onupload={startUpload}
+    />
+
+    {#if isOpen(section.origin)}
+      <FolderGroups
+        names={section.assets.map((a) => a.name)}
+        groupOf={(name) => folderByName.get(name) ?? ''}
+        collapseKey="collapsed-asset-folders-{section.origin}"
+        {filterActive}
+        minColumn="150px"
+      >
+        {#snippet card(name)}
+          {@const asset = byName.get(name)!}
+          <div class="cellwrap" class:picked={picks.has(name)}>
+            <!-- A sibling of the cell rather than a child: a checkbox nested in
                a button is invalid, and keeping them apart is what lets a plain
                click still open the details it always has -->
-          {#if section.writable}
-            <input
-              class="pick"
-              type="checkbox"
-              checked={picks.has(name)}
-              aria-label="select {asset.name}"
-              title="select this asset for a bulk action"
-              onclick={(e) => picks.toggle(name, e.shiftKey)}
-            />
-          {/if}
-          <button
-            class="cell"
-            class:active={selected?.name === name}
-            onclick={() => (selected = asset)}
-            aria-label="show details for {asset.name}"
-            title="show details"
-          >
-            {#if asset.kind === 'image'}
-              <img src={asset.url} alt={asset.name} loading="lazy" />
-            {:else if asset.kind === 'video'}
-              <video src={asset.url} preload="metadata" muted></video>
-            {:else}
-              <span class="audio"
-                >{asset.kind === 'audio' ? '♪' : '¶'}
-                {leafName(asset.name)}</span
-              >
+            {#if section.writable}
+              <input
+                class="pick"
+                type="checkbox"
+                checked={picks.has(name)}
+                aria-label="select {asset.name}"
+                title="select this asset for a bulk action"
+                onclick={(e) => picks.toggle(name, e.shiftKey)}
+              />
             {/if}
-            <span class="caption" title={asset.reference}
-              >{leafName(asset.name)}</span
+            <button
+              class="cell"
+              class:active={selected?.name === name}
+              onclick={() => (selected = asset)}
+              aria-label="show details for {asset.name}"
+              title="show details"
             >
-          </button>
-        </div>
-      {/snippet}
-    </FolderGroups>
+              {#if asset.kind === 'image'}
+                <img src={asset.url} alt={asset.name} loading="lazy" />
+              {:else if asset.kind === 'video'}
+                <video src={asset.url} preload="metadata" muted></video>
+              {:else}
+                <span class="audio"
+                  >{asset.kind === 'audio' ? '♪' : '¶'}
+                  {leafName(asset.name)}</span
+                >
+              {/if}
+              <span class="caption" title={asset.reference}
+                >{leafName(asset.name)}</span
+              >
+            </button>
+          </div>
+        {/snippet}
+      </FolderGroups>
 
-    {#if section.shadowed.length}
-      <ShadowedAssets entries={section.shadowed} />
+      {#if section.shadowed.length}
+        <ShadowedAssets entries={section.shadowed} />
+      {/if}
     {/if}
-  {/if}
-{/each}
+  {/each}
+</div>
 
 {#if loaded && assets.length > 0 && ordered.length === 0}
   <p class="muted">Nothing matches "{filter}".</p>
@@ -418,10 +476,14 @@
     {busy}
     onremove={remove}
     onclose={() => (selected = null)}
+    onnotesaved={saveNote}
   />
 {/if}
 
 <style>
+  .dropzone {
+    min-height: 60vh;
+  }
   .pagehead .filter {
     max-width: 220px;
   }

@@ -582,6 +582,68 @@ class TestLevelMatching:
         assert "near-silent" in caplog.text
 
 
+class TestInnerLevelStep:
+    """#876: match_levels levels a multi-shot input as one unit."""
+
+    def _events(self, call):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            call()
+        finally:
+            deactivate_context(token)
+        return [e for e in events if "inner_level_step" in str(e)]
+
+    def test_a_joined_input_with_a_step_between_its_shots_warns(self):
+        inner = concat_videos([audio_video(4, 0.5), audio_video(4, 0.1)])
+        assert len(inner.shots) == 2
+
+        found = self._events(
+            lambda: concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        )
+
+        assert found
+
+    def test_an_even_joined_input_draws_no_warning(self):
+        inner = concat_videos([audio_video(4, 0.3), audio_video(4, 0.3)])
+
+        found = self._events(
+            lambda: concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        )
+
+        assert not found
+
+    def test_a_trimmed_joined_input_still_warns(self):
+        inner = concat_videos([audio_video(4, 0.5), audio_video(4, 0.1)])
+        inner.fps = 4
+        for shot in inner.shots:
+            shot.pop("start_sample", None)
+            shot.pop("num_samples", None)
+
+        found = self._events(
+            lambda: concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        )
+
+        assert found
+
+    def test_a_track_replaced_downstream_draws_no_warning(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        inner = concat_videos([audio_video(4, 0.5), audio_video(4, 0.1)])
+        events = []
+        context = RunContext(on_event=events.append)
+        context.audio_replaced_downstream = True
+        token = activate_context(context)
+        try:
+            concat_videos([inner, audio_video(4, 0.3)], match_levels="rms")
+        finally:
+            deactivate_context(token)
+
+        assert not [e for e in events if "inner_level_step" in str(e)]
+
+
 class TestWarningsReachTheCaller:
     """A warning that only reaches the server's log does not exist from
     outside it - see issue #82, where match_levels verified but the spread

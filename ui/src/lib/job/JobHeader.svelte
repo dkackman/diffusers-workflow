@@ -109,6 +109,15 @@
     <span class="chip {job.status}">{job.status}</span>
     <code class="muted seed" title="this job's id">{job.id}</code>
     <CopyButton text={job.id} title="copy job id" />
+    {#if job?.rerun_of}
+      <span class="muted"
+        >rerun of <a
+          class="plain"
+          href={wsHref(job.workspace, 'jobs', job.rerun_of)}
+          ><code>{job.rerun_of}</code></a
+        ></span
+      >
+    {/if}
     {#if cancelPending}
       <span
         class="muted"
@@ -119,6 +128,13 @@
     {#if job.queue_position !== undefined}
       <span class="muted" title="position in the waiting queue"
         >#{job.queue_position + 1} in line</span
+      >
+    {/if}
+    {#if job.waiting_for}
+      <span
+        class="muted"
+        title="a card is free, but the host can't hold this job beside the running ones yet - it starts when one finishes"
+        >{job.waiting_for}</span
       >
     {/if}
     {#if seed !== undefined}

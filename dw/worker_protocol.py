@@ -117,14 +117,25 @@ class Progress(_Message):
     """A run event, whose keys sit beside "type" on the wire."""
 
     TYPE: ClassVar[str] = "progress"
+    # An event's own "type" key - `cache_stats` carries the cache's (#886) -
+    # would overwrite the message's and the parent would drop the event as an
+    # UnknownReply, so it crosses the wire under this name instead
+    EVENT_TYPE_KEY: ClassVar[str] = "event_type"
     event: Dict[str, Any]
 
     def to_wire(self) -> Dict[str, Any]:
-        return {"type": self.TYPE, **self.event}
+        wire = {k: v for k, v in self.event.items() if k != "type"}
+        if "type" in self.event:
+            wire[self.EVENT_TYPE_KEY] = self.event["type"]
+        wire["type"] = self.TYPE
+        return wire
 
     @classmethod
     def from_wire(cls, wire: Dict[str, Any]):
-        return cls(event={k: v for k, v in wire.items() if k != "type"})
+        event = {k: v for k, v in wire.items() if k not in ("type", cls.EVENT_TYPE_KEY)}
+        if cls.EVENT_TYPE_KEY in wire:
+            event["type"] = wire[cls.EVENT_TYPE_KEY]
+        return cls(event=event)
 
 
 @dataclass(frozen=True)

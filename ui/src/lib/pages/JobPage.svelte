@@ -18,6 +18,7 @@
   import JsonEditor from '../editor/JsonEditor.svelte'
   import JobHeader from '../job/JobHeader.svelte'
   import JobProgress from '../job/JobProgress.svelte'
+  import NoteEditor from '../ui/NoteEditor.svelte'
   import JobResults from '../job/JobResults.svelte'
   import type { JobDetail, JobEvent } from '../types'
 
@@ -228,6 +229,15 @@
         {etaSeconds}
       />
     </div>
+  {/if}
+
+  {#if job.run_dir}
+    <NoteEditor
+      note={job.note}
+      target={job.run_dir}
+      workspace={job.workspace}
+      label="Run note"
+    />
   {/if}
 
   {#if definition}

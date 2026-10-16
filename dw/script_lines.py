@@ -15,6 +15,7 @@ the run grouping plan_cuts warns about suspect chunks by.
 
 import re
 
+from .references import member_keys
 from .shots import duplicate_shot_names
 
 COMMAND = "check_script"
@@ -127,9 +128,11 @@ def parse_lines(lines):
     """The expected lines as [{text, tokens, shot}], or ValueError naming
     `lines`.
 
-    Each entry is a string or {text, shot}; markup is stripped
+    Each entry is a string or {text, shot, start_frame}; markup is stripped
     (strip_markup) and `shot`, the name of the shot the line is spoken in,
-    is None when not given. `[]` means no speech is expected.
+    is None when not given. `start_frame` picks one occurrence of a shot
+    name the take's map holds more than once (#919); None when not given.
+    `[]` means no speech is expected.
     """
     if isinstance(lines, str) or not isinstance(lines, (list, tuple)):
         raise ValueError(
@@ -138,16 +141,29 @@ def parse_lines(lines):
         )
     parsed = []
     for index, entry in enumerate(lines):
-        shot = None
+        shot = start_frame = None
         if isinstance(entry, dict):
-            extra = sorted(set(entry) - {"text", "shot"})
+            extra = sorted(set(entry) - {"text", "shot", "start_frame"})
             if extra:
                 raise ValueError(
                     f"{COMMAND} 'lines'[{index}] has unknown keys {extra};"
-                    " a line object takes only 'text' and 'shot'"
+                    " a line object takes only 'text', 'shot' and 'start_frame'"
                 )
             text = entry.get("text")
             shot = entry.get("shot")
+            start_frame = entry.get("start_frame")
+            if start_frame is not None and (
+                isinstance(start_frame, bool) or not isinstance(start_frame, int)
+            ):
+                raise ValueError(
+                    f"{COMMAND} 'lines'[{index}] 'start_frame' must be an"
+                    f" integer frame number, got {start_frame!r}"
+                )
+            if start_frame is not None and shot is None:
+                raise ValueError(
+                    f"{COMMAND} 'lines'[{index}] gives 'start_frame' without"
+                    " the 'shot' it picks an occurrence of"
+                )
             if shot is not None and (not isinstance(shot, str) or not shot.strip()):
                 raise ValueError(
                     f"{COMMAND} 'lines'[{index}] 'shot' must be a shot's name"
@@ -161,7 +177,14 @@ def parse_lines(lines):
                 " {text, shot}"
             )
         stripped, tokens = strip_markup(text)
-        parsed.append({"text": stripped, "tokens": tokens, "shot": shot})
+        parsed.append(
+            {
+                "text": stripped,
+                "tokens": tokens,
+                "shot": shot,
+                "start_frame": start_frame,
+            }
+        )
     return parsed
 
 
@@ -187,28 +210,121 @@ def parse_shots(shots):
     return list(shots) or None
 
 
-def shot_names_error(parsed_lines, records, source="argument"):
-    """The refusal for a line naming a shot `records` does not hold once -
-    unknown, or a name `shots.duplicate_shot_names` finds repeated - or
-    None. The message lists the shots it does hold."""
-    names = [record.get("name") for record in records]
-    known = ", ".join(repr(name) for name in names)
-    duplicated = {
-        name for dups in (duplicate_shot_names(records) or {}).values() for name in dups
+def matching_shot_names(shot, names):
+    """The names in `names` a line's `shot` addresses: `shot` itself when
+    the map holds it, else every name carrying it as a `@<member>` key
+    (`cold_open` for `shot@cold_open` or `...-shot@cold_open.0-0.0.mp4`)."""
+    if shot in names:
+        return [shot]
+    return list(dict.fromkeys(name for name in names if shot in member_keys(name)))
+
+
+def _repeated(records):
+    """The (file, name) pairs `records` holds more than once."""
+    return {
+        (file, name)
+        for file, dups in (duplicate_shot_names(records) or {}).items()
+        for name in dups
     }
+
+
+def occurrence_name(record):
+    """A repeated shot's name made unique by where it sits: `shot@bus#1248`."""
+    return f"{record['name']}#{record.get('start_frame')}"
+
+
+def disambiguated(records):
+    """`records` with each name the map holds more than once (within a file)
+    renamed by `occurrence_name`, so a span or finding can tell the
+    occurrences apart (#919). The same list when nothing repeats."""
+    repeated = _repeated(records)
+    if not repeated:
+        return records
+    return [
+        dict(record, name=occurrence_name(record))
+        if (record.get("file"), record.get("name")) in repeated
+        else record
+        for record in records
+    ]
+
+
+def shot_names_error(parsed_lines, records, source="argument"):
+    """The refusal for a line naming a shot `records` does not hold - unknown,
+    a short `@<member>` name more than one shot carries, or a name the map
+    holds more than once and the line gives no `start_frame` for - or None.
+    The message lists the shots it does hold."""
+    names = [record.get("name") for record in records]
+    repeated = {name for _, name in _repeated(records)}
+    known = ", ".join(repr(name) for name in dict.fromkeys(names))
+    nameable = ", ".join(
+        repr(name) for name in dict.fromkeys(names) if name not in repeated
+    )
     for index, line in enumerate(parsed_lines):
         shot = line["shot"]
         if shot is None:
             continue
-        if shot not in names:
+        matches = matching_shot_names(shot, names)
+        if not matches:
             return (
                 f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the take"
                 f" does not have - its shots ({source}) are {known}"
             )
-        if shot in duplicated:
+        if len(matches) > 1:
             return (
-                f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the"
-                f" take's shot map ({source}) holds more than once - a line can"
-                f" only name a shot the map holds once: {known}"
+                f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which more"
+                f" than one of the take's shots ({source}) carries - name one"
+                f" in full: {', '.join(repr(name) for name in matches)}"
             )
+        if matches[0] in repeated:
+            frames = [
+                record.get("start_frame")
+                for record in records
+                if record.get("name") == matches[0]
+            ]
+            start_frame = line.get("start_frame")
+            if start_frame is None:
+                return (
+                    f"{COMMAND} 'lines'[{index}] names shot {shot!r}, which the"
+                    f" take's shot map ({source}) holds more than once - add"
+                    f" 'start_frame' to say which occurrence: one of {frames}."
+                    f" Shots named without it: {nameable or 'none'}"
+                )
+            if start_frame not in frames:
+                return (
+                    f"{COMMAND} 'lines'[{index}] 'start_frame' {start_frame}"
+                    f" matches no occurrence of shot {shot!r} ({source}) - its"
+                    f" start_frames are {frames}"
+                )
+        elif line.get("start_frame") is not None:
+            frame = next(
+                record.get("start_frame")
+                for record in records
+                if record.get("name") == matches[0]
+            )
+            if frame != line["start_frame"]:
+                return (
+                    f"{COMMAND} 'lines'[{index}] 'start_frame'"
+                    f" {line['start_frame']} does not match shot {shot!r}"
+                    f" ({source}), which starts at frame {frame}"
+                )
     return None
+
+
+def with_full_shot_names(parsed_lines, records):
+    """`parsed_lines` with each line's short shot name replaced by the name
+    `disambiguated(records)` holds: the full name, or for a repeated shot
+    `occurrence_name`. Call after `shot_names_error` found nothing."""
+    names = [record.get("name") for record in records]
+    repeated = {name for _, name in _repeated(records)}
+    resolved = []
+    for line in parsed_lines:
+        shot = line["shot"]
+        matches = matching_shot_names(shot, names) if shot is not None else []
+        if not matches:
+            resolved.append(line)
+            continue
+        full = matches[0]
+        if full in repeated:
+            full = f"{full}#{line.get('start_frame')}"
+        resolved.append(dict(line, shot=full))
+    return resolved

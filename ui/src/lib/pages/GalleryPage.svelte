@@ -1,25 +1,28 @@
 <script lang="ts">
-  import { ImageOff, Play } from '@lucide/svelte'
+  import { ImageOff, Pencil, Play, Star } from '@lucide/svelte'
   import { outputLibrary } from '../outputlib.svelte'
   import { api } from '../api'
   import Empty from '../Empty.svelte'
   import FolderGroups from '../FolderGroups.svelte'
   import BulkBar from '../BulkBar.svelte'
   import { Picks, actOnEach } from '../picks.svelte'
+  import { isEditable } from '../editable'
+  import { neighbor } from '../neighbor'
   import { overlayOpen } from '../ui/layers.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
-  import type { GalleryFile } from '../types'
+  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
   import { workspace } from '../workspace.svelte'
+  import { go } from '../router.svelte'
   import GalleryDetail from '../gallery/GalleryDetail.svelte'
+  import RoleTag from '../gallery/RoleTag.svelte'
 
   let files = $state<GalleryFile[]>([])
   let loaded = $state(false)
   let filter = $state('')
-  // The in-run subfolder to show - null is every one. Only offered when
-  // some output landed in one; a workspace of unfoldered runs never sees
-  // the control
-  let subfolder = $state<string | null>(null)
+  // The roles to show. Finals are what a run was for, so the gallery opens
+  // on them; Intermediate adds the steps' working files
+  let roles = $state<OutputRole[]>(['final'])
   let error = $state('')
   let selected = $state<GalleryFile | null>(null)
   // Names ticked in the grid, for the bulk actions. The grid order it is
@@ -28,12 +31,17 @@
   let busy = $state(false)
   let metadata = $state<Record<string, unknown> | null>(null)
   let metadataLoading = $state(false)
+  let noteInfo = $state<{
+    note: string | null
+    runNote: string | null
+    source: 'file' | 'run' | null
+  }>({ note: null, runNote: null, source: null })
   let sourceJob = $state<{ id: string; status: string } | null>(null)
+  let role = $state<OutputRole | null>(null)
+  let inputs = $state<GalleryInput[]>([])
 
-  $effect(() => {
-    // Read inside the effect so switching workspaces refetches the gallery
-    void workspace.current
-    api
+  function loadListing() {
+    return api
       .gallery()
       .then((result) => {
         files = result.files
@@ -45,39 +53,58 @@
       })
       .catch((e) => (error = e.message))
       .finally(() => (loaded = true))
+  }
+
+  $effect(() => {
+    // Read inside the effect so switching workspaces refetches the gallery
+    void workspace.current
+    void loadListing()
   })
 
-  // Every distinct subfolder in the listing - read off the entries so a
-  // delete updates it without a refetch. '' (the run root) appears only
-  // when some file sits there, so the pick never offers an empty option
-  const subfolders = $derived(
-    [...new Set(files.map((f) => f.subfolder))].sort((a, b) =>
-      a.localeCompare(b),
-    ),
+  // A file whose run does not say its role counts as final
+  const roleOf = (f: GalleryFile): OutputRole => f.role ?? 'final'
+  let starredOnly = $state(false)
+  const filterActive = $derived(
+    filter !== '' || roles.length < 2 || starredOnly,
   )
-  const subfolderOffered = $derived(subfolders.some((s) => s !== ''))
-  const filterActive = $derived(filter !== '' || subfolder !== null)
-  const visible = $derived(
-    files.filter(
+  // Finals lead inside a run only: the server's order (newest first) holds
+  // between runs, so runs sit where their newest file put them. The sort is
+  // stable, so it holds inside each role too
+  const runKey = (f: GalleryFile) => `${f.folder}\u0000${f.run_id}`
+  const visible = $derived.by(() => {
+    const shown = files.filter(
       (f) =>
         f.name.toLowerCase().includes(filter.toLowerCase()) &&
-        (subfolder === null || f.subfolder === subfolder),
-    ),
-  )
-  // A pick that no longer exists (its last file deleted) means everything,
-  // not an empty grid pinned to a vanished value - and the control itself
-  // is reset, since a <select> whose value matches no option shows blank.
-  // A pick of '' (the run root) never appears in `subfolders` on its own,
-  // so it is only cleared once the control itself stops being offered -
-  // otherwise it would survive the control unmounting and leave
-  // `filterActive` stuck true with nothing to reset it
-  $effect(() => {
-    if (
-      subfolder !== null &&
-      (!subfolderOffered || !subfolders.includes(subfolder))
+        roles.includes(roleOf(f)) &&
+        (!starredOnly || f.starred),
     )
-      subfolder = null
+    // Each run's place is the index of its first (newest) file. Built
+    // back to front so the first file's index is the one that sticks; a
+    // Map keeps this linear at thousands of files
+    const runs = new Map(shown.map((f, i) => [runKey(f), i] as const).reverse())
+    const place = (f: GalleryFile) => runs.get(runKey(f))!
+    const rank = (f: GalleryFile) => Number(roleOf(f) === 'intermediate')
+    return shown.sort((a, b) => place(a) - place(b) || rank(a) - rank(b))
   })
+  async function toggleStar() {
+    if (!selected) return
+    const name = selected.name
+    const next = !selected.starred
+    try {
+      await api.setStarred(name, next)
+      files = files.map((f) => (f.name === name ? { ...f, starred: next } : f))
+      if (selected?.name === name) selected = { ...selected, starred: next }
+    } catch (e) {
+      notify.error(e instanceof Error ? e.message : String(e))
+    }
+  }
+  // Never both off: an empty grid is not a state worth offering
+  function toggleRole(which: OutputRole) {
+    const next = roles.includes(which)
+      ? roles.filter((r) => r !== which)
+      : [...roles, which]
+    roles = next.length ? next : [which === 'final' ? 'intermediate' : 'final']
+  }
   const byName = $derived(new Map(visible.map((f) => [f.name, f])))
   // The server folds each run id into `folder`; group by that, since the
   // name alone reads the run directory as one more folder
@@ -120,23 +147,68 @@
     busy = false
   }
 
+  // Where the open file stood in the grid when last seen there, so stepping
+  // goes on from that place once a filter or an unstar has hidden it
+  let selectedAt = -1
+  // The grid's order, noting the open file's place while it is still listed
+  function gridOrder() {
+    const order = visible.map((f) => f.name)
+    const at = selected ? order.indexOf(selected.name) : -1
+    if (at !== -1) selectedAt = at
+    return order
+  }
+
   function select(file: GalleryFile) {
     selected = file
+    selectedAt = visible.findIndex((f) => f.name === file.name)
     metadata = null
     metadataLoading = true
     sourceJob = null
+    role = null
+    inputs = []
+    noteInfo = { note: null, runNote: null, source: null }
     api
       .galleryMetadata(file.name)
       .then((r) => {
         if (selected?.name === file.name) {
           metadata = r.metadata
           sourceJob = r.job
+          role = r.role ?? file.role ?? null
+          inputs = r.inputs ?? []
+          noteInfo = {
+            note: r.note ?? null,
+            runNote: r.run_note ?? null,
+            source: r.note_source ?? null,
+          }
         }
       })
       .catch(() => {})
       .finally(() => {
         if (selected?.name === file.name) metadataLoading = false
       })
+  }
+
+  // A note changed: refetch what the panel shows and carry the file's
+  // effective note to its tile, which is what the grid marks
+  async function refreshNote(kind: 'run' | 'file') {
+    const name = selected?.name
+    if (!name) return
+    // A run's note shows on every tile of the run that inherits it
+    if (kind === 'run') await loadListing()
+    try {
+      const r = await api.galleryMetadata(name)
+      if (selected?.name !== name) return
+      noteInfo = {
+        note: r.note ?? null,
+        runNote: r.run_note ?? null,
+        source: r.note_source ?? null,
+      }
+      files = files.map((f) =>
+        f.name === name ? { ...f, note: r.note ?? undefined } : f,
+      )
+    } catch {
+      /* the editor already shows what was saved */
+    }
   }
 
   async function removeFile() {
@@ -149,48 +221,95 @@
     )
       return
     const name = selected.name
+    const order = gridOrder()
+    const after =
+      neighbor(order, name, 1, selectedAt) ??
+      neighbor(order, name, -1, selectedAt)
     try {
       await api.deleteOutput(name)
       files = files.filter((f) => f.name !== name)
       // A file deleted from here may also be ticked in the grid; leaving it
       // there would make the next bulk action fail on a file that is gone
       picks.drop(name)
-      selected = null
+      // Culling goes on to the next file rather than back to the grid
+      if (after && byName.get(after)) select(byName.get(after)!)
+      else selected = null
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e)
       notify.error(msg)
     }
   }
-</script>
 
-<svelte:window
-  onkeydown={(e) => {
-    // Escape closes the thing on top, and a dialog answers it itself. The
-    // selection is the more recent, more surprising state to be stuck in,
-    // so it clears first and the detail panel on a second press
-    if (e.key !== 'Escape' || overlayOpen()) return
+  // Escape closes the thing on top, and a dialog answers it itself. The
+  // selection is the more recent, more surprising state to be stuck in,
+  // so it clears first and the detail panel on a second press
+  function escape() {
     if (picks.size) picks.clear()
     else selected = null
-  }}
-/>
+  }
+
+  function step(e: KeyboardEvent, by: 1 | -1) {
+    if (!selected) return
+    const next = neighbor(gridOrder(), selected.name, by, selectedAt)
+    const file = next ? byName.get(next) : undefined
+    if (!file) return
+    e.preventDefault()
+    select(file)
+  }
+
+  // A bare S: with Shift, Alt or a command modifier it is someone else's
+  const isStarKey = (e: KeyboardEvent) =>
+    e.key.toLowerCase() === 's' &&
+    !(e.metaKey || e.ctrlKey || e.altKey || e.shiftKey)
+
+  // Culling a run: step through what the grid shows, delete as you go
+  function cullKey(e: KeyboardEvent) {
+    if (e.key === 'ArrowRight') step(e, 1)
+    else if (e.key === 'ArrowLeft') step(e, -1)
+    else if (e.key === 'Delete' || (e.key === 'Backspace' && e.metaKey)) {
+      e.preventDefault()
+      void removeFile()
+    } else if (isStarKey(e)) {
+      e.preventDefault()
+      void toggleStar()
+    }
+  }
+
+  function onKeydown(e: KeyboardEvent) {
+    if (overlayOpen()) return
+    if (e.key === 'Escape') return escape()
+    // A key typed into the note box, or a focused video seeking, is theirs
+    if (selected && !isEditable(e.target)) cullKey(e)
+  }
+</script>
+
+<svelte:window onkeydown={onKeydown} />
 
 <div class="pagehead baseline">
   <h1>Gallery</h1>
   <span class="num muted">{files.length} files</span>
   <input class="filter" placeholder="filter…" bind:value={filter} />
-  {#if subfolderOffered}
-    <select
-      class="subfolderpick"
-      aria-label="subfolder"
-      title="show only files a step saved to this subfolder of its run"
-      bind:value={subfolder}
+  <div class="rolechips" role="group" aria-label="filter by role">
+    {#each ['final', 'intermediate'] as const as which (which)}
+      <button
+        class="rolechip"
+        class:on={roles.includes(which)}
+        aria-pressed={roles.includes(which)}
+        onclick={() => toggleRole(which)}
+        title={which === 'final'
+          ? 'what the runs were for'
+          : "the steps' working files, kept along the way"}
+        >{which === 'final' ? 'Final' : 'Intermediate'}</button
+      >
+    {/each}
+    <button
+      class="rolechip"
+      class:on={starredOnly}
+      aria-pressed={starredOnly}
+      onclick={() => (starredOnly = !starredOnly)}
+      title="only the files you starred">Starred</button
     >
-      <option value={null}>all subfolders</option>
-      {#each subfolders as s (s)}
-        <option value={s}>{s === '' ? '(run root)' : `${s}/`}</option>
-      {/each}
-    </select>
-  {/if}
+  </div>
 </div>
 
 {#if error}<p class="muted">Could not read the gallery: {error}</p>{/if}
@@ -209,6 +328,7 @@
   noun="file"
   ondownload={downloadPicked}
   ondelete={removePicked}
+  oncompare={() => go('ws', workspace.current, 'compare', ...picks.names)}
 />
 
 <FolderGroups
@@ -264,6 +384,11 @@
           >
         {/if}
         <span class="caption" title={file.name}>
+          {#if file.role}
+            <RoleTag role={file.role} />
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}
+          {/if}
           {#if file.version}
             <span
               class="version"
@@ -275,7 +400,17 @@
                  whitespace at the edge of an if block is trimmed -->
             <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
             {' '}
-          {/if}{file.label}</span
+          {/if}{file.label}{#if file.note}
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}<span
+              class="note-mark"
+              title={file.note.split('\n')[0]}
+              aria-label="Has a note"><Pencil size={11} /></span
+            >{/if}{#if file.starred}
+            <!-- eslint-disable-next-line svelte/no-useless-mustaches -->
+            {' '}<span class="note-mark" aria-label="Starred"
+              ><Star size={11} fill="currentColor" /></span
+            >{/if}</span
         >
       </button>
     </div>
@@ -288,6 +423,14 @@
     {metadata}
     {metadataLoading}
     {sourceJob}
+    {role}
+    {inputs}
+    note={noteInfo.note}
+    runNote={noteInfo.runNote}
+    noteSource={noteInfo.source}
+    onnotesaved={refreshNote}
+    starred={!!selected.starred}
+    onstar={toggleStar}
     onremove={removeFile}
     onclose={() => (selected = null)}
   />
@@ -298,12 +441,33 @@
     max-width: 220px;
     margin-left: auto;
   }
-  .subfolderpick {
-    /* The global select rule is width: 100% - here it must share the row */
-    width: auto;
-    max-width: 200px;
-    font-family: var(--font-mono);
-    font-size: var(--t-sm);
+  .rolechips {
+    display: flex;
+    gap: 0.3rem;
+  }
+  .rolechip {
+    background: none;
+    border: 1px solid var(--line);
+    border-radius: 999px;
+    color: var(--muted);
+    font-size: var(--t-xs);
+    font-weight: 500;
+    padding: 0.05rem 0.6rem;
+    cursor: pointer;
+  }
+  .rolechip:hover {
+    color: var(--ink);
+    border-color: var(--muted);
+    filter: none;
+  }
+  .rolechip.on {
+    background: var(--ink);
+    border-color: var(--ink);
+    color: var(--panel);
+  }
+  .note-mark {
+    color: var(--muted);
+    vertical-align: -1px;
   }
   .cellwrap {
     display: flex;

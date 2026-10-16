@@ -316,6 +316,51 @@ class TestTheRealDocs:
         ):
             assert f"`{shape}`" in content, shape
 
+    def test_the_sweep_section_names_the_loop_and_only_real_tools(self):
+        """#890: a sweep is the existing tools called once per variant, so
+        the section has to name each one, and every tool-shaped name it
+        tells an agent to call has to exist on the MCP server."""
+        import asyncio
+        import re
+
+        from dw_mcp.client import DwClient
+        from dw_mcp.server import build_server
+
+        guide = guides.get_guide("workspaces", section="Running a sweep")
+        content = guide["content"]
+
+        assert guide["section"] == "Running a sweep"
+        loop = (
+            "create_workspace",
+            "use_workspace",
+            "set_note",
+            "get_workflow",
+            "save_workflow",
+            "validate_workflow",
+            "run_workflow",
+            "wait_for_job",
+            "list_jobs",
+            "get_job",
+            "get_gallery_metadata",
+            "list_gallery",
+            "keep_output",
+        )
+        for tool in loop:
+            assert f"`{tool}" in content, tool
+        for convention in (
+            "plan.estimate",
+            "reused",
+            "latest run",
+            "score ",
+            "judged_by",
+        ):
+            assert convention in content, convention
+
+        tools = {t.name for t in asyncio.run(build_server(DwClient()).list_tools())}
+        named = set(re.findall(r"`([a-z]+(?:_[a-z]+)+)\b", content))
+        not_tools = {"num_inference_steps", "judged_by"}
+        assert named - not_tools <= tools, sorted(named - not_tools - tools)
+
     def test_the_tasks_guide_carries_the_catalog_path_note(self):
         """TASKS.md links 49 example workflows by repo path - the most of any
         served guide."""

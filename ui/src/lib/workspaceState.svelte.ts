@@ -18,4 +18,12 @@ export const workspace = $state<{
    * computes it per listing and caches it briefly, so it is a glance
    * rather than a live figure. Absent for a server that does not send it. */
   usage: Record<string, { files: number; bytes: number }>
-}>({ current: DEFAULT_WORKSPACE, names: undefined, root: null, usage: {} })
+  /** The note each workspace carries, by name; a workspace without one is absent */
+  notes: Record<string, string>
+}>({
+  current: DEFAULT_WORKSPACE,
+  names: undefined,
+  root: null,
+  usage: {},
+  notes: {},
+})

@@ -21,8 +21,8 @@ Callers use the functions at the end of this module directly
 (`workflow_errors`, `workflow_context`, `run_warning_check`,
 `undeclared_variable_errors`, `sub_workflow_errors`,
 `sub_workflow_argument_warnings`); only `Workflow.validation_errors` and
-`Workflow.validate` remain as methods. The three step-value checkers the error
-registry runs (`fps_errors`, `null_media_errors`, `select_errors`) are in
+`Workflow.validate` remain as methods. The step-value checkers the error
+registry runs (`fps_errors`, `cache_errors`, `null_media_errors`, `select_errors`) are in
 dw/step_value_checks.py.
 """
 
@@ -33,6 +33,7 @@ from dataclasses import dataclass, field
 from typing import Callable
 
 from . import references
+from .acceleration_warnings import acceleration_warnings
 from . import get_device_type, device_capacity_gb
 from .adapter_compatibility import adapter_errors, adapter_warnings
 from .argument_warnings import workflow_argument_warnings
@@ -52,17 +53,22 @@ from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors
 from .schema import load_schema, validate_data_all
 from .security import InvalidInputError, SecurityError
-from .shot_span_preflight import shot_span_warnings
+from .shot_span_preflight import script_shot_name_errors, shot_span_warnings
 from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
 from .step_value_checks import (
+    cache_errors,
     chain_prompts_errors,
     fps_errors,
     null_media_errors,
     select_errors,
 )
 from .task_domains import task_argument_errors
-from .type_references import component_name_errors, component_type_errors
+from .type_references import (
+    component_name_errors,
+    component_type_errors,
+    unbraced_type_warnings,
+)
 from .variable_constraints import (
     ConstraintReferenceError,
     constraint_errors,
@@ -135,6 +141,9 @@ class ValidationContext:
         capacity_label=None,
         # The catalog's VRAM ceilings, for inherited_vram_warnings
         ceiling_index=None,
+        # The LoRA catalog's partitions, for the adapter checks
+        # (adapter_compatibility.catalog_index)
+        lora_index=None,
         expand=None,
     ):
         self.workflow = workflow
@@ -145,6 +154,7 @@ class ValidationContext:
         self.capacity_gb = capacity_gb
         self.capacity_label = capacity_label
         self.ceiling_index = ceiling_index
+        self.lora_index = lora_index
         self._expand = expand
         self._expanded = expanded
         self._source_indices = source_indices
@@ -302,6 +312,9 @@ ERROR_CHECKS = [
     ),
     Check("subfolders", lambda c: subfolder_errors(c.expanded, c.source_indices)),
     Check("fps", lambda c: fps_errors(c.expanded, c.source_indices)),
+    # A `cache: "variable:cache"` the raw schema let through, holding an
+    # object the run could not build (dw/step_value_checks.py, #865)
+    Check("cache", lambda c: cache_errors(c.expanded, c.source_indices)),
     # A reference name no workspace could ever resolve - the '@' a for_each
     # member's own file carries, rejected after the queue by a message that
     # named a valid form and not the objection (dw/reference_names.py, #162)
@@ -380,8 +393,9 @@ ERROR_CHECKS = [
     # refuses this at run time, a few seconds into the job (#478)
     Check("null_media", lambda c: null_media_errors(c.expanded, c.source_indices)),
     # An adapter trained for the other checkpoint partition, which the
-    # pipeline loads without complaint and answers worse for
-    # (dw/adapter_compatibility.py, #155)
+    # pipeline loads without complaint and answers worse for - by the
+    # adapter's file name, or a proven LoRA catalog entry when the server
+    # has the catalog (dw/adapter_compatibility.py, #155, #870)
     Check(
         "adapters",
         lambda c: adapter_errors(
@@ -389,6 +403,7 @@ ERROR_CHECKS = [
             c.source_indices,
             written=c.definition,
             supplied=c.supplied,
+            catalog=c.lora_index,
         ),
     ),
     # A number outside a task argument's declared domain, and a command's
@@ -405,6 +420,12 @@ ERROR_CHECKS = [
         lambda c: dissolve_frame_errors(
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
+    ),
+    # A check_script line naming a shot the take's recorded shot map lacks
+    # (dw/shot_span_preflight.py, #873)
+    Check(
+        "script_shot_names",
+        lambda c: script_shot_name_errors(c.expanded, c.source_indices, c.base_dir),
     ),
     # A join_windows list not the length its statically-resolvable source
     # needs (dw/window_count_errors.py, #601)
@@ -569,6 +590,12 @@ WARNING_CHECKS = [
         "workflow_argument_warnings",
         lambda c: workflow_argument_warnings(c.definition, c.arguments),
     ),
+    # A type or quantization name written without braces, which the run loads
+    # as a diffusers attribute and fails on (dw/type_references.py, #926)
+    Check(
+        "unbraced_type_warnings",
+        lambda c: unbraced_type_warnings(c.expanded, c.source_indices),
+    ),
     # A value a declared constraint will round up - the silent half of #96:
     # the run changed the caller's frame count and only the server's log
     # said so
@@ -588,11 +615,16 @@ WARNING_CHECKS = [
     # An adapter whose file name says nothing about which checkpoint
     # partition it was trained for: valid, since the name of a future
     # checkpoint cannot be predicted, but nothing at run time would say it
-    # loaded onto the wrong one (#155)
+    # loaded onto the wrong one (#155); and a trial catalog entry that lists
+    # it for the other partition, which only warns (#870)
     Check(
         "adapter_warnings",
         lambda c: adapter_warnings(
-            c.expanded, c.source_indices, written=c.definition, supplied=c.supplied
+            c.expanded,
+            c.source_indices,
+            written=c.definition,
+            supplied=c.supplied,
+            catalog=c.lora_index,
         ),
     ),
     Check("null_variable_argument_warnings", _null_variable_argument_warnings),
@@ -646,6 +678,11 @@ WARNING_CHECKS = [
             )
         ),
     ),
+    # An acceleration setting that cannot pay off - a threshold cache on a
+    # short schedule, TaylorSeer state no estimate charges, fullgraph with a
+    # cache, a CUDA-only attention backend off CUDA - each of which cost a
+    # render to find out (#868)
+    Check("acceleration_warnings", acceleration_warnings),
 ]
 
 
@@ -671,6 +708,7 @@ def workflow_context(
     ceiling_index=None,
     capacity_gb=None,
     capacity_label=None,
+    lora_index=None,
 ):
     """One validation request's ValidationContext: the expansion over
     `arguments` (lazy and memoized, so the error pass and the warning
@@ -678,7 +716,8 @@ def workflow_context(
     request is checked against (its own capacity, or `capacity_gb` when
     the caller knows a larger card the job may land on - the server's
     worker pool, which `capacity_label` names in a refusal) and the catalog's VRAM ceilings
-    (`ceiling_index`, for inherited_vram_warnings). Built per request
+    (`ceiling_index`, for inherited_vram_warnings) and the LoRA catalog's
+    partitions (`lora_index`, for the adapter checks). Built per request
     and never stored on the Workflow, so its probe cache cannot serve a
     replaced file stale.
 
@@ -706,6 +745,7 @@ def workflow_context(
         capacity_gb=device_capacity_gb() if capacity_gb is None else capacity_gb,
         capacity_label=capacity_label,
         ceiling_index=ceiling_index,
+        lora_index=lora_index,
         expand=expand,
     )
 

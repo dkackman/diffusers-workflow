@@ -119,11 +119,14 @@ class TestProjection:
         warnings = host_memory_warnings(definition, {"shots": 12}, rows, 8_000 * MB)
         assert warnings == []
 
-    def test_released_pipeline_over_the_ceiling_still_warns(self):
+    def test_released_peak_that_already_succeeded_warns_nothing_at_any_length(self):
+        # #901: a released shape's peak does not scale with the list, so a
+        # completed run at ~125 GB proves a longer request survives it too,
+        # even when the peak row ran fewer entries than this request
         definition = for_each_workflow(release=True)
         rows = [row(9000 * MB, {"shots": [1, 2, 3]})]
-        warnings = host_memory_warnings(definition, {"shots": 12}, rows, 8_000 * MB)
-        assert len(warnings) == 1
+        warnings = host_memory_warnings(definition, {"shots": 5}, rows, 8_000 * MB)
+        assert warnings == []
 
     def test_no_list_in_this_request_warns_nothing(self):
         definition = for_each_workflow(release=False)

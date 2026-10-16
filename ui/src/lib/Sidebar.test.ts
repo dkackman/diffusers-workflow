@@ -163,3 +163,21 @@ it('marks the open workspace apart from its siblings', async () => {
   expect(hue(open)).toMatch(/^oklch/)
   expect(hue(container.querySelector('.ws.shut'))).not.toBe(hue(open))
 })
+
+it('folds a run of same-prefix workspaces into one group row', async () => {
+  listWorkspaces.mockResolvedValueOnce({
+    workspace_root: '/ws',
+    default: 'main',
+    workspaces: ['regression-a', 'regression-b', 'regression-c', 'main'].map(
+      (name) => ({ name, default: name === 'main' }),
+    ),
+  })
+  location.hash = '#/ws/main/overview'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  render(Sidebar, { collapsed: false, onToggle: () => {} })
+  const group = await screen.findByRole('button', { name: /regression/ })
+  expect(group.getAttribute('aria-expanded')).toBe('false')
+  expect(screen.queryByText('regression-a')).toBeNull()
+  await fireEvent.click(group)
+  expect(screen.getByText('regression-a')).toBeTruthy()
+})

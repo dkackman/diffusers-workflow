@@ -10,7 +10,7 @@ original Tier 1 items and both fully-finished proposals (`score-and-select`,
 `script-to-video-agent-skill`) were removed.
 
 Since 2026-09-23 every open item below is also a GitHub issue labeled
-`feature` (#374, #379, #380, and #244 for `resume.md`; #375 was declined, #376, #377 and #378 shipped), parked with Don. Its
+`feature` (#374, #380, and #244 for `resume.md`; #375 and #379 were declined, #376, #377 and #378 shipped), parked with Don. Its
 `priority:N` label mirrors the tier here. Work starts from the issue.
 
 ## Tier 1 — do these first (small, scoped, clear payoff)
@@ -31,16 +31,102 @@ remaining deferred fix is recorded in
    rehydrating the step cache from disk manifests is a correctness-sensitive
    engine change (step identity matching, partial-state edge cases). High
    complexity.
-8. **sweeps-and-comparison.md** — valuable once doing real side-by-side
-   comparisons, but it's a new job-schema field, batch semantics, and a new
-   UI page. Its own doc says "nothing here should be implemented without a
-   fresh look."
 9. **maintenance-screen.md — the full UI page** — Phase 0 (WAL mode) shipped
    2026-09-20; the maintenance/observability page itself (orphan listing,
    disk usage, job pruning) is the remaining, much bigger ask.
 
 ## Shipped since the ranking
 
+- **H3 quality ramp: draft -> final tiers** (#862, stage #882), shipped
+  2026-10-15. A `## Ramp` section in the `minimax-h3` skill's
+  `references/quality-and-speed.md`, not a new skill: TV L1 -> L7, cinema
+  B3 -> L5/P1, ship a close-up draft, with the arguments per rung, what
+  carries (with #861's seed counts), what to approve per tier, how to judge
+  and how to quote cost. Record, including what was deferred (MagCache M2
+  as the cinema-final cache, a top-level skill once a second family has a
+  ladder): `complete/h3-quality-ramp-complete.md`.
+- **Dispatch holds a queued job for host RAM** (#869, stages #909-#910),
+  shipped 2026-10-15. A job waits `queued`, with a `queue_wait` event and a
+  live `waiting_for`, while its projected peak (the max observed for its
+  memory key, else the list fit) won't fit beside the running jobs. It is
+  never refused, and never held alone. Record, including what was deferred
+  (a validate "would wait" prediction, frame count in the key):
+  `complete/host-ram-dispatch-gate-complete.md`.
+- **`plan.estimate` scales the curated figure** (#866, stages #905-#908),
+  shipped 2026-10-15. A move of `num_inference_steps`, `width`/`height` or
+  `num_frames` off the defaults now scales the catalog or inherited figure
+  in proportion (`basis: "derived"`, `scaled` names the axes) instead of
+  quoting `unknown` or the flat figure. Any other declared driver (H3
+  weights, LoRA, attention, cache) keeps the figure with `low_confidence`
+  and `differs`. The fingerprint and step cache are keyed only by what
+  changes the output. Record, including what was cut (compile as a driver,
+  the learned fixed + per-pass fit) and follow-ups #911 and #912:
+  `complete/estimate-scaling-complete.md`.
+
+- **H3 adapter check reads the LoRA catalog first** (#870, stage #888),
+  shipped 2026-10-14. On the server, validate and admission look up the
+  LoRA in the shared catalog: a `proven` entry whose `workflow` puts it on
+  the other partition refuses the step (Realism People on `ref2va`), a
+  `trial`/`rejected` one only warns, naming the entry; uncatalogued files
+  keep the filename rule. Record, including what was cut (reading the
+  safetensors header, any Hub request from validation):
+  `complete/catalog-adapter-check-complete.md`.
+
+- **Running a sweep: a written method, not a server feature** (#872, stage
+  #890), shipped 2026-10-14. `## Running a sweep` in `docs/WORKSPACES.md`
+  (`get_guide("workspaces", section="Running a sweep")`) writes down the
+  loop the H3 quality matrix ran with local scripts: one workspace per
+  experiment, factors as variables, a pinned seed, one noted `run_workflow`
+  per variant with `wait_for_job` between, `set_note` assessments in the
+  `score N/5 · judged_by <who>` form. It supersedes
+  `sweeps-and-comparison.md` (#379), now deleted. Record, including what was
+  cut (`sweep=` on `run_workflow`, structured notes, an experiment object,
+  `arguments` on `rerun_job`): `complete/sweeps-complete.md`.
+
+- **`compare_outputs`: aligned grids and diff metrics across runs** (#871,
+  stage #889), shipped 2026-10-14. A read-only MCP tool and `POST
+  /api/gallery/compare` return one grid of 2–8 outputs × 1–8 moments, plus
+  PSNR, SSIM and mean abs diff against a baseline. One shared crop is the
+  region shown and measured; per-output crops are display only. This is the
+  read-only comparison half of the old `sweeps-and-comparison.md`, without
+  batches or a UI. Record,
+  including what was cut (`crop="faces"` as a deferred stage B,
+  `same_staging`, saving the grid): `complete/compare-outputs-complete.md`.
+
+- **Per-step timing and step-cache skip counts** (#867, stages #885-#886),
+  shipped 2026-10-14. Each pipeline step's manifest entry carries `timing`
+  (load, encode, denoise, passes, first and median pass, decode, save), and
+  a cached step adds `timing.cache` (forwards, computed, skipped,
+  `hit_rate`) plus one `cache_stats` event. Record, including what was cut
+  (`compile_s`, counts for `taylorseer`/`faster`/`text_kv`, with their
+  triggers): `complete/step-timing-complete.md`.
+
+- **H3 templates expose `attention_backend` and `cache`** (#865, stages
+  #883-#884), shipped 2026-10-14. Every MiniMax-H3 template takes both as
+  variables (default `null`, wired to the H3 step only). `cache` is a
+  whole-object variable: the schema accepts `variable:` there, and
+  validation checks the substituted object (`cache_errors`). The tier
+  presets were cut; the tiers live in the `minimax-h3` skill as argument
+  sets (#862). Record: `complete/h3-template-acceleration-complete.md`.
+
+- **Validate warnings for acceleration settings that can't pay off** (#868,
+  stage #887), shipped 2026-10-14. `validate_workflow` and `save_workflow`
+  warn (never refuse) on `cache_short_schedule` (a `first_block`/`mag` cache
+  under 20 steps), `taylorseer_state_unestimated`,
+  `compile_fullgraph_with_cache` and `attention_backend_unavailable` (a
+  CUDA-only backend on a server that isn't CUDA). Compile under offload is
+  docs only. Record, including what was deferred (TaylorSeer state sizing,
+  a `mag` step-mismatch check): `complete/acceleration-warnings-complete.md`.
+
+- **Copy runs and assets between workspaces** (#853, stages #859-#860),
+  shipped 2026-10-13. `copy_to_workspace` and `POST
+  /api/workspaces/{destination}/copy` copy whole runs (with manifests) and
+  asset-library entries (with their notes and kept shots) between two
+  workspaces under one root. The copy is all or nothing, never overwrites
+  and is idempotent. Media is hard-linked, sidecars are copied, and
+  colliding versions are renumbered. A move is a copy followed by the
+  delete tools. Record, including what was deferred (a UI, job rows for
+  copied runs, workflows and prompts): `complete/workspace-copy-complete.md`.
 - **List and clear dw's own disk caches** (#828, stages #832-#834), shipped
   2026-10-11. A registry (`dw/disk_caches.py`) of `inductor`, `triton` (Triton's
   own `~/.triton/cache`, left in place) and the `quantized` cache, with
@@ -237,6 +323,12 @@ remaining deferred fix is recorded in
   Record, including what was deferred (a host-RAM gate, an overlap flag on
   observed cost, per-card catalog cost, with their triggers):
   `complete/multi-gpu-workers-complete.md`.
+- **A locked H3 frame that lip-syncs to a song** (#852, stages
+  #877-#879), shipped 2026-10-14. Four renders on lem found Ref2VA
+  `[keyframe completion + audio reuse]` with a first frame holds a wide
+  two-shot and lip-syncs the right singer; a last frame doesn't help. One
+  `minimax-h3` skill line; no template, since `music-video` takes the
+  recipe with arguments. Record: `complete/h3-keyframe-audio-complete.md`.
 
 ## Declined
 

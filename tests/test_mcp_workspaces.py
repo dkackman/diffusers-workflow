@@ -487,3 +487,14 @@ class TestMountedPinWarning:
         client.workspace = "shots"
         result = create_workspace(client, "qa")
         assert "warning" not in result
+
+
+def test_workspace_listing_clips_notes():
+    body = {
+        "workspaces": [{"name": "w", "default": True, "usage": {}, "note": "x" * 500}]
+    }
+    client = DwClient(
+        transport=httpx.MockTransport(lambda request: httpx.Response(200, json=body))
+    )
+    entry = list_workspaces(client)["workspaces"][0]
+    assert len(entry["note"]) == 201 and entry["note_truncated"] is True

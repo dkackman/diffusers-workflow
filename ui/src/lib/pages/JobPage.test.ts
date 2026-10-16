@@ -8,7 +8,7 @@ import {
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 import JobPage from './JobPage.svelte'
 import '../router.svelte'
-import { api } from '../api'
+import { api, setNote } from '../api'
 import type { JobDetail, JobEvent } from '../types'
 
 const detail = vi.hoisted(() => ({ job: null as JobDetail | null }))
@@ -19,6 +19,8 @@ const stream = vi.hoisted(() => ({
 // What the metadata route answers for each file, by name
 const metadata = vi.hoisted(() => ({
   byFile: {} as Record<string, Record<string, unknown>>,
+  // The run inputs the route reports beside a file's metadata
+  inputs: [] as Array<{ reference: string; kind: 'asset' | 'output' }>,
 }))
 // The definition the job ran, for the flow view and the unsaved reasons,
 // and whether it is the realized copy or the definition as submitted
@@ -49,12 +51,16 @@ vi.mock('../api', () => ({
       Promise.resolve({
         name,
         metadata: metadata.byFile[name] ?? null,
+        inputs: metadata.inputs,
         job: null,
       }),
     ),
     outputDownloadUrl: (name: string) => `/api/gallery/${name}/download`,
   },
   outputUrl: (path: string) => `/outputs/${path}`,
+  setNote: vi.fn((target: string, note: string | null) =>
+    Promise.resolve({ target, note, note_source: note ? 'run' : null }),
+  ),
   streamJobEvents: (
     _jobId: string,
     _after: number,
@@ -100,6 +106,7 @@ afterEach(() => {
   cleanup()
   stream.onEvent = null
   metadata.byFile = {}
+  metadata.inputs = []
   ran.definition = null
   ran.realized = true
   vi.mocked(api.galleryMetadata).mockClear()
@@ -507,4 +514,99 @@ it('shows no card for a job without a device', async () => {
   render(JobPage, { jobId: 'j1' })
   await waitFor(() => expect(screen.getByText('j1')).toBeTruthy())
   expect(screen.queryByText(/Card:/)).toBeNull()
+})
+
+const roleJob = (): JobDetail => ({
+  ...job([
+    { step: 'draft', files: ['draft.png'], role: 'intermediate' },
+    { step: 'film', files: ['film.mp4'], role: 'final' },
+  ]),
+  output_kinds: { 'draft.png': 'image', 'film.mp4': 'video' },
+})
+
+it('groups results Final, then a collapsed Intermediate, then Made from', async () => {
+  metadata.inputs = [{ reference: 'asset:face.png', kind: 'asset' }]
+  detail.job = roleJob()
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('face.png')).toBeTruthy())
+
+  const order = [
+    ...container.querySelectorAll('.roles > h3, .roles > details > summary'),
+  ].map((el) => el.textContent?.trim())
+  expect(order).toEqual(['Final', 'Intermediate', 'Made from'])
+  expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
+    'Input',
+  )
+  // Final's file is on show; the intermediate's sits in a closed <details>
+  const intermediate = container.querySelector(
+    '.roles > details',
+  ) as HTMLDetailsElement
+  expect(intermediate.open).toBe(false)
+  expect(intermediate.textContent).toContain('draft.png')
+  expect(intermediate.textContent).not.toContain('film.mp4')
+})
+
+it('opens Intermediate when the run has no finals', async () => {
+  detail.job = {
+    ...job([{ step: 'draft', files: ['draft.png'], role: 'intermediate' }]),
+    output_kinds: { 'draft.png': 'image' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(container.querySelector('.roles')).toBeTruthy())
+  expect(
+    (container.querySelector('.roles > details') as HTMLDetailsElement).open,
+  ).toBe(true)
+})
+
+it('leaves the subfolder layout alone when no step has a role', async () => {
+  detail.job = job([
+    { step: 'film', files: ['final/f.mp4'], subfolder: 'final' },
+  ])
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('final/')).toBeTruthy())
+  expect(container.querySelector('.roles')).toBeNull()
+})
+
+it('reads Made from off the first output of a video-only run, probing once', async () => {
+  metadata.inputs = [{ reference: 'asset:face.png', kind: 'asset' }]
+  detail.job = {
+    ...job([{ step: 'film', files: ['a.mp4', 'b.mp4'], role: 'final' }]),
+    output_kinds: { 'a.mp4': 'video', 'b.mp4': 'video' },
+  }
+  const { container } = render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('face.png')).toBeTruthy())
+  expect(container.querySelector('.madefrom .role-tag')?.textContent).toBe(
+    'Input',
+  )
+  expect(vi.mocked(api.galleryMetadata).mock.calls.map((c) => c[0])).toEqual([
+    'a.mp4',
+  ])
+})
+
+it('shows the run note when the job has a run', async () => {
+  detail.job = { ...job([]), run_dir: 'wf/run-1', note: 'second pass' }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+  expect(screen.getByText('Run note')).toBeTruthy()
+})
+
+it("saves the run note in the job's own workspace", async () => {
+  detail.job = {
+    ...job([]),
+    workspace: 'studio',
+    run_dir: 'wf/run-1',
+    note: 'second pass',
+  }
+  render(JobPage, { jobId: 'j1' })
+  await waitFor(() => expect(screen.getByText('second pass')).toBeTruthy())
+  await fireEvent.click(screen.getByRole('button', { name: /edit note/i }))
+  await fireEvent.input(screen.getByRole('textbox'), {
+    target: { value: 'third pass' },
+  })
+  await fireEvent.click(screen.getByRole('button', { name: /save/i }))
+  expect(vi.mocked(setNote)).toHaveBeenCalledWith(
+    'wf/run-1',
+    'third pass',
+    'studio',
+  )
 })

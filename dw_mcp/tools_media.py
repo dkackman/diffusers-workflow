@@ -209,6 +209,36 @@ class MediaTools:
             self.client, name, probe=probe, detail=detail, workspace=workspace
         )
 
+    def compare_outputs(
+        self,
+        names: list[str],
+        at: list[str | float] | None = None,
+        crop: list[int] | list[list[int]] | None = None,
+        baseline: str | None = None,
+        max_dimension: int = 384,
+        workspace: str | None = None,
+    ) -> list[ImageContent | TextContent]:
+        """2-8 outputs as one grid (a row each, a column per `at` moment,
+        the same frame number in all) with PSNR, SSIM and mean abs diff
+        against `baseline` (default the first). One `crop` box is shown
+        and measured; one box per name is shown only. Takes `asset:`."""
+        result = media.compare_outputs(
+            self.client,
+            names,
+            at=at,
+            crop=crop,
+            baseline=baseline,
+            max_dimension=max_dimension,
+            workspace=workspace,
+        )
+        image = result["image"]
+        return [
+            ImageContent(
+                type="image", data=image["data"], mime_type=image["mime_type"]
+            ),
+            TextContent(type="text", text=media.compare_summary(result)),
+        ]
+
     def delete_output(
         self,
         name: str | None = None,
@@ -316,6 +346,7 @@ class AssetTools:
         asset_name: str | None = None,
         shared: bool = False,
         workspace: str | None = None,
+        note: str | None = None,
     ) -> dict:
         """Put an image, video or audio file into the server's asset
         library and get back the `asset:` reference to use in a workflow.
@@ -337,12 +368,13 @@ class AssetTools:
 
         Accepts the usual image, video and audio extensions; reference the
         result, not a path. Pass `asset_name` for a readable stored name
-        ("cast/priya-voice.wav", folders allowed) - otherwise (with
-        `file_path`) the name is random. Pass `shared=true` to put it in
+        ("cast/priya-voice.wav", folders allowed; under `uploads/`) -
+        otherwise (with `file_path`) it is random. Pass `shared=true` to put it in
         the library every workspace shares - where a recurring cast
         belongs, since a workspace's own assets are invisible from the next.
 
-        `workspace` scopes this one call without changing the session pin."""
+        `workspace` scopes this one call without changing the session pin.
+        `note` is kept with the asset."""
         return assets.upload_asset(
             self.client,
             file_path=file_path,
@@ -350,6 +382,7 @@ class AssetTools:
             asset_name=asset_name,
             shared=shared,
             workspace=workspace,
+            note=note,
         )
 
     def keep_output(
@@ -359,6 +392,7 @@ class AssetTools:
         overwrite: bool = False,
         shared: bool = False,
         workspace: str | None = None,
+        note: str | None = None,
     ) -> dict:
         """Keep a generated file as an input asset under a stable `asset:`
         name, so later workflows can rely on it - a run's own name moves
@@ -368,7 +402,8 @@ class AssetTools:
         re-uploaded. Pass `shared=true` to keep it in the library every
         workspace shares instead.
 
-        `workspace` scopes this one call without changing the session pin."""
+        `workspace` scopes this one call without changing the session pin.
+        `note` is kept with the asset; left out, the source's is copied."""
         return assets.keep_output(
             self.client,
             name,
@@ -376,7 +411,18 @@ class AssetTools:
             overwrite=overwrite,
             shared=shared,
             workspace=workspace,
+            note=note,
         )
+
+    def set_note(
+        self, target: str, note: str | None = None, workspace: str | None = None
+    ) -> dict:
+        """Set or clear (note null or '') the note on a run
+        ('<workflow>/<run id>'), an output file (gallery name), 'asset:<name>'
+        or 'workspace:<name>'. Plain text, 4000 chars max: what it is for -
+        what a run tested, why a file is the keeper. Free. `workspace` scopes
+        one call."""
+        return assets.set_note(self.client, target, note, workspace=workspace)
 
     def delete_asset(self, name: str, workspace: str | None = None) -> dict:
         """Permanently remove one file from the asset library, by the name

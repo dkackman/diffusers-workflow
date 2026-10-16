@@ -9,7 +9,7 @@ cache probe (`cache_hits`) shares `prepare_definition` and `cache_lookup`
 with the run, so the probe answers for the run that would happen.
 
 Every phase takes the Workflow and writes what others read back onto it:
-`manifest`, `_run_dir`, `_run_version`, `_elided_steps` and
+`manifest`, `_run_dir`, `_run_version`, `_elided_steps`, `_used_variables` and
 `_cache_enabled_this_run`. A composed child is recognized as an instance of
 the running workflow's own type.
 
@@ -28,11 +28,13 @@ from . import references
 from .adapter_compatibility import warn_adapters
 from .arguments import realize_args
 from .elision import elide_definition, warn_elided
-from .events import emit_warning
+from .for_each import group_of
 from .media import probe_metadata
 from .pipeline_ownership import allocated_mb, finish_release
+from .pipeline_processors.timing import mark, step_timer
 from .previous_results import StepResults
-from .realize import realize_workflow
+from .realize import pin_output_reference, realize_workflow
+from .roles import annotate_roles, role_basis, run_inputs
 from .runs import (
     FLAT_LAYOUT,
     REALIZED_FILE_NAME,
@@ -47,11 +49,10 @@ from .runs import (
     write_realized_workflow,
 )
 from .shots import (
-    carries_shots,
-    duplicate_shot_names,
     name_unsaved_shots,
     shot_references,
     step_shots,
+    warn_shot_collisions,
 )
 from .step import Step
 from .step_cache import (
@@ -59,6 +60,7 @@ from .step_cache import (
     borrowed_pipeline_keys,
     copy_containers,
     normalized_downstream,
+    output_identity,
     reference_resolves_to,
     referenced_result_names,
     step_cache,
@@ -104,6 +106,11 @@ class RunRecord:
     seed: object = None
     realized_name: object = None
     annotations: dict = field(default_factory=_empty_annotations)
+    # Taken from the expanded steps as the run opens, before realization
+    # rewrites their references in place: what roles are decided from
+    # (dw/roles.py role_basis) and the asset:/output: inputs it read
+    role_basis: list = field(default_factory=list)
+    inputs: list = field(default_factory=list)
 
 
 @dataclass
@@ -116,6 +123,7 @@ class PreparedRun:
     default_seed: int
     recorded_variables: object
     cache_enabled: bool
+    used_variables: list = field(default_factory=list)
 
 
 @dataclass
@@ -220,6 +228,18 @@ def write_run_manifest(workflow, record, status=None):
     """
     status = status or record.status
     annotations = record.annotations
+    steps = [
+        {
+            **entry,
+            "files": manifest_relative_files(entry.get("files"), workflow._run_dir),
+            **_relative_shots(entry, workflow._run_dir),
+        }
+        for entry in workflow.manifest
+    ]
+    # Roles once the run has ended - a running manifest would show the
+    # newest step as final until its consumer runs (dw/roles.py)
+    if status != "running":
+        steps = annotate_roles(None, steps, record.role_basis)
     write_manifest(
         workflow._run_dir,
         {
@@ -252,16 +272,8 @@ def write_run_manifest(workflow, record, status=None):
             # What did not run, and why - a run says what it did not do
             # as well as what it did (#122)
             "elided_steps": workflow._elided_steps,
-            "steps": [
-                {
-                    **entry,
-                    "files": manifest_relative_files(
-                        entry.get("files"), workflow._run_dir
-                    ),
-                    **_relative_shots(entry, workflow._run_dir),
-                }
-                for entry in workflow.manifest
-            ],
+            "inputs": record.inputs,
+            "steps": steps,
         },
     )
 
@@ -312,6 +324,7 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
         realize_args(variables, base_dir, apply_key_conventions=False)
     ## then replace any variable references in the workflow definition
     # with the actual values, and expand
+    authored_steps = workflow_def.get("steps")
     workflow_def = workflow._expand(workflow_def, variables)
 
     # A step a declared vram_estimate projects past the card 'cost' was
@@ -341,6 +354,9 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
     workflow._elided_steps = elide_definition(
         workflow_def, workflow.workflow_definition
     )
+    workflow._used_variables = _surviving_variables(
+        authored_steps, workflow_def.get("steps")
+    )
 
     # Set up random seed for reproducibility. Resolved lazily - as a
     # dict.get default, torch.seed() would run on every call and reseed
@@ -360,6 +376,53 @@ def prepare_definition(workflow, workflow_def, arguments, base_dir):
             )
         workflow_def["seed"] = default_seed
     return workflow_def, default_seed, recorded_variables
+
+
+def _variable_names(value):
+    """Every 'variable:' name a nested value references, in first-use order."""
+    names = []
+    if isinstance(value, str):
+        name = references.ref_name(references.VARIABLE, value)
+        if name is not None:
+            names.append(name)
+    elif isinstance(value, dict):
+        for item in value.values():
+            names.extend(_variable_names(item))
+    elif isinstance(value, list):
+        for item in value:
+            names.extend(_variable_names(item))
+    return names
+
+
+def _surviving_variables(authored_steps, expanded_steps):
+    """The variable names the steps that survived expansion and elision
+    referenced before substitution (#857). A for_each member
+    ('<group>@<entry>') stands for the step it was expanded from."""
+    groups = {
+        group_of(step.get("name"))
+        for step in expanded_steps or []
+        if isinstance(step, dict)
+    }
+    used = []
+    for step in authored_steps or []:
+        if isinstance(step, dict) and step.get("name") in groups:
+            for name in _variable_names(step):
+                if name not in used:
+                    used.append(name)
+    return used
+
+
+def _pin_inputs(inputs, output_root):
+    """`inputs` with each output: reference pinned as the realized workflow
+    pins it, duplicates merged."""
+    pinned = []
+    for entry in inputs:
+        reference = entry["reference"]
+        if entry["kind"] == "output":
+            reference = pin_output_reference(reference, output_root)
+        if not any(p["reference"] == reference for p in pinned):
+            pinned.append({**entry, "reference": reference})
+    return pinned
 
 
 def cache_lookup(
@@ -407,7 +470,7 @@ def cache_lookup(
     step_data_snapshot = None
     if is_cacheable:
         try:
-            step_data_snapshot = copy.deepcopy(step_data)
+            step_data_snapshot = output_identity(copy.deepcopy(step_data))
             if parent_saves_this:
                 # Keyed apart from the same step run standalone: this
                 # entry's result was never saved here, so a standalone
@@ -586,6 +649,7 @@ def prepare_run(workflow, record):
         default_seed,
         recorded_variables,
         cache_enabled,
+        list(workflow._used_variables),
     )
 
 
@@ -620,6 +684,19 @@ def open_run(workflow, prepared, record, run_context):
     inherits the parent's and never opens its own."""
     record.started_at = _now()
     record.run_id = None
+    expanded = prepared.workflow_def.get("steps") or []
+    record.role_basis = role_basis(expanded)
+    # The variables as folded, before their assets loaded: a template's
+    # input image is usually a variable, gone from the steps by now
+    # Only the variables a surviving step referenced: a default nothing
+    # read is not something the run was made from (#857)
+    recorded = prepared.recorded_variables
+    read = (
+        {k: v for k, v in recorded.items() if k in prepared.used_variables}
+        if isinstance(recorded, dict)
+        else None
+    )
+    record.inputs = run_inputs([*expanded, read])
     if not workflow._run_dir_inherited:
         _claim_run_dir(workflow, prepared, record)
 
@@ -640,6 +717,9 @@ def open_run(workflow, prepared, record, run_context):
         )
         if write_realized_workflow(workflow._run_dir, realized):
             record.realized_name = REALIZED_FILE_NAME
+        # Made from names the run realize_workflow pinned, not 'latest'
+        # as read when the page is viewed (#858)
+        record.inputs = _pin_inputs(record.inputs, workflow.output_dir)
     except Exception as e:
         # Never fatal: the record is worth less than the run
         logger.warning(f"Could not realize workflow {prepared.workflow_id}: {e}")
@@ -776,37 +856,11 @@ def save_step(workflow, loop, index, step_data, step, result, cache_entry):
     return saved_files
 
 
-def _warn_shot_collisions(step_data, step_name, shots):
-    """Joined shots that share a name, said where the join made them."""
-    # Only the step that joined made the collision; a step
-    # that carries an input's shots over (pair_audio,
-    # interpolate_frames) repeats what the caller can only
-    # act on at the join (#568)
-    command = step_data.get("task", {}).get("command")
-    duplicates = None if carries_shots(command) else duplicate_shot_names(shots)
-    if not duplicates:
-        return
-    # Frames and samples stay exact either way - only a
-    # name-based lookup (a `shots=` argument, a finding)
-    # can no longer tell the collided shots apart (#508)
-    for file, names in duplicates.items():
-        extra = {"file": file} if file is not None else {}
-        emit_warning(
-            "joined shots share a name ("
-            + ", ".join(names)
-            + ") and can no longer be told apart by "
-            "name - start_frame still disambiguates.",
-            kind="shot_name_collision",
-            command=step_name,
-            names=names,
-            **extra,
-        )
-
-
-def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
+def record_step(workflow, loop, index, step_data, outcome, sub_manifest, timing=None):
     """Phase E7: the step's manifest entry, the child's rolled-up entries,
     and `step_end`. `outcome` is (result, saved_files, reused,
-    parent_saves_this)."""
+    parent_saves_this). `timing` is the step's StepTimer reading
+    (dw/pipeline_processors/timing.py), None for a step nothing timed."""
     result, saved_files, reused, parent_saves_this = outcome
     step_name = step_data["name"]
     # 'reused' marks files an earlier run wrote and this one only
@@ -819,6 +873,9 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
         details["reused"] = True
     if selected is not None:
         details["selected"] = selected
+    # A reused step ran nothing, so it has nothing to time
+    if timing is not None and not reused:
+        details["timing"] = timing
     # Where each joined shot sits in the file, named by the
     # step's own input references (dw/shots.py)
     references = shot_references(step_data.get("task", {}).get("arguments", {}))
@@ -826,7 +883,7 @@ def record_step(workflow, loop, index, step_data, outcome, sub_manifest):
     shots = step_shots(getattr(result, "saved_shots", None), saved_files, references)
     if shots:
         details["shots"] = shots
-        _warn_shot_collisions(step_data, step_name, shots)
+        warn_shot_collisions(step_data, step_name, shots)
     # No entry at all for a step the parent saves for: the
     # parent's own entry names the same files, under the step
     # name the caller wrote (#92)
@@ -894,12 +951,21 @@ def run_step(workflow, loop, index, step_data, record):
     """Phase E: one step, start to `step_end`. Returns the names later
     steps still reference; the result is the loop's (`last_result`,
     `results`), so the caller holds no reference of its own to it.
+    """
+    step, step_seed = _start_step(workflow, loop, index, step_data)
+    with step_timer(step_data) as timer:
+        return _run_started_step(
+            workflow, loop, index, step_data, step, step_seed, record, timer
+        )
+
+
+def _run_started_step(workflow, loop, index, step_data, step, step_seed, record, timer):
+    """run_step past `step_start`, with the step's timer open.
 
     Holds the step's action in this frame and nowhere else, so the release
     a step asks for can drop it here before memory is reclaimed.
     """
     steps = loop.steps
-    step, step_seed = _start_step(workflow, loop, index, step_data)
     cached_result, step_data_snapshot, result_needed, remaining_refs = cache_lookup(
         workflow,
         loop.workflow_id,
@@ -926,6 +992,7 @@ def run_step(workflow, loop, index, step_data, record):
     # it, and it loads only when a step that actually runs
     # borrows it - whether a later step will be a hit too is not
     # known until that step's own lookup
+    mark("load_started")
     if cached_result is None:
         workflow._load_deferred_borrows(
             loop.workflow_id, steps, index, loop.shared_components, loop.pipelines
@@ -938,6 +1005,7 @@ def run_step(workflow, loop, index, step_data, record):
         get_device(),
         cache_hit=cached_result is not None,
     )
+    mark("load_ended")
     is_child = isinstance(step_action, type(workflow))
     if is_child:
         wire_child(workflow, step_action, step_data, index, len(steps))
@@ -980,6 +1048,7 @@ def run_step(workflow, loop, index, step_data, record):
         finish_release(loop.workflow_id, step.name, index, before)
 
     if not reused:
+        mark("save_started")
         saved_files = save_step(
             workflow,
             loop,
@@ -989,6 +1058,7 @@ def run_step(workflow, loop, index, step_data, record):
             result,
             (step_data_snapshot, step_seed, result_needed, parent_saves_this),
         )
+        mark("save_ended")
 
     loop.last_result = result
     loop.results[step.name] = result
@@ -999,6 +1069,7 @@ def run_step(workflow, loop, index, step_data, record):
         step_data,
         (result, saved_files, reused, parent_saves_this),
         sub_manifest,
+        timing=timer.timing() if timer is not None else None,
     )
 
     # Rewritten after every step, not only at the end (#480): a

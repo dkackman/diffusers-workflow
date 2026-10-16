@@ -201,17 +201,17 @@ running:
 | Route | What it does |
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
-| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs). No parameters means every job, which is what the web UI polls |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. |
+| `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. No parameters means every job, which is what the web UI polls |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
-| `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs, `generating` to the first `pipeline_step` is the prompt and reference encoding |
+| `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs; `generating` is emitted when the pipeline call starts, so `generating` to the first `pipeline_step` is the prompt and reference encoding plus the first denoise pass (`timing.encode_s` in the manifest is the encoding alone; see [Step timing](WORKSPACES.md#step-timing)). The server keeps only the last 200 events, so on a long job the early ones are gone |
 | `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
 | `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
-| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing |
-| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`. |
+| `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
+| `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
 
 Each worker runs one job at a time, so with one device (the default) one job
 runs at a time; submissions queue in order, and the waiting portion of the
@@ -228,10 +228,34 @@ on one card); else any card. A card's size is its GiB rounded up (a 3090
 counts as 24), which a `cost` figure is compared to; a declared estimate is
 held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
 admission checks it against. Cancel reaches only the worker running that job, and a worker
-crash fails only its own job. The worker started later gets a higher Linux
-`oom_score_adj` (+100 over the highest other live worker), so a host-RAM
-squeeze kills the later job; nothing is written with one worker. There is no
-host-RAM gate at dispatch: two big jobs can still exhaust host RAM together.
+crash fails only its own job. Each dispatch sets its worker's Linux
+`oom_score_adj` to 1000 and every other live worker's back to the value it was
+spawned with (the server's own, e.g. 200 under a systemd user unit - the kernel
+refuses an unprivileged write below that), so a host-RAM squeeze kills the
+newest job whatever the workers' sizes; nothing is written with one worker, and
+a write the kernel refuses is a warning on the job. Under systemd the unit needs
+`OOMPolicy=continue` (`scripts/dw-serve.service` sets it): the default `stop`
+answers one worker's OOM kill by stopping the whole server, every other job
+with it. A
+queued job may also carry a projected host-RAM peak (see
+`host_ram_need`, #869). When it fits a free card, dispatch checks host RAM
+too: available is `MemAvailable` less, for each running job, what that job's
+projected peak still has to add beyond its worker's resident size now, and
+the job is held while its peak exceeds available plus the resident size of
+the idle worker it would reuse. A running job with no figure is charged
+nothing extra, since `MemAvailable` already reflects what it holds. Backfill
+applies: a smaller job behind a held one may start. With no other job
+running a job is never held, so it waits only for running jobs, never
+forever; a job with no figure is never held; and where the host's RAM cannot
+be read (macOS without psutil) there is no gate. With one card only one job
+runs, so the gate is never exercised. A held job is re-checked every 10 s,
+since memory can free outside dw. The hold emits one `queue_wait` event
+(`reason: "host_ram"`, message `waiting for host RAM: needs ~N GB, ~M GB
+free`; not a `warning`, so nothing lands in the job's `warnings`), and job
+detail and summaries carry `waiting_for` - that message - only while the job
+is queued and held. The web UI shows it beside "#n in line". The gate never
+refuses a submit (#243); it only delays a start, and the OOM ranking above
+(#881) stays the backstop for a wrong projection.
 Among the free cards a job fits, dispatch prefers the one it has an affinity
 for: a rerun goes to the card that ran the original, and any job to the card
 whose worker last ran the same workflow (the same file, or an inline
@@ -243,6 +267,13 @@ waited for. A validation's cache probe and its `plan.estimate` ask about the
 card the job would be dispatched to now, and the estimate names it in
 `priced_for`. Memory is per card: `GET /api/memory` and `POST
 /api/memory/clear` take an optional `device`.
+
+### Step timing
+
+A pipeline step's manifest entry carries `timing`, where its time went; the
+fields are in [WORKSPACES.md](WORKSPACES.md#step-timing), which MCP serves as
+`get_guide("workspaces", section="Step timing")`. A step that set a `cache` also
+carries `timing.cache`, its skip counts (see the `cache_stats` event below).
 
 ### Progress events
 
@@ -260,7 +291,8 @@ Every event in the stream carries a `seq` and an `event` name:
 | `pipeline_step` | each denoise step | `step`, `total_steps`. Emitted for a pipeline that takes a `callback_on_step_end`, and for a `ModularPipeline` (H3, LTX-2, Qwen-Image), which takes none - there the denoise block's own progress bar is what reports |
 | `phase` | the step changes what it is doing | `phase`, `detail` |
 | `pipeline_released` | a step with `release_pipeline` drops its pipeline | `step`, `index`, `gpu_memory_allocated_mb` and `gpu_memory_allocated_before_mb` (both `null` where the backend cannot say). Emitted between the step's generation and its files being written, which is where the release happens - so the ordering is readable off the event stream rather than by trying to poll memory through a sub-second write |
-| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
+| `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced; `cache_stats_unavailable`: `cache_type` - the installed diffusers moved the private hook state dw reads, so the step's cache counts are null; the run is unaffected). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
+| `cache_stats` | a pipeline call that set a `cache` finishes its denoise, once per call | `step`, `segment` (only on a chain segment, e.g. `segment 1/3`), and the fields of `timing.cache`: `type`, `threshold`, `forwards`, `computed`, `skipped`, `hit_rate`. Counts are null for a cache diffusers keeps no per-forward decision for. For watching live (`get_job_events(kinds=["cache_stats"])`); the manifest entry's `timing.cache` is the record |
 | `workflow_end` | the run finishes | `manifest` |
 
 A step spends most of its wall clock outside the denoise loop, and
@@ -373,10 +405,19 @@ The editor's forms come from these; they are just as usable from scripts:
   `weight_name` carrying neither `ref2v` nor `fl2v` cannot be placed, so it
   is a `warnings` entry naming the rule rather than a refusal - a
   reference-trained checkpoint nobody has named yet still gets through.
+  The LoRA catalog is read first (#870): a `proven` entry for that
+  `model_name` and `weight_name` whose `workflow` sits in one partition
+  decides it, so a `ref2va` step loading a file the catalog proves for
+  `t2va`/`fl2va` is refused, whatever its name says. A `trial` or
+  `rejected` entry's `workflow` only warns; promoting the entry to `proven`
+  is what makes it refuse. The CLI and the worker have no catalog and keep
+  the file-name rule alone.
 
   A valid answer also carries `plan`, what the run will execute for those
   arguments: `fingerprint` (`sha256:…` over the realized, expanded
-  definition with the seed and the documentation keys removed and
+  definition with the seed and every key that cannot change the output
+  (cost, `cost_drivers`, `vram_estimate`, descriptions, a result's role,
+  subfolder and file name) removed and
   `output:…/latest/…` left unpinned - the same work hashes the same, a
   longer list or an edited stored prompt does not); `steps`, the expanded
   member count; `list_entries`, `{variable: length}` for each `for_each`
@@ -415,7 +456,16 @@ The editor's forms come from these; they are just as usable from scripts:
   ones it was measured with), `per_entry` (re-priced from a measured
   per-entry rate, when the entry carries `per_entry`), `derived` (the
   stored total extrapolated linearly over a list whose length the caller
-  changed - an estimate, not a measurement), `other_device` (no entry for
+  changed, or scaled in proportion along `num_inference_steps`,
+  `width` x `height` and `num_frames` - per entry in a list, summed - that
+  the caller moved off the variable defaults a `cost` entry is measured at,
+  with `scaled` naming each moved axis; an estimate, not a measurement; a
+  non-numeric value of one of those is `unknown`). Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA, a music
+  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  under whatever basis it has, with `low_confidence` true and `differs`
+  naming the drivers that moved, because it was measured at another setting
+  of them; `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
   than a quote) or `unknown` (no cost block, or more than one list changed
   so there is nothing honest to extrapolate along) or `inherited` (an
@@ -423,11 +473,21 @@ The editor's forms come from these; they are just as usable from scripts:
   `observed` runs of the catalog template that loads the same pipeline -
   `component_type` + `model_name` + `workflow`, as the VRAM ceiling is
   inherited - with `inherited_from` naming it and `differs` listing what the
-  workflow sets differently among offload, quantization and frame count;
-  validate warns when it does, and never refuses); a composed child's
+  workflow sets differently among offload, quantization, frame count,
+  attention backend, cache and LoRA; more pipeline steps, frames, inference
+  steps or canvas pixels than the template's run re-price it in proportion,
+  as the catalog figure is scaled, with `scaled` naming each axis; an
+  inherited figure has `low_confidence` true when `differs` lists anything
+  or the figure was scaled; validate warns when it does, and never
+  refuses); a composed child's
   cost is added to a curated figure and `partial` is true when a child has
   none - an `observed` figure already measured the whole run, children
-  included, so nothing is added to it and `partial` is false. `plan` is `null` when
+  included, so nothing is added to it and `partial` is false; and
+  `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
+  peak - `basis` is `observed` (the largest job peak RSS of this machine's
+  successful runs with the same memory key) or `fit` (the list-run projection
+  from the workflow's own history), and the key is absent when there is no
+  figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
@@ -533,7 +593,13 @@ The editor's forms come from these; they are just as usable from scripts:
   `?subfolder=` filter independently (`?version=` too - with `?folder=`,
   the one run the gallery labels `v4`), and the reply's `folders` and
   `subfolders` list every distinct value over the whole tree, `''` always a
-  member of each so root-level files stay selectable
+  member of each so root-level files stay selectable. Each entry also
+  carries `role`, `final` or `intermediate` (null for a flat-layout file with
+  no run; `intermediate` once a later run read the file, unless the step's
+  `result.role` declared it), and `GET /api/gallery?role=final` lists only
+  those (repeatable; a null role counts as final). See `dw/roles.py` for how
+  a role is decided;
+  the metadata route reports the file's `role` and the run's `inputs` too
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
   names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing
@@ -551,6 +617,33 @@ The editor's forms come from these; they are just as usable from scripts:
   they apply `X-DW-Crop` and `X-DW-Downscaled-To`. Takes `?token=`
 - `GET /api/gallery/{name}/frames` takes `max_total_bytes`: over it, every
   tile shrinks to one shared size and `downscaled_to` says which
+- `POST /api/gallery/compare` — two to eight outputs side by side, and how far each is
+  from a baseline; read-only, queues nothing. Body: `names` (2-8 gallery names or
+  `asset:` references, one row each), `at` (1-8 moments, seconds or `"frame:N"`;
+  default 4 evenly spaced frames of the shortest video), `crop` (`[x, y, w, h]`: the
+  region shown and measured; or one box per name, shown only), `baseline` (default
+  the first name), `max_dimension` (default 384, longest side of each cell) and
+  `max_total_bytes`. Moments resolve to one frame index against the baseline (the
+  first video if the baseline is a still) and every output is read at that frame
+  number; a frame past an output's end is a blank cell. A still among videos repeats
+  in every column; all stills give one column and `at` is ignored with a note. A crop
+  must lie wholly inside every output's frame (400 otherwise). Reply: `image` (the
+  grid as base64 PNG: `data`, `mime_type`, `width`, `height`; a row per output under a
+  label band, each cell stamped `frame N`), `downscaled_to` (over `max_total_bytes` the
+  whole grid shrinks, never below 64 px per cell; null when nothing shrank),
+  `baseline`, `region` (`full frame`, `crop [...]`, or `full frame (per-output crops
+  are display only)`), `fps_differs` (videos with different frame rates, so one
+  frame number is not one second), `columns` (`{moment, frame}`), `rows` (name, kind,
+  size, crop, and for a video `frame_count` and `fps`), `metrics` and `notes`. A
+  `metrics` entry per non-baseline output holds `cells` (one per column:
+  `psnr_db`, `ssim`, `mean_abs_diff`, `reason`) and `psnr_db`/`ssim`/`mean_abs_diff`
+  summaries (`mean`, `min`, `max`), measured at source resolution; PSNR is
+  `identical` when equal and SSIM is on luma (11x11 Gaussian window, sigma 1.5). An
+  output whose size differs from the baseline gets null metrics and the `reason`
+  `size differs from baseline: WxH vs WxH`, never a resize; a cell past an end says
+  `past end (N frames)`. Errors: 400 bad request, out-of-bounds crop, every moment
+  past every end, or not an image or video; 404 unknown name; 413 over the decode
+  pixel limit; 422 undecodable file
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
   multi-file selection into one zip, named by each file's gallery-relative
   path so output subfolders survive. A browser cannot zip on its own and
@@ -573,6 +666,21 @@ The editor's forms come from these; they are just as usable from scripts:
   `exports/` sits beside the workspace's own folders, holding one directory per
   exported job. It is a reserved name: no workspace can be called `exports`, and
   the folder is never listed as one.
+- `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
+  "assets": [...]}`) — copy runs and assets from one workspace into another.
+  A `runs` entry is `<workflow>/<run id>`, or a bare `<workflow>` for all its
+  runs; an `assets` entry is a library-relative path as after `asset:`, or a
+  folder (`proj/`) for every file under it. Naming neither, a source equal to
+  the destination, a path that escapes or reaches a symlink, or a sidecar
+  named directly is a 400, an unknown workspace, run or asset a 404, and a
+  server without a workspace root, a destination that is not writable, a run
+  whose job is still queued or running, or a different file already at an
+  asset's path a 409 (`detail.conflicts` names every one). All or
+  nothing. The reply is `{source, destination, copied: {runs, assets},
+  already_present, renumbered, warnings: {unresolved_output_refs,
+  absolute_paths, no_jobs}, bytes_linked, bytes_copied}`; `renumbered` maps
+  `"<workflow>/<run id>"` to `{"from": 3, "to": 7}`. What is copied and how is
+  in [WORKSPACES.md](WORKSPACES.md#copying-between-workspaces).
 - `GET /api/assets` — the asset library: input media, each with the
   `asset:` reference a workflow carries rather than a path, since a path
   only means something on the server's own machine. Empty rather than an
@@ -707,8 +815,8 @@ The editor's forms come from these; they are just as usable from scripts:
   machine answered. `current_job` is the longest-running job and `worker_alive`
   is true if any worker is alive; `workers` has one entry per card (one with a
   single device): `{device, name, vram_gb, current_job, alive,
-  host_memory_rss_mb}` - `device` is the ordinal (`cuda:1`) and `name` the
-  GPU's own name, the two halves of a job's `device` - the last absent when the worker process isn't running
+  host_memory_rss_mb, pid, oom_score_adj}` - `device` is the ordinal (`cuda:1`) and `name` the
+  GPU's own name, the two halves of a job's `device` - the last three absent when the worker process isn't running (`oom_score_adj` is read from `/proc` at call time, so it shows the kernel's value: 1000 for the latest dispatch's worker in a pool, the spawn-time value - the server's own - for the others)
 - `POST /api/memory/clear` (#221) — drops every loaded pipeline and the step
   cache on each idle card (MCP `clear_memory`), and returns the memory
   reading taken right after. A card running a job is left alone: `workers`
@@ -727,6 +835,60 @@ The editor's forms come from these; they are just as usable from scripts:
   one not installed) - for diagnosing an environment mismatch between boxes
   without shelling in; the machine's non-loopback `addresses`; a client
   composes its URLs from an address, the port and the MCP path
+
+## Notes
+
+A note is optional plain text on a run, on a file in a run, on an asset or
+on a workspace, saying what it is for. At most 4,000 characters (longer is
+a 400); `null` or `""` clears it. Only the server writes notes: a run's and
+its files' live in `notes.json` in the run directory, an asset's in
+`notes.json` in its library directory, and a workspace's in `workspace.json`
+at its root (`dw/notes.py`).
+
+`PUT /api/notes?workspace=` with `{"target": ..., "note": ...}` sets or
+clears one. `target` is one of:
+
+- a gallery file name (`output:` accepted) - that file's own note. A
+  flat-layout file has no run directory and answers 409 `notes need a run
+  directory`;
+- a run directory, `<identity>/<run id>` - the run note;
+- `asset:<name>` - resolved down the asset search path the way the asset
+  delete resolves it, a read-only examples tree answering 403;
+- `workspace:<name>`, `workspace:default` for the root's own (409 on a
+  server with no workspace root).
+
+The answer is `{target, note, note_source}`: the target's effective note
+after the write, and whether it is the file's own (`"file"`) or its run's
+(`"run"`); `note_source` is null for a workspace and when there is no note.
+A file's **effective note** is its own, else its run's. An unknown target or
+one that would leave its root is a 404 (a name a workspace cannot take, or
+an invalid asset name, a 400), and a write that fails a 500. Notes are free
+metadata and need no `acknowledged_cost`.
+
+Notes are set at creation too:
+
+- `POST /api/jobs` takes `note`. It is kept on the job (`note` in every job
+  summary and detail, and in history) and written as the run note when the
+  worker reports the run directory (`run_start`); a rerun carries it
+  forward.
+- `POST /api/uploads?note=` keeps it beside the upload. An upload over an
+  existing name takes its own note or none, never the old file's.
+- `POST /api/assets/keep` takes `note`; without one the kept asset takes the
+  source file's effective note.
+
+They are read back on every listing: a gallery entry's `note` is the
+effective one; the metadata route carries `note`, `note_source` and the
+run's `run_note`; an asset entry and a workspace entry carry `note`. Each is
+absent when unset. Deleting an output drops its note and its star; deleting
+an asset drops its note and its kept provenance and shots, so a later file
+under the same name inherits none of them.
+
+`PUT /api/stars` with `{"name": <gallery file name>, "starred": true|false}`
+stars or unstars one output file - the "keep" mark for culling a run. A star
+is stored in the run's `notes.json` (`"starred": [...]`) beside its notes, and
+the gallery listing carries `"starred": true` on a starred file. Only a file
+in a run directory can be starred: a flat-layout file has no run directory
+and answers 409, and a run, asset or workspace target is a 400.
 
 ## Security model
 

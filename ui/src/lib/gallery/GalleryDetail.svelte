@@ -1,12 +1,18 @@
 <script lang="ts">
-  import { Bookmark, FolderOpen, Trash2, X } from '@lucide/svelte'
+  import { Bookmark, FolderOpen, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import { goWs } from '../router.svelte'
   import { notify } from '../toast'
   import { confirmDialog } from '../confirm.svelte'
   import { describeOutputMeta } from '../outputMeta'
-  import type { GalleryFile } from '../types'
+  import type { GalleryFile, GalleryInput, OutputRole } from '../types'
+  import RoleTag from './RoleTag.svelte'
+  import NoteEditor from '../ui/NoteEditor.svelte'
+  import { ASSET, OUTPUT, referenceName } from '../references'
+  import { outputUrl } from '../apiUrls'
+  import { wsHref } from '../routes'
+  import { workspace } from '../workspace.svelte'
   import { formatBytes, formatMtime } from '../format'
 
   // The detail panel under the grid for the one file picked. The page owns
@@ -17,6 +23,14 @@
     metadata,
     metadataLoading,
     sourceJob,
+    role = null,
+    inputs = [],
+    note = null,
+    runNote = null,
+    noteSource = null,
+    onnotesaved,
+    starred = false,
+    onstar,
     onremove,
     onclose,
   }: {
@@ -24,6 +38,19 @@
     metadata: Record<string, unknown> | null
     metadataLoading: boolean
     sourceJob: { id: string; status: string } | null
+    /** The file's role in its run; null when the run does not say */
+    role?: OutputRole | null
+    /** The assets and outputs the run read */
+    inputs?: GalleryInput[]
+    /** The file's effective note, its run's note, and whose the effective one is */
+    note?: string | null
+    runNote?: string | null
+    noteSource?: 'file' | 'run' | null
+    /** A note changed, so the page can refetch what it shows */
+    onnotesaved?: (kind: 'run' | 'file') => void | Promise<void>
+    /** Whether the file is starred, and the toggle */
+    starred?: boolean
+    onstar?: () => void
     onremove: () => void
     onclose: () => void
   } = $props()
@@ -93,6 +120,39 @@
   const negativePrompt = $derived(described.negativePrompt)
   const seed = $derived(described.seed)
 
+  // Where a run input leads: an output opens its file, an asset the library
+  const inputName = (input: GalleryInput) =>
+    referenceName(input.reference, input.kind === 'asset' ? ASSET : OUTPUT) ??
+    input.reference
+  const inputHref = (input: GalleryInput) =>
+    input.kind === 'asset'
+      ? wsHref(workspace.current, 'assets')
+      : outputUrl(inputName(input))
+  // The folder the file sits in, as the engine wrote it
+  const location = $derived(
+    file.name.includes('/')
+      ? file.name.slice(0, file.name.lastIndexOf('/'))
+      : '',
+  )
+
+  // The run the file belongs to, as a note target; empty under the flat layout
+  const runDir = $derived(file.run_id ? `${file.folder}/${file.run_id}` : '')
+  // A file inheriting its run's note shows that one; "Note this file" swaps
+  // in a box for the file's own, which then overrides it
+  let ownNote = $state(false)
+  $effect(() => {
+    void file.name
+    ownNote = false
+  })
+  const inherited = $derived(noteSource === 'run' && !ownNote && !!runDir)
+
+  // Back to what the server says once it has answered: a cleared file note
+  // returns the run's, a saved one is the file's own
+  async function saveFileNote() {
+    await onnotesaved?.('file')
+    ownNote = false
+  }
+
   function openAsWorkflow() {
     if (!embeddedWorkflow) return
     // Pin the run's seed into the definition so reopening reproduces this
@@ -144,6 +204,14 @@
     >
     <DownloadLink href={api.outputDownloadUrl(file.name)} />
     <button
+      class="quiet icon"
+      onclick={onstar}
+      aria-pressed={starred}
+      aria-label={starred ? 'unstar this file' : 'star this file'}
+      title={starred ? 'starred - press S to unstar' : 'star to keep - press S'}
+      ><Star size={14} fill={starred ? 'currentColor' : 'none'} /></button
+    >
+    <button
       class="quiet icon danger"
       onclick={onremove}
       title="delete this file from the output directory"
@@ -170,49 +238,103 @@
     {:else if file.kind === 'text'}
       <pre class="text">{textBody ?? 'loading…'}</pre>
     {/if}
-    {#if metadata}
+    {#if metadata || role || inputs.length}
       <div class="meta">
-        {#if metadata.step_name}<div>
-            <span class="muted">step</span>
-            {metadata.step_name}
-          </div>{/if}
-        {#if metadata.model_name}<div>
-            <span class="muted">model</span>
-            <code>{metadata.model_name}</code>
-          </div>{/if}
-        {#if seed !== undefined}
-          <div>
-            <span class="muted">seed</span> <code>{seed}</code>
-          </div>
-        {/if}
-        {#if prompt}
-          <div class="prompt">
-            <span class="muted">prompt</span>
-            <p>{prompt}</p>
-          </div>
-        {/if}
-        {#if negativePrompt}
-          <div class="prompt">
-            <span class="muted">negative prompt</span>
-            <p>{negativePrompt}</p>
-          </div>
-        {/if}
-        {#if sourceJob}
-          <div>
-            <span class="muted">job</span>
-            <a
-              href={'#/jobs/' + sourceJob.id}
-              title="open the job that produced this file"
-            >
-              {sourceJob.id}
-            </a>
-          </div>
-        {/if}
-        {#if embeddedWorkflow}
-          <div><span class="muted">workflow</span> {embeddedWorkflow.id}</div>
+        <div><RoleTag {role} /></div>
+        {#if inherited}
+          <NoteEditor
+            note={runNote}
+            target={runDir}
+            label="Run note"
+            onsaved={() => onnotesaved?.('run')}
+          />
+          <button type="button" class="bare" onclick={() => (ownNote = true)}
+            >Note this file</button
+          >
         {:else}
-          <div class="muted">
-            no embedded workflow - enable embed_metadata in the step's result
+          <NoteEditor
+            note={ownNote ? null : note}
+            target={file.name}
+            label={ownNote || noteSource === 'file' ? 'File note' : 'Note'}
+            onsaved={saveFileNote}
+          />
+        {/if}
+        {#if metadata}
+          <details class="settings">
+            <summary>Settings</summary>
+            {#if metadata.step_name}<div>
+                <span class="muted">step</span>
+                {metadata.step_name}
+              </div>{/if}
+            {#if metadata.model_name}<div>
+                <span class="muted">model</span>
+                <code>{metadata.model_name}</code>
+              </div>{/if}
+            {#if seed !== undefined}
+              <div>
+                <span class="muted">seed</span> <code>{seed}</code>
+              </div>
+            {/if}
+            {#if prompt}
+              <div class="prompt">
+                <span class="muted">prompt</span>
+                <p>{prompt}</p>
+              </div>
+            {/if}
+            {#if negativePrompt}
+              <div class="prompt">
+                <span class="muted">negative prompt</span>
+                <p>{negativePrompt}</p>
+              </div>
+            {/if}
+            {#if sourceJob}
+              <div>
+                <span class="muted">job</span>
+                <a
+                  href={'#/jobs/' + sourceJob.id}
+                  title="open the job that produced this file"
+                >
+                  {sourceJob.id}
+                </a>
+              </div>
+            {/if}
+            {#if embeddedWorkflow}
+              <div>
+                <span class="muted">workflow</span>
+                {embeddedWorkflow.id}
+              </div>
+            {:else}
+              <div class="muted">
+                no embedded workflow - enable embed_metadata in the step's
+                result
+              </div>
+            {/if}
+          </details>
+        {/if}
+        {#if inputs.length}
+          <div class="madefrom">
+            <span class="muted">Made from</span>
+            <ul>
+              {#each inputs as input (input.kind + input.reference)}
+                <li>
+                  <a
+                    href={inputHref(input)}
+                    target={input.kind === 'output' ? '_blank' : undefined}
+                    title={input.kind === 'asset'
+                      ? 'open the asset library'
+                      : 'open this earlier output'}>{inputName(input)}</a
+                  >
+                  <RoleTag role="input" />
+                  <span class="muted">{input.kind}</span>
+                </li>
+              {/each}
+            </ul>
+          </div>
+        {/if}
+        {#if location}
+          <div class="location">
+            <span class="muted">Location</span>
+            <code>{location}/</code>
           </div>
         {/if}
       </div>
@@ -275,6 +397,17 @@
   }
   .meta .muted {
     margin-right: 0.4rem;
+  }
+  .settings summary {
+    cursor: pointer;
+    color: var(--muted);
+  }
+  .madefrom ul {
+    margin: 0.15rem 0 0;
+    padding-left: 1.1rem;
+  }
+  .location code {
+    overflow-wrap: anywhere;
   }
   .prompt p {
     margin: 0.15rem 0 0;

@@ -7,7 +7,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "vram_estimate": {
         "base_gb": 16.0,
@@ -40,7 +44,9 @@
         "lora_model_name": "lightx2v/Minimax-h3-Turbo",
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
-        "seed": 12345
+        "seed": 12345,
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -129,6 +135,7 @@
                     },
                     "components": {
                         "transformer_ref": {
+                            "attention_backend": "variable:attention_backend",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
@@ -158,7 +165,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",

@@ -212,6 +212,7 @@ _MAG_CACHE_KEYS = (
     "calibrate",
 )
 _TAYLORSEER_CACHE_KEYS = ("cache_interval", "max_order")
+_FASTER_CACHE_KEYS = ("is_guidance_distilled",)
 
 
 def get_cache_configuration(configuration):
@@ -248,7 +249,12 @@ def get_cache_configuration(configuration):
                     threshold=cache_config.get("threshold", 0.05),
                 )
             elif cache_type == "faster":
-                config = FasterCacheConfig()
+                kwargs = {
+                    key: cache_config[key]
+                    for key in _FASTER_CACHE_KEYS
+                    if key in cache_config
+                }
+                config = FasterCacheConfig(**kwargs)
             elif cache_type == "text_kv":
                 config = TextKVCacheConfig()
             elif cache_type == "mag":

@@ -28,6 +28,8 @@ ITEM = "item:"
 GATHER = "gather:"
 BUILTIN = "builtin:"
 CONSTRAINT = "constraint:"
+# Not a workflow reference: names a workspace as a note target (PUT /api/notes)
+WORKSPACE = "workspace:"
 
 # The key naming the file an argument object is constructed from
 FROM_FILE_KEY = "from_file"
@@ -101,6 +103,32 @@ def author_index(source_indices, index):
 
 # A for_each member is named `<group>@<entry>`
 MEMBER_SEPARATOR = "@"
+
+# The characters a variable name may hold after its first.
+# `security.validate_variable_name` builds its pattern from this, and a
+# for_each entry's name is checked by that validator, so `member_keys` reads
+# the same set to find where a member key ends - one owner for both
+VARIABLE_NAME_CHARACTERS = (
+    "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_-"
+)
+
+
+def member_keys(name):
+    """The for_each member keys a name carries: `cold_open` for
+    `shot@cold_open` and for a file named `...-shot@cold_open.0-0.0.mp4`.
+    A key is an entry's name (a variable name) or its index, so it ends at
+    the first character outside `VARIABLE_NAME_CHARACTERS`. Empty for a name
+    with no separator."""
+    if not isinstance(name, str):
+        return []
+    keys = []
+    for part in name.split(MEMBER_SEPARATOR)[1:]:
+        end = 0
+        while end < len(part) and part[end] in VARIABLE_NAME_CHARACTERS:
+            end += 1
+        if end:
+            keys.append(part[:end])
+    return keys
 
 
 def member_suffix(name):

@@ -14,7 +14,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "vram_estimate": {
         "base_gb": 16.0,
@@ -44,7 +48,8 @@
         "lora_adapter_name": "turbo",
         "weights_dtype": "{int4}",
         "seed": null,
-        "attention_backend": null
+        "attention_backend": null,
+        "cache": null
     },
     "variable_constraints": {
         "num_frames": {
@@ -164,7 +169,8 @@
                             "device": "cuda",
                             "residency": "on_demand"
                         }
-                    }
+                    },
+                    "cache": "variable:cache"
                 },
                 "from_pretrained_arguments": {
                     "model_name": "MiniMaxAI/MiniMax-H3",

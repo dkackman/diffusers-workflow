@@ -42,21 +42,25 @@ Every threshold is a constant below, named in docs/TASKS.md.
 
 import difflib
 import logging
+import math
 from types import SimpleNamespace
 
 from .. import dsp
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
 from ..task_domains import check_arguments
+from ..events import emit_log
 from ..locations import is_http_url
 from ..script_lines import (
     COMMAND,
     REPEAT_MAX_PERIOD,
     REPEAT_RUN_MIN,
+    disambiguated,
     looped_texts,
     normalize_words,
     parse_lines,
     parse_shots,
     shot_names_error,
+    with_full_shot_names,
 )
 from .assess import DEAD_AIR_WINDOW, resolve_shots, sample_span
 from .audio_transcription import WHISPER_DEFAULT_MODEL
@@ -81,6 +85,17 @@ GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
 # finished into a quiet tail
 CLIP_TAIL_SECONDS = 0.25
+# Audible speech the transcript has no words for (#923): Whisper can drop a
+# passage from its text on a longer input (the ad-lib heard in a short file
+# is gone), and the word alignment hands that time to a neighbouring word,
+# which stretches. A gap between a line's words,
+# or a word, lasting UNHEARD_MIN_SECONDS or more, whose interior - trimmed by
+# UNHEARD_MARGIN_SECONDS each side - holds a window above UNHEARD_FLOOR_DBFS,
+# is speech the words do not account for. The floor is far above the
+# dead-air floor so room tone and a pause's tail do not trip it
+UNHEARD_MIN_SECONDS = 1.0
+UNHEARD_MARGIN_SECONDS = 0.25
+UNHEARD_FLOOR_DBFS = -40.0
 # REPEAT_RUN_MIN and REPEAT_MAX_PERIOD, the repetition-loop guard, live in
 # dw/script_lines.py beside the detector, which transcribe_audio shares
 
@@ -89,13 +104,21 @@ THRESHOLDS = {
     "guard_floor_dbfs": GUARD_FLOOR_DBFS,
     "guard_window_seconds": GUARD_WINDOW_SECONDS,
     "clip_tail_seconds": CLIP_TAIL_SECONDS,
+    "unheard_min_seconds": UNHEARD_MIN_SECONDS,
+    "unheard_margin_seconds": UNHEARD_MARGIN_SECONDS,
+    "unheard_floor_dbfs": UNHEARD_FLOOR_DBFS,
     "repeat_run_min": REPEAT_RUN_MIN,
     "repeat_max_period": REPEAT_MAX_PERIOD,
 }
 
-LINE_RULES = ("line_mismatch", "tag_spoken", "line_clipped_at_end")
+LINE_RULES = (
+    "line_mismatch",
+    "tag_spoken",
+    "line_clipped_at_end",
+    "speech_not_transcribed",
+)
 SILENT_RULES = ("speech_where_silent",)
-SHOT_RULES = ("speech_in_silent_shot",)
+SHOT_RULES = ("speech_in_silent_shot", "unscripted_speech")
 
 
 def _rule(name, threshold, says):
@@ -118,6 +141,13 @@ TAG_SPOKEN = _rule(
     "a markup word from this line was heard spoken aloud - the model read the"
     " tag as dialogue",
 )
+SPEECH_NOT_TRANSCRIBED = _rule(
+    "speech_not_transcribed",
+    UNHEARD_FLOOR_DBFS,
+    "audible sound lasting this many seconds sits between the line's words, or"
+    " inside one stretched word, with no word for it - the transcript left speech"
+    " out and the line's timing absorbed it; listen",
+)
 SPEECH_WHERE_SILENT = _rule(
     "speech_where_silent",
     0,
@@ -137,6 +167,34 @@ SPEECH_IN_SILENT_SHOT = _rule(
     "no line names this shot, and this many words were heard in it above the"
     " dead-air floor and outside a repetition loop",
 )
+UNSCRIPTED_SPEECH = _rule(
+    "unscripted_speech",
+    0,
+    "this many words were heard inside a shot that has a scripted line, matched to"
+    " no line - a line spoken twice (see 'repeats_line'), or an ad-lib; listen",
+)
+
+
+# Whisper drops soft speech from a quiet input, so the same shot got different
+# verdicts by level (#925). The transcriber hears the take scaled so its loud
+# end sits near full scale - a take only 2 dB under that still lost a soft
+# "Uh," that +6 dB brought back; the level checks keep reading the original
+# waveform.
+TRANSCRIBE_PEAK = 0.9
+TRANSCRIBE_MAX_GAIN = 100.0  # 40 dB: a near-silent take is not boosted to noise
+
+
+def level_for_transcription(waveform):
+    """(waveform, gain) with the 99.9th-percentile magnitude scaled to
+    TRANSCRIBE_PEAK (spikes past full scale clipped); gain is 1.0 for silence."""
+    import numpy
+
+    loud = float(numpy.percentile(numpy.abs(waveform), 99.9)) if waveform.size else 0.0
+    if loud <= 0.0:
+        return waveform, 1.0
+    gain = min(TRANSCRIBE_PEAK / loud, TRANSCRIBE_MAX_GAIN)
+    leveled = numpy.clip(waveform * gain, -1.0, 1.0).astype(numpy.float32)
+    return leveled, gain
 
 
 def shot_spans(records, sample_rate, fps, duration):
@@ -460,6 +518,9 @@ def check(
             findings.extend(
                 _clipped_findings(mono, sample_rate, tails, index, own, shot)
             )
+            findings.extend(
+                _untranscribed_findings(mono, sample_rate, index, own, shot)
+            )
             previous_end = end
 
     findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
@@ -473,6 +534,9 @@ def check(
     if no_shot is None:
         rules_applied.extend(SHOT_RULES)
         findings.extend(_silent_shot_findings(spans, parsed_lines, heard, claimed))
+        findings.extend(
+            _unscripted_findings(spans, parsed_lines, expected, heard, unassigned)
+        )
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
 
@@ -521,6 +585,40 @@ def _silent_take(heard, discarded, spans, shots_source):
             for rule in LINE_RULES + SHOT_RULES
         ],
     }
+
+
+def _untranscribed_findings(mono, sample_rate, index, own, shot):
+    """speech_not_transcribed: audible sound in a gap the line's words leave
+    - between two of them - or inside one word stretched over
+    UNHEARD_MIN_SECONDS (#923). Not the gap before a line's first word: a pause
+    between shots may hold music or ambience above the floor."""
+    intervals = [(a["end"], b["start"]) for a, b in zip(own, own[1:])]
+    findings = []
+    for start, end in intervals:
+        if end - start >= UNHEARD_MIN_SECONDS:
+            findings.append(_untranscribed(mono, sample_rate, index, start, end, shot))
+    for word in own:
+        # A word is sound itself: only its interior past the margins is a gap
+        if (
+            word["end"] - word["start"]
+            >= UNHEARD_MIN_SECONDS + 2 * UNHEARD_MARGIN_SECONDS
+        ):
+            findings.append(
+                _untranscribed(
+                    mono, sample_rate, index, word["start"], word["end"], shot
+                )
+            )
+    return [found for found in findings if found is not None]
+
+
+def _untranscribed(mono, sample_rate, index, start, end, shot):
+    lo, hi = start + UNHEARD_MARGIN_SECONDS, end - UNHEARD_MARGIN_SECONDS
+    level = word_level(mono, sample_rate, lo, hi)
+    if level is None or level <= UNHEARD_FLOOR_DBFS:
+        return None
+    at = _at(index, seconds=start, shot=shot)
+    at["end"] = _round(end)
+    return finding(SPEECH_NOT_TRANSCRIBED, _round(end - start, 2), at)
 
 
 def _clipped_findings(mono, sample_rate, tails, index, own, shot):
@@ -579,6 +677,42 @@ def _silent_shot_findings(spans, parsed_lines, heard, claimed):
     return findings
 
 
+def _unscripted_findings(spans, parsed_lines, expected, heard, unassigned):
+    """unscripted_speech: heard words align left to no line that sit inside a
+    shot a line names. `repeats_line` is set when the shot's words, in order,
+    contain one of its lines' words again."""
+    findings = []
+    for span in spans:
+        lines = [
+            expected[i]
+            for i, line in enumerate(parsed_lines)
+            if line["shot"] == span["name"]
+        ]
+        if not lines:
+            continue
+        inside = [
+            heard[j]
+            for j, _ in unassigned
+            if _heard_shot(spans, heard[j]) == span["name"]
+        ]
+        if not inside:
+            continue
+        at = _at(None, inside[0], shot=span["name"])
+        words = [word["word"] for word in inside]
+        at["end"] = _round(inside[-1]["end"])
+        at["repeats_line"] = any(
+            line and _contains(words, line) for line in lines
+        ) or any(line and _contains(line, words) for line in lines)
+        findings.append(finding(UNSCRIPTED_SPEECH, len(inside), at))
+    return findings
+
+
+def _contains(words, part):
+    """Whether `part` occurs in `words` as a contiguous run."""
+    size = len(part)
+    return any(words[i : i + size] == part for i in range(len(words) - size + 1))
+
+
 def _heard_entry(word):
     return {
         "text": word["text"],
@@ -620,7 +754,13 @@ def check_script(
         audio: The take - a path, 'asset:'/'output:' reference, or an
             earlier step's audio or video (its soundtrack is taken).
         lines: The expected lines in order - a list of strings or
-            {text, shot}, 'shot' naming the take's shot the line belongs in.
+            {text, shot}, 'shot' naming the take's shot the line belongs in -
+            its full recorded name, or the short '@name' of exactly one shot
+            ('cold_open' for 'shot@cold_open'). A name the shot map holds
+            more than once (a cut joined from episodes sharing shot names)
+            needs 'start_frame' on the line to pick the occurrence:
+            {text, shot, start_frame}; findings and 'shots' then call it
+            'name#start_frame'.
             H3 markup (<d>[English] ...</d>, <scenetrans>, <cutoff>,
             [unclear], (S1)) is stripped, and a markup word heard spoken is
             'tag_spoken'. [] means no speech is expected.
@@ -637,7 +777,8 @@ def check_script(
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,
-        line_clipped_at_end, speech_where_silent, speech_in_silent_shot),
+        line_clipped_at_end, speech_not_transcribed, speech_where_silent, speech_in_silent_shot,
+        unscripted_speech),
         'lines' (expected, heard, similarity, start, end, shot), 'shots'
         (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
         level and reason), 'unmatched' (heard words aligned to no line), 'transcript',
@@ -655,12 +796,19 @@ def check_script(
         refusal = shot_names_error(parsed_lines, records, shots_source)
         if refusal:
             raise ValueError(refusal)
+        parsed_lines = with_full_shot_names(parsed_lines, records)
+        records = disambiguated(records)
     waveform, rate = waveform_and_rate(audio, sample_rate, COMMAND)
 
     from .audio_transcription import transcribe_audio
 
+    leveled, gain = level_for_transcription(waveform)
+    emit_log(
+        f"check_script: transcribing at {20 * math.log10(gain):+.1f} dB gain",
+        transcription_gain_db=round(20 * math.log10(gain), 2),
+    )
     transcript = transcribe_audio(
-        waveform,
+        leveled,
         device=device,
         sample_rate=rate,
         model_name=model_name,

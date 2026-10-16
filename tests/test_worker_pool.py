@@ -2,6 +2,8 @@
 isolation, cancel routing, VRAM-aware dispatch with backfill, the fit check at
 submit, the OOM ranking, and what /api/health reports."""
 
+import subprocess
+import sys
 import threading
 import time
 
@@ -408,31 +410,160 @@ class FakeProcess:
         return True
 
 
+class FakeKernelAdj:
+    """A worker's /proc/<pid>/oom_score_adj as an unprivileged writer meets
+    it: a write below `minimum` (the oom_score_adj_min a privileged parent
+    left - 100 under lem's systemd user manager) is refused."""
+
+    def __init__(self, minimum):
+        self.minimum = minimum
+        self.value = minimum
+
+    def write(self, value):
+        if value < self.minimum:
+            return False
+        self.value = value
+        return True
+
+
 class TestOomRanking:
-    def test_the_later_started_worker_is_ranked_first(self, pool):
+    def _pair(self, pool, minimum=0):
         a = card(success_script, "cuda:0", 24)
         b = card(success_script, "cuda:1", 24)
         written = []
         for worker, pid in ((a, 101), (b, 102)):
+            kernel = FakeKernelAdj(minimum)
+            worker.kernel = kernel
+            worker.oom_score_floor = minimum
             worker.pid = lambda pid=pid: pid
-            worker.set_oom_score_adj = lambda value, worker=worker: written.append(
-                (worker.device, value)
-            )
-        manager = pool(a, b)
+            worker.worker_active = True
+            worker.worker_process = FakeProcess(pid)
+
+            def set_adj(value, worker=worker, kernel=kernel):
+                took = kernel.write(value)
+                if took:
+                    written.append((worker.device, value))
+                return took
+
+            worker.set_oom_score_adj = set_adj
+        return pool(a, b), written
+
+    def test_health_reports_pid_and_kernel_oom_score_adj(self, pool, monkeypatch):
+        manager, _ = self._pair(pool)
+        values = {101: 1000, 102: 0}
+        monkeypatch.setattr(
+            "dw.server.jobs.read_oom_score_adj", lambda pid: values.get(pid)
+        )
+
+        workers = manager.workers()
+
+        assert [w["pid"] for w in workers] == [101, 102]
+        assert [w["oom_score_adj"] for w in workers] == [1000, 0]
+
+    def test_health_omits_oom_fields_for_a_stopped_worker(self, pool):
+        manager, _ = self._pair(pool)
+        manager.slots[1].manager.worker_active = False
+        manager.slots[1].manager.worker_process = None
+        manager.slots[1].manager.pid = lambda: None
+
+        second = manager.workers()[1]
+
+        assert "pid" not in second and "oom_score_adj" not in second
+
+    def test_each_dispatch_scores_its_worker_highest(self, pool):
+        manager, written = self._pair(pool)
         first, second = manager.slots
 
-        # The only worker alive: nothing is written
-        a.worker_active = True
-        a.worker_process = FakeProcess(101)
+        manager._rank_for_oom(first)
+        assert written == [("cuda:0", 1000), ("cuda:1", 0)]
+
+        written.clear()
+        manager._rank_for_oom(second)
+        assert written == [("cuda:1", 1000), ("cuda:0", 0)]
+
+    def test_a_dispatch_back_onto_an_unchanged_worker_flips_the_scores(self, pool):
+        manager, written = self._pair(pool)
+        first, second = manager.slots
+        manager._rank_for_oom(first)
+        manager._rank_for_oom(second)
+
+        written.clear()
+        manager._rank_for_oom(first)  # same pid as the first dispatch
+        assert written == [("cuda:0", 1000), ("cuda:1", 0)]
+
+    def test_the_only_live_worker_is_left_alone(self, pool):
+        manager, written = self._pair(pool)
+        first, second = manager.slots
+        second.manager.worker_active = False
+        second.manager.worker_process = None
+
         manager._rank_for_oom(first)
         assert written == []
 
-        # A second starts beside it, with the first still at no adjustment
-        b.worker_active = True
-        b.worker_process = FakeProcess(102)
-        assert a.oom_score_adj is None
+    def test_a_privileged_floor_is_where_the_others_go_back_to(self, pool):
+        # Under lem's systemd user manager writing 0 is refused, so a worker
+        # raised to 1000 stayed there and tied with the next (#881 verify)
+        manager, written = self._pair(pool, minimum=200)
+        first, second = manager.slots
+        manager._rank_for_oom(first)
         manager._rank_for_oom(second)
-        assert written == [("cuda:1", 100)]
+        assert written[-2:] == [("cuda:1", 1000), ("cuda:0", 200)]
+
+        manager._rank_for_oom(first)
+        assert [w.manager.kernel.value for w in manager.slots] == [1000, 200]
+
+    def test_a_refused_write_is_a_warning_on_the_job(self, pool):
+        manager, _ = self._pair(pool, minimum=200)
+        first, second = manager.slots
+        second.manager.oom_score_floor = 0  # a floor the kernel won't take
+        events = []
+
+        class Job:
+            def add_event(self, event):
+                events.append(event)
+
+        manager._rank_for_oom(first, Job())
+
+        assert [e["event"] for e in events] == ["warning"]
+        assert "cuda:1" in events[0]["message"] and "0" in events[0]["message"]
+
+    def test_a_clean_ranking_warns_nothing(self, pool):
+        manager, _ = self._pair(pool, minimum=200)
+        events = []
+
+        class Job:
+            def add_event(self, event):
+                events.append(event)
+
+        manager._rank_for_oom(manager.slots[0], Job())
+        assert events == []
+
+
+@pytest.mark.skipif(not sys.platform.startswith("linux"), reason="Linux /proc")
+class TestOomScoreAdjOnLinux:
+    """The real write through /proc, against a real child process. Run under
+    `systemd-run --user --pipe` on lem the child starts at 200 with a
+    minimum of 100 (user@.service's), so a reset to 0 would be refused and
+    this shows the reset to the spawn value lands."""
+
+    def test_raise_then_reset_returns_to_the_spawn_value(self):
+        from dw.host_memory import read_oom_score_adj
+        from dw.worker_manager import WorkerManager
+
+        child = subprocess.Popen(["sleep", "30"])
+        try:
+            manager = WorkerManager("cuda:0")
+            manager.worker_process = FakeProcess(child.pid)
+            manager.oom_score_floor = read_oom_score_adj(child.pid)
+            floor = manager.oom_score_floor
+
+            assert manager.set_oom_score_adj(1000) is True
+            assert read_oom_score_adj(child.pid) == 1000
+            assert manager.reset_oom_score_adj() is True
+            assert read_oom_score_adj(child.pid) == floor
+        finally:
+            child.kill()
+            child.wait()
 
 
 class TestHealth:
@@ -1054,3 +1185,248 @@ class TestLabelAndIdentityRules:
             "x",
         )
         assert JobManager.identity_of("inline", None, None) == ("inline", None)
+
+
+class TestCancelDuringLoading:
+    def test_a_cancel_in_a_load_terminates_the_worker_and_cancels(
+        self, pool, monkeypatch
+    ):
+        from dw.server import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
+        gate = Gate()
+        worker = card(gate, "cuda:0", 24)
+        terminated = []
+        worker.terminate_worker = lambda: (terminated.append(1), gate.release.set())
+        manager = pool(worker)
+        job = submit(manager, "loading")
+        gate.wait_started()
+        job.add_event({"event": "phase", "phase": "loading", "detail": "pipeline"})
+        manager.cancel(job.id)
+        assert job.summary()["cancel_requested"] is True
+        wait_for(job, {"cancelled"})
+        assert terminated
+
+    def test_a_cancel_in_an_interruptible_phase_is_not_escalated(
+        self, pool, monkeypatch
+    ):
+        from dw.server import jobs as jobs_module
+
+        monkeypatch.setattr(jobs_module, "CANCEL_GRACE_SECONDS", 0.1)
+        gate = Gate()
+        worker = card(gate, "cuda:0", 24)
+        terminated = []
+        worker.terminate_worker = lambda: terminated.append(1)
+        manager = pool(worker)
+        job = submit(manager, "denoising")
+        gate.wait_started()
+        job.add_event({"event": "phase", "phase": "generating"})
+        manager.cancel(job.id)
+        time.sleep(0.4)
+        assert not terminated
+        gate.release.set()
+        wait_for(job, {"cancelled"})
+
+
+def test_a_worker_that_dies_under_a_requested_cancel_reads_as_cancelled(tmp_path):
+    from dw.server import job_results
+    from dw.server.job_record import Job
+
+    class Dead:
+        def get_result(self):
+            raise RuntimeError("Worker process died while waiting for results")
+
+        def crash_details(self):
+            return "terminated"
+
+        def mark_crashed(self):
+            pass
+
+    job = Job({"workflow_name": "w"})
+    job.cancel_requested = True
+    outcome = job_results.consume_results(job, Dead(), None, str(tmp_path), None)
+    assert outcome == ("cancelled", None, None)
+
+
+# ---------------------------------------------------------------- host RAM
+
+
+GB = 1024
+
+
+class TestHostRamGate:
+    """#869: a job that fits a free card waits while the host's RAM can't hold
+    it beside the running jobs, with the readings faked."""
+
+    @pytest.fixture
+    def host(self, monkeypatch):
+        """The host's MemAvailable and each worker's RSS, as a test sets them."""
+        readings = {"available_mb": 64 * GB, "rss": {}}
+        monkeypatch.setattr(
+            "dw.server.dispatch.host_memory_stats",
+            lambda: (
+                None
+                if readings["available_mb"] is None
+                else {"available_mb": readings["available_mb"]}
+            ),
+        )
+        monkeypatch.setattr(
+            "dw.server.dispatch._worker_rss_mb",
+            lambda slot: readings["rss"].get(slot.device),
+        )
+        return readings
+
+    @staticmethod
+    def submit(manager, name, host_gb=None, vram_need=None):
+        return manager.submit(
+            admitted=admitted_for(manager, valid_workflow(name)),
+            workflow=valid_workflow(name),
+            vram_need=vram_need,
+            host_ram_need=None if host_gb is None else (host_gb * GB, "observed", 1),
+        )
+
+    def _two_cards(self, pool):
+        first, second = Gate(), Gate()
+        manager = pool(card(first, "cuda:0", 24), card(second, "cuda:1", 24))
+        return manager, first, second
+
+    @staticmethod
+    def queue_waits(job):
+        return [e for e in job.events if e.get("event") == "queue_wait"]
+
+    def test_a_job_the_host_cannot_hold_beside_the_running_one_is_held(
+        self, pool, host
+    ):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        host["available_mb"] = 40 * GB
+        running = self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 30 * GB
+        host["available_mb"] = 10 * GB
+
+        held = self.submit(manager, "held", host_gb=30)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.status == "queued"
+        assert held.waiting_for == "waiting for host RAM: needs ~30 GB, ~10 GB free"
+        assert not second_gate.started.is_set()
+        assert manager.get(held.id).summary()["waiting_for"] == held.waiting_for
+
+        # The running job finishing is what frees the RAM and wakes dispatch
+        host["available_mb"] = 40 * GB
+        first_gate.release.set()
+        wait_for(running, {"succeeded"})
+        wait_for(held, {"running", "succeeded"})
+        assert held.waiting_for is None
+        assert "waiting_for" not in held.summary()
+        second_gate.release.set()
+        wait_for(held, {"succeeded"})
+
+    def test_memory_freed_outside_dw_starts_the_held_job_on_the_recheck(
+        self, pool, host, monkeypatch
+    ):
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.05)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+
+        # Nothing in dw wakes the dispatcher: only the timer sees this
+        host["available_mb"] = 40 * GB
+        second_gate.wait_started()
+        wait_for(held, {"running"})
+
+    def test_a_smaller_job_starts_past_a_held_one(self, pool, host):
+        gates = [Gate(), Gate(), Gate()]
+        manager = pool(*(card(g, f"cuda:{i}", 24) for i, g in enumerate(gates)))
+        self.submit(manager, "running", host_gb=10)
+        gates[0].wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 12 * GB
+
+        big = self.submit(manager, "big", host_gb=30)
+        small = self.submit(manager, "small", host_gb=4)
+        wait_for(small, {"running"})
+        assert big.status == "queued"
+        assert big.waiting_for is not None
+        assert small.waiting_for is None
+
+    def test_a_job_alone_is_never_held(self, pool, host):
+        host["available_mb"] = 1 * GB
+        manager = pool(card(success_script, "cuda:0", 24))
+        job = self.submit(manager, "alone", host_gb=200)
+        wait_for(job, {"succeeded"})
+        assert not self.queue_waits(job)
+
+    def test_a_job_with_no_figure_is_never_held(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["available_mb"] = 0
+        unknown = self.submit(manager, "unknown")
+        second_gate.wait_started()
+        wait_for(unknown, {"running"})
+        assert not self.queue_waits(unknown)
+
+    def test_no_host_reading_means_no_gate(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        host["available_mb"] = None
+        job = self.submit(manager, "unread", host_gb=30)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+        assert not self.queue_waits(job)
+
+    def test_the_growth_a_still_loading_job_has_left_is_charged(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "loading", host_gb=30)
+        first_gate.wait_started()
+        # 40 GB free now, but the loading job will take 25 GB more of it
+        host["rss"]["cuda:0"] = 5 * GB
+        host["available_mb"] = 40 * GB
+        held = self.submit(manager, "next", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.waiting_for == "waiting for host RAM: needs ~20 GB, ~15 GB free"
+        assert not second_gate.started.is_set()
+
+    def test_the_idle_worker_it_would_reuse_counts_as_free(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"] = {"cuda:0": 10 * GB, "cuda:1": 15 * GB}
+        host["available_mb"] = 10 * GB
+        job = self.submit(manager, "reuses", host_gb=20)
+        second_gate.wait_started()
+        wait_for(job, {"running"})
+
+    def test_the_event_fires_once_per_hold(self, pool, host, monkeypatch):
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.02)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        time.sleep(0.2)  # several rechecks, each still held
+        waits = self.queue_waits(held)
+        assert len(waits) == 1
+        assert waits[0]["reason"] == "host_ram"
+        assert waits[0]["message"] == held.waiting_for
+        assert not held.warnings
+
+    def test_cancel_clears_waiting_for_and_the_bookkeeping(self, pool, host):
+        manager, first_gate, _ = self._two_cards(pool)
+        self.submit(manager, "running", host_gb=10)
+        first_gate.wait_started()
+        host["rss"]["cuda:0"] = 10 * GB
+        host["available_mb"] = 5 * GB
+        held = self.submit(manager, "held", host_gb=20)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert manager.cancel(held.id) == "cancelled"
+        assert held.waiting_for is None
+        assert "waiting_for" not in held.summary()
+        assert held.id not in manager._host_needs

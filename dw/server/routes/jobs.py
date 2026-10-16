@@ -42,6 +42,7 @@ from ..admission import (
     JobRequest,
     ValidatorFailure,
     acknowledgement_form,
+    admitted_note,
     admit_for,
     bound_plan_for,
     check_bound_acknowledgement,
@@ -60,6 +61,7 @@ from ..deps import (
     workspace_for,
 )
 from ..exports import export_job
+from ..host_ram_need import host_memory_block
 from ..http_security import query_token_ok
 from ..job_record import (
     ACK_BOUND,
@@ -74,6 +76,7 @@ from ..outputs import (
     delete_run_directory,
     output_kinds,
     served_url,
+    with_run_state,
 )
 
 logger = logging.getLogger("dw")
@@ -120,6 +123,7 @@ def submit_job(
     the body wins when both are given."""
     state = http_request.app.state
     manager = http_request.app.state.job_manager
+    note = admitted_note(request.note)
     try:
         workspace = workspace_for(state, request.workspace or ws.name)
         resolved, source = resolve_workflow_reference(
@@ -148,6 +152,9 @@ def submit_job(
                 if form == ACK_BOUND
                 else None
             ),
+            # Whose runs project its host-RAM peak (#869)
+            catalog_name=catalog_name_for(resolved, source),
+            history_workspace=(workspace.name if source and source.writable else None),
         )
         # Refuses what admission refused, and a job too big for every card
         manager.check_fits(admission)
@@ -192,6 +199,8 @@ def submit_job(
             warnings=admission.warnings,
             # What a card must hold to run it: the pool dispatches on it
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
+            note=note,
         )
         return manager.describe(job)
     except HTTPException:
@@ -231,17 +240,9 @@ def list_jobs(
                 detail=f"Unknown job status {', '.join(unknown)} - one of "
                 f"{', '.join((QUEUED, RUNNING, *TERMINAL_STATES))}",
             )
-    jobs = manager.list(workspace=workspace, statuses=statuses)
-    total = len(jobs)
-    if limit is not None:
-        if limit < 0:
-            raise HTTPException(status_code=400, detail="limit must not be negative")
-        # the newest are the interesting ones, and the list is oldest
-        # first - so the cut comes off the front, not the back. max(0, ...)
-        # because a limit above what matched is no cut at all: a bare
-        # negative start would be read from the end instead, and answer a
-        # limit of 12 against 9 matching jobs with the last 3 of them
-        jobs = jobs[max(0, len(jobs) - limit) :] if limit else []
+    if limit is not None and limit < 0:
+        raise HTTPException(status_code=400, detail="limit must not be negative")
+    jobs, total = manager.list_page(workspace=workspace, statuses=statuses, limit=limit)
     return {"jobs": jobs, "total": total}
 
 
@@ -260,6 +261,13 @@ def get_job(request: Request, job_id: str):
     # field of its own, or get_job_workflow's, so it is not served
     detail = job if isinstance(job, dict) else manager.describe(job)
     detail = {key: value for key, value in detail.items() if key != "spec"}
+    # The run as it stands now: its current note, and once it has ended
+    # each entry's role - the engine records none on a running manifest
+    location = manager.run_location(job_id)
+    if location is not None:
+        detail = with_run_state(
+            detail, *location, roles=detail.get("status") in TERMINAL_STATES
+        )
     return {**detail, "output_kinds": output_kinds(detail.get("manifest"))}
 
 
@@ -427,6 +435,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             plan_for=(
                 bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
             ),
+            catalog_name=spec.get("catalog_name"),
         )
         # Refuses what admission refused, and a job too big for every card
         manager.check_fits(admission)
@@ -451,6 +460,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             arguments=arguments,
             admitted=admission.workflow,
             vram_need=admission.vram_need,
+            host_ram_need=admission.host_ram_need,
         )
         if job is None:
             raise HTTPException(status_code=404, detail="Unknown job")
@@ -837,6 +847,8 @@ def validate_workflow(
             # "check the document", explicit is "check a run with these
             # arguments" (#364)
             supplied="arguments" in request.model_fields_set,
+            catalog_name=catalog_name,
+            history_workspace=(workspace.name if source and source.writable else None),
             plan_for=lambda candidate, vram_need: _validation_plan(
                 state,
                 candidate,
@@ -907,6 +919,11 @@ def validate_workflow(
         answer["checked_arguments"] = sorted(request.arguments)
     answer["plan"] = admission.plan
     if answer["plan"]:
+        # What host RAM this run is projected to hold at its peak, and
+        # from what (#869); no key when there is no figure
+        host_memory = host_memory_block(admission.host_ram_need)
+        if host_memory:
+            answer["plan"]["host_memory"] = host_memory
         # cached_steps is 0 both when nothing hit and when the probe ran
         # against the wrong workspace's output root (#184) - echoing
         # what it was actually probed against turns the second case
@@ -931,14 +948,18 @@ def _inherited_cost_warnings(estimate):
     """A price inherited from a catalog template's runs (#797) is an
     approximation; say so, and name what this workflow sets differently
     from the template. Warns and never refuses."""
+    if isinstance(estimate, dict) and estimate.get("withheld"):
+        return [f"cost estimate withheld: {estimate['withheld']}"]
     if not isinstance(estimate, dict) or estimate.get("basis") != "inherited":
         return []
     differs = estimate.get("differs") or []
     return [
         f"cost estimate is inherited from this box's runs of {estimate.get('inherited_from')} "
         "(same pipeline), not of this workflow"
+        + (f"; {estimate['scaled']}" if estimate.get("scaled") else "")
         + (
-            f"; its {', '.join(differs)} differ from that template, so the real cost may too"
+            f"; its {', '.join(differs)} {'differs' if len(differs) == 1 else 'differ'}"
+            " from that template, so the real cost may too"
             if differs
             else ""
         )

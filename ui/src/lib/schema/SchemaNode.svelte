@@ -28,6 +28,7 @@
 <script lang="ts">
   import { ChevronDown, ChevronRight } from '@lucide/svelte'
   import Self from './SchemaNode.svelte'
+  import ClampedText from '../ui/ClampedText.svelte'
 
   let {
     name,
@@ -160,7 +161,7 @@
     {#each facts as fact (fact)}<span class="fact">{fact}</span>{/each}
   </button>
   {#if description}
-    <div class="desc muted">{description}</div>
+    <div class="desc muted"><ClampedText text={description} lines={3} /></div>
   {/if}
   {#if node.enum ?? effective.enum}
     <div class="enums">

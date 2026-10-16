@@ -137,6 +137,11 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The asset's note, when it has one.",
+            "title": "Note",
+            "type": "string"
+          },
           "origin": {
             "description": "Which library it came from: this workspace's own, the `common` one every workspace shares, or a read-only examples tree - why a delete can answer 403.",
             "enum": [
@@ -415,6 +420,126 @@
           "classes"
         ],
         "title": "ClassList",
+        "type": "object"
+      },
+      "CompareRequest": {
+        "properties": {
+          "at": {
+            "anyOf": [
+              {
+                "items": {
+                  "anyOf": [
+                    {
+                      "type": "number"
+                    },
+                    {
+                      "type": "string"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "1 to 8 moments - seconds, or \"frame:N\" - read at the same frame number in every output; default 4 evenly spaced frames",
+            "title": "At"
+          },
+          "baseline": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The output the others are measured against; default the first",
+            "title": "Baseline"
+          },
+          "crop": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "integer"
+                },
+                "type": "array"
+              },
+              {
+                "items": {
+                  "items": {
+                    "type": "integer"
+                  },
+                  "type": "array"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "[x, y, width, height] in source pixels, the region shown and measured; or one box per name, shown only",
+            "title": "Crop"
+          },
+          "max_dimension": {
+            "default": 384,
+            "description": "Longest side of each grid cell",
+            "title": "Max Dimension",
+            "type": "integer"
+          },
+          "max_total_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A budget on the grid's base64 size",
+            "title": "Max Total Bytes"
+          },
+          "names": {
+            "description": "2 to 8 outputs (or `asset:` references), one row each",
+            "items": {
+              "type": "string"
+            },
+            "title": "Names",
+            "type": "array"
+          }
+        },
+        "required": [
+          "names"
+        ],
+        "title": "CompareRequest",
+        "type": "object"
+      },
+      "CopiedItems": {
+        "additionalProperties": false,
+        "properties": {
+          "assets": {
+            "description": "Library-relative path of each asset file copied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "runs": {
+            "description": "`<workflow>/<run id>` of each run copied.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "required": [
+          "runs",
+          "assets"
+        ],
+        "title": "CopiedItems",
         "type": "object"
       },
       "Deleted": {
@@ -1130,6 +1255,27 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The effective note: the file's own, else its run's.",
+            "title": "Note",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "final",
+                  "intermediate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "`final` for a deliverable, `intermediate` for a file a later step or run consumed; null under the flat layout or when no manifest lists the file.",
+            "title": "Role"
+          },
           "run_id": {
             "description": "The run that wrote the file, `''` under the flat layout.",
             "title": "Run Id",
@@ -1138,6 +1284,11 @@
           "size": {
             "title": "Size",
             "type": "integer"
+          },
+          "starred": {
+            "description": "True when the file is starred; absent otherwise.",
+            "title": "Starred",
+            "type": "boolean"
           },
           "subfolder": {
             "description": "What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.",
@@ -1174,6 +1325,29 @@
           "label"
         ],
         "title": "GalleryFile",
+        "type": "object"
+      },
+      "GalleryInput": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "asset",
+              "output"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "reference": {
+            "title": "Reference",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "kind"
+        ],
+        "title": "GalleryInput",
         "type": "object"
       },
       "GalleryList": {
@@ -1240,6 +1414,21 @@
             "title": "Findings",
             "type": "array"
           },
+          "inputs": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/GalleryInput"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The `asset:` and `output:` references the run read; null for a run that recorded none.",
+            "title": "Inputs"
+          },
           "job": {
             "anyOf": [
               {
@@ -1260,7 +1449,7 @@
                 "type": "null"
               }
             ],
-            "description": "The probe of an audio or video file; null for an image.",
+            "description": "The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.",
             "title": "Media"
           },
           "metadata": {
@@ -1280,8 +1469,43 @@
             "title": "Name",
             "type": "string"
           },
+          "note": {
+            "description": "The effective note: the file's own, else its run's.",
+            "title": "Note",
+            "type": "string"
+          },
+          "note_source": {
+            "description": "Whose note `note` is.",
+            "enum": [
+              "file",
+              "run"
+            ],
+            "title": "Note Source",
+            "type": "string"
+          },
+          "role": {
+            "anyOf": [
+              {
+                "enum": [
+                  "final",
+                  "intermediate"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The file's role in its run; null when the run does not say.",
+            "title": "Role"
+          },
           "run_id": {
             "title": "Run Id",
+            "type": "string"
+          },
+          "run_note": {
+            "description": "The note of the run that wrote the file.",
+            "title": "Run Note",
             "type": "string"
           },
           "source": {
@@ -1532,6 +1756,11 @@
             "description": "Null on a history row recorded before manifests, or by a run that wrote none.",
             "title": "Manifest"
           },
+          "note": {
+            "description": "The note it was submitted with; also its run's note.",
+            "title": "Note",
+            "type": "string"
+          },
           "output_kinds": {
             "additionalProperties": {
               "anyOf": [
@@ -1568,6 +1797,11 @@
             "description": "Index in the waiting queue; only while queued.",
             "title": "Queue Position",
             "type": "integer"
+          },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
           },
           "run_dir": {
             "anyOf": [
@@ -1639,6 +1873,11 @@
               }
             ],
             "title": "Traceback"
+          },
+          "waiting_for": {
+            "description": "Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.",
+            "title": "Waiting For",
+            "type": "string"
           },
           "warnings": {
             "items": {
@@ -1996,6 +2235,18 @@
             "description": "Directory relative paths in an inline workflow resolve against",
             "title": "Base Dir"
           },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A note on the run, at most 4000 characters: kept with the job and written as the run note when the run opens",
+            "title": "Note"
+          },
           "workflow": {
             "anyOf": [
               {
@@ -2099,10 +2350,20 @@
             "title": "Id",
             "type": "string"
           },
+          "note": {
+            "description": "The note it was submitted with; also its run's note.",
+            "title": "Note",
+            "type": "string"
+          },
           "queue_position": {
             "description": "Index in the waiting queue; only while queued.",
             "title": "Queue Position",
             "type": "integer"
+          },
+          "rerun_of": {
+            "description": "The job this one reran; absent for a job submitted fresh.",
+            "title": "Rerun Of",
+            "type": "string"
           },
           "run_id": {
             "anyOf": [
@@ -2151,6 +2412,11 @@
               "cancelled"
             ],
             "title": "Status",
+            "type": "string"
+          },
+          "waiting_for": {
+            "description": "Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.",
+            "title": "Waiting For",
             "type": "string"
           },
           "workflow": {
@@ -2261,6 +2527,18 @@
             "description": "The generated file to keep, as the gallery names it",
             "title": "Name",
             "type": "string"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A note on the kept asset, at most 4000 characters; the source file's effective note when omitted, and none when empty",
+            "title": "Note"
           },
           "overwrite": {
             "default": false,
@@ -2418,6 +2696,15 @@
             "title": "Reused",
             "type": "boolean"
           },
+          "role": {
+            "description": "The step's role in its run, as the run's manifest.json records it. Absent while the run is going, or for a run from before roles.",
+            "enum": [
+              "final",
+              "intermediate"
+            ],
+            "title": "Role",
+            "type": "string"
+          },
           "step": {
             "title": "Step",
             "type": "string"
@@ -2426,6 +2713,10 @@
             "description": "The in-run subfolder the step's `result.subfolder` chose - `final`, `intermediate`, any relative path - `''` when it chose none. Absent only on a job recorded before the field existed.",
             "title": "Subfolder",
             "type": "string"
+          },
+          "timing": {
+            "$ref": "#/components/schemas/StepTiming",
+            "description": "Where the step's time went. Only on a pipeline step that ran: a reused step, a task or a composed step has none."
           }
         },
         "required": [
@@ -2723,6 +3014,12 @@
       "ModelDownload": {
         "additionalProperties": false,
         "properties": {
+          "cancel_requested": {
+            "default": false,
+            "description": "A cancel was requested and the download has not yet stopped: it is stopping, not still pulling.",
+            "title": "Cancel Requested",
+            "type": "boolean"
+          },
           "downloaded": {
             "title": "Downloaded",
             "type": "integer"
@@ -2947,6 +3244,76 @@
         "title": "MoveRequest",
         "type": "object"
       },
+      "NoteRequest": {
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "At most 4000 characters; null or '' clears it",
+            "title": "Note"
+          },
+          "target": {
+            "description": "What the note is on: a gallery file name, a run directory `<identity>/<run id>`, `asset:<name>` or `workspace:<name>`",
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target"
+        ],
+        "title": "NoteRequest",
+        "type": "object"
+      },
+      "NoteSet": {
+        "additionalProperties": false,
+        "properties": {
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The effective note after the write.",
+            "title": "Note"
+          },
+          "note_source": {
+            "anyOf": [
+              {
+                "enum": [
+                  "file",
+                  "run"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose note `note` is; null for a workspace or no note.",
+            "title": "Note Source"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "target",
+          "note",
+          "note_source"
+        ],
+        "title": "NoteSet",
+        "type": "object"
+      },
       "OutputDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -3142,6 +3509,10 @@
             "title": "Fingerprint",
             "type": "string"
           },
+          "host_memory": {
+            "$ref": "#/components/schemas/PlanHostMemory",
+            "description": "The host RAM this run is projected to hold at its peak, from this machine's own history (#869); absent when there is no figure."
+          },
           "list_entries": {
             "additionalProperties": {
               "type": "integer"
@@ -3217,7 +3588,7 @@
             "type": "string"
           },
           "differs": {
-            "description": "With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.",
+            "description": "With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.",
             "items": {
               "type": "string"
             },
@@ -3289,6 +3660,11 @@
             ],
             "title": "Runs"
           },
+          "scaled": {
+            "description": "With basis `derived` (or `other_device`, or a tempered `observed`): what the curated figure was scaled along - steps, canvas or frames moved off the variable defaults it was measured at (#866). With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.",
+            "title": "Scaled",
+            "type": "string"
+          },
           "tempered": {
             "title": "Tempered",
             "type": "boolean"
@@ -3300,6 +3676,11 @@
             },
             "title": "Unpriced",
             "type": "array"
+          },
+          "withheld": {
+            "description": "With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).",
+            "title": "Withheld",
+            "type": "string"
           }
         },
         "required": [
@@ -3313,6 +3694,37 @@
           "cached_minutes"
         ],
         "title": "PlanEstimate",
+        "type": "object"
+      },
+      "PlanHostMemory": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "description": "`observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.",
+            "enum": [
+              "observed",
+              "fit"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "projected_mb": {
+            "description": "The host RAM, in MB, this run is projected to hold at its peak.",
+            "title": "Projected Mb",
+            "type": "integer"
+          },
+          "runs": {
+            "description": "How many runs the figure is read from.",
+            "title": "Runs",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "projected_mb",
+          "basis",
+          "runs"
+        ],
+        "title": "PlanHostMemory",
         "type": "object"
       },
       "PromptCard": {
@@ -3906,6 +4318,196 @@
         "title": "ShadowedEntry",
         "type": "object"
       },
+      "StarRequest": {
+        "properties": {
+          "name": {
+            "description": "A gallery file name",
+            "title": "Name",
+            "type": "string"
+          },
+          "starred": {
+            "title": "Starred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "starred"
+        ],
+        "title": "StarRequest",
+        "type": "object"
+      },
+      "StarSet": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "starred": {
+            "title": "Starred",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "name",
+          "starred"
+        ],
+        "title": "StarSet",
+        "type": "object"
+      },
+      "StepTiming": {
+        "additionalProperties": true,
+        "description": "Where one pipeline step's time went, on the worker's monotonic clock\n(dw/pipeline_processors/timing.py). Every `_s` is seconds to 0.1; a field\nwhose mark never happened is null, never guessed. Open, like the entry.",
+        "properties": {
+          "cache": {
+            "additionalProperties": true,
+            "description": "Skip counts, on a step that set a `cache`.",
+            "title": "Cache",
+            "type": "object"
+          },
+          "compiled": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The denoiser runs through torch.compile; null when unknown.",
+            "title": "Compiled"
+          },
+          "decode_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Last pass's end to the call's return: VAE decode and post-processing.",
+            "title": "Decode S"
+          },
+          "denoise_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "First denoiser forward to the last pass's end; the whole call when the pipeline reports no passes.",
+            "title": "Denoise S"
+          },
+          "encode_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Call start to the first denoiser forward: prompt encoding and preparation.",
+            "title": "Encode S"
+          },
+          "first_pass_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The first pass, which carries any compile warm-up.",
+            "title": "First Pass S"
+          },
+          "load_cached": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The pipeline came from the worker's cache; false if any part was loaded fresh, null when the step loaded nothing.",
+            "title": "Load Cached"
+          },
+          "load_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Loading or fetching the step's pipeline, cached or not.",
+            "title": "Load S"
+          },
+          "pass_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Median of passes 2..n, wall time at step boundaries; null with fewer than two passes.",
+            "title": "Pass S"
+          },
+          "passes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Denoise passes the pipeline ran, one per scheduler timestep; can differ from num_inference_steps.",
+            "title": "Passes"
+          },
+          "save_s": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Writing the step's files.",
+            "title": "Save S"
+          },
+          "segments": {
+            "description": "Pipeline calls summed into this timing: chain segments or iterations; 1 for a plain step.",
+            "title": "Segments",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "load_s",
+          "load_cached",
+          "encode_s",
+          "denoise_s",
+          "passes",
+          "first_pass_s",
+          "pass_s",
+          "compiled",
+          "decode_s",
+          "save_s",
+          "segments"
+        ],
+        "title": "StepTiming",
+        "type": "object"
+      },
       "TaskList": {
         "additionalProperties": false,
         "properties": {
@@ -4171,6 +4773,16 @@
             ],
             "description": "The card as a job record's device names it.",
             "title": "Name"
+          },
+          "oom_score_adj": {
+            "description": "The worker's kernel oom_score_adj, read from /proc at call time (1000 for the latest dispatch's worker in a pool, else the value it was spawned with); absent where unreadable.",
+            "title": "Oom Score Adj",
+            "type": "integer"
+          },
+          "pid": {
+            "description": "The worker process's pid; absent while it is not running.",
+            "title": "Pid",
+            "type": "integer"
           },
           "vram_gb": {
             "anyOf": [
@@ -4554,6 +5166,102 @@
         "title": "WorkflowSaved",
         "type": "object"
       },
+      "WorkspaceCopied": {
+        "additionalProperties": false,
+        "description": "What a copy between workspaces did (`POST /api/workspaces/{name}/copy`).",
+        "properties": {
+          "already_present": {
+            "description": "Runs the destination already held (`<workflow>/<run id>`) and assets it held with identical bytes (library-relative path) - skipped.",
+            "items": {
+              "type": "string"
+            },
+            "title": "Already Present",
+            "type": "array"
+          },
+          "bytes_copied": {
+            "title": "Bytes Copied",
+            "type": "integer"
+          },
+          "bytes_linked": {
+            "title": "Bytes Linked",
+            "type": "integer"
+          },
+          "copied": {
+            "$ref": "#/components/schemas/CopiedItems"
+          },
+          "destination": {
+            "title": "Destination",
+            "type": "string"
+          },
+          "renumbered": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "integer"
+              },
+              "type": "object"
+            },
+            "description": "Copied runs whose `vN` changed, keyed `<workflow>/<run id>`: `{from, to}`.",
+            "title": "Renumbered",
+            "type": "object"
+          },
+          "source": {
+            "title": "Source",
+            "type": "string"
+          },
+          "warnings": {
+            "additionalProperties": true,
+            "description": "`unresolved_output_refs`, `absolute_paths` and `no_jobs`, each only when it applies.",
+            "title": "Warnings",
+            "type": "object"
+          }
+        },
+        "required": [
+          "source",
+          "destination",
+          "copied",
+          "already_present",
+          "renumbered",
+          "warnings",
+          "bytes_linked",
+          "bytes_copied"
+        ],
+        "title": "WorkspaceCopied",
+        "type": "object"
+      },
+      "WorkspaceCopyRequest": {
+        "properties": {
+          "assets": {
+            "description": "Asset-library files or folders, as written after `asset:` (`proj/clip.mp4`, `proj/`); each keeps its library-relative path",
+            "items": {
+              "type": "string"
+            },
+            "title": "Assets",
+            "type": "array"
+          },
+          "runs": {
+            "description": "`<workflow>/<run id>` entries, or a bare `<workflow>` for all its runs",
+            "items": {
+              "type": "string"
+            },
+            "title": "Runs",
+            "type": "array"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Workspace to copy from; the default when omitted",
+            "title": "Source"
+          }
+        },
+        "title": "WorkspaceCopyRequest",
+        "type": "object"
+      },
       "WorkspaceDeleted": {
         "additionalProperties": false,
         "properties": {
@@ -4613,6 +5321,11 @@
           },
           "name": {
             "title": "Name",
+            "type": "string"
+          },
+          "note": {
+            "description": "The workspace's note, when it has one; listings only.",
+            "title": "Note",
             "type": "string"
           },
           "outputs": {
@@ -5266,7 +5979,7 @@
     },
     "/api/gallery": {
       "get": {
-        "description": "A page of media files in the output directory, newest first.\nStateless by design - the gallery survives server restarts because\nit reads the directory tree, not job history. 'folders' lists every\ndistinct workflow folder present (over the whole directory, not just\nthis page), for the UI's folder filter - a run id is not a folder of\nits own, so a workflow's runs group together; '' stands for files\nsaved directly at the output root, and is itself always a member so\nthat folder-less outputs stay selectable once anything is nested.\n'subfolders' is the other axis, over the whole directory the same\nway: the in-run subfolders steps wrote into ('final',\n'intermediate'), '' for files at a run's root. `folder` and\n`subfolder` filter independently and intersect when both are given.\n`version` narrows to the runs holding that ordinal - with `folder`,\nthe one run \"v4\" names; without it, that run of every workflow.\n\n`only_orphans=true` inverts the whole call: instead of media files,\nit returns run directories holding nothing but their own\nbookkeeping (manifest.json, workflow.json, job.json) as `runs`,\neach `{name, mtime}` - a run that wrote any file at all, a\ntext-shape prompt or a utility's side output included, is not\nlisted. `folder`/`subfolder` and the `folders`/`subfolders` facets\ndo not apply in this mode, since an orphan run has no file to\ncarry either. `name` is exactly what `DELETE /api/gallery/{name}`\naccepts, so listing and deleting an orphan is a two-call round\ntrip (#170).\n\n`media=true` adds `duration_seconds` to each audio/video entry,\nprobed the same way `get_gallery_metadata` reports it - which two\ntakes of the same workflow otherwise have no way to be told apart\nby, since size and mtime are misleading proxies for length (#356).\nOff by default and bounded by `limit`: only the page actually\nreturned is probed, not the whole listing, so the cost of asking\nstays proportional to the page size rather than the library size.",
+        "description": "A page of media files in the output directory, newest first.\nStateless by design - the gallery survives server restarts because\nit reads the directory tree, not job history. 'folders' lists every\ndistinct workflow folder present (over the whole directory, not just\nthis page), for the UI's folder filter - a run id is not a folder of\nits own, so a workflow's runs group together; '' stands for files\nsaved directly at the output root, and is itself always a member so\nthat folder-less outputs stay selectable once anything is nested.\n'subfolders' is the other axis, over the whole directory the same\nway: the in-run subfolders steps wrote into ('final',\n'intermediate'), '' for files at a run's root. `folder` and\n`subfolder` filter independently and intersect when both are given.\n`version` narrows to the runs holding that ordinal - with `folder`,\nthe one run \"v4\" names; without it, that run of every workflow.\n\n`only_orphans=true` inverts the whole call: instead of media files,\nit returns run directories holding nothing but their own\nbookkeeping (manifest.json, workflow.json, job.json) as `runs`,\neach `{name, mtime}` - a run that wrote any file at all, a\ntext-shape prompt or a utility's side output included, is not\nlisted. `folder`/`subfolder` and the `folders`/`subfolders` facets\ndo not apply in this mode, since an orphan run has no file to\ncarry either. `name` is exactly what `DELETE /api/gallery/{name}`\naccepts, so listing and deleting an orphan is a two-call round\ntrip (#170).\n\n`media=true` adds `duration_seconds` to each audio/video entry,\nprobed the same way `get_gallery_metadata` reports it - which two\ntakes of the same workflow otherwise have no way to be told apart\nby, since size and mtime are misleading proxies for length (#356).\nOff by default and bounded by `limit`: only the page actually\nreturned is probed, not the whole listing, so the cost of asking\nstays proportional to the page size rather than the library size.\n\nEach entry carries `role`, `final` or `intermediate` (null for a\nflat-layout file or one no manifest lists); a file a later run read\nlists as intermediate unless its step declared it final\n(dw/roles.py rule 4). `role` is a repeatable\nfilter; a null role counts as final. Omitted, every file is listed.",
         "operationId": "gallery_api_gallery_get",
         "parameters": [
           {
@@ -5355,6 +6068,25 @@
               "default": false,
               "title": "Media",
               "type": "boolean"
+            }
+          },
+          {
+            "in": "query",
+            "name": "role",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "items": {
+                    "type": "string"
+                  },
+                  "type": "array"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Role"
             }
           },
           {
@@ -5452,6 +6184,61 @@
           }
         },
         "summary": "Archive Outputs"
+      }
+    },
+    "/api/gallery/compare": {
+      "post": {
+        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.",
+        "operationId": "gallery_compare_api_gallery_compare_post",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CompareRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {}
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Gallery Compare"
       }
     },
     "/api/gallery/{name}": {
@@ -6019,7 +6806,7 @@
     },
     "/api/gallery/{name}/metadata": {
       "get": {
-        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen.",
+        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\nAn image's `media` is its measured `{kind, width, height, mode}`,\nread from the file header (#922) - not the width/height arguments\nthe pipeline was asked for. `include_workflow=false` drops the\nembedded `metadata.workflow` (the whole definition, often 20 KB) and\nleaves the rest of `metadata` with `workflow_omitted: true`.\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen. `inputs` is the source run's too (#902).",
         "operationId": "gallery_metadata_api_gallery__name__metadata_get",
         "parameters": [
           {
@@ -6049,6 +6836,16 @@
               "default": 1.0,
               "title": "Interval Seconds",
               "type": "number"
+            }
+          },
+          {
+            "in": "query",
+            "name": "include_workflow",
+            "required": false,
+            "schema": {
+              "default": true,
+              "title": "Include Workflow",
+              "type": "boolean"
             }
           },
           {
@@ -7358,7 +8155,7 @@
     },
     "/api/models/downloads/{download_id}/cancel": {
       "post": {
-        "description": "Request cancellation; takes effect at the next progress tick.\nPartial files stay in the cache and resume on a retry.",
+        "description": "Request cancellation; `cancel_requested` shows until it is terminal.\nPartial files stay in the cache and resume on a retry.",
         "operationId": "cancel_download_api_models_downloads__download_id__cancel_post",
         "parameters": [
           {
@@ -7394,6 +8191,63 @@
           }
         },
         "summary": "Cancel Download"
+      }
+    },
+    "/api/notes": {
+      "put": {
+        "description": "Set or clear the note on a run, a file, an asset or a workspace.\n\n`target` is a gallery file name (that file's own note), a run directory\n`<identity>/<run id>` (the run note every file of the run falls back to),\n`asset:<name>` or `workspace:<name>` ('default' for the root's own). The\nanswer is the target's effective note after the write: a file with no\nnote of its own answers with its run's, and `note_source` says which.",
+        "operationId": "put_note_api_notes_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/NoteRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NoteSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Note"
       }
     },
     "/api/pipelines": {
@@ -7797,6 +8651,63 @@
         "summary": "Server Info"
       }
     },
+    "/api/stars": {
+      "put": {
+        "description": "Star or unstar one output file - the \"keep\" mark a person culls a run\nwith. It lives in the run's notes.json beside the notes, so it is\nresolved exactly as a file note is, and only a file in a run directory\ncan carry one.",
+        "operationId": "put_star_api_stars_put",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "workspace",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Workspace"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StarRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StarSet"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Put Star"
+      }
+    },
     "/api/system/diffusers": {
       "get": {
         "description": "Installed diffusers version (with its git commit when installed\nfrom git) and the state of any update.",
@@ -7918,7 +8829,7 @@
     },
     "/api/uploads": {
       "post": {
-        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined to the library the way `keep_output`'s is, and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.",
+        "description": "Save a browser-picked image, video or audio file into the asset library's\nuploads/ subfolder and hand back the reference a workflow argument\ncan carry.\n\nAn upload is input, so it belongs in the asset library rather than\namong generated output, and the reference handed back is\n'asset:uploads/<name>' - portable, and meaningful in a workflow that\nis saved and rerun later. A server with no asset library configured\nanswers 409. The body is the raw file bytes: no multipart parser\ndependency needed for a single-file upload.\n\n`asset_name` stores it under a name of the caller's choosing -\n'cast/priya-voice.wav' rather than the random one a browser upload\ngets - which is what makes a recurring cast's references readable\nin every workflow that carries them. It may name a folder, is\nconfined the way `keep_output`'s is but placed under `uploads/`\n(not at the library root, as `keep_output`'s is), and takes the\nuploaded file's extension when it has none of its own. Without it\nthe name stays random, so two uploads of the same file never\ncollide.\n\n`shared` puts it in the library every workspace under this root\nshares rather than in this workspace's own - a recurring cast that\nepisode four, in a workspace of its own, still has to reach.\n\n`note` is kept beside it (the directory's notes.json). An upload over an\nexisting name takes its own note, or none: not the old file's, and not\nthe old file's kept provenance either.",
         "operationId": "upload_media_api_uploads_post",
         "parameters": [
           {
@@ -7954,6 +8865,24 @@
               "default": false,
               "title": "Shared",
               "type": "boolean"
+            }
+          },
+          {
+            "description": "A note on the asset, at most 4000 characters",
+            "in": "query",
+            "name": "note",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "A note on the asset, at most 4000 characters",
+              "title": "Note"
             }
           },
           {
@@ -8597,6 +9526,56 @@
           }
         },
         "summary": "Add Workspace"
+      }
+    },
+    "/api/workspaces/{destination}/copy": {
+      "post": {
+        "description": "Copy runs and asset-library entries from another workspace into this one.\n\nMedia is hard-linked where the filesystem allows, so a copy costs\nlittle disk; sidecars are copied, and an asset's note and kept shots are\nmerged into the destination folder's. All or nothing: a run already\nhere, or an asset with identical bytes, is skipped as `already_present`;\na run whose job is still running, or a different file at an asset's\npath, refuses the whole request (409, naming each) with nothing written.\nA move is a copy, then `DELETE` of the source runs and assets.",
+        "operationId": "copy_into_workspace_api_workspaces__destination__copy_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "destination",
+            "required": true,
+            "schema": {
+              "title": "Destination",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkspaceCopyRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkspaceCopied"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Copy Into Workspace"
       }
     },
     "/api/workspaces/{name}": {

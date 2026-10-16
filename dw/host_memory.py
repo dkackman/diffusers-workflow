@@ -139,6 +139,19 @@ def _peak_rss_mb():
     return peak / _MB if sys.platform == "darwin" else peak / 1024.0
 
 
+def read_oom_score_adj(pid):
+    """The kernel's `oom_score_adj` for process `pid`, read now from /proc, or
+    None where it cannot be read (not Linux, or the process is gone). The
+    value in force, not the one the server meant to write (#881)."""
+    if not isinstance(pid, int) or pid <= 0:
+        return None
+    try:
+        with open(f"/proc/{pid}/oom_score_adj", "r") as f:
+            return int(f.read().strip())
+    except (OSError, ValueError):
+        return None
+
+
 def process_rss_mb(pid):
     """Resident set size of another process - a server's worker, read from
     the server - in MB, or None where it cannot be read (the process is

@@ -6,7 +6,7 @@ A checkpoint comes with a canvas, a sigma shift and an alpha and they move
 together - change one, change all. `video_shift`, `audio_shift` and
 `lora_alpha` are variables everywhere, so a swap is arguments, not a file.
 
-Four combinations are tested, plus one addition below, nothing else:
+Four combinations are tested, plus the base model and one addition below, nothing else:
 **default** - 4-step FL2VA v1.2 (`minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors`),
 shift **6**/3, `num_inference_steps=5`, alpha unset, on every T2VA/FL2VA
 template at 960x544 and 1344x768 (since 2026-10-10; trained at 768p,
@@ -19,11 +19,18 @@ Swap file, shift and steps together. The
 544p 4-step v0.1 file renders noise. v1.2 records alpha 8; v1.0/v1.1 record
 128 - never state an alpha the header doesn't.
 
+**Base, no LoRA**: `lora_model_name: null`, int8, 12-30 steps (floor 12), shift
+12/3 - the quality path for faces (4/5 against 2-3/5 on turbo or int4); on a
+24 GB CUDA card 1344x768 takes ~13 min at 12 steps and ~23 min at 30 with
+`first_block` 0.05. Numbers, caveats and prompting rules in
+`references/quality-and-speed.md`.
+
 **Realism People** (#585) as a second `loras` entry on a t2va
 step (`fal/MiniMax-H3-Realism-People-LoRA`,
 `h3-realism-people-t2v-i2v-r2v.safetensors`, scale 0.7, own `adapter_name`;
-a saved copy): validate warns the name fits neither partition, so never on
-a `ref2va` template.
+a saved copy): validate refuses it on `ref2va`, so never on
+a `ref2va` template: its header says `base_model: minimax-h3-fl2va`, and
+it is inert on `reference-to-video` whatever `r2v` the filename says.
 
 Acc PDD, HyperFlow and drozbay FastH3 need their own loaders, not `loras`:
 don't try them. Any other LoRA (a style, a motion fix): `list_loras` first -

@@ -371,10 +371,15 @@ def _holds_a_workspace(path):
     return _has_subdirs(path, NAMED_SUBDIRS, all_of=True)
 
 
+# The note a workspace carries at its root (dw/notes.py reads and writes it);
+# defined here so notes can import the name without a cycle through runs
+WORKSPACE_FILE_NAME = "workspace.json"
+
+
 def _foreign_entries(path):
     """What a directory holds besides a workspace's own three folders and
-    the exports it may have gathered."""
-    ignored = NAMED_SUBDIRS + (EXPORTS_SUBDIR,)
+    the exports it may have gathered, and its workspace.json note."""
+    ignored = NAMED_SUBDIRS + (EXPORTS_SUBDIR, WORKSPACE_FILE_NAME)
     try:
         return sorted(entry for entry in os.listdir(path) if entry not in ignored)
     except OSError:

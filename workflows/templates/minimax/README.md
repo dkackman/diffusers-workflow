@@ -64,7 +64,14 @@ checkpoint comes with the canvas it was trained at, the sigma shift it was
 distilled against and the alpha it is meant to run at, and changing one means
 changing all of them. That is why `video_shift`, `audio_shift` and `lora_alpha`
 are variables on every template here - a checkpoint swap is arguments rather
-than a new file. Four combinations are known good:
+than a new file. So is `attention_backend`, `null` by default and wired to the
+H3 step's transformer only (never a Z-Image or Music3 step beside it):
+`attention_backend=sage_hub` is the measured 23-33% per-step win on a CUDA box
+with the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true`; leave it
+null on mps, where it fails at run time ([ACCELERATION.md](../../../docs/ACCELERATION.md)).
+So is `cache`, `null` (off) by default on the same H3 step: pass
+`{"type": "first_block", "threshold": 0.05}` only at ~20 or more base steps, never
+with the turbo LoRAs. Four combinations are known good:
 
 | Checkpoint | Canvas | Shift (video/audio) | Alpha | Steps | Where |
 | --- | --- | --- | --- | --- | --- |

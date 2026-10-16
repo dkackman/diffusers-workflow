@@ -10,7 +10,7 @@ where it mattered.
 
 import logging
 
-from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, project
+from dw_mcp.client import DEFAULT_WORKSPACE, DwApiError, api_path, clip_note, project
 from dw_mcp import catalog
 
 logger = logging.getLogger(__name__)
@@ -18,7 +18,7 @@ logger = logging.getLogger(__name__)
 
 # What a compact workspace entry keeps: enough to choose one or judge its
 # size, nothing that only naming its folders needs
-WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage")
+WORKSPACE_SUMMARY_FIELDS = ("name", "default", "usage", "note")
 
 # What create_workspace answers with: the name to address it by, never the
 # folders the server made for it - no MCP response carries an absolute
@@ -79,7 +79,7 @@ def list_workspaces(client, detail=False):
             result = {
                 **result,
                 "workspaces": [
-                    project(entry, WORKSPACE_SUMMARY_FIELDS)
+                    clip_note(project(entry, WORKSPACE_SUMMARY_FIELDS))
                     for entry in entries
                     if isinstance(entry, dict)
                 ],
@@ -149,6 +149,19 @@ def create_workspace(client, name, use=False):
     if warning:
         result["warning"] = warning
     return result
+
+
+def copy_to_workspace(client, destination, runs=None, assets=None, source=None):
+    """Copy runs and assets into another workspace under the same root.
+    `source` defaults to this session's workspace. The server hard-links
+    media and copies sidecars, skips what the destination already holds
+    (`already_present`), refuses a differing asset at the same path, and
+    reports renumbered `vN` and warnings."""
+    source = source or client.workspace
+    return client.post_json(
+        api_path("api", "workspaces", destination, "copy"),
+        {"source": source, "runs": list(runs or []), "assets": list(assets or [])},
+    )
 
 
 def delete_workspace(client, name, acknowledged_cost=False):

@@ -212,6 +212,11 @@ run fails part way, since the files it did write are on disk either way. A
 sub-workflow is part of its parent's run: it writes into the same directory and
 rolls up into the same manifest.
 
+A pipeline step that ran also carries `timing` in its `manifest.json` entry
+(and in the same entry of the job's manifest from the API or MCP `get_job`):
+load, encode, denoise, decode and save seconds. A reused, task or composed
+step has none. See [Step timing](#step-timing).
+
 An unchanged rerun still reuses the step cache: it writes no new files and its
 manifest reports the earlier run's, marked `"reused": true`. The cache is
 validated against the output *root* a run writes into, which is the pinned
@@ -230,10 +235,64 @@ A later workflow names what an earlier run made with an `output:` reference —
 longer needs files copied back by hand. See
 [Output References](WORKFLOW_GUIDE.md#output-references).
 
+Each step's entry in `manifest.json` records its `role`, `final` or
+`intermediate` (and `role_declared` when the step's `result.role` stated it),
+from that one run's data flow. The gallery reads across runs as well: a file a
+later run in the same workspace read - by an `output:` reference, or by an
+`asset:` that `keep_output` kept from it - lists as `intermediate`, so a
+project's shots, narration and score stop reading as finals once the assembly
+that cuts them has run. Nothing is rewritten; a role `result.role` declared
+`final` stays final, and a run from before roles stays unknown. See
+`dw/roles.py`.
+
 To keep the previous layout — everything at the output root, with only a
 `workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory
 are the reason to.
+
+### Step timing
+
+A manifest entry for a pipeline step that ran - in `GET /api/jobs/{id}`, in
+MCP `get_job`, and on that step's `step_end` event - carries `timing`: where
+the step's time went. It is measured in the worker on its monotonic clock, not
+taken from event timestamps, because the job keeps only the last 200 events and
+the load and encode events are gone from a long job. Every `_s` is seconds to
+0.1. A field whose mark never happened is null, never guessed.
+
+| Field | Meaning |
+|---|---|
+| `load_s` | Loading or fetching the step's pipeline, cached or not |
+| `load_cached` | `true` if the pipeline came from the worker's cache, `false` if any part loaded fresh, null if the step loaded nothing |
+| `encode_s` | Call start to the first denoiser forward (or a modular pipeline's denoise bar opening): prompt and reference encoding and preparation |
+| `denoise_s` | First denoiser forward to the last pass's end. The whole call when the pipeline reports no passes; `encode_s` and `decode_s` are then null |
+| `passes` | Denoise passes the pipeline actually ran: one per iteration of its denoise loop, so one per scheduler timestep. This is not always `num_inference_steps`: SD 1.5's default PNDM scheduler runs 21 passes at 20 steps (N+1 from 2 steps up). `denoise_s` ≈ `first_pass_s + (passes − 1) × pass_s` |
+| `first_pass_s` | The first pass, which carries any compile warm-up |
+| `pass_s` | Median of passes 2..n; null with fewer than two passes |
+| `compiled` | The denoiser runs through `torch.compile` |
+| `decode_s` | Last pass's end to the call's return: VAE decode and post-processing |
+| `save_s` | Writing the step's files |
+| `segments` | Pipeline calls summed into this timing. A chain step sums its segments into one timing with `segments: N`; a step that iterates counts each call. 1 for a plain step |
+
+A step that set a `cache` also carries `timing.cache`: `{type, threshold, forwards, computed, skipped, hit_rate}`. `forwards` counts denoiser forwards, not steps - classifier-free guidance runs two per step (cond and uncond), so it is a whole multiple of `passes` - and `computed + skipped == forwards`; `hit_rate` is `skipped / forwards` to 3 places. A chain sums the counts over its segments. Counted for `first_block` and `mag` (`mag` also reports `num_inference_steps`, `max_skip_steps`, `retention_ratio`, `calibrate`); `taylorseer` (with `cache_interval`, `max_order`), `faster` and `text_kv` keep no per-forward decision in diffusers, so they report `type` and their config keys with `threshold` and every count null. A step with no cache has no `cache` key. If the installed diffusers moved the hook state dw reads, the counts are null and one `warning` event with `kind: "cache_stats_unavailable"` is emitted; the run never fails for it. The same fields arrive live as a `cache_stats` event ([SERVER.md](SERVER.md#progress-events)). See [Reading the skip counts](ACCELERATION.md#reading-the-skip-counts).
+
+A step served from the step cache (`reused: true`) has no `timing`, nor does a
+task step or a composed (sub-workflow) step. A failed or cancelled step has no
+manifest entry, so no timing. Job summaries and history are unchanged.
+
+### Host-memory history
+
+Each finished job's history row records a `memory_key`: a digest of the
+run's pipeline identities (`component_type`, `model_name`, `workflow` of
+every pipeline step) and every `quantization_config`, `offload` and
+`group_offload` value, with the caller's arguments resolved. The
+workflow's name is not in it, so a renamed or inline copy of a template
+shares the template's history, and a different `weights_dtype` or offload
+is a different key. From it the server projects a run's host-RAM peak:
+`observed` (the largest job peak RSS among this machine's successful runs
+with the same key), else `fit` (the list-run projection from the
+workflow's own history), else no figure. Rows recorded before the column
+existed have no key and count as no data. Validate reports it as
+`plan.host_memory`.
 
 ## Several workspaces on one server
 
@@ -323,6 +382,125 @@ work), nor can one with jobs still queued.
 A workspace is a **namespace, not a security boundary**. The API token is
 all-or-nothing: anything that can reach the server can name any workspace on
 it. Use them to keep work apart, not to keep it private.
+
+## Copying between workspaces
+
+A run is self-contained on disk, so copying its folder into another
+workspace's `outputs/` is what makes it resolvable there. `copy_to_workspace`
+(MCP) and `POST /api/workspaces/{destination}/copy` ([SERVER.md](SERVER.md))
+do that for runs, named `<workflow>/<run id>` or, for all of a workflow's runs,
+a bare `<workflow>`, and for assets, named as after `asset:` (`cast/iris.png`,
+or a folder such as `proj/` for every file under it). An asset keeps its
+library-relative path, so `uploads/` stays `uploads/` and an `asset:` reference
+means the same file in both workspaces. Its note and its kept-shots entry (the
+folder's `notes.json` and `manifest.json`, including where it was kept from)
+are merged into the destination folder's own sidecars, which are written
+fresh: naming a sidecar directly is a 400, since it travels with its files.
+
+Media is hard-linked, so a copy costs almost no disk, falling back to a real
+copy across devices. JSON sidecars (the manifest, `workflow.json`, notes,
+any `.json`) are always copied, never linked: they are edited in place, and a
+link would carry an edit in one workspace into the other. Nothing follows or
+creates a symlink.
+
+The copy is all or nothing: every entry is checked before anything is written.
+A run whose run id the destination already has is the same run, so it is
+skipped and listed as `already_present`, and repeating a copy changes nothing.
+A run whose job is still queued or running is refused, since its manifest is
+not final. An asset the destination already holds with the same bytes is
+skipped as `already_present` too; a different file at that path is a conflict,
+never replaced. Every conflict, runs and assets alike, is named in one 409
+before anything is written.
+
+Because a copied asset is a hard link, nothing edits media in place: an upload
+over an existing name writes a new file and renames it into place, and
+`keep_output` and `delete_asset` unlink first, so an edit in one workspace
+never reaches the other.
+
+A run keeps its `vN` unless the destination already uses that number for the
+workflow. Then this request's runs of that workflow are renumbered after the
+destination's highest, in run-id order, under the run lock so a concurrent run
+cannot take the same number. `renumbered` reports each `from` and `to`. Pinned
+`output:` references name run ids, so none of them break.
+
+The reply carries warnings, not refusals: `unresolved_output_refs` (a run's
+`output:` input that does not resolve in the destination), `absolute_paths`
+(manifest paths that still point into the source workspace, reported relative
+to the source workspace's root) and `no_jobs`. A copied run has no job record, so it appears in
+the gallery and resolves as an `output:` reference, but not in `list_jobs`.
+
+A move is a copy, then a delete of the source runs (`delete_output`, or
+`DELETE` on the gallery runs) and assets (`delete_asset`); there is no move that could lose a run halfway.
+
+## Running a sweep
+
+A sweep answers one quality or speed question by rendering the same request
+under several configurations, changing one factor at a time, and keeping the
+results together. There is no sweep tool: every step is one call to a tool
+dw already has.
+
+1. **One workspace per experiment.** `create_workspace` a workspace for it,
+   then `use_workspace`. Put the question and the factor list in its
+   workspace note, so the experiment explains itself to the next session:
+   `set_note("workspace:<name>", "Q: does steps change the face? factors: steps 4/8/12")`.
+
+2. **A base workflow with every factor as a variable.** If a catalog
+   template already exposes the factor as a variable (`get_workflow(name,
+   variables_only=true)`), run the template. Otherwise `get_workflow` it,
+   add a variable for each factor, put `variable:<name>` where the value
+   was, and `save_workflow` the copy into the experiment's workspace.
+   `text-to-image` fixes `num_inference_steps` at 25, so a steps sweep saves a copy
+   with `"steps": 25` under `variables` and `"num_inference_steps":
+   "variable:steps"` in the step. A factor that is a dtype or a quantization
+   name keeps its braces in the default, `"{nf4}"`, so it reaches the
+   pipeline as a string ([Types and escaping](WORKFLOW_GUIDE.md#types-and-escaping)).
+   Keep the template's `cost` block in the copy, or `plan.estimate` has no
+   basis to quote from.
+
+3. **Pin the seed, change one factor per variant.** Every variant passes the
+   same `seed` in `arguments`, and differs from the base in one factor only.
+   A factor can change the cost, so `validate_workflow` each variant with its
+   `arguments`, quote each one's `plan.estimate`, and get one go-ahead
+   for the whole list.
+
+4. **One `run_workflow` per variant, with a `note`.** The note's first line
+   is the overrides, `steps=8` or `steps=20 attention=sage`, so a listing
+   that clips notes still shows which variant is which. Call `wait_for_job`
+   until the variant finishes before submitting the next. The server holds a
+   second large variant until the host can hold it beside the first (see
+   [SERVER.md](SERVER.md)), so waiting is for ordering, not for memory.
+
+5. **Only the latest run of a step is cached.** The step cache holds one
+   entry per workflow step: its most recent run. A variant whose step and
+   seed match that run, such as the same variant submitted twice in a row,
+   is served from the cache: its manifest marks the step `"reused": true`
+   and lists that run's files ([Runs](#runs)). Going back to an earlier
+   variant after another one has run renders it again. Each card's worker
+   keeps its own cache, and a server restart empties them. Either way a
+   re-render is expected, not a failed variant.
+
+6. **The results table.** `list_jobs(workspace=<name>)` gives each variant's
+   job id, status and note. `get_job` on each gives its arguments, step
+   `timing` ([Step timing](#step-timing)) and files.
+
+7. **Assess each output with `set_note`.** Put the note on the output file
+   (its gallery name, as `list_gallery` gives it). The first line is the
+   score and who judged it, then one `key: value` line per facet:
+
+   ```
+   score 4/5 · judged_by claude-opus-5-5
+   faces: sharp, eyes aligned
+   staging: matches the brief
+   defects: none
+   ```
+
+   `get_gallery_metadata` returns the whole note. `list_gallery` and
+   `list_jobs` clip a note to its first 200 characters, so keep the
+   first line short: it is what a listing shows.
+
+8. **Keep the winner.** `keep_output` the winning file under a stable
+   `asset:` name, and put the conclusion (the answer, and the variant that
+   gave it) in the workspace note.
 
 ## Where this is going
 

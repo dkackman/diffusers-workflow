@@ -703,3 +703,41 @@ class TestUploadRouteInTheRefusals:
         assert '&workspace=qa-series"' in text
         assert "201 with 'reference', the 'asset:' reference" in text
         assert "no size cap" not in text
+
+
+class TestNotes:
+    def test_upload_and_keep_forward_a_note(self):
+        client, seen = recording()
+        upload_asset(
+            client,
+            content=base64.b64encode(b"x").decode(),
+            asset_name="a.png",
+            note="hero",
+        )
+        assert "note=hero" in seen["url"]
+
+        client, seen = recording()
+        keep_output(client, "wf/run/a.png", note="keeper")
+        assert json.loads(seen["body"])["note"] == "keeper"
+
+    def test_no_note_sends_none(self):
+        client, seen = recording()
+        keep_output(client, "wf/run/a.png")
+        assert json.loads(seen["body"]).get("note") is None
+        client, seen = recording()
+        upload_asset(
+            client, content=base64.b64encode(b"x").decode(), asset_name="a.png"
+        )
+        assert "note=" not in seen["url"]
+
+    def test_asset_listing_clips_notes(self):
+        body = {
+            "assets": [{"name": "a.png", "kind": "image", "note": "x" * 500}],
+            "total": 1,
+        }
+
+        def handler(request):
+            return httpx.Response(200, json=body)
+
+        entry = list_assets(client_over(handler))["assets"][0]
+        assert len(entry["note"]) == 201 and entry["note_truncated"] is True

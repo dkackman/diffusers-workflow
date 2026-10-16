@@ -165,8 +165,14 @@ exact - an adapter on the wrong base usually loads and is quietly worse.
 (the turbo keyframe files are `["t2va", "fl2va"]`). `proven` and `rejected` entries need `evidence`; a rejected
 entry's first note is why. The schema is `GET /api/lora-schema`.
 
+The server's validate enforces that `workflow` (#870): a step whose workflow
+sits in the other partition is refused when the entry is `proven`, and only
+warned when it is `trial` or `rejected`. Without a covering entry the file
+name decides (`ref2v` / `fl2v`), as in `dw/adapter_compatibility.py`.
+
 Promotion: a trial that worked is saved with `save_lora` (or
-`PUT /api/loras/{name}`) as `proven`, its job id in `evidence`.
+`PUT /api/loras/{name}`) as `proven`, its job id in `evidence`. Promoting
+it is also what makes its `workflow` refuse a mismatched step.
 
 ## Finding LoRAs on the Hub
 

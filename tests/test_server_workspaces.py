@@ -609,6 +609,9 @@ class TestKeepingOutputs:
         os.makedirs(run_dir, exist_ok=True)
         with open(os.path.join(run_dir, "still.png"), "wb") as handle:
             handle.write(b"png-bytes")
+        inputs = [{"reference": "asset:qa-cast/a.mp4", "kind": "asset"}]
+        with open(os.path.join(run_dir, "manifest.json"), "w") as handle:
+            json.dump({"steps": [], "inputs": inputs}, handle)
 
         with server() as client:
             manager = client.app.state.job_manager
@@ -629,6 +632,8 @@ class TestKeepingOutputs:
         assert metadata["job"] == {"id": "9bd7d90745c3", "status": "complete"}
         assert metadata["run_id"] == "20260905-101500-bbbbbbbb"
         assert metadata["version"] == 1
+        # #902: the lineage the source run recorded outlives the run
+        assert metadata["inputs"] == inputs
 
         sidecar = os.path.join(workspace_root.assets, "qa-cast", "manifest.json")
         with open(sidecar) as handle:

@@ -29,8 +29,16 @@ the pre-queue check covers every server submission.
 
 import json
 
+from .for_each import ForEachError, expand_for_each
 from .vram_estimate import KEY as ESTIMATE_KEY
-from .vram_estimate import _resolved, pipeline_identity, vram_estimate_errors
+from .vram_estimate import reference_count
+from .variables import (
+    VariableNotFoundError,
+    replace_variables,
+    same_number,
+    undeclared_variable_references,
+)
+from .vram_estimate import pipeline_identity, vram_estimate_errors
 
 KIND = "vram_projection_inherited"
 
@@ -52,45 +60,190 @@ def template_identity(definition):
 
 
 def _found(node, key, variables):
-    """Every value `key` carries anywhere under `node`, a `variable:`
-    reference resolved against `variables`, as sorted JSON text."""
+    """Every value `key` carries anywhere under `node`, as sorted JSON text,
+    after `node`'s `variable:` references are substituted the way a run
+    substitutes them (`replace_variables`: at any depth, and a key whose
+    reference resolves to null dropped). A `loras` list carries its repo as
+    a reference inside each entry (#866)."""
+    return _carried(_substituted(node, variables), key)
+
+
+def _substituted(node, variables):
+    """`replace_variables(node, variables)`, except that a reference to a
+    variable `variables` doesn't declare stays as written instead of failing
+    the whole node, so the rest of it is still compared."""
+    try:
+        return replace_variables(node, variables)
+    except VariableNotFoundError:
+        pass
+    if isinstance(node, dict):
+        result = {}
+        for name, value in node.items():
+            try:
+                result.update(replace_variables({name: value}, variables))
+            except VariableNotFoundError:
+                result[name] = _substituted(value, variables)
+        return result
+    if isinstance(node, list):
+        result = []
+        for item in node:
+            try:
+                result.extend(replace_variables([item], variables))
+            except VariableNotFoundError:
+                result.append(_substituted(item, variables))
+        return result
+    return node
+
+
+def _carried(node, key):
     values = set()
     if isinstance(node, dict):
         for name, value in node.items():
             if name == key:
-                values.add(json.dumps(_resolved(value, variables), sort_keys=True))
-            values |= _found(value, key, variables)
+                # By value, not spelling: a client's JSON round trip turns
+                # the template's `lora_scale` 1.0 into 1 (#908)
+                values.add(json.dumps(same_number(value), sort_keys=True))
+            values |= _carried(value, key)
     elif isinstance(node, list):
         for item in node:
-            values |= _found(item, key, variables)
+            values |= _carried(item, key)
     return values
 
 
 # What changes a pipeline's cost without changing its identity (#797):
-# (label, key) pairs read wherever a step sets them
+# (label, key) pairs read wherever a step sets them. The last three are the
+# keys a pipeline step sets its attention backend, step cache and LoRAs
+# under (#866)
 _COST_SETTINGS = (
     ("offload", "offload"),
     ("quantization", "quantization_config"),
     ("frame count", "num_frames"),
+    ("attention backend", "attention_backend"),
+    ("cache", "cache"),
+    ("LoRA", "loras"),
 )
 
 
 def inherited_differences(definition, template, arguments=None):
     """What `definition` sets differently from `template` among the things
     that move a pipeline's cost without changing which pipeline it is -
-    offload, quantization, frame count - as short phrases (#797). A figure
-    inherited from `template` is an approximation to the extent these
-    differ. `arguments` (the caller's) override `definition`'s variables."""
+    offload, quantization, frame count, attention backend, cache, LoRA - as
+    short phrases (#797, #866). A figure inherited from `template` is an
+    approximation to the extent these differ. `arguments` (the caller's)
+    override `definition`'s variables."""
+    differs = [
+        label
+        for label, key in _COST_SETTINGS
+        if sets_differently(definition, template, key, arguments)
+    ]
+    # A reference is encoded and attended on every pass, so a count other
+    # than the template's moves the cost (#915); it is named, not scaled
+    if reference_counts(definition, arguments) != reference_counts(template):
+        differs.append("reference count")
+    return differs
+
+
+def reference_counts(definition, arguments=None):
+    """The set of reference counts the pipeline steps of `definition` pass,
+    `variable:` references resolved and `for_each` expanded, so each member
+    step counts its own entry's `references` (#915). A step's count is
+    `vram_estimate.reference_count`'s, the one the VRAM projection uses."""
     variables = dict(definition.get("variables") or {})
     variables.update(arguments or {})
-    template_variables = template.get("variables") or {}
-    differs = []
-    for label, key in _COST_SETTINGS:
-        mine = _found(definition.get("steps"), key, variables)
-        theirs = _found(template.get("steps"), key, template_variables)
-        if mine != theirs:
-            differs.append(label)
-    return differs
+    expanded = _expanded_steps(definition, variables)
+    if expanded is None:
+        return set()
+    return {
+        reference_count(step["pipeline"].get("arguments"))
+        for step in expanded
+        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
+    }
+
+
+def _expanded_steps(definition, variables):
+    """`definition`'s steps with `variables` substituted and `for_each`
+    expanded as the run does, so `item:` references carry each entry's own
+    value; None when the expansion fails."""
+    steps = _substituted(definition.get("steps"), variables)
+    try:
+        return expand_for_each({"steps": steps}).get("steps") or []
+    except ForEachError:
+        return None
+
+
+def sets_differently(definition, template, key, arguments=None):
+    """Whether `definition`'s steps set `key` to other values than
+    `template`'s, `variable:` references resolved (`arguments` override
+    `definition`'s variables)."""
+    return _found_expanded(
+        definition, key, _compared_variables(definition, arguments)
+    ) != _found_expanded(template, key, _compared_variables(template))
+
+
+def _compared_variables(definition, arguments=None):
+    """`definition`'s variables, `arguments` over them, with every name its
+    references use but it doesn't declare set to null. A copy that leaves out
+    a variable whose default is null (`lora_alpha`) then drops that key as
+    the template it was copied from does, instead of comparing the reference
+    text against nothing (#866)."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    for _, name in undeclared_variable_references(definition):
+        variables.setdefault(name, None)
+    return variables
+
+
+def _found_expanded(definition, key, variables):
+    # A for_each step's `item:` references resolve per entry, so the value an
+    # entry sets is compared, not the reference text (#916)
+    expanded = _expanded_steps(definition, variables)
+    if expanded is None:
+        return _found(definition.get("steps"), key, variables)
+    return _carried(expanded, key)
+
+
+def pipeline_steps(definition, arguments=None):
+    """The pipeline steps `definition` runs, `variable:` references resolved
+    (`arguments` override the variables) and `for_each` expanded, so a
+    six-entry list is six steps, each with its entry's `item:` values - the
+    count and values an inherited price is scaled by (#851). The authored
+    steps when the expansion fails."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    steps = _expanded_steps(definition, variables)
+    if steps is None:
+        steps = definition.get("steps") or []
+    return [
+        step
+        for step in steps
+        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
+    ]
+
+
+def pipeline_values(definition, key, arguments=None):
+    """The number each pipeline step sets `key` to (a `variable:` reference
+    resolved; `arguments` override the variables; the largest where a step
+    sets it twice), None for a step that sets none or a non-numeric one -
+    for scaling an inherited price along it (#851, #866). A `for_each`
+    step is read per member, as `pipeline_steps` expands it."""
+    variables = dict(definition.get("variables") or {})
+    variables.update(arguments or {})
+    found = []
+    for step in pipeline_steps(definition, arguments):
+        numbers = [
+            value
+            for value in map(json.loads, _found(step, key, variables))
+            if isinstance(value, (int, float)) and not isinstance(value, bool)
+        ]
+        found.append(max(numbers) if numbers else None)
+    return found
+
+
+def pipeline_frames(definition, arguments=None):
+    """The frame count each pipeline step sets (`num_frames`), as
+    `pipeline_values` reads it - for scaling an inherited price by frame
+    count (#851)."""
+    return pipeline_values(definition, "num_frames", arguments)
 
 
 def declarations(catalog):
