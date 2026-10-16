@@ -1,0 +1,33 @@
+{
+    "id": "flux3_klein_upsample",
+    "description": "Expands a short request into the caption FLUX 3 Image Klein was trained on, with Black Forest Labs' own prompt upsampler, flux-3-image-klein-pup, a Qwen3.5-9B fine-tune. BFL says not to use Klein without it. The weights and the text-to-image system prompt are both pinned to pup commit 3f3edb52, and the prompt is read from the repo's system_prompts.json rather than copied. Thinking is switched off and decoding is greedy, as BFL runs it. BFL also applies a presence penalty of 1.5 for text-to-image, which transformers' generate() has no equivalent for, so it is left out. About 18 GB in bf16.",
+    "variables": {
+        "prompt": "A man walking with his dog, afternoon sun",
+        "device": "cuda"
+    },
+    "steps": [
+        {
+            "name": "upsample",
+            "task": {
+                "command": "text_generation",
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "model_name": "black-forest-labs/flux-3-image-klein-pup",
+                    "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                    "system_prompt": {
+                        "from_hub": {
+                            "repo": "black-forest-labs/flux-3-image-klein-pup",
+                            "file": "system_prompts.json",
+                            "revision": "3f3edb52b2c55de0d49feab28598b68f7f8e4830",
+                            "key": "t2i"
+                        }
+                    },
+                    "chat_template_kwargs": {"enable_thinking": false},
+                    "max_new_tokens": 3584,
+                    "device": "variable:device"
+                }
+            },
+            "result": {"content_type": "text/plain", "save": false}
+        }
+    ]
+}
