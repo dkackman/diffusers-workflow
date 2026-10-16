@@ -64,8 +64,10 @@ settings*:
 3. `image-edit.json` - one reference; the `i2i` upsampler sees the same image; output
    defaults to 1 MP at the reference's aspect ratio (diffusers' rule, not the vendor
    code's - stated in the description).
-4. `multi-reference.json` - 2-10 references named `<ref_image_N>` in the caption; the
-   10 cap is a `variable_constraints` rule because diffusers does not enforce it.
+4. `multi-reference.json` - 2-10 references named `<ref_image_N>` in the caption. The
+   10 cap is stated in the description and the skill, not enforced: diffusers does not
+   enforce it, and `variable_constraints` are numeric only, so they cannot check a
+   list's length. An enforcing list-length check is a follow-up.
 5. `layout-boxes.json` - `<id>` caption + 0-1000 box table, written in the box format
    directly as the HF card shows. Upsampled boxes (`t2i_bbox`) need BFL's
    `bbox.plan`/`bbox.reconcile` scaffolding, so they're a follow-up.
@@ -93,7 +95,10 @@ needs two things to run it as BFL specifies:
 
 `repetition_penalty` is already overridable (1.15 is only the vision default), and
 `generate_kwargs` already passes through, so the vendor's greedy decoding needs no
-change: the edit templates set `repetition_penalty: 1.0`.
+change: the edit templates set `repetition_penalty: 1.0`. Built later: `generate_kwargs`
+is filtered like `chat_template_kwargs` (scalars or lists of them, none of the call's own
+keys), and `custom_generate`/`trust_remote_code` need trusted workflows, since
+transformers runs a `custom_generate` repo's code.
 
 ## Decision: the upsampler's system prompts are read from the Hub (Don, 2026-10-15)
 
@@ -113,8 +118,15 @@ a Hub repo:
                                "key": "t2i"}}
 ```
 
-- Fetched with `hf_hub_download` into the normal HF cache, so it's one small download,
-  then offline.
+- Not "one download, then offline": before every use the Hub is asked, anonymously
+  (`get_hf_file_metadata`, `token=False`), whether it serves the file publicly at that
+  commit, and any error refuses the run rather than falling back to the cache. So it
+  fails closed offline or under `HF_HUB_OFFLINE`. Without that ask, a full commit would
+  be answered from the local cache, where files the server fetched with its own login
+  (gated or private repos) would be readable by any workflow.
+- The download is public-only (`hf_hub_download(..., token=False)`) and capped at
+  1 MiB: the Hub's reported size is checked first (no reported size is a refusal),
+  and the downloaded file again before it is read.
 - `revision` is required and must be a full 40-hex commit, so the text a template runs
   can't move under it.
 - `repo` matches the Hub id pattern, and `file` is a relative path with no `..` or
@@ -136,3 +148,15 @@ a Hub repo:
   `model_name`, 18.8 GB), so the cost quote misses the download. Once a partial
   cache existed it swung the other way: 40.3 GB, the whole repo including the
   `variants/` the pipeline never loads.
+- Enforce the multi-reference 10 cap with a list-length check (`variable_constraints`
+  are numeric only).
+- `generate_kwargs` sweep of the other tasks: `text_generation` now refuses
+  `custom_generate`/`trust_remote_code` untrusted and filters the call's own keys and
+  non-scalar values. `speech_generation` still passes a workflow's `generate_kwargs`
+  (`dw/tasks/speech_generation.py:219`) and `forward_params` (`:190`, `:218`) to the
+  transformers pipeline unfiltered, and the controlnet_aux detector handlers splat
+  workflow kwargs into the detector call (`dw/tasks/image_utils.py:103`, `:114`, `:124`).
+  The repo owner decides that fix.
+- `revision` validation parity (M7, deferred): `text_generation`'s model `revision` is
+  passed to the loader as given, while `system_prompt.from_hub.revision` must be a full
+  commit; whether the model revision gets the same pin rule is open.
