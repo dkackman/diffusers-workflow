@@ -33,7 +33,7 @@ from ..library import (
     library_path,
 )
 from ..notes import read_notes
-from ..roles import entry_role
+from ..roles import ROLE_DECLARED_KEY, consumed_outputs, entry_role, listed_role
 from ..runs import (
     MANIFEST_FILE_NAME,
     _read_manifest,
@@ -536,30 +536,68 @@ def run_roles(run_dir):
     separated), mapped to the role its manifest entry records. An entry
     without one (a run that predates roles) is left out - unknown, not
     guessed. {} when the manifest is unreadable."""
+    return _run_role_record(run_dir)[0]
+
+
+def declared_files(run_dir):
+    """The files of a run whose role the step declared (`role_declared`,
+    dw/roles.py rule 1), by the same names `run_roles` uses."""
+    return _run_role_record(run_dir)[1]
+
+
+def listed_file_role(run_dir, name, consumed):
+    """The role a listing shows for file `name` of a run: its recorded role,
+    demoted when `consumed` (dw/roles.py rule 4)."""
+    return listed_role(
+        run_roles(run_dir).get(name), name in declared_files(run_dir), consumed
+    )
+
+
+def consumed_in(state, ws):
+    """`consumed_outputs` over a workspace's outputs, its assets found down
+    the search path a run resolves 'asset:' in. Once per listing."""
+    library = resolution_library(state, ws)
+
+    def find_asset(name):
+        try:
+            validate_asset_reference(name)
+        except SecurityError:
+            return None
+        found = library.find(name)
+        return found[0] if found else None
+
+    return consumed_outputs(ws.outputs, find_asset, ws.name)
+
+
+def _run_role_record(run_dir):
+    """(roles, declared names) a run's manifest records, cached on its stat."""
     try:
         key = (
             run_dir,
             os.stat(os.path.join(run_dir, MANIFEST_FILE_NAME)).st_mtime_ns,
         )
     except OSError:
-        return {}
+        return {}, frozenset()
     with _ROLE_CACHE_LOCK:
         if key in _ROLE_CACHE:
             _ROLE_CACHE.move_to_end(key)
             return _ROLE_CACHE[key]
     manifest = _read_manifest(run_dir) or {}
-    roles = {}
+    roles, declared = {}, set()
     for entry in manifest.get("steps") or []:
         role = entry_role(entry)
         if role:
             for name in entry.get("files") or []:
                 roles[str(name).replace(os.sep, "/")] = role
+                if entry.get(ROLE_DECLARED_KEY) is True:
+                    declared.add(str(name).replace(os.sep, "/"))
+    record = (roles, frozenset(declared))
     with _ROLE_CACHE_LOCK:
-        _ROLE_CACHE[key] = roles
+        _ROLE_CACHE[key] = record
         _ROLE_CACHE.move_to_end(key)
         while len(_ROLE_CACHE) > _ROLE_CACHE_LIMIT:
             _ROLE_CACHE.popitem(last=False)
-    return roles
+    return record
 
 
 def run_inputs(run_dir):

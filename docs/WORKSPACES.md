@@ -235,6 +235,16 @@ A later workflow names what an earlier run made with an `output:` reference —
 longer needs files copied back by hand. See
 [Output References](WORKFLOW_GUIDE.md#output-references).
 
+Each step's entry in `manifest.json` records its `role`, `final` or
+`intermediate` (and `role_declared` when the step's `result.role` stated it),
+from that one run's data flow. The gallery reads across runs as well: a file a
+later run in the same workspace read - by an `output:` reference, or by an
+`asset:` that `keep_output` kept from it - lists as `intermediate`, so a
+project's shots, narration and score stop reading as finals once the assembly
+that cuts them has run. Nothing is rewritten; a role `result.role` declared
+`final` stays final, and a run from before roles stays unknown. See
+`dw/roles.py`.
+
 To keep the previous layout — everything at the output root, with only a
 `workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory
