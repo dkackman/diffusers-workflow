@@ -719,6 +719,58 @@ class TestKandinsky6Skill:
         assert text.index("get_server_info") < text.index("templates/kandinsky6/")
 
 
+FLUX3_SKILL = os.path.join(PLUGIN_DIR, "skills", "flux3-klein", "SKILL.md")
+
+
+def flux3_text():
+    """The Klein skill with its line wraps collapsed, so a phrase the tests
+    pin does not break when a paragraph is rewrapped."""
+    return " ".join(skill_text(FLUX3_SKILL).split())
+
+
+class TestFlux3KleinSkill:
+    """The Klein skill's numbers come from the diffusers modular blocks that
+    enforce them; the 10-reference cap is the vendor's training limit, which
+    the pipeline does not enforce, and the skill says so."""
+
+    def test_the_step_count_is_the_distilled_pipeline_s(self):
+        # The distilled denoise step, not Flux3SetTimestepsStep (which
+        # defaults to 50), holds the 16 the templates run.
+        from diffusers.modular_pipelines.flux3.modular_blocks_flux3_distilled import (
+            Flux3DistilledCoreDenoiseStep,
+        )
+
+        defaults = {p.name: p.default for p in Flux3DistilledCoreDenoiseStep().inputs}
+        assert defaults["num_inference_steps"] == 16
+        assert "16 steps" in flux3_text()
+
+    def test_the_grid_is_the_vae_scale_times_the_2x2_packing(self):
+        from diffusers.modular_pipelines.flux3 import before_denoise
+
+        # The multiple is read off the loaded VAE, so only the source shows it.
+        assert "vae_scale_factor * 2" in inspect.getsource(before_denoise)
+        assert "multiples of 16" in flux3_text()
+
+    def test_the_distilled_model_takes_no_guidance(self):
+        assert "no guidance" in flux3_text()
+
+    def test_the_reference_cap_is_stated_as_the_vendor_s(self):
+        text = flux3_text()
+        assert "10 references" in text and "<ref_image_0>" in text
+        assert "does not enforce" in text
+
+    def test_the_skill_defers_prompt_format_to_bfl(self):
+        text = flux3_text()
+        assert "https://docs.bfl.ml/guides/prompting_summary" in text
+        assert "`flux3_klein_upsample`" in text
+        assert "`flux3_klein_upsample_edit`" in text
+
+    def test_the_skill_starts_with_the_server(self):
+        text = flux3_text()
+        assert text.index("get_server_info") < text.index("list_workflows")
+        assert text.index("get_server_info") < text.index("templates/flux3/")
+
+
 SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")
 SERIES_LOOK = os.path.join(os.path.dirname(SERIES_SKILL), "references", "look.md")
 
