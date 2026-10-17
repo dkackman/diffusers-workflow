@@ -492,8 +492,10 @@ def health(request: Request):
     import socket
 
     from ... import __version__, get_device, get_device_type
+    from ...sparse_attention import available_attention_backends
 
     workers = manager.workers()
+    device = get_device_type(get_device())
     return {
         "status": "ok",
         "version": __version__,
@@ -509,8 +511,9 @@ def health(request: Request):
         # which machine answered - the thing a remote client cannot
         # otherwise tell apart from a stale tunnel pointed at nothing
         "hostname": socket.gethostname(),
-        "device": get_device_type(get_device()),
+        "device": device,
         "mcp": bool(state.mcp_mounted),
+        "attention_backends": available_attention_backends(device),
     }
 
 

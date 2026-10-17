@@ -159,19 +159,37 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency. The only backend a bundled workflow sets is `sparse`, the default on every MiniMax-H3 template, and it needs no `kernels` install (comfy-kitchen is a core dependency), so each bundled workflow runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
 Every MiniMax-H3 template in [templates/minimax/](../workflows/templates/minimax/)
 exposes this as a variable: `attention_backend`, pinned on the H3 step's transformer
 (`components.transformer`, or `components.transformer_ref` for a ref2va workflow) and
-`null` by default. That covers the shots, chains and episodes - `dialogue-short`,
+`"sparse"` by default (with `sparse_tau`, below). That covers the shots, chains and episodes - `dialogue-short`,
 `shots-batch`, `music-video` and `storyboard` among them - and only their H3 steps: a
 Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass
-`attention_backend=sage_hub` to a box with the `kernels` package and
-`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since a
-CUDA-only kernel fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
+`attention_backend=sage_hub` (or `native`) to override the default; `sage_hub` needs a box with the `kernels` package and
+`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS the default falls back to dense, but a CUDA-only kernel such as `sage_hub` fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
 passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
 for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
+
+### `sparse` (MiniMax-H3)
+
+`attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel: each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. It applies to the H3 transformer only, at pipeline or component level, and is the default on every H3 template (#931). `sparse_tau` (number, minimum 0, default 0.5; anything else, such as a `variable:` that resolves to a string or a bool, fails the step rather than running dense) sets how much of the attention mass a tile may drop; 0 keeps the most. Observed at Ref2VA 1344x768, seed 42: tau 1.0 ran 42.1 s/forward against 44.8 s at 0.5, and by Don's eye 1.0 gave smoother skin while 0.5 matched dense (the table below). That is one shape and one seed, not a rule that higher is always faster or smoother.
+
+Measured on an RTX 3090, seed 42, against dense native SDPA (not `sage_hub`, which is about 30% faster than native per step; the sparse-against-sage ratio is not measured yet):
+
+| shape | dense s/forward | sparse s/forward | speedup | wall dense -> sparse |
+|---|---|---|---|---|
+| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | 10.8 | 2.25x | 150 -> 95 s |
+| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | 21.9 | 4.38x | 457 -> 158 s |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | 42.1 | 2.58x | 965 -> 430 s |
+| same, tau 0.5 | 108.4 | 44.8 | 2.42x | 965 -> 450 s |
+
+Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
+
+It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per pipeline call. A job of one call warns once; a chained, `shots-batch` or `dialogue-short` job calls the pipeline once per segment or shot, so it warns once for each, under that segment's or shot's label. A comfy-kitchen kernel that fails on its first invocation in a call also runs that call dense, with `sparse kernel failed: <error>` as the reason; one that fails after it has run in the call fails the run, since some blocks have already run sparse.
+
+Unlike sage, sparse **moves composition** relative to dense: the same subject, story and cuts, but different framing and set dressing. A draft and its final must therefore use the same backend; mixing `sparse` and `sage_hub` between tiers means the draft no longer predicts the final.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 

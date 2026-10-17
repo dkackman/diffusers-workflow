@@ -2488,6 +2488,11 @@ export interface components {
         /** HealthInfo */
         HealthInfo: {
             /**
+             * Attention Backends
+             * @description Attention backends this server's device can run, for the UI's dropdown; 'sparse' only where comfy-kitchen's compiled kernels loaded
+             */
+            attention_backends?: string[];
+            /**
              * Current Job
              * @description The longest-running job; `workers` names every running one.
              */
