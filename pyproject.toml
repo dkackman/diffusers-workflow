@@ -70,6 +70,9 @@ dependencies = [
     # without it that decoder falls back to a FlexAttention path diffusers' own
     # docstring calls larger than device memory at production grids
     "kernels>=0.17.2",
+    # Sol-Attn sparse attention for MiniMax H3's generated-video rows (#931);
+    # compiled CUDA/HIP kernels on Linux and Windows, an eager-only wheel elsewhere
+    "comfy-kitchen>=0.2.38",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",
