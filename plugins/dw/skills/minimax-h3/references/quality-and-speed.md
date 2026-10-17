@@ -29,13 +29,17 @@ shift the LoRA names.
 | L6 | 1344x768 | int8 | none | 30 | native | 44.2 | 4 |
 | P1 | 1344x768 | int8 | none | 30 | sage_hub + `first_block` 0.05 | 23.1 | 4 |
 | C1 / C2 (close-up) | 1344x768 | int8 | none | 12 / 30 | sage_hub | 13.9 / 22.8 | 4 / 4 |
+| B3s | 1344x768 | int8 | none | 12 | sparse | 12.1 | = B3 (Don, 3 seeds) |
+| L5s | 1344x768 | int8 | none | 30 | sparse | 26.6 | = L5 (Don, 3 seeds) |
 
 - **Faces**: turbo LoRAs plus int4 cause the smeary faces, not resolution. The
   base model at int8 fixes it: `lora_model_name: null`, 12-30 steps, shift
   12/3. A close-up is already 4/5 at 12 steps.
-- **Composition** (who stands where): attention never moves it; quantization
-  doesn't on a turbo LoRA (L1 = L7) but does on the base model (int4 vs
-  int8); a different LoRA family re-stages; base step count doesn't.
+- **Composition** (who stands where): `sage_hub` against `native` never moves
+  it. `sparse` against either keeps the shot but shifts details (a figure's
+  height, props), so a draft and its final use the same backend. Quantization
+  doesn't move it on a turbo LoRA (L1 = L7) but does on the base model (int4
+  vs int8); a different LoRA family re-stages; base step count doesn't.
 - **Steps**: the base floor is 12. 8 steps duplicated a character (B6).
 - **Two-character shots at 960x544 smear** (~60 px faces): render them at
   1344x768 from the start, not at 544 and upscaled.
@@ -59,11 +63,11 @@ Both tiers use the same template (`templates/minimax/reference-to-video`, or
 is an argument on every H3 template, `dialogue-short` included. Set it at
 both tiers on CUDA: it never moves composition.
 
-The H3 templates now default to `attention_backend=sparse` (with `sparse_tau`
-0.5), which does move staging, unlike sage. It is only ~14% faster per step
-than `sage_hub` at Ref2VA 1344x768; its big gain is against `native`. Every row below keeps
-`attention_backend=sage_hub` at both tiers until #931 stage 3 measures the sparse
-rows; pass it explicitly. Draft and final always share one backend.
+The H3 templates default to `attention_backend=sparse` (`sparse_tau` 0.5),
+which shifts details against sage (see *Composition*). Against `sage_hub` it
+is 6-12% faster on these rungs (#931 stage 3); its big gain is against
+`native`. Draft and final always share one backend: pass the backend the
+row names at both tiers.
 
 **`dialogue-short` at 1344x768** (every rung below is that canvas): a shot
 with 4 references must be 124 frames (*Frame ceiling* above). The default
@@ -78,7 +82,8 @@ shot's line still fits 5.17 s.
 | Target | Draft | Final | Only these change |
 |---|---|---|---|
 | **TV** (sitcom, social, previs) | **L1**, ~5.4 min | **L7**, ~7.2 min | `weights_dtype` `{int4}` to `{int8}` |
-| **Cinema** (realistic faces) | **B3**, ~12.9 min | **L5**, ~29.5 min, or **P1**, ~23.1 min | `num_inference_steps` 12 to 30; P1 adds `cache` |
+| **Cinema** (realistic faces), sage | **B3**, ~12.9 min | **P1**, ~23.1 min (or L5, ~29.5) | `num_inference_steps` 12 to 30; P1 adds `cache` |
+| **Cinema**, sparse | **B3s**, ~12.1 min | **L5s**, ~26.6 min | `num_inference_steps` 12 to 30 |
 | **Close-up** | **C1**, ~13.9 min | ship the draft | nothing |
 
 - **TV.** Both rungs are 1344x768 on the 4-step Ref2VA v0.1 LoRA:
@@ -97,21 +102,27 @@ shot's line still fits 5.17 s.
   faces). Both tiers warn `lora_disabled`. That is expected: the warning asks
   for the base schedule, and these values are it. Never draft at B4 (960x544
   int4 base) for a 1344x768 final: its staging held on only 2 of 4 seeds.
+  The sparse pair (B3s -> L5s) is the same arguments with
+  `attention_backend=sparse`: skin equal to sage and staging carried on 3 of 3
+  seeds (#931). The sage pair with P1 is still the fastest cinema final;
+  sparse with the `first_block` cache is not measured, so don't combine them.
 - **Close-ups**: C1 is B3's arguments on a close-up shot. It scores 4/5 at
   12 steps (C1 = C2), so the draft is the deliverable.
 
 ### 2. What carries from draft to final
 
-The composition rules under *Quality ladder* hold: attention never moves
-staging, and neither does base step count; a different LoRA family
-re-stages; so does int4 against int8 on the base model. On top of those:
+The composition rules under *Quality ladder* hold: sage never moves
+staging, sparse shifts details (so it never changes between tiers), and
+neither does base step count; a different LoRA family re-stages; so does int4
+against int8 on the base model. On top of those:
 
 - keep the seed, canvas, prompt and references identical between the tiers;
 - blocking carries, but props and set dressing sometimes don't (a jacket on
   a chair in C1 only).
 
 Measured (#861) on seeds 42, 7 and 1234, judged by Don: B3 -> P1, C1 -> C2
-and L0 -> L7 each held staging on **3 of 3** seeds. L1 = L7 (the TV pair
+and L0 -> L7 each held staging on **3 of 3** seeds, and B3s -> L5s under
+sparse too (#931). L1 = L7 (the TV pair
 itself) is measured on **1 seed** (42). B4 -> B5 held on only 2 of 4 seeds
 (42, 7, 1234, 99). At seed 1234, B5 (int4) staged like B3 (int8): on the
 base model the canvas moved staging more than the weights did. That is one
@@ -143,9 +154,9 @@ Quote `validate_workflow`'s `plan.estimate` for each tier, draft plus
 final. It scales by steps, canvas and frames (#866), but not by
 `weights_dtype`, `attention_backend`, `cache` or a null LoRA. When one of
 those moves it sets `low_confidence` and names the variable in `differs`.
-With `sage_hub` set, every rung above moves one. Quote that rung's minutes
-from the ladder instead (they were measured with `sage_hub`), and say which
-figure you are quoting.
+Every rung above moves one. Quote that rung's minutes from the ladder instead
+(the *Attn* column says which backend they were measured with), and say
+which figure you are quoting.
 
 ## Prompting the base model
 
@@ -181,11 +192,13 @@ Per phase, from the job event log (minutes unless noted):
 Denoise is 80-91% of a job, ~56 s/pass with int8 weights streamed by
 block-level group offload: compute-bound, not PCIe-bound.
 
-- **`sage_hub`**: -23% at turbo 8-step, -33% at base 30, visually lossless.
-  Advise it first where the box has it: `attention_backend=sage_hub`, an
-  argument on every H3 template (default `null`, the H3 step only). It needs
-  CUDA, the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true`; leave
-  it `null` on mps or cpu, where it passes validate and fails at run time.
+- **`sage_hub`**: -23% at turbo 8-step, -33% at base 30 against `native`,
+  visually lossless. `attention_backend` is an argument on every H3 template
+  (the H3 step only); the default is `sparse`, 6-12% faster than `sage_hub`
+  on the ramp rungs and runnable without extra packages. `sage_hub` needs
+  CUDA, the `kernels` package and `DIFFUSERS_TRUST_REMOTE_KERNELS=true`; on
+  mps or cpu it passes validate and fails at run time, while `sparse` there
+  falls back to dense with a warning.
 - **`first_block` 0.05**: -22% at 30 base steps with identical staging and
   faces (PSNR 27.5 dB against L5). It skips nothing at 12 steps or on a
   turbo schedule, yet still perturbs the result: use it at ~20 or more base

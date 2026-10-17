@@ -99,7 +99,7 @@ section).
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
 - Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
-- CUDA: `attention_backend=sage_hub` (null elsewhere; mps fails at run).
+- Backend: default `sparse` (dense off CUDA); same one at draft and final.
 - Fit a crowd's action to what it holds: candle-holders asked to clap
   rendered three-handed people.
 - A directed crowd move needs its landmark in frame: "marches up to the
