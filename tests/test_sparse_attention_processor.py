@@ -300,6 +300,50 @@ def test_tile_map_rebuilt_when_layout_changes(tiny_h3, kernel_calls, monkeypatch
     torch.testing.assert_close(outs[2], refs[1], rtol=1e-4, atol=1e-4)
 
 
+def test_tile_map_rebuilt_for_a_transposed_grid(tiny_h3, kernel_calls, monkeypatch):
+    """h=6, w=5 and h=5, w=6 share row count, tag sum and position sum; only
+    a rebuilt map gathers the second one correctly."""
+    built = []
+    real = sparse_attention.build_tile_map
+
+    def counting(*a, **kw):
+        tm = real(*a, **kw)
+        built.append(tm.video_grid)
+        return tm
+
+    monkeypatch.setattr(sparse_attention, "build_tile_map", counting)
+    first, second = _inputs(h=6, w=5), _inputs(h=5, w=6)
+    assert first["position_ids"].shape == second["position_ids"].shape
+    assert first["token_tags"].sum() == second["token_tags"].sum()
+    with torch.no_grad():
+        refs = [tiny_h3(**first).sample, tiny_h3(**second).sample]
+    install_sparse(tiny_h3, 0.5)
+    with torch.no_grad(), sparse_call(_pipe(tiny_h3), "t") as report:
+        outs = [tiny_h3(**first).sample, tiny_h3(**second).sample]
+    assert report.ran_sparse
+    assert built == [(5, 6, 5), (5, 5, 6)]
+    torch.testing.assert_close(outs[0], refs[0], rtol=1e-4, atol=1e-4)
+    torch.testing.assert_close(outs[1], refs[1], rtol=1e-4, atol=1e-4)
+
+
+def test_any_error_while_deciding_falls_back(
+    tiny_h3, kernel_calls, monkeypatch, warnings
+):
+    def boom(*a, **kw):
+        raise RuntimeError("boom")
+
+    monkeypatch.setattr(sparse_attention, "build_tile_map", boom)
+    inputs = _inputs()
+    with torch.no_grad():
+        ref = tiny_h3(**inputs).sample
+    install_sparse(tiny_h3, 0.5)
+    with torch.no_grad(), sparse_call(_pipe(tiny_h3), "t") as report:
+        out = tiny_h3(**inputs).sample
+    assert not report.ran_sparse and "RuntimeError: boom" in report.reason
+    assert not kernel_calls and len(warnings) == 1
+    torch.testing.assert_close(out, ref)
+
+
 def test_uninstall_restores_original_processors(tiny_h3):
     originals = [b.attn.processor for b in tiny_h3.transformer_blocks]
     install_sparse(tiny_h3, 0.5)

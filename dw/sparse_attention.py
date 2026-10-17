@@ -198,14 +198,14 @@ class _SparseState:
     decided: bool = False
     reason: str | None = None
     tile_map: TileMap | None = None
-    layout_key: tuple | None = None
+    layout: tuple | None = None
     active: bool = False
 
     def reset(self):
         self.decided = False
         self.reason = None
         self.tile_map = None
-        self.layout_key = None
+        self.layout = None
         self.active = False
 
 
@@ -322,6 +322,25 @@ def _block_dtype(component) -> torch.dtype:
     return torch.float32
 
 
+def _same_layout(layout, position_ids, token_tags) -> bool:
+    """Whether the tile map built for `layout` still describes this forward.
+
+    Compared exactly, not by a summary: a transposed grid (h=6, w=5 against
+    h=5, w=6) has the same row count, tag sum and even position sum, and a
+    stale map there is a wrong permutation. The denoiser passes the same
+    tensors every step, so the identity check is the usual answer.
+    """
+    pos, tags = layout
+    if position_ids is pos and token_tags is tags:
+        return True
+    return (
+        pos.shape == position_ids.shape
+        and tags.shape == token_tags.shape
+        and torch.equal(pos, position_ids)
+        and torch.equal(tags, token_tags)
+    )
+
+
 def _pre_hook(component, args, kwargs):
     """Decide the call on its first forward; keep the tile map current after."""
     state = component._dw_sparse_state
@@ -335,23 +354,27 @@ def _pre_hook(component, args, kwargs):
         state.decided, state.reason = True, state.reason or missing
         return None
 
-    key = (tuple(position_ids.shape), int(token_tags.sum()))
     if not state.decided:
         state.decided = True
-        device = hidden_states.device
-        state.reason = sparse_unavailable_reason(
-            device, _block_dtype(component), component.config.attention_head_dim
-        )
-        if state.reason is None:
-            try:
+        # Sparse never fails a run dense would have run: anything that goes
+        # wrong while deciding is a reason to run this call dense
+        try:
+            device = hidden_states.device
+            state.reason = sparse_unavailable_reason(
+                device, _block_dtype(component), component.config.attention_head_dim
+            )
+            if state.reason is None:
                 state.tile_map = build_tile_map(position_ids, token_tags, device)
-                state.layout_key = key
-            except SparseLayoutError as exc:
-                state.reason = str(exc)
-    elif state.reason is None and key != state.layout_key:
+                state.layout = (position_ids, token_tags)
+        except Exception as exc:
+            state.reason = f"{type(exc).__name__}: {exc}"
+            state.tile_map = state.layout = None
+    elif state.reason is None and not _same_layout(
+        state.layout, position_ids, token_tags
+    ):
         # Decided sparse: a layout the map cannot describe now raises
         state.tile_map = build_tile_map(position_ids, token_tags, hidden_states.device)
-        state.layout_key = key
+        state.layout = (position_ids, token_tags)
     state.active = True
     return None
 
