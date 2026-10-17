@@ -7,12 +7,14 @@
   import { promptTooltip } from '../prompts'
   import { referenceCompletions } from '../refcomplete.svelte'
   import BrowseButton from '../assets/BrowseButton.svelte'
+  import { attentionBackends } from '../attentionBackends.svelte'
 
   let {
     mode,
     variables = $bindable(),
     overrides = $bindable({}),
     idPrefix,
+    backendVariables = new Set<string>(),
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -20,6 +22,9 @@
     variables: Record<string, unknown>
     overrides?: Record<string, string>
     idPrefix: string
+    /** Variables that feed an attention_backend: a dropdown of the
+     * server's own list while it has one. */
+    backendVariables?: Set<string>
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -36,6 +41,18 @@
   function effective(key: string): unknown {
     if (mode === 'override') return overrides[key] || variables[key]
     return variables[key]
+  }
+
+  /** A backend variable is a dropdown when the server listed backends and
+   * both what it holds and what it would override are plain names - a
+   * reference or a non-string stays the text field. */
+  function isBackendSelect(key: string): boolean {
+    if (!backendVariables.has(key) || !attentionBackends.list.length) {
+      return false
+    }
+    const plain = (v: unknown) =>
+      v === undefined || (typeof v === 'string' && !isReference(v))
+    return plain(variables[key]) && (mode === 'define' || plain(overrides[key]))
   }
 
   function commit(key: string, raw: string) {
@@ -69,17 +86,40 @@
   {#each keys as key (key)}
     <label for={idPrefix + key}>{key}</label>
     <div class="field">
-      <ExpandingText
-        id={idPrefix + key}
-        value={shown(key)}
-        placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
-        refStyle={isReference(effective(key))}
-        complete={(text) => referenceCompletions(text)}
-        title={promptTooltip(effective(key), promptLibrary.texts)}
-        oninput={(raw) => draft(key, raw)}
-        onchange={(raw) => commit(key, raw)}
-        onpromptpick={(name) => commit(key, reference(PROMPT, name))}
-      />
+      {#if isBackendSelect(key)}
+        {@const current = shown(key)}
+        <select
+          id={idPrefix + key}
+          value={current}
+          onchange={(e) => commit(key, e.currentTarget.value)}
+        >
+          <option value="">
+            {mode === 'override'
+              ? `default (${displayValue(variables[key]) || 'none'})`
+              : 'default (none)'}
+          </option>
+          {#if current && !attentionBackends.list.includes(current)}
+            <option value={current}>
+              {current} (not available on this server)
+            </option>
+          {/if}
+          {#each attentionBackends.list as backend (backend)}
+            <option value={backend}>{backend}</option>
+          {/each}
+        </select>
+      {:else}
+        <ExpandingText
+          id={idPrefix + key}
+          value={shown(key)}
+          placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
+          refStyle={isReference(effective(key))}
+          complete={(text) => referenceCompletions(text)}
+          title={promptTooltip(effective(key), promptLibrary.texts)}
+          oninput={(raw) => draft(key, raw)}
+          onchange={(raw) => commit(key, raw)}
+          onpromptpick={(name) => commit(key, reference(PROMPT, name))}
+        />
+      {/if}
       <BrowseButton
         value={effective(key)}
         onpick={(value) => commit(key, value)}

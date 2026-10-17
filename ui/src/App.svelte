@@ -49,6 +49,7 @@
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import StatusPage from './lib/pages/StatusPage.svelte'
+  import { setAttentionBackends } from './lib/attentionBackends.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let health = $state<HealthInfo | null>(null)
@@ -146,6 +147,7 @@
       ])
       memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
       health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
+      setAttentionBackends(health?.attention_backends)
       void watchJobs(health)
     }
     return poll(refreshStatus, 5000)
