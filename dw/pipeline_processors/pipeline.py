@@ -60,6 +60,16 @@ from diffusers import attention_backend
 from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
+from ..sparse_attention import (
+    DEFAULT_TAU,
+    SPARSE_BACKEND,
+    install_sparse,
+    is_sparse_installed,
+    pipeline_components,
+    set_sparse_tau,
+    sparse_call,
+    uninstall_sparse,
+)
 
 logger = logging.getLogger("dw")
 
@@ -154,6 +164,28 @@ def apply_runtime_settings(pipeline_definition, model):
         pipeline_definition.get("audio_scheduler"), model, "audio_scheduler"
     )
     apply_adapter_settings(pipeline_definition.get("loras"), model)
+    apply_sparse_tau(pipeline_definition.get("configuration", {}), model)
+
+
+def apply_sparse_tau(configuration, model):
+    """A component-level sparse install's tau, from the definition on a hit.
+
+    The install outlives the call, so a hit that moved only sparse_tau would
+    otherwise keep the old one. A pipeline-level 'sparse' installs per call
+    with the tau it states, so it needs nothing here.
+    """
+    entries = configuration.get("components")
+    if not isinstance(entries, dict):
+        return
+    for name, entry in entries.items():
+        if (
+            not isinstance(entry, dict)
+            or entry.get("attention_backend") != SPARSE_BACKEND
+        ):
+            continue
+        component = getattr(model, name, None)
+        if component is not None and is_sparse_installed(component):
+            set_sparse_tau(component, entry.get("sparse_tau", DEFAULT_TAU))
 
 
 class Pipeline:
@@ -639,14 +671,21 @@ class Pipeline:
         emit_phase("generating", detail=self.segment_label or self.name)
         denoiser = _denoiser(self.pipeline)
         mark("call_started", compiled=is_compiled(denoiser))
+        label = self.segment_label or self.name
         with contextlib.ExitStack() as stack:
-            if attn_backend is not None:
+            if attn_backend == SPARSE_BACKEND:
+                # dw's own processor, never a diffusers backend (#931)
+                self._install_sparse_for_call(stack, label)
+            elif attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
                 emit_log(
                     f"Using attention backend: {attn_backend}",
                     attention_backend=str(attn_backend),
                 )
                 stack.enter_context(attention_backend(attn_backend))
+            # Entered after the uninstall callbacks are pushed, so it closes
+            # (and reports a fallback) while the processors are still on
+            stack.enter_context(sparse_call(self.pipeline, label))
 
             stack.enter_context(captured_mag_calibration(self.pipeline, arguments))
             stack.enter_context(
@@ -685,6 +724,28 @@ class Pipeline:
                 raise
             mark("call_ended")
             return output
+
+    def _install_sparse_for_call(self, stack, label):
+        """Put the sparse processor on this pipeline's H3 components for one call.
+
+        A component already set to 'sparse' at component level keeps that
+        install and its tau: it persists across calls by design, so only what
+        this call installed comes off when it ends.
+        """
+        tau = self.configuration.get("sparse_tau", DEFAULT_TAU)
+        found = False
+        for component in pipeline_components(self.pipeline):
+            if is_sparse_installed(component):
+                found = True
+            elif install_sparse(component, tau):
+                found = True
+                stack.callback(uninstall_sparse, component)
+        if not found:
+            emit_warning(
+                f"{label}: attention_backend 'sparse' found no MiniMax-H3 "
+                "transformer; runs dense",
+                attention_backend=SPARSE_BACKEND,
+            )
 
     def _with_held_audio(self, arguments):
         """`hold_audio` as the reference the H3 hold block takes, and the

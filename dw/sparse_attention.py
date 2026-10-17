@@ -438,11 +438,12 @@ class SparseCallReport:
     reason: str | None = None
 
 
-def _installed_components(pipeline):
-    """Every component of the pipeline with sparse installed.
+def pipeline_components(pipeline):
+    """Every distinct component of the pipeline, once each.
 
     A ModularPipeline lists its components in a `components` mapping; anything
-    else is read through its attributes.
+    else is read through its attributes. A pipeline-level 'sparse' installs on
+    the ones install_sparse accepts, so it finds them the way sparse_call does.
     """
     components = getattr(pipeline, "components", None)
     if isinstance(components, Mapping):
@@ -450,10 +451,15 @@ def _installed_components(pipeline):
     else:
         values = getattr(pipeline, "__dict__", {}).values()
     seen = set()
-    for value in values:
-        if id(value) not in seen and is_sparse_installed(value):
+    for value in list(values):
+        if id(value) not in seen:
             seen.add(id(value))
             yield value
+
+
+def _installed_components(pipeline):
+    """Every component of the pipeline with sparse installed."""
+    return [c for c in pipeline_components(pipeline) if is_sparse_installed(c)]
 
 
 @contextmanager
