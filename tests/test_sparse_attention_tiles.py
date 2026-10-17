@@ -1,31 +1,10 @@
 """The H3 sparse-attention tile map (#931): packed rows -> 4x4x4 video tiles."""
 
-import numpy as np
 import pytest
 import torch
 
 from dw.sparse_attention import SparseLayoutError, TileMap, build_tile_map
-
-
-def _layout(text, ref_rows, audio, t, h, w):
-    """token_tags and fractional position_ids packed the way diffusers does:
-    text (tag 1), reference-image rows (tag 0), target audio (tag 2), then the
-    target video (tag 0) last."""
-    tags = [1] * text + [0] * ref_rows + [2] * audio + [0] * (t * h * w)
-    pos = np.zeros((len(tags), 3), dtype=np.float64)
-    # Rows before the target video carry positions the tile map never reads
-    pos[:, 0] = np.arange(len(tags))
-
-    def spatial(n):
-        ratio = n / np.sqrt(h * w)
-        left = (1 - ratio) / 2
-        return np.linspace(left, left + ratio, n, endpoint=False) * 32
-
-    spans = 5 / 3 * np.array([1] + [4] * (t - 1))
-    times = text + np.cumsum(spans)
-    grid = np.stack(np.meshgrid(times, spatial(h), spatial(w), indexing="ij"), axis=-1)
-    pos[len(tags) - t * h * w :] = grid.reshape(-1, 3)
-    return torch.tensor(tags, dtype=torch.long), torch.from_numpy(pos)
+from tests.sparse_layouts import _layout
 
 
 def test_t2va_grid_and_tiles():
