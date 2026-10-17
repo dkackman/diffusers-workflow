@@ -176,16 +176,18 @@ for sage attention", measured 2026-10-10), so the LTX templates expose no backen
 
 `attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel: each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. It applies to the H3 transformer only, at pipeline or component level, and is the default on every H3 template (#931). `sparse_tau` (number, minimum 0, default 0.5; anything else, such as a `variable:` that resolves to a string or a bool, fails the step rather than running dense) sets how much of the attention mass a tile may drop; 0 keeps the most. Observed at Ref2VA 1344x768, seed 42: tau 1.0 ran 42.1 s/forward against 44.8 s at 0.5, and by Don's eye 1.0 gave smoother skin while 0.5 matched dense (the table below). That is one shape and one seed, not a rule that higher is always faster or smoother.
 
-Measured on an RTX 3090, seed 42, against dense native SDPA (not `sage_hub`, which is about 30% faster than native per step; the sparse-against-sage ratio is not measured yet):
+**What the default buys depends on what it replaces.** Against `native` attention, which is what an H3 template ran before #931 unless `attention_backend` was set, sparse is 2.2-4.4x faster per step. Against `sage_hub`, the backend the H3 skill's quality ramp already sets on CUDA, the gain is much smaller: about 14% per step at Ref2VA 1344x768, the one shape measured so far. So sparse's main win is for a run that set no backend, and it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. A box already on `sage_hub` gains less. #931's stage 3 measures sparse against `sage_hub` on the ramp's shapes and fills in the blank cells below.
 
-| shape | dense s/forward | sparse s/forward | speedup | wall dense -> sparse |
-|---|---|---|---|---|
-| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | 10.8 | 2.25x | 150 -> 95 s |
-| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | 21.9 | 4.38x | 457 -> 158 s |
-| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | 42.1 | 2.58x | 965 -> 430 s |
-| same, tau 0.5 | 108.4 | 44.8 | 2.42x | 965 -> 450 s |
+Measured on an RTX 3090, seed 42, s per transformer forward (one per denoise step), lower is faster:
 
-Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
+| shape | native | `sage_hub` | sparse | sparse vs native | sparse vs `sage_hub` |
+|---|---|---|---|---|---|
+| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | - | 10.8 | 2.25x | not measured |
+| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | - | 21.9 | 4.38x | not measured |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | - | 42.1 | 2.58x | not measured |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 0.5 (the default) | 108.4 | 51.0 | 44.1-44.8 | 2.42x | 1.16x |
+
+Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse. The native and tau 1.0 figures come from the #931 prototype. The `sage_hub` figure and the 44.1 s come from the engine on lem after the deploy, with a newer diffusers (jobs 94c04976d21d and 593131ca713f), so the sage comparison is between those two jobs only. Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
 
 It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per pipeline call. A job of one call warns once; a chained, `shots-batch` or `dialogue-short` job calls the pipeline once per segment or shot, so it warns once for each, under that segment's or shot's label. A comfy-kitchen kernel that fails on its first invocation in a call also runs that call dense, with `sparse kernel failed: <error>` as the reason; one that fails after it has run in the call fails the run, since some blocks have already run sparse.
 

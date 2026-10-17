@@ -60,7 +60,8 @@ is an argument on every H3 template, `dialogue-short` included. Set it at
 both tiers on CUDA: it never moves composition.
 
 The H3 templates now default to `attention_backend=sparse` (with `sparse_tau`
-0.5), which does move staging, unlike sage. Every row below keeps
+0.5), which does move staging, unlike sage. It is only ~14% faster per step
+than `sage_hub` at Ref2VA 1344x768; its big gain is against `native`. Every row below keeps
 `attention_backend=sage_hub` at both tiers until #931 stage 3 measures the sparse
 rows; pass it explicitly. Draft and final always share one backend.
 
