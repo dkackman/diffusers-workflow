@@ -72,7 +72,8 @@ dependencies = [
     "kernels>=0.17.2",
     # Sol-Attn sparse attention for MiniMax H3's generated-video rows (#931);
     # compiled CUDA/HIP kernels on Linux and Windows, an eager-only wheel elsewhere
-    "comfy-kitchen>=0.2.38",
+    # pre-1.0 kernel API; bump deliberately after a GPU smoke
+    "comfy-kitchen>=0.2.38,<0.3",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",
