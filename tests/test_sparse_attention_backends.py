@@ -1,5 +1,6 @@
 """The backends the server reports it can run (#931): the UI's dropdown."""
 
+import pytest
 import torch
 
 from dw import sparse_attention
@@ -7,6 +8,17 @@ from dw.acceleration_warnings import CUDA_ONLY_ATTENTION_BACKENDS
 from dw.sparse_attention import available_attention_backends
 
 from tests.test_server import server, success_script  # noqa: F401
+
+
+@pytest.fixture(autouse=True)
+def fresh_kernel_probe():
+    """The probe is cached for the process: each test starts and ends cold,
+    so one that patches the import sees its own answer, and leaves none.
+    Held here, since a test may have swapped the module's name by teardown."""
+    probe = sparse_attention._kernels_importable
+    probe.cache_clear()
+    yield
+    probe.cache_clear()
 
 
 def test_mps_lists_no_cuda_backends():
@@ -66,6 +78,24 @@ def test_kernel_probe_swallows_every_error(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", failing)
     assert sparse_attention._kernels_importable() is False
+
+
+def test_kernel_probe_imports_once(monkeypatch):
+    """The first health poll pays for the import; later ones do not."""
+    import builtins
+
+    real = builtins.__import__
+    imports = []
+
+    def counting(name, *args, **kwargs):
+        if name.startswith("comfy_kitchen"):
+            imports.append(name)
+        return real(name, *args, **kwargs)
+
+    monkeypatch.setattr(builtins, "__import__", counting)
+    first = sparse_attention._kernels_importable()
+    assert sparse_attention._kernels_importable() is first
+    assert len(imports) == 1
 
 
 def test_health_carries_attention_backends(server):  # noqa: F811

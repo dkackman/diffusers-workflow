@@ -23,7 +23,7 @@ from dw.sparse_attention import (
     is_sparse_installed,
 )
 from dw.step_cache import pipeline_cache_key, weights_identity
-from tests.test_sparse_attention_processor import CONFIG
+from tests.sparse_layouts import CONFIG
 
 
 @pytest.fixture
@@ -122,6 +122,16 @@ def test_a_real_reconfigure_removes_the_processors(tiny_h3, monkeypatch):
     assert is_sparse_installed(tiny_h3)
     assert tiny_h3._dw_sparse_state.tau == 0.7
     _configure(tiny_h3, {})
+    assert not is_sparse_installed(tiny_h3)
+
+
+@pytest.mark.parametrize("tau", [-0.5, "0.5", True])
+def test_component_bad_tau_raises(tiny_h3, monkeypatch, tau):
+    """A 'variable:' reference can resolve to anything: a bad tau is the
+    workflow's error, never a reason to run dense (Ruling 13)."""
+    monkeypatch.setattr(components, "emit_log", lambda *a, **kw: None)
+    with pytest.raises(ValueError, match="sparse_tau must be a number >= 0"):
+        _configure(tiny_h3, {"attention_backend": "sparse", "sparse_tau": tau})
     assert not is_sparse_installed(tiny_h3)
 
 
@@ -237,6 +247,33 @@ def test_pipeline_level_sparse_on_non_h3_runs_dense(
     ]
 
 
+@pytest.mark.parametrize("tau", [-1, "fast", False])
+def test_pipeline_level_bad_tau_raises(tiny_h3, no_diffusers_backend, tau):
+    fake = FakePipeline(transformer=tiny_h3)
+    wrapper = _wrapper(fake, {"attention_backend": "sparse", "sparse_tau": tau})
+    with pytest.raises(ValueError, match="sparse_tau must be a number >= 0"):
+        wrapper._execute_pipeline({})
+    assert fake.seen is None  # the pipeline was never called
+    assert not is_sparse_installed(tiny_h3)
+
+
+def test_pipeline_level_install_comes_off_when_the_call_raises(
+    tiny_h3, no_diffusers_backend
+):
+    seen = {}
+
+    class Failing(FakePipeline):
+        def __call__(self, **arguments):
+            seen["installed"] = is_sparse_installed(tiny_h3)
+            raise RuntimeError("out of memory")
+
+    wrapper = _wrapper(Failing(transformer=tiny_h3), {"attention_backend": "sparse"})
+    with pytest.raises(RuntimeError, match="out of memory"):
+        wrapper._execute_pipeline({})
+    assert seen == {"installed": True}
+    assert not is_sparse_installed(tiny_h3)
+
+
 def test_component_install_survives_a_pipeline_level_call(
     tiny_h3, no_diffusers_backend, call_warnings
 ):
@@ -341,6 +378,21 @@ def test_cache_hit_reapplies_tau(tiny_h3):
     del definition["configuration"]["components"]["transformer"]["sparse_tau"]
     apply_runtime_settings(definition, model)
     assert tiny_h3._dw_sparse_state.tau == DEFAULT_TAU
+
+
+def test_cache_hit_bad_tau_raises(tiny_h3):
+    install_sparse(tiny_h3, 0.5)
+    model = SimpleNamespace(transformer=tiny_h3)
+    definition = {
+        "configuration": {
+            "components": {
+                "transformer": {"attention_backend": "sparse", "sparse_tau": -1}
+            }
+        }
+    }
+    with pytest.raises(ValueError, match="sparse_tau must be a number >= 0"):
+        apply_runtime_settings(definition, model)
+    assert tiny_h3._dw_sparse_state.tau == 0.5
 
 
 def test_cache_hit_skips_a_component_without_sparse(tiny_h3):

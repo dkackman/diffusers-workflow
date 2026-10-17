@@ -15,12 +15,17 @@ full; the video tiles follow.
 The decided-once rule: whether a pipeline call runs sparse is decided once,
 before the first forward, and is all or nothing. A layout check that fails
 after that decision raises; it never drops a single forward back to dense,
-because a run that mixes the two is worse than either.
+because a run that mixes the two is worse than either. The call's first
+kernel invocation is still part of that decision: a kernel that fails there
+runs the whole call dense, since no block has run sparse yet, and one that
+fails after it has once returned raises.
 """
 
+import functools
 from collections.abc import Iterator, Mapping
 from contextlib import contextmanager
 from dataclasses import dataclass, field
+from numbers import Real
 
 import torch
 
@@ -42,6 +47,18 @@ _sol_attn = None
 
 class SparseLayoutError(ValueError):
     """The packed rows are not a layout the tile map can describe."""
+
+
+def _checked_tau(tau):
+    """`tau` when it is a number >= 0; a ValueError otherwise.
+
+    A bad tau is the workflow's error, not a reason to run dense, so it is
+    raised where it is set rather than reaching the kernel. A bool is refused
+    although Python counts it as a number: `true` is never a threshold.
+    """
+    if isinstance(tau, bool) or not isinstance(tau, Real) or not tau >= 0:
+        raise ValueError(f"sparse_tau must be a number >= 0, got {tau!r}")
+    return tau
 
 
 @dataclass(frozen=True)
@@ -190,6 +207,9 @@ class _SparseState:
     `decided` is reset by `sparse_call` on entry; the first forward after that
     sets it, and `reason` is None when that forward decided sparse. `active` is
     True only inside the component's forward, between the two hooks.
+    `kernel_ran` records that the kernel has returned once in this call: until
+    it has, a kernel error is still part of the decision and runs the call
+    dense; after, it raises.
     """
 
     tau: float
@@ -200,6 +220,7 @@ class _SparseState:
     tile_map: TileMap | None = None
     layout: tuple | None = None
     active: bool = False
+    kernel_ran: bool = False
 
     def reset(self):
         self.decided = False
@@ -207,6 +228,7 @@ class _SparseState:
         self.tile_map = None
         self.layout = None
         self.active = False
+        self.kernel_ran = False
 
 
 class SparseH3AttnProcessor:
@@ -279,15 +301,26 @@ class SparseH3AttnProcessor:
             return out
 
         pt = tm.num_prefix_tiles
-        out = _kernel()(
-            tiled(query),
-            tiled(key),
-            tiled(value),
-            sink_blocks=[0, pt],
-            sink_q=[0, pt],
-            block_len=tm.block_len.to(query.device),
-            tau=state.tau,
-        )
+        try:
+            out = _kernel()(
+                tiled(query),
+                tiled(key),
+                tiled(value),
+                sink_blocks=[0, pt],
+                sink_q=[0, pt],
+                block_len=tm.block_len.to(query.device),
+                tau=state.tau,
+            )
+        except Exception as exc:
+            if state.kernel_ran:
+                raise
+            # The call's first kernel invocation is still the decision: no
+            # block has run sparse yet, so this block and every later one in
+            # the call run dense, and sparse_call reports why
+            state.reason = f"sparse kernel failed: {type(exc).__name__}: {exc}"
+            state.tile_map = state.layout = None
+            return self._original(attn, hidden_states, rotary_emb, attention_mask)
+        state.kernel_ran = True
         hidden_states = out[:, dst].flatten(2, 3).type_as(query)
         hidden_states = attn.to_out[0](hidden_states)
         return attn.to_out[1](hidden_states)
@@ -388,10 +421,12 @@ def install_sparse(component, tau: float) -> bool:
     """Put the sparse processor on every block of an H3 transformer.
 
     Returns False, changing nothing, for any other component. A second call
-    only updates tau. The forward itself is not wrapped: H3's denoiser picks
+    only updates tau. A tau that is not a number >= 0 raises ValueError, for
+    any component. The forward itself is not wrapped: H3's denoiser picks
     the layout kwargs it passes from the forward's signature, so the decision
     runs in forward hooks instead.
     """
+    _checked_tau(tau)
     if type(component).__name__ != _H3_CLASS:
         return False
     state = getattr(component, "_dw_sparse_state", None)
@@ -427,7 +462,8 @@ def is_sparse_installed(component) -> bool:
 
 
 def set_sparse_tau(component, tau: float) -> None:
-    component._dw_sparse_state.tau = tau
+    """Change an installed component's tau; a bad one raises ValueError."""
+    component._dw_sparse_state.tau = _checked_tau(tau)
 
 
 @dataclass
@@ -444,8 +480,16 @@ def pipeline_components(pipeline):
     A ModularPipeline lists its components in a `components` mapping; anything
     else is read through its attributes. A pipeline-level 'sparse' installs on
     the ones install_sparse accepts, so it finds them the way sparse_call does.
+
+    sparse_call runs on every family's pipeline call, so reading the mapping
+    must never fail one: DiffusionPipeline's `components` property raises
+    ValueError when its attributes and expected modules disagree, and any
+    error there falls back to the attributes.
     """
-    components = getattr(pipeline, "components", None)
+    try:
+        components = getattr(pipeline, "components", None)
+    except Exception:
+        components = None
     if isinstance(components, Mapping):
         values = components.values()
     else:
@@ -491,9 +535,12 @@ def sparse_call(pipeline, label: str) -> Iterator[SparseCallReport]:
         )
 
 
+@functools.cache
 def _kernels_importable() -> bool:
     """Whether comfy-kitchen's compiled CUDA extension loaded.
 
+    Cached: the first health poll would otherwise import comfy-kitchen inside
+    the request handler, and the answer cannot change in a running process.
     Reads the import-time flag only. It never asks a card for its compute
     capability or initializes CUDA: the server answers this without owning a
     GPU context, and the per-card check stays at run time

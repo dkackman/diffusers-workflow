@@ -25,24 +25,7 @@ from dw.sparse_attention import (
     sparse_unavailable_reason,
     uninstall_sparse,
 )
-from tests.sparse_layouts import _layout, dense_sol_attn_fake
-
-CONFIG = dict(
-    num_attention_heads=2,
-    attention_head_dim=128,
-    hidden_size=256,
-    num_layers=2,
-    num_refiner_layers=1,
-    ffn_dim=64,
-    in_channels=4,
-    audio_in_channels=4,
-    patch_size=(1, 2, 2),
-    text_dim=32,
-    freq_dim=32,
-    time_embed_hidden_dim=32,
-    time_embed_dim=32,
-    rope_freq_dim=16,
-)
+from tests.sparse_layouts import CONFIG, _layout, dense_sol_attn_fake
 
 
 @pytest.fixture
@@ -429,3 +412,135 @@ def test_unavailable_reason_on_cuda(monkeypatch):
     assert sparse_unavailable_reason(cuda, torch.bfloat16, 128) == (
         "compute capability 7.5 is below 8.0"
     )
+
+
+# --- a pipeline whose components property raises --------------------------
+
+
+class _RaisingComponents:
+    """DiffusionPipeline's `components` property raises ValueError when the
+    pipeline's attributes and its expected modules disagree."""
+
+    def __init__(self, transformer):
+        self.transformer = transformer
+
+    @property
+    def components(self):
+        raise ValueError("expected modules do not match")
+
+
+def test_sparse_call_survives_a_raising_components_property(tiny_h3, kernel_calls):
+    install_sparse(tiny_h3, 0.5)
+    pipeline = _RaisingComponents(tiny_h3)
+    with torch.no_grad(), sparse_call(pipeline, "t") as report:
+        tiny_h3(**_inputs())
+    # Found through the attribute: the call decided, and ran sparse
+    assert report.ran_sparse and len(kernel_calls) == CONFIG["num_layers"]
+
+
+def test_sparse_call_with_a_raising_components_property_and_nothing_installed(
+    warnings,
+):
+    with sparse_call(_RaisingComponents(torch.nn.Linear(2, 2)), "t") as report:
+        pass
+    assert not report.ran_sparse and report.reason is None and not warnings
+
+
+# --- sparse_tau validation (Ruling 13) -------------------------------------
+
+
+@pytest.mark.parametrize("tau", [-0.1, "0.5", None, True, False, float("nan")])
+def test_install_sparse_refuses_a_bad_tau(tiny_h3, tau):
+    with pytest.raises(ValueError, match=r"sparse_tau must be a number >= 0, got "):
+        install_sparse(tiny_h3, tau)
+    assert not is_sparse_installed(tiny_h3)
+
+
+@pytest.mark.parametrize("tau", [-1, "1.0", True])
+def test_set_sparse_tau_refuses_a_bad_tau(tiny_h3, tau):
+    install_sparse(tiny_h3, 0.5)
+    with pytest.raises(ValueError, match=r"sparse_tau must be a number >= 0, got "):
+        set_sparse_tau(tiny_h3, tau)
+    assert tiny_h3._dw_sparse_state.tau == 0.5
+
+
+def test_bad_tau_message_names_the_value(tiny_h3):
+    with pytest.raises(ValueError) as caught:
+        install_sparse(tiny_h3, -2)
+    assert str(caught.value) == "sparse_tau must be a number >= 0, got -2"
+
+
+@pytest.mark.parametrize("tau", [0, 0.0, 1, 2.5])
+def test_install_sparse_accepts_a_good_tau(tiny_h3, tau):
+    assert install_sparse(tiny_h3, tau)
+    set_sparse_tau(tiny_h3, tau)
+    assert tiny_h3._dw_sparse_state.tau == tau
+
+
+# --- a kernel that fails (Ruling 12) ---------------------------------------
+
+
+def test_first_kernel_failure_falls_back_dense(tiny_h3, monkeypatch, warnings):
+    inputs = _inputs()
+    with torch.no_grad():
+        ref = tiny_h3(**inputs).sample
+    calls = []
+
+    def failing(q, k, v, **kw):
+        calls.append(kw)
+        raise RuntimeError("no kernel image for sm_120")
+
+    monkeypatch.setattr(sparse_attention, "_sol_attn", failing)
+    monkeypatch.setattr(sparse_attention, "sparse_unavailable_reason", lambda *a: None)
+    install_sparse(tiny_h3, 0.5)
+    with torch.no_grad(), sparse_call(_pipe(tiny_h3), "step") as report:
+        out = tiny_h3(**inputs).sample
+        tiny_h3(**inputs)  # the rest of the call stays dense
+    reason = "sparse kernel failed: RuntimeError: no kernel image for sm_120"
+    assert not report.ran_sparse and report.reason == reason
+    # Tried once; every later block and forward ran the original processor
+    assert len(calls) == 1
+    assert len(warnings) == 1 and reason in warnings[0][0]
+    torch.testing.assert_close(out, ref)
+
+
+def test_kernel_failure_after_a_success_raises(tiny_h3, monkeypatch, warnings):
+    calls = []
+
+    def once(q, k, v, **kw):
+        calls.append(kw)
+        if len(calls) > 1:
+            raise RuntimeError("illegal memory access")
+        return dense_sol_attn_fake(q, k, v, **kw)
+
+    monkeypatch.setattr(sparse_attention, "_sol_attn", once)
+    monkeypatch.setattr(sparse_attention, "sparse_unavailable_reason", lambda *a: None)
+    install_sparse(tiny_h3, 0.5)
+    with pytest.raises(RuntimeError, match="illegal memory access"):
+        with torch.no_grad(), sparse_call(_pipe(tiny_h3), "t"):
+            tiny_h3(**_inputs())
+    assert len(calls) == 2 and not warnings
+
+
+def test_kernel_success_resets_each_call(tiny_h3, monkeypatch, warnings):
+    """A kernel that ran in one call has not run in the next: that call's first
+    invocation failing falls back, it does not raise."""
+    fail = [False]
+
+    def kernel(q, k, v, **kw):
+        if fail[0]:
+            raise RuntimeError("card lost")
+        return dense_sol_attn_fake(q, k, v, **kw)
+
+    monkeypatch.setattr(sparse_attention, "_sol_attn", kernel)
+    monkeypatch.setattr(sparse_attention, "sparse_unavailable_reason", lambda *a: None)
+    install_sparse(tiny_h3, 0.5)
+    inputs = _inputs()
+    with torch.no_grad(), sparse_call(_pipe(tiny_h3), "t") as first:
+        tiny_h3(**inputs)
+    assert first.ran_sparse
+    fail[0] = True
+    with torch.no_grad(), sparse_call(_pipe(tiny_h3), "t") as second:
+        tiny_h3(**inputs)
+    assert not second.ran_sparse
+    assert second.reason == "sparse kernel failed: RuntimeError: card lost"

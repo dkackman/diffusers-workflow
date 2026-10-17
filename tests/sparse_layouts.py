@@ -5,6 +5,25 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+# A tiny MiniMaxH3Transformer3DModel: head_dim 128, the one the kernel takes,
+# and two blocks, so a per-call decision is seen across more than one
+CONFIG = dict(
+    num_attention_heads=2,
+    attention_head_dim=128,
+    hidden_size=256,
+    num_layers=2,
+    num_refiner_layers=1,
+    ffn_dim=64,
+    in_channels=4,
+    audio_in_channels=4,
+    patch_size=(1, 2, 2),
+    text_dim=32,
+    freq_dim=32,
+    time_embed_hidden_dim=32,
+    time_embed_dim=32,
+    rope_freq_dim=16,
+)
+
 
 def _layout(text, ref_rows, audio, t, h, w):
     """token_tags and fractional position_ids packed the way diffusers does:
