@@ -1257,9 +1257,15 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
-  Every MiniMax-H3 template wires an `attention_backend` variable (default `null`) here,
-  on its H3 step's `transformer` or `transformer_ref`; see
-  [ACCELERATION.md](ACCELERATION.md) for `sage_hub` and what it needs.
+  Every MiniMax-H3 template wires an `attention_backend` variable here, on its H3 step's
+  `transformer` or `transformer_ref`, defaulting to `"sparse"` (dw's comfy-kitchen sparse
+  attention, which needs no extra install), with `sparse_tau` 0.5; pass `sage_hub` or
+  `native` to override it. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3) for
+  `sparse` and [Attention Backends](ACCELERATION.md#attention-backends) for `sage_hub`
+  and what it needs.
+- `sparse_tau` — the sparsity threshold for a component whose `attention_backend` is
+  `"sparse"` (number, minimum 0, default 0.5). A runtime setting: changing it reuses the
+  loaded pipeline. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
 - `attn_processor_type` — the attention processor the component runs, constructed with no
   arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
   those two; this covers any other component that carries attention (LTX-2.5's
@@ -1532,7 +1538,12 @@ stays alive for the steps that reuse it.
   cost to speed. Automatic on MPS unless `disable_attention_slicing` is set
   (UNet/ControlNet models only; worth disabling for SDXL on a Mac).
 - `attention_backend` — selects a diffusers attention backend (e.g. `"flash_hub"`) for
-  the duration of each pipeline call.
+  the duration of each pipeline call. `"sparse"` is dw's own instead: comfy-kitchen sparse
+  attention on a MiniMax-H3 transformer, installed for the call only, and dense with a
+  warning where it cannot run. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_tau` — the sparsity threshold for a pipeline-level `attention_backend:
+  "sparse"` (number, minimum 0, default 0.5). See
+  [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
 - `prompt_weighting` — enables A1111-style prompt weighting (`(word:1.5)`, `[word]`,
   `((word))`) and prompts over 77 tokens. Currently supports Flux pipelines. Mutually
   exclusive with `remote_text_encoder`.
