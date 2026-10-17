@@ -51,8 +51,18 @@
       return false
     }
     const plain = (v: unknown) =>
-      v === undefined || (typeof v === 'string' && !isReference(v))
+      v === undefined ||
+      v === null ||
+      (typeof v === 'string' && !isReference(v))
     return plain(variables[key]) && (mode === 'define' || plain(overrides[key]))
+  }
+
+  /** Define mode: no backend is null, which the engine skips - an empty
+   * string would reach diffusers as a backend name. Override mode keeps ''
+   * meaning "use the workflow default". */
+  function commitBackend(key: string, raw: string) {
+    if (mode === 'define' && raw === '') variables[key] = null
+    else commit(key, raw)
   }
 
   function commit(key: string, raw: string) {
@@ -91,7 +101,7 @@
         <select
           id={idPrefix + key}
           value={current}
-          onchange={(e) => commit(key, e.currentTarget.value)}
+          onchange={(e) => commitBackend(key, e.currentTarget.value)}
         >
           <option value="">
             {mode === 'override'

@@ -85,4 +85,22 @@ describe('VariablesForm attention backend variables', () => {
     })
     expect(variables.attn).toBe('sparse')
   })
+
+  it('in define mode, default (none) writes null, not an empty string', async () => {
+    attentionBackends.list = ['native', 'sparse']
+    const variables: Record<string, unknown> = { attn: 'sparse' }
+    render(VariablesForm, props({ variables }))
+    await fireEvent.change(screen.getByRole('combobox'), {
+      target: { value: '' },
+    })
+    expect(variables.attn).toBeNull()
+  })
+
+  it('renders a null default as a select with default (none) selected', () => {
+    attentionBackends.list = ['native']
+    render(VariablesForm, props({ variables: { attn: null } }))
+    const select = screen.getByRole('combobox') as HTMLSelectElement
+    expect(select.value).toBe('')
+    expect(select.selectedOptions[0].textContent).toBe('default (none)')
+  })
 })
