@@ -59,6 +59,11 @@ Both tiers use the same template (`templates/minimax/reference-to-video`, or
 is an argument on every H3 template, `dialogue-short` included. Set it at
 both tiers on CUDA: it never moves composition.
 
+The H3 templates now default to `attention_backend=sparse` (with `sparse_tau`
+0.5), which does move staging, unlike sage. Every row below keeps
+`attention_backend=sage_hub` at both tiers until #931 stage 3 measures the sparse
+rows; pass it explicitly. Draft and final always share one backend.
+
 **`dialogue-short` at 1344x768** (every rung below is that canvas): a shot
 with 4 references must be 124 frames (*Frame ceiling* above). The default
 `shots` list's `tag` (`shots[4]`) is 141 frames with 4 references, so

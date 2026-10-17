@@ -151,6 +151,8 @@ examples use for their large transformers and text encoders:
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json), [video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
 
+The H3 templates also default to `attention_backend: "sparse"`; the quantization is independent of it ([Attention Backends](ACCELERATION.md#sparse-minimax-h3)).
+
 ### Cached on-the-fly (`DW_QUANTIZED_CACHE`)
 
 An on-the-fly load reads the bf16 weights and quantizes them on every cold load. With `DW_QUANTIZED_CACHE=1` the server keeps the result: the first cold load saves each quantized component to disk with sdnq's `save_sdnq_model` (safetensors plus JSON, no pickle), and a later load of the same key reads it back with `load_sdnq_model`, skipping the bf16 read and the quantize. Any other value leaves it off, with no events. It covers both ways a component is quantized with a `sdnq.SDNQConfig` `quantization_config`: a modular pipeline's `load_components`, one config per component (MiniMax H3), and a component loaded on its own through its class's `from_pretrained` (LTX-2.5's transformer and Gemma text encoder). A hit is placed on the config's `return_device` (LTX's transformer goes straight to `cuda`) and loads with no download.

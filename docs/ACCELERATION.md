@@ -164,14 +164,32 @@ Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"f
 Every MiniMax-H3 template in [templates/minimax/](../workflows/templates/minimax/)
 exposes this as a variable: `attention_backend`, pinned on the H3 step's transformer
 (`components.transformer`, or `components.transformer_ref` for a ref2va workflow) and
-`null` by default. That covers the shots, chains and episodes - `dialogue-short`,
+`"sparse"` by default (with `sparse_tau`, below). That covers the shots, chains and episodes - `dialogue-short`,
 `shots-batch`, `music-video` and `storyboard` among them - and only their H3 steps: a
 Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass
-`attention_backend=sage_hub` to a box with the `kernels` package and
-`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since a
-CUDA-only kernel fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
+`attention_backend=sage_hub` (or `native`) to override the default; `sage_hub` needs a box with the `kernels` package and
+`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS the default falls back to dense, but a CUDA-only kernel such as `sage_hub` fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
 passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
 for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
+
+### `sparse` (MiniMax-H3)
+
+`attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel: each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. It applies to the H3 transformer only, at pipeline or component level, and is the default on every H3 template (#931). `sparse_tau` (number, minimum 0, default 0.5) sets how much of the attention mass a tile may drop: higher is faster and smoother, 0 keeps the most.
+
+Measured on an RTX 3090, seed 42, against dense native SDPA (not `sage_hub`, which is about 30% faster than native per step; the sparse-against-sage ratio is not measured yet):
+
+| shape | dense s/forward | sparse s/forward | speedup | wall dense -> sparse |
+|---|---|---|---|---|
+| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | 10.8 | 2.25x | 150 -> 95 s |
+| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | 21.9 | 4.38x | 457 -> 158 s |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | 42.1 | 2.58x | 965 -> 430 s |
+| same, tau 0.5 | 108.4 | 44.8 | 2.42x | 965 -> 450 s |
+
+Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
+
+It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per job.
+
+Unlike sage, sparse **moves composition** relative to dense: the same subject, story and cuts, but different framing and set dressing. A draft and its final must therefore use the same backend; mixing `sparse` and `sage_hub` between tiers means the draft no longer predicts the final.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 

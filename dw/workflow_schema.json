@@ -624,8 +624,9 @@
                     "type": "string"
                 },
                 "sparse_tau": {
-                    "description": "The sparsity threshold for attention_backend 'sparse': higher is sparser and faster, lower is closer to dense. Defaults to 0.5. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline (#931).",
-                    "type": "number",
+                    "description": "The sparsity threshold for attention_backend 'sparse': higher is sparser and faster, lower is closer to dense. Defaults to 0.5. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline (#931). Accepts a 'variable:' reference.",
+                    "type": ["number", "string"],
+                    "pattern": "^variable:",
                     "minimum": 0
                 },
                 "prompt_weighting": {
@@ -710,8 +711,9 @@
                                 "type": "string"
                             },
                             "sparse_tau": {
-                                "description": "The sparsity threshold for this component's attention_backend 'sparse': higher is sparser and faster, lower is closer to dense. Defaults to 0.5. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline and is re-applied to it (#931).",
-                                "type": "number",
+                                "description": "The sparsity threshold for this component's attention_backend 'sparse': higher is sparser and faster, lower is closer to dense. Defaults to 0.5. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline and is re-applied to it (#931). Accepts a 'variable:' reference.",
+                                "type": ["number", "string"],
+                                "pattern": "^variable:",
                                 "minimum": 0
                             },
                             "attn_processor_type": {

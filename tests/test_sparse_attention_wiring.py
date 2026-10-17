@@ -398,6 +398,8 @@ def test_schema_describes_sparse():
     entry = configuration["components"]["additionalProperties"]["properties"]
     for block in (configuration, entry):
         assert "'sparse'" in block["attention_backend"]["description"]
-        assert block["sparse_tau"]["type"] == "number"
+        # A string is only a 'variable:' reference: every H3 template wires one.
+        assert block["sparse_tau"]["type"] == ["number", "string"]
+        assert block["sparse_tau"]["pattern"] == "^variable:"
         assert "0.5" in block["sparse_tau"]["description"]
         assert "#931" in block["sparse_tau"]["description"]

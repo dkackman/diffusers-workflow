@@ -45,7 +45,8 @@
         "lora_adapter_name": "turbo",
         "weights_dtype": "{int4}",
         "seed": 12345,
-        "attention_backend": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
         "cache": null
     },
     "variable_constraints": {
@@ -136,6 +137,7 @@
                     "components": {
                         "transformer_ref": {
                             "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,
