@@ -489,3 +489,45 @@ def sparse_call(pipeline, label: str) -> Iterator[SparseCallReport]:
             attention_backend=SPARSE_BACKEND,
             reason=report.reason,
         )
+
+
+def _kernels_importable() -> bool:
+    """Whether comfy-kitchen's compiled CUDA extension loaded.
+
+    Reads the import-time flag only. It never asks a card for its compute
+    capability or initializes CUDA: the server answers this without owning a
+    GPU context, and the per-card check stays at run time
+    (`sparse_unavailable_reason`).
+    """
+    try:
+        from comfy_kitchen.backends import cuda
+
+        return bool(cuda._EXT_AVAILABLE)
+    except Exception:  # no package, or one that will not import: not available
+        return False
+
+
+def available_attention_backends(device_type: str) -> list[str]:
+    """The attention backends a server on `device_type` can run, in menu order.
+
+    `native` first, then the other `native`-family names; on CUDA, `sparse`
+    (only where the compiled kernels loaded) and the CUDA-only names. A name
+    diffusers' `AttentionBackendName` lacks is dropped, so the menu never
+    offers one the pipeline would refuse.
+    """
+    # Imported here: acceleration_warnings imports this module at its top
+    from diffusers.models.attention_dispatch import AttentionBackendName
+
+    from .acceleration_warnings import CUDA_ONLY_ATTENTION_BACKENDS
+
+    known = {backend.value for backend in AttentionBackendName}
+    cuda = device_type == "cuda"
+    names = ["native", "_native_flash", "_native_efficient", "_native_math"]
+    if cuda:
+        names.append("_native_cudnn")
+    names.append("flex")
+    if cuda:
+        if _kernels_importable():
+            names.append(SPARSE_BACKEND)
+        names.extend(sorted(CUDA_ONLY_ATTENTION_BACKENDS))
+    return [name for name in names if name == SPARSE_BACKEND or name in known]
