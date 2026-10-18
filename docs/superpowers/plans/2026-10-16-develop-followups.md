@@ -8,7 +8,7 @@ Owner `don` means the step needs a ruling or a hand on lem; everything else an a
 #930 closed the `custom_generate` + `trust_remote_code` hole in `text_generation`. The same
 pattern is still open elsewhere, and has been in every release since a0e8cb15.
 
-- [ ] `dw/tasks/speech_generation.py:190-219` - `forward_params` and `generate_kwargs` reach the
+- [x] `dw/tasks/speech_generation.py:190-219` - `forward_params` and `generate_kwargs` reach the
       transformers pipeline unfiltered. Reuse the text_generation filter (`custom_generate`,
       `trust_remote_code` gated on `dw/trust.py`; structural keys and non-scalars refused).
       Test with an untrusted workflow that sets each key.

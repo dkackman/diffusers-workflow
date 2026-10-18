@@ -824,6 +824,61 @@ class TestRemoteGenerateCodeUntrusted:
         )
 
 
+class TestSpeechRemoteGenerateCodeUntrusted:
+    """speech_generation hands generate_kwargs and forward_params to the
+    text-to-audio pipeline, which passes both to model.generate() for a
+    generative model (Bark, VibeVoice). The same two arguments that run Hub
+    code through text_generation are refused here before the model loads."""
+
+    @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
+    @pytest.mark.parametrize(
+        "settings",
+        [
+            pytest.param({"custom_generate": "attacker/repo"}, id="custom_generate"),
+            pytest.param({"trust_remote_code": True}, id="trust_remote_code"),
+        ],
+    )
+    def test_refused_before_the_model_loads(
+        self, untrusted, no_network, monkeypatch, settings, where
+    ):
+        from dw.tasks import speech_generation
+
+        loader = MagicMock()
+        monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
+        key = next(iter(settings))
+        with pytest.raises(UntrustedWorkflowError, match=f"'{key}'.*trusted"):
+            speech_generation.generate_speech(
+                "hello", device="cpu", **{where: settings}
+            )
+        loader.assert_not_called()
+        assert list(no_network) == []
+
+    @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
+    def test_ordinary_settings_still_pass_untrusted(
+        self, untrusted, monkeypatch, where
+    ):
+        from dw.tasks import speech_generation
+
+        pipe = MagicMock(
+            return_value={"audio": __import__("numpy").zeros(8), "sampling_rate": 16000}
+        )
+        monkeypatch.setattr(
+            speech_generation, "hf_pipeline", MagicMock(return_value=pipe)
+        )
+        speech_generation.generate_speech(
+            "hello", device="cpu", **{where: {"do_sample": True, "temperature": 0.7}}
+        )
+        assert pipe.call_args[1][where] == {"do_sample": True, "temperature": 0.7}
+
+    @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
+    def test_a_non_object_is_refused(self, monkeypatch, where):
+        from dw.tasks import speech_generation
+
+        monkeypatch.setattr(speech_generation, "hf_pipeline", MagicMock())
+        with pytest.raises(ValueError, match=f"{where} must be an object"):
+            speech_generation.generate_speech("hello", device="cpu", **{where: "x"})
+
+
 def _probe_recorder(info):
     """A `probe=` callable that records every path it is asked about.
 

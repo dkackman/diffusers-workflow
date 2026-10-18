@@ -130,6 +130,12 @@ the pipeline call's own arguments - the same filter `chat_template_kwargs`
 gets, so neither can pass `tokenizer_encode_kwargs`, `images` or a template
 of its own around the task's checks.
 
+`speech_generation` has the same path twice: the text-to-audio pipeline hands
+both its `generate_kwargs` and its `forward_params` to `generate()` for a
+generative model (Bark, VibeVoice). Each must be an object, and
+`custom_generate` / `trust_remote_code` in either are refused untrusted, before
+the model loads (released versions through 0.14.0 passed them through).
+
 `text_generation`'s `system_prompt` may be read from a Hub repo file
 (`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
 without credentials (`token=False`) whether it serves the file publicly at the
