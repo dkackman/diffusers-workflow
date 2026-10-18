@@ -620,3 +620,40 @@ def test_schema_describes_sparse():
         assert block["sparse_tau"]["pattern"] == "^variable:"
         assert "0.5" in block["sparse_tau"]["description"]
         assert "#931" in block["sparse_tau"]["description"]
+
+
+@pytest.mark.parametrize(
+    "entry, expected",
+    [
+        (
+            {"attention_backend": "sparse"},
+            "Setting transformer attention backend: sparse (tau 0.5)",
+        ),
+        (
+            {"attention_backend": "sparse", "sparse_tau": 1.0},
+            "Setting transformer attention backend: sparse (tau 1.0)",
+        ),
+        (
+            {"attention_backend": "sparse", "sparse_topk": 0.15},
+            "Setting transformer attention backend: sparse (topk 0.15)",
+        ),
+        (
+            {"attention_backend": "sage_hub"},
+            "Setting transformer attention backend: sage_hub",
+        ),
+    ],
+)
+def test_component_log_names_the_sparse_routing(monkeypatch, entry, expected):
+    """A job's log is how a run is read back (#932): sparse at tau and at top-k
+    differ in speed and output, so the line says which ran."""
+    logged = []
+    monkeypatch.setattr(
+        components, "emit_log", lambda message, **data: logged.append(message)
+    )
+    monkeypatch.setattr(components, "install_sparse", lambda *a, **kw: True)
+    monkeypatch.setattr(components, "uninstall_sparse", lambda component: None)
+    monkeypatch.setattr(
+        components, "set_component_attention_backend", lambda component, backend: None
+    )
+    _configure(MiniMaxH3Transformer3DModel(), entry)
+    assert logged == [expected]
