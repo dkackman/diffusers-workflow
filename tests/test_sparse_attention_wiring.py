@@ -41,8 +41,8 @@ def component_calls(monkeypatch):
     """Record what configure_components does with a component's backend."""
     calls = []
 
-    def install(component, tau):
-        calls.append(("install", tau))
+    def install(component, tau, topk=None):
+        calls.append(("install", tau) if topk is None else ("install", tau, topk))
         return type(component).__name__ == "MiniMaxH3Transformer3DModel"
 
     monkeypatch.setattr(components, "install_sparse", install)
@@ -87,6 +87,14 @@ def test_component_sparse_installs_and_never_reaches_diffusers(component_calls):
         {"attention_backend": "sparse", "sparse_tau": 0.7},
     )
     assert component_calls == [("install", 0.7)]
+
+
+def test_component_sparse_topk_reaches_install(component_calls):
+    _configure(
+        MiniMaxH3Transformer3DModel(),
+        {"attention_backend": "sparse", "sparse_topk": 0.15},
+    )
+    assert component_calls == [("install", DEFAULT_TAU, 0.15)]
 
 
 def test_component_sparse_default_tau(component_calls):
@@ -200,8 +208,8 @@ def test_pipeline_level_sparse_uses_its_tau(tiny_h3, no_diffusers_backend, monke
     taus = []
     real = pipeline_module.install_sparse
 
-    def recording(component, tau):
-        installed = real(component, tau)
+    def recording(component, tau, topk=None):
+        installed = real(component, tau, topk)
         if installed:
             taus.append(tau)
         return installed
@@ -215,6 +223,31 @@ def test_pipeline_level_sparse_uses_its_tau(tiny_h3, no_diffusers_backend, monke
         {"attention_backend": "sparse", "sparse_tau": 1.0},
     )._execute_pipeline({})
     assert taus == [DEFAULT_TAU, 1.0]
+
+
+def test_pipeline_level_sparse_topk_reaches_the_install(
+    tiny_h3, no_diffusers_backend, monkeypatch
+):
+    seen = []
+    real = pipeline_module.install_sparse
+
+    def recording(component, tau, topk=None):
+        installed = real(component, tau, topk)
+        if installed:
+            seen.append((tau, topk))
+        return installed
+
+    monkeypatch.setattr(pipeline_module, "install_sparse", recording)
+    logged = []
+    monkeypatch.setattr(
+        pipeline_module, "emit_log", lambda message, **data: logged.append(message)
+    )
+    _wrapper(
+        FakePipeline(transformer=tiny_h3),
+        {"attention_backend": "sparse", "sparse_topk": 0.15},
+    )._execute_pipeline({})
+    assert seen == [(DEFAULT_TAU, 0.15)]
+    assert "Using attention backend: sparse (topk 0.15) on transformer" in logged
 
 
 def test_pipeline_level_sparse_reads_a_components_mapping(
@@ -412,6 +445,38 @@ def test_pipeline_level_sparse_tau_is_runtime_not_identity():
     assert pipeline_cache_key(a) == pipeline_cache_key(b)
 
 
+def test_sparse_topk_is_runtime_not_identity():
+    a = {
+        "configuration": {
+            "sparse_topk": 0.15,
+            "components": {
+                "transformer": {"attention_backend": "sparse", "sparse_topk": 0.15}
+            },
+        }
+    }
+    b = copy.deepcopy(a)
+    b["configuration"]["sparse_topk"] = 0.3
+    b["configuration"]["components"]["transformer"]["sparse_topk"] = 0.3
+    assert pipeline_cache_key(a) == pipeline_cache_key(b)
+    c = copy.deepcopy(a)
+    del c["configuration"]["sparse_topk"]
+    del c["configuration"]["components"]["transformer"]["sparse_topk"]
+    assert pipeline_cache_key(a) == pipeline_cache_key(c)
+
+
+def test_cache_hit_reapplies_topk(tiny_h3):
+    install_sparse(tiny_h3, 0.5)
+    model = SimpleNamespace(transformer=tiny_h3)
+    entry = {"attention_backend": "sparse", "sparse_topk": 0.15}
+    definition = {"configuration": {"components": {"transformer": entry}}}
+    apply_runtime_settings(definition, model)
+    assert tiny_h3._dw_sparse_state.topk == 0.15
+
+    del entry["sparse_topk"]
+    apply_runtime_settings(definition, model)
+    assert tiny_h3._dw_sparse_state.topk is None
+
+
 def test_weights_identity_leaves_the_definition_alone():
     definition = {
         "configuration": {
@@ -504,6 +569,44 @@ def test_schema_accepts_sparse_tau():
     workflow["steps"][0]["pipeline"]["configuration"]["sparse_tau"] = -1
     status, _ = validate_data(workflow, schema)
     assert status is False
+
+
+@pytest.mark.parametrize(
+    "value, ok",
+    [
+        (0.15, True),
+        ("variable:sparse_topk", True),
+        (0, False),
+        (1, False),
+        ("0.2", False),
+    ],
+)
+def test_schema_sparse_topk(value, ok):
+    workflow = {
+        "id": "sparse_test",
+        "steps": [
+            {
+                "name": "main",
+                "pipeline": {
+                    "configuration": {
+                        "component_type": "MiniMaxH3ModularPipeline",
+                        "attention_backend": "sparse",
+                        "sparse_topk": value,
+                        "components": {
+                            "transformer": {
+                                "attention_backend": "sparse",
+                                "sparse_topk": value,
+                            }
+                        },
+                    },
+                    "from_pretrained_arguments": {"model_name": "test"},
+                    "arguments": {"prompt": "test"},
+                },
+            }
+        ],
+    }
+    status, message = validate_data(workflow, load_schema("workflow"))
+    assert status is ok, message
 
 
 def test_schema_describes_sparse():

@@ -1266,6 +1266,9 @@ For components the pipeline loads itself — which is all of a modular pipeline'
 - `sparse_tau` — the sparsity threshold for a component whose `attention_backend` is
   `"sparse"` (number, minimum 0, default 0.5). A runtime setting: changing it reuses the
   loaded pipeline. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_topk` — top-k routing instead of `sparse_tau`: keep this fraction of key tiles
+  (strictly between 0 and 1, e.g. 0.15). Unset by default; when set, `sparse_tau` is
+  ignored. A runtime setting, like `sparse_tau`.
 - `attn_processor_type` — the attention processor the component runs, constructed with no
   arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
   those two; this covers any other component that carries attention (LTX-2.5's
@@ -1544,6 +1547,8 @@ stays alive for the steps that reuse it.
 - `sparse_tau` — the sparsity threshold for a pipeline-level `attention_backend:
   "sparse"` (number, minimum 0, default 0.5). See
   [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_topk` — top-k routing for a pipeline-level `"sparse"` instead of `sparse_tau`
+  (strictly between 0 and 1); unset by default.
 - `prompt_weighting` — enables A1111-style prompt weighting (`(word:1.5)`, `[word]`,
   `((word))`) and prompts over 77 tokens. Currently supports Flux pipelines. Mutually
   exclusive with `remote_text_encoder`.

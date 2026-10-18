@@ -149,7 +149,7 @@ def component_names(pipeline_definition, key):
 
 
 RUNTIME_LORA_KEYS = ("scale", "alpha")
-RUNTIME_SPARSE_KEYS = ("sparse_tau",)
+RUNTIME_SPARSE_KEYS = ("sparse_tau", "sparse_topk")
 
 
 def weights_identity(pipeline_definition):

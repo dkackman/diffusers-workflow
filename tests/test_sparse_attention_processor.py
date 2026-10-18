@@ -151,6 +151,57 @@ def test_set_sparse_tau_reaches_the_kernel(tiny_h3, kernel_calls):
     assert {c["tau"] for c in kernel_calls} == {0.8}
 
 
+def test_topk_reaches_the_kernel_as_topk_ratio_without_tail(tiny_h3, kernel_calls):
+    """sparse_topk is sol_attn's SLA-style selection: keep that fraction of key
+    tiles per query tile, softmax over those only (#932). tau is not passed."""
+    install_sparse(tiny_h3, 0.5, topk=0.15)
+    with sparse_call(_pipe(tiny_h3), "t"):
+        tiny_h3(**_inputs())
+    assert kernel_calls
+    assert {c["topk_ratio"] for c in kernel_calls} == {0.15}
+    assert {c["tail"] for c in kernel_calls} == {False}
+    assert all("tau" not in c for c in kernel_calls)
+
+
+def test_without_topk_the_kernel_gets_tau_only(tiny_h3, kernel_calls):
+    install_sparse(tiny_h3, 0.5)
+    with sparse_call(_pipe(tiny_h3), "t"):
+        tiny_h3(**_inputs())
+    assert all("topk_ratio" not in c and "tail" not in c for c in kernel_calls)
+
+
+def test_topk_output_matches_the_stock_processor(tiny_h3, kernel_calls):
+    """The fake kernel is dense, so top-k must change only what the kernel
+    is asked for, never the tiling around it."""
+    expected = tiny_h3(**_inputs()).sample
+    install_sparse(tiny_h3, 0.5, topk=0.15)
+    with sparse_call(_pipe(tiny_h3), "t"):
+        got = tiny_h3(**_inputs()).sample
+    torch.testing.assert_close(got, expected, rtol=1e-4, atol=1e-4)
+
+
+def test_set_sparse_tau_changes_and_clears_topk(tiny_h3, kernel_calls):
+    install_sparse(tiny_h3, 0.5)
+    set_sparse_tau(tiny_h3, 0.5, topk=0.2)
+    with sparse_call(_pipe(tiny_h3), "t"):
+        tiny_h3(**_inputs())
+    assert {c["topk_ratio"] for c in kernel_calls} == {0.2}
+    kernel_calls.clear()
+    set_sparse_tau(tiny_h3, 0.5)
+    with sparse_call(_pipe(tiny_h3), "t"):
+        tiny_h3(**_inputs())
+    assert all("topk_ratio" not in c for c in kernel_calls)
+
+
+@pytest.mark.parametrize("topk", [0, 1, 1.5, -0.1, "0.2", True, float("nan")])
+def test_install_sparse_refuses_a_bad_topk(tiny_h3, topk):
+    with pytest.raises(
+        ValueError, match=r"sparse_topk must be a number between 0 and 1, got "
+    ):
+        install_sparse(tiny_h3, 0.5, topk=topk)
+    assert not is_sparse_installed(tiny_h3)
+
+
 def test_signature_unchanged(tiny_h3):
     before = inspect.signature(tiny_h3.forward)
     install_sparse(tiny_h3, 0.5)

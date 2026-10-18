@@ -629,6 +629,13 @@
                     "pattern": "^variable:",
                     "minimum": 0
                 },
+                "sparse_topk": {
+                    "description": "sol_attn's top-k routing for attention_backend 'sparse': keep this fraction of key tiles per query tile (strictly between 0 and 1) and drop the rest, the selection lightx2v's SLA LoRAs were trained against. When set, sparse_tau is ignored; unset (the default) routes by sparse_tau. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline (#932). Accepts a 'variable:' reference.",
+                    "type": ["number", "string"],
+                    "pattern": "^variable:",
+                    "exclusiveMinimum": 0,
+                    "exclusiveMaximum": 1
+                },
                 "prompt_weighting": {
                     "description": "Enable A1111-style prompt weighting syntax: (word:1.5) for emphasis, [word] for de-emphasis, ((word)) for nested weighting. Also supports prompts longer than 77 tokens. Currently supports Flux pipelines. Mutually exclusive with remote_text_encoder.",
                     "type": "boolean"
@@ -715,6 +722,13 @@
                                 "type": ["number", "string"],
                                 "pattern": "^variable:",
                                 "minimum": 0
+                            },
+                            "sparse_topk": {
+                                "description": "sol_attn's top-k routing for attention_backend 'sparse': keep this fraction of key tiles per query tile (strictly between 0 and 1) and drop the rest, the selection lightx2v's SLA LoRAs were trained against. When set, sparse_tau is ignored; unset (the default) routes by sparse_tau. A runtime setting like a LoRA scale - changing it reuses the loaded pipeline (#932). Accepts a 'variable:' reference.",
+                                "type": ["number", "string"],
+                                "pattern": "^variable:",
+                                "exclusiveMinimum": 0,
+                                "exclusiveMaximum": 1
                             },
                             "attn_processor_type": {
                                 "description": "The attention processor this component runs, by type name, constructed with no arguments and handed to set_attn_processor(). The pipeline-level 'unet' and 'transformer' blocks cover those two components; this covers any other one that carries attention - LTX-2.5's 'diffusion_decoder', whose default processor is a portable FlexAttention fallback rather than the NATTEN path the decoder was built around.",

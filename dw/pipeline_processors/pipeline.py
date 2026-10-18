@@ -168,9 +168,10 @@ def apply_runtime_settings(pipeline_definition, model):
 
 
 def apply_sparse_tau(configuration, model):
-    """A component-level sparse install's tau, from the definition on a hit.
+    """A component-level sparse install's tau and topk, from the definition on a hit.
 
-    The install outlives the call, so a hit that moved only sparse_tau would
+    The install outlives the call, so a hit that moved only sparse_tau or
+    sparse_topk would
     otherwise keep the old one. A pipeline-level 'sparse' installs per call
     with the tau it states, so it needs nothing here.
     """
@@ -185,7 +186,11 @@ def apply_sparse_tau(configuration, model):
             continue
         component = getattr(model, name, None)
         if component is not None and is_sparse_installed(component):
-            set_sparse_tau(component, entry.get("sparse_tau", DEFAULT_TAU))
+            set_sparse_tau(
+                component,
+                entry.get("sparse_tau", DEFAULT_TAU),
+                entry.get("sparse_topk"),
+            )
 
 
 class Pipeline:
@@ -736,6 +741,7 @@ class Pipeline:
         overriding it silently ran sparse under a log that named the pin.
         """
         tau = self.configuration.get("sparse_tau", DEFAULT_TAU)
+        topk = self.configuration.get("sparse_topk")
         pins = {
             name: block.get("attention_backend")
             for name, block in (self.configuration.get("components") or {}).items()
@@ -755,13 +761,14 @@ class Pipeline:
                 )
             elif is_sparse_installed(component):
                 found = True
-            elif install_sparse(component, tau):
+            elif install_sparse(component, tau, topk):
                 found = True
                 installed.append(name)
                 stack.callback(uninstall_sparse, component)
         if installed:
+            routing = f"topk {topk}" if topk is not None else f"tau {tau}"
             message = (
-                f"Using attention backend: sparse (tau {tau}) on {', '.join(installed)}"
+                f"Using attention backend: sparse ({routing}) on {', '.join(installed)}"
             )
             logger.info(message)
             emit_log(message, attention_backend=SPARSE_BACKEND, components=installed)

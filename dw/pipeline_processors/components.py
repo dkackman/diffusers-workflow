@@ -151,7 +151,8 @@ def configure_components(pipeline, configuration, default_device, reused_compone
                 # dw's own processor, not a diffusers backend - it never
                 # reaches set_attention_backend (#931)
                 tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
-                if not install_sparse(component, tau):
+                topk = component_configuration.get("sparse_topk")
+                if not install_sparse(component, tau, topk):
                     emit_warning(
                         f"{component_name}: attention_backend 'sparse' needs a "
                         "MiniMax-H3 transformer; runs dense",

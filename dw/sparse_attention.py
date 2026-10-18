@@ -61,6 +61,19 @@ def _checked_tau(tau):
     return tau
 
 
+def _checked_topk(topk):
+    """`topk` when it is None or a number strictly between 0 and 1.
+
+    sol_attn refuses anything else (0 means tau routing, 1 is dense), so a
+    bad value is refused here, at install, rather than by the kernel mid-call.
+    """
+    if topk is None:
+        return None
+    if isinstance(topk, bool) or not isinstance(topk, Real) or not 0 < topk < 1:
+        raise ValueError(f"sparse_topk must be a number between 0 and 1, got {topk!r}")
+    return topk
+
+
 @dataclass(frozen=True)
 class TileMap:
     """Where each packed row lives in the padded, tiled sequence.
@@ -213,6 +226,10 @@ class _SparseState:
     """
 
     tau: float
+    # sol_attn's top-k mode when set: keep this fraction of key tiles per
+    # query tile and drop the rest outright (no pooled tail), the selection
+    # lightx2v's SLA LoRAs were trained against. tau is ignored then (#932)
+    topk: float | None = None
     originals: list = field(default_factory=list)
     handles: list = field(default_factory=list)
     decided: bool = False
@@ -309,7 +326,7 @@ class SparseH3AttnProcessor:
                 sink_blocks=[0, pt],
                 sink_q=[0, pt],
                 block_len=tm.block_len.to(query.device),
-                tau=state.tau,
+                **_routing(state),
             )
         except Exception as exc:
             if state.kernel_ran:
@@ -417,23 +434,32 @@ def _post_hook(component, args, output):
     return None
 
 
-def install_sparse(component, tau: float) -> bool:
+def _routing(state):
+    """The kernel's routing arguments: top-k when the state has one, else tau."""
+    if state.topk is not None:
+        return {"topk_ratio": state.topk, "tail": False}
+    return {"tau": state.tau}
+
+
+def install_sparse(component, tau: float, topk: float | None = None) -> bool:
     """Put the sparse processor on every block of an H3 transformer.
 
     Returns False, changing nothing, for any other component. A second call
-    only updates tau. A tau that is not a number >= 0 raises ValueError, for
+    only updates tau and topk. A tau that is not a number >= 0, or a topk
+    that is neither None nor strictly between 0 and 1, raises ValueError, for
     any component. The forward itself is not wrapped: H3's denoiser picks
     the layout kwargs it passes from the forward's signature, so the decision
     runs in forward hooks instead.
     """
     _checked_tau(tau)
+    _checked_topk(topk)
     if type(component).__name__ != _H3_CLASS:
         return False
     state = getattr(component, "_dw_sparse_state", None)
     if state is not None:
-        state.tau = tau
+        state.tau, state.topk = tau, topk
         return True
-    state = _SparseState(tau=tau)
+    state = _SparseState(tau=tau, topk=topk)
     for block in component.transformer_blocks:
         state.originals.append(block.attn.processor)
         block.attn.set_processor(SparseH3AttnProcessor(block.attn.processor, state))
@@ -461,9 +487,11 @@ def is_sparse_installed(component) -> bool:
     return getattr(component, "_dw_sparse_state", None) is not None
 
 
-def set_sparse_tau(component, tau: float) -> None:
-    """Change an installed component's tau; a bad one raises ValueError."""
-    component._dw_sparse_state.tau = _checked_tau(tau)
+def set_sparse_tau(component, tau: float, topk: float | None = None) -> None:
+    """Change an installed component's tau and topk (None clears top-k); a
+    bad value raises ValueError."""
+    state = component._dw_sparse_state
+    state.tau, state.topk = _checked_tau(tau), _checked_topk(topk)
 
 
 @dataclass
