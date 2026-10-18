@@ -321,6 +321,7 @@ export const ATTENTION_BACKENDS = [
   'flash_hub',
   'sage',
   'sage_hub',
+  'sparse',
   'xformers',
 ]
 

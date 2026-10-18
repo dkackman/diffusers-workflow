@@ -305,6 +305,45 @@ def test_component_pin_beats_pipeline_level_sparse(
     ]
 
 
+def test_pin_on_a_non_h3_component_is_no_conflict(
+    tiny_h3, no_diffusers_backend, call_warnings
+):
+    """Sparse only ever targets the H3 transformer, so a pin on the text
+    encoder skips nothing: no warning, and the transformer runs sparse."""
+    fake = FakePipeline(transformer=tiny_h3, text_encoder=torch.nn.Linear(2, 2))
+    wrapper = _wrapper(
+        fake,
+        {
+            "attention_backend": "sparse",
+            "components": {"text_encoder": {"attention_backend": "sage_hub"}},
+        },
+    )
+
+    assert wrapper._execute_pipeline({}) == "output"
+
+    assert fake.seen["transformer"] is True
+    assert not call_warnings
+
+
+def test_pin_on_a_non_h3_pipeline_still_says_it_runs_dense(
+    no_diffusers_backend, call_warnings
+):
+    fake = FakePipeline(transformer=torch.nn.Linear(2, 2))
+    wrapper = _wrapper(
+        fake,
+        {
+            "attention_backend": "sparse",
+            "components": {"transformer": {"attention_backend": "sage_hub"}},
+        },
+    )
+
+    assert wrapper._execute_pipeline({}) == "output"
+    assert call_warnings == [
+        "h3-test: attention_backend 'sparse' found no MiniMax-H3 transformer; "
+        "runs dense"
+    ]
+
+
 def test_component_pinned_to_sparse_is_not_a_conflict(
     tiny_h3, no_diffusers_backend, call_warnings
 ):

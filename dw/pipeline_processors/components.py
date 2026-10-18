@@ -141,11 +141,11 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # compiled graph and force a recompile on every run
         if component_attention_backend is not None:
             message = f"Setting {component_name} attention backend: {component_attention_backend}"
+            tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
+            topk = component_configuration.get("sparse_topk")
             if component_attention_backend == SPARSE_BACKEND:
                 # tau and top-k routing differ in speed and output, so the
                 # run's log says which ran (#932)
-                topk = component_configuration.get("sparse_topk")
-                tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
                 message += f" (topk {topk})" if topk is not None else f" (tau {tau})"
             logger.info(message)
             emit_log(
@@ -156,8 +156,6 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             if component_attention_backend == SPARSE_BACKEND:
                 # dw's own processor, not a diffusers backend - it never
                 # reaches set_attention_backend (#931)
-                tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
-                topk = component_configuration.get("sparse_topk")
                 if not install_sparse(component, tau, topk):
                     emit_warning(
                         f"{component_name}: attention_backend 'sparse' needs a "

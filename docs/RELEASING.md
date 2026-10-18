@@ -29,8 +29,9 @@ and skill. It also closes a remote-code hole in `speech_generation`.
   - Don judged faces, skin and draft-to-final staging equal or better on
     three seeds.
 - It needs CUDA with compute capability 8.0+. Anywhere else (mps, cpu, an
-  older card) H3 runs dense instead of failing. `validate_workflow` warns
-  `sparse_attention_fallback`, and the run says why it went dense.
+  older card) H3 runs dense instead of failing. On mps and cpu
+  `validate_workflow` warns `sparse_attention_fallback`; on an older card
+  or a CUDA box missing the kernels, the run says why it went dense.
 - Sparse moves details against dense and sage (same shot, different set
   dressing), so the `minimax-h3` skill's quality ramp keeps a draft and its
   final on one backend. The ramp's TV and cinema paths now run sparse; the
@@ -60,11 +61,6 @@ and skill. It also closes a remote-code hole in `speech_generation`.
   workflow could set `custom_generate` / `trust_remote_code` and run code
   from the Hub. Both are now refused unless workflows are trusted, before
   the model loads. Every release through 0.14.0 is affected.
-
-**Fixes**
-
-- `test_kernel_probe_imports_once` no longer flakes with the worker's test
-  order.
 
 **Dependencies and deploy**
 

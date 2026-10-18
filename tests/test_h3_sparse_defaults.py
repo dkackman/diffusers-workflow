@@ -14,10 +14,16 @@ from glob import glob
 
 import pytest
 
+
+def _read(path):
+    with open(path) as f:
+        return f.read()
+
+
+# selected by the H3 transformer, not by any attention_backend: a Music 3
+# template that pins a backend is no H3 default
 H3 = sorted(
-    p
-    for p in glob("workflows/templates/minimax/*.json")
-    if '"attention_backend"' in open(p).read()
+    p for p in glob("workflows/templates/minimax/*.json") if "MiniMaxH3" in _read(p)
 )
 
 
@@ -27,7 +33,7 @@ def test_nineteen_h3_templates():
 
 @pytest.mark.parametrize("path", H3)
 def test_h3_defaults_to_sparse(path):
-    d = json.load(open(path))
+    d = json.loads(_read(path))
     assert d["variables"]["attention_backend"] == "sparse"
     assert d["variables"]["sparse_tau"] == 0.5
     assert d["variables"]["sparse_topk"] == 0.15

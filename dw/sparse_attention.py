@@ -638,7 +638,9 @@ def install_sparse_for_call(pipeline, configuration, stack, label):
     found = False
     installed = []
     for name, component in named_pipeline_components(pipeline):
-        if name in pins:
+        # only an H3 transformer is ever sparse's to skip; a pin on any
+        # other component is no conflict, and must not count as found
+        if name in pins and type(component).__name__ == _H3_CLASS:
             found = True
             emit_warning(
                 f"{label}: attention_backend 'sparse' at pipeline level skips "
