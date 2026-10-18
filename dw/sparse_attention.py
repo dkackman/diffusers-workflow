@@ -475,7 +475,13 @@ class SparseCallReport:
 
 
 def pipeline_components(pipeline):
-    """Every distinct component of the pipeline, once each.
+    """Every distinct component of the pipeline, once each."""
+    for _, value in named_pipeline_components(pipeline):
+        yield value
+
+
+def named_pipeline_components(pipeline):
+    """Every distinct component of the pipeline as (name, component), once each.
 
     A ModularPipeline lists its components in a `components` mapping; anything
     else is read through its attributes. A pipeline-level 'sparse' installs on
@@ -491,14 +497,14 @@ def pipeline_components(pipeline):
     except Exception:
         components = None
     if isinstance(components, Mapping):
-        values = components.values()
+        items = components.items()
     else:
-        values = getattr(pipeline, "__dict__", {}).values()
+        items = getattr(pipeline, "__dict__", {}).items()
     seen = set()
-    for value in list(values):
+    for name, value in list(items):
         if id(value) not in seen:
             seen.add(id(value))
-            yield value
+            yield name, value
 
 
 def _installed_components(pipeline):

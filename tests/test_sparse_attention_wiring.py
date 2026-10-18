@@ -247,6 +247,68 @@ def test_pipeline_level_sparse_on_non_h3_runs_dense(
     ]
 
 
+def test_component_pin_beats_pipeline_level_sparse(
+    tiny_h3, no_diffusers_backend, call_warnings
+):
+    """A component pinned to another backend keeps it, the way a component
+    pin beats a pipeline-level backend everywhere else: the pipeline-level
+    'sparse' skips it and says so, instead of overriding it silently."""
+    fake = FakePipeline(transformer=tiny_h3)
+    wrapper = _wrapper(
+        fake,
+        {
+            "attention_backend": "sparse",
+            "components": {"transformer": {"attention_backend": "sage_hub"}},
+        },
+    )
+
+    assert wrapper._execute_pipeline({}) == "output"
+
+    assert fake.seen["transformer"] is False
+    assert call_warnings == [
+        "h3-test: attention_backend 'sparse' at pipeline level skips "
+        "'transformer', which pins 'sage_hub'"
+    ]
+
+
+def test_component_pinned_to_sparse_is_not_a_conflict(
+    tiny_h3, no_diffusers_backend, call_warnings
+):
+    fake = FakePipeline(transformer=tiny_h3)
+    wrapper = _wrapper(
+        fake,
+        {
+            "attention_backend": "sparse",
+            "components": {"transformer": {"attention_backend": "sparse"}},
+        },
+    )
+    wrapper._execute_pipeline({})
+    assert fake.seen["transformer"] is True
+    assert not call_warnings
+
+
+def test_pipeline_level_sparse_logs_what_it_installed(
+    tiny_h3, no_diffusers_backend, monkeypatch
+):
+    """Every other backend logs 'Using attention backend'; a run's log must
+    say sparse ran, and where, or a job reads as whatever a component pinned."""
+    logged = []
+    monkeypatch.setattr(
+        pipeline_module,
+        "emit_log",
+        lambda message, **data: logged.append((message, data)),
+    )
+    _wrapper(
+        FakePipeline(transformer=tiny_h3, vae=torch.nn.Linear(2, 2)),
+        {"attention_backend": "sparse", "sparse_tau": 0.8},
+    )._execute_pipeline({})
+
+    assert (
+        "Using attention backend: sparse (tau 0.8) on transformer",
+        {"attention_backend": "sparse", "components": ["transformer"]},
+    ) in logged
+
+
 @pytest.mark.parametrize("tau", [-1, "fast", False])
 def test_pipeline_level_bad_tau_raises(tiny_h3, no_diffusers_backend, tau):
     fake = FakePipeline(transformer=tiny_h3)

@@ -65,7 +65,7 @@ from ..sparse_attention import (
     SPARSE_BACKEND,
     install_sparse,
     is_sparse_installed,
-    pipeline_components,
+    named_pipeline_components,
     set_sparse_tau,
     sparse_call,
     uninstall_sparse,
@@ -730,16 +730,41 @@ class Pipeline:
 
         A component already set to 'sparse' at component level keeps that
         install and its tau: it persists across calls by design, so only what
-        this call installed comes off when it ends.
+        this call installed comes off when it ends. A component pinned to any
+        other backend keeps its pin, the way a component pin beats a
+        pipeline-level backend everywhere else, and the skip is said aloud:
+        overriding it silently ran sparse under a log that named the pin.
         """
         tau = self.configuration.get("sparse_tau", DEFAULT_TAU)
+        pins = {
+            name: block.get("attention_backend")
+            for name, block in (self.configuration.get("components") or {}).items()
+            if isinstance(block, dict)
+            and block.get("attention_backend") not in (None, SPARSE_BACKEND)
+        }
         found = False
-        for component in pipeline_components(self.pipeline):
-            if is_sparse_installed(component):
+        installed = []
+        for name, component in named_pipeline_components(self.pipeline):
+            if name in pins:
+                found = True
+                emit_warning(
+                    f"{label}: attention_backend 'sparse' at pipeline level skips "
+                    f"'{name}', which pins '{pins[name]}'",
+                    attention_backend=SPARSE_BACKEND,
+                    component=name,
+                )
+            elif is_sparse_installed(component):
                 found = True
             elif install_sparse(component, tau):
                 found = True
+                installed.append(name)
                 stack.callback(uninstall_sparse, component)
+        if installed:
+            message = (
+                f"Using attention backend: sparse (tau {tau}) on {', '.join(installed)}"
+            )
+            logger.info(message)
+            emit_log(message, attention_backend=SPARSE_BACKEND, components=installed)
         if not found:
             emit_warning(
                 f"{label}: attention_backend 'sparse' found no MiniMax-H3 "
