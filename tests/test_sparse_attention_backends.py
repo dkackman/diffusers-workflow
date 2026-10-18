@@ -84,6 +84,11 @@ def test_kernel_probe_imports_once(monkeypatch):
     """The first health poll pays for the import; later ones do not."""
     import builtins
 
+    # Loaded first, so the count below sees the probe's own import statements
+    # and not comfy-kitchen loading its submodules: whether that happens here
+    # depends on which tests ran earlier in this worker
+    import comfy_kitchen.backends.cuda  # noqa: F401
+
     real = builtins.__import__
     imports = []
 
@@ -94,8 +99,9 @@ def test_kernel_probe_imports_once(monkeypatch):
 
     monkeypatch.setattr(builtins, "__import__", counting)
     first = sparse_attention._kernels_importable()
+    paid = len(imports)
     assert sparse_attention._kernels_importable() is first
-    assert len(imports) == 1
+    assert len(imports) == paid  # the later call imported nothing
 
 
 def test_health_carries_attention_backends(server):  # noqa: F811
