@@ -8,7 +8,7 @@
 
 **Tech Stack:** Python 3.12, PyTorch, diffusers 0.41 dev (modular MiniMax-H3), comfy-kitchen 0.2.38, FastAPI/Pydantic, Svelte 5 + Vitest.
 
-**Spec:** `docs/superpowers/specs/2026-10-17-h3-sparse-attention-design.md`. Evidence is on issue #931. The prototype being ported is `docs/superpowers/plans/931/h3_sol_proto.py` (a throwaway script, kept for reference; delete it with the final task).
+**Spec:** `docs/superpowers/specs/2026-10-17-h3-sparse-attention-design.md`. Evidence is on issue #931. The prototype it ported was `docs/superpowers/plans/931/h3_sol_proto.py`, removed after stage 3 (in git history before that commit).
 
 ## Global Constraints
 

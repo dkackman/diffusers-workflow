@@ -176,18 +176,29 @@ for sage attention", measured 2026-10-10), so the LTX templates expose no backen
 
 `attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel: each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. It applies to the H3 transformer only, at pipeline or component level, and is the default on every H3 template (#931). `sparse_tau` (number, minimum 0, default 0.5; anything else, such as a `variable:` that resolves to a string or a bool, fails the step rather than running dense) sets how much of the attention mass a tile may drop; 0 keeps the most. Observed at Ref2VA 1344x768, seed 42: tau 1.0 ran 42.1 s/forward against 44.8 s at 0.5, and by Don's eye 1.0 gave smoother skin while 0.5 matched dense (the table below). That is one shape and one seed, not a rule that higher is always faster or smoother.
 
-**What the default buys depends on what it replaces.** Against `native` attention, which is what an H3 template ran before #931 unless `attention_backend` was set, sparse is 2.2-4.4x faster per step. Against `sage_hub`, the backend the H3 skill's quality ramp already sets on CUDA, the gain is much smaller: about 14% per step at Ref2VA 1344x768, the one shape measured so far. So sparse's main win is for a run that set no backend, and it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. A box already on `sage_hub` gains less. #931's stage 3 measures sparse against `sage_hub` on the ramp's shapes and fills in the blank cells below.
+**What the default buys depends on what it replaces.** Against `native` attention, which is what an H3 template ran before #931 unless `attention_backend` was set, sparse is 2.2-4.4x faster per step. Against `sage_hub`, the gain is much smaller: 6-16% depending on the shape (the second table). So sparse's main win is for a run that set no backend, and it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. A box already on `sage_hub` gains a little, at equal quality: on the H3 skill's quality-ramp rungs, Don judged faces, skin and draft-to-final staging equal under both backends across three seeds (#931 stage 3).
 
 Measured on an RTX 3090, seed 42, s per transformer forward (one per denoise step), lower is faster:
 
 | shape | native | `sage_hub` | sparse | sparse vs native | sparse vs `sage_hub` |
 |---|---|---|---|---|---|
-| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | - | 10.8 | 2.25x | not measured |
-| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | - | 21.9 | 4.38x | not measured |
-| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | - | 42.1 | 2.58x | not measured |
+| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | - | 10.8 | 2.25x | - |
+| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | - | 21.9 | 4.38x | - |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | - | 42.1 | 2.58x | - |
 | Ref2VA 1344x768, 8-step ref2v turbo, tau 0.5 (the default) | 108.4 | 51.0 | 44.1-44.8 | 2.42x | 1.16x |
 
-Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse. The native and tau 1.0 figures come from the #931 prototype. The `sage_hub` figure and the 44.1 s come from the engine on lem after the deploy, with a newer diffusers (jobs 94c04976d21d and 593131ca713f), so the sage comparison is between those two jobs only. Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
+Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse.
+
+Against `sage_hub` on the H3 skill's quality-ramp rungs (ep 6 cold open, 4 references, 1344x768, 124 frames; minutes per job, seeds 42 / 7 / 1234, all on the same diffusers):
+
+| rung | `sage_hub` | sparse | sparse vs `sage_hub` |
+|---|---|---|---|
+| L1: ref2v 4-step turbo, int4, 5 steps | 5.5 / 5.5 / 5.5 | 5.2 / 5.2 / 5.1 | 1.06-1.08x |
+| L7: ref2v 4-step turbo, int8, 5 steps | 7.1 / 6.9 / 7.1 | 6.5 / 6.5 / 6.5 | 1.06-1.09x |
+| B3: base model, int8, 12 steps | 13.0 / 12.9 / 12.9 | 12.3 / 12.0 / 12.1 | 1.06-1.07x |
+| L5: base model, int8, 30 steps | 29.7 / 29.7 / 29.7 | 26.8 / 26.6 / 26.4 | 1.11-1.12x |
+
+The `first_block` cache on `sage_hub` (23.1 min at L5's settings) is still faster than sparse alone there; sparse with that cache is not measured. The native and tau 1.0 figures come from the #931 prototype. The `sage_hub` figure and the 44.1 s come from the engine on lem after the deploy, with a newer diffusers (jobs 94c04976d21d and 593131ca713f), so the sage comparison is between those two jobs only. The T2VA rows have no `sage_hub` run. Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
 
 It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per pipeline call. A job of one call warns once; a chained, `shots-batch` or `dialogue-short` job calls the pipeline once per segment or shot, so it warns once for each, under that segment's or shot's label. A comfy-kitchen kernel that fails on its first invocation in a call also runs that call dense, with `sparse kernel failed: <error>` as the reason; one that fails after it has run in the call fails the run, since some blocks have already run sparse.
 

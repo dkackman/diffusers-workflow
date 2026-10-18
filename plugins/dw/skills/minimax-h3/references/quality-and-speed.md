@@ -29,6 +29,7 @@ shift the LoRA names.
 | L6 | 1344x768 | int8 | none | 30 | native | 44.2 | 4 |
 | P1 | 1344x768 | int8 | none | 30 | sage_hub + `first_block` 0.05 | 23.1 | 4 |
 | C1 / C2 (close-up) | 1344x768 | int8 | none | 12 / 30 | sage_hub | 13.9 / 22.8 | 4 / 4 |
+| L1s / L7s | 1344x768 | int4 / int8 | ref2v 4-step v0.1 | 5 | sparse | 5.2 / 6.5 | = L1 / L7 (Don, 3 seeds) |
 | B3s | 1344x768 | int8 | none | 12 | sparse | 12.1 | = B3 (Don, 3 seeds) |
 | L5s | 1344x768 | int8 | none | 30 | sparse | 26.6 | = L5 (Don, 3 seeds) |
 
@@ -65,9 +66,9 @@ both tiers on CUDA: it never moves composition.
 
 The H3 templates default to `attention_backend=sparse` (`sparse_tau` 0.5),
 which shifts details against sage (see *Composition*). Against `sage_hub` it
-is 6-12% faster on these rungs (#931 stage 3); its big gain is against
-`native`. Draft and final always share one backend: pass the backend the
-row names at both tiers.
+is 6-12% faster on these rungs, with equal faces and staging on 3 seeds
+(#931 stage 3); its big gain is against `native`. Draft and final always
+share one backend: pass the backend the row names at both tiers.
 
 **`dialogue-short` at 1344x768** (every rung below is that canvas): a shot
 with 4 references must be 124 frames (*Frame ceiling* above). The default
@@ -81,7 +82,7 @@ shot's line still fits 5.17 s.
 
 | Target | Draft | Final | Only these change |
 |---|---|---|---|
-| **TV** (sitcom, social, previs) | **L1**, ~5.4 min | **L7**, ~7.2 min | `weights_dtype` `{int4}` to `{int8}` |
+| **TV** (sitcom, social, previs) | **L1s**, ~5.2 min | **L7s**, ~6.5 min | `weights_dtype` `{int4}` to `{int8}` |
 | **Cinema** (realistic faces), sage | **B3**, ~12.9 min | **P1**, ~23.1 min (or L5, ~29.5) | `num_inference_steps` 12 to 30; P1 adds `cache` |
 | **Cinema**, sparse | **B3s**, ~12.1 min | **L5s**, ~26.6 min | `num_inference_steps` 12 to 30 |
 | **Close-up** | **C1**, ~13.9 min | ship the draft | nothing |
@@ -90,7 +91,10 @@ shot's line still fits 5.17 s.
   `lora_model_name` `lightx2v/Minimax-h3-Turbo`, `lora_weight_name`
   `minimax_h3_ref2v_turbo_4step_v0.1_bf16.safetensors`,
   `num_inference_steps` 5, `video_shift` 12, `audio_shift` 3. L1 is
-  `weights_dtype` `{int4}`, L7 is `{int8}`. **L0** (the same at 960x544,
+  `weights_dtype` `{int4}`, L7 is `{int8}`; `attention_backend=sparse` (the
+  default) at both tiers. Under sparse, L1s -> L7s kept staging on 3 of 3
+  seeds and matched sage; the TV faces smear a little under either backend
+  (the turbo LoRA, not attention; #931). **L0** (the same at 960x544,
   ~3.5 min) is a throwaway sketch only. Its staging did carry to L7 (below),
   but it smeared a face at both new seeds, so a face can't be approved on it,
   and two-character shots at 960x544 smear. Render those at 1344x768 from
