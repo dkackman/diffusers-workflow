@@ -7,6 +7,71 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.15.0
+
+<!-- Drafted from v0.14.0..develop (0c4ed5ea). Paste into the GitHub release body once the tag has published: gh release edit v0.15.0 --notes-file ... -->
+
+A release about speed for MiniMax H3 and a new image family. H3 now runs
+sparse attention by default, 2-4x faster per step than plain attention and
+6-20% faster than `sage_hub`, with no extra install and equal quality on
+Don's judging. FLUX 3 Image Klein joins the catalog with its own templates
+and skill. It also closes a remote-code hole in `speech_generation`.
+
+**Sparse attention for MiniMax H3** (#931, #932)
+
+- A new `attention_backend: "sparse"` runs H3's generated-video attention
+  through comfy-kitchen's Sol-Attn kernel. Text, references and audio stay
+  exact. It is the default on every H3 template, routed by top-k 0.15
+  (`sparse_topk`), with `sparse_tau` as the alternative routing.
+  - Against plain attention it is 2.2-4.4x faster per step on an RTX 3090.
+  - Against `sage_hub`, on the H3 quality-ramp rungs, it is 6-20% faster.
+    The L5 cinema final runs in 23.9-25.5 min, against 29.7 on sage.
+  - Don judged faces, skin and draft-to-final staging equal or better on
+    three seeds.
+- It needs CUDA with compute capability 8.0+. Anywhere else (mps, cpu, an
+  older card) H3 runs dense instead of failing. `validate_workflow` warns
+  `sparse_attention_fallback`, and the run says why it went dense.
+- Sparse moves details against dense and sage (same shot, different set
+  dressing), so the `minimax-h3` skill's quality ramp keeps a draft and its
+  final on one backend. The ramp's TV and cinema paths now run sparse; the
+  sage B3 -> P1 pair stays as the fastest cached cinema final.
+- `/api/health` lists the attention backends the server can run, and the
+  web UI's `attention_backend` fields are dropdowns of that list.
+- A component that pins a backend keeps it under a pipeline-level
+  `sparse`, with a warning, and the run log names sparse's routing.
+- lightx2v's Turbo-SLA LoRA was evaluated and not adopted: top-k routing
+  gives the same result on the existing turbo LoRA (#932).
+
+**FLUX 3 Image Klein** (#930)
+
+- Templates for text-to-image, upsample-then-generate, image edit,
+  multi-reference and layout-with-boxes, plus the model entry and a
+  `flux3-klein` composition skill.
+- `text_generation` gains `chat_template_kwargs`, a `revision`, a list of
+  images, and a `system_prompt` read from a Hub repo file at a pinned
+  commit (anonymous, public files only, size-capped). Its `generate_kwargs`
+  are filtered, and `custom_generate` / `trust_remote_code` need trusted
+  workflows.
+
+**Security**
+
+- `speech_generation` passed a workflow's `generate_kwargs` and
+  `forward_params` to the model's `generate()` unfiltered, so an untrusted
+  workflow could set `custom_generate` / `trust_remote_code` and run code
+  from the Hub. Both are now refused unless workflows are trusted, before
+  the model loads. Every release through 0.14.0 is affected.
+
+**Fixes**
+
+- `test_kernel_probe_imports_once` no longer flakes with the worker's test
+  order.
+
+**Dependencies and deploy**
+
+- New core dependency: `comfy-kitchen>=0.2.38,<0.3` (Apache-2.0). Linux and
+  Windows get the compiled CUDA/HIP kernels; macOS gets a pure-Python wheel
+  and runs H3 dense. `scripts/deploy.sh` reinstalls on the pyproject change.
+
 ### 0.14.0
 
 <!-- Drafted from v0.13.0..develop (7b72a7de). Paste into the GitHub release body once the tag has published: gh release edit v0.14.0 --notes-file ... -->
