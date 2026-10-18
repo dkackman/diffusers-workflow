@@ -149,6 +149,7 @@ def component_names(pipeline_definition, key):
 
 
 RUNTIME_LORA_KEYS = ("scale", "alpha")
+RUNTIME_SPARSE_KEYS = ("sparse_tau", "sparse_topk")
 
 
 def weights_identity(pipeline_definition):
@@ -168,6 +169,10 @@ def weights_identity(pipeline_definition):
     (or nulls the variable behind it) must reload to get the default back,
     where 16 -> 8 just re-applies. A scale needs no marker - an absent scale
     re-applies as 1.0.
+
+    sparse_tau (#931), on the configuration and on each of its components,
+    needs no marker either: it has no checkpoint value to restore, and an
+    absent one re-applies as DEFAULT_TAU.
     """
     identity = {
         k: v
@@ -186,14 +191,31 @@ def weights_identity(pipeline_definition):
         scheduler = identity.get(name)
         if isinstance(scheduler, dict):
             identity[name] = _without_runtime(scheduler, ("shift",), "shift")
+    configuration = identity.get("configuration")
+    if isinstance(configuration, dict):
+        identity["configuration"] = _without_sparse_tau(configuration)
     return identity
 
 
-def _without_runtime(block, runtime_keys, marked):
+def _without_sparse_tau(configuration):
+    """The configuration without sparse_tau, at pipeline or component level."""
+    stripped = _without_runtime(configuration, RUNTIME_SPARSE_KEYS)
+    entries = stripped.get("components")
+    if isinstance(entries, dict):
+        stripped["components"] = {
+            name: _without_runtime(entry, RUNTIME_SPARSE_KEYS)
+            if isinstance(entry, dict)
+            else entry
+            for name, entry in entries.items()
+        }
+    return stripped
+
+
+def _without_runtime(block, runtime_keys, marked=None):
     """`block` without its runtime keys, but with `marked` as True when the
     block states it - see weights_identity for why its presence counts."""
     stripped = {k: v for k, v in block.items() if k not in runtime_keys}
-    if block.get(marked) is not None:
+    if marked is not None and block.get(marked) is not None:
         stripped[marked] = True
     return stripped
 

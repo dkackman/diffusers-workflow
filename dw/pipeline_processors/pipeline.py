@@ -60,6 +60,12 @@ from diffusers import attention_backend
 from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
+from ..sparse_attention import (
+    SPARSE_BACKEND,
+    apply_sparse_settings,
+    install_sparse_for_call,
+    sparse_call,
+)
 
 logger = logging.getLogger("dw")
 
@@ -154,6 +160,7 @@ def apply_runtime_settings(pipeline_definition, model):
         pipeline_definition.get("audio_scheduler"), model, "audio_scheduler"
     )
     apply_adapter_settings(pipeline_definition.get("loras"), model)
+    apply_sparse_settings(pipeline_definition.get("configuration", {}), model)
 
 
 class Pipeline:
@@ -639,14 +646,21 @@ class Pipeline:
         emit_phase("generating", detail=self.segment_label or self.name)
         denoiser = _denoiser(self.pipeline)
         mark("call_started", compiled=is_compiled(denoiser))
+        label = self.segment_label or self.name
         with contextlib.ExitStack() as stack:
-            if attn_backend is not None:
+            if attn_backend == SPARSE_BACKEND:
+                # dw's own processor, never a diffusers backend (#931)
+                install_sparse_for_call(self.pipeline, self.configuration, stack, label)
+            elif attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
                 emit_log(
                     f"Using attention backend: {attn_backend}",
                     attention_backend=str(attn_backend),
                 )
                 stack.enter_context(attention_backend(attn_backend))
+            # Entered after the uninstall callbacks are pushed, so it closes
+            # (and reports a fallback) while the processors are still on
+            stack.enter_context(sparse_call(self.pipeline, label))
 
             stack.enter_context(captured_mag_calibration(self.pipeline, arguments))
             stack.enter_context(

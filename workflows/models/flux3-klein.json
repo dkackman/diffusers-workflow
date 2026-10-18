@@ -1,0 +1,70 @@
+{
+    "id": "flux3-klein",
+    "description": "FLUX 3 Image Klein (distilled, 5.6B) as a model entry, configured by the text-to-image template. The prompt here is a short one, and Klein turns a short prompt into a generic picture: for full captions run templates/flux3/upsample-then-generate. Sixteen steps with no guidance or negative prompt. The weights are gated under the FLUX Kommunity License: accept it on the model page and log in with hf auth login first.",
+    "configures": "templates/text-to-image",
+    "cost_drivers": [
+        "num_images_per_prompt",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "prompt": "an apple",
+        "num_images_per_prompt": 1,
+        "width": 1024,
+        "height": 1024,
+        "seed": null
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "text_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": 16,
+                    "output": "images",
+                    "num_images_per_prompt": "variable:num_images_per_prompt"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ],
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        }
+    }
+}

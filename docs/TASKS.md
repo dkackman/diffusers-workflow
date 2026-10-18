@@ -2848,8 +2848,21 @@ Generate or expand text using a local language model. Useful for expanding short
 | `model_name` | No | HuggingFace model ID (default: `Qwen/Qwen2.5-1.5B-Instruct`, or `HuggingFaceTB/SmolVLM-256M-Instruct` when an image is supplied) |
 | `image` | No | PIL Image, URL/path, or `previous_result:` reference — see below |
 | `repetition_penalty` | No | Vision path only (default: 1.15) — see below |
-| `generate_kwargs` | No | Anything else to pass to the model's `generate()` — `no_repeat_ngram_size`, `top_p`, `min_new_tokens`. Merged last, so it overrides the settings above |
+| `generate_kwargs` | No | Anything else to pass to the model's `generate()` — `no_repeat_ngram_size`, `top_p`, `min_new_tokens`, `stop_strings`. Merged last, so it overrides the settings above. Filtered like `chat_template_kwargs` — see below |
 | `max_new_tokens` | No | Maximum tokens to generate (default: 500) |
+| `chat_template_kwargs` | No | Extra keyword arguments for the model's chat template (for a template that takes switches such as a thinking toggle). Values must be scalars (boolean, number, string or null), and the generation call's own keys (`images`, `tools`, `max_new_tokens`, `tokenizer_encode_kwargs`, ...) are refused |
+| `revision` | No | Model revision (branch, tag or commit) to load `model_name` at |
+
+`image` may also be a list of images, each sent as its own picture in the one user message. A list is one prompt over all the images, in order, and returns one answer — not one answer per image. The same holds for `judge` and `image_to_text`, which hand their `image` to this task. An empty list, or one holding only nulls, is no image.
+
+`system_prompt` may name a file in a Hugging Face repo instead of carrying the text,
+for a vendor that ships its prompt instructions there:
+`{"from_hub": {"repo": "owner/name", "file": "system_prompts.json", "revision": "<40-hex commit>", "key": "t2i"}}`.
+The revision must be a full commit, so the text can't move under the workflow. A `.json`
+file takes `key` to pick one string; any other file is read whole. Only public repos are
+reachable (the download never uses the server's Hugging Face token), and a file over 1 MiB
+is refused. The Hub is asked, without credentials, whether the file is public before every
+use, so `from_hub` needs network access even when the file is already cached.
 
 ### Writing a prompt from a picture
 
@@ -2889,6 +2902,8 @@ For anything the arguments above do not cover, `generate_kwargs` goes straight t
 ```
 
 It is merged after everything else, so it can override `repetition_penalty` and the sampling settings as well as add to them.
+
+`generate_kwargs` is checked before the model loads, the same way `chat_template_kwargs` is. Values must be scalars or lists of scalars (`stop_strings` is a list), and the call's own keys are refused (`max_new_tokens`, `tokenizer_encode_kwargs`, `prefix`, `handle_long_generation` and the rest of the pipeline's named arguments). `custom_generate` and `trust_remote_code` need trusted workflows (`--trust-workflows`): with them, transformers downloads a repo's `custom_generate/generate.py` and runs it in place of its own decoding loop.
 
 **Examples:**
 

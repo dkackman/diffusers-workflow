@@ -275,3 +275,36 @@ def require_trusted_from_pretrained_arguments(arguments, what: str) -> None:
                 f"Python - see docs/SECURITY.md. Pass --trust-workflows if you "
                 f"trust this workflow's source."
             )
+
+
+# generate() arguments that load and run code from the Hub. transformers'
+# generate() hands `custom_generate` (a repo id) to load_custom_generate, which
+# downloads that repo's custom_generate/generate.py and executes it in place of
+# the built-in decoding loop; `trust_remote_code` is what lets it. A task that
+# passes a workflow's generate_kwargs through reaches that with no from_pretrained
+# call for require_trusted_from_pretrained_arguments to see
+GENERATE_REMOTE_CODE_ARGUMENTS = ("custom_generate", "trust_remote_code")
+
+
+def require_trusted_generate_arguments(arguments, what: str) -> None:
+    """Refuse generate() arguments that download and execute Python from the
+    Hub unless the workflow is trusted.
+
+    Args:
+        arguments: The generate_kwargs block a workflow supplied
+        what: The task or call being configured, for the error message
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and any of
+            GENERATE_REMOTE_CODE_ARGUMENTS is set
+    """
+    if workflows_are_trusted() or not isinstance(arguments, dict):
+        return
+    for key in GENERATE_REMOTE_CODE_ARGUMENTS:
+        if arguments.get(key):
+            raise UntrustedWorkflowError(
+                f"Refusing to run {what}: its generate_kwargs set '{key}', which "
+                f"downloads and executes Python from a Hub repository, so it "
+                f"needs trusted workflows - see docs/SECURITY.md. Pass "
+                f"--trust-workflows if you trust this workflow's source."
+            )

@@ -618,6 +618,10 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # moved again the same day when an alpha's or a shift's presence (True,
 # never its value) went back in: a hit cannot restore a checkpoint default,
 # so dropping one has to reload.
+#
+# The H3 steps of the nineteen minimax templates that pin an attention backend
+# moved when it defaulted to sparse instead of null (#931): the backend is part of
+# the pipeline's identity, sparse_tau is not.
 TEMPLATE_PIPELINE_KEYS = {
     "assemble-and-score.json": {},
     "attention-processor.json": {
@@ -661,6 +665,21 @@ TEMPLATE_PIPELINE_KEYS = {
         "generate": "bfe2e09d70b6bf6e7799266cf735abd779e5a9e3c283b8287d962eab17d95425"
     },
     "expand-prompt.json": {},
+    "flux3/image-edit.json": {
+        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
+    "flux3/layout-boxes.json": {
+        "layout_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
+    "flux3/multi-reference.json": {
+        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
+    "flux3/text-to-image.json": {
+        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
+    "flux3/upsample-then-generate.json": {
+        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+    },
     "generate-speech.json": {},
     "image-edit.json": {
         "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
@@ -768,84 +787,84 @@ TEMPLATE_PIPELINE_KEYS = {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
     },
     "minimax/chain-matched-and-aligned.json": {
-        "audio_aligned_chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "audio_aligned_chained_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/chain-matched-to-audio.json": {
-        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "chained_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/chain-video-continuity.json": {
-        "chained_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "chained_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/chained-segments.json": {
-        "chained_keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
+        "chained_keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/composable-references.json": {
-        "video_reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "video_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/dialogue-short.json": {
         "draw_character_a": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "draw_character_b": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "shot@button": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@cold_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@deflect": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@react": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@tag": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "shot@cold_open": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@deflect": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@react": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@button": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@tag": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
     },
     "minimax/enhance-prompt-with-image.json": {
-        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
+        "keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/enhance-prompt.json": {
-        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
+        "text_to_video_audio": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
     "minimax/first-and-last-frame.json": {
-        "first_and_last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
+        "first_and_last_frame_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/generated-subject-reference.json": {
         "draw_subject": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
+        "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
     },
     "minimax/image-to-video.json": {
-        "keyframe_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
+        "keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/last-frame-only.json": {
-        "last_frame_to_video_audio": "5fb73e7ccf6a8526a42eb04c4ac2fe777ed528e3e3305c787d4d48abacb158c8"
+        "last_frame_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/music-video-cuts.json": {},
     "minimax/music-video.json": {
         "draw_singer": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "shot@closeup": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@finale": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@room": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
-        "shot@wide_open": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6",
         "write_song": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
+        "shot@wide_open": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@closeup": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@room": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
+        "shot@finale": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf",
     },
     "minimax/music.json": {
         "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
     },
     "minimax/reference-to-video.json": {
-        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "minimax/shots-batch.json": {
-        "shot@shot_1": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
-        "shot@shot_2": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
-        "shot@shot_3": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
-        "shot@shot_4": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
-        "shot@shot_5": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac",
+        "shot@shot_1": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
+        "shot@shot_2": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
+        "shot@shot_3": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
+        "shot@shot_4": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
+        "shot@shot_5": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
     },
     "minimax/storyboard.json": {
         "board_1_launch": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "board_2_gutter": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
         "board_3_shore": "a3861857f0d412d15cd569c065aac00fcf7c0af9c2e68a7944877c1eb0f796bf",
-        "voyage": "0f30a4f21253ffdec029b3e2523c077f68629579bb3ae57cc69c09b638665987",
+        "voyage": "9b0899c7c69c86106cdb39d8ba401ced9db175b31b31cb1e8e04440fc1d6801b",
     },
     "minimax/video-with-audio-768p.json": {
-        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
+        "text_to_video_audio": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
     "minimax/video-with-audio.json": {
-        "text_to_video_audio": "68977225a70231ba3dd93248624501e4d8335c39eed9d4b2f0c970037af89bac"
+        "text_to_video_audio": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
     },
     "minimax/voice-timbre-reference.json": {
-        "reference_to_video_audio": "95c8ba90efeba9603384619f1db3f275251f078370add6b2a3e7dab8481aacc6"
+        "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
     "multi-image-reference.json": {
         "txt2img": "6e563b308f1508e0f24a660dcf25636774e2b70c4ccc723e8975421a7224b48d"

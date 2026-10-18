@@ -119,6 +119,11 @@ class HealthInfo(ApiModel):
     hostname: str = Field(description="Which machine answered.")
     device: str
     mcp: bool
+    attention_backends: list[str] = Field(
+        default_factory=list,
+        description="Attention backends this server's device can run, for the UI's "
+        "dropdown; 'sparse' only where comfy-kitchen's compiled kernels loaded",
+    )
 
 
 class ServerAddress(ApiModel):

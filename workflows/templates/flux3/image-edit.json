@@ -1,0 +1,73 @@
+{
+    "id": "Flux3KleinImageEdit",
+    "description": "FLUX 3 Image Klein image edit: BFL's prompt upsampler reads the reference and the instruction and writes the caption Klein was trained on, then Klein edits the reference by that caption. The upsampler sees the same reference as the pipeline, and is freed (release_models) before Klein loads. The caption is saved as an intermediate. Width and height are left unset, so the output defaults to 1 MP at the reference's aspect ratio, rounded to the 16-pixel grid. Family rules (16 steps, no guidance, component placement, the gated license) are as in text-to-image.json.",
+    "summary": "FLUX 3 Klein edit of one picture, the instruction expanded by BFL's upsampler first.",
+    "cost_drivers": [
+        "image"
+    ],
+    "variables": {
+        "instruction": "put a red bandana around the dog's neck",
+        "image": {
+            "location": "https://raw.githubusercontent.com/black-forest-labs/flux-3-image-klein/bbfe317dd81c825c30d76090a67d3d0db51da3cc/examples/inputs/3.png"
+        },
+        "seed": 22
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "upsample",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:flux3_klein_upsample_edit.json",
+                "arguments": {
+                    "instruction": "variable:instruction",
+                    "images": [
+                        "variable:image"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "edit",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "previous_result:upsample",
+                    "image": [
+                        "variable:image"
+                    ],
+                    "num_inference_steps": 16,
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

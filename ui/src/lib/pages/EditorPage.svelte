@@ -23,7 +23,11 @@
   import { go, goWs } from '../router.svelte'
   import { wsHref } from '../routes'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
-  import { emptyWorkflow, referenceSuggestions } from '../editor'
+  import {
+    attentionBackendVariables,
+    emptyWorkflow,
+    referenceSuggestions,
+  } from '../editor'
   import { danglingReferenceDetails, flowGraph } from '../flow'
   import { groupOf, leafOf } from '../grouping'
   import { loadPromptLibrary, promptLibrary } from '../promptlib.svelte'
@@ -451,6 +455,7 @@
           mode="define"
           bind:variables={ed.doc.variables}
           idPrefix="wfvar-"
+          backendVariables={attentionBackendVariables(ed.doc)}
         />
       </div>
 

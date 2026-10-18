@@ -116,7 +116,7 @@ pipeline-level `offload`. The working 24GB configuration at 960x544:
 | `text_encoder` | `remove_modules: ["lm_head"]` - the encoder path never calls it |
 | `text_encoder.model` | SDNQ int4, `truncate_layers: {"language_model.layers": 51}`, `group_offload` `leaf_level` |
 | `vae`, `audio_vae` | SDNQ int8, `device: "cuda"`, `residency: "on_demand"` |
-| pipeline | `cache: first_block` (`threshold: 0.05`) only on a ~30-step base-model run (`lora_model_name: null`): -22% denoise there, identical staging and faces. It skips nothing at 12 steps or on a turbo schedule (consecutive distilled steps differ too much), and every H3 template takes it as a `cache` argument (null by default): `{"type": "first_block", "threshold": 0.05}`. Measured on a 3090 with `sage_hub`; see the `minimax-h3` skill's `references/quality-and-speed.md` |
+| pipeline | `cache: first_block` (`threshold: 0.05`) only on a ~30-step base-model run (`lora_model_name: null`): -22% denoise there, identical staging and faces. It skips nothing at 12 steps or on a turbo schedule (consecutive distilled steps differ too much), and every H3 template takes it as a `cache` argument (null by default): `{"type": "first_block", "threshold": 0.05}`. Measured on a 3090 with `sage_hub`; every H3 template now defaults to `attention_backend: "sparse"` ([Attention Backends](ACCELERATION.md#sparse-minimax-h3)), which needs no extra install. See the `minimax-h3` skill's `references/quality-and-speed.md` |
 
 The VAEs are the piece worth calling out. They hold roughly 3GiB, are used only to
 encode references and decode the result, and group offloading them is worse than useless

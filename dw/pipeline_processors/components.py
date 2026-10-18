@@ -15,6 +15,12 @@ from .. import get_device_type, resolve_device
 from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning
 from .. import download_watch
 from .. import quantized_cache
+from ..sparse_attention import (
+    DEFAULT_TAU,
+    SPARSE_BACKEND,
+    install_sparse,
+    uninstall_sparse,
+)
 from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .h3_guides import insert_guides
@@ -77,6 +83,15 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             )
             continue
 
+        # The worker keeps models loaded between jobs, so a component an
+        # earlier job set to 'sparse' still carries its processors: anything
+        # but 'sparse' takes them off before its own backend or processor goes on
+        component_attention_backend = component_configuration.get(
+            "attention_backend", None
+        )
+        if component_attention_backend != SPARSE_BACKEND:
+            uninstall_sparse(component)
+
         # Prune before any hooks are installed - an offload hook pins and tracks
         # exactly the modules that exist when it is applied, so pruning afterwards
         # would leave it streaming weights that can never run
@@ -124,18 +139,32 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # A compiled component should pin its attention backend - the per-call
         # attention_backend context manager would switch implementations under a
         # compiled graph and force a recompile on every run
-        component_attention_backend = component_configuration.get(
-            "attention_backend", None
-        )
         if component_attention_backend is not None:
             message = f"Setting {component_name} attention backend: {component_attention_backend}"
+            tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
+            topk = component_configuration.get("sparse_topk")
+            if component_attention_backend == SPARSE_BACKEND:
+                # tau and top-k routing differ in speed and output, so the
+                # run's log says which ran (#932)
+                message += f" (topk {topk})" if topk is not None else f" (tau {tau})"
             logger.info(message)
             emit_log(
                 message,
                 component=component_name,
                 attention_backend=str(component_attention_backend),
             )
-            set_component_attention_backend(component, component_attention_backend)
+            if component_attention_backend == SPARSE_BACKEND:
+                # dw's own processor, not a diffusers backend - it never
+                # reaches set_attention_backend (#931)
+                if not install_sparse(component, tau, topk):
+                    emit_warning(
+                        f"{component_name}: attention_backend 'sparse' needs a "
+                        "MiniMax-H3 transformer; runs dense",
+                        component=component_name,
+                        attention_backend=SPARSE_BACKEND,
+                    )
+            else:
+                set_component_attention_backend(component, component_attention_backend)
 
         # Compile last - the graph must capture final dtypes, adapters,
         # quantization, and offload hooks

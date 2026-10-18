@@ -681,9 +681,10 @@ class TestTheCatalogsDriversAreReal:
 
         The exception is a configuration choice drawn from a short list:
         H3's weights dtype and LoRA move the wall clock and are text, and
-        bucket by exact value (#866, Q5)."""
+        bucket by exact value (#866, Q5). So is the attention backend, which
+        changes the wall clock by 2-4x (#931)."""
         never = {"seed", "prompt", "negative_prompt"}
-        choices = {"weights_dtype", "lora_model_name"}
+        choices = {"weights_dtype", "lora_model_name", "attention_backend"}
         for path in sorted(
             glob.glob(
                 os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True

@@ -1557,6 +1557,14 @@
       "HealthInfo": {
         "additionalProperties": false,
         "properties": {
+          "attention_backends": {
+            "description": "Attention backends this server's device can run, for the UI's dropdown; 'sparse' only where comfy-kitchen's compiled kernels loaded",
+            "items": {
+              "type": "string"
+            },
+            "title": "Attention Backends",
+            "type": "array"
+          },
           "current_job": {
             "anyOf": [
               {

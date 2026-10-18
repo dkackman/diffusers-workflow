@@ -452,6 +452,7 @@ class TestAccelerationWarnings:
         "taylorseer_state_unestimated",
         "compile_fullgraph_with_cache",
         "attention_backend_unavailable",
+        "sparse_attention_fallback",
         "cache_unsupported",
     )
 
@@ -784,6 +785,57 @@ class TestAccelerationWarnings:
 
         warnings = self.run(monkeypatch, definition, device="mps")
 
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    # sparse_attention_fallback
+
+    @pytest.mark.parametrize("level", ["pipeline", "component"])
+    @pytest.mark.parametrize("device", ["mps", "cpu"])
+    def test_sparse_off_cuda_warns_fallback_not_unavailable(
+        self, monkeypatch, level, device
+    ):
+        definition = self.definition(**self.with_backend(level, "sparse"))
+
+        warnings = self.run(monkeypatch, definition, device=device)
+
+        found = self.coded(warnings, "sparse_attention_fallback")
+        assert len(found) == 1
+        assert f"'{device}'" in found[0] and "dense" in found[0]
+        if level == "component":
+            assert "components.transformer.attention_backend" in found[0]
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    @pytest.mark.parametrize("device", ["cuda", "cuda:1"])
+    def test_sparse_on_cuda_is_silent(self, monkeypatch, device):
+        definition = self.definition(attention_backend="sparse")
+
+        warnings = self.run(monkeypatch, definition, device=device)
+
+        assert self.coded(warnings, "sparse_attention_fallback") == []
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    @pytest.mark.parametrize("level", ["pipeline", "component"])
+    def test_sparse_on_an_unknown_device_is_silent(self, level):
+        definition = self.definition(**self.with_backend(level, "sparse"))
+
+        warnings = self.direct(definition, device_type=None)
+
+        assert self.coded(warnings, "sparse_attention_fallback") == []
+        assert self.coded(warnings, "attention_backend_unavailable") == []
+
+    def test_sparse_from_a_template_variable_warns_off_cuda(self, monkeypatch):
+        """H3 templates set the component's backend by `variable:`, default
+        sparse"""
+        definition = self.definition(
+            components={
+                "transformer": {"attention_backend": "variable:attention_backend"}
+            },
+            variables={"attention_backend": "sparse"},
+        )
+
+        warnings = self.run(monkeypatch, definition, device="mps")
+
+        assert len(self.coded(warnings, "sparse_attention_fallback")) == 1
         assert self.coded(warnings, "attention_backend_unavailable") == []
 
     # shape of the answer

@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest'
 import {
   CONTENT_TYPES,
+  attentionBackendVariables,
   coerce,
   contentTypeOptions,
   optionsWith,
@@ -349,5 +350,59 @@ describe('optionsWith', () => {
   it('leaves the list alone for a listed or empty value', () => {
     expect(optionsWith(['a', 'b'], 'a')).toEqual(['a', 'b'])
     expect(optionsWith(['a', 'b'], null)).toEqual(['a', 'b'])
+  })
+})
+
+describe('attentionBackendVariables', () => {
+  it('finds variables feeding attention_backend at component level', () => {
+    const def = {
+      steps: [
+        {
+          pipeline: {
+            configuration: {
+              components: {
+                transformer_ref: { attention_backend: 'variable:attn' },
+              },
+            },
+          },
+        },
+      ],
+    }
+    expect(attentionBackendVariables(def)).toEqual(new Set(['attn']))
+  })
+
+  it('finds pipeline-level and nested workflow-step variables', () => {
+    const def = {
+      steps: [
+        { pipeline: { configuration: { attention_backend: 'variable:a' } } },
+        {
+          workflow: {
+            steps: [
+              {
+                pipeline: {
+                  configuration: { attention_backend: 'variable:b' },
+                },
+              },
+            ],
+          },
+        },
+      ],
+    }
+    expect(attentionBackendVariables(def)).toEqual(new Set(['a', 'b']))
+  })
+
+  it('ignores literals and other keys', () => {
+    const def = {
+      variables: { attn: 'sparse' },
+      steps: [
+        {
+          pipeline: {
+            configuration: { attention_backend: 'sage', other: 'variable:x' },
+          },
+        },
+      ],
+    }
+    expect(attentionBackendVariables(def)).toEqual(new Set())
+    expect(attentionBackendVariables(null)).toEqual(new Set())
   })
 })

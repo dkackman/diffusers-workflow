@@ -27,6 +27,9 @@ Each of these cost a render to find out in Don's `h3-quality` matrix:
   cache's skip decision needs (`docs/ACCELERATION.md`).
 - `attention_backend_unavailable`: a CUDA-only attention backend on a device
   that isn't CUDA passes validate and fails at load.
+- `sparse_attention_fallback`: the `sparse` attention backend on a device that
+  isn't CUDA. It never fails a run: it falls back to dense attention, so this
+  says the speedup is not coming, not that the job will break.
 
 Every one is a warning and never a refusal. A value that cannot be resolved
 before the run (a null variable, an unknown device) leaves its warning
@@ -39,6 +42,8 @@ import typing
 from . import get_device_type
 from .introspection import load_pipeline_class
 from .references import iter_steps, render_path
+from . import sparse_attention
+from .sparse_attention import SPARSE_BACKEND
 from .vram_estimate import required_vram_gb
 
 # The fewest denoise steps a threshold cache is expected to skip any of. A
@@ -82,6 +87,7 @@ SHORT_SCHEDULE = "cache_short_schedule"
 TAYLORSEER_STATE = "taylorseer_state_unestimated"
 FULLGRAPH_WITH_CACHE = "compile_fullgraph_with_cache"
 BACKEND_UNAVAILABLE = "attention_backend_unavailable"
+SPARSE_FALLBACK = "sparse_attention_fallback"
 CACHE_UNSUPPORTED = "cache_unsupported"
 
 # The component names a cache hook attaches to, as in
@@ -258,6 +264,13 @@ def acceleration_warnings(context):
             continue
         for path, block in backends:
             name = block.get("attention_backend")
+            if name == SPARSE_BACKEND:
+                warnings.append(
+                    f"{render_path(path)}: {SPARSE_FALLBACK}: sparse attention "
+                    f"needs CUDA; this server is '{context.device_type}', so "
+                    f"the run uses dense attention{where}"
+                )
+                continue
             if name not in CUDA_ONLY_ATTENTION_BACKENDS:
                 continue
             warnings.append(
@@ -273,3 +286,26 @@ def acceleration_warnings(context):
         path, _, rest = warning.partition(": ")
         said.setdefault((path, rest.partition(": ")[0]), warning)
     return list(said.values())
+
+
+def available_attention_backends(device_type: str) -> list[str]:
+    """The attention backends a server on `device_type` can run, in menu order.
+
+    `native` first, then the other `native`-family names; on CUDA, `sparse`
+    (only where the compiled kernels loaded) and the CUDA-only names. A name
+    diffusers' `AttentionBackendName` lacks is dropped, so the menu never
+    offers one the pipeline would refuse.
+    """
+    from diffusers.models.attention_dispatch import AttentionBackendName
+
+    known = {backend.value for backend in AttentionBackendName}
+    cuda = device_type == "cuda"
+    names = ["native", "_native_flash", "_native_efficient", "_native_math"]
+    if cuda:
+        names.append("_native_cudnn")
+    names.append("flex")
+    if cuda:
+        if sparse_attention._kernels_importable():
+            names.append(SPARSE_BACKEND)
+        names.extend(sorted(CUDA_ONLY_ATTENTION_BACKENDS))
+    return [name for name in names if name == SPARSE_BACKEND or name in known]
