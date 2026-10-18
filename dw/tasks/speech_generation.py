@@ -85,6 +85,26 @@ def _speaker_embedding_tensor(location, device, dtype):
     return embedding.squeeze().unsqueeze(0).to(device=device, dtype=dtype)
 
 
+def _check_messages(messages):
+    """Chat-templated input: a non-empty list of {role, content} string dicts."""
+    valid = isinstance(messages, list) and len(messages) > 0
+    if valid:
+        for message in messages:
+            if (
+                not isinstance(message, dict)
+                or not isinstance(message.get("role"), str)
+                or not isinstance(message.get("content"), str)
+            ):
+                valid = False
+                break
+    if not valid:
+        raise ValueError(
+            "generate_speech's 'messages' needs a non-empty list of "
+            "{'role': ..., 'content': ...} dicts, both strings - a bare "
+            "string or a wrong-keyed dict is not chat-templated input"
+        )
+
+
 def _generation_settings(value, name):
     """A workflow's forward_params or generate_kwargs: an object, with the
     Hub-code arguments refused unless workflows are trusted."""
@@ -156,22 +176,7 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
             "such as VibeVoice"
         )
     if messages is not None:
-        valid = isinstance(messages, list) and len(messages) > 0
-        if valid:
-            for message in messages:
-                if (
-                    not isinstance(message, dict)
-                    or not isinstance(message.get("role"), str)
-                    or not isinstance(message.get("content"), str)
-                ):
-                    valid = False
-                    break
-        if not valid:
-            raise ValueError(
-                "generate_speech's 'messages' needs a non-empty list of "
-                "{'role': ..., 'content': ...} dicts, both strings - a bare "
-                "string or a wrong-keyed dict is not chat-templated input"
-            )
+        _check_messages(messages)
     text_inputs = messages if messages is not None else text
     # Both reach model.generate() for a generative model, where
     # custom_generate / trust_remote_code download and run Hub code: refused

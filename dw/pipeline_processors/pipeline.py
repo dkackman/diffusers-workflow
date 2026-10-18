@@ -61,14 +61,10 @@ from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_
 from ..media_types import AudioVideo
 from ..step_cache import component_names, copy_containers
 from ..sparse_attention import (
-    DEFAULT_TAU,
     SPARSE_BACKEND,
-    install_sparse,
-    is_sparse_installed,
-    named_pipeline_components,
-    set_sparse_tau,
+    apply_sparse_settings,
+    install_sparse_for_call,
     sparse_call,
-    uninstall_sparse,
 )
 
 logger = logging.getLogger("dw")
@@ -164,33 +160,7 @@ def apply_runtime_settings(pipeline_definition, model):
         pipeline_definition.get("audio_scheduler"), model, "audio_scheduler"
     )
     apply_adapter_settings(pipeline_definition.get("loras"), model)
-    apply_sparse_tau(pipeline_definition.get("configuration", {}), model)
-
-
-def apply_sparse_tau(configuration, model):
-    """A component-level sparse install's tau and topk, from the definition on a hit.
-
-    The install outlives the call, so a hit that moved only sparse_tau or
-    sparse_topk would
-    otherwise keep the old one. A pipeline-level 'sparse' installs per call
-    with the tau it states, so it needs nothing here.
-    """
-    entries = configuration.get("components")
-    if not isinstance(entries, dict):
-        return
-    for name, entry in entries.items():
-        if (
-            not isinstance(entry, dict)
-            or entry.get("attention_backend") != SPARSE_BACKEND
-        ):
-            continue
-        component = getattr(model, name, None)
-        if component is not None and is_sparse_installed(component):
-            set_sparse_tau(
-                component,
-                entry.get("sparse_tau", DEFAULT_TAU),
-                entry.get("sparse_topk"),
-            )
+    apply_sparse_settings(pipeline_definition.get("configuration", {}), model)
 
 
 class Pipeline:
@@ -680,7 +650,7 @@ class Pipeline:
         with contextlib.ExitStack() as stack:
             if attn_backend == SPARSE_BACKEND:
                 # dw's own processor, never a diffusers backend (#931)
-                self._install_sparse_for_call(stack, label)
+                install_sparse_for_call(self.pipeline, self.configuration, stack, label)
             elif attn_backend is not None:
                 logger.info(f"Using attention backend: {attn_backend}")
                 emit_log(
@@ -729,55 +699,6 @@ class Pipeline:
                 raise
             mark("call_ended")
             return output
-
-    def _install_sparse_for_call(self, stack, label):
-        """Put the sparse processor on this pipeline's H3 components for one call.
-
-        A component already set to 'sparse' at component level keeps that
-        install and its tau: it persists across calls by design, so only what
-        this call installed comes off when it ends. A component pinned to any
-        other backend keeps its pin, the way a component pin beats a
-        pipeline-level backend everywhere else, and the skip is said aloud:
-        overriding it silently ran sparse under a log that named the pin.
-        """
-        tau = self.configuration.get("sparse_tau", DEFAULT_TAU)
-        topk = self.configuration.get("sparse_topk")
-        pins = {
-            name: block.get("attention_backend")
-            for name, block in (self.configuration.get("components") or {}).items()
-            if isinstance(block, dict)
-            and block.get("attention_backend") not in (None, SPARSE_BACKEND)
-        }
-        found = False
-        installed = []
-        for name, component in named_pipeline_components(self.pipeline):
-            if name in pins:
-                found = True
-                emit_warning(
-                    f"{label}: attention_backend 'sparse' at pipeline level skips "
-                    f"'{name}', which pins '{pins[name]}'",
-                    attention_backend=SPARSE_BACKEND,
-                    component=name,
-                )
-            elif is_sparse_installed(component):
-                found = True
-            elif install_sparse(component, tau, topk):
-                found = True
-                installed.append(name)
-                stack.callback(uninstall_sparse, component)
-        if installed:
-            routing = f"topk {topk}" if topk is not None else f"tau {tau}"
-            message = (
-                f"Using attention backend: sparse ({routing}) on {', '.join(installed)}"
-            )
-            logger.info(message)
-            emit_log(message, attention_backend=SPARSE_BACKEND, components=installed)
-        if not found:
-            emit_warning(
-                f"{label}: attention_backend 'sparse' found no MiniMax-H3 "
-                "transformer; runs dense",
-                attention_backend=SPARSE_BACKEND,
-            )
 
     def _with_held_audio(self, arguments):
         """`hold_audio` as the reference the H3 hold block takes, and the

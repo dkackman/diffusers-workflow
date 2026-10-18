@@ -5,7 +5,7 @@ import torch
 
 from dw import sparse_attention
 from dw.acceleration_warnings import CUDA_ONLY_ATTENTION_BACKENDS
-from dw.sparse_attention import available_attention_backends
+from dw.acceleration_warnings import available_attention_backends
 
 from tests.test_server import server, success_script  # noqa: F401
 

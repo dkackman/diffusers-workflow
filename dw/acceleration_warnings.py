@@ -42,6 +42,7 @@ import typing
 from . import get_device_type
 from .introspection import load_pipeline_class
 from .references import iter_steps, render_path
+from . import sparse_attention
 from .sparse_attention import SPARSE_BACKEND
 from .vram_estimate import required_vram_gb
 
@@ -285,3 +286,26 @@ def acceleration_warnings(context):
         path, _, rest = warning.partition(": ")
         said.setdefault((path, rest.partition(": ")[0]), warning)
     return list(said.values())
+
+
+def available_attention_backends(device_type: str) -> list[str]:
+    """The attention backends a server on `device_type` can run, in menu order.
+
+    `native` first, then the other `native`-family names; on CUDA, `sparse`
+    (only where the compiled kernels loaded) and the CUDA-only names. A name
+    diffusers' `AttentionBackendName` lacks is dropped, so the menu never
+    offers one the pipeline would refuse.
+    """
+    from diffusers.models.attention_dispatch import AttentionBackendName
+
+    known = {backend.value for backend in AttentionBackendName}
+    cuda = device_type == "cuda"
+    names = ["native", "_native_flash", "_native_efficient", "_native_math"]
+    if cuda:
+        names.append("_native_cudnn")
+    names.append("flex")
+    if cuda:
+        if sparse_attention._kernels_importable():
+            names.append(SPARSE_BACKEND)
+        names.extend(sorted(CUDA_ONLY_ATTENTION_BACKENDS))
+    return [name for name in names if name == SPARSE_BACKEND or name in known]

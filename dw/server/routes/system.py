@@ -492,7 +492,7 @@ def health(request: Request):
     import socket
 
     from ... import __version__, get_device, get_device_type
-    from ...sparse_attention import available_attention_backends
+    from ...acceleration_warnings import available_attention_backends
 
     workers = manager.workers()
     device = get_device_type(get_device())

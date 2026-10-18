@@ -14,6 +14,7 @@ import pytest
 import torch
 
 from dw.pipeline_processors import components
+from dw import sparse_attention
 from dw.pipeline_processors import pipeline as pipeline_module
 from dw.pipeline_processors.pipeline import Pipeline, apply_runtime_settings
 from dw.schema import load_schema, validate_data
@@ -176,7 +177,7 @@ def no_diffusers_backend(monkeypatch):
 def call_warnings(monkeypatch):
     seen = []
     monkeypatch.setattr(
-        pipeline_module, "emit_warning", lambda message, **data: seen.append(message)
+        sparse_attention, "emit_warning", lambda message, **data: seen.append(message)
     )
     return seen
 
@@ -206,7 +207,7 @@ def test_pipeline_level_sparse_installs_on_h3_components_for_the_call(
 
 def test_pipeline_level_sparse_uses_its_tau(tiny_h3, no_diffusers_backend, monkeypatch):
     taus = []
-    real = pipeline_module.install_sparse
+    real = sparse_attention.install_sparse
 
     def recording(component, tau, topk=None):
         installed = real(component, tau, topk)
@@ -214,7 +215,7 @@ def test_pipeline_level_sparse_uses_its_tau(tiny_h3, no_diffusers_backend, monke
             taus.append(tau)
         return installed
 
-    monkeypatch.setattr(pipeline_module, "install_sparse", recording)
+    monkeypatch.setattr(sparse_attention, "install_sparse", recording)
     _wrapper(
         FakePipeline(transformer=tiny_h3), {"attention_backend": "sparse"}
     )._execute_pipeline({})
@@ -229,7 +230,7 @@ def test_pipeline_level_sparse_topk_reaches_the_install(
     tiny_h3, no_diffusers_backend, monkeypatch
 ):
     seen = []
-    real = pipeline_module.install_sparse
+    real = sparse_attention.install_sparse
 
     def recording(component, tau, topk=None):
         installed = real(component, tau, topk)
@@ -237,10 +238,10 @@ def test_pipeline_level_sparse_topk_reaches_the_install(
             seen.append((tau, topk))
         return installed
 
-    monkeypatch.setattr(pipeline_module, "install_sparse", recording)
+    monkeypatch.setattr(sparse_attention, "install_sparse", recording)
     logged = []
     monkeypatch.setattr(
-        pipeline_module, "emit_log", lambda message, **data: logged.append(message)
+        sparse_attention, "emit_log", lambda message, **data: logged.append(message)
     )
     _wrapper(
         FakePipeline(transformer=tiny_h3),
@@ -327,7 +328,7 @@ def test_pipeline_level_sparse_logs_what_it_installed(
     say sparse ran, and where, or a job reads as whatever a component pinned."""
     logged = []
     monkeypatch.setattr(
-        pipeline_module,
+        sparse_attention,
         "emit_log",
         lambda message, **data: logged.append((message, data)),
     )
