@@ -2,8 +2,11 @@
 
 Sparse is the default because it measured 2.2-4.4x faster per forward on a
 3090; off CUDA it falls back to dense with a warning, so the default is safe
-everywhere. Each template that pins a backend must also pass `sparse_tau`
-beside it, or the variable would be declared and never reach the transformer.
+everywhere. Its routing defaults to top-k 0.15 (#932): faster than tau 0.5 at
+equal or better faces and skin on the ramp's L7 and L5, judged by Don on three
+seeds. Each template that pins a backend must also pass `sparse_tau` and
+`sparse_topk` beside it, or the variables would be declared and never reach
+the transformer.
 """
 
 import json
@@ -27,9 +30,10 @@ def test_h3_defaults_to_sparse(path):
     d = json.load(open(path))
     assert d["variables"]["attention_backend"] == "sparse"
     assert d["variables"]["sparse_tau"] == 0.5
+    assert d["variables"]["sparse_topk"] == 0.15
     text = json.dumps(d["steps"])
-    assert text.count('"sparse_tau": "variable:sparse_tau"') == text.count(
-        '"attention_backend": "variable:attention_backend"'
-    )
+    pins = text.count('"attention_backend": "variable:attention_backend"')
+    assert text.count('"sparse_tau": "variable:sparse_tau"') == pins
+    assert text.count('"sparse_topk": "variable:sparse_topk"') == pins
     assert text.count('"attention_backend": "variable:attention_backend"') >= 1
     assert "attention_backend" in d["cost_drivers"]

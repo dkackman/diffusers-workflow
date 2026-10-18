@@ -34,6 +34,7 @@
         "seed": null,
         "attention_backend": "sparse",
         "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
         "cache": null
     },
     "variable_constraints": {
@@ -143,6 +144,7 @@
                         "transformer": {
                             "attention_backend": "variable:attention_backend",
                             "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 2,

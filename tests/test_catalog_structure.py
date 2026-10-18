@@ -622,7 +622,7 @@ def test_every_h3_transformer_step_wires_attention_backend(path):
     transformer (#865). Every H3 template exposes it; on mps
     and cpu the default falls back to dense; one that doesn't makes the cinema path
     a JSON edit again. The default is `sparse` since #931 (tests/
-    test_h3_sparse_defaults.py pins it and `sparse_tau`)."""
+    test_h3_sparse_defaults.py pins it, `sparse_tau` and `sparse_topk`)."""
     definition = load(path)
 
     assert definition["variables"].get("attention_backend", "missing") == "sparse", (
@@ -637,6 +637,9 @@ def test_every_h3_transformer_step_wires_attention_backend(path):
             )
             assert component.get("sparse_tau") == "variable:sparse_tau", (
                 f"{path} step '{step['name']}' does not wire {name}.sparse_tau"
+            )
+            assert component.get("sparse_topk") == "variable:sparse_topk", (
+                f"{path} step '{step['name']}' does not wire {name}.sparse_topk"
             )
 
 

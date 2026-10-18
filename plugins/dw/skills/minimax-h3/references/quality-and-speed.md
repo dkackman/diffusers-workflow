@@ -64,11 +64,14 @@ Both tiers use the same template (`templates/minimax/reference-to-video`, or
 is an argument on every H3 template, `dialogue-short` included. Set it at
 both tiers on CUDA: it never moves composition.
 
-The H3 templates default to `attention_backend=sparse` (`sparse_tau` 0.5),
-which shifts details against sage (see *Composition*). Against `sage_hub` it
-is 6-12% faster on these rungs, with equal faces and staging on 3 seeds
-(#931 stage 3); its big gain is against `native`. Draft and final always
-share one backend: pass the backend the row names at both tiers.
+The H3 templates default to `attention_backend=sparse` with top-k routing
+(`sparse_topk` 0.15), which shifts details against sage (see *Composition*).
+The sparse rows below were timed at `sparse_tau` 0.5, 6-12% faster than
+`sage_hub` with equal faces and staging on 3 seeds (#931). Top-k is faster
+again at equal or better faces (#932): L7 ~6.0 min, L5 ~24.4 min. Its
+draft-to-final carry is not separately measured; the draft and the final
+share the setting either way. Draft and final always share one backend: pass
+the backend the row names at both tiers.
 
 **`dialogue-short` at 1344x768** (every rung below is that canvas): a shot
 with 4 references must be 124 frames (*Frame ceiling* above). The default
