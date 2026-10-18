@@ -325,9 +325,9 @@ class AssetTools:
     ) -> dict:
         """List input media on the server, each with the `asset:` reference
         a workflow argument carries. Look here before asking for a file.
-        Entries: name, reference, kind, size and origin; for duration,
-        fps, sample rate or channels pass the reference to
-        `get_gallery_metadata`. detail=true adds folder, mtime, url.
+        Entries: name, reference, kind, size, origin, any note; for
+        duration, fps, sample rate, channels see `get_gallery_metadata`.
+        detail=true adds folder, mtime, url, writable.
 
         Newest first, `limit` default 50 (`total` = all matched); `prefix`
         keeps names starting with it, e.g. 'cast/'. `workspace` scopes one call."""
