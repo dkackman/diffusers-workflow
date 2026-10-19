@@ -666,6 +666,11 @@ class PlanEstimate(ApiModel):
         "could not be re-priced for this workflow (its size cannot be compared "
         "to the template's)."
     )
+    unpriced_reason: str = sometimes(
+        "With basis `unknown` and no `withheld`: why a workflow of task steps "
+        "alone has no price - it has no pipeline to inherit one from, and its "
+        "length follows its input media (#948)."
+    )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
         "as `cuda:1 NVIDIA GeForce RTX 3090`."

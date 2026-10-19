@@ -3348,6 +3348,11 @@ export interface components {
              */
             unpriced: string[];
             /**
+             * Unpriced Reason
+             * @description With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).
+             */
+            unpriced_reason?: string;
+            /**
              * Withheld
              * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
              */
