@@ -881,10 +881,8 @@ class TestOwnOutputHint:
             _image(os.path.join(sub, "a.png"))
             token = runs.activate_output_root(outputs)
             try:
-                # workflow_dir stands in for a base that is not the output root
-                with patch("dw.locations.media_roots", return_value=[workflow_dir]):
-                    with pytest.raises(PathTraversalError) as refusal:
-                        validate_media_path("wf/run/a.png", None, "an image argument")
+                with pytest.raises(PathTraversalError) as refusal:
+                    validate_media_path("wf/run/a.png", None, "an image argument")
             finally:
                 runs.deactivate_output_root(token)
         assert "output:wf/run/a.png" in str(refusal.value)
