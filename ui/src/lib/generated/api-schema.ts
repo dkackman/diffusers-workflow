@@ -343,7 +343,8 @@ export interface paths {
          *     Each entry carries `role`, `final` or `intermediate` (null for a
          *     flat-layout file or one no manifest lists); a file a later run read
          *     lists as intermediate unless its step declared it final
-         *     (dw/roles.py rule 4). `role` is a repeatable
+         *     (dw/roles.py rule 4). A run that recorded no role lists a file in its
+         *     `intermediate/` subfolder, or one a later run read, as intermediate. `role` is a repeatable
          *     filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
