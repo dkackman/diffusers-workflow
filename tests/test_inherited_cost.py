@@ -464,6 +464,39 @@ class TestVariableFrameCountAndWithheldReason:
         assert "withheld" in _inherited_cost_warnings(estimate)[0]
 
 
+class TestTaskOnlyWorkflowSaysWhyUnpriced:
+    """#948: a workflow of task steps has no pipeline identity to inherit a
+    price from, and its unknown estimate says so."""
+
+    def test_the_plan_names_the_reason(self, tmp_path):
+        inline = {
+            "id": "stems",
+            "steps": [
+                {
+                    "id": "split",
+                    "task": {"command": "separate_stems", "arguments": {}},
+                }
+            ],
+        }
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
+        estimate = plan["estimate"]
+        assert estimate["basis"] == "unknown" and estimate["minutes"] is None
+        assert "separate_stems" in estimate["unpriced_reason"]
+        assert "task-only" in estimate["unpriced_reason"]
+
+    def test_a_pipeline_workflow_gets_no_task_only_reason(self, tmp_path):
+        candidate = workflow_from_definition(
+            definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
+        assert "unpriced_reason" not in plan["estimate"]
+
+
 def sized(name, steps=9, width=960, height=544, **extra):
     """`definition` whose step also sets inference steps and a canvas."""
     workflow = definition(name, **extra)

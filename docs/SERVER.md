@@ -467,7 +467,8 @@ The editor's forms come from these; they are just as usable from scripts:
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
-  than a quote) or `unknown` (no cost block, or more than one list changed
+  than a quote) or `unknown` (no cost block - a workflow of task steps alone says so in
+  `unpriced_reason`, since it has no pipeline to inherit from - or more than one list changed
   so there is nothing honest to extrapolate along) or `inherited` (an
   inline workflow has no catalog name, so its price is this server's
   `observed` runs of the catalog template that loads the same pipeline -

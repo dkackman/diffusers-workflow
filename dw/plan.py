@@ -708,7 +708,30 @@ def estimate(
         # say which template and why, so it reads differently from no history
         result["inherited_from"] = observed.get("inherited_from")
         result["withheld"] = withheld
+    elif result["basis"] == UNKNOWN and result["minutes"] is None:
+        reason = _unpriced_reason(definition)
+        if reason:
+            result["unpriced_reason"] = reason
     return result
+
+
+def _unpriced_reason(definition):
+    """Why a workflow with no price at all has none, or None when the cause
+    is not a shape this can name (#948). #797 prices an inline workflow from
+    the catalog template with the same pipeline identity, so a workflow of
+    task steps alone has nothing to match and its cost is simply unmeasured -
+    which says nothing about whether the run is seconds or an hour."""
+    steps = [s for s in definition.get("steps") or [] if isinstance(s, dict)]
+    tasks = [s for s in steps if isinstance(s.get("task"), dict)]
+    if not tasks or len(tasks) != len(steps):
+        return None
+    commands = sorted({str(s["task"].get("command", "unknown")) for s in tasks})
+    return (
+        "task-only workflow (" + ", ".join(commands) + "): no pipeline step "
+        "to inherit a price from a catalog template, no cost block and no "
+        "run history of its own. The run's length depends on its input "
+        "media, which nothing here measures"
+    )
 
 
 def _observed(observed, device):
