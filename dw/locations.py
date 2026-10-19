@@ -202,6 +202,7 @@ def validate_media_path(
     if not workflows_are_trusted():
         roots = media_roots(base_dir)
         if not any(_within(resolved, root) for root in roots):
+            own = _own_output_hint(location)
             raise PathTraversalError(
                 f"Refusing to read {what} at '{location}': it resolves "
                 f"outside every directory this workflow may read "
@@ -215,12 +216,32 @@ def validate_media_path(
                 f"'asset:' reference, use keep_output(shared=True) to copy "
                 f"a generated file into the library every workspace shares "
                 f"if it needs to cross that boundary on purpose, or pass "
-                f"--trust-workflows if you trust this workflow's source."
+                f"--trust-workflows if you trust this workflow's source." + own
             )
 
     if require_exists and not os.path.exists(resolved):
         raise InvalidInputError(f"Path does not exist: {resolved}")
     return resolved
+
+
+def _own_output_hint(location):
+    """A sentence naming `output:<location>` when the bare relative name is a
+    file in this workspace's own outputs, else an empty string."""
+    text = str(location)
+    if os.path.isabs(text) or ".." in text.replace("\\", "/").split("/"):
+        return ""
+    try:
+        from .runs import output_root
+
+        if os.path.isfile(os.path.join(output_root(), text)):
+            return (
+                f" This file is one of this workspace's own outputs, so "
+                f"you most likely want 'output:{text}' - no copy into the "
+                f"asset library is needed."
+            )
+    except Exception:
+        logger.debug("Could not check the output root for a hint", exc_info=True)
+    return ""
 
 
 def _joined(location, base_dir):
@@ -619,6 +640,11 @@ def _check(value, base_dir, what):
             _refuse_other_url(value, what)
             validate_media_url(value, what)
         elif os.path.isabs(value):
+            validate_media_path(value, base_dir, what, require_exists=False)
+        elif ".." not in value.replace("\\", "/").split("/"):
+            # A bare relative name resolves against the workflow directory and
+            # is refused at run time when that lands outside every root (a
+            # manifest file name from get_job is the usual case)
             validate_media_path(value, base_dir, what, require_exists=False)
         elif ".." in value.replace("\\", "/").split("/"):
             # A relative path is under base_dir by construction unless it
