@@ -557,6 +557,31 @@ def test_job_workflow_returns_an_inline_definition(server):
         assert historical["definition"] == valid_workflow()
 
 
+def test_job_workflow_of_a_deleted_workspace_folds_the_arguments(server):
+    """#944: a job id still resolves once its workspace is deleted - the
+    definition comes back unrealized with the recorded arguments folded in."""
+    workflow = valid_workflow("fold")
+    workflow["variables"] = {**workflow.get("variables", {}), "n": 1, "label": "x"}
+    with server(success_script) as client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"n": "30", "label": "coerced"}},
+        )
+        assert response.status_code == 201, response.json()
+        job = response.json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.forget_workspace(manager.get(job["id"]).spec["workspace"])
+        manager.jobs.pop(job["id"], None)
+
+        assert client.get(f"/api/jobs/{job['id']}").status_code == 200
+        body = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert body["realized"] is False
+        variables = body["definition"]["variables"]
+        assert (variables["n"], variables["label"]) == (30, "coerced")
+        assert "n, label" in body["note"] or "label, n" in body["note"]
+
+
 def test_job_workflow_reads_back_a_job_launched_from_a_file(server):
     """A job submitted by path names no definition - the file it ran is
     re-read from the root the job was confined to."""

@@ -133,6 +133,11 @@ def _add_missing_columns(connection):
     return added
 
 
+# Appended to the workspace of a retired workspace's rows (#944); no workspace
+# name can contain a space and parenthesis.
+DELETED_SUFFIX = " (deleted)"
+
+
 class JobHistory:
     """Finished jobs, persisted so the Jobs view survives server restarts.
 
@@ -271,6 +276,9 @@ class JobHistory:
         if workspace:
             clauses.append("workspace = ?")
             params.append(workspace)
+        else:
+            clauses.append("workspace NOT LIKE ?")
+            params.append(f"%{DELETED_SUFFIX}")
         if statuses:
             statuses = list(statuses)
             placeholders = ", ".join("?" for _ in statuses)
@@ -438,23 +446,18 @@ class JobHistory:
             connection.execute("UPDATE jobs SET kept = 1 WHERE id = ?", (job_id,))
 
     def forget_workspace(self, workspace):
-        """Delete the rows recorded in this workspace (#913). A deleted
-        workspace takes its history with it, so a new workspace reusing the
-        name starts with none. A job a kept asset names (#917) survives, its
-        workspace renamed to one no workspace can be called, so
-        `get_job_workflow` still resolves the asset's provenance. Returns
-        the number of rows removed."""
+        """Retire the rows recorded in this workspace (#913). A new workspace
+        reusing the name starts with none: every row moves to a workspace
+        name no workspace can be called, so no listing of the name finds it.
+        The rows stay, so a job id still resolves for `get_job` and
+        `get_job_workflow` (#944), which fold the recorded arguments into the
+        run's definition without the workspace. Returns the rows retired."""
         with self._lock, self._connect() as connection:
             cursor = connection.execute(
-                "DELETE FROM jobs WHERE workspace = ? AND COALESCE(kept, 0) = 0",
-                (workspace,),
-            )
-            removed = cursor.rowcount
-            connection.execute(
                 "UPDATE jobs SET workspace = ? WHERE workspace = ?",
-                (f"{workspace} (deleted)", workspace),
+                (f"{workspace}{DELETED_SUFFIX}", workspace),
             )
-            return removed
+            return cursor.rowcount
 
     def events_for(self, job_id):
         """A finished job's persisted event tail. [] for a job recorded
