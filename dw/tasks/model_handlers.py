@@ -301,7 +301,8 @@ def _handle_text_generation(task, arguments, previous_pipelines):
     consumes_device=True,
 )
 def _handle_speech_generation(task, arguments, previous_pipelines):
-    """Speak a line of text with a local text-to-speech model"""
+    """Speak a line of text with a local text-to-speech model (Bark, MMS/VITS
+    or SpeechT5)"""
     logger.debug("Generating speech")
     if ("text" in arguments) == ("messages" in arguments):
         raise ValueError(

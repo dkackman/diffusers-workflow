@@ -2912,7 +2912,15 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Speech Generation
 
-Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
+Speak a line of text with a local text-to-speech model. Any transformers text-to-speech checkpoint can be named as `model_name`; three families are wired for their voice controls:
+
+| Family | Checkpoint | Voice |
+|--------|-----------|-------|
+| Bark | `suno/bark-small` (the command's default) | Distinct speakers by `voice_preset` |
+| MMS / VITS | `facebook/mms-tts-eng`, and `mms-tts-<code>` per language (the template's default) | One voice, a quarter Bark's size; a multi-speaker VITS takes `speaker_id` in `forward_params` |
+| SpeechT5 | `microsoft/speecht5_tts` | The voice of a reference clip, given as `speaker_embedding` |
+
+The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
 
 ```json
 {

@@ -120,7 +120,14 @@ def _generation_settings(value, name):
 
 
 def generate_speech(text=None, device="cpu", seed=None, **kwargs):
-    """Speak a line of text with a local text-to-speech model.
+    """Speak a line of text with a local text-to-speech model - any
+    transformers text-to-speech checkpoint named by model_name. Three
+    families are wired for their voice controls: Bark (suno/bark-small, the
+    default; distinct speakers by voice_preset), MMS/VITS
+    (facebook/mms-tts-eng and the other per-language mms-tts-* checkpoints;
+    one voice, small and fast; a multi-speaker VITS takes speaker_id through
+    forward_params) and SpeechT5 (microsoft/speecht5_tts; speaks in the
+    voice of a reference clip given as speaker_embedding).
 
     Args:
         text: The line to speak. Mutually exclusive with messages - exactly
