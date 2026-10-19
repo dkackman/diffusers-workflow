@@ -359,8 +359,27 @@ def test_an_unresolvable_reference_consumes_nothing(tmp_path, write_run):
         (FINAL, True, True, FINAL),
         (FINAL, False, False, FINAL),
         (INTERMEDIATE, False, True, INTERMEDIATE),
-        (None, False, True, None),
+        (None, False, True, INTERMEDIATE),
     ],
 )
 def test_listed_role(role, declared, consumed, listed):
     assert listed_role(role, declared, consumed) == listed
+
+
+@pytest.mark.parametrize(
+    "name, consumed, listed",
+    [
+        ("intermediate/clip.mp4", False, INTERMEDIATE),
+        ("intermediate/frames/0.png", False, INTERMEDIATE),
+        ("final/still.png", False, FINAL),
+        ("final/still.png", True, INTERMEDIATE),
+        ("shot.png", True, INTERMEDIATE),
+        ("shot.png", False, None),
+        ("final", False, None),
+        ("intermediate_frames/a.png", False, None),
+        (None, False, None),
+    ],
+)
+def test_listed_role_of_a_run_that_recorded_none(name, consumed, listed):
+    # A run from before roles: rule 2 from the file's subfolder, then rule 4
+    assert listed_role(None, False, consumed, name) == listed

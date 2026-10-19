@@ -56,6 +56,8 @@ def test_older_run_reads_its_intermediate_subfolder_as_intermediate(
     files = {f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]}
     assert files["a.png"]["role"] == "intermediate"
     assert files["b.png"]["role"] is None
+    assert _roles(gallery_client, role="intermediate") == {"a.png": "intermediate"}
+    assert _roles(gallery_client, role="final") == {"b.png": None}
 
 
 def test_role_filter(gallery_client, output_root, write_run):
@@ -373,6 +375,39 @@ def test_a_pre_roles_file_a_later_run_read_lists_as_intermediate(
     )
     assert _roles(gallery_client)["shot.png"] == "intermediate"
     assert _roles(gallery_client, role="final") == {"cut.png": "final"}
+
+
+def test_metadata_agrees_with_the_listing_for_an_older_run(
+    gallery_client, output_root, write_run
+):
+    # A run that recorded no role: the metadata route goes through the same
+    # owner as the listing, so the two say the same thing (#928)
+    write_run(
+        output_root,
+        "shots",
+        SHOT_RUN,
+        [
+            {"step": "clip", "files": ["intermediate/clip.mp4"]},
+            {"step": "still", "files": ["final/still.png"]},
+            {"step": "shot", "files": ["shot.png"]},
+        ],
+        files=["intermediate/clip.mp4", "final/still.png", "shot.png"],
+    )
+    listed = _roles(gallery_client)
+    assert listed == {
+        "clip.mp4": "intermediate",
+        "still.png": "final",
+        "shot.png": None,
+    }
+    for name, label in (
+        ("intermediate/clip.mp4", "clip.mp4"),
+        ("final/still.png", "still.png"),
+        ("shot.png", "shot.png"),
+    ):
+        meta = gallery_client.get(
+            f"/api/gallery/shots/{SHOT_RUN}/{name}/metadata"
+        ).json()
+        assert meta["role"] == listed[label]
 
 
 def test_an_asset_kept_from_a_file_demotes_it(tmp_path, write_run):

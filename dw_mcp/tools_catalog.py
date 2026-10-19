@@ -272,7 +272,7 @@ class CatalogTools:
         carries `folder` (the workflow), `subfolder` (the step's chosen
         subfolder, '' for none; `subfolder=` filters on it) and `role`:
         `final` is a deliverable, `intermediate` a file a later step
-        or run consumed, null with no run. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
+        or run consumed, null if unknown. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
 
         Entries carry `run_id` and `version`, the run's stable ordinal
         (the web UI's `v5`) - quote it to a person. `folder=` plus

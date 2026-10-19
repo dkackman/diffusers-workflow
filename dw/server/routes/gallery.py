@@ -135,12 +135,6 @@ def _gallery_entries(root, ws, consumed=frozenset()):
             if split
             else None
         )
-        # A run from before roles were recorded has none: what its layout
-        # or a later run's reads still say is enough to call a file
-        # intermediate (#928)
-        if run_id and entry["role"] is None:
-            if subfolder == "intermediate" or relative_name in consumed:
-                entry["role"] = "intermediate"
         if split:
             if split[0] not in notes_by_run:
                 notes_by_run[split[0]] = read_notes(split[0])
@@ -252,9 +246,9 @@ def gallery(
     Each entry carries `role`, `final` or `intermediate` (null for a
     flat-layout file or one no manifest lists); a file a later run read
     lists as intermediate unless its step declared it final
-    (dw/roles.py rule 4). A run that recorded no role lists a file in its
-    `intermediate/` subfolder, or one a later run read, as intermediate. `role` is a repeatable
-    filter; a null role counts as final. Omitted, every file is listed."""
+    (dw/roles.py rule 4). A run that recorded no role takes the role its
+    file's subfolder names, then rule 4; with neither it is null. `role`
+    is a repeatable filter; a null role counts as final. Omitted, every file is listed."""
     if role:
         unknown = sorted(set(role) - set(ROLES))
         if unknown:

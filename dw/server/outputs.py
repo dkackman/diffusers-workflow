@@ -547,9 +547,13 @@ def declared_files(run_dir):
 
 def listed_file_role(run_dir, name, consumed):
     """The role a listing shows for file `name` of a run: its recorded role,
-    demoted when `consumed` (dw/roles.py rule 4)."""
+    demoted when `consumed` (dw/roles.py rule 4), or for a run that recorded
+    none, what the file's subfolder and `consumed` still say."""
     return listed_role(
-        run_roles(run_dir).get(name), name in declared_files(run_dir), consumed
+        run_roles(run_dir).get(name),
+        name in declared_files(run_dir),
+        consumed,
+        name,
     )
 
 
