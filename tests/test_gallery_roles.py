@@ -24,8 +24,9 @@ def test_recorded_roles_reach_the_listing(gallery_client, output_root, write_run
     assert files["b.png"]["role"] == "final"
 
 
-def test_older_run_has_no_role(gallery_client, output_root, write_run):
-    # A manifest from before roles: b reads a, but nothing is guessed
+def test_older_run_reads_its_intermediate_subfolder_as_intermediate(gallery_client, output_root, write_run):
+    # A manifest from before roles: a sits in intermediate/, so it lists as
+    # intermediate (#928); b has nothing to say and stays unknown
     realized = {
         "id": "wf",
         "steps": [
@@ -51,7 +52,7 @@ def test_older_run_has_no_role(gallery_client, output_root, write_run):
         files=["intermediate/a.png", "b.png"],
     )
     files = {f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]}
-    assert files["a.png"]["role"] is None
+    assert files["a.png"]["role"] == "intermediate"
     assert files["b.png"]["role"] is None
 
 
@@ -350,7 +351,7 @@ def test_a_declared_final_stays_final(gallery_client, output_root, write_run):
     }
 
 
-def test_a_pre_roles_file_a_later_run_read_stays_unknown(
+def test_a_pre_roles_file_a_later_run_read_lists_as_intermediate(
     gallery_client, output_root, write_run
 ):
     write_run(
@@ -368,7 +369,8 @@ def test_a_pre_roles_file_a_later_run_read_stays_unknown(
         files=["cut.png"],
         inputs=[{"reference": f"output:shots/{SHOT_RUN}/shot.png", "kind": "output"}],
     )
-    assert _roles(gallery_client)["shot.png"] is None
+    assert _roles(gallery_client)["shot.png"] == "intermediate"
+    assert _roles(gallery_client, role="final") == {"cut.png": "final"}
 
 
 def test_an_asset_kept_from_a_file_demotes_it(tmp_path, write_run):
