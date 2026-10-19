@@ -24,7 +24,9 @@ def test_recorded_roles_reach_the_listing(gallery_client, output_root, write_run
     assert files["b.png"]["role"] == "final"
 
 
-def test_older_run_reads_its_intermediate_subfolder_as_intermediate(gallery_client, output_root, write_run):
+def test_older_run_reads_its_intermediate_subfolder_as_intermediate(
+    gallery_client, output_root, write_run
+):
     # A manifest from before roles: a sits in intermediate/, so it lists as
     # intermediate (#928); b has nothing to say and stays unknown
     realized = {
