@@ -231,14 +231,17 @@ def _own_output_hint(location):
     if os.path.isabs(text) or ".." in text.replace("\\", "/").split("/"):
         return ""
     try:
-        from .runs import output_root
+        from .runs import resolve_output_reference
 
-        if os.path.isfile(os.path.join(output_root(), text)):
-            return (
-                f" This file is one of this workspace's own outputs, so "
-                f"you most likely want 'output:{text}' - no copy into the "
-                f"asset library is needed."
-            )
+        ref = references.make_ref(references.OUTPUT, text)
+        resolve_output_reference(ref)
+        return (
+            f" This file is one of this workspace's own outputs, so "
+            f"you most likely want '{ref}' - no copy into the "
+            f"asset library is needed."
+        )
+    except (InvalidInputError, PathTraversalError, ValueError):
+        pass
     except Exception:
         logger.debug("Could not check the output root for a hint", exc_info=True)
     return ""
@@ -646,7 +649,7 @@ def _check(value, base_dir, what):
             # is refused at run time when that lands outside every root (a
             # manifest file name from get_job is the usual case)
             validate_media_path(value, base_dir, what, require_exists=False)
-        elif ".." in value.replace("\\", "/").split("/"):
+        else:
             # A relative path is under base_dir by construction unless it
             # climbs out, and validate_path refuses '..' - but only when the
             # loader reaches it, which is a queued job and three seconds in
