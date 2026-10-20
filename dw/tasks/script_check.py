@@ -85,6 +85,10 @@ GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
 # finished into a quiet tail
 CLIP_TAIL_SECONDS = 0.25
+# ... and within CLIP_TAIL_BELOW_WORD_DB of the last word's own loudest window:
+# a word cut mid-sound leaves a tail near its level, a score bed or room tone
+# under a word that finished sits far below it (#953)
+CLIP_TAIL_BELOW_WORD_DB = 15.0
 # Audible speech the transcript has no words for (#923): Whisper can drop a
 # passage from its text on a longer input (the ad-lib heard in a short file
 # is gone), and the word alignment hands that time to a neighbouring word,
@@ -104,6 +108,7 @@ THRESHOLDS = {
     "guard_floor_dbfs": GUARD_FLOOR_DBFS,
     "guard_window_seconds": GUARD_WINDOW_SECONDS,
     "clip_tail_seconds": CLIP_TAIL_SECONDS,
+    "clip_tail_below_word_db": CLIP_TAIL_BELOW_WORD_DB,
     "unheard_min_seconds": UNHEARD_MIN_SECONDS,
     "unheard_margin_seconds": UNHEARD_MARGIN_SECONDS,
     "unheard_floor_dbfs": UNHEARD_FLOOR_DBFS,
@@ -159,7 +164,9 @@ CLIPPED_AT_END = _rule(
     GUARD_FLOOR_DBFS,
     "the line's last word ends inside the final"
     f" {CLIP_TAIL_SECONDS} s of its shot (or of the file) and that tail is"
-    " still voiced at this level - the shot stops mid-word",
+    f" still voiced at this level, within {CLIP_TAIL_BELOW_WORD_DB} dB of the"
+    " word's own level (a quieter tail is a bed or room tone) - the shot"
+    " stops mid-word",
 )
 SPEECH_IN_SILENT_SHOT = _rule(
     "speech_in_silent_shot",
@@ -374,17 +381,22 @@ def _at(line, heard_word=None, seconds=None, shot=None):
     return at
 
 
-def _clipped_tail(mono, sample_rate, end, tails):
+def _clipped_tail(mono, sample_rate, end, tails, word=None):
     """The first of `tails` - (shot name or None, the second it ends at) -
     that a line ending at `end` is clipped by: the word ends inside its
     final CLIP_TAIL_SECONDS (within that much past it too, a word timestamp
-    being approximate) and the tail is voiced above GUARD_FLOOR_DBFS.
-    Returns (shot, level) or None."""
+    being approximate) and the tail is voiced above GUARD_FLOOR_DBFS and
+    within CLIP_TAIL_BELOW_WORD_DB of `word`'s (start, end) loudest window,
+    when given: a tail far under the word is a bed, not the word. Returns (shot, level) or None."""
+    word_db = word_level(mono, sample_rate, *word) if word else None
+    floor = GUARD_FLOOR_DBFS
+    if word_db is not None:
+        floor = max(floor, word_db - CLIP_TAIL_BELOW_WORD_DB)
     for shot, tail_end in tails:
         if not tail_end - CLIP_TAIL_SECONDS <= end <= tail_end + CLIP_TAIL_SECONDS:
             continue
         level = tail_level(mono, sample_rate, tail_end)
-        if level is not None and level > GUARD_FLOOR_DBFS:
+        if level is not None and level > floor:
             return shot, level
     return None
 
@@ -625,7 +637,9 @@ def _clipped_findings(mono, sample_rate, tails, index, own, shot):
     """line_clipped_at_end for one heard line, as a list of zero or one
     finding: its last word ends in a voiced tail of its shot or the file."""
     end = own[-1]["end"]
-    clipped = _clipped_tail(mono, sample_rate, end, tails)
+    clipped = _clipped_tail(
+        mono, sample_rate, end, tails, (own[-1]["start"], own[-1]["end"])
+    )
     if clipped is None:
         return []
     at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}

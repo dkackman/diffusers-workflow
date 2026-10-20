@@ -772,6 +772,24 @@ class TestSpeechInSilentShot(unittest.TestCase):
         self.assertIn("no line names", skip["reason"])
 
 
+class TestClippedUnderBed(unittest.TestCase):
+    CHUNKS = [
+        {"start": 0.5, "end": 0.9, "text": " hello"},
+        {"start": 1.6, "end": 1.95, "text": " world"},
+    ]
+
+    def test_bed_under_a_finished_word_is_not_clipped(self):
+        # voice (-20 dBFS) up to 1.7 s, then a bed ~30 dB lower to the end
+        mono = numpy.concatenate([voiced(1.7), voiced(0.3, amplitude=0.003)])
+        answer = run(["hello world"], self.CHUNKS, mono)
+        self.assertEqual(rules(answer, "line_clipped_at_end"), [])
+
+    def test_bed_under_the_whole_word_still_clips_a_voiced_tail(self):
+        mono = voiced(2.0) + voiced(2.0, amplitude=0.003)
+        answer = run(["hello world"], self.CHUNKS, mono)
+        self.assertEqual(len(rules(answer, "line_clipped_at_end")), 1)
+
+
 class TestClippedAtShotEnd(unittest.TestCase):
     LINES = [{"text": "hello world", "shot": "A"}]
 
