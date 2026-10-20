@@ -648,7 +648,21 @@ def _check(value, base_dir, what):
             # A bare relative name resolves against the workflow directory and
             # is refused at run time when that lands outside every root (a
             # manifest file name from get_job is the usual case)
-            validate_media_path(value, base_dir, what, require_exists=False)
+            resolved = validate_media_path(value, base_dir, what, require_exists=False)
+            if not os.path.exists(resolved):
+                # Contained under the workflow directory is not found there:
+                # a task reading the raw string resolves it against the
+                # server's working directory and refuses it, a pipeline
+                # argument finds nothing. Either way the run fails, so an own
+                # output named without its prefix is refused now (#951)
+                own = _own_output_hint(value)
+                if own:
+                    raise InvalidInputError(
+                        f"Refusing to read {what} at '{value}': a bare name "
+                        f"is not looked up in the output root, and no file "
+                        f"by that name is beside the workflow, so the run "
+                        f"would refuse it." + own
+                    )
         else:
             # A relative path is under base_dir by construction unless it
             # climbs out, and validate_path refuses '..' - but only when the

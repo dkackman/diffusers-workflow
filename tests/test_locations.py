@@ -886,3 +886,55 @@ class TestOwnOutputHint:
             finally:
                 runs.deactivate_output_root(token)
         assert "output:wf/run/a.png" in str(refusal.value)
+
+    def test_validate_refuses_a_bare_own_output_name_with_the_hint(
+        self, untrusted, workflow_dir
+    ):
+        """The tester's repro: check-script's input_audio given a manifest
+        file name without its prefix fails validation, not the run."""
+        import shutil
+
+        from dw import runs
+        from dw.workflow import workflow_from_file
+
+        template = os.path.join(workflow_dir, "check-script.json")
+        shutil.copy(
+            os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "workflows",
+                "templates",
+                "check-script.json",
+            ),
+            template,
+        )
+        with tempfile.TemporaryDirectory() as outputs:
+            sub = os.path.join(outputs, "cut", "run", "final")
+            os.makedirs(sub)
+            with open(os.path.join(sub, "episode.mp4"), "wb") as f:
+                f.write(b"\0")
+            token = runs.activate_output_root(outputs)
+            try:
+                workflow = workflow_from_file(template, outputs)
+                bare = workflow.validation_errors(
+                    {"input_audio": "cut/run/final/episode.mp4", "lines": ["x"]}
+                )
+                prefixed = workflow.validation_errors(
+                    {
+                        "input_audio": "output:cut/run/final/episode.mp4",
+                        "lines": ["x"],
+                    }
+                )
+            finally:
+                runs.deactivate_output_root(token)
+        messages = [e["message"] for e in bare if e["path"].endswith(".audio")]
+        assert messages, bare
+        assert "'output:cut/run/final/episode.mp4'" in messages[0]
+        assert not [e for e in prefixed if e["path"].endswith(".audio")], prefixed
+
+    def test_validate_keeps_a_bare_name_beside_the_workflow(
+        self, untrusted, workflow_dir
+    ):
+        _image(os.path.join(workflow_dir, "a.png"))
+        definition = {"steps": [{"name": "s", "arguments": {"image": "a.png"}}]}
+        assert location_errors(definition, None, workflow_dir) == []
