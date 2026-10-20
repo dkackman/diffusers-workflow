@@ -577,7 +577,15 @@ def check(
             if heard_end is not None:
                 findings.extend(
                     _between_lines_findings(
-                        mono, sample_rate, index, heard_end, start, shot, strays
+                        mono,
+                        sample_rate,
+                        index,
+                        heard_end,
+                        start,
+                        shot,
+                        strays,
+                        spans,
+                        parsed_lines,
                     )
                 )
             heard_end = max(heard_end or 0.0, end)
@@ -701,13 +709,17 @@ def _untranscribed_findings(mono, sample_rate, index, own, shot):
     return [found for found in findings if found is not None]
 
 
-def _between_lines_findings(mono, sample_rate, index, start, end, shot, strays):
+def _between_lines_findings(
+    mono, sample_rate, index, start, end, shot, strays, spans=None, parsed_lines=()
+):
     """speech_not_transcribed for the stretch between one line's last word and
     the next line's first (#960): audible sound with no word, which the
     in-line check cannot see when the timing leaves it outside both lines.
     Heard-but-unmatched words in the gap are unscripted_speech's, but only the
     stretches they cover: each stretch left between them is judged on its own
-    (#964)."""
+    (#964). Each stretch is attributed to the shot holding most of it, and
+    to the line naming that shot (null when none does), not to the next
+    line's shot by default."""
     if end - start < UNHEARD_MIN_SECONDS:
         return []
     inside = sorted(
@@ -719,12 +731,30 @@ def _between_lines_findings(mono, sample_rate, index, start, end, shot, strays):
         stretches.append((cursor, word["start"]))
         cursor = max(cursor, word["end"])
     stretches.append((cursor, end))
-    found = [
-        _untranscribed(mono, sample_rate, index, lo, hi, shot)
-        for lo, hi in stretches
-        if hi - lo >= UNHEARD_MIN_SECONDS
-    ]
+    found = []
+    for lo, hi in stretches:
+        if hi - lo < UNHEARD_MIN_SECONDS:
+            continue
+        where_line, where_shot = index, shot
+        holder = _majority_shot(spans, lo, hi)
+        if holder is not None and holder != shot:
+            where_shot = holder
+            where_line = next(
+                (i for i, line in enumerate(parsed_lines) if line["shot"] == holder),
+                None,
+            )
+        found.append(_untranscribed(mono, sample_rate, where_line, lo, hi, where_shot))
     return [f for f in found if f is not None]
+
+
+def _majority_shot(spans, start, end):
+    """The shot overlapping [start, end] the most, None when no shots are known."""
+    best, best_overlap = None, 0.0
+    for span in spans or ():
+        overlap = min(end, span["end"]) - max(start, span["start"])
+        if overlap > best_overlap:
+            best, best_overlap = span["name"], overlap
+    return best
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):

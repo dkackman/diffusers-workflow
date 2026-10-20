@@ -738,13 +738,14 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         {"text": "charlie delta", "shot": "B"},
     ]
 
-    def test_sound_between_two_lines_is_a_finding_on_the_next_line(self):
-        # #960: the untranscribed stretch sits outside both lines' spans
+    def test_sound_between_two_lines_is_a_finding_in_its_shot(self):
+        # #960: the untranscribed stretch sits outside both lines' spans;
+        # #964: it is placed in the shot holding most of it (A), not the next line's
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
         answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
         (found,) = rules(answer, "speech_not_transcribed")
-        self.assertEqual(found["at"]["line"], 1)
-        self.assertEqual(found["at"]["shot"], "B")
+        self.assertEqual(found["at"]["line"], 0)
+        self.assertEqual(found["at"]["shot"], "A")
         self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
         self.assertAlmostEqual(found["at"]["end"], 4.0, places=2)
 
@@ -790,6 +791,9 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         self.assertAlmostEqual(before["at"]["seconds"], 0.9, places=2)
         self.assertAlmostEqual(before["at"]["end"], 4.0, places=2)
         self.assertAlmostEqual(after["at"]["seconds"], 4.4, places=2)
+        # each is placed in the shot holding most of it, not the next line's
+        self.assertEqual((before["at"]["shot"], before["at"]["line"]), ("A", 0))
+        self.assertEqual((after["at"]["shot"], after["at"]["line"]), ("B", 1))
 
 
 class TestSpeechInSilentShot(unittest.TestCase):
