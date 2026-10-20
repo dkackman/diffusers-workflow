@@ -55,11 +55,12 @@ REPEAT_RUN_MIN = 6
 REPEAT_MAX_PERIOD = 4
 
 
-def repetition_loops(keys):
-    """The indices of `keys` (heard words) that sit in a repetition loop: a stretch that
+def repetition_runs(keys):
+    """[(first, end, period)] for each stretch of `keys` (heard words) that
     repeats with a period of 1 to REPEAT_MAX_PERIOD and spans at least
-    REPEAT_RUN_MIN periods."""
-    looped = set()
+    REPEAT_RUN_MIN periods; `keys[first:first + period]` is its first
+    occurrence."""
+    runs = []
     for period in range(1, REPEAT_MAX_PERIOD + 1):
         k = period
         while k < len(keys):
@@ -70,7 +71,15 @@ def repetition_loops(keys):
             while k < len(keys) and keys[k] == keys[k - period]:
                 k += 1
             if k - first >= REPEAT_RUN_MIN * period:
-                looped.update(range(first, k))
+                runs.append((first, k, period))
+    return runs
+
+
+def repetition_loops(keys):
+    """The indices of `keys` (heard words) that sit in a repetition loop."""
+    looped = set()
+    for first, end, _ in repetition_runs(keys):
+        looped.update(range(first, end))
     return looped
 
 
@@ -78,12 +87,32 @@ def looped_texts(texts):
     """The indices of `texts` (transcript chunks' text, in order) holding a word
     of a repetition loop. Over words, not chunks: one chunk can hold a whole
     loop ('Pre-pre-pre'), and a chunk with no word is never in one."""
+    return looped_texts_firsts(texts)[0]
+
+
+def looped_texts_firsts(texts):
+    """(looped, firsts): `looped` as looped_texts; `firsts` the chunk indices
+    that are the first occurrence of a loop, every word of the chunk in it. A
+    period-1 loop of 'pre' has one first word; where runs of several periods
+    overlap, the shortest period's first occurrence is the one."""
     sequence, owner = [], []
     for index, text in enumerate(texts):
         words = normalize_words(text)
         owner.extend([index] * len(words))
         sequence.extend(words)
-    return {owner[k] for k in repetition_loops(sequence)}
+    runs = sorted(repetition_runs(sequence), key=lambda run: run[2])
+    looped, first_words = set(), set()
+    for first, end, period in runs:
+        if not set(range(first, end)) <= looped:
+            first_words.update(range(first, first + period))
+        looped.update(range(first, end))
+    chunks = {owner[k] for k in looped}
+    firsts = {
+        index
+        for index in chunks
+        if all(k in first_words for k in range(len(owner)) if owner[k] == index)
+    }
+    return chunks, firsts
 
 
 # transcribe_audio's `suspect` reasons whose chunk plan_cuts leaves out of the
