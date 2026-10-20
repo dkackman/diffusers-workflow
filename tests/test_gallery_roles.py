@@ -220,7 +220,12 @@ def test_job_detail_entries_carry_the_run_roles(tmp_path):
     with TestClient(app, base_url="http://localhost") as client:
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, job["id"], ["succeeded"])
-        assert all("role" not in e for e in manager.jobs[job["id"]].manifest)
+        # the job is stamped at finish, so history holds the roles too (#957)
+        stored = manager.history.get(job["id"])["manifest"]
+        assert {e["step"]: e["role"] for e in stored} == {
+            "a": "intermediate",
+            "b": "final",
+        }
         assert {e["step"]: e["role"] for e in detail["manifest"]} == {
             "a": "intermediate",
             "b": "final",
