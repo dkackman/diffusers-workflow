@@ -938,3 +938,12 @@ class TestOwnOutputHint:
         _image(os.path.join(workflow_dir, "a.png"))
         definition = {"steps": [{"name": "s", "arguments": {"image": "a.png"}}]}
         assert location_errors(definition, None, workflow_dir) == []
+
+    def test_validate_refuses_a_bare_name_that_resolves_nowhere(
+        self, untrusted, workflow_dir
+    ):
+        definition = {"steps": [{"name": "s", "arguments": {"image": "no-such.png"}}]}
+        errors = location_errors(definition, None, workflow_dir)
+        assert len(errors) == 1, errors
+        assert "no file by that name is beside the workflow" in errors[0]["message"]
+        assert "output:" not in errors[0]["message"]
