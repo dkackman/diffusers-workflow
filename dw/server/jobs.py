@@ -62,7 +62,7 @@ from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
 from .job_history import JobHistory
-from .outputs import job_run_directory, with_run_note
+from .outputs import job_run_directory, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
     CANCELLED,
@@ -816,11 +816,25 @@ class JobManager(Dispatcher):
 
     def _finish(self, job, status, error=None, traceback_text=None):
         job.finish(status, error=error, traceback_text=traceback_text)
+        self._stamp_roles(job)
         try:
             self.history.record(job)
         except Exception as e:
             logger.warning(f"Could not persist job {job.id}: {e}")
         self._trim_terminal_jobs()
+
+    def _stamp_roles(self, job):
+        """Put each manifest entry's role on the job while its run directory
+        is read, so history serves the entries a live job does (#957) - the
+        run may be moved or deleted before the job is read back."""
+        try:
+            location = self.run_location(job.id)
+            if location is not None and isinstance(job.manifest, list):
+                job.manifest = with_run_state({"manifest": job.manifest}, *location)[
+                    "manifest"
+                ]
+        except Exception as e:
+            logger.warning(f"Could not read roles for job {job.id}: {e}")
 
     def forget_workspace(self, workspace):
         """Drop a deleted workspace's finished jobs, in memory and in history

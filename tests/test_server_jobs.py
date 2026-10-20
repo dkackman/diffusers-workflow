@@ -685,3 +685,48 @@ def test_run_location_is_the_jobs_own_root(manager, tmp_path):
     root, run_dir = manager.run_location("named")
     assert root == os.path.realpath(str(other))
     assert run_dir == RUN_DIR
+
+
+def test_history_keeps_the_roles_a_live_manifest_carries(tmp_path):
+    """#957: a finished job's manifest entries carry `role`, and history
+    reads them back even after the run directory is gone."""
+    run_dir = tmp_path / "outputs" / RUN_DIR
+    name = f"{RUN_DIR}/final/a.png"
+
+    def roled_script(command):
+        for message in tracked_script(command):
+            if message["type"] == "success":
+                (run_dir / "final").mkdir(parents=True)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "steps": [
+                                {"step": "s", "files": ["final/a.png"], "role": "final"}
+                            ]
+                        }
+                    )
+                )
+                message = {
+                    **message,
+                    "manifest": [
+                        {"step": "s", "files": [str(tmp_path / "outputs" / name)]}
+                    ],
+                }
+            yield message
+
+    made = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(roled_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = finished_job(made)
+        live = made.describe(job)["manifest"]
+        assert live[0]["role"] == "final"
+        import shutil
+
+        shutil.rmtree(run_dir)
+        assert made.history.get(job.id)["manifest"] == live
+    finally:
+        made.shutdown()
