@@ -640,7 +640,9 @@ def check(
         rules_applied.extend(SHOT_RULES)
         findings.extend(_silent_shot_findings(spans, parsed_lines, heard, claimed))
         findings.extend(
-            _unscripted_findings(spans, parsed_lines, expected, heard, unassigned)
+            _unscripted_findings(
+                spans, parsed_lines, expected, heard, unassigned, similarity_threshold
+            )
         )
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
@@ -848,10 +850,13 @@ def _silent_shot_findings(spans, parsed_lines, heard, claimed):
     return findings
 
 
-def _unscripted_findings(spans, parsed_lines, expected, heard, unassigned):
+def _unscripted_findings(
+    spans, parsed_lines, expected, heard, unassigned, similarity_threshold
+):
     """unscripted_speech: heard words align left to no line that sit inside a
     shot a line names. `repeats_line` is set when the shot's words, in order,
-    contain one of its lines' words again."""
+    contain one of its lines' words again, or score at least the mismatch
+    threshold against one of them (a repeat misheard as the line was)."""
     findings = []
     for span in spans:
         lines = [
@@ -874,6 +879,11 @@ def _unscripted_findings(spans, parsed_lines, expected, heard, unassigned):
         at["repeats_line"] = any(
             line and _contains(words, line) for line in lines
         ) or any(line and _contains(line, words) for line in lines)
+        if not at["repeats_line"]:
+            at["repeats_line"] = any(
+                line and line_similarity(line, words) >= similarity_threshold
+                for line in lines
+            )
         findings.append(finding(UNSCRIPTED_SPEECH, len(inside), at))
     return findings
 

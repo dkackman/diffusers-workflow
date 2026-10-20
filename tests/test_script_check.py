@@ -712,6 +712,23 @@ class TestUnscriptedSpeech(unittest.TestCase):
         self.assertTrue(found["at"]["repeats_line"])
         self.assertEqual([w["text"] for w in answer["unmatched"]], ["wear", "socks"])
 
+    def test_a_misheard_repeat_scoring_as_the_line_does_is_a_repeat(self):
+        # "hal" heard as "how" both times: 0.75 for the line, so also a repeat
+        chunks = words("how kettle froze now", 0.0, 0.2, 0.15) + words(
+            "how kettle froze now", 1.0, 0.2, 0.15
+        )
+        answer = run(
+            [{"text": "hal kettle froze now", "shot": "A"}],
+            chunks,
+            voiced(6.0),
+            similarity=0.6,
+            spans=SHOTS,
+            shots_source="argument",
+        )
+        self.assertEqual(answer["lines"][0]["similarity"], 0.75)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertTrue(found["at"]["repeats_line"])
+
     def test_an_ad_lib_in_a_scripted_shot_is_not_a_repeat(self):
         chunks = words("alpha bravo", 0.0) + words("zulu yankee", 1.0)
         answer = shot_run([{"text": "alpha bravo", "shot": "A"}], chunks)
