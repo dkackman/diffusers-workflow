@@ -274,8 +274,10 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
 
     `heard` is [{word, text, start, end}], one per normalized word - a chunk
     that normalizes to nothing ('♪', '...') is neither; `discarded` is
-    [{text, start, end, level_dbfs, reason}] for a chunk in a repetition loop
-    (`reason` "repetition") or at or below the floor ("below_floor").
+    [{text, start, end, level_dbfs, reason, count}] for a chunk at or below
+    the floor ("below_floor") or a repetition loop ("repetition": one entry
+    per run of consecutive looped chunks, `count` chunks, `text` the first's,
+    `start`/`end` the run's span).
 
     A loop's first occurrence is kept as heard when `script_words` (the
     words the script holds) contains all of its words and it has real
@@ -291,6 +293,7 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
     looped, firsts = looped_texts_firsts([chunk.get("text", "") for chunk, _ in spoken])
 
     heard, discarded = [], []
+    run_end = None  # spoken index of the last chunk folded into discarded[-1]
     for index, (chunk, words) in enumerate(spoken):
         start, end = chunk["start"], chunk["end"]
         level = word_level(mono, sample_rate, start, end)
@@ -306,6 +309,17 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
             reason = "below_floor"
         else:
             reason = None
+        if reason == "repetition" and run_end == index - 1:
+            # A loop is one entry: its span, its chunk count, its loudest level
+            last = discarded[-1]
+            last["end"] = _round(max(last["end"], end))
+            last["count"] += 1
+            if level is not None and (
+                last["level_dbfs"] is None or level > last["level_dbfs"]
+            ):
+                last["level_dbfs"] = _round(level, 2)
+            run_end = index
+            continue
         if reason:
             discarded.append(
                 {
@@ -314,9 +328,12 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
                     "end": _round(end),
                     "level_dbfs": _round(level, 2),
                     "reason": reason,
+                    "count": 1,
                 }
             )
+            run_end = index if reason == "repetition" else None
             continue
+        run_end = None
         for word in words:
             heard.append(
                 {
@@ -485,6 +502,7 @@ def check(
     heard, discarded = guard_words(chunks, mono, sample_rate, script_words)
     duration = len(mono) / sample_rate if sample_rate else 0.0
     findings = _loop_findings(chunks, script_words) if parsed_lines else []
+    loop_starts = [found["at"]["seconds"] for found in findings]
 
     if not parsed_lines:
         return _silent_take(heard, discarded, spans, shots_source)
@@ -520,17 +538,23 @@ def check(
             shot = overlapping_shot(spans, start, end)
         span = by_name.get(shot)
         claimed.update((j, shot) for j in indices)
+        # A line nothing was heard for, at or after a transcript_loop, was
+        # never transcribed: Whisper was stuck, so it is not a 0.0 mismatch
+        position = span["start"] if span else previous_end
+        looped = not own and any(at <= position for at in loop_starts)
         lines.append(
             {
                 "expected": line["text"],
-                "heard": _joined(own),
-                "similarity": round(score, 4),
+                "heard": None if looped else _joined(own),
+                "similarity": None if looped else round(score, 4),
                 "start": _round(start),
                 "end": _round(end),
                 "shot": shot,
             }
         )
-        if score < similarity_threshold:
+        if looped:
+            lines[-1]["not_transcribed"] = "transcript_loop"
+        elif score < similarity_threshold:
             if own:
                 at = _at(index, own[0], shot=shot)
             else:

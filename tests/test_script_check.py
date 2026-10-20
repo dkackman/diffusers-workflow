@@ -282,14 +282,18 @@ class TestRepetitionGuard(unittest.TestCase):
         ]
         heard, discarded = guard_words(chunks, voiced(5.0), RATE)
         self.assertEqual(heard, [])
-        self.assertEqual(len(discarded), 40)
-        self.assertEqual({d["reason"] for d in discarded}, {"repetition"})
+        self.assertEqual(len(discarded), 1)
+        self.assertEqual(discarded[0]["reason"], "repetition")
+        self.assertEqual(discarded[0]["count"], 40)
+        self.assertEqual(discarded[0]["start"], 0.0)
+        self.assertEqual(discarded[0]["end"], 3.9)
 
     def test_loop_over_music_is_not_speech_where_silent(self):
         chunks = words(" ".join(["pre"] * 30), step=0.1, length=0.0)
         answer = run([], chunks, voiced(5.0))
         self.assertEqual(answer["findings"], [])
-        self.assertEqual(len(answer["discarded"]), 30)
+        self.assertEqual(len(answer["discarded"]), 1)
+        self.assertEqual(answer["discarded"][0]["count"], 30)
 
     def test_short_real_repetition_stays_heard(self):
         chunks = words("no no no no no stop")
@@ -301,7 +305,8 @@ class TestRepetitionGuard(unittest.TestCase):
         chunks = words(" ".join(["thank you"] * 6), step=0.3, length=0.2)
         heard, discarded = guard_words(chunks, voiced(5.0), RATE)
         self.assertEqual(heard, [])
-        self.assertEqual(len(discarded), 12)
+        self.assertEqual(len(discarded), 1)
+        self.assertEqual(discarded[0]["count"], 12)
 
     def test_loop_does_not_take_the_speech_around_it(self):
         chunks = (
@@ -313,7 +318,8 @@ class TestRepetitionGuard(unittest.TestCase):
         self.assertEqual(
             [h["word"] for h in heard], ["hello", "there", "good", "night"]
         )
-        self.assertEqual(len(discarded), 10)
+        self.assertEqual(len(discarded), 1)
+        self.assertEqual(discarded[0]["count"], 10)
 
     def test_loop_inside_one_chunk_is_discarded(self):
         chunks = [{"start": 0.0, "end": 3.0, "text": " Pre-pre-pre-pre-pre-pre-pre"}]
@@ -329,11 +335,25 @@ class TestRepetitionGuard(unittest.TestCase):
         answer = run(["the lid is gone"], chunks, voiced(12.0))
         self.assertEqual(answer["lines"][0]["heard"], "the lid is gone")
         self.assertEqual(answer["lines"][0]["similarity"], 1.0)
-        self.assertEqual(len(answer["discarded"]), 28)
+        self.assertEqual(len(answer["discarded"]), 1)
+        self.assertEqual(answer["discarded"][0]["count"], 28)
         loops = [f for f in answer["findings"] if f["rule"] == "transcript_loop"]
         self.assertEqual(len(loops), 1)
         self.assertEqual(loops[0]["value"], 32)
         self.assertEqual(loops[0]["at"]["seconds"], 1.0)
+
+    def test_line_after_a_loop_is_not_transcribed_not_a_zero(self):
+        chunks = words("how", 0.0) + words(
+            " ".join(["the lid is gone"] * 8), 1.0, step=0.3, length=0.2
+        )
+        answer = run(["the lid is gone", "i wore it as a hat"], chunks, voiced(12.0))
+        line = answer["lines"][1]
+        self.assertIsNone(line["heard"])
+        self.assertIsNone(line["similarity"])
+        self.assertEqual(line["not_transcribed"], "transcript_loop")
+        rules = [f["rule"] for f in answer["findings"]]
+        self.assertNotIn("line_mismatch", rules)
+        self.assertIn("transcript_loop", rules)
 
     def test_loop_of_unscripted_words_keeps_nothing_and_is_no_finding(self):
         chunks = words(" ".join(["pre"] * 10), 1.0, step=0.1, length=0.05)
