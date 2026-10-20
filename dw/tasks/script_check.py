@@ -55,7 +55,7 @@ from ..script_lines import (
     REPEAT_MAX_PERIOD,
     REPEAT_RUN_MIN,
     disambiguated,
-    looped_texts,
+    looped_texts_firsts,
     normalize_words,
     parse_lines,
     parse_shots,
@@ -118,6 +118,7 @@ THRESHOLDS = {
 
 LINE_RULES = (
     "line_mismatch",
+    "transcript_loop",
     "tag_spoken",
     "line_clipped_at_end",
     "speech_not_transcribed",
@@ -152,6 +153,14 @@ SPEECH_NOT_TRANSCRIBED = _rule(
     "audible sound lasting this many seconds sits between the line's words, between"
     " two lines, or inside one stretched word, with no word for it - the transcript left speech"
     " out and the line's timing absorbed it; listen",
+)
+TRANSCRIPT_LOOP = _rule(
+    "transcript_loop",
+    REPEAT_RUN_MIN,
+    "the transcript repeated words of the script in a loop for this many chunks"
+    " (seen at 'seconds' to 'end') - Whisper stuck, so speech after it may be"
+    " missing from 'heard' and lines can read 0.0 without being wrong; listen,"
+    " or check each shot on its own, before re-rolling",
 )
 SPEECH_WHERE_SILENT = _rule(
     "speech_where_silent",
@@ -260,13 +269,17 @@ def _round(value, places=3):
     return None if value is None else round(float(value), places)
 
 
-def guard_words(chunks, mono, sample_rate):
+def guard_words(chunks, mono, sample_rate, script_words=None):
     """Split transcribe_audio's word chunks into (heard, discarded).
 
     `heard` is [{word, text, start, end}], one per normalized word - a chunk
     that normalizes to nothing ('♪', '...') is neither; `discarded` is
     [{text, start, end, level_dbfs, reason}] for a chunk in a repetition loop
     (`reason` "repetition") or at or below the floor ("below_floor").
+
+    A loop's first occurrence is kept as heard when `script_words` (the
+    words the script holds) contains all of its words and it has real
+    duration and speech level: Whisper loops on a line it did hear (#961).
     """
     spoken = []
     for chunk in chunks:
@@ -275,13 +288,19 @@ def guard_words(chunks, mono, sample_rate):
             spoken.append((chunk, words))
     # The loop detector is script_lines' (shared with transcribe_audio's
     # `suspect: "repetition"`); a chunk with no word is in no loop
-    looped = looped_texts([chunk.get("text", "") for chunk, _ in spoken])
+    looped, firsts = looped_texts_firsts([chunk.get("text", "") for chunk, _ in spoken])
 
     heard, discarded = [], []
     for index, (chunk, words) in enumerate(spoken):
         start, end = chunk["start"], chunk["end"]
         level = word_level(mono, sample_rate, start, end)
-        if index in looped:
+        first_of_line = (
+            index in firsts
+            and script_words is not None
+            and set(words) <= script_words
+            and end > start
+        )
+        if index in looped and not first_of_line:
             reason = "repetition"
         elif level is None or level <= GUARD_FLOOR_DBFS:
             reason = "below_floor"
@@ -460,9 +479,12 @@ def check(
     float waveform; `spans` the take's shots as shot_spans() places them, or
     None when none are known, and `shots_source` where they came from
     (resolve_shots: argument, artifact, manifest or none)."""
-    heard, discarded = guard_words(chunks, mono, sample_rate)
+    script_words = {
+        word for line in parsed_lines for word in normalize_words(line["text"])
+    }
+    heard, discarded = guard_words(chunks, mono, sample_rate, script_words)
     duration = len(mono) / sample_rate if sample_rate else 0.0
-    findings = []
+    findings = _loop_findings(chunks, script_words) if parsed_lines else []
 
     if not parsed_lines:
         return _silent_take(heard, discarded, spans, shots_source)
@@ -572,6 +594,29 @@ def check(
         "rules_applied": rules_applied,
         "rules_skipped": rules_skipped,
     }
+
+
+def _loop_findings(chunks, script_words):
+    """A `transcript_loop` finding for each repetition loop over the script's
+    own words: Whisper stuck on a line it heard, so what follows the loop was
+    never transcribed and its lines read as mismatches (#961)."""
+    spoken = [c for c in chunks if normalize_words(c.get("text", ""))]
+    looped, firsts = looped_texts_firsts([c.get("text", "") for c in spoken])
+    found, run = [], []
+    for index in sorted(looped) + [None]:
+        if run and (index is None or index != run[-1] + 1):
+            if any(i in firsts for i in run):
+                members = [spoken[i] for i in run]
+                if all(
+                    set(normalize_words(m["text"])) <= script_words for m in members
+                ):
+                    at = _at(None, seconds=members[0]["start"])
+                    at["end"] = _round(members[-1]["end"])
+                    found.append(finding(TRANSCRIPT_LOOP, len(members), at))
+            run = []
+        if index is not None:
+            run.append(index)
+    return found
 
 
 def _heard_shot(spans, word):

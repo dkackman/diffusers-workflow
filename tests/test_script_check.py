@@ -321,6 +321,28 @@ class TestRepetitionGuard(unittest.TestCase):
         self.assertEqual(heard, [])
         self.assertEqual(discarded[0]["reason"], "repetition")
 
+    def test_loop_over_a_scripted_line_keeps_its_first_take(self):
+        # #961: Whisper looped on the line it heard; the first take is real
+        chunks = words("how", 0.0) + words(
+            " ".join(["the lid is gone"] * 8), 1.0, step=0.3, length=0.2
+        )
+        answer = run(["the lid is gone"], chunks, voiced(12.0))
+        self.assertEqual(answer["lines"][0]["heard"], "the lid is gone")
+        self.assertEqual(answer["lines"][0]["similarity"], 1.0)
+        self.assertEqual(len(answer["discarded"]), 28)
+        loops = [f for f in answer["findings"] if f["rule"] == "transcript_loop"]
+        self.assertEqual(len(loops), 1)
+        self.assertEqual(loops[0]["value"], 32)
+        self.assertEqual(loops[0]["at"]["seconds"], 1.0)
+
+    def test_loop_of_unscripted_words_keeps_nothing_and_is_no_finding(self):
+        chunks = words(" ".join(["pre"] * 10), 1.0, step=0.1, length=0.05)
+        answer = run(["hello"], chunks, voiced(4.0))
+        self.assertEqual(answer["lines"][0]["heard"], "")
+        self.assertFalse(
+            [f for f in answer["findings"] if f["rule"] == "transcript_loop"]
+        )
+
     def test_below_floor_reason(self):
         mono = numpy.concatenate([voiced(1.0), silent(1.0)])
         _, discarded = guard_words(words("real", 0.0) + words("ghost", 1.2), mono, RATE)
