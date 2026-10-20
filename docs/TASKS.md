@@ -2257,6 +2257,29 @@ The model is fixed (`htdemucs`, run in fp32), its weights download on first
 use, and it needs the `demucs` package. On MPS a failed separation falls back
 to the CPU and warns (`separation_cpu_fallback`).
 
+**Stacked vocals.** A chorus is often recorded as layered stereo doubles - every
+Music 3 chorus is - and htdemucs returns all of them in the one `vocals` stem.
+When the stem's left and right channels sing different lines over a sung span,
+the step warns `stacked_vocals` and names the spans in m:ss (up to 8, then "and
+N more"):
+
+```
+separate_stems: the vocals stem holds stacked (layered stereo) voices over
+1:19–1:34, 1:59–2:09; treat those spans as more than one voice before
+processing them as one
+```
+
+Read it before working on a span as one voice: pitch or formant work on a
+stacked span distorts it, and an `attribute_voices` window or a lip-sync shot
+over one has two singers in it. Pick a span outside the flagged ones, or plan
+the shot as a two-shot. The stems themselves are unchanged. The check is a 1 s
+window test on the stereo stem: the window must be sung (half its frames voiced,
+and within 14 dB of the stem's level), with an L/R correlation under 0.45 and a
+side/mid energy ratio over 0.4. Windows merge across a one-window gap, and
+spans under 2 s are dropped. A mono source, an instrumental and a single doubled
+word never flag it. The thresholds are the `STACK_*` constants in
+`dw/tasks/voice_attribution.py`.
+
 ## Voice attribution
 
 Which reference voice sings each line of a song, by timbre - staging
