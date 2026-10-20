@@ -13,7 +13,6 @@
     "seed": "variable:seed",
     "id": "ZImageInpaint",
     "description": "Masked inpainting and object removal with Z-Image Turbo (ZImageInpaintPipeline): white mask pixels are repainted from the prompt, the rest is kept. Uses the same Tongyi-MAI/Z-Image-Turbo checkpoint as models/z-image, so a server that has one has the other, and fits a 24 GB card with offload where FLUX.1 Fill (templates/inpaint) needs a 54 GB download. To remove an object, prompt for what should replace it (the background), not for the object being removed.",
-    "cost": [],
     "vram_estimate": {
         "base_gb": 11.8,
         "bytes_per_voxel": 1031,
