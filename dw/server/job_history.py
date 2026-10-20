@@ -106,6 +106,56 @@ _ADDED_COLUMNS = (
     ("kept", "INTEGER DEFAULT 0"),
 )
 
+
+def _json(value):
+    return json.dumps(value, default=str)
+
+
+def _rerun_spec(job):
+    """The spec's workflow_name/warnings are derived; keep what rerun needs."""
+    return {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
+
+
+# What `JobHistory.record` writes: one (column, getter) per recorded column, so
+# a new job field is one entry here (plus its `_ADDED_COLUMNS` DDL), not a
+# placeholder and a positional value. `getattr(..., None)` is for a test double
+# or an older in-memory Job predating a column: absent means unknown, which the
+# column itself allows (#243)
+_RECORDED = (
+    ("id", lambda job: job.id),
+    ("workflow", lambda job: job.workflow_name),
+    ("status", lambda job: job.status),
+    ("created_at", lambda job: job.created_at),
+    ("started_at", lambda job: job.started_at),
+    ("finished_at", lambda job: job.finished_at),
+    ("arguments", lambda job: _json(job.spec.get("arguments", {}))),
+    ("spec", lambda job: _json(_rerun_spec(job))),
+    ("manifest", lambda job: _json(job.manifest)),
+    ("warnings", lambda job: _json(job.warnings)),
+    ("error", lambda job: job.error),
+    ("events", lambda job: _json(job.events[-MAX_PERSISTED_EVENTS:])),
+    ("workspace", lambda job: job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME),
+    ("workflow_name", lambda job: job.catalog_name),
+    ("run_id", lambda job: job.run_id),
+    ("run_dir", lambda job: job.run_dir),
+    ("acknowledged", lambda job: job.acknowledged),
+    (
+        "host_memory_peak_rss_mb",
+        lambda job: getattr(job, "host_memory_peak_rss_mb", None),
+    ),
+    (
+        "host_memory_job_peak_rss_mb",
+        lambda job: getattr(job, "host_memory_job_peak_rss_mb", None),
+    ),
+    ("run_version", lambda job: getattr(job, "run_version", None)),
+    ("device", lambda job: getattr(job, "device", None)),
+    ("device_ordinal", lambda job: getattr(job, "device_ordinal", None)),
+    ("device_card", lambda job: getattr(job, "device_card", None)),
+    ("note", lambda job: getattr(job, "note", None)),
+    ("memory_key", _memory_key_of),
+    ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
+)
+
 # `device_ordinal`/`device_card` from `device`, in SQL: an ordinal never
 # holds a space, so the label splits at its first one, and a label with none
 # (`cpu`, `mps`) is all ordinal with no card
@@ -191,54 +241,21 @@ class JobHistory:
         # one left to GC checkpoints the WAL whenever it is collected,
         # rewriting jobs.sqlite at an arbitrary later moment.
         with contextlib.closing(sqlite3.connect(self.db_path, timeout=5)) as connection:
+            # Readers take columns by name; a positional index is a silent
+            # miss the next time a column is added
+            connection.row_factory = sqlite3.Row
             connection.execute("PRAGMA journal_mode=WAL")
             with connection:
                 yield connection
 
     def record(self, job):
-        # The spec's workflow_name/warnings are derived; keep what rerun needs
-        rerun_spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
+        columns = ", ".join(column for column, _ in _RECORDED)
+        placeholders = ", ".join("?" for _ in _RECORDED)
+        values = tuple(getter(job) for _, getter in _RECORDED)
         with self._lock, self._connect() as connection:
             connection.execute(
-                "INSERT OR REPLACE INTO jobs (id, workflow, status, created_at,"
-                " started_at, finished_at, arguments, spec, manifest, warnings,"
-                " error, events, workspace, workflow_name, run_id, run_dir,"
-                " acknowledged, host_memory_peak_rss_mb,"
-                " host_memory_job_peak_rss_mb, run_version, device,"
-                " device_ordinal, device_card, note, memory_key, rerun_of) VALUES"
-                " (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-                (
-                    job.id,
-                    job.workflow_name,
-                    job.status,
-                    job.created_at,
-                    job.started_at,
-                    job.finished_at,
-                    json.dumps(job.spec.get("arguments", {}), default=str),
-                    json.dumps(rerun_spec, default=str),
-                    json.dumps(job.manifest, default=str),
-                    json.dumps(job.warnings, default=str),
-                    job.error,
-                    json.dumps(job.events[-MAX_PERSISTED_EVENTS:], default=str),
-                    job.spec.get("workspace") or DEFAULT_WORKSPACE_NAME,
-                    job.catalog_name,
-                    job.run_id,
-                    job.run_dir,
-                    job.acknowledged,
-                    # A test double or an older in-memory Job predating this
-                    # column reports None here rather than failing record()
-                    # (#243) - the same "absent means unknown" the column
-                    # itself allows
-                    getattr(job, "host_memory_peak_rss_mb", None),
-                    getattr(job, "host_memory_job_peak_rss_mb", None),
-                    getattr(job, "run_version", None),
-                    getattr(job, "device", None),
-                    getattr(job, "device_ordinal", None),
-                    getattr(job, "device_card", None),
-                    getattr(job, "note", None),
-                    _memory_key_of(job),
-                    getattr(job, "rerun_of", None),
-                ),
+                f"INSERT OR REPLACE INTO jobs ({columns}) VALUES ({placeholders})",
+                values,
             )
 
     def peaks_for_key(self, key):
@@ -247,11 +264,11 @@ class JobHistory:
         the workflow's name (#869). Empty for a key no run has reported."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
-                "SELECT host_memory_job_peak_rss_mb FROM jobs WHERE status = ?"
+                "SELECT host_memory_job_peak_rss_mb AS peak FROM jobs WHERE status = ?"
                 " AND memory_key = ? AND host_memory_job_peak_rss_mb IS NOT NULL",
                 (SUCCEEDED, key),
             ).fetchall()
-        return [row[0] for row in rows]
+        return [row["peak"] for row in rows]
 
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON
@@ -267,7 +284,8 @@ class JobHistory:
             "SELECT id, workflow, status, created_at, started_at, finished_at,"
             " workspace, workflow_name, run_id, acknowledged, run_version,"
             " device, note, run_dir,"
-            " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END,"
+            " CASE WHEN json_valid(spec) THEN json_extract(spec, '$.output_dir') END"
+            " AS output_dir,"
             " rerun_of"
             " FROM jobs"
         )
@@ -292,26 +310,26 @@ class JobHistory:
             rows = connection.execute(query, params).fetchall()
         return [
             {
-                "id": row[0],
-                "workflow": row[1],
-                "status": row[2],
-                "created_at": row[3],
-                "started_at": row[4],
-                "finished_at": row[5],
-                "workspace": row[6] or DEFAULT_WORKSPACE_NAME,
-                "workflow_name": row[7],
-                "run_id": row[8],
-                "acknowledged": row[9] or ACK_NONE,
-                "run_version": row[10],
-                "device": row[11],
+                "id": row["id"],
+                "workflow": row["workflow"],
+                "status": row["status"],
+                "created_at": row["created_at"],
+                "started_at": row["started_at"],
+                "finished_at": row["finished_at"],
+                "workspace": row["workspace"] or DEFAULT_WORKSPACE_NAME,
+                "workflow_name": row["workflow_name"],
+                "run_id": row["run_id"],
+                "acknowledged": row["acknowledged"] or ACK_NONE,
+                "run_version": row["run_version"],
+                "device": row["device"],
                 "historical": True,
                 # Only when set: JobSummary.note is absent, never null
-                **({"note": row[12]} if row[12] else {}),
+                **({"note": row["note"]} if row["note"] else {}),
                 # Where the run is, for the list to read its current note
                 # from; JobManager.list takes these off before serving
-                "_run_dir": row[13],
-                "_output_dir": row[14],
-                **({"rerun_of": row[15]} if row[15] else {}),
+                "_run_dir": row["run_dir"],
+                "_output_dir": row["output_dir"],
+                **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
             }
             for row in rows
         ]
@@ -334,7 +352,7 @@ class JobHistory:
             row = connection.execute(
                 "SELECT device_ordinal FROM jobs WHERE id = ?", (job_id,)
             ).fetchone()
-        return row[0] if row else None
+        return row["device_ordinal"] if row else None
 
     def watermark(self):
         """How far the table has got - what a derived figure caches against.
@@ -351,10 +369,10 @@ class JobHistory:
         """
         with self._lock, self._connect() as connection:
             row = connection.execute(
-                "SELECT COUNT(*), MAX(finished_at) FROM jobs"
+                "SELECT COUNT(*) AS runs, MAX(finished_at) AS last_finished FROM jobs"
                 " WHERE workflow_name IS NOT NULL"
             ).fetchone()
-        return (row[0], row[1]) if row else (0, None)
+        return (row["runs"], row["last_finished"]) if row else (0, None)
 
     def finished_runs(self):
         """Every successful, named run grouped by (workspace, workflow name),
@@ -469,10 +487,10 @@ class JobHistory:
             ).fetchone()
         if row is None:
             return None
-        if not row[0]:
+        if not row["events"]:
             return []
         try:
-            return json.loads(row[0])
+            return json.loads(row["events"])
         except json.JSONDecodeError:
             return []
 
@@ -509,8 +527,8 @@ class JobHistory:
         with self._lock, self._connect() as connection:
             rows = connection.execute(query, params).fetchall()
         for row in rows:
-            if self._manifest_wrote(row[2], file_name):
-                return {"id": row[0], "status": row[1]}
+            if self._manifest_wrote(row["manifest"], file_name):
+                return {"id": row["id"], "status": row["status"]}
         return None
 
     @staticmethod
@@ -554,35 +572,35 @@ class JobHistory:
             except (TypeError, ValueError):
                 return fallback
 
-        spec = parse(row[7], {})
+        spec = parse(row["spec"], {})
         # The persisted tail is capped at MAX_PERSISTED_EVENTS, and
         # get_job_events serves that same tail - so counting it, rather than
         # hardcoding 0, keeps event_count truthful about what a caller who
         # pages through get_job_events will actually see (#289)
-        events = parse(row[16], [])
+        events = parse(row["events"], [])
         return {
-            "id": row[0],
-            "workflow": row[1],
-            "status": row[2],
-            "created_at": row[3],
-            "started_at": row[4],
-            "finished_at": row[5],
-            "arguments": parse(row[6], {}),
+            "id": row["id"],
+            "workflow": row["workflow"],
+            "status": row["status"],
+            "created_at": row["created_at"],
+            "started_at": row["started_at"],
+            "finished_at": row["finished_at"],
+            "arguments": parse(row["arguments"], {}),
             "spec": spec,
-            "manifest": parse(row[8], []),
-            "warnings": parse(row[9], []),
-            "error": row[10],
-            "workspace": row[11] or DEFAULT_WORKSPACE_NAME,
-            "workflow_name": row[12],
-            "run_id": row[13],
-            "run_dir": row[14],
-            "run_version": row[17],
-            "device": row[18],
-            "acknowledged": row[15] or ACK_NONE,
+            "manifest": parse(row["manifest"], []),
+            "warnings": parse(row["warnings"], []),
+            "error": row["error"],
+            "workspace": row["workspace"] or DEFAULT_WORKSPACE_NAME,
+            "workflow_name": row["workflow_name"],
+            "run_id": row["run_id"],
+            "run_dir": row["run_dir"],
+            "run_version": row["run_version"],
+            "device": row["device"],
+            "acknowledged": row["acknowledged"] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
             "traceback": None,
             "event_count": len(events) if isinstance(events, list) else 0,
             "historical": True,
-            **({"note": row[19]} if row[19] else {}),
-            **({"rerun_of": row[20]} if row[20] else {}),
+            **({"note": row["note"]} if row["note"] else {}),
+            **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
         }
