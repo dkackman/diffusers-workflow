@@ -789,7 +789,6 @@ class TestClippedUnderBed(unittest.TestCase):
         answer = run(["hello world"], self.CHUNKS, mono)
         self.assertEqual(len(rules(answer, "line_clipped_at_end")), 1)
 
-
     def test_last_word_stretched_over_the_bed_is_not_clipped(self):
         # the ASR places the last word wholly over the bed (#959): its own
         # level is the bed's, the line's voice is 30 dB above the tail
