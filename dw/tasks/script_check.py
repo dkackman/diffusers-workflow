@@ -386,7 +386,7 @@ def _clipped_tail(mono, sample_rate, end, tails, word=None):
     that a line ending at `end` is clipped by: the word ends inside its
     final CLIP_TAIL_SECONDS (within that much past it too, a word timestamp
     being approximate) and the tail is voiced above GUARD_FLOOR_DBFS and
-    within CLIP_TAIL_BELOW_WORD_DB of `word`'s (start, end) loudest window,
+    within CLIP_TAIL_BELOW_WORD_DB of the (start, end) span's loudest window,
     when given: a tail far under the word is a bed, not the word. Returns (shot, level) or None."""
     word_db = word_level(mono, sample_rate, *word) if word else None
     floor = GUARD_FLOOR_DBFS
@@ -635,10 +635,13 @@ def _untranscribed(mono, sample_rate, index, start, end, shot):
 
 def _clipped_findings(mono, sample_rate, tails, index, own, shot):
     """line_clipped_at_end for one heard line, as a list of zero or one
-    finding: its last word ends in a voiced tail of its shot or the file."""
+    finding: its last word ends in a voiced tail of its shot or the file. The
+    tail is judged against the whole line's loudest window, not the last
+    word's: under a score the ASR stretches the last word over the bed, and a
+    bed measured against itself passes the guard (#959)."""
     end = own[-1]["end"]
     clipped = _clipped_tail(
-        mono, sample_rate, end, tails, (own[-1]["start"], own[-1]["end"])
+        mono, sample_rate, end, tails, (own[0]["start"], own[-1]["end"])
     )
     if clipped is None:
         return []
