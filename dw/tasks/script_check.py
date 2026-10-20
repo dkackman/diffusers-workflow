@@ -704,14 +704,27 @@ def _untranscribed_findings(mono, sample_rate, index, own, shot):
 def _between_lines_findings(mono, sample_rate, index, start, end, shot, strays):
     """speech_not_transcribed for the stretch between one line's last word and
     the next line's first (#960): audible sound with no word, which the
-    in-line check cannot see when the timing leaves it outside both lines. A
-    gap holding heard-but-unmatched words is unscripted_speech's."""
+    in-line check cannot see when the timing leaves it outside both lines.
+    Heard-but-unmatched words in the gap are unscripted_speech's, but only the
+    stretches they cover: each stretch left between them is judged on its own
+    (#964)."""
     if end - start < UNHEARD_MIN_SECONDS:
         return []
-    if any(word["start"] < end and word["end"] > start for word in strays):
-        return []
-    found = _untranscribed(mono, sample_rate, index, start, end, shot)
-    return [found] if found is not None else []
+    inside = sorted(
+        (w for w in strays if w["start"] < end and w["end"] > start),
+        key=lambda w: w["start"],
+    )
+    stretches, cursor = [], start
+    for word in inside:
+        stretches.append((cursor, word["start"]))
+        cursor = max(cursor, word["end"])
+    stretches.append((cursor, end))
+    found = [
+        _untranscribed(mono, sample_rate, index, lo, hi, shot)
+        for lo, hi in stretches
+        if hi - lo >= UNHEARD_MIN_SECONDS
+    ]
+    return [f for f in found if f is not None]
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):

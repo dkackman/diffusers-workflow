@@ -766,7 +766,30 @@ class TestSpeechNotTranscribed(unittest.TestCase):
             + words("charlie delta", 4.0)
         )
         answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
+        # Stray words 1.5-2.4; the 2.4-4.0 stretch after them is audible
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertAlmostEqual(found["at"]["seconds"], 2.4, places=2)
+
+    def test_a_gap_fully_covered_by_unmatched_words_is_unscripted_only(self):
+        chunks = (
+            words("alpha bravo", 0.0)
+            + words("zulu yankee xray whiskey", 0.9, step=0.5, length=0.5)
+            + words("charlie delta", 3.0)
+        )
+        answer = shot_run(self.TWO, chunks, mono=voiced(5.0))
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_audible_stretch_before_a_stray_word_is_a_finding(self):
+        # #964: a stray word late in the gap must not hide the stretch before it
+        chunks = (
+            words("alpha bravo", 0.0) + words("zulu", 4.0) + words("charlie delta", 6.0)
+        )
+        answer = shot_run(self.TWO, chunks, mono=voiced(8.0))
+        # the stretches on both sides of the stray word are findings
+        before, after = rules(answer, "speech_not_transcribed")
+        self.assertAlmostEqual(before["at"]["seconds"], 0.9, places=2)
+        self.assertAlmostEqual(before["at"]["end"], 4.0, places=2)
+        self.assertAlmostEqual(after["at"]["seconds"], 4.4, places=2)
 
 
 class TestSpeechInSilentShot(unittest.TestCase):
