@@ -1253,3 +1253,58 @@ def test_transcription_input_is_level_independent():
     assert float(numpy.abs(a).max()) <= 1.0
     silent = numpy.zeros((1, 100), dtype=numpy.float32)
     assert level_for_transcription(silent) == (silent, 1.0)
+
+
+class PerShotPassTest(unittest.TestCase):
+    """#963: a transcript_loop on a cut with known shots is re-transcribed per shot."""
+
+    def _run(self, whole, per_shot):
+        calls = []
+        slice_calls = iter(per_shot)
+
+        def fake(audio, **kwargs):
+            calls.append(len(audio[0]) / RATE)
+            if len(calls) == 1:
+                return {"text": "", "chunks": whole}
+            return {"text": "", "chunks": next(slice_calls)}
+
+        records = [
+            {"name": "shot@a", "start_sample": 0, "num_samples": 6 * RATE},
+            {"name": "shot@b", "start_sample": 6 * RATE, "num_samples": 6 * RATE},
+        ]
+        wave = voiced(12.0)[None, :]
+        with (
+            patch("dw.tasks.audio_transcription.transcribe_audio", fake),
+            patch.object(script_check, "waveform_and_rate", return_value=(wave, RATE)),
+            patch.object(
+                script_check, "resolve_shots", return_value=(records, "manifest")
+            ),
+        ):
+            answer = script_check.check_script(
+                "x.mp4",
+                [
+                    {"text": "the lid is gone", "shot": "a"},
+                    {"text": "i wore it", "shot": "b"},
+                ],
+            )
+        return answer, calls
+
+    def test_looped_cut_is_rechecked_shot_by_shot(self):
+        whole = words("the lid is gone", 1.0) + words(
+            " ".join(["the lid is gone"] * 8), 3.0, step=0.1, length=0.05
+        )
+        answer, calls = self._run(
+            whole, [words("the lid is gone", 1.0), words("i wore it", 1.0)]
+        )
+        self.assertEqual(calls, [12.0, 6.0, 6.0])
+        self.assertEqual(answer["transcription_pass"], "per_shot")
+        self.assertEqual([x["similarity"] for x in answer["lines"]], [1.0, 1.0])
+        self.assertEqual(answer["lines"][1]["start"], 7.0)
+        self.assertEqual(answer["lines"][1]["pass"], "per_shot")
+        self.assertNotIn("not_transcribed", answer["lines"][1])
+
+    def test_clean_cut_is_one_pass(self):
+        whole = words("the lid is gone", 1.0) + words("i wore it", 7.0)
+        answer, calls = self._run(whole, [])
+        self.assertEqual(len(calls), 1)
+        self.assertEqual(answer["transcription_pass"], "whole_cut")

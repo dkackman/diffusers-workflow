@@ -841,6 +841,27 @@ def _joined(words):
     return " ".join(texts)
 
 
+def per_shot_chunks(transcribe, waveform, rate, spans):
+    """Word chunks from transcribing each shot's span on its own, timestamps
+    moved back onto the take's clock. `transcribe(leveled, rate)` is
+    transcribe_audio's chunks for one slice; each is levelled alone."""
+    chunks = []
+    for span in spans:
+        lo, hi = int(round(span["start"] * rate)), int(round(span["end"] * rate))
+        if hi <= lo:
+            continue
+        piece, _gain = level_for_transcription(waveform[..., lo:hi])
+        for chunk in transcribe(piece, rate):
+            chunks.append(
+                dict(
+                    chunk,
+                    start=chunk["start"] + span["start"],
+                    end=chunk["end"] + span["start"],
+                )
+            )
+    return chunks
+
+
 def check_script(
     audio,
     lines,
@@ -938,15 +959,44 @@ def check_script(
 
             fps = (probe_metadata(path) or {}).get("fps")
         spans = shot_spans(records, rate, fps, len(mono) / rate if rate else 0.0)
+    chunks, whole = transcript["chunks"], True
+    script_words = {w for line in parsed_lines for w in normalize_words(line["text"])}
+    if spans and parsed_lines and _loop_findings(chunks, script_words):
+        # Whisper looped on the whole cut and never transcribed what follows
+        # (#961): the shots are known, so transcribe each on its own (#963)
+        emit_log("check_script: transcript_loop on the cut; transcribing per shot")
+        chunks, whole = (
+            per_shot_chunks(
+                lambda piece, sr: transcribe_audio(
+                    piece,
+                    device=device,
+                    sample_rate=sr,
+                    model_name=model_name,
+                    timestamps="word",
+                )["chunks"],
+                waveform,
+                rate,
+                spans,
+            ),
+            False,
+        )
     answer = check(
         parsed_lines,
-        transcript["chunks"],
+        chunks,
         mono,
         rate,
         float(similarity),
         spans=spans,
         shots_source=shots_source,
     )
+    answer["transcription_pass"] = "whole_cut" if whole else "per_shot"
+    if not whole:
+        answer["transcription_note"] = (
+            "the whole-cut transcript looped, so each shot was transcribed on"
+            " its own and 'lines' and 'findings' come from that pass"
+        )
+        for line in answer["lines"]:
+            line["pass"] = "per_shot"
     answer["transcript"] = transcript["text"]
     answer["model_name"] = model_name
     answer["thresholds"] = dict(THRESHOLDS, similarity=float(similarity))
