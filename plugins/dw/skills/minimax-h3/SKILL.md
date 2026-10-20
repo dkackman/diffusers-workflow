@@ -100,18 +100,9 @@ section).
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
 - Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
 - Backend: default `sparse` (dense off CUDA); same one at draft and final.
-- Fit a crowd's action to what it holds: candle-holders asked to clap
-  rendered three-handed people.
-- A directed crowd move needs its landmark in frame: "marches up to the
-  house" put it behind camera. Track from the side, landmark ahead.
-- Two people in frame can lip-sync the wrong one, seemingly by whichever
-  voice enters first: credit a shout to the crowd, spell the sung line in
-  `<d>` tags, frame the singer face-on at medium close-up.
-- State a crowd's age range; unstated skews young.
-- A three-reference shot can open on the portraits' backdrop
-  for ~1.5s (about 1 in 25): check a shot's first frames and say in
-  `subject_definitions` that the portrait's backdrop, pose and framing are
-  not reused.
+- A crowd, two people in frame, or a three-reference shot: read
+  `references/staging.md` before the prompt - who lip-syncs, where the
+  landmark is, and the portrait backdrop that can open a shot.
 - Ref2VA reaches 1344x768 too (trade-off: the `recipes` guide's MiniMax-H3
   section). There the 24 GB ceiling on the `17n+5` grid drops with each
   reference: 243 frames at one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses

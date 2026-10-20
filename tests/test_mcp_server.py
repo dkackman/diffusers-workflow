@@ -1554,156 +1554,26 @@ def test_the_stated_tool_count_is_the_registered_one():
 
 
 # Chars / 4, the way COMPACT_BUDGET in tests/test_catalog_structure.py is
-# measured. This is not a listing an agent chooses to read - it is resident
-# for the whole session before a single call, which is why it gets a ceiling
-# at all and why the catalog listing, read once, has had one since #101.
-# Measured 2026-09-19 at 13_225 before the list_prompts rewrite that landed
-# in the same plan (descriptions 9_013, input schemas 3_212, instructions
-# 999), and at 13_421 after it (9_138 / 3_283 / 1_000) - the three filter
-# parameters and the docstring that says what the library is for. Set at
-# 13_800, which is room for a tool or two and not room for a second
-# validate_workflow. Those figures were taken on Python 3.14, which dedents
-# docstrings at compile time; on 3.12 the same surface measured 14_574
-# (descriptions 10_281) until `tool()` began passing the cleandoc'd
-# docstring as the description, since then 13_474 (9_181 / 3_293 / 1_000)
-# on either interpreter. Measure on the interpreter CI runs, or on both.
-# Worth knowing before raising it: four tools are a quarter of the
-# descriptions (validate_workflow 774, wait_for_job 518, list_workflows 482,
-# list_gallery 445), and validate_workflow's `plan.basis` taxonomy and
-# wait_for_job's stall-diagnosis paragraph are both restated in
-# WORKFLOW_GUIDE's "The loop" - which an agent fetches on demand. The
-# question to ask first is whether the second copy has to be the resident one.
-# Measured 2026-09-20 at 14_017 (9_386 / 3_618 / 1_014) after
-# get_output_frames (#193, #210) - a `seams`/`boundaries`/`names` shape whose
-# 971-char input schema alone is most of what a "tool or two" bought. Paid
-# for, per the paragraph above, by actually cutting the two restated copies
-# rather than raising the ceiling: wait_for_job's stall-diagnosis paragraph
-# and validate_workflow's `plan.basis` taxonomy moved to WORKFLOW_GUIDE's
-# "The loop" (steps 4 and 5), leaving a pointer plus the pinned words other
-# tests still check for. Landed at 13_741 (9_110 / 3_618 / 1_014) - back
-# under the original ceiling with room to spare.
-# Measured 2026-09-20 at 13_784 (9_153 / 3_618 / 1_014) after
-# get_output_frames's docstring grew a sentence saying where `boundaries`
-# comes from before stage 2 (`shots` on the artifact) exists - the running
-# sum of `get_gallery_metadata`'s `frame_count` for each shot. 16 tokens of
-# headroom left; the next docstring change here should measure again rather
-# than assume it still fits.
-# Measured 2026-09-20 at 13_799.5 (9_144.5 / 3_641 / 1_014) after
-# get_output_frames gained `hear` (soundtrack around each `at` moment, one
-# AudioContent per tile that has one). Paid for by tightening two
-# sentences: `get_output_frames`'s "(seconds, or "frame:N")" lost its
-# comma, and `get_output_audio`'s "The text part reports the track's
-# length and, for an excerpt, exactly what was cut, so a slice is never
-# mistaken for the whole." shortened to "The text part says what was cut."
-# 0.5 tokens of headroom left; the next docstring change here should
-# measure again rather than assume it still fits.
-# Merging feat/193-evidence into develop combined this branch's tightened
-# get_output_audio/get_output_frames text with develop's own independent
-# `crop` addition to get_output_image - two branches each under budget on
-# their own pushed the merged surface to 13_937, since neither could see
-# the other's growth. Paid for by cutting get_output_image's redundant
-# "Images only: ..." cross-reference sentence (the other two tools already
-# say where images live), shortening get_output_image's and
-# get_output_audio's `workspace` sentence to the terse form
-# get_output_frames already used ("pins this call to another workspace"),
-# and trimming a few more words from get_output_image's crop/downscale
-# sentences. Measured 2026-09-20 at 13_796.2 (9_110.8 / 3_671.5 / 1_014.0)
-# post-merge. 3.8 tokens of headroom left; a merge that touches tool
-# docstrings on both sides needs to measure again, not just each side's
-# own pre-merge figure.
-# #279/#280/#282 grew get_gallery_metadata's docstring (the peak_dbfs
-# thresholds and a resolvable guide pointer) by ~92 tokens without
-# measuring, to 13_888. Paid for inside the same docstring: the workspace
-# sentence to the terse "pins this call" form, and the envelope and asset
-# paragraphs said in fewer words with every fact kept. Measured 2026-09-21
-# at 13_760.5 (9_075.0 / 3_671.5 / 1_014.0). 39.5 tokens of headroom left.
-# run_workflow's `wait_seconds` and delete_output's `job_id` (two schema
-# parameters, ~50 tokens, plus the sentences that explain them) first
-# measured at 14_097. Paid for inside the three docstrings they touch:
-# run_workflow's wait paragraph said once and tersely, its spelling /
-# arguments / workspace sentences shortened with every fact kept,
-# wait_for_job's cap paragraph and stall sentence said in fewer words
-# (the pinned phrases stay), delete_output's "leaves the workspace as you
-# found it" clause dropped. Measured 2026-09-21 at 13_796.75 (9_061.5 /
-# 3_721.25 / 1_014.0). 3.25 tokens of headroom left; measure again before
-# the next docstring change.
-# #303 gave get_output_frames a `crop` parameter (parity with
-# get_output_image, applied per sampled tile before the aggregate
-# shrink) - the schema growth alone first measured at 13_884. Paid for
-# across all three media docstrings: get_output_frames' selector and
-# boundaries sentences said in fewer words, get_output_image's crop/
-# downscale sentence tightened, and get_output_audio's intro and
-# envelope sentences shortened (still passing "WAV"/"own encoding").
-# Measured 2026-09-21 at 13_798.25 (9_032.5 / 3_751.75 / 1_014.0). 1.75
-# tokens of headroom left; measure again before the next docstring change.
-# The tester's #303 bounce (crop coordinates depended on max_dimension, and
-# a count-mode crop was checked against the assembled sheet rather than the
-# source frame) needed a docstring correction on top of that: get_output_
-# frames' and get_output_image's crop sentences now say "cut ... before the
-# downscale" without the old space-filling clause, which pushed descriptions
-# over budget first (13_820). Measured 2026-09-21 at 13_790.8 (9_025.0 /
-# 3_751.8 / 1_014.0). 9.2 tokens of headroom left.
-# Run versions added four sentences to list_gallery teaching `version` and
-# `run_id` - the handle for naming one of several runs that wrote the same
-# basename, which is the one thing the surface could not say before. Written
-# as tightly as it can be said and still 44 tokens over, so the budget takes
-# them deliberately rather than the sentence being cut to nothing. Measured
-# 2026-09-22 at 13_844.0 (9_078.0 / 3_752.0 / 1_014.0). 6 tokens of headroom.
-# Then list_gallery took `folder` and `version`, so "show me v5" is one call
-# rather than a scan of the listing. The docstring paid for its own new
-# sentence and then some (descriptions 9_078 -> 9_068, the `url` sentence
-# said in fewer words); the two schema entries (+49) are what the budget
-# takes, since no docstring can pay for a parameter's schema. Measured
-# 2026-09-22 at 13_883.0 (9_068.0 / 3_801.0 / 1_014.0). 7 tokens of headroom.
-# #376 moved model narrative out of the resident descriptions, each fact
-# still stated where an agent reads it on demand: get_output_audio's
-# transcription walkthrough to WORKFLOW_GUIDE's "The loop" step 6 (a pointer
-# stays), and the H3 frame-grid example (validate_workflow, list_workflows),
-# the family list (list_prompts) and get_job_events' silent-phase examples
-# dropped, every rule kept. Measured 2026-09-24 at 13_883.0 before (9_529.0 /
-# 3_845.75 / 508.25 - the instructions and descriptions split differently
-# from the entry above, the total agrees) and 13_670.5 after (9_316.5 /
-# 3_845.75 / 508.25). The ceiling stays: the 219.5 tokens of headroom are
-# reserved for #388 (`assess_output`), which raises it only by any remainder.
-# #388 spent it on the assess_output tool (description + schema). The design's
-# optional pointer in the instructions' loop did not fit the client's 2_048
-# character cap on instructions, so get_gallery_metadata's hint carries it.
-# Measured 2026-09-24 at 13_849.5 (9_395.0 / 3_946.25 / 508.25); the ceiling
-# stays, 40.5 of headroom.
-# 2026-10-03: the LoRA catalog added list_loras, save_lora and
-# recommend_loras - measured at 14_255.0 (9_398.5 / 4_345.75 / 510.75); the
-# ceiling moves to 14_265 with 10 of headroom.
-# 2026-10-07 (#682): get_job and list_jobs name a job's `device`, paid for by
-# trimming their own text - measured at 14_264.75; the ceiling stays.
-# 2026-10-11 (#828 stage A): get_server_info's one clause on `caches` (16
-# tokens) - measured 14_246.25 before and 14_262.25 after (9_281.75 /
-# 4_470.25 / 510.25). Text trimmed since 10-07 left room, so the ceiling
-# stays, 2.75 of headroom.
-# 2026-10-13 (#859, #853 stage A): copy_to_workspace (121.25 description +
-# 84.75 schema) - measured at 14_470.25 (9_276.25 / 4_683.75 / 510.25); the
-# ceiling moves to 14_471 with 0.75 of headroom.
-# 2026-10-13 (#859 bounce): set_note, documented since the notes feature but
-# never registered, is registered (66.75 description + 83.25 schema) -
-# measured at 14_620.25 (9_343 / 4_767 / 510.25); the ceiling moves to
-# 14_621 with 0.75 of headroom.
-# 2026-10-13 (#860, #853 stage B): copy_to_workspace takes assets (its
-# description names them; the schema gains the parameter, runs optional) -
-# measured at 14_699.5 (9_381 / 4_808 / 510.5); the ceiling moves to 14_700
-# with 0.5 of headroom.
-# 2026-10-13 (#885, #867 stage 1): get_job's description names a manifest
-# entry's `timing` and the guide section for it (+28.5 description) - measured
-# at 14_728 (9_409.5 / 4_808.25 / 510.25); the ceiling moves to 14_728 with
-# none to spare.
-# 2026-10-14 (#889, #871 stage A): compare_outputs (60.75 description +
-# 200.75 schema - `crop` is one box or one per name) - measured at 14_989.25
-# (9_470 / 5_009 / 510.25); the ceiling moves to 14_990 with 0.75 of headroom.
-# 2026-10-14 (#886, #867 stage 2): get_job_events' description names the
-# `cache_stats` kind (+15 description) - measured at 15_004.25 (9_485 /
-# 5_009 / 510.25); the ceiling moves to 15_005 with 0.75 of headroom.
-# 2026-10-15 (#922): get_gallery_metadata gains `include_workflow` and says an
-# image's `media` is its measured size (+46) - measured at 15_051.25; the
-# ceiling moves to 15_052 with 0.75 of headroom.
-SURFACE_BUDGET = 15_052
+# measured: the descriptions, input schemas and instructions a client can hold
+# resident for the whole session before a single call. A client that defers
+# tool schemas (Claude Code loads only the names until a tool is searched for)
+# pays far less than this, but not every client does, so the ceiling stays.
+#
+# A fixed ceiling with headroom, not a ratchet. Until 2026-10-19 it was raised
+# to each new measurement plus a token or less, so every docstring change paid
+# for itself by trimming another tool's sentences - about twenty rounds of it
+# (this file's history has each one) - and at least once the trim took the
+# pointer an agent needed (#574 re-broke #282). Measured 2026-10-19 at
+# 15_051.75 (65 tools); the ceiling is set at 16_000, about one large tool's
+# worth of room.
+#
+# What a description holds: what the tool does, when to use it, the pinned
+# words other tests check for, and a pointer to the guide section with the
+# rest - never a second copy of that section. Pointers are checked to resolve
+# in tests/test_guide_pointers.py. When this fails, move narrative to a guide
+# and leave a pointer before raising the ceiling; raise it in a step of the
+# same size when a new tool genuinely needs the room, and say why here.
+SURFACE_BUDGET = 16_000
 
 
 @pytest.mark.asyncio
