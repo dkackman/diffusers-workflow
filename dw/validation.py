@@ -656,7 +656,8 @@ WARNING_CHECKS = [
     # A step loading a pipeline the catalog declares a VRAM ceiling for, in a
     # workflow that declares none, projected past it - a warning, since this
     # workflow's offload/quantization may be leaner than the template's
-    # (#502)
+    # (#502); under it, a note when that offload/quantization differs from
+    # the one the estimate was calibrated on (#954)
     Check(
         "inherited_vram_warnings",
         # No index, nothing to inherit - and no expansion read for it

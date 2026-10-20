@@ -494,7 +494,12 @@ step (for a `for_each`, the heaviest member). It warns rather than
 refuses: your offload and quantization config may differ from the
 template's. Cut frames, size or references until it goes quiet, or declare
 your own `vram_estimate`, which always wins and is judged exactly as a
-template's. A pipeline the catalog declares no ceiling for gets no warning -
+template's. Under the ceiling it is not always silent: the template's
+estimate was calibrated on its own offload and quantization, so a workflow
+that sets either differently (no `offload` where the template sets
+`model`, say) gets one warning of kind `vram_config_differs` naming both
+settings and the projection - real usage may be higher. Over the ceiling the
+one `vram_projection_inherited` warning names that difference instead. A pipeline the catalog declares no ceiling for gets no warning -
 silence there is not a clearance - and H3's `t2va` and `ref2va` are
 different identities with different ceilings.
 

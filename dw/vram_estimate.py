@@ -515,6 +515,44 @@ def vram_estimate_errors(
     return errors
 
 
+def largest_projection(
+    definition,
+    arguments=None,
+    supplied=(),
+    device_type=None,
+    capacity_gb=None,
+    source_indices=None,
+    written=None,
+    capacity_label=None,
+    base_dir=None,
+    probe=None,
+):
+    """The largest step a declared vram_estimate projects, as
+    {path, gb, card} (`card` names the smallest card checked against), over
+    or under the ceiling alike; None when nothing is projected. The same
+    arguments as `vram_estimate_errors`, for a note on a projection that
+    passes."""
+    estimate = declared_estimate(definition)
+    if estimate is None:
+        return None
+    cost = definition.get("cost")
+    entries = _entries_for(
+        cost if isinstance(cost, list) else [], device_type, capacity_gb, capacity_label
+    )
+    cards = [e for e in entries if _as_number(e.get("vram_gb")) is not None]
+    projections = list(_projections(definition, estimate, arguments, base_dir, probe))
+    if not cards or not projections:
+        return None
+    index, step, _, _, _, projected = max(projections, key=lambda p: p[-1])
+    card = min(cards, key=lambda e: e["vram_gb"])
+    label = card.get("name") or card.get("device", "this device")
+    return {
+        "path": _where(estimate, index, step, supplied, source_indices, written),
+        "gb": projected,
+        "card": f"{card['vram_gb']} GB {label}",
+    }
+
+
 def required_vram_gb(
     definition, arguments=None, device_type=None, base_dir=None, probe=None
 ):
