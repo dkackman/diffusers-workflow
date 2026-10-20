@@ -736,7 +736,7 @@ def _between_lines_findings(
         if hi - lo < UNHEARD_MIN_SECONDS:
             continue
         where_line, where_shot = index, shot
-        holder = _majority_shot(spans, lo, hi)
+        holder = None if spans is None else overlapping_shot(spans, lo, hi)
         if holder is not None and holder != shot:
             where_shot = holder
             where_line = next(
@@ -745,16 +745,6 @@ def _between_lines_findings(
             )
         found.append(_untranscribed(mono, sample_rate, where_line, lo, hi, where_shot))
     return [f for f in found if f is not None]
-
-
-def _majority_shot(spans, start, end):
-    """The shot overlapping [start, end] the most, None when no shots are known."""
-    best, best_overlap = None, 0.0
-    for span in spans or ():
-        overlap = min(end, span["end"]) - max(start, span["start"])
-        if overlap > best_overlap:
-            best, best_overlap = span["name"], overlap
-    return best
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):
