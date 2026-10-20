@@ -390,6 +390,35 @@ def align(expected_lines, heard):
     return assigned, unassigned
 
 
+def _release_repeats(expected, heard, assigned, unassigned):
+    """Take a second copy of a line out of the words align gave it. Align
+    keeps a heard word inserted inside a line with that line, so a doubled
+    line ("Then wear socks. Wear socks.") would read as one line at a lower
+    similarity - above the mismatch threshold, so no finding. A run of two or
+    more extra words (one for a one-word line) that is the line, or a stretch
+    of it, goes back to `unassigned` so unscripted_speech sees it."""
+    for index, words in enumerate(expected):
+        own = assigned[index]
+        if len(own) <= len(words) or not words:
+            continue
+        heard_words = [heard[j]["word"] for j in own]
+        matcher = difflib.SequenceMatcher(None, words, heard_words, autojunk=False)
+        moved = set()
+        for op, _i1, _i2, j1, j2 in matcher.get_opcodes():
+            run = heard_words[j1:j2]
+            if (
+                op == "insert"
+                and len(run) >= min(2, len(words))
+                and (_contains(words, run) or _contains(run, words))
+            ):
+                moved.update(range(j1, j2))
+        if not moved:
+            continue
+        unassigned.extend((own[k], (index,)) for k in sorted(moved))
+        assigned[index] = [j for k, j in enumerate(own) if k not in moved]
+    unassigned.sort()
+
+
 def line_similarity(expected, heard):
     """How alike two word lists are, 0..1. Two empty lists are identical."""
     if not expected and not heard:
@@ -509,6 +538,7 @@ def check(
 
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
+    _release_repeats(expected, heard, assigned, unassigned)
     mismatch = mismatch_rule(similarity_threshold)
     by_name = {span["name"]: span for span in spans or ()}
 

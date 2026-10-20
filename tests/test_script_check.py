@@ -687,6 +687,31 @@ class TestUnscriptedSpeech(unittest.TestCase):
         self.assertEqual(found["at"]["shot"], "A")
         self.assertTrue(found["at"]["repeats_line"])
 
+    def test_a_doubled_line_inside_a_longer_cut_is_a_finding(self):
+        # align alone keeps the second copy inside the line (similarity 0.75)
+        chunks = (
+            words("hal kettle froze", 0.0)
+            + words("then wear socks", 6.3)
+            + words("wear socks", 9.1)
+            + words("the kettle is whistling hal", 11.0)
+        )
+        lines = [
+            {"text": "Hal, the kettle froze.", "shot": "A"},
+            {"text": "Then wear socks.", "shot": "B"},
+            {"text": "The kettle is whistling, Hal.", "shot": "C"},
+        ]
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 10.3},
+            {"name": "C", "start": 10.3, "end": 16.0},
+        ]
+        answer = shot_run(lines, chunks, mono=voiced(16.0), spans=spans)
+        self.assertEqual(answer["lines"][1]["similarity"], 1.0)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["at"]["shot"], "B")
+        self.assertTrue(found["at"]["repeats_line"])
+        self.assertEqual([w["text"] for w in answer["unmatched"]], ["wear", "socks"])
+
     def test_an_ad_lib_in_a_scripted_shot_is_not_a_repeat(self):
         chunks = words("alpha bravo", 0.0) + words("zulu yankee", 1.0)
         answer = shot_run([{"text": "alpha bravo", "shot": "A"}], chunks)
