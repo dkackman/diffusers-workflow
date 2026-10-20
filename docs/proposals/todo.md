@@ -329,6 +329,11 @@ remaining deferred fix is recorded in
   two-shot and lip-syncs the right singer; a last frame doesn't help. One
   `minimax-h3` skill line; no template, since `music-video` takes the
   recipe with arguments. Record: `complete/h3-keyframe-audio-complete.md`.
+- **A `stacked_vocals` warning from `separate_stems`** (#947, stage #955),
+  shipped 2026-10-19. A stereo check on the vocals stem names the spans
+  that hold layered voices (a Music 3 chorus). Record, including what was
+  deferred (the voice/pitch conversion task, structured spans, the check in
+  `attribute_voices`): `complete/stacked-vocals-warning-complete.md`.
 
 ## Declined
 
