@@ -2233,7 +2233,7 @@ score bed.
         "command": "separate_stems",
         "arguments": { "audio": "asset:song.mp3" }
     },
-    "result": { "content_type": "audio/wav", "file_name": "stems" }
+    "result": { "content_type": "audio/wav", "file_base_name": "stems" }
 },
 {
     "name": "lyrics",
@@ -2250,7 +2250,7 @@ score bed.
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
-The result saves one file per stem, `<file_name>-vocals`, `-drums`, `-bass`
+The result saves one file per stem, `<file_base_name>-vocals`, `-drums`, `-bass`
 and `-other`, and a later step reads one as `previous_result:<step>.vocals`.
 Stems are 44.1 kHz stereo, whatever the source was, and sum back to the mix.
 The model is fixed (`htdemucs`, run in fp32), its weights download on first
