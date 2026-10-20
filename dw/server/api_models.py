@@ -829,6 +829,7 @@ class GalleryMetadata(ApiModel):
     note: str = sometimes("The effective note: the file's own, else its run's.")
     run_note: str = sometimes("The note of the run that wrote the file.")
     note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
+    starred: bool = sometimes("True when the file is starred; absent otherwise.")
 
 
 class AssetLibraryRoot(ApiModel):

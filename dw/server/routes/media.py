@@ -89,7 +89,7 @@ from ..outputs import (
     resolve_output_file,
     run_directory,
     consumed_in,
-    listed_file_role,
+    output_annotations,
     run_inputs,
     strip_output_prefix,
     validated_run_split,
@@ -203,9 +203,18 @@ def gallery_metadata(
             consumed = relative.replace(os.sep, "/") in consumed_in(
                 request.app.state, ws
             )
-            role = listed_file_role(split[0], split[1], consumed)
+            annotated = output_annotations(split[0], split[1], consumed, {})
+            role = annotated["role"]
+            version = annotated["version"]
             inputs = run_inputs(split[0])
-            notes = _note_fields(read_notes(split[0]), split[1])
+            notes = {
+                key: annotated[key]
+                for key in ("note", "note_source", "starred")
+                if key in annotated
+            }
+            run_note = read_notes(split[0])["run"]
+            if run_note:
+                notes["run_note"] = run_note
     metadata = read_embedded_metadata(path)
     if metadata is not None and not include_workflow and "workflow" in metadata:
         metadata = {
@@ -267,14 +276,6 @@ def _image_media(path):
             }
     except (OSError, ValueError, SyntaxError):
         return None
-
-
-def _note_fields(notes, name):
-    """The metadata route's note keys for file `name` of a run, each only
-    when set."""
-    note, source = effective_note(notes, name)
-    fields = {"note": note, "note_source": source, "run_note": notes["run"]}
-    return {key: value for key, value in fields.items() if value}
 
 
 @router.get("/api/gallery/{name:path}/assess")

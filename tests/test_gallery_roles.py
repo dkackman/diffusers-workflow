@@ -410,6 +410,33 @@ def test_metadata_agrees_with_the_listing_for_an_older_run(
         assert meta["role"] == listed[label]
 
 
+def test_metadata_agrees_with_the_listing_on_a_starred_noted_demoted_file(
+    gallery_client, output_root, write_run
+):
+    # One owner (output_annotations) builds role, note, starred and version
+    # for both routes, so a file starred, noted and demoted by a later run
+    # reads the same from each
+    from dw.notes import set_file_note, set_file_starred
+
+    _shot_and_cut(output_root, write_run, f"output:shots/{SHOT_RUN}/final/shot.png")
+    run_dir = os.path.join(output_root, "shots", SHOT_RUN)
+    set_file_note(run_dir, "final/shot.png", "the keeper")
+    set_file_starred(run_dir, "final/shot.png", True)
+    listed = {
+        f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]
+    }["shot.png"]
+    meta = gallery_client.get(
+        f"/api/gallery/shots/{SHOT_RUN}/final/shot.png/metadata"
+    ).json()
+    assert listed["starred"] is True
+    assert listed["role"] == "intermediate"
+    assert listed["note"] == "the keeper"
+    for key in ("role", "note", "starred", "version"):
+        assert meta[key] == listed[key], key
+    assert meta["note_source"] == "file"
+    assert meta["version"] is not None
+
+
 def test_an_asset_kept_from_a_file_demotes_it(tmp_path, write_run):
     from fastapi.testclient import TestClient
 

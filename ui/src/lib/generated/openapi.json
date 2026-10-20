@@ -1516,6 +1516,11 @@
             "title": "Source",
             "type": "string"
           },
+          "starred": {
+            "description": "True when the file is starred; absent otherwise.",
+            "title": "Starred",
+            "type": "boolean"
+          },
           "version": {
             "anyOf": [
               {

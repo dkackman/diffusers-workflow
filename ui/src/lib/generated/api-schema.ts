@@ -2478,6 +2478,11 @@ export interface components {
              * @enum {string}
              */
             source: "output" | "asset";
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /** Version */
             version: number | null;
         };

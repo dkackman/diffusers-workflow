@@ -32,7 +32,7 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
-from ..notes import read_notes
+from ..notes import effective_note, read_notes, read_starred
 from ..roles import ROLE_DECLARED_KEY, consumed_outputs, entry_role, listed_role
 from ..runs import (
     MANIFEST_FILE_NAME,
@@ -555,6 +555,38 @@ def listed_file_role(run_dir, name, consumed):
         consumed,
         name,
     )
+
+
+def output_annotations(run_dir, file_name, consumed, cache):
+    """What the server says about one output file of a run: `role` (demoted
+    when `consumed`), `note` and `note_source` when it has a note, `starred`
+    when it is starred, and `version`, the run's ordinal among its workflow's
+    runs. The listing and the metadata route both describe a file through
+    this and build none of these themselves.
+
+    `cache` is a dict the caller keeps for one listing, so each run's notes,
+    stars and each workflow's versions are read once, not once per file."""
+    notes = cache.setdefault("notes", {})
+    if run_dir not in notes:
+        notes[run_dir] = read_notes(run_dir)
+    stars = cache.setdefault("starred", {})
+    if run_dir not in stars:
+        stars[run_dir] = read_starred(run_dir)
+    identity_dir = os.path.dirname(run_dir)
+    versions = cache.setdefault("versions", {})
+    if identity_dir not in versions:
+        versions[identity_dir] = run_versions(identity_dir)
+    fields = {
+        "role": listed_file_role(run_dir, file_name, consumed),
+        "version": versions[identity_dir].get(os.path.basename(run_dir)),
+    }
+    note, source = effective_note(notes[run_dir], file_name)
+    if note:
+        fields["note"] = note
+        fields["note_source"] = source
+    if file_name in stars[run_dir]:
+        fields["starred"] = True
+    return fields
 
 
 def consumed_in(state, ws):
