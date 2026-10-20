@@ -593,6 +593,7 @@ class TestShotPlacement(unittest.TestCase):
         answer = shot_run(
             [{"text": "alpha bravo", "shot": "A"}, {"text": "delta echo", "shot": "B"}],
             chunks,
+            mono=numpy.concatenate([voiced(0.9), silent(2.6), voiced(2.5)]),
         )
         self.assertEqual([x["shot"] for x in answer["lines"]], ["A", "B"])
         self.assertEqual(answer["findings"], [])
@@ -688,6 +689,41 @@ class TestSpeechNotTranscribed(unittest.TestCase):
     def test_a_short_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 1.5)
         answer = shot_run(self.LINES, chunks, mono=voiced(3.0))
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    TWO = [
+        {"text": "alpha bravo", "shot": "A"},
+        {"text": "charlie delta", "shot": "B"},
+    ]
+
+    def test_sound_between_two_lines_is_a_finding_on_the_next_line(self):
+        # #960: the untranscribed stretch sits outside both lines' spans
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["line"], 1)
+        self.assertEqual(found["at"]["shot"], "B")
+        self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
+        self.assertAlmostEqual(found["at"]["end"], 4.0, places=2)
+
+    def test_a_quiet_gap_between_lines_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(2.0)])
+        answer = shot_run(self.TWO, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_a_short_gap_between_lines_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 1.5)
+        answer = shot_run(self.TWO, chunks, mono=voiced(3.0))
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_a_gap_holding_unmatched_words_is_unscripted_speech_only(self):
+        chunks = (
+            words("alpha bravo", 0.0)
+            + words("zulu yankee", 1.5)
+            + words("charlie delta", 4.0)
+        )
+        answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
 

@@ -149,8 +149,8 @@ TAG_SPOKEN = _rule(
 SPEECH_NOT_TRANSCRIBED = _rule(
     "speech_not_transcribed",
     UNHEARD_FLOOR_DBFS,
-    "audible sound lasting this many seconds sits between the line's words, or"
-    " inside one stretched word, with no word for it - the transcript left speech"
+    "audible sound lasting this many seconds sits between the line's words, between"
+    " two lines, or inside one stretched word, with no word for it - the transcript left speech"
     " out and the line's timing absorbed it; listen",
 )
 SPEECH_WHERE_SILENT = _rule(
@@ -477,7 +477,9 @@ def check(
     # another shot claimed (one straddling the cut) is that line's speech,
     # not speech in a silent shot
     claimed = {}
+    strays = [heard[j] for j, _ in unassigned]
     previous_end = 0.0
+    heard_end = None  # end of the last word any earlier line was heard to say
     for index, (line, words, indices) in enumerate(
         zip(parsed_lines, expected, assigned)
     ):
@@ -526,6 +528,13 @@ def check(
                 )
 
         if own:
+            if heard_end is not None:
+                findings.extend(
+                    _between_lines_findings(
+                        mono, sample_rate, index, heard_end, start, shot, strays
+                    )
+                )
+            heard_end = max(heard_end or 0.0, end)
             tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
             findings.extend(
                 _clipped_findings(mono, sample_rate, tails, index, own, shot)
@@ -602,8 +611,8 @@ def _silent_take(heard, discarded, spans, shots_source):
 def _untranscribed_findings(mono, sample_rate, index, own, shot):
     """speech_not_transcribed: audible sound in a gap the line's words leave
     - between two of them - or inside one word stretched over
-    UNHEARD_MIN_SECONDS (#923). Not the gap before a line's first word: a pause
-    between shots may hold music or ambience above the floor."""
+    UNHEARD_MIN_SECONDS (#923). The gap before a line's first word is
+    _between_lines_findings'."""
     intervals = [(a["end"], b["start"]) for a, b in zip(own, own[1:])]
     findings = []
     for start, end in intervals:
@@ -621,6 +630,19 @@ def _untranscribed_findings(mono, sample_rate, index, own, shot):
                 )
             )
     return [found for found in findings if found is not None]
+
+
+def _between_lines_findings(mono, sample_rate, index, start, end, shot, strays):
+    """speech_not_transcribed for the stretch between one line's last word and
+    the next line's first (#960): audible sound with no word, which the
+    in-line check cannot see when the timing leaves it outside both lines. A
+    gap holding heard-but-unmatched words is unscripted_speech's."""
+    if end - start < UNHEARD_MIN_SECONDS:
+        return []
+    if any(word["start"] < end and word["end"] > start for word in strays):
+        return []
+    found = _untranscribed(mono, sample_rate, index, start, end, shot)
+    return [found] if found is not None else []
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):
