@@ -837,6 +837,28 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         self.assertEqual((before["at"]["shot"], before["at"]["line"]), ("A", 0))
         self.assertEqual((after["at"]["shot"], after["at"]["line"]), ("B", 1))
 
+    def test_only_the_audible_part_of_a_gap_sizes_and_places_the_finding(self):
+        # #967: the gap 0.9-5.0 is mostly silence in shot B; the audible 0.9-2.2
+        # sits in A and is all the finding counts
+        spans = [
+            {"name": "A", "start": 0.0, "end": 2.0},
+            {"name": "B", "start": 2.0, "end": 6.0},
+        ]
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)
+        mono = numpy.concatenate([voiced(2.2), silent(2.8), voiced(1.0)])
+        answer = shot_run(self.TWO, chunks, mono=mono, spans=spans)
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual((found["at"]["shot"], found["at"]["line"]), ("A", 0))
+        self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
+        self.assertLess(found["at"]["end"], 2.5)
+        self.assertLess(found["value"], 1.6)
+
+    def test_under_a_second_of_audible_sound_in_a_long_gap_is_not(self):
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)
+        mono = numpy.concatenate([voiced(1.5), silent(3.5), voiced(1.0)])
+        answer = shot_run(self.TWO, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
 
 class TestSpeechInSilentShot(unittest.TestCase):
     LINES = [{"text": "alpha bravo", "shot": "A"}]

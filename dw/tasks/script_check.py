@@ -767,6 +767,10 @@ def _between_lines_findings(
     for lo, hi in stretches:
         if hi - lo < UNHEARD_MIN_SECONDS:
             continue
+        audible = _audible_extent(mono, sample_rate, lo, hi)
+        if audible is None:
+            continue
+        lo, hi = audible
         where_line, where_shot = index, shot
         holder = None if spans is None else overlapping_shot(spans, lo, hi)
         if holder is not None and holder != shot:
@@ -777,6 +781,33 @@ def _between_lines_findings(
             )
         found.append(_untranscribed(mono, sample_rate, where_line, lo, hi, where_shot))
     return [f for f in found if f is not None]
+
+
+def _audible_extent(mono, sample_rate, start, end):
+    """The span of the stretch [start, end] from its first to its last window
+    above UNHEARD_FLOOR_DBFS, or None when that is shorter than
+    UNHEARD_MIN_SECONDS (#967): sub-floor time at either edge is not "audible
+    sound", and must not size or place the finding. An edge that is itself
+    audible stays the stretch's own edge."""
+    inner_start, inner_end = (
+        start + UNHEARD_MARGIN_SECONDS,
+        end - UNHEARD_MARGIN_SECONDS,
+    )
+    first = last = None
+    cursor = inner_start
+    while cursor < inner_end:
+        stop = min(cursor + GUARD_WINDOW_SECONDS, inner_end)
+        level = word_level(mono, sample_rate, cursor, stop)
+        if level is not None and level > UNHEARD_FLOOR_DBFS:
+            if first is None:
+                first = cursor
+            last = stop
+        cursor = stop
+    if first is None:
+        return None
+    first = start if first <= inner_start else first
+    last = end if last >= inner_end else last
+    return (first, last) if last - first >= UNHEARD_MIN_SECONDS else None
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):
