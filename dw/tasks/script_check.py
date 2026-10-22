@@ -275,7 +275,9 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
     `heard` is [{word, text, start, end}], one per normalized word - a chunk
     that normalizes to nothing ('♪', '...') is neither; `discarded` is
     [{text, start, end, level_dbfs, reason, count}] for a chunk at or below
-    the floor ("below_floor") or a repetition loop ("repetition": one entry
+    the floor ("below_floor"), a chunk repeating the previous one's exact span
+    ("repeated_span": words cannot share a span, #971) or a repetition loop
+    ("repetition": one entry
     per run of consecutive looped chunks, `count` chunks, `text` the first's,
     `start`/`end` the run's span).
 
@@ -297,19 +299,31 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
     for index, (chunk, words) in enumerate(spoken):
         start, end = chunk["start"], chunk["end"]
         level = word_level(mono, sample_rate, start, end)
+        before = spoken[index - 1] if index else None
+        previous_span = (
+            None
+            if before is None
+            else (before[0]["start"], before[0]["end"], before[1])
+        )
         first_of_line = (
             index in firsts
             and script_words is not None
             and set(words) <= script_words
             and end > start
         )
-        if index in looped and not first_of_line:
+        if (start, end, words) == previous_span:
+            reason = "repeated_span"
+        elif index in looped and not first_of_line:
             reason = "repetition"
         elif level is None or level <= GUARD_FLOOR_DBFS:
             reason = "below_floor"
         else:
             reason = None
-        if reason == "repetition" and run_end == index - 1:
+        if (
+            reason in ("repetition", "repeated_span")
+            and run_end == index - 1
+            and discarded[-1]["reason"] == reason
+        ):
             # A loop is one entry: its span, its chunk count, its loudest level
             last = discarded[-1]
             last["end"] = _round(max(last["end"], end))
@@ -331,7 +345,7 @@ def guard_words(chunks, mono, sample_rate, script_words=None):
                     "count": 1,
                 }
             )
-            run_end = index if reason == "repetition" else None
+            run_end = index if reason in ("repetition", "repeated_span") else None
             continue
         run_end = None
         for word in words:
@@ -618,6 +632,8 @@ def check(
                         parsed_lines,
                     )
                 )
+            if heard_end is None or end >= heard_end:
+                last_line, last_shot = index, shot
             heard_end = max(heard_end or 0.0, end)
             tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
             findings.extend(
@@ -627,6 +643,24 @@ def check(
                 _untranscribed_findings(mono, sample_rate, index, own, shot)
             )
             previous_end = end
+
+    if heard_end is not None:
+        # The stretch after the last line heard, to the end of the take: the
+        # same rule as between two lines, so a shot checked alone agrees with
+        # the cut (#970)
+        findings.extend(
+            _between_lines_findings(
+                mono,
+                sample_rate,
+                last_line,
+                heard_end,
+                duration,
+                last_shot,
+                strays,
+                spans,
+                parsed_lines,
+            )
+        )
 
     findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
 

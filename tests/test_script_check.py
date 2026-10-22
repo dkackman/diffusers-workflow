@@ -64,7 +64,7 @@ def words(text, start=0.0, step=0.5, length=0.4):
 def run(lines, chunks, mono=None, similarity=0.85, spans=None, shots_source="none"):
     if mono is None:
         end = max((c["end"] for c in chunks), default=1.0)
-        mono = voiced(end + 1.0)
+        mono = voiced(end + 0.5)
     return check(
         parse_lines(lines),
         chunks,
@@ -586,7 +586,7 @@ class TestCheckScriptTask(unittest.TestCase):
             "text": " hello there",
             "chunks": words("hello there"),
         }
-        waveform = voiced(2.0)[numpy.newaxis, :]
+        waveform = voiced(1.4)[numpy.newaxis, :]
         with patch(
             "dw.tasks.audio_transcription.transcribe_audio", return_value=canned
         ) as transcribe:
@@ -620,8 +620,6 @@ SHOTS = [
 
 
 def shot_run(lines, chunks, mono=None, spans=SHOTS, source="argument"):
-    if mono is None:
-        mono = voiced(6.0)
     return run(lines, chunks, mono, spans=spans, shots_source=source)
 
 
@@ -635,7 +633,7 @@ class TestShotPlacement(unittest.TestCase):
         answer = shot_run(
             [{"text": "alpha bravo", "shot": "A"}, {"text": "delta echo", "shot": "B"}],
             chunks,
-            mono=numpy.concatenate([voiced(0.9), silent(2.6), voiced(2.5)]),
+            mono=numpy.concatenate([voiced(0.9), silent(2.6), voiced(1.0)]),
         )
         self.assertEqual([x["shot"] for x in answer["lines"]], ["A", "B"])
         self.assertEqual(answer["findings"], [])
@@ -746,7 +744,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
     def test_sound_in_a_gap_between_a_lines_words_is_a_finding(self):
         # The ASR dropped an ad-lib between "bravo" and "charlie"
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
-        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        answer = shot_run(self.LINES, chunks, mono=voiced(5.0))
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertEqual(found["at"]["line"], 0)
         self.assertEqual(found["at"]["shot"], "A")
@@ -760,13 +758,13 @@ class TestSpeechNotTranscribed(unittest.TestCase):
             {"start": 3.0, "end": 3.4, "text": " charlie"},
             {"start": 3.5, "end": 3.9, "text": " delta"},
         ]
-        answer = shot_run(self.LINES, chunks, mono=voiced(6.0))
+        answer = shot_run(self.LINES, chunks, mono=voiced(4.0))
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertEqual(found["at"]["seconds"], 0.5)
 
     def test_a_quiet_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
-        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(2.0)])
+        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(1.0)])
         answer = shot_run(self.LINES, chunks, mono=mono)
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
@@ -784,7 +782,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         # #960: the untranscribed stretch sits outside both lines' spans;
         # #964: it is placed in the shot holding most of it (A), not the next line's
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
-        answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
+        answer = shot_run(self.TWO, chunks, mono=voiced(5.0))
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertEqual(found["at"]["line"], 0)
         self.assertEqual(found["at"]["shot"], "A")
@@ -793,7 +791,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
 
     def test_a_quiet_gap_between_lines_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
-        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(2.0)])
+        mono = numpy.concatenate([voiced(0.9), silent(3.1), voiced(1.0)])
         answer = shot_run(self.TWO, chunks, mono=mono)
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
@@ -808,7 +806,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
             + words("zulu yankee", 1.5)
             + words("charlie delta", 4.0)
         )
-        answer = shot_run(self.TWO, chunks, mono=voiced(6.0))
+        answer = shot_run(self.TWO, chunks, mono=voiced(5.0))
         # Stray words 1.5-2.4; the 2.4-4.0 stretch after them is audible
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertAlmostEqual(found["at"]["seconds"], 2.4, places=2)
@@ -819,7 +817,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
             + words("zulu yankee xray whiskey", 0.9, step=0.5, length=0.5)
             + words("charlie delta", 3.0)
         )
-        answer = shot_run(self.TWO, chunks, mono=voiced(5.0))
+        answer = shot_run(self.TWO, chunks, mono=voiced(4.0))
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
     def test_audible_stretch_before_a_stray_word_is_a_finding(self):
@@ -827,7 +825,7 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         chunks = (
             words("alpha bravo", 0.0) + words("zulu", 4.0) + words("charlie delta", 6.0)
         )
-        answer = shot_run(self.TWO, chunks, mono=voiced(8.0))
+        answer = shot_run(self.TWO, chunks, mono=voiced(7.0))
         # the stretches on both sides of the stray word are findings
         before, after = rules(answer, "speech_not_transcribed")
         self.assertAlmostEqual(before["at"]["seconds"], 0.9, places=2)
@@ -858,6 +856,36 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         mono = numpy.concatenate([voiced(1.5), silent(3.5), voiced(1.0)])
         answer = shot_run(self.TWO, chunks, mono=mono)
         self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+
+class TestTailAndRepeatedSpan(unittest.TestCase):
+    LINES = [{"text": "alpha bravo", "shot": "A"}]
+
+    def test_audible_tail_after_the_last_word_is_a_finding(self):
+        # #970: ~1.2 s of sound past the last word, then silence
+        chunks = words("alpha bravo", 0.0)
+        mono = numpy.concatenate([voiced(2.2), silent(2.8)])
+        answer = run(self.LINES, chunks, mono)
+        (found,) = rules(answer, "speech_not_transcribed")
+        self.assertEqual(found["at"]["line"], 0)
+        self.assertLess(found["value"], 1.6)
+
+    def test_quiet_tail_after_the_last_word_is_not(self):
+        chunks = words("alpha bravo", 0.0)
+        mono = numpy.concatenate([voiced(1.0), silent(4.0)])
+        answer = run(self.LINES, chunks, mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
+
+    def test_chunks_sharing_one_span_are_heard_once(self):
+        # #971: three words cannot share one span
+        chunks = words("alpha bravo", 0.0) + [
+            {"start": 3.0, "end": 3.6, "text": " How?"} for _ in range(3)
+        ]
+        mono = voiced(4.0)
+        answer = run(self.LINES, chunks, mono)
+        self.assertEqual(len(answer["unmatched"]), 1)
+        (dup,) = [d for d in answer["discarded"] if d["reason"] == "repeated_span"]
+        self.assertEqual(dup["count"], 2)
 
 
 class TestSpeechInSilentShot(unittest.TestCase):
