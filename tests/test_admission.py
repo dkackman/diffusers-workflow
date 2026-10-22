@@ -450,6 +450,42 @@ def test_admission_checks_content_type_against_the_callers_arguments(root):
     assert not admitted({}).ok
 
 
+def test_an_unknown_argument_does_not_make_a_given_one_read_as_null(root):
+    """A bad argument leaves the others unfolded, so the document check read
+    `audio` as null though the caller passed it (#972). The refusal names the
+    unknown argument instead."""
+    definition = {
+        "id": "se-972",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    admission = admit(
+        workflow_path=None,
+        workflow=definition,
+        arguments={"audio": "asset:x.wav", "bogus": 1},
+        base_dir=None,
+        workspace=root,
+        ceiling_index={},
+        output_dir=root.outputs,
+        workflow_dir=root.workflows,
+        asset_library=library_path("assets", root),
+        prompt_library=library_path("prompts", root),
+    )
+    assert not admission.ok
+    messages = " ".join(e["message"] for e in admission.errors)
+    assert "bogus" in messages
+    assert "which is null" not in messages
+
+
 def _a_crashing_select_check(monkeypatch):
     def boom(_context):
         raise RuntimeError("check exploded")

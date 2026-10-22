@@ -189,6 +189,17 @@ def admit(
                 capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
+            if admission.errors and supplied:
+                # A bad argument leaves every argument unfolded, so the
+                # document check reads each null-defaulted variable as null
+                # even where the caller supplied it (#972) - a finding about
+                # the arguments, not the document. Say the argument error
+                # instead of sending the caller to fix a correct one
+                bad = argument_errors(candidate.workflow_definition, arguments)
+                if bad:
+                    admission.errors = [
+                        e for e in admission.errors if "variable" not in e
+                    ] + bad
         except Exception as e:
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
