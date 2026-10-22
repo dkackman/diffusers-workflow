@@ -2529,8 +2529,8 @@ Pass through arguments directly. Useful for organizing data flow.
 
 ## Videos in image tasks
 
-Every image command - the upscalers, face restoration, segmentation and the
-image processors - takes a video where it takes an image: an `AudioVideo` from
+Every image command - the upscalers, face restoration, segmentation, object
+removal and the image processors - takes a video where it takes an image: an `AudioVideo` from
 a generation, `concat_videos` or `dissolve_videos` step, or a frame array from
 `video_frames`. The command runs over the frames one at a time and returns one
 video artifact, its soundtrack carried through untouched, so a generated clip
@@ -2735,6 +2735,46 @@ Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, b
 
 - [segment.json](../workflows/templates/segment.json) — Segment an object from an image
 - [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then inpaint the masked region
+
+## Object Removal
+
+Erase what a mask covers and fill the hole from the surrounding texture, with no prompt (#956). `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.
+
+```json
+{
+    "task": {
+        "command": "remove_object",
+        "arguments": {
+            "image": "asset:photo.png",
+            "mask_image": "previous_result:mask",
+            "dilate": 8
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
+| `mask_image` | Yes | White where to erase, black where to keep |
+| `dilate` | No | Pixels to grow the mask by before the fill, a whole number 0 or above (default: 8) |
+| `model_name` | No | Hugging Face repo id of the weights, never a local path (default: `michaelgold/big-lama`, at a pinned revision) |
+| `weight_name` | No | The `.safetensors` file in that repo (default: `big-lama.safetensors`) |
+
+**The mask.** White means fill, the polarity [`segment`](#object-segmentation) returns, so `segment` → `remove_object` chains with no `invert`. The mask is converted to grayscale and binarized at 128 (at or above is fill). A mask of a different size from the image is resized to it (nearest). An all-black mask, as `segment` returns when it finds nothing, gives the image back unchanged with a warning in the job's events, and loads no model.
+
+**`dilate`.** LaMa fills cleanly only when the mask overshoots the object's edge, and a `segment` mask is tight to it. The default 8 px suits a segmented object. Raise it (16 to 24) for a soft edge, a shadow or a glow around the object. Use 0 only for a hand-drawn mask that already has a margin.
+
+**The output** is the input's size. Only the region inside the dilated mask comes from the model: every pixel outside it is the input's own, unchanged.
+
+**Video.** Frames (e.g. from `video_frames`) are cleaned one at a time with the same still mask, and come back at the same count and fps, with the audio kept. There is no temporal model, so a fill can flicker from frame to frame, and the mask cannot follow a moving object.
+
+**Limits.** LaMa suits small to medium objects: a cup, a sign, a watermark, a passer-by in the distance. A large region, such as a person filling a third of the frame, comes back smeared. For that, a prompted inpainter whose prompt names the background is the remaining route, and it may paint a patch that does not match (#946).
+
+**Weights.** `michaelgold/big-lama`, file `big-lama.safetensors` (about 200 MB), read at revision `98ab7cface89a594b381f32fc7a9f2cae3f91ccc`. `biali/big-lama` holds a byte-identical copy and is the fallback if that repo disappears; it is not tried automatically. LaMa is by advimman (Suvorov et al., *Resolution-robust Large Mask Inpainting with Fourier Convolutions*) and is licensed **Apache-2.0**. The Hub repo's card says MIT, but the upstream licence is the one that applies. The task reads safetensors only: `validate_workflow` refuses a `weight_name` that is not `.safetensors` (the common `big-lama.pt` is a TorchScript file) and a `model_name` that is a local path, and the loader refuses both again at run time. Weights that do not load as an inpainting model are refused too. The network runs in fp32 on every device.
+
+**First run.** The weights download on the first run, about 200 MB. `validate_workflow`'s `plan.downloads_required` does not list task weights yet, so nothing warns of the download beforehand.
 
 ## Image Captioning
 
