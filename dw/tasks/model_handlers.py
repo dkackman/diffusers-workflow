@@ -17,7 +17,7 @@ import logging
 
 from .image_ops import per_frame
 from .registry import register_command
-from ..task_domains import POSITIVE, UNIT
+from ..task_domains import NON_NEGATIVE, POSITIVE, UNIT
 from ..task_problems import script_lines_errors
 
 logger = logging.getLogger("dw")
@@ -146,6 +146,63 @@ def _handle_segment(task, arguments, previous_pipelines):
     device = task.device_for(arguments)
     return per_frame(
         image, lambda frame: segment_image(frame, prompt, device=device, **arguments)
+    )
+
+
+@register_command(
+    "remove_object",
+    implementation="dw.tasks.remove_object.remove_object",
+    consumes_device=True,
+    summary=(
+        "Erase what a mask covers and fill the hole from the surrounding "
+        "texture, with no prompt (LaMa). Suits small to medium objects; an "
+        "image or video frames, one still mask applied to every frame."
+    ),
+    parameter_descriptions={
+        "image": (
+            "The image to clean, or video frames (e.g. from video_frames): the "
+            "one mask applies to every frame, and fps and audio are kept."
+        ),
+        "mask_image": (
+            "White where to erase, black where to keep - segment's polarity, "
+            "so its mask chains with no invert. Binarized at 128 and resized "
+            "to the image if it differs. An all-black mask returns the image "
+            "unchanged, with a warning."
+        ),
+        "dilate": (
+            "Pixels to grow the mask by before the fill, a whole number 0 or "
+            "above (default 8). LaMa fills cleanly only past the object's "
+            "edge; raise it for a soft or tight mask."
+        ),
+        "model_name": (
+            "Hugging Face repo id holding the LaMa weights, never a path "
+            "(default michaelgold/big-lama, read at a pinned revision)."
+        ),
+        "weight_name": (
+            "The safetensors file within model_name, a bare file name "
+            "(default big-lama.safetensors); a .pt/.ckpt is refused."
+        ),
+    },
+    domains={"dilate": NON_NEGATIVE},
+    whole_numbers=("dilate",),
+)
+def _handle_remove_object(task, arguments, previous_pipelines):
+    """Erase a masked region and fill it from the surroundings"""
+    logger.debug("Removing object")
+    image = arguments.pop("image")
+    mask_image = arguments.pop("mask_image")
+    from ..events import emit_warning
+    from .remove_object import EMPTY_MASK_WARNING, mask_is_empty, remove_object
+
+    if mask_is_empty(mask_image):
+        # Checked once here, so a video warns once rather than per frame
+        emit_warning(EMPTY_MASK_WARNING)
+        return per_frame(image, lambda frame: frame)
+
+    device = task.device_for(arguments)
+    return per_frame(
+        image,
+        lambda frame: remove_object(frame, mask_image, device=device, **arguments),
     )
 
 

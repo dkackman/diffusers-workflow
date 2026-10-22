@@ -566,7 +566,7 @@ WEIGHT_NAME_KEY = "weight_name"
 # named bare (no subfolder: the task knows its default repo's layout). A
 # pickle format is refused by name rather than left to fail in the loader:
 # the refusal is the documented contract, not an accident of which loader runs
-SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents",)
+SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents", "remove_object")
 SAFETENSORS_SUFFIX = ".safetensors"
 
 
