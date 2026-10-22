@@ -21,7 +21,7 @@ from dw.server.admission import admit
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.server.job_record import TERMINAL_STATES
-from dw.workflow import Workflow
+from dw.workflow import Workflow, workflow_from_definition
 from dw.workspace import Workspace
 
 from .test_prepare_pipeline import DEFINITION as prepare_definition
@@ -484,6 +484,30 @@ def test_an_unknown_argument_does_not_make_a_given_one_read_as_null(root):
     messages = " ".join(e["message"] for e in admission.errors)
     assert "bogus" in messages
     assert "which is null" not in messages
+
+
+def test_validation_errors_do_not_read_a_supplied_variable_as_null_beside_a_bad_argument():
+    """The owner of the rule is validation_errors itself (#972): any caller,
+    not only admit(), gets no null finding for a name it supplied."""
+    definition = {
+        "id": "ve-972",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    workflow = workflow_from_definition(definition, "/tmp", None, None)
+    bad = workflow.validation_errors(arguments={"audio": "a.wav", "bogus": 1})
+    assert not any("variable" in e for e in bad)
+    left_null = workflow.validation_errors(arguments={"bogus": 1})
+    assert any(e.get("variable") == "audio" for e in left_null)
 
 
 def _a_crashing_select_check(monkeypatch):

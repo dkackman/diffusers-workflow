@@ -302,6 +302,15 @@ def _task_errors(context):
     )
     if context.arguments is None:
         errors = [e for e in errors if "variable" not in e]
+    elif argument_errors(context.definition, context.arguments):
+        # A bad argument leaves every argument unfolded, so a variable the
+        # caller did supply still reads as null here (#972). The argument
+        # error is the one to say; drop the finding for a supplied name
+        errors = [
+            e
+            for e in errors
+            if "variable" not in e or e["variable"] not in context.supplied
+        ]
     return errors
 
 
