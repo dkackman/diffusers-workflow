@@ -4,8 +4,15 @@ from torchvision import transforms
 from transformers import AutoModelForImageSegmentation
 
 from .model_cache import cached_model
+from .weights import repo_entries
 
 _MODEL_NAME = "briaai/RMBG-2.0"
+
+
+def required_weights(arguments):
+    """The one fixed repo remove_background loads, for the plan
+    (dw/tasks/weights.py) - it takes no model argument."""
+    return repo_entries(_MODEL_NAME)
 
 
 def remove_background(image: Image, device) -> Image:

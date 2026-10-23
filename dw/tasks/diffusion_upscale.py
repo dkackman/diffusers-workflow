@@ -14,6 +14,7 @@ import torch
 import diffusers
 from .. import preferred_task_dtype
 from .model_cache import cached_model
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -27,6 +28,21 @@ _MODELS = {
         "model_name": "stabilityai/sd-x2-latent-upscaler",
     },
 }
+
+
+def model_source(arguments):
+    """The repo a diffusion_upscale step loads - `model_name` over the
+    selected mode's default - or None for a mode that is not one of _MODELS
+    (refused when the step runs)."""
+    config = _MODELS.get(argument_or_default(arguments, "mode", "x4"))
+    if config is None:
+        return None
+    return argument_or_default(arguments, "model_name", config["model_name"])
+
+
+def required_weights(arguments):
+    """The upscale pipeline's repo, for the plan (dw/tasks/weights.py)."""
+    return repo_entries(model_source(arguments))
 
 
 def diffusion_upscale(image, device="cpu", **kwargs):
@@ -47,12 +63,12 @@ def diffusion_upscale(image, device="cpu", **kwargs):
     Returns:
         PIL Image (upscaled).
     """
-    mode = kwargs.get("mode", "x4")
+    mode = argument_or_default(kwargs, "mode", "x4")
     if mode not in _MODELS:
         raise ValueError(f"mode must be one of {sorted(_MODELS.keys())}, got '{mode}'")
 
     config = _MODELS[mode]
-    model_name = kwargs.get("model_name", config["model_name"])
+    model_name = model_source(kwargs)
     prompt = kwargs.get("prompt", "")
     negative_prompt = kwargs.get("negative_prompt", None)
     num_inference_steps = int(kwargs.get("num_inference_steps", 25))

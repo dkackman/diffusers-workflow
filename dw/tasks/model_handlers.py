@@ -33,6 +33,7 @@ def _voices_argument_errors(arguments):
 @register_command(
     "attribute_voices",
     implementation="dw.tasks.voice_attribution.attribute_voices",
+    required_weights="dw.tasks.voice_attribution.required_weights",
     consumes_device=True,
     returns="json",
     domains={"window_seconds": POSITIVE, "min_reference_seconds": POSITIVE},
@@ -48,6 +49,7 @@ def _handle_attribute_voices(task, arguments, previous_pipelines):
 @register_command(
     "check_script",
     implementation="dw.tasks.script_check.check_script",
+    required_weights="dw.tasks.audio_transcription.required_weights",
     consumes_device=True,
     returns="json",
     domains={"similarity": UNIT},
@@ -92,6 +94,7 @@ def _handle_upscale(task, arguments, previous_pipelines):
 @register_command(
     "diffusion_upscale",
     implementation="dw.tasks.diffusion_upscale.diffusion_upscale",
+    required_weights="dw.tasks.diffusion_upscale.required_weights",
     consumes_device=True,
 )
 def _handle_diffusion_upscale(task, arguments, previous_pipelines):
@@ -134,7 +137,10 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
+    "segment",
+    implementation="dw.tasks.segment.segment_image",
+    required_weights="dw.tasks.segment.required_weights",
+    consumes_device=True,
 )
 def _handle_segment(task, arguments, previous_pipelines):
     """Segment objects in an image using text prompt"""
@@ -298,6 +304,7 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
 @register_command(
     "image_to_text",
     implementation="dw.tasks.image_to_text.image_to_text",
+    required_weights="dw.tasks.image_to_text.required_weights",
     consumes_device=True,
 )
 def _handle_image_to_text(task, arguments, previous_pipelines):
@@ -312,6 +319,7 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
 @register_command(
     "judge",
     implementation="dw.tasks.judge.judge",
+    required_weights="dw.tasks.judge.required_weights",
     consumes_device=True,
     returns="scalar",
 )
@@ -327,6 +335,7 @@ def _handle_judge(task, arguments, previous_pipelines):
 @register_command(
     "transcribe_audio",
     implementation="dw.tasks.audio_transcription.transcribe_audio",
+    required_weights="dw.tasks.audio_transcription.required_weights",
     consumes_device=True,
 )
 def _handle_transcribe_audio(task, arguments, previous_pipelines):
@@ -341,6 +350,7 @@ def _handle_transcribe_audio(task, arguments, previous_pipelines):
 @register_command(
     "text_generation",
     implementation="dw.tasks.text_generation.generate_text",
+    required_weights="dw.tasks.text_generation.required_weights",
     consumes_device=True,
 )
 def _handle_text_generation(task, arguments, previous_pipelines):
@@ -355,6 +365,7 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 @register_command(
     "generate_speech",
     implementation="dw.tasks.speech_generation.generate_speech",
+    required_weights="dw.tasks.speech_generation.required_weights",
     consumes_device=True,
 )
 def _handle_speech_generation(task, arguments, previous_pipelines):

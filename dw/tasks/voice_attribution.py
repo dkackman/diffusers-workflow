@@ -36,6 +36,7 @@ from ..task_domains import check_arguments
 from ..dsp import resample_waveform
 from .audio_utils import waveform_and_rate, load_audio
 from .model_cache import cached_model
+from .weights import repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -129,6 +130,13 @@ STACK_SIDE_RATIO_MIN = 0.4
 STACK_MIN_SPAN_SECONDS = 2.0
 # How many spans the warning names before "and N more"
 STACK_SPANS_LISTED = 8
+
+
+def required_weights(arguments):
+    """speechbrain's speaker encoder, for the plan (dw/tasks/weights.py).
+    The demucs separator downloads outside the Hugging Face cache and is not
+    listed (docs/TASKS.md)."""
+    return repo_entries(_EMBEDDER_MODEL)
 
 
 def _missing(package, error):

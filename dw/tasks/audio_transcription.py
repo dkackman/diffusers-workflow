@@ -21,6 +21,7 @@ from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
 from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
+from .weights import argument_or_default, repo_entries
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
 from ..dsp import loudest_window_dbfs, resample_waveform
 from ..script_lines import looped_texts, normalize_words
@@ -36,6 +37,16 @@ _ASR_SAMPLE_RATE = 16000
 # does not match the {text, chunks} dict shape timestamps switches the
 # return value to (#498).
 TIMESTAMP_KINDS = ("segment", "word")
+
+
+def model_source(arguments):
+    """The ASR repo a transcribe_audio (or check_script) step loads."""
+    return argument_or_default(arguments, "model_name", WHISPER_DEFAULT_MODEL)
+
+
+def required_weights(arguments):
+    """The ASR model's repo, for the plan (dw/tasks/weights.py)."""
+    return repo_entries(model_source(arguments))
 
 
 def _downmixed_mono(waveform):
@@ -92,7 +103,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
             0
         ]
 
-    model_name = kwargs.get("model_name", WHISPER_DEFAULT_MODEL)
+    model_name = model_source(kwargs)
     dtype = preferred_task_dtype(device)
 
     def load_pipe():

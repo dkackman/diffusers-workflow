@@ -16,11 +16,26 @@ from transformers import (
     Sam2Processor,
 )
 from .model_cache import cached_model
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
 
 _DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
 _DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"
+
+
+def model_sources(arguments):
+    """The (detector, segmenter) repos a segment step loads - `model_name`
+    and `sam_model_name` over the defaults."""
+    return (
+        argument_or_default(arguments, "model_name", _DEFAULT_DINO_MODEL),
+        argument_or_default(arguments, "sam_model_name", _DEFAULT_SAM_MODEL),
+    )
+
+
+def required_weights(arguments):
+    """The detector and segmenter repos, for the plan (dw/tasks/weights.py)."""
+    return repo_entries(*model_sources(arguments))
 
 
 def grounding_query(prompt):
@@ -47,8 +62,7 @@ def segment_image(image, prompt, device="cpu", **kwargs):
     Returns:
         PIL Image in mode "L" — white (255) for detected objects, black (0) for background.
     """
-    model_name = kwargs.get("model_name", _DEFAULT_DINO_MODEL)
-    sam_model_name = kwargs.get("sam_model_name", _DEFAULT_SAM_MODEL)
+    model_name, sam_model_name = model_sources(kwargs)
     threshold = kwargs.get("threshold", 0.3)
     invert = kwargs.get("invert", False)
 

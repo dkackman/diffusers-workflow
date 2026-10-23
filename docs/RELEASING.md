@@ -7,6 +7,15 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+- A validate's `downloads_required` now also lists the Hugging Face repos
+  task steps fetch (`segment`, `remove_background`, `diffusion_upscale`,
+  `transcribe_audio`, `check_script`, `generate_speech`, `attribute_voices`,
+  `text_generation`, `image_to_text`, `judge`, the image processors; #977).
+  A bound `acknowledged_cost` taken from a validate made before this deploy
+  is answered 409 `downloads` after it when the workflow has one of these
+  tasks and its repo is not cached: re-validate and resend the new
+  `acknowledge`.
+
 ### 0.15.0
 
 <!-- Drafted from v0.14.0..develop (0c4ed5ea). Paste into the GitHub release body once the tag has published: gh release edit v0.15.0 --notes-file ... -->

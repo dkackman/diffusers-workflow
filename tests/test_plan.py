@@ -1791,6 +1791,150 @@ class TestDownloadsRequired:
             "org/vae",
         ]
 
+    def test_task_steps_list_the_repos_their_commands_declare(self, plan):
+        """#975: an image processor (remove_background) and a registered
+        command (segment) both name their weights, after the pipeline's."""
+        spec = definition()
+        spec["steps"] += [
+            {
+                "name": "cutout",
+                "task": {"command": "remove_background", "arguments": {}},
+                "result": {"content_type": "image/png"},
+            },
+            {
+                "name": "mask",
+                "task": {"command": "segment", "arguments": {"prompt": "a cup"}},
+                "result": {"content_type": "image/png"},
+            },
+        ]
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "briaai/RMBG-2.0",
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_task_override_replaces_the_default_repo(self, plan):
+        spec = definition()
+        spec["steps"].append(
+            {
+                "name": "mask",
+                "task": {
+                    "command": "segment",
+                    "arguments": {"model_name": "org/dino", "sam_model_name": None},
+                },
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/dino",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
+        spec = definition()
+        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+            "openai/whisper-base"
+        )
+        spec["steps"].append(
+            {
+                "name": "words",
+                "task": {"command": "transcribe_audio", "arguments": {}},
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "openai/whisper-base"
+        ]
+
+    def test_two_task_steps_naming_one_repo_list_it_once(self, plan):
+        spec = definition()
+        spec["steps"] += [
+            {"name": "a", "task": {"command": "transcribe_audio", "arguments": {}}},
+            {"name": "b", "task": {"command": "check_script", "arguments": {}}},
+        ]
+        repos = [d["repo"] for d in plan(spec)["downloads_required"]]
+        assert repos == ["org/still-model", "openai/whisper-base"]
+
+    def test_a_task_argument_that_is_a_reference_or_a_path_is_not_listed(self, plan):
+        for local in ("previous_result:detector", "/models/dino", "./models/dino"):
+            spec = definition()
+            spec["steps"].append(
+                {
+                    "name": "mask",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": local, "sam_model_name": local},
+                    },
+                }
+            )
+            assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+                "org/still-model"
+            ], local
+
+    def test_a_cached_task_repo_is_not_required(self, plan, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan,
+            "scan_models",
+            lambda cache_dir=None: {
+                "repos": [
+                    {"repo_id": "org/still-model"},
+                    {"repo_id": "briaai/RMBG-2.0"},
+                ]
+            },
+        )
+        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        spec = definition()
+        spec["steps"].append(
+            {"name": "cutout", "task": {"command": "remove_background"}}
+        )
+        assert plan(spec)["downloads_required"] == []
+
+    def test_a_hook_that_raises_costs_its_entries_and_not_the_plan(
+        self, plan, monkeypatch
+    ):
+        import dw.tasks.registry
+
+        def exploding(command):
+            def hook(arguments):
+                raise RuntimeError("hook broke")
+
+            return hook
+
+        monkeypatch.setattr(dw.tasks.registry, "required_weights_hook", exploding)
+        spec = definition()
+        spec["steps"].append(
+            {"name": "mask", "task": {"command": "segment", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model"
+        ]
+
+    def test_a_composed_childs_task_step_contributes_its_repo(self, plan, tmp_path):
+        spec = definition()
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "c",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": "org/child-dino"},
+                    },
+                }
+            ],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec["steps"].append(
+            {"name": "sub", "workflow": {"path": "child.json", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/child-dino",
+            "facebook/sam2-hiera-large",
+        ]
+
     def test_sizes_come_from_the_hub_in_gib(self, plan, monkeypatch):
         import dw.plan
 
