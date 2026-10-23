@@ -2729,12 +2729,13 @@ Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns 
 | `threshold` | No | Detection confidence threshold (default: 0.3) |
 | `invert` | No | Invert the output mask (default: false) |
 
-Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. Use with inpainting pipelines like FluxFillPipeline.
+Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. To erase what it found, pass the mask to [`remove_object`](#object-removal), which chains with no `invert`. To paint something new in its place, pass it to a prompted inpainter such as FluxFillPipeline.
 
 **Examples:**
 
 - [segment.json](../workflows/templates/segment.json) — Segment an object from an image
-- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then inpaint the masked region
+- [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Segment, then erase the object with `remove_object` (no prompt)
+- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then repaint the masked region with a prompt
 
 ## Object Removal
 
@@ -2775,6 +2776,11 @@ Erase what a mask covers and fill the hole from the surrounding texture, with no
 **Weights.** `michaelgold/big-lama`, file `big-lama.safetensors` (about 200 MB), read at revision `98ab7cface89a594b381f32fc7a9f2cae3f91ccc`. `biali/big-lama` holds a byte-identical copy and is the fallback if that repo disappears; it is not tried automatically. LaMa is by advimman (Suvorov et al., *Resolution-robust Large Mask Inpainting with Fourier Convolutions*) and is licensed **Apache-2.0**. The Hub repo's card says MIT, but the upstream licence is the one that applies. The task reads safetensors only: `validate_workflow` refuses a `weight_name` that is not `.safetensors` (the common `big-lama.pt` is a TorchScript file) and a `model_name` that is a local path, and the loader refuses both again at run time. Weights that do not load as an inpainting model are refused too. The network runs in fp32 on every device.
 
 **First run.** The weights download on the first run, about 200 MB. `validate_workflow`'s `plan.downloads_required` does not list task weights yet, so nothing warns of the download beforehand.
+
+**Examples:**
+
+- [remove-object.json](../workflows/templates/remove-object.json) — Erase what a supplied mask covers
+- [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Find an object by name, then erase it
 
 ## Image Captioning
 

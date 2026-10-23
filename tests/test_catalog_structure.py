@@ -96,6 +96,13 @@ EXPECTED_SHAPES = {
         "image-edit",
         ["needs-input-media"],
     ),
+    # Task-only, so the rules read them as utilities; they declare image-edit
+    # because an erase is an edit of the image it was handed (#974)
+    "workflows/templates/remove-object.json": ("image-edit", ["needs-input-media"]),
+    "workflows/templates/segment-and-remove.json": (
+        "image-edit",
+        ["needs-input-media"],
+    ),
     "workflows/templates/describe-and-regenerate.json": (
         "image-set",
         ["composes-workflows", "needs-input-media"],
@@ -487,7 +494,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 11_400 for the five FLUX 3 Klein templates (#930, 2026-10-15),
 # measured at 11_256: a new family, its summaries already trimmed to the idea
 # each template adds, with about 85 tokens held for its Task 9 cost blocks.
-COMPACT_BUDGET = 11_400
+# Then to 11_650 for the `remove-object` and `segment-and-remove` templates
+# (#956, stage #974, 2026-10-22), measured at 11_592: two new entries, the
+# catalog's only prompt-free removal route, each with a cost block.
+COMPACT_BUDGET = 11_650
 FILTERED_BUDGET = 1_500
 
 

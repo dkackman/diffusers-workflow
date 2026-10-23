@@ -880,12 +880,14 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "recenter-crop.json": {},
     "relevel-clip.json": {},
+    "remove-object.json": {},
     "restore-faces.json": {
         "generate": "8655c1f1635a7f9a1d3ce02a9cbf6f0f9e8b27130052d6e2758fcb7838270c14"
     },
     "segment-and-inpaint.json": {
         "inpaint": "8ece64de576884be947f5af07c5713b92d3a1e641035434ef805629f12ae8c77"
     },
+    "segment-and-remove.json": {},
     "segment.json": {},
     "step-caching.json": {
         "txt2img": "3e3ea6a2cb1d2d1b1abaec9de159758b137ac0bcd3197a1bac0f7bbcead7ac24"

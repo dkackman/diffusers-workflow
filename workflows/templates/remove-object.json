@@ -1,0 +1,31 @@
+{
+    "id": "RemoveObject",
+    "description": "Erases what a mask covers with no prompt, filling from the surroundings (remove_object, LaMa). This is the removal route: white mask pixels are erased, the rest comes back unchanged. Suits small to medium objects - a cup, a sign, a watermark; a large region comes back smeared. Raise dilate (16 to 24) for a soft edge or a shadow; use segment-and-remove to mask the object by name instead of drawing one. To put something new in the mask, use a prompted inpainter (models/z-image-inpaint or templates/inpaint) instead.",
+    "shape": "image-edit",
+    "cost": [
+        {"device": "mps", "vram_gb": 1, "minutes": 0.2}
+    ],
+    "variables": {
+        "image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
+        "dilate": 8
+    },
+    "steps": [
+        {
+            "name": "erase",
+            "task": {
+                "command": "remove_object",
+                "arguments": {
+                    "image": "variable:image",
+                    "mask_image": "variable:mask_image",
+                    "dilate": "variable:dilate"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

@@ -648,6 +648,10 @@ NO_DRIVERS = {
     "workflows/templates/upscale-spandrel.json": "cost follows the input image",
     # Three prompt edits over one image: nothing numeric moves the run.
     "workflows/templates/consistent-set.json": "no variable moves the cost",
+    # One LaMa pass (after one segment pass) over the image handed to it:
+    # `dilate` grows the mask, not the work, so nothing moves the run (#974).
+    "workflows/templates/remove-object.json": "cost follows the input image",
+    "workflows/templates/segment-and-remove.json": "cost follows the input image",
 }
 
 
