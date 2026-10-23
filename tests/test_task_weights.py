@@ -364,20 +364,6 @@ HUB_LOADS = re.compile(
     r"hf_hub_download|from_pretrained|from_hparams|hf_pipeline\(|pipeline\(\s*[\"']"
 )
 
-# Stage B' of #975: these modules load Hub weights and have no hook yet. Delete
-# a name here when its module gains `required_weights` - the pin below fails
-# for a name that has one, so the list only shrinks.
-# (restore_faces reaches the Hub through upscale.resolve_model_path, so the
-# text scan does not see it; it is listed because it loads weights all the same.)
-NOT_YET_DECLARED = {
-    "upscale",
-    "restore_faces",
-    "remove_object",
-    "h3_latent_upscale",
-    "face_track",
-    "interpolate_frames",
-}
-
 # Modules that fetch only outside the Hugging Face cache would be listed here
 # with the reason; none do - voice_attribution's demucs download shares a module
 # with a speechbrain load, which it declares.
@@ -413,6 +399,18 @@ def hub_loading_modules():
     return found
 
 
+# Commands that share a module with a declared hook but name none, and why
+LOADS_NOTHING_THE_PLAN_LISTS = {
+    # demucs downloads outside the Hugging Face cache
+    "separate_stems": "voice_attribution's demucs",
+    # Decodes with MiniMaxAI/MiniMax-H3's VAE, which the H3 pipeline step
+    # that made the latents lists whole (#975 Q4)
+    "decode_h3_latents": "the H3 repo, listed by its pipeline step",
+    # Pastes crops back; loads no weights
+    "paste_face_track": "nothing",
+}
+
+
 class TestEveryHubLoadIsDeclared:
     def test_the_scan_finds_the_modules_that_load_from_the_hub(self):
         found = hub_loading_modules()
@@ -431,7 +429,6 @@ class TestEveryHubLoadIsDeclared:
             name
             for name, path in task_modules()
             if name in hub_loading_modules()
-            and name not in NOT_YET_DECLARED
             and name not in OUTSIDE_THE_HF_CACHE
             and not declares_required_weights(path)
         )
@@ -440,14 +437,6 @@ class TestEveryHubLoadIsDeclared:
             "plan cannot list what they download (#975)"
         )
 
-    def test_the_allow_list_names_only_modules_still_without_a_hook(self):
-        stale = sorted(
-            name
-            for name in NOT_YET_DECLARED
-            if declares_required_weights(os.path.join(TASKS, f"{name}.py"))
-        )
-        assert not stale, f"{stale} are declared now: drop them from NOT_YET_DECLARED"
-
     def test_every_registered_command_in_a_declaring_module_names_its_hook(self):
         from dw.tasks import registry
 
@@ -455,18 +444,14 @@ class TestEveryHubLoadIsDeclared:
         declaring = {
             name
             for name, path in task_modules()
-            if name in hub_loading_modules()
-            and name not in NOT_YET_DECLARED
-            and declares_required_weights(path)
+            if name in hub_loading_modules() and declares_required_weights(path)
         }
         unnamed = []
         for command, rules in registry._COMMAND_RULES.items():
             module = (rules.get("implementation") or "").split(".")
             if len(module) < 4 or module[:2] != ["dw", "tasks"]:
                 continue
-            # demucs downloads outside the Hugging Face cache, so the stem
-            # separator in voice_attribution's module names no hook
-            if command == "separate_stems":
+            if command in LOADS_NOTHING_THE_PLAN_LISTS:
                 continue
             if module[2] in declaring and not rules.get("required_weights"):
                 unnamed.append(command)

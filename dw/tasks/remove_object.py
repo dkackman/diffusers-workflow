@@ -19,6 +19,7 @@ from PIL import Image, ImageFilter
 from ..events import emit_warning
 from ..task_domains import check_argument, whole_number
 from .tensor_image import float_tensor_to_pil, pil_to_float_tensor
+from .weights import file_entries
 
 logger = logging.getLogger("dw")
 
@@ -82,11 +83,23 @@ def _check_remover_source(model_name, weight_name):
     validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,), subfolders=False)
 
 
-def _remover_revision(model_name, weight_name):
-    # The pin names a commit of the default file; another repo is read at its main
-    if (model_name, weight_name) == (DEFAULT_REMOVER_REPO, DEFAULT_REMOVER_WEIGHTS):
-        return REMOVER_REVISION
-    return None
+def remover_source(arguments):
+    """The (repo, file, revision) a remove_object step loads - `model_name`
+    and `weight_name` over the defaults. The pin names a commit of the
+    default file; another source is read at its main."""
+    arguments = arguments or {}
+    model_name = arguments.get("model_name") or DEFAULT_REMOVER_REPO
+    weight_name = arguments.get("weight_name") or DEFAULT_REMOVER_WEIGHTS
+    pinned = (model_name, weight_name) == (
+        DEFAULT_REMOVER_REPO,
+        DEFAULT_REMOVER_WEIGHTS,
+    )
+    return model_name, weight_name, REMOVER_REVISION if pinned else None
+
+
+def required_weights(arguments):
+    """The remover's weight file, for the plan (dw/tasks/weights.py)."""
+    return file_entries(*remover_source(arguments))
 
 
 def _descriptor_from_state_dict(state_dict):
@@ -109,7 +122,9 @@ def _load_remover(device, model_name, weight_name):
 
     from .model_cache import cached_model
 
-    revision = _remover_revision(model_name, weight_name)
+    model_name, weight_name, revision = remover_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
 
     def load_descriptor():
         from safetensors.torch import load_file
@@ -161,8 +176,9 @@ def remove_object(
     dilate = whole_number(dilate, "dilate", "remove_object")
     dilate = DEFAULT_DILATE if dilate is None else dilate
     check_argument("remove_object", "dilate", dilate)
-    model_name = model_name or DEFAULT_REMOVER_REPO
-    weight_name = weight_name or DEFAULT_REMOVER_WEIGHTS
+    model_name, weight_name, _ = remover_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
     _check_remover_source(model_name, weight_name)
 
     if mask_is_empty(mask_image):

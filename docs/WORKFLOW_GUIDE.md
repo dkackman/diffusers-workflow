@@ -1921,10 +1921,10 @@ upscaling only makes sense for a take chosen from something already reviewed, so
 
 The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, Apache-2.0,
 read at a pinned revision) and the H3 VAE download on first use, the same as any other
-model. Neither is counted in `plan.downloads_required`, since that walk collects
-`from_pretrained_arguments` sources on pipeline steps and does not see a task
-argument naming a Hugging Face repo - a box that has run the base pass before but never
-this task can still stall mid-run pulling the upscaler.
+model. A validate's `plan.downloads_required` lists the upscaler file as a file entry
+(`{repo, filename, revision, ...}`) while it is not cached, and the VAE is covered by
+the pipeline step's whole `MiniMaxAI/MiniMax-H3` entry, so a box that has run the base
+pass before but never this task is told of the upscaler download beforehand.
 
 ```json
 {

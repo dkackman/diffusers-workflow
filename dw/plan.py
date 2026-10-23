@@ -37,6 +37,7 @@ from .cost_scaling import (
 )
 from .elision import elide_definition
 from .hub_cache import repo_download_incomplete, scan_models
+from .quantized_cache import _cached_file
 from . import references
 from .realize import read_sub_workflow, realize_workflow
 from .security import validate_url
@@ -902,7 +903,11 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     `.incomplete` - plus every `from_single_file` that is a URL, and every
     repo a task step declares through its command's `required_weights` hook
     (#975, dw/tasks/weights.py), listed once when a pipeline step loads it
-    too. Sizes come
+    too. A task that fetches one file of a repo declares the file, keyed by
+    `(repo, filename, revision)`: it is checked in the cache file by file
+    (`_cached_file` - a pinned commit needs no `refs/main`, and another
+    cached file of the repo does not stand in for it), sized by a HEAD of
+    that file, and dropped when the same walk needs the repo whole. Sizes come
     from the hub when asked and are None whenever it does not answer - an
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
@@ -910,8 +915,9 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     names = []
     variants = {}
     urls = []
+    files = []
     _collect_sources(expanded, names, variants, urls)
-    _collect_task_weights(expanded, names, urls)
+    _collect_task_weights(expanded, names, files, urls)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
         if raw is None:
@@ -921,7 +927,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         except ValueError:
             continue
         _collect_sources(child, names, variants, urls)
-        _collect_task_weights(child, names, urls)
+        _collect_task_weights(child, names, files, urls)
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
     for name in names:
@@ -937,6 +943,23 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
         if lookup_sizes:
             entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+        required.append(entry)
+    for repo, filename, revision in files:
+        # A whole-repo entry for the same repo already covers the file
+        if repo in names or not _is_repo_id(repo):
+            continue
+        if _cached_file(repo, filename, revision or "main", cache_dir) is not None:
+            continue
+        entry = {
+            "repo": repo,
+            "filename": filename,
+            "revision": revision,
+            "gb": None,
+            "gated": None,
+            "access_blocked": None,
+        }
+        if lookup_sizes:
+            entry["gb"], entry["access_blocked"] = _file_info(repo, filename, revision)
         required.append(entry)
     for url in urls:
         required.append(
@@ -987,9 +1010,10 @@ def _collect_sources(tree, names, variants, urls):
             _collect_sources(value, names, variants, urls)
 
 
-def _collect_task_weights(tree, names, urls):
-    """Every repo (or URL) a task step in a tree declares, appended after the
-    pipeline sources and deduplicated against them. Each `task` block's
+def _collect_task_weights(tree, names, files, urls):
+    """Every repo, file or URL a task step in a tree declares, appended after
+    the pipeline sources and deduplicated against them - a file as a
+    `(repo, filename, revision)` key in `files`. Each `task` block's
     command is looked up by name and its hook called on the block's
     arguments - expanded at the top level; a composed child's are its raw
     definition, so a `variable:` value there is no repo and gives no entry.
@@ -1005,16 +1029,21 @@ def _collect_task_weights(tree, names, urls):
                 task["command"], arguments if isinstance(arguments, dict) else {}
             ):
                 repo, url = entry.get("repo"), entry.get("url")
-                if isinstance(repo, str) and repo not in names:
+                filename = entry.get("filename")
+                if isinstance(repo, str) and isinstance(filename, str):
+                    key = (repo, filename, entry.get("revision"))
+                    if key not in files:
+                        files.append(key)
+                elif isinstance(repo, str) and repo not in names:
                     names.append(repo)
                 elif repo is None and isinstance(url, str) and _is_url(url):
                     if url not in urls:
                         urls.append(url)
         for value in tree.values():
-            _collect_task_weights(value, names, urls)
+            _collect_task_weights(value, names, files, urls)
     elif isinstance(tree, list):
         for value in tree:
-            _collect_task_weights(value, names, urls)
+            _collect_task_weights(value, names, files, urls)
 
 
 def _task_weights(command, arguments):
@@ -1041,7 +1070,8 @@ def gate_warnings(downloads_required):
         "Hugging Face token - accept its license at "
         f"https://huggingface.co/{entry['repo']} before running this workflow"
         for entry in downloads_required
-        if entry.get("access_blocked")
+        # A URL entry has no repo to send anyone to
+        if entry.get("access_blocked") and entry.get("repo")
     ]
 
 
@@ -1095,6 +1125,28 @@ def _model_info(name):
     if gated:
         access_blocked = _probe_gate_blocked(name, info.siblings or [])
     return gb, gated, access_blocked
+
+
+def _file_info(repo, filename, revision):
+    """One file's size in GiB and whether this box's token is blocked from it
+    - a `(gb, access_blocked)` pair from a HEAD of the file itself, the call
+    `_probe_gate_blocked` makes. `_model_info` would size the whole repo at
+    main, overstating one file of a multi-file repo. A tiny file reads 0.01
+    rather than 0, which would look like nothing to fetch."""
+    try:
+        metadata = get_hf_file_metadata(
+            hf_hub_url(repo, filename, revision=revision),
+            timeout=SIZE_LOOKUP_TIMEOUT,
+        )
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {repo}/{filename}: {e}")
+        return None, True
+    except Exception as e:
+        logger.debug(f"No size for {repo}/{filename}: {e}")
+        return None, None
+    size = getattr(metadata, "size", None)
+    gb = max(round(size / GIB, 2), 0.01) if size else None
+    return gb, False
 
 
 def _probe_gate_blocked(name, siblings):

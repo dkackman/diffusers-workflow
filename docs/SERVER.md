@@ -445,7 +445,21 @@ The editor's forms come from these; they are just as usable from scripts:
   offline) - "unknown" is not "not blocked". `validate_workflow`'s
   `warnings` carries one line per entry with `access_blocked: true`. Each
   `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
-  access_blocked: null}`, since a direct file URL is never gated; and
+  access_blocked: null}`, since a direct file URL is never gated.
+  A task that fetches one file rather than a whole repo is listed as a file
+  entry, `{repo, filename, revision, gb, gated, access_blocked}`: `revision`
+  is a 40-character commit pin or `null` for `main`; `gb` is that one file's
+  size, from a HEAD of the file (`null` offline or with `?sizes=false`);
+  `gated` is `null`, since the HEAD that sizes it does not say; and
+  `access_blocked` is `true` when that HEAD is refused by the gate, `false`
+  when it succeeds, `null` when unknown. It is listed when that file at that
+  revision is not in the hub cache (checked per file, so another cached file
+  of the same repo does not count), and a whole-repo entry for the same repo
+  subsumes it. Acknowledgements still compare by `repo`. `restore_faces`
+  also lists facexlib's weights as URL entries (`detection_Resnet50_Final.pth`,
+  and `parsing_parsenet.pth` unless `use_parse` is false) while they are
+  missing from facexlib's weights directory; they download outside the
+  Hugging Face cache. And
   `estimate`, `{minutes, basis,
   device, measured_on, partial, runs}` from this box's own history when it
   has one and otherwise from the workflow's `cost` block -

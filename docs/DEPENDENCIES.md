@@ -47,7 +47,7 @@ pyproject; install.ps1 installs it explicitly on Windows.
 
 ## Platform-Specific Dependencies
 
-**All platforms (core ML):** peft, transformers, accelerate, safetensors, controlnet_aux, sentencepiece, torchsde, torchao, optimum-quanto, gguf, kornia, ftfy, sdnq, spandrel, facexlib (spandrel + facexlib back the `upscale` and `restore_faces` tasks). On first use, `restore_faces` has facexlib download its face detection and parsing weights (about 110 MB) from facexlib's own GitHub releases into the facexlib package directory. It is the one model download that bypasses the Hugging Face cache, dw's download manager and the `plan.downloads_required` estimate.
+**All platforms (core ML):** peft, transformers, accelerate, safetensors, controlnet_aux, sentencepiece, torchsde, torchao, optimum-quanto, gguf, kornia, ftfy, sdnq, spandrel, facexlib (spandrel + facexlib back the `upscale` and `restore_faces` tasks). On first use, `restore_faces` has facexlib download its face detection and parsing weights (about 110 MB) from facexlib's own GitHub releases into the facexlib package directory. It is the one model download that bypasses the Hugging Face cache and dw's download manager; a validate's `plan.downloads_required` lists the two weights as URL entries while they are missing from that directory.
 
 **All platforms (sparse attention):** comfy-kitchen (Sol-Attn sparse attention for MiniMax H3's generated-video rows, #931). Its compiled CUDA/HIP kernels ship for Linux and Windows; elsewhere it installs an eager-only build.
 

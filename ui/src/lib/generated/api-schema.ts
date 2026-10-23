@@ -3443,6 +3443,11 @@ export interface components {
             /** Access Blocked */
             access_blocked: boolean | null;
             /**
+             * Filename
+             * @description A single weight file within `repo`, for a task that fetches one file rather than the whole repo.
+             */
+            filename?: string;
+            /**
              * Gated
              * @description The hub's own `gated` field: false, or how access is granted.
              */
@@ -3451,6 +3456,11 @@ export interface components {
             gb: number | null;
             /** Repo */
             repo: string | null;
+            /**
+             * Revision
+             * @description The commit the file is read at; null means main.
+             */
+            revision?: string | null;
             /**
              * Url
              * @description A from_single_file URL, which has no repo.

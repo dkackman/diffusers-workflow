@@ -14,7 +14,12 @@ when a release ships.
   A bound `acknowledged_cost` taken from a validate made before this deploy
   is answered 409 `downloads` after it when the workflow has one of these
   tasks and its repo is not cached: re-validate and resend the new
-  `acknowledge`.
+  `acknowledge`. The same holds for the tasks that fetch single files
+  (`upscale`, `restore_faces`, `remove_object`, `upscale_h3_latents`,
+  `crop_face_track`, `interpolate_frames`), and `restore_faces` also lists
+  facexlib's two weights as URL entries. A `downloads_required` entry gains
+  the optional `filename` and `revision` fields; the OpenAPI document and
+  the UI's types carry them.
 
 ### 0.15.0
 

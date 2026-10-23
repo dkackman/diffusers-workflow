@@ -444,7 +444,7 @@ def test_no_token_means_no_authorization_header(monkeypatch):
 ACKNOWLEDGE = {"fingerprint": "sha256:abc", "minutes": None, "downloads": ["org/model"]}
 
 
-def _cost_gate_message(minutes, acknowledge=ACKNOWLEDGE):
+def _cost_gate_message(minutes, acknowledge=ACKNOWLEDGE, downloads=None):
     """The 409 the cost gate raises, formatted the way an MCP caller reads
     it. `acknowledge` is the ready-made body the server sends (None: an
     older server that sends none)."""
@@ -453,7 +453,7 @@ def _cost_gate_message(minutes, acknowledge=ACKNOWLEDGE):
         "plan": {
             "fingerprint": "sha256:abc",
             "estimate": {"minutes": minutes, "basis": "none"},
-            "downloads_required": [{"repo": "org/model"}],
+            "downloads_required": downloads or [{"repo": "org/model"}],
         },
     }
     if acknowledge is not None:
@@ -483,6 +483,19 @@ def test_an_older_server_without_an_acknowledgement_gets_no_resend_sentence():
     message = _cost_gate_message(12.5, acknowledge=None)
     assert "Re-acknowledge" not in message
     assert "12.5 minutes" in message
+
+
+def test_a_file_entry_renders_as_repo_slash_filename():
+    downloads = [
+        {"repo": "org/whole", "gb": 3.5},
+        {"repo": "org/model", "filename": "sub/w.safetensors", "revision": None},
+        {"repo": None, "url": "https://example.com/w.pth"},
+    ]
+    message = _cost_gate_message(None, downloads=downloads)
+    assert (
+        "would download org/whole, org/model/sub/w.safetensors, "
+        "https://example.com/w.pth first"
+    ) in message
 
 
 class TrackingStream(httpx.SyncByteStream):
