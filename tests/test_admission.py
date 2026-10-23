@@ -271,6 +271,39 @@ def test_a_bound_acknowledgement_naming_a_task_steps_repos_is_admitted(
         assert response.json()["acknowledged"] == "bound"
 
 
+def test_the_plan_passed_verbatim_is_a_bound_acknowledgement(server, empty_hub_cache):
+    """#975: a client that hands back the validate plan unedited has
+    acknowledged its downloads_required - the refusal's own example (C-F525
+    step 5)."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        assert plan["downloads_required"]
+
+        response = client.post("/api/jobs", json={**body, "acknowledged_cost": plan})
+
+        assert response.status_code == 201, response.text
+        assert response.json()["acknowledged"] == "bound"
+
+
+def test_a_plan_with_its_downloads_emptied_is_still_refused(server, empty_hub_cache):
+    """An explicit `downloads` is what was acknowledged, even beside the
+    plan's own downloads_required."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+
+        response = client.post(
+            "/api/jobs",
+            json={**body, "acknowledged_cost": {**plan, "downloads": []}},
+        )
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["reason"] == "downloads"
+
+
 def test_a_rerun_expands_once(server, folds):
     with server() as client:
         submitted = client.post(

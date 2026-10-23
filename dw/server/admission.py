@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..assets import (
     activate_asset_dir,
@@ -383,6 +383,32 @@ class AcknowledgedCost(BaseModel):
         default_factory=list,
         description="The repos in plan.downloads_required that were acknowledged",
     )
+
+    @model_validator(mode="before")
+    @classmethod
+    def _from_plan(cls, value):
+        # The plan validate answered with, passed as-is (#975): its
+        # downloads_required and estimate.minutes are what was quoted. Only
+        # when `downloads` is absent - an explicit list, even an empty one,
+        # is what the caller acknowledged
+        if (
+            not isinstance(value, dict)
+            or "downloads" in value
+            or not isinstance(value.get("downloads_required"), list)
+        ):
+            return value
+        bound = {
+            **value,
+            "downloads": [
+                entry.get("repo")
+                for entry in value["downloads_required"]
+                if isinstance(entry, dict)
+            ],
+        }
+        estimate = value.get("estimate")
+        if "minutes" not in value and isinstance(estimate, dict):
+            bound["minutes"] = estimate.get("minutes")
+        return bound
 
     @field_validator("downloads", mode="after")
     @classmethod
