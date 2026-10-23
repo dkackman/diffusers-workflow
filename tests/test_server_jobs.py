@@ -66,6 +66,9 @@ def finished_job(manager):
     while job.status not in TERMINAL_STATES and time.time() < deadline:
         time.sleep(0.01)
     assert job.status == "succeeded", job.error
+    # The status turns terminal a moment before _finish records the row
+    while manager.history.get(job.id) is None and time.time() < deadline:
+        time.sleep(0.01)
     return job
 
 
