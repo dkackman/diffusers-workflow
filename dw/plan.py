@@ -899,7 +899,10 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     composed child) that `scan_models` does not find, plus every one it does
     find but whose cached copy is left over from an interrupted pull
     (#382) - a component the load needs is missing, or a blob is still
-    `.incomplete` - plus every `from_single_file` that is a URL. Sizes come
+    `.incomplete` - plus every `from_single_file` that is a URL, and every
+    repo a task step declares through its command's `required_weights` hook
+    (#975, dw/tasks/weights.py), listed once when a pipeline step loads it
+    too. Sizes come
     from the hub when asked and are None whenever it does not answer - an
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
@@ -908,14 +911,17 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     variants = {}
     urls = []
     _collect_sources(expanded, names, variants, urls)
+    _collect_task_weights(expanded, names, urls)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
         if raw is None:
             continue
         try:
-            _collect_sources(json.loads(raw), names, variants, urls)
+            child = json.loads(raw)
         except ValueError:
             continue
+        _collect_sources(child, names, variants, urls)
+        _collect_task_weights(child, names, urls)
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
     for name in names:
@@ -979,6 +985,50 @@ def _collect_sources(tree, names, variants, urls):
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, variants, urls)
+
+
+def _collect_task_weights(tree, names, urls):
+    """Every repo (or URL) a task step in a tree declares, appended after the
+    pipeline sources and deduplicated against them. Each `task` block's
+    command is looked up by name and its hook called on the block's
+    arguments - expanded at the top level; a composed child's are its raw
+    definition, so a `variable:` value there is no repo and gives no entry.
+
+    A hook that raises costs its entries, never the validate: the plan
+    answers what it can name, and the run still loads what it loads.
+    """
+    if isinstance(tree, dict):
+        task = tree.get("task")
+        if isinstance(task, dict) and isinstance(task.get("command"), str):
+            arguments = task.get("arguments")
+            for entry in _task_weights(
+                task["command"], arguments if isinstance(arguments, dict) else {}
+            ):
+                repo, url = entry.get("repo"), entry.get("url")
+                if isinstance(repo, str) and repo not in names:
+                    names.append(repo)
+                elif repo is None and isinstance(url, str) and _is_url(url):
+                    if url not in urls:
+                        urls.append(url)
+        for value in tree.values():
+            _collect_task_weights(value, names, urls)
+    elif isinstance(tree, list):
+        for value in tree:
+            _collect_task_weights(value, names, urls)
+
+
+def _task_weights(command, arguments):
+    # Imported here: the registry loads task modules only when a workflow has
+    # a task step, so a pipeline-only validate pays nothing for it
+    from .tasks.registry import required_weights_hook
+
+    try:
+        hook = required_weights_hook(command)
+        entries = hook(copy.deepcopy(arguments)) if hook is not None else []
+    except Exception as error:
+        logger.debug(f"required_weights for task {command!r} failed: {error}")
+        return []
+    return [entry for entry in entries or [] if isinstance(entry, dict)]
 
 
 def gate_warnings(downloads_required):

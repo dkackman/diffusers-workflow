@@ -18,6 +18,7 @@ import logging
 import re
 
 from .text_generation import generate_text, DEFAULT_VISION_MODEL
+from .text_generation import vision_required_weights as required_weights  # noqa: F401
 
 logger = logging.getLogger("dw")
 

@@ -96,6 +96,7 @@ def register_command(
     static_check=None,
     media_arguments=(),
     whole_numbers=(),
+    required_weights=None,
 ):
     """
     Decorator to register a command handler function.
@@ -158,6 +159,11 @@ def register_command(
             reads as whole numbers (`task_domains.whole_number`): 3, 3.0,
             "3" and "3.0" are 3, and 3.5 is refused - at validation as at
             run time. Every other argument with a domain is a real number
+        required_weights: Dotted path to the task module's
+            `required_weights(arguments)` - the hub repos the command fetches,
+            listed in the plan's `downloads_required` (`dw/tasks/weights.py`,
+            #975). A string, so the plan path imports the module only for a
+            workflow that has the command
 
     Returns:
         Decorator function
@@ -198,8 +204,31 @@ def register_command(
             rules["media_arguments"] = tuple(media_arguments)
         if whole_numbers:
             rules["whole_numbers"] = tuple(whole_numbers)
+        if required_weights:
+            rules["required_weights"] = required_weights
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func
 
     return decorator
+
+
+def required_weights_hook(command):
+    """The `required_weights(arguments)` callable for `command`, or None when
+    it fetches nothing the plan lists - a registered command's declared hook,
+    or an image processor's (`process_image`'s names are commands of their
+    own, dispatched by `dw/tasks/image_utils.py` rather than registered)."""
+    if not isinstance(command, str):
+        return None
+    importlib.import_module(_REGISTERING_MODULE)
+    if command in _COMMAND_RULES:
+        path = _COMMAND_RULES[command].get("required_weights")
+        if path is None:
+            return None
+        module_path, _, name = path.rpartition(".")
+        return getattr(importlib.import_module(module_path), name)
+    from .image_utils import available_processors, required_weights
+
+    if command.lower() in available_processors():
+        return lambda arguments: required_weights(command.lower(), arguments)
+    return None
