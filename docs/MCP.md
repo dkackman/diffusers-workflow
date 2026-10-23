@@ -372,7 +372,9 @@ answers with a `plan`; pass `acknowledged_cost={"fingerprint":
 plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": [...]}` and
 the server refuses with 409 if the run's shape changed between the quote and
 the call - a longer list, a stored prompt edited meanwhile, weights that now
-have to be downloaded - naming the new plan so the agent re-quotes. Bare
+have to be downloaded - naming the new plan so the agent re-quotes. The
+`plan` itself, passed unedited, binds the same way: with no `downloads` key,
+its `downloads_required` repos and `estimate.minutes` stand in. Bare
 `true` still works and is for a `plan` that came back null; the job records
 which form it got (`acknowledged: none | boolean | bound`).
 
