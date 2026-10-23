@@ -334,6 +334,15 @@ remaining deferred fix is recorded in
   that hold layered voices (a Music 3 chorus). Record, including what was
   deferred (the voice/pitch conversion task, structured spans, the check in
   `attribute_voices`): `complete/stacked-vocals-warning-complete.md`.
+- **`remove_object`, prompt-free LaMa object removal** (#956, stages
+  #973-#974), shipped 2026-10-22. A task that fills a white-means-fill mask
+  from the surrounding image, with no prompt and fp32 on any device, using
+  pinned `big-lama.safetensors` loaded through spandrel. It comes with the
+  `remove-object` and `segment-and-remove` templates and an
+  erase-versus-repaint routing rule. `segment` now keeps SAM2's best-rated
+  mask. Record, including what was deferred (temporal video removal,
+  per-frame masks, a larger model for big regions, #975's download
+  warning): `complete/remove-object-complete.md`.
 
 ## Declined
 
