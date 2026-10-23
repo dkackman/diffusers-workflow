@@ -210,7 +210,6 @@ class TestSegmentWithRealSam2Processor:
         assert result.size == (640, 480)
         assert np.array(result).max() == 255
 
-
     @patch("dw.tasks.segment.Sam2Model")
     @patch("dw.tasks.segment.Sam2Processor")
     @patch("dw.tasks.segment.AutoModelForZeroShotObjectDetection")
