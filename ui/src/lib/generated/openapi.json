@@ -3883,6 +3883,11 @@
             ],
             "title": "Access Blocked"
           },
+          "filename": {
+            "description": "A single weight file within `repo`, for a task that fetches one file rather than the whole repo.",
+            "title": "Filename",
+            "type": "string"
+          },
           "gated": {
             "anyOf": [
               {
@@ -3926,6 +3931,18 @@
               }
             ],
             "title": "Repo"
+          },
+          "revision": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The commit the file is read at; null means main.",
+            "title": "Revision"
           },
           "url": {
             "description": "A from_single_file URL, which has no repo.",

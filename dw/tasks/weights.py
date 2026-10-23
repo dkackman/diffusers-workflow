@@ -1,7 +1,9 @@
 """What a task step fetches from the Hub: the `required_weights` hook's helpers.
 
 Every model-backed task module exports `required_weights(arguments) ->
-list[dict]` - each dict `{"repo": <hub id>}` for a whole repo - and its loader
+list[dict]` - each dict `{"repo": <hub id>}` for a whole repo, `{"repo",
+"filename", "revision"}` for one file of it (revision None is main), or
+`{"url"}` for a fetch from outside the Hub - and its loader
 reads the repo it loads from the same resolution, so the plan's
 `downloads_required` (dw/plan.py) and the run cannot disagree about which
 argument wins over which default (#975). A command names its hook on its
@@ -16,6 +18,9 @@ pipeline walk decides it.
 
 Torch-free on purpose: `dw/plan.py` imports it on every validate.
 """
+
+import importlib.util
+from pathlib import Path
 
 from huggingface_hub.utils import HFValidationError, validate_repo_id
 
@@ -48,3 +53,33 @@ def repo_entries(*names):
         if is_hub_repo(name) and {"repo": name} not in entries:
             entries.append({"repo": name})
     return entries
+
+
+def file_entries(repo, filename, revision=None):
+    """`[{"repo", "filename", "revision"}]` for one file of a hub repo, or
+    `[]` when the repo is not shaped like a hub id or the file name is not a
+    plain relative name inside it - the plan checks the cache by joining the
+    name onto it, so a name climbing out would make that check a probe of
+    the disk."""
+    from ..locations import validate_weight_name
+    from ..security import SecurityError
+
+    if not is_hub_repo(repo):
+        return []
+    try:
+        validate_weight_name(filename)
+    except SecurityError:
+        return []
+    return [{"repo": repo, "filename": filename, "revision": revision}]
+
+
+def package_dir(name):
+    """The directory a package is installed in, found without importing it,
+    or None when it is not installed - facexlib's import loads cv2, which a
+    validate should not pay for."""
+    try:
+        spec = importlib.util.find_spec(name)
+    except (ImportError, ValueError):
+        return None
+    locations = list(spec.submodule_search_locations or []) if spec else []
+    return Path(locations[0]) if locations else None

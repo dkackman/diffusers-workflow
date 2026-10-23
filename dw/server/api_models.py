@@ -608,6 +608,11 @@ class ElidedStep(ApiModel):
 class RequiredDownload(ApiModel):
     repo: str | None
     url: str = sometimes("A from_single_file URL, which has no repo.")
+    filename: str = sometimes(
+        "A single weight file within `repo`, for a task that fetches one file "
+        "rather than the whole repo."
+    )
+    revision: str | None = sometimes("The commit the file is read at; null means main.")
     gb: int | float | None
     gated: bool | Literal["auto", "manual"] | None = Field(
         description="The hub's own `gated` field: false, or how access is granted."

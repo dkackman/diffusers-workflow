@@ -23,6 +23,7 @@ import logging
 import torch
 
 from ..result import AudioVideo
+from .weights import file_entries
 
 logger = logging.getLogger("dw")
 
@@ -207,18 +208,41 @@ def _check_upscaler_source(model_name, weight_name):
     validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,), subfolders=False)
 
 
+def upscaler_source(arguments):
+    """The (repo, file, subfolder, revision) an upscale_h3_latents step
+    loads - `model_name` and `weight_name` over the defaults. The pin names a
+    commit of the default repo; a caller naming another repo gets that
+    repo's main."""
+    arguments = arguments or {}
+    model_name = arguments.get("model_name") or DEFAULT_UPSCALER_REPO
+    weight_name = arguments.get("weight_name") or DEFAULT_UPSCALER_WEIGHTS
+    source = KNOWN_UPSCALER_SOURCES.get(
+        (model_name, weight_name)
+    ) or KNOWN_UPSCALER_SOURCES.get((model_name, None))
+    subfolder, revision = source if source else (None, None)
+    return model_name, weight_name, subfolder, revision
+
+
+def required_weights(arguments):
+    """The upscaler's weight file, for the plan (dw/tasks/weights.py). The
+    H3 VAE that decodes its latents is not listed: the H3 pipeline step that
+    makes them lists MiniMaxAI/MiniMax-H3 whole (#975 Q4)."""
+    model_name, weight_name, subfolder, revision = upscaler_source(arguments)
+    if not isinstance(weight_name, str):
+        return []
+    filename = f"{subfolder}/{weight_name}" if subfolder else weight_name
+    return file_entries(model_name, filename, revision)
+
+
 def _load_upscaler(device, model_name, weight_name):
     from huggingface_hub import hf_hub_download
 
     from .h3_latent_upscaler_model import build_upscaler
     from .model_cache import cached_model
 
-    # The pin names a commit of the default repo; a caller naming another
-    # repo gets that repo's main
-    source = KNOWN_UPSCALER_SOURCES.get(
-        (model_name, weight_name)
-    ) or KNOWN_UPSCALER_SOURCES.get((model_name, None))
-    subfolder, revision = source if source else (None, None)
+    model_name, weight_name, subfolder, revision = upscaler_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
 
     def load_net():
         from safetensors.torch import load_file
@@ -268,8 +292,9 @@ def upscale_h3_latents(
         input's dtype and on the input's device
     """
     size, (scale_h, scale_w) = target_latent_size(latents, width, height)
-    model_name = model_name or DEFAULT_UPSCALER_REPO
-    weight_name = weight_name or DEFAULT_UPSCALER_WEIGHTS
+    model_name, weight_name, _, _ = upscaler_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
     # Before anything downloads: a value arriving through a variable or an
     # earlier step was never in the document validation checked
     _check_upscaler_source(model_name, weight_name)

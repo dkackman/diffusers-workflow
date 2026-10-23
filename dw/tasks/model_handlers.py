@@ -75,7 +75,10 @@ def _handle_separate_stems(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "upscale", implementation="dw.tasks.upscale.upscale_image", consumes_device=True
+    "upscale",
+    implementation="dw.tasks.upscale.upscale_image",
+    consumes_device=True,
+    required_weights="dw.tasks.upscale.required_weights",
 )
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
@@ -113,6 +116,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     "restore_faces",
     implementation="dw.tasks.restore_faces.restore_faces",
     consumes_device=True,
+    required_weights="dw.tasks.restore_faces.required_weights",
 )
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -159,6 +163,7 @@ def _handle_segment(task, arguments, previous_pipelines):
     "remove_object",
     implementation="dw.tasks.remove_object.remove_object",
     consumes_device=True,
+    required_weights="dw.tasks.remove_object.required_weights",
     summary=(
         "Erase what a mask covers and fill the hole from the surrounding "
         "texture, with no prompt (LaMa). Suits small to medium objects; an "
@@ -216,6 +221,7 @@ def _handle_remove_object(task, arguments, previous_pipelines):
     "interpolate_frames",
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
     consumes_device=True,
+    required_weights="dw.tasks.interpolate_frames.required_weights",
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
@@ -230,6 +236,7 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     "upscale_h3_latents",
     implementation="dw.tasks.h3_latent_upscale.upscale_h3_latents",
     consumes_device=True,
+    required_weights="dw.tasks.h3_latent_upscale.required_weights",
     summary=(
         "Resize MiniMax-H3 video latents to a larger canvas (e.g. a 960x544 "
         "take to 1344x768) without denoising again; decode_h3_latents turns "

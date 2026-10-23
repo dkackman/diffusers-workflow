@@ -1112,6 +1112,8 @@ face-detail pass that needs the face large and still:
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
 
+A validate's `downloads_required` lists the detector file as a file entry when it is not cached, pinned at its revision for the default repo and file.
+
 `modulus`, `remainder` and `multiple` follow `plan_cuts`: the model's grid is
 the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
 32-pixel steps, so a workflow that names none gets the output it always did;
@@ -2597,6 +2599,8 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 | `tile_size` | No | Tile size for large images (default: 512) |
 | `tile_overlap` | No | Overlap between tiles in pixels (default: 32) |
 
+A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached, or the whole repo when no `filename` is given (such a repo must hold exactly one weight file); a `previous_result:` or local-path model gives none.
+
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
 **Examples:**
@@ -2671,6 +2675,8 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 | `detection_resize` | No | Resize shorter side for detection speed (default: 640) |
 | `eye_dist_threshold` | No | Skip faces with eye distance below this (default: 5) |
 | `upsample_img` | No | Pre-upscaled background image (e.g., from a prior upscale step) |
+
+A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached (the whole repo when no `filename` is given), and facexlib's two weights as URL entries while they are missing from facexlib's weights directory: `detection_Resnet50_Final.pth` always and `parsing_parsenet.pth` unless `use_parse` is false. Those still download outside the Hugging Face cache.
 
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license). The detector and parser are loaded once per settings/device and reused across frames; `release_models` drops them with the restorer.
 
@@ -2794,7 +2800,7 @@ Erase what a mask covers and fill the hole from the surrounding texture, with no
 
 **Weights.** `michaelgold/big-lama`, file `big-lama.safetensors` (about 200 MB), read at revision `98ab7cface89a594b381f32fc7a9f2cae3f91ccc`. `biali/big-lama` holds a byte-identical copy and is the fallback if that repo disappears; it is not tried automatically. LaMa is by advimman (Suvorov et al., *Resolution-robust Large Mask Inpainting with Fourier Convolutions*) and is licensed **Apache-2.0**. The Hub repo's card says MIT, but the upstream licence is the one that applies. The task reads safetensors only: `validate_workflow` refuses a `weight_name` that is not `.safetensors` (the common `big-lama.pt` is a TorchScript file) and a `model_name` that is a local path, and the loader refuses both again at run time. Weights that do not load as an inpainting model are refused too. The network runs in fp32 on every device.
 
-**First run.** The weights download on the first run, about 200 MB. `validate_workflow`'s `plan.downloads_required` does not list task weights yet, so nothing warns of the download beforehand.
+**First run.** The weights download on the first run, about 200 MB. A validate's `downloads_required` lists `michaelgold/big-lama` / `big-lama.safetensors` as a file entry (pinned at that revision for the default pair only; another `model_name` or `weight_name` is read at `main`) while it is not cached, so the download is quoted beforehand.
 
 **Examples:**
 
@@ -3199,7 +3205,7 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 | `model_name` | No | HuggingFace repo with RIFE v4.13 weights (default: `imaginairy/rife-interpolation`) |
 | `filename` | No | Weights filename within the repo (default: `rife-flownet-4.13.2.safetensors`) |
 
-Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use.
+Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use. A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached.
 
 **Example:** [interpolate-frames.json](../workflows/templates/interpolate-frames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
 

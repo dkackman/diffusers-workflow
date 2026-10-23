@@ -228,12 +228,15 @@ class TestTheFill:
 
 class TestTheWeights:
     def test_the_pin_is_for_the_default_file_alone(self):
-        assert (
-            remover._remover_revision(DEFAULT_REMOVER_REPO, DEFAULT_REMOVER_WEIGHTS)
-            == REMOVER_REVISION
+        assert remover.remover_source({}) == (
+            DEFAULT_REMOVER_REPO,
+            DEFAULT_REMOVER_WEIGHTS,
+            REMOVER_REVISION,
         )
-        assert (
-            remover._remover_revision("biali/big-lama", DEFAULT_REMOVER_WEIGHTS) is None
+        assert remover.remover_source({"model_name": "biali/big-lama"}) == (
+            "biali/big-lama",
+            DEFAULT_REMOVER_WEIGHTS,
+            None,
         )
 
     def test_the_default_downloads_at_the_pin_and_is_cached(self):

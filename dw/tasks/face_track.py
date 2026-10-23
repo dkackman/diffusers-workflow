@@ -48,6 +48,7 @@ from ..task_problems import (
 )
 from ..variable_constraints import aligned
 from .video_utils import frames_as_pil_list, load_audio_video
+from .weights import argument_or_default, file_entries
 
 logger = logging.getLogger("dw")
 
@@ -345,6 +346,20 @@ def pad_frames(crops, before, after):
     return [crops[i] for i in indices]
 
 
+def detector_source(arguments):
+    """The (repo, file, revision) a crop_face_track step loads YuNet from -
+    `detector_repo` and `detector_file` over the defaults, the default repo
+    read at its pinned commit and any other at its main."""
+    repo = argument_or_default(arguments, "detector_repo", DEFAULT_DETECTOR_REPO)
+    filename = argument_or_default(arguments, "detector_file", DEFAULT_DETECTOR_FILE)
+    return repo, filename, DETECTOR_REVISION if repo == DEFAULT_DETECTOR_REPO else None
+
+
+def required_weights(arguments):
+    """The face detector's weight file, for the plan (dw/tasks/weights.py)."""
+    return file_entries(*detector_source(arguments))
+
+
 def _detector(repo, filename, min_confidence, device):
     """A callable running YuNet on an RGB array, loaded once per device."""
     import cv2
@@ -352,8 +367,10 @@ def _detector(repo, filename, min_confidence, device):
     from .. import get_device_type
     from .model_cache import cached_model
 
+    repo, filename, revision = detector_source(
+        {"detector_repo": repo, "detector_file": filename}
+    )
     check_face_detector_source(repo, filename)
-    revision = DETECTOR_REVISION if repo == DEFAULT_DETECTOR_REPO else None
 
     use_cuda = (
         get_device_type(device) == "cuda"
