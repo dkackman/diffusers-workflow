@@ -486,6 +486,41 @@ def test_an_unknown_argument_does_not_make_a_given_one_read_as_null(root):
     assert "which is null" not in messages
 
 
+def test_a_null_variable_and_an_unknown_argument_are_both_reported(root):
+    """Every error comes back at once (#976): the null `audio` no longer
+    hides the unknown `bogus`."""
+    definition = {
+        "id": "se-976",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    admission = admit(
+        workflow_path=None,
+        workflow=definition,
+        arguments={"bogus": 1},
+        base_dir=None,
+        workspace=root,
+        ceiling_index={},
+        output_dir=root.outputs,
+        workflow_dir=root.workflows,
+        asset_library=library_path("assets", root),
+        prompt_library=library_path("prompts", root),
+    )
+    assert not admission.ok
+    messages = [e["message"] for e in admission.errors]
+    assert any("which is null" in m for m in messages)
+    assert any("bogus" in m and "Unknown variable" in m for m in messages)
+
+
 def test_validation_errors_do_not_read_a_supplied_variable_as_null_beside_a_bad_argument():
     """The owner of the rule is validation_errors itself (#972): any caller,
     not only admit(), gets no null finding for a name it supplied."""

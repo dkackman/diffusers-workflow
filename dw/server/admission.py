@@ -193,6 +193,18 @@ def admit(
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
         if admission.errors:
+            # Every error comes back at once (#976): the caller's own bad
+            # arguments (an unknown name) are reported beside the
+            # document's errors, not only after they are fixed
+            try:
+                known = {(e.get("path"), e.get("message")) for e in admission.errors}
+                admission.errors += [
+                    e
+                    for e in argument_errors(candidate.workflow_definition, arguments)
+                    if (e.get("path"), e.get("message")) not in known
+                ]
+            except Exception:
+                logger.debug("argument_errors skipped beside a failed document")
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
             admission.schema_errors = True
