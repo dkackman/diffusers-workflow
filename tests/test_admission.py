@@ -186,6 +186,91 @@ def test_a_bound_submit_expands_once(server, folds):
         assert len(folds) == 1
 
 
+@pytest.fixture
+def empty_hub_cache(monkeypatch):
+    """No repo cached, whatever this machine's own Hugging Face cache holds,
+    so every task step's repo is a download to acknowledge."""
+    import dw.plan
+
+    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+
+
+def segment_workflow():
+    """A task-only workflow whose one model is a task step's: the plan lists
+    the segment step's two repos, and no pipeline step loads either."""
+    return {
+        "id": "segmented",
+        "variables": {"image": "asset:present.png"},
+        "steps": [
+            {
+                "name": "mask",
+                "task": {
+                    "command": "segment",
+                    "arguments": {"image": "variable:image", "prompt": "a cup"},
+                },
+                "result": {"content_type": "image/png"},
+            }
+        ],
+    }
+
+
+def test_a_bound_acknowledgement_missing_a_task_steps_repo_is_refused(
+    server, empty_hub_cache
+):
+    """#975: a task step's weights are in downloads_required, so an
+    acknowledgement that names none of them is a download the caller never
+    saw - answered 409 "downloads" like a pipeline's."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        repos = [entry["repo"] for entry in plan["downloads_required"]]
+        assert "IDEA-Research/grounding-dino-base" in repos
+
+        response = client.post(
+            "/api/jobs",
+            json={
+                **body,
+                "acknowledged_cost": {
+                    "fingerprint": plan["fingerprint"],
+                    "minutes": plan["estimate"]["minutes"],
+                    "downloads": [],
+                },
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        detail = response.json()["detail"]
+        assert detail["reason"] == "downloads"
+        assert set(repos) <= set(detail["acknowledge"]["downloads"])
+
+
+def test_a_bound_acknowledgement_naming_a_task_steps_repos_is_admitted(
+    server, empty_hub_cache
+):
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        repos = [entry["repo"] for entry in plan["downloads_required"]]
+        assert repos
+
+        response = client.post(
+            "/api/jobs",
+            json={
+                **body,
+                "acknowledged_cost": {
+                    "fingerprint": plan["fingerprint"],
+                    "minutes": plan["estimate"]["minutes"],
+                    "downloads": repos,
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["acknowledged"] == "bound"
+
+
 def test_a_rerun_expands_once(server, folds):
     with server() as client:
         submitted = client.post(

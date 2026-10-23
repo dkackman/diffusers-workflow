@@ -107,6 +107,15 @@ A new task is:
    automatically, so a module it does not import registers nothing;
 3. a section in this file.
 
+A task that loads Hub weights also declares `required_weights(arguments)`,
+named on the decorator as
+`register_command(required_weights="dw.tasks.<module>.required_weights")`. It
+returns `[{"repo": ...}]` for the step's arguments (an empty list when the
+repo is not known yet, e.g. a `previous_result:` `model_name`), and resolves
+each repo with `argument_or_default` from `dw/tasks/weights.py`, the same call
+the loader makes, so the declaration and the load cannot name different
+repos. A validate's `downloads_required` lists those repos; `tests/test_task_weights.py` pins it.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
@@ -138,6 +147,8 @@ Generate control images for ControlNet pipelines:
 | `segmentation` | Semantic segmentation |
 | `depth_estimator` | Depth hint generation |
 | `depth_estimator_tensor` | Depth hint as tensor |
+
+A validate's `downloads_required` lists the repo each detector fetches when it is not cached: `depth` `Intel/dpt-hybrid-midas`; `depth_estimator` and `depth_estimator_tensor` `Intel/dpt-large`; the `controlnet_aux` detectors `lllyasviel/Annotators` (`teed` `fal-ai/teed`, `anyline` `TheMistoAI/MistoLine`, `sam` `ybelkada/segment-anything`); `segmentation` `openmmlab/upernet-convnext-small`. `zoe_depth` and `dw_pose` fetch outside the Hugging Face cache and are not listed.
 
 All accept an `image` argument with processing parameters:
 
@@ -174,6 +185,8 @@ All accept an `image` argument with processing parameters:
 | `strip_exif` | Remove all EXIF/metadata from image | |
 | `add_watermark` | Add visible text watermark | `text`, `position`, `opacity`, `font_size`, `color`, `margin` |
 | `get_image_size` | Return `{width, height}` dict | |
+
+A validate's `downloads_required` lists `briaai/RMBG-2.0` for `remove_background` when it is not cached.
 
 ### EXIF Stripping
 
@@ -2282,6 +2295,8 @@ word never flag it. The thresholds are the `STACK_*` constants in
 
 ## Voice attribution
 
+A validate's `downloads_required` lists `speechbrain/spkrec-ecapa-voxceleb` only. The demucs separator (and `separate_stems`) downloads outside the Hugging Face cache and is not listed.
+
 Which reference voice sings each line of a song, by timbre - staging
 lip-sync shots for a generated song needs its section-to-singer map, and a
 generation model (MiniMax Music3 included) does not hand one back. Pitch
@@ -2596,6 +2611,8 @@ Two modes are available:
 - **x4** (default): `StableDiffusionUpscalePipeline` — 4x upscale via `stabilityai/stable-diffusion-x4-upscaler`
 - **x2**: `StableDiffusionLatentUpscalePipeline` — 2x upscale via `stabilityai/sd-x2-latent-upscaler`
 
+A validate's `downloads_required` lists the repo for the `mode` given; `model_name` overrides it.
+
 ```json
 {
     "task": {
@@ -2707,6 +2724,8 @@ This gives the best results: the super-resolution model handles background detai
 
 Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns a binary mask image suitable for inpainting workflows.
 
+A validate's `downloads_required` lists `IDEA-Research/grounding-dino-base` and `facebook/sam2-hiera-large`; `model_name` and `sam_model_name` override them.
+
 ```json
 {
     "task": {
@@ -2787,6 +2806,8 @@ Erase what a mask covers and fill the hole from the surrounding texture, with no
 Generate text captions from images using a vision-language model.
 
 Transformers 5 removed the dedicated `image-to-text` pipeline this task used to build, along with the BLIP/ViT-GPT2/GIT captioning models that ran on it. Captioning now goes through the same `image-text-to-text` pipeline as any other VLM, so `model_name` needs a vision-language model (SmolVLM, Qwen2.5-VL, LLaVA, etc.) and `prompt` is a question put to the model rather than a text fragment to continue.
+
+A validate's `downloads_required` lists `HuggingFaceTB/SmolVLM-256M-Instruct` for `image_to_text` and `judge`; `model_name` overrides it.
 
 ```json
 {
@@ -2897,6 +2918,8 @@ The built-in `h3_context_ir` workflow applies this to its own output, so a workf
 
 Generate or expand text using a local language model. Useful for expanding short prompts into detailed image generation prompts, rewriting text, or other text-to-text tasks.
 
+A validate's `downloads_required` lists `Qwen/Qwen2.5-1.5B-Instruct`, or `HuggingFaceTB/SmolVLM-256M-Instruct` when an `image` is given; `model_name` overrides it. A `system_prompt.from_hub` file is not listed.
+
 ```json
 {
     "task": {
@@ -2981,7 +3004,7 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Speech Generation
 
-Speak a line of text with a local text-to-speech model. Any transformers text-to-speech checkpoint can be named as `model_name`; three families are wired for their voice controls:
+Speak a line of text with a local text-to-speech model. A validate's `downloads_required` lists `suno/bark-small` (`model_name` overrides it), plus `speechbrain/spkrec-xvect-voxceleb` when `speaker_embedding` is given. Any transformers text-to-speech checkpoint can be named as `model_name`; three families are wired for their voice controls:
 
 | Family | Checkpoint | Voice |
 |--------|-----------|-------|
@@ -3044,6 +3067,8 @@ A speech model is worth releasing before a video model loads — set `release_mo
 
 ## Speech Transcription
 
+A validate's `downloads_required` lists `openai/whisper-base`; `model_name` overrides it. `check_script` uses the same model.
+
 Transcribe spoken audio to text with a local Whisper-class model. The word-correctness of a TTS deliverable — a dropped line, a mid-sentence truncation — can only be inferred from duration and timing arithmetic without this; `transcribe_audio` checks it directly against the text the deliverable was supposed to speak.
 
 ```json
@@ -3076,6 +3101,8 @@ To compare a take against the lines it was meant to speak, use [`check_script`](
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 
 ## Script check
+
+A validate's `downloads_required` lists `openai/whisper-base` for its transcription; `model_name` overrides it.
 
 Whether a dialogue take speaks its script. Confirming it used to mean transcribing the take and comparing the transcript to the script by eye, which missed a word Whisper dropped, an H3 tag read aloud, and a last word cut off by the end of the file. `check_script` does the comparison and reports where to look.
 
