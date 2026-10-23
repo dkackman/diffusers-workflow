@@ -827,6 +827,25 @@ workflow.
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
 
+### Erasing versus repainting a masked region
+
+A request to *erase or remove* an object and a request to *put something
+new* in its place are different operations, and only one of them takes a
+prompt.
+
+- **Erase or remove an object** → the `remove_object` task: prompt-free, it
+  fills the hole from the surrounding scene, and suits small to medium
+  objects (a cup, a sign, a watermark). `templates/remove-object.json` takes
+  a mask you already have; `templates/segment-and-remove.json` masks the
+  object by name first. A large region, such as a person filling a third of
+  the frame, comes back smeared.
+- **Put something new inside a mask** → a prompted inpainter,
+  `models/z-image-inpaint` or `templates/inpaint.json`. The prompt names what
+  to paint. Do not use one to erase: given a prompt for "empty background" it
+  paints a new object or a patch that does not match (#946).
+
+`docs/TASKS.md` *Object Removal* has the task's arguments and its mask rules.
+
 ### A spoken scene breaking into a song
 
 A musical number: spoken shots, each carrying its own dialogue audio, then

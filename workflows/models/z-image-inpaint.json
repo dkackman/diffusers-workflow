@@ -12,7 +12,7 @@
     },
     "seed": "variable:seed",
     "id": "ZImageInpaint",
-    "description": "Masked add or replace with Z-Image Turbo (ZImageInpaintPipeline): white mask pixels are repainted with what the prompt names, the rest is kept. NOT for object removal: with a prompt it paints a new object or a mismatched patch rather than continuing the surrounding scene (#946); use templates/inpaint (FLUX.1 Fill) to remove an object or outpaint. Uses the same Tongyi-MAI/Z-Image-Turbo checkpoint as models/z-image, so a server that has one has the other, and fits a 24 GB card with offload where FLUX.1 Fill needs a 54 GB download. Prompt for the thing to put in the mask.",
+    "description": "Masked add or replace with Z-Image Turbo (ZImageInpaintPipeline): white mask pixels are repainted with what the prompt names, the rest is kept. NOT for object removal: with a prompt it paints a new object or a mismatched patch rather than continuing the surrounding scene (#946); to erase an object use templates/remove-object (a mask to hand) or templates/segment-and-remove (the object by name), which run the prompt-free remove_object task, and to extend past the frame use templates/outpaint. Uses the same Tongyi-MAI/Z-Image-Turbo checkpoint as models/z-image, so a server that has one has the other, and fits a 24 GB card with offload where FLUX.1 Fill needs a 54 GB download. Prompt for the thing to put in the mask.",
     "vram_estimate": {
         "base_gb": 11.8,
         "bytes_per_voxel": 1031,
