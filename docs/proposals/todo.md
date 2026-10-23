@@ -343,6 +343,14 @@ remaining deferred fix is recorded in
   mask. Record, including what was deferred (temporal video removal,
   per-frame masks, a larger model for big regions, #975's download
   warning): `complete/remove-object-complete.md`.
+- **Task weights in `plan.downloads_required`** (#975, stages #977-#978),
+  shipped 2026-10-23. Each model-backed task declares
+  `required_weights(arguments)`. Its loader reads the same resolution, and
+  the plan lists those repos, plus single files at their pinned revision
+  and facexlib's URLs, so a bound acknowledgement covers them. Record,
+  including what was deferred (fetchers outside the HF cache, pinned-file
+  `download_model`, `gated` on file entries):
+  `complete/task-weights-downloads-complete.md`.
 
 ## Declined
 

@@ -147,8 +147,8 @@ $2–3 for B.
 
 ## Follow-up
 
-- **#975:** `plan.downloads_required` doesn't see task weights (upscale,
-  restore_faces, remove_object). The first `remove_object` run downloads
-  about 200 MB without a warning, and TASKS.md says so.
+- **#975** (shipped 2026-10-23): `plan.downloads_required` now lists task
+  weights, including `remove_object`'s pinned big-lama file. Record:
+  `task-weights-downloads-complete.md`.
 - The templates' `vram_gb` figures (1 and 4) are estimates from model
   sizes, not measurements. Replace them when one is measured.
