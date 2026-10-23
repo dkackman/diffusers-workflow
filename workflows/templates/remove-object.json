@@ -7,7 +7,7 @@
     ],
     "variables": {
         "image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
-        "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
+        "mask_image": "https://raw.githubusercontent.com/dkackman/diffusers-workflow/bfb4e222473a17e13aa8bd0d9c1f47a82243bd48/docs/img/cup-object-mask.png",
         "dilate": 8
     },
     "steps": [

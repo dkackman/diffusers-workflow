@@ -120,7 +120,12 @@ def segment_image(image, prompt, device="cpu", **kwargs):
         sam_outputs.pred_masks, sam_inputs["original_sizes"]
     )
 
-    combined = masks[0][:, 0].sum(dim=0).clamp(0, 1)
+    # SAM2 answers each box with three candidate masks and rates each in
+    # iou_scores. Take each box's best-rated one: the first is often a part of
+    # the object - on the docs cup it was the body alone, missing the lid and
+    # with a hole where the logo is, so remove_object left the cup (#974)
+    best = sam_outputs.iou_scores[0].argmax(dim=-1).cpu()
+    combined = masks[0][torch.arange(len(best)), best].sum(dim=0).clamp(0, 1)
     mask_array = (combined.cpu().numpy() * 255).astype(np.uint8)
 
     mask_image = Image.fromarray(mask_array, mode="L")

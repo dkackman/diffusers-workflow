@@ -2729,7 +2729,7 @@ Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns 
 | `threshold` | No | Detection confidence threshold (default: 0.3) |
 | `invert` | No | Invert the output mask (default: false) |
 
-Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. To erase what it found, pass the mask to [`remove_object`](#object-removal), which chains with no `invert`. To paint something new in its place, pass it to a prompted inpainter such as FluxFillPipeline.
+Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. SAM2 proposes three masks for each detected box, and segment keeps the one SAM2 rates best. That is usually the whole object: on the docs cup photo the first proposal was the body alone, without the lid and with a hole at the logo. To erase what it found, pass the mask to [`remove_object`](#object-removal), which chains with no `invert`. To paint something new in its place, pass it to a prompted inpainter such as FluxFillPipeline.
 
 **Examples:**
 
