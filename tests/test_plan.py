@@ -1791,6 +1791,29 @@ class TestDownloadsRequired:
             "org/vae",
         ]
 
+    @pytest.mark.parametrize(
+        "override, expected",
+        [
+            ("org/other", ["org/still-model", "org/other"]),
+            (
+                {"transformer_ref": "org/other", "vae": "org/vae"},
+                ["org/still-model", "org/other", "org/vae"],
+            ),
+            ({"default": "org/other"}, ["org/still-model", "org/other"]),
+            ({"default": "org/still-model"}, ["org/still-model"]),
+            (None, ["org/still-model"]),
+        ],
+    )
+    def test_a_load_components_repo_override_is_listed(self, plan, override, expected):
+        """#981: the string, per-component and default forms, deduplicated
+        against model_name, and unchanged when the key is absent."""
+        spec = definition()
+        if override is not None:
+            spec["steps"][0]["pipeline"]["load_components"] = {
+                "pretrained_model_name_or_path": override
+            }
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == expected
+
     def test_task_steps_list_the_repos_their_commands_declare(self, plan):
         """#975: an image processor (remove_background) and a registered
         command (segment) both name their weights, after the pipeline's."""

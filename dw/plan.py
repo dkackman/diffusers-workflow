@@ -892,6 +892,8 @@ MODEL_NAME_KEY = "model_name"
 LORAS_KEY = "loras"
 SINGLE_FILE_KEY = "from_single_file"
 VARIANT_KEY = "variant"
+LOAD_COMPONENTS_KEY = "load_components"
+OVERRIDE_KEY = "pretrained_model_name_or_path"
 
 
 def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
@@ -1003,11 +1005,26 @@ def _collect_sources(tree, names, variants, urls):
             single = source.get(SINGLE_FILE_KEY)
             if isinstance(single, str) and _is_url(single) and single not in urls:
                 urls.append(single)
+        _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names)
         for value in tree.values():
             _collect_sources(value, names, variants, urls)
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, variants, urls)
+
+
+def _collect_component_overrides(arguments, names):
+    """The repos a modular step's `load_components.pretrained_model_name_or_path`
+    names: a string for every component, or a dict keyed by component name
+    with an optional `default`. Diffusers merges it over each component's
+    spec, so the repo is pulled mid-run (#981). The base repo is still listed
+    whole - the subfolder an override replaces is not subtracted."""
+    if not isinstance(arguments, dict):
+        return
+    value = arguments.get(OVERRIDE_KEY)
+    for name in value.values() if isinstance(value, dict) else [value]:
+        if isinstance(name, str) and name not in names:
+            names.append(name)
 
 
 def _collect_task_weights(tree, names, files, urls):
