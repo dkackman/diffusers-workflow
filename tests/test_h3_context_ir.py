@@ -60,6 +60,20 @@ def test_the_dialogue_fidelity_rules_are_present():
     assert "retention_analysis" in prompt and "(Sx)" in prompt
 
 
+def test_spoken_lines_are_written_as_d_blocks_not_quoted_prose():
+    """With the rule stated only in the abstract, Qwen3-4B wrote every supplied
+    line as quoted prose and no <d> block at all (#989). The field definition
+    and a worked example of the tag are what bring the block back."""
+    prompt = _system_prompt()
+
+    field = prompt[prompt.index("integrated_multimodal_description:") :]
+    field = field[: field.index("\n")]
+    assert "<d> block" in field
+    assert "never quoted prose" in prompt
+    assert "<d>[English] We should head back.</d>" in prompt
+    assert "[English], [Chinese]" in prompt
+
+
 def test_the_unsourced_lines_are_gone():
     prompt = _system_prompt()
 
