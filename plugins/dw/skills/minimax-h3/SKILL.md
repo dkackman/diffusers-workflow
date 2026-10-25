@@ -28,10 +28,12 @@ arguments; prompt format is MiniMax's, from its text not here.
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
-- **A locked frame that lip-syncs to a song** (FL2VA takes no audio): Ref2VA
-  `[keyframe completion + audio reuse]`, `<Picture 1>` the first frame,
-  `<Audio 1>` the song, held with `hold_audio` (#852). It keeps the framing,
-  not the pixels; a last frame costs 45% more and does not land.
+- **A locked frame that lip-syncs to a song**: FL2VA with the song held by
+  `hold_audio` keeps the first frame's pixels and the mouth follows the track
+  (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
+  Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
+  first frame, `<Audio 1>` the song, also held (#852). It keeps the framing,
+  not the pixels, at ~4.7x the denoise; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
