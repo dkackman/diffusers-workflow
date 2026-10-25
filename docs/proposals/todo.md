@@ -351,6 +351,15 @@ remaining deferred fix is recorded in
   including what was deferred (fetchers outside the HF cache, pinned-file
   `download_model`, `gated` on file entries):
   `complete/task-weights-downloads-complete.md`.
+- **H3 rules from WanGP's field notes** (#985, stages #988-#989), shipped
+  2026-10-25. Probed on lem at int8 + turbo: FL2VA with `hold_audio` keeps
+  the first frame's pixels and lip-syncs, so it is now the skill's
+  locked-frame route (Ref2VA keyframe completion the fallback); leaving
+  words out of `<d>` under a held track was refuted. The `h3` enhancer
+  writes `<d>` blocks again. Record, including what was dropped (tail-frame
+  discard: dw chains have no per-window end image) and deferred (keyframe
+  strength, not reachable from a workflow):
+  `complete/h3-wangp-field-notes-complete.md`.
 
 ## Declined
 
