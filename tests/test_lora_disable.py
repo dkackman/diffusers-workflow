@@ -130,6 +130,18 @@ class TestValidation:
         assert disabled[0].startswith("arguments.lora_model_name: ")
         assert "num_inference_steps" in disabled[0]
 
+    def test_no_undertrained_warning_once_the_schedule_is_raised(self, tmp_path):
+        raised = {
+            "lora_model_name": None,
+            "num_inference_steps": 12,
+            "video_shift": 12.0,
+            "audio_shift": 3.0,
+        }
+        warnings = validation.run_warning_check(
+            h3_workflow(tmp_path), "adapter_warnings", raised
+        )
+        assert not [w for w in warnings if "not loaded" in w]
+
     def test_nothing_is_said_when_the_lora_is_on(self, tmp_path):
         warnings = validation.run_warning_check(
             h3_workflow(tmp_path), "adapter_warnings", None

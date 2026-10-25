@@ -312,6 +312,21 @@ DISABLED_MESSAGE = (
 )
 
 
+# Step-distillation loras run in 4-9 steps; a null-lora step at or past this
+# has already been given the base model's schedule, so the warning is stale.
+RAISED_STEPS = 10
+
+
+def _schedule_raised(pipeline):
+    arguments = pipeline.get("arguments")
+    steps = (
+        arguments.get("num_inference_steps") if isinstance(arguments, dict) else None
+    )
+    return (
+        isinstance(steps, int) and not isinstance(steps, bool) and steps >= RAISED_STEPS
+    )
+
+
 def _disabled_loras(steps, source_indices, written=None, supplied=()):
     """Every `loras` entry switched off with a null model_name, as
     (path, message). Any pipeline, not only H3: the off switch is the
@@ -322,7 +337,7 @@ def _disabled_loras(steps, source_indices, written=None, supplied=()):
         steps, source_indices, "pipeline"
     ):
         loras = pipeline.get(LORAS_KEY)
-        if not isinstance(loras, list):
+        if not isinstance(loras, list) or _schedule_raised(pipeline):
             continue
         for position, lora in enumerate(loras):
             if not isinstance(lora, dict) or lora.get(MODEL_NAME_KEY) is not None:
