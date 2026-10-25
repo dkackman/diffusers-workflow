@@ -1,6 +1,7 @@
 # MiniMax-H3 claims from WanGP's field notes: record-only probes (#985 stage A, #988)
 
-Probe date: 2026-10-25. Server `lem`, develop @ b80dec77.
+Probe date: 2026-10-25. Server `lem`, develop @ b80dec77. The sung
+`measure_sync` figures were re-measured on develop @ f9b96b20 (the #990 fix).
 Agent: claude-opus-5-5 (anthropic). Workspace `qa-h3-wangp-probes`.
 No engine or skill file was changed. This document only records results.
 
@@ -39,19 +40,38 @@ probed.
 
 ### `measure_sync` figures
 
-| Track | Jobs | `lag_seconds` | `confidence` | `reference_seconds` | Findings |
-| --- | --- | --- | --- | --- | --- |
-| sung (la-vela) | all 4 P1 sung, all 4 P4 | 0.0 | 0.175 | 118.751 | `sync_low_confidence` (warn, threshold 0.3) |
-| spoken (hal-voice) | all 4 P1 spoken | 0.0 | 0.756 | 2.499 | none |
+| Track | Jobs | `lag_seconds` | `confidence` | `reference_seconds` | Findings | Measured by |
+| --- | --- | --- | --- | --- | --- | --- |
+| sung (la-vela) | all 4 P1 sung, all 4 P4 | 0.0 | 0.979 | 5.1667 | none | re-measure job 85fb684df2ef |
+| spoken (hal-voice) | all 4 P1 spoken | 0.0 | 0.756 | 2.499 | none | each job's own `sync` step |
 
-Lag 0.0 is expected, because the output audio is the held slice. The sung
-figure looks unreliable: `audio_seconds` is 5.1667 but `reference_seconds`
-is 118.751. The step's `reference` is `previous_result:slice` (a 5.17 s
-slice), so `measure_sync` seems to have read something song-length, possibly
-the whole source track. The spoken reference length of 2.499 s is about the
-speech span, which suggests the trailing silence was trimmed. This is a
-possible `measure_sync` or reference-resolution bug, recorded here for
-follow-up. It doesn't affect a verdict.
+Lag 0.0 is expected, because the output audio is the held slice. The
+confidence is the same for every sung job for the same reason: each one
+plays the same 5.17 s of the song.
+
+**Sung figures re-measured after #990.** The first in-job `sync` steps of
+the sung jobs read 0.0 / 0.175 (`sync_low_confidence`) with
+`reference_seconds` 118.751. The cause was #990: `slice_audio` ignored
+`num_frames` when given `start_seconds` and no duration, so each sung
+`slice` step wrote 118.751 s of song from 42.5 s onward. `measure_sync` then
+compared a 5.17 s shot against that whole length.
+
+**The shots themselves were not affected.** Both inputs that read the slice
+crop it to the shot's `num_frames / fps` from its start:
+- `hold_audio` encodes with `max_duration` and plays a fitted copy
+  (`dw/pipeline_processors/h3_hold_steps.py:219,236`);
+- the Ref2VA `<Audio 1>` reference is truncated to `max_duration` by
+  diffusers' `_normalize_audio_condition` (`before_encoder.py:370`).
+
+So H3 was conditioned on exactly the intended 5.17 s, and only the sync
+figure needed redoing. Job 85fb684df2ef (no generation, run
+`WanGPProbeResync/20261025-163353-b9710590`) re-slices la-vela at 42.5 s,
+124 frames at 24 fps and 44100 Hz with the fixed `slice_audio`. It then
+runs `measure_sync` (`device` cpu) of each of the eight sung shots against
+that slice, one step per job, each named by its job id.
+
+The spoken reference length of 2.499 s is about the speech span, which
+suggests the trailing silence was trimmed.
 
 ## Probe 1: lip-sync with and without `<d>`
 
@@ -168,6 +188,10 @@ times faster to denoise.
   | 3c097799d825 | 8e42ec21cf9a |
 
   The failed ids are superseded and not cited as results.
+- **Sung slice ran the whole song (#990).** Every sung job's `slice` step
+  wrote 118.751 s, not 5.17 s. The shots only ever used the first 5.17 s
+  (see *`measure_sync` figures*). Their in-job `sync` results are superseded
+  by re-measure job 85fb684df2ef.
 - **Excluded jobs:** 423bcbe3c40f (wiring check, before the relabel was
   settled) and dbcdd254f897 (transcription of the source for prep).
 
