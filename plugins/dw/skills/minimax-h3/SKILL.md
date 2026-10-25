@@ -112,6 +112,10 @@ section).
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
+- Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes voices
+  (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
+  `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it (int8 +
+  turbo is less bad, not clean). Turbo stays the default otherwise (#984 B0).
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip: there is no latent memory. Identity rides
   on a picture, voice timbre on an audio clip, motion/camera on a video
