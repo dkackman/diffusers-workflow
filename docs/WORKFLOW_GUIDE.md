@@ -1786,6 +1786,10 @@ open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, 
 speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
 so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
 is also for picture that must fit audio exactly, such as motion cut to music.
+On `fl2va`, hold is the locked-frame lip-sync route (#985: `image-to-video`'s fl2va, a first
+frame plus a held 5.17 s song, int8 turbo, two seeds): frame 0 kept the picture's pixels and
+the mouth followed the song as in an audio-referenced Ref2VA shot, at about a fifth of the
+denoise time of Ref2VA `[keyframe completion + audio reuse]`, which keeps only the framing.
 `refine_strength` also uses hold, to keep the base pass's own audio, which was generated
 jointly with that video - a different case from lip sync to supplied audio (see the refine
 section below).
