@@ -754,7 +754,8 @@ def slice_region(
     """The region a `slice_audio` call asks for, as `(start, length)` in
     samples, or None when it cannot be worked out.
 
-    Seconds win over frames, as in the run. A frame-addressed end is rounded
+    Seconds win over frames, as in the run, except that a start in seconds
+    with no duration takes its length from `num_frames` / `fps` (#990). A frame-addressed end is rounded
     once, not as two rounded halves (#557), so a slice meant to reach the
     source's exact end does. A slice with no duration (or no `num_frames`)
     runs to the source's end, which takes `total`, the source's length in
@@ -768,6 +769,10 @@ def slice_region(
         start = int(round((start_seconds or 0) * sample_rate))
         if duration_seconds is not None:
             return start, int(round(duration_seconds * sample_rate))
+        if num_frames is not None and fps:
+            # A start in seconds with a length in frames (#990): the length
+            # was dropped and the slice ran to the source's end
+            return start, frames_to_samples(num_frames, fps, sample_rate)
     elif start_frame is not None or num_frames is not None:
         if not fps:
             return None
