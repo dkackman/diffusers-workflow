@@ -28,6 +28,7 @@ import wave
 import av
 import numpy
 from av.audio.resampler import AudioResampler
+from av.video.reformatter import VideoReformatter
 from PIL import Image
 
 from .dsp import SILENCE_DBFS, dbfs, integrated_lufs, layout_name, true_peak_dbfs
@@ -613,18 +614,27 @@ def decode_rgb_frames(path):
         ]
 
 
-def read_thumbnails_and_track(path, thumb_width, thumb_height):
+def read_thumbnails_and_track(
+    path, thumb_width, thumb_height, look=None, look_width=128, look_height=72
+):
     """Stream a file once into grey thumbnails and its soundtrack.
 
     Each decoded picture frame is reduced to a `thumb_height` x `thumb_width`
     grey array as it arrives and then dropped, so memory holds thumbnails,
-    not pictures. Returns (thumbs, chunks, fps, video_seconds, audio_seconds,
-    sample_rate): the thumbnails as a list, the track as a list of float32
-    (samples, channels) chunks, and the streams' own rates and durations
-    (None where a stream is absent or states none).
+    not pictures. With `look`, each frame is also reformatted to a
+    `look_height` x `look_width` rgb24 array and handed to it at once, and
+    only what it returns is kept (#1031). Returns (thumbs, chunks, fps,
+    video_seconds, audio_seconds, sample_rate, looks): the thumbnails as a
+    list, the track as a list of float32 (samples, channels) chunks, the
+    streams' own rates and durations (None where a stream is absent or
+    states none), and `look`'s results as a list (empty without one).
     """
     thumbs = []
+    looks = []
     chunks = []
+    # Its own scaler: frame.reformat shares one, and alternating two output
+    # sizes through it rebuilds the context every frame - 10x the cost
+    look_scaler = VideoReformatter()
     with av.open(path) as container:
         video = (
             _threaded(container.streams.video[0]) if container.streams.video else None
@@ -644,10 +654,21 @@ def read_thumbnails_and_track(path, thumb_width, thumb_height):
                         width=thumb_width, height=thumb_height, format="gray"
                     ).to_ndarray()[:thumb_height, :thumb_width]
                 )
+                if look is not None:
+                    looks.append(
+                        look(
+                            look_scaler.reformat(
+                                frame,
+                                width=look_width,
+                                height=look_height,
+                                format="rgb24",
+                            ).to_ndarray()[:look_height, :look_width]
+                        )
+                    )
             elif isinstance(frame, av.AudioFrame):
                 chunks.append(as_frame_samples(to_float32(frame), channels))
         sample_rate = int(audio.rate) if audio is not None else None
-    return thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate
+    return thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate, looks
 
 
 def _stream_info(container, audio_stream_seconds=False):

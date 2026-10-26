@@ -1072,7 +1072,11 @@ Pass `probe="analyze_seams"` (or either of the other two probe names) to
 get that one probe's full body: every seam's or shot's measurements, not
 just the ones that crossed a rule. `detail=true` adds every applicable
 probe's full body under `probes`. An unknown probe is refused before
-anything is read, and the error names the three probes.
+anything is read, and the error names the three probes. Each seam's full
+record also carries look measures - saturation, lightness and contrast
+steps, `look_ratio` and `detail_ratio` - that catch a colour or brightness
+shift `jump_ratio` misses; no rule reads them (the tasks guide's
+`analyze_seams` field table).
 
 **The answer.**
 
