@@ -7,6 +7,7 @@ audio_utils's.
 """
 
 import logging
+import os
 
 import numpy
 
@@ -91,14 +92,18 @@ def normalize_audio(
         logger.warning("normalize_audio: the track is silent - left unchanged")
         return as_track(waveform, sample_rate, "normalize_audio")
     if limit:
+        shots = getattr(audio, "shots", None)
+        fps = getattr(audio, "fps", None)
+        if isinstance(audio, str):
+            shots, fps = _shots_of_file(audio)
         return as_track(
             _normalize_limited(
                 waveform,
                 sample_rate,
                 peak_dbfs,
                 target_lufs,
-                shots=getattr(audio, "shots", None),
-                fps=getattr(audio, "fps", None),
+                shots=shots,
+                fps=fps,
             ),
             sample_rate,
             "normalize_audio",
@@ -155,6 +160,36 @@ def normalize_audio(
     return as_track(
         (waveform * gain).astype(numpy.float32), sample_rate, "normalize_audio"
     )
+
+
+def _shots_of_file(path):
+    """(shots, fps) a saved video file carries - the shots its run manifest
+    recorded for it and the rate its container declares - or (None, None)
+    for an audio file, a URL or a path the manifest does not know (#1041).
+    A path given as `output:`/`asset:` reaches the task as a string, so the
+    shots an in-run `previous_result:` carries are read off the disk here."""
+    from ..runs import shots_beside
+    from ..security import ALLOWED_VIDEO_EXTENSIONS
+    from .video_utils import local_video_path
+
+    if (
+        os.path.splitext(path.split("?", 1)[0])[1].lower()
+        not in ALLOWED_VIDEO_EXTENSIONS
+    ):
+        return None, None
+    try:
+        local = local_video_path(path)
+        if local is None:
+            return None, None
+        shots = shots_beside(local)
+        if not shots:
+            return None, None
+        from ..media import container_fps
+
+        return shots, container_fps(local)
+    except Exception as error:
+        logger.debug(f"No shots for {path}: {error}")
+        return None, None
 
 
 def _normalize_limited(

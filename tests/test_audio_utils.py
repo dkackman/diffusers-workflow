@@ -1891,3 +1891,23 @@ class TestNormalizeLimitedShotWarning:
         audio = self._cut()
         audio.shots = None
         assert self._events(audio) == []
+
+    def test_saved_cut_given_as_a_path_carries_its_manifest_shots(self, monkeypatch):
+        # #1041: an `output:`/`asset:` cut reaches the task as a path string
+        cut = self._cut()
+        monkeypatch.setattr(
+            "dw.tasks.audio_dynamics.waveform_and_rate",
+            lambda audio, rate, command: (cut.audio, cut.sample_rate),
+        )
+        monkeypatch.setattr(
+            "dw.tasks.video_utils.local_video_path", lambda path, base_dir=None: path
+        )
+        monkeypatch.setattr("dw.runs.shots_beside", lambda path: cut.shots)
+        monkeypatch.setattr("dw.media.container_fps", lambda path: cut.fps)
+        found = self._events("runs/qa-cut-edit.4-0.0.mp4")
+        assert found and found[0]["shot"] == "kazoo"
+
+    def test_audio_file_path_has_no_shots(self, monkeypatch):
+        from dw.tasks.audio_dynamics import _shots_of_file
+
+        assert _shots_of_file("bed.wav") == (None, None)
