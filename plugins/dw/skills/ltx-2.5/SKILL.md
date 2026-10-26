@@ -53,7 +53,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
   (its own latents, no LoRA), `width`/`height` the working size. Both fit
-  the source first and restore after: output exactly 2x the source at its
+  the source first and restore after: output exactly 2x the source (2x the kept region under crop) at its
   length, any aspect ratio letterboxed and cut back (`fit`), a short source
   held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
   `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). A small,
