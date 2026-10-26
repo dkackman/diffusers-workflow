@@ -39,11 +39,25 @@ from ..assessment_rules import (
 from .. import dsp
 from ..media import read_thumbnails_and_track
 from ..events import emit_warning
+from .image_ops import luma
 
 logger = logging.getLogger("dw")
 
 THUMB_WIDTH = 64
 THUMB_HEIGHT = 36
+
+# The colour frame each look stat is taken from (#1031): big enough that a
+# 3x3 high-pass still sees detail, small enough to reduce at decode speed
+LOOK_WIDTH = 128
+LOOK_HEIGHT = 72
+LOOK_MEASURES = ("lightness", "contrast", "saturation", "detail")
+
+# Frames either side of a seam its look is averaged over, and the floors
+# under a look step's local rate and a detail ratio's denominator - all on
+# the 0-255 scale, like frame_delta
+LOOK_WINDOW = 4
+LOOK_RATE_FLOOR = 1.0
+DETAIL_FLOOR = 0.5
 
 # Audio windows around a seam, in seconds. The edge windows say whether the
 # join itself is voiced (the hole guard) and what the balance does across it;
@@ -81,6 +95,8 @@ class Media:
     thumbs: (frames, THUMB_HEIGHT, THUMB_WIDTH) uint8 grey, or None
     audio: (channels, samples) float32, or None
     video_seconds / audio_seconds: each stream's own duration, or None
+    looks: (frames, 4) float32 `look_stats` per frame (LOOK_MEASURES
+        order), or None
     """
 
     def __init__(
@@ -92,8 +108,10 @@ class Media:
         video_seconds=None,
         audio_seconds=None,
         shots=None,
+        looks=None,
     ):
         self.thumbs = thumbs
+        self.looks = looks
         self.audio = audio
         self.sample_rate = sample_rate
         self.fps = fps
@@ -112,10 +130,18 @@ def read_media(path):
     Each decoded frame is reduced to a grey thumbnail as it arrives and then
     dropped, so memory holds thumbnails, not pictures. The soundtrack is
     kept whole (the probes cut windows out of it anywhere) and trimmed to
-    the audio stream's reported duration.
+    the audio stream's reported duration. Each frame's look stats are taken
+    from a LOOK_WIDTH x LOOK_HEIGHT colour copy as it arrives.
     """
-    thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate = (
-        read_thumbnails_and_track(path, THUMB_WIDTH, THUMB_HEIGHT)
+    thumbs, chunks, fps, video_seconds, audio_seconds, sample_rate, looks = (
+        read_thumbnails_and_track(
+            path,
+            THUMB_WIDTH,
+            THUMB_HEIGHT,
+            look=look_stats,
+            look_width=LOOK_WIDTH,
+            look_height=LOOK_HEIGHT,
+        )
     )
 
     waveform = None
@@ -132,12 +158,42 @@ def read_media(path):
         fps,
         video_seconds,
         audio_seconds,
+        looks=numpy.stack(looks) if looks else None,
     )
 
 
-def _thumb(frame):
+def look_stats(rgb):
+    """A frame's look as four float32 scalars on the 0-255 scale, in
+    LOOK_MEASURES order: lightness (mean Rec. 709 luma), contrast (luma
+    standard deviation), saturation (mean per-pixel max(RGB) - min(RGB)) and
+    detail (mean |luma - its 3x3 box blur|, edges extended). The one
+    reduction both the file reader and the in-memory path use."""
+    rgb = numpy.asarray(rgb, dtype=numpy.float32)
+    plane = luma(rgb)
+    padded = numpy.pad(plane, 1, mode="edge")
+    height, width = plane.shape
+    blurred = (
+        sum(
+            padded[row : row + height, column : column + width]
+            for row in range(3)
+            for column in range(3)
+        )
+        / 9.0
+    )
+    return numpy.array(
+        [
+            plane.mean(),
+            plane.std(),
+            (rgb.max(axis=-1) - rgb.min(axis=-1)).mean(),
+            numpy.abs(plane - blurred).mean(),
+        ],
+        dtype=numpy.float32,
+    )
+
+
+def _image(frame):
     """One in-memory frame (PIL image, or an HxWxC array or tensor, uint8 or
-    float in [0, 1]) as a grey thumbnail."""
+    float in [0, 1]) as a PIL image."""
     from PIL import Image
 
     if not isinstance(frame, Image.Image):
@@ -151,26 +207,50 @@ def _thumb(frame):
         if array.ndim == 3 and array.shape[-1] == 1:
             array = array[..., 0]
         frame = Image.fromarray(array)
-    return numpy.asarray(
-        frame.convert("L").resize((THUMB_WIDTH, THUMB_HEIGHT), Image.BILINEAR),
+    return frame
+
+
+def _thumb(frame):
+    """One in-memory frame as (its grey thumbnail, its look_stats)."""
+    from PIL import Image
+
+    image = _image(frame)
+    thumb = numpy.asarray(
+        image.convert("L").resize((THUMB_WIDTH, THUMB_HEIGHT), Image.BILINEAR),
         dtype=numpy.uint8,
     )
+    look = look_stats(
+        numpy.asarray(
+            image.convert("RGB").resize((LOOK_WIDTH, LOOK_HEIGHT), Image.BILINEAR)
+        )
+    )
+    return thumb, look
 
 
 def _in_memory_thumbs(frames):
-    """Thumbnails of an AudioVideo's frames, one frame at a time: a list, an
-    (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3) chunks."""
+    """(thumbnails, looks) of an AudioVideo's frames, one frame at a time: a
+    list, an (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3)
+    chunks. Both None for no frames."""
     from ..pipeline_processors.chain import SegmentedFrames
 
     thumbs = []
+    looks = []
+
+    def add(frame):
+        thumb, look = _thumb(frame)
+        thumbs.append(thumb)
+        looks.append(look)
+
     if isinstance(frames, SegmentedFrames):
         for chunk in frames:
             for frame in chunk:
-                thumbs.append(_thumb(frame))
+                add(frame)
     else:
         for frame in frames:
-            thumbs.append(_thumb(frame))
-    return numpy.stack(thumbs) if thumbs else None
+            add(frame)
+    if not thumbs:
+        return None, None
+    return numpy.stack(thumbs), numpy.stack(looks)
 
 
 def _file_path(video):
@@ -195,10 +275,10 @@ def media_from(video):
     if hasattr(video, "frames") or hasattr(video, "audio"):
         audio = getattr(video, "audio", None)
         waveform = None if audio is None else dsp.as_channels_samples(audio)
-        thumbs = (
+        thumbs, looks = (
             _in_memory_thumbs(video.frames)
             if getattr(video, "frames", None) is not None
-            else None
+            else (None, None)
         )
         sample_rate = getattr(video, "sample_rate", None)
         fps = getattr(video, "fps", None)
@@ -216,6 +296,7 @@ def media_from(video):
                 else None
             ),
             shots=getattr(video, "shots", None),
+            looks=looks,
         )
         return media
     raise ValueError(
@@ -690,6 +771,86 @@ def _seam_video(media, previous, shot, fade):
     }
 
 
+_LOOK_STEPS = ("saturation", "lightness", "contrast")
+_NO_LOOK = {
+    "saturation_step": None,
+    "lightness_step": None,
+    "contrast_step": None,
+    "look_ratio": None,
+    "look_ratio_measure": None,
+    "detail_ratio": None,
+}
+
+
+def _look_rate(values):
+    """The TYPICAL_DELTA_PERCENTILE of the change between one LOOK_WINDOW-frame
+    mean and the next inside `values` - the seam step's own statistic, taken
+    where no seam is - or None for a span too short to hold two windows."""
+    if values.shape[0] < 2 * LOOK_WINDOW:
+        return None
+    means = numpy.convolve(values, numpy.ones(LOOK_WINDOW) / LOOK_WINDOW, "valid")
+    return float(
+        numpy.percentile(
+            numpy.abs(means[LOOK_WINDOW:] - means[:-LOOK_WINDOW]),
+            TYPICAL_DELTA_PERCENTILE,
+        )
+    )
+
+
+def _shot_end(shot, frames):
+    count = int(shot.get("num_frames") or 0)
+    start = int(shot.get("start_frame", 0))
+    return min(frames, start + count) if count else frames
+
+
+def _seam_look(media, previous, shot, fade):
+    """Look measurements at the seam `shot` opens (#1031): the mean look of
+    the LOOK_WINDOW frames before it (before a dissolve's fade) against the
+    LOOK_WINDOW after, clipped to the shots. Each step is signed, after minus
+    before; `look_ratio` is the largest step against that measure's own
+    local rate inside either shot, floored, so a step inside a shot that is
+    itself changing that way (a sunrise) scores low. Measures, not rules."""
+    looks = media.looks
+    if looks is None:
+        return dict(_NO_LOOK)
+    frames = looks.shape[0]
+    start = min(frames, int(shot.get("start_frame", 0)))
+    previous_start = min(
+        start,
+        int(previous.get("start_frame", 0)) + int(previous.get("overlap_frames") or 0),
+    )
+    after_start = min(frames, start + fade)
+    after_end = _shot_end(shot, frames)
+    before = looks[max(previous_start, start - LOOK_WINDOW) : start]
+    after = looks[after_start : min(after_end, after_start + LOOK_WINDOW)]
+    if before.shape[0] == 0 or after.shape[0] == 0:
+        return dict(_NO_LOOK)
+    before_mean = before.mean(axis=0, dtype=numpy.float64)
+    after_mean = after.mean(axis=0, dtype=numpy.float64)
+    record = {}
+    ratio, ratio_measure = None, None
+    for measure in _LOOK_STEPS:
+        column = LOOK_MEASURES.index(measure)
+        step = float(after_mean[column] - before_mean[column])
+        record[f"{measure}_step"] = _round(step)
+        rates = [
+            _look_rate(looks[previous_start:start, column]),
+            _look_rate(looks[after_start:after_end, column]),
+        ]
+        rate = max([LOOK_RATE_FLOOR] + [value for value in rates if value is not None])
+        if ratio is None or abs(step) / rate > ratio:
+            ratio, ratio_measure = abs(step) / rate, measure
+    detail = LOOK_MEASURES.index("detail")
+    record["look_ratio"] = _round(ratio)
+    record["look_ratio_measure"] = ratio_measure
+    record["detail_ratio"] = (
+        _round(float(after_mean[detail] / before_mean[detail]))
+        if before_mean[detail] >= DETAIL_FLOOR
+        else None
+    )
+    return record
+
+
 def analyze_seams(video, shots=None):
     """Task command: measure every seam between shots, audio and picture.
 
@@ -704,8 +865,11 @@ def analyze_seams(video, shots=None):
         {seams: [{seam, between, seconds, kind, level_step_db,
         before_shot_rms_dbfs, after_shot_rms_dbfs, floor_dbfs, click_db,
         spectral_shift, before_rms_dbfs, after_rms_dbfs,
-        frame_delta, typical_delta, jump_ratio}], findings, rules_applied,
-        rules_skipped, shots_source}
+        frame_delta, typical_delta, jump_ratio, saturation_step,
+        lightness_step, contrast_step, look_ratio, look_ratio_measure,
+        detail_ratio}], findings, rules_applied, rules_skipped,
+        shots_source}. The look fields are measures only - no rule reads
+        them - and null when the media has no picture.
     """
     media = media_from(video)
     return seams_answer(media, *resolve_shots(video, media, shots))
@@ -773,6 +937,7 @@ def seams_answer(media, records, source):
             skip.add("seam_hole")
         if media.thumbs is not None:
             record.update(_seam_video(media, previous, shot, fade))
+        record.update(_seam_look(media, previous, shot, fade))
         if record["hard_cut"] or "audio_bleed_ms" in record:
             # A bled seam is still a picture cut (#783)
             skip.add("seam_frame_jump")

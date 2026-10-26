@@ -2176,6 +2176,18 @@ Every seam between shots, audio and picture:
 | `seams[].frame_delta` | The largest single-frame picture change across the seam |
 | `seams[].typical_delta` | The larger shot's own typical frame-to-frame change, floored |
 | `seams[].jump_ratio` | `frame_delta` divided by `typical_delta` |
+| `seams[].saturation_step` | Mean saturation (per-pixel max(RGB) - min(RGB)) of the 4 frames after the seam minus the 4 before it (before a dissolve's fade), clipped to the shots. Signed: positive means the incoming shot is more saturated |
+| `seams[].lightness_step` | The same for mean Rec. 709 luma. Signed: negative means the incoming shot is darker |
+| `seams[].contrast_step` | The same for the luma standard deviation. Signed |
+| `seams[].look_ratio` | The largest of the three steps' sizes divided by that measure's own local rate: the 90th percentile of its change from one 4-frame mean to the next inside either shot, floored at 1.0. A step inside a shot that is itself changing that way (a sunrise) scores low |
+| `seams[].look_ratio_measure` | Which measure gave `look_ratio`: `saturation`, `lightness` or `contrast` |
+| `seams[].detail_ratio` | Mean high-pass detail (luma against its 3x3 blur) after the seam divided by before it: below 1 means the incoming shot is softer. Null when the before window has almost no detail (below 0.5) |
+
+The six look fields are measures, not rules: none raises a finding, and they
+appear in neither `rules_applied` nor `rules_skipped`. They are on the 0-255
+scale of a 128x72 colour copy of each frame, and the numbers are not
+perceptual - a `look_ratio` of 10 is not a calibrated "visible". They are null
+when the file has no picture.
 
 ### analyze_sync_drift
 
