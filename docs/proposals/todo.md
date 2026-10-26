@@ -360,6 +360,13 @@ remaining deferred fix is recorded in
   discard: dw chains have no per-window end image) and deferred (keyframe
   strength, not reachable from a workflow):
   `complete/h3-wangp-field-notes-complete.md`.
+- **Look measures in `analyze_seams`** (#1031, stage #1042), shipped
+  2026-10-26. Every seam record carries signed `saturation_step`,
+  `lightness_step` and `contrast_step`, a local-rate `look_ratio` with its
+  `look_ratio_measure`, and a `detail_ratio`, taken from a 128x72 colour
+  copy during the one decode. Measures only, no rules. Record, including
+  what was deferred (rules until #1033 measures real chains, take drift,
+  apparent age): `complete/seam-look-measures-complete.md`.
 
 ## Declined
 
