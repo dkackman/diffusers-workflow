@@ -25,6 +25,7 @@ from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
 from dw import get_device_type, empty_device_cache, device_memory_stats
 from dw.worker_protocol import (
+    poisons_cuda_context,
     Cancelled,
     Failed,
     MemoryCleared,
@@ -308,6 +309,12 @@ class WorkflowWorker:
             self._evict_untouched_pipelines(job.context)
             self._cleanup_between_runs()
             self._reply(failure)
+            if poisons_cuda_context(failure.message, failure.traceback):
+                # A device-side assert leaves the context unusable: every
+                # later job on this card fails with the sticky error. Exit
+                # after the reply so the manager respawns a clean process
+                logger.error("CUDA context is poisoned - worker will restart")
+                self.pending_shutdown = True
         finally:
             if job.asset_token is not None:
                 deactivate_asset_dir(job.asset_token)

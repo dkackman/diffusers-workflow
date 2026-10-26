@@ -699,3 +699,36 @@ class TestProbeCacheWarmIdentity:
     def test_cold_card_probes_the_cache(self):
         messages, _ = self._probe(_make_worker(), None, "/w/a.json")
         assert messages[0]["cached"] == ["gen"]
+
+
+class _RaisingWorkflow(StubWorkflow):
+    def __init__(self, message):
+        super().__init__()
+        self.message = message
+
+    def run(self, *args, **kwargs):
+        raise RuntimeError(self.message)
+
+
+def test_sticky_cuda_error_flags_the_worker_to_restart():
+    """A device-side assert poisons the CUDA context, so the worker exits
+    after replying and the manager respawns it."""
+    worker = _make_worker()
+    messages = _execute(
+        worker, _RaisingWorkflow("CUDA error: device-side assert triggered")
+    )
+    assert "error" in [m["type"] for m in messages]
+    assert worker.pending_shutdown is True
+
+
+def test_ordinary_failure_keeps_the_worker():
+    worker = _make_worker()
+    _execute(worker, _RaisingWorkflow("bad prompt"))
+    assert worker.pending_shutdown is False
+
+
+def test_poisons_cuda_context_matches_sticky_errors_only():
+    from dw.worker_protocol import poisons_cuda_context
+
+    assert poisons_cuda_context("x", "Returning 710 (CUDA_ERROR_ASSERT) from y")
+    assert not poisons_cuda_context("CUDA out of memory", None)
