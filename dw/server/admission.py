@@ -27,7 +27,7 @@ from ..assets import (
 )
 from .. import get_device_type, references, validation
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import build_plan, list_entries
+from ..plan import list_entries
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -539,29 +539,6 @@ def acknowledgement_form(value):
     if isinstance(value, AcknowledgedCost):
         return ACK_BOUND
     return ACK_BOOLEAN if value is True else ACK_NONE
-
-
-def bound_plan_for(arguments, workspace):
-    """The `plan_for` a bound acknowledgement is checked against - the
-    run these arguments execute, planned without asking the hub for
-    sizes. None when it cannot be built, which the check refuses."""
-
-    def plan_for(candidate, vram_need=None):
-        try:
-            from .. import get_device, get_device_type
-
-            return build_plan(
-                candidate,
-                arguments,
-                device=get_device_type(get_device()),
-                prompt_dir=workspace.prompts,
-                lookup_sizes=False,
-            )
-        except Exception:
-            logger.exception("Plan could not be built for a bound acknowledgement")
-            return None
-
-    return plan_for
 
 
 def check_bound_acknowledgement(current, acknowledged, workspace):

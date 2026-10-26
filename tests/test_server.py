@@ -5947,7 +5947,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.admission as admission_module
+        import dw.server.routes.jobs as jobs_module
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5955,7 +5955,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(admission_module, "build_plan", boom)
+            monkeypatch.setattr(jobs_module, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -5964,13 +5964,60 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["reason"] == "unplannable"
             assert response.json()["detail"]["plan"] is None
 
+    def test_the_409_quotes_the_observed_estimate_validate_does(
+        self, server, no_hub, monkeypatch
+    ):
+        """#1038: the rebind a 409 offers carries the same observed figure
+        a re-validate of the same run quotes, not `basis: unknown`."""
+        import dw.plan
+        from dw import get_device, get_device_type
+
+        monkeypatch.setattr(
+            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        serving = get_device_type(get_device())
+
+        class History:
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
+                return {
+                    "device": serving,
+                    "name": "RTX 3090",
+                    "runs": 11,
+                    "cold_minutes": 8.04,
+                    "cold_runs": 11,
+                }
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            body = {"workflow_path": "Basic", "arguments": {"prompt": "x"}}
+            validated = client.post("/api/validate?sizes=false", json=body).json()
+            response = client.post(
+                "/api/jobs",
+                json={
+                    **body,
+                    "acknowledged_cost": {
+                        "fingerprint": "sha256:stale",
+                        "minutes": 1,
+                        "downloads": [],
+                    },
+                },
+            )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["reason"] == "fingerprint"
+        assert detail["plan"]["estimate"]["basis"] == "observed"
+        assert detail["acknowledge"]["minutes"] == 8.0
+        assert detail["acknowledge"] == bound(validated["plan"])
+
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
-        import dw.server.admission as admission_module
+        import dw.server.routes.jobs as jobs_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
-        monkeypatch.setattr(admission_module, "build_plan", boom)
+        monkeypatch.setattr(jobs_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(
