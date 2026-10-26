@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatDuration } from '../format'
+  import { formatDuration, formatMtime } from '../format'
   import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
@@ -73,8 +73,7 @@
     }
   }
 
-  const when = (t: number | null) =>
-    t ? new Date(t * 1000).toLocaleTimeString() : '—'
+  const when = (t: number | null) => (t ? formatMtime(t) : '—')
   const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
   const duration = (job: JobSummary) => {
     if (!job.started_at) return ''

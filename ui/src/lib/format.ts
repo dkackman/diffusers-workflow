@@ -15,8 +15,19 @@ export function formatBytes(size: number): string {
   return (size / MB).toFixed(1) + ' MB'
 }
 
-export function formatMtime(mtime: number): string {
-  return new Date(mtime * 1000).toLocaleString()
+/** A unix-seconds timestamp as a compact date and time in the viewer's
+ * locale - 'Oct 26, 2:03 PM' - with the year only when it is not this one.
+ * Every timestamp the UI shows goes through here, so a time never appears
+ * without the day it belongs to. */
+export function formatMtime(mtime: number, now: Date = new Date()): string {
+  const date = new Date(mtime * 1000)
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+  })
 }
 
 /** A size in GB to one decimal and no unit - the header meter and the

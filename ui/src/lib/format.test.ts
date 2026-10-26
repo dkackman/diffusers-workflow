@@ -26,9 +26,21 @@ it('formats gigabyte sizes to two decimals at and above 1 GB', () => {
 
 it('reads mtime as unix seconds, not milliseconds', () => {
   // 1700000000 s is 2023-11-14T22:13:20Z; read as ms it would land in January 1970
-  const rendered = formatMtime(1700000000)
-  expect(rendered).toBe(new Date('2023-11-14T22:13:20Z').toLocaleString())
-  expect(rendered).not.toBe(new Date(1700000000).toLocaleString())
+  const now = new Date('2023-12-01T00:00:00Z')
+  const rendered = formatMtime(1700000000, now)
+  expect(rendered).toBe(
+    formatMtime(Date.parse('2023-11-14T22:13:20Z') / 1000, now),
+  )
+  expect(rendered).not.toBe(formatMtime(1700000, now))
+})
+
+it('always carries the date, and the year only when it is not this one', () => {
+  const stamp = Date.parse('2023-11-14T22:13:20Z') / 1000
+  const thisYear = formatMtime(stamp, new Date('2023-12-01T00:00:00Z'))
+  const lastYear = formatMtime(stamp, new Date('2024-02-01T00:00:00Z'))
+  expect(thisYear).toMatch(/Nov/)
+  expect(thisYear).not.toMatch(/2023/)
+  expect(lastYear).toMatch(/2023/)
 })
 
 describe('GB figures', () => {
