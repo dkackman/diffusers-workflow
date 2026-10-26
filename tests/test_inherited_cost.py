@@ -273,6 +273,19 @@ class TestScaledWhenItScales:
         assert block["inherited_from"] == "templates/t"
         assert "3 steps, template measured 1" in block["scaled"]
 
+    def test_the_model_load_is_paid_once_across_steps(self):
+        # cold 8 min, warm 6: a 2 min load plus 6 min of work per step (#1037)
+        history = {
+            "templates/t": [
+                run(8 * MINUTE, {"num_frames": 124}),
+                run(6 * MINUTE, {"num_frames": 124}, had_load=False),
+            ]
+        }
+        inline = definition("inline")
+        inline["steps"] = [{**inline["steps"][0], "id": f"shot{n}"} for n in range(2)]
+        block = inherited(inline, self.CATALOG, history)
+        assert block["cold_minutes"] == pytest.approx(14.0)
+
     def test_a_longer_frame_count_scales_by_frames(self):
         inline = definition("inline")
         inline["variables"] = {}
