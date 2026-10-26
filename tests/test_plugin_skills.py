@@ -151,6 +151,7 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 SKILL_TASKS = {
     "minimax-music3": ["attribute_voices"],
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
+    "script-to-video": ["concat_videos"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
 }
 
