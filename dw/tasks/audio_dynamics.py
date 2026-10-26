@@ -66,7 +66,12 @@ def normalize_audio(
             plain gain would have reached, more on dense material, so the
             reported gain_db can run past target_lufs's own gain. Limiting
             stops at 12 dB of reduction, past which target_lufs is warned as
-            capped. False (the default) leaves behavior exactly as without it
+            capped. When the input carries shots (a joined cut) and the
+            limiter works mostly on one of them, a limiter_uneven_across_shots
+            warning names it: that shot ends up quieter than a static gain
+            would leave it, widening its seam steps (#1039) - fix its level
+            before normalizing. False (the default) leaves behavior exactly
+            as without it
         sample_rate: Sample rate of a waveform passed directly
 
     Returns:
@@ -87,7 +92,14 @@ def normalize_audio(
         return as_track(waveform, sample_rate, "normalize_audio")
     if limit:
         return as_track(
-            _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs),
+            _normalize_limited(
+                waveform,
+                sample_rate,
+                peak_dbfs,
+                target_lufs,
+                shots=getattr(audio, "shots", None),
+                fps=getattr(audio, "fps", None),
+            ),
             sample_rate,
             "normalize_audio",
         )
@@ -145,7 +157,9 @@ def normalize_audio(
     )
 
 
-def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
+def _normalize_limited(
+    waveform, sample_rate, peak_dbfs, target_lufs, shots=None, fps=None
+):
     """normalize_audio(limit=True): a static gain, applied uncapped, with a
     true-peak limiter holding peak_dbfs. The limiter is never a gain stage -
     it only tames what the static gain sends it - but that static gain is
@@ -239,6 +253,7 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
             peak_dbfs=peak_dbfs,
             target_lufs=target_lufs,
         )
+    _warn_uneven_limiting(waveform, output, gain_db, sample_rate, shots, fps, peak_dbfs)
     emit_log(
         f"normalize_audio: measured {input_peak_db:.1f} dBTP"
         + ("" if measured_lufs is None else f", {measured_lufs:.1f} LUFS")
@@ -256,6 +271,65 @@ def _normalize_limited(waveform, sample_rate, peak_dbfs, target_lufs):
         output_lufs=round(output_lufs, 1) if output_lufs is not None else None,
     )
     return output
+
+
+# A shot the limiter takes this much off (effective, by rms) while it takes
+# SHOT_LIMITING_SPREAD_DB less off the median shot is worth a warning (#1039)
+SHOT_LIMITING_DB = 2.0
+SHOT_LIMITING_SPREAD_DB = 2.0
+
+
+def _warn_uneven_limiting(
+    waveform, output, gain_db, sample_rate, shots, fps, peak_dbfs
+):
+    """Warn when the limiter's work falls mostly on one shot of a cut: a
+    whole-cut limiter that holds one shot's peaks lowers that shot alone, so
+    the seam steps around it widen while the cut still lands on target_lufs.
+    Needs the input's shots and fps; without them there is nothing to name."""
+    if not shots or not fps or fps <= 0:
+        return
+    gain = 10 ** (gain_db / 20)
+    total = waveform.shape[-1]
+    reductions = []
+    for index, shot in enumerate(shots):
+        try:
+            start = int(round(shot["start_frame"] / fps * sample_rate))
+            end = int(
+                round((shot["start_frame"] + shot["num_frames"]) / fps * sample_rate)
+            )
+        except (KeyError, TypeError):
+            continue
+        start, end = max(0, start), min(total, end)
+        if end - start < sample_rate // 10:
+            continue
+        before = float(numpy.sqrt(numpy.mean((waveform[:, start:end] * gain) ** 2)))
+        after = float(
+            numpy.sqrt(numpy.mean(output[:, start:end].astype(numpy.float64) ** 2))
+        )
+        if before <= 0 or after <= 0:
+            continue
+        reductions.append(
+            (shot.get("name") or f"shot {index}", 20 * numpy.log10(before / after))
+        )
+    if len(reductions) < 2:
+        return
+    name, worst = max(reductions, key=lambda item: item[1])
+    median = float(numpy.median([value for _, value in reductions]))
+    if worst < SHOT_LIMITING_DB or worst - median < SHOT_LIMITING_SPREAD_DB:
+        return
+    emit_warning(
+        f"normalize_audio: the limiter takes {worst:.1f} dB off shot {name!r} "
+        f"against a median of {median:.1f} dB across the cut's shots - that "
+        "shot ends up quieter than a static gain would leave it, which widens "
+        "the level steps at its seams. Fix that shot's level before "
+        "normalizing, or lower target_lufs.",
+        kind="limiter_uneven_across_shots",
+        command="normalize_audio",
+        shot=name,
+        shot_reduction_db=round(worst, 2),
+        median_reduction_db=round(median, 2),
+        peak_dbfs=peak_dbfs,
+    )
 
 
 COMPRESS_MODES = ("compress", "limit", "gate")
