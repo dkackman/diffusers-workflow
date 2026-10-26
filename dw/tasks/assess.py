@@ -168,18 +168,11 @@ def look_stats(rgb):
     standard deviation), saturation (mean per-pixel max(RGB) - min(RGB)) and
     detail (mean |luma - its 3x3 box blur|, edges extended). The one
     reduction both the file reader and the in-memory path use."""
+    import scipy.ndimage
+
     rgb = numpy.asarray(rgb, dtype=numpy.float32)
     plane = luma(rgb)
-    padded = numpy.pad(plane, 1, mode="edge")
-    height, width = plane.shape
-    blurred = (
-        sum(
-            padded[row : row + height, column : column + width]
-            for row in range(3)
-            for column in range(3)
-        )
-        / 9.0
-    )
+    blurred = scipy.ndimage.uniform_filter(plane, size=3, mode="nearest")
     return numpy.array(
         [
             plane.mean(),
