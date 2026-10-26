@@ -96,6 +96,13 @@ EXPECTED_SHAPES = {
         "image-edit",
         ["needs-input-media"],
     ),
+    # Task-only, so the rules read them as utilities; they declare image-edit
+    # because an erase is an edit of the image it was handed (#974)
+    "workflows/templates/remove-object.json": ("image-edit", ["needs-input-media"]),
+    "workflows/templates/segment-and-remove.json": (
+        "image-edit",
+        ["needs-input-media"],
+    ),
     "workflows/templates/describe-and-regenerate.json": (
         "image-set",
         ["composes-workflows", "needs-input-media"],
@@ -484,7 +491,13 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 10_850 for the whole-object `cache` variable on the same nineteen H3
 # templates (#865, stage #884, 2026-10-13), measured at 10_800: about 42
 # tokens, so first_block on a long base-model schedule is an argument too.
-COMPACT_BUDGET = 10_850
+# Then to 11_400 for the five FLUX 3 Klein templates (#930, 2026-10-15),
+# measured at 11_256: a new family, its summaries already trimmed to the idea
+# each template adds, with about 85 tokens held for its Task 9 cost blocks.
+# Then to 11_650 for the `remove-object` and `segment-and-remove` templates
+# (#956, stage #974, 2026-10-22), measured at 11_592: two new entries, the
+# catalog's only prompt-free removal route, each with a cost block.
+COMPACT_BUDGET = 11_650
 FILTERED_BUDGET = 1_500
 
 
@@ -616,13 +629,14 @@ def test_there_are_h3_templates():
 def test_every_h3_transformer_step_wires_attention_backend(path):
     """sage_hub is 23-33% faster per step and lossless on CUDA, and the only way
     to reach it from `arguments` is a template variable wired to the
-    transformer (#865). Every H3 template exposes it, null by default so mps
-    and cpu keep the process default; one that doesn't makes the cinema path
-    a JSON edit again."""
+    transformer (#865). Every H3 template exposes it; on mps
+    and cpu the default falls back to dense; one that doesn't makes the cinema path
+    a JSON edit again. The default is `sparse` since #931 (tests/
+    test_h3_sparse_defaults.py pins it, `sparse_tau` and `sparse_topk`)."""
     definition = load(path)
 
-    assert definition["variables"].get("attention_backend", "missing") is None, (
-        f"{path} declares no attention_backend variable defaulting to null"
+    assert definition["variables"].get("attention_backend", "missing") == "sparse", (
+        f"{path} declares no attention_backend variable defaulting to sparse"
     )
     for step in _h3_steps(definition):
         transformers = _transformers(step)
@@ -630,6 +644,12 @@ def test_every_h3_transformer_step_wires_attention_backend(path):
         for name, component in transformers.items():
             assert component.get("attention_backend") == "variable:attention_backend", (
                 f"{path} step '{step['name']}' does not wire {name}.attention_backend"
+            )
+            assert component.get("sparse_tau") == "variable:sparse_tau", (
+                f"{path} step '{step['name']}' does not wire {name}.sparse_tau"
+            )
+            assert component.get("sparse_topk") == "variable:sparse_topk", (
+                f"{path} step '{step['name']}' does not wire {name}.sparse_topk"
             )
 
 
@@ -716,8 +736,8 @@ def test_a_default_cache_drops_the_key():
     assert "cache" not in steps["shot"]["pipeline"]["configuration"]
 
 
-def test_a_default_attention_backend_drops_the_key():
-    steps = _dialogue_short_after_substitution()
+def test_a_null_attention_backend_drops_the_key():
+    steps = _dialogue_short_after_substitution(attention_backend=None)
 
     shot = steps["shot"]["pipeline"]["configuration"]["components"]["transformer_ref"]
     assert "attention_backend" not in shot
@@ -966,7 +986,7 @@ def test_every_readme_link_resolves(path):
 
 COSTED = {
     "workflows/templates/minimax/music-video.json": 35,
-    "workflows/templates/minimax/dialogue-short.json": 42,
+    "workflows/templates/minimax/dialogue-short.json": 21.2,
     "workflows/templates/assemble-and-score.json": 0.2,
     "workflows/templates/dissolve-between-shots.json": 0.2,
 }
@@ -982,7 +1002,11 @@ def test_the_cut_templates_quote_a_measured_cost(path, minutes):
     LoRA on those templates at 9 - so their figures went with the schedule
     they described rather than being scaled, `cost` being measured and never
     derived. The three here kept their step count and their canvas; only
-    which adapter loads changed, at the same rank and file size."""
+    which adapter loads changed, at the same rank and file size.
+
+    dialogue-short's 42 was measured at 1344x768, not its 960x544 defaults;
+    a cost entry is measured at the variable defaults, so #866 re-priced it
+    to 42 x 960*544 / (1344*768) = 21.2."""
     definition = json.load(open(os.path.join(REPO_ROOT, path), encoding="utf-8"))
     entry = definition["cost"][0]
     assert entry["name"] == "RTX 3090"

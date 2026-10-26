@@ -669,3 +669,33 @@ def test_a_warning_names_an_asset_by_reference_not_by_server_path(tmp_path):
     assert log["message"] == "wrote output:id/a.wav"
     step_end = next(e for e in events if e["event"] == "step_end")
     assert step_end["files"] == [written]
+
+
+class TestProbeCacheWarmIdentity:
+    """#911: the probe answers for the run's identity switch, which clears
+    the step cache before the job starts."""
+
+    def _probe(self, worker, warm, requested):
+        worker.workflow_identity = warm
+        command = snapshot_command(file_spec=requested, request_id="r1", arguments={})
+        with (
+            patch.object(workflow_run, "cache_hits", return_value=["gen"]) as hits,
+            patch.object(
+                worker, "_load_workflow", return_value=(StubWorkflow(), requested)
+            ),
+        ):
+            worker._handle_probe_cache(command)
+        return _drain(worker.result_queue), hits
+
+    def test_different_warm_identity_reports_nothing_cached(self):
+        messages, hits = self._probe(_make_worker(), "/w/b.json", "/w/a.json")
+        assert messages[0]["cached"] == []
+        hits.assert_not_called()
+
+    def test_same_warm_identity_probes_the_cache(self):
+        messages, hits = self._probe(_make_worker(), "/w/a.json", "/w/a.json")
+        assert messages[0]["cached"] == ["gen"]
+
+    def test_cold_card_probes_the_cache(self):
+        messages, _ = self._probe(_make_worker(), None, "/w/a.json")
+        assert messages[0]["cached"] == ["gen"]

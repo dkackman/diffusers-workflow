@@ -17,25 +17,56 @@ import copy
 import hashlib
 import json
 import logging
-import math
 import os
 
 from huggingface_hub import model_info
 from huggingface_hub import get_hf_file_metadata, hf_hub_url
 from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
 
+from .cost_scaling import (
+    CATALOG,
+    DERIVED,
+    INHERITED,
+    OBSERVED,
+    OTHER_DEVICE,
+    PER_ENTRY,
+    UNKNOWN,
+    _driver_scaling,
+    _entry_cost_field_shifted,
+    _scaled,
+)
 from .elision import elide_definition
 from .hub_cache import repo_download_incomplete, scan_models
+from .quantized_cache import _cached_file
 from . import references
 from .realize import read_sub_workflow, realize_workflow
 from .security import validate_url
 from .validation import _is_seeded
+from .variables import same_number
 
 logger = logging.getLogger("dw")
 
 FINGERPRINT_PREFIX = "sha256:"
-# Top-level keys that document a workflow rather than shape its work
-DOCUMENTATION_KEYS = ("cost", "description", "summary", "configures")
+# Top-level keys that document, classify or price a workflow rather than
+# shape its output - the fingerprint is keyed only by what can change the
+# generated output, so editing one of these never busts an acknowledgement
+# (#905). Pinned by tests/test_plan.py::TestFingerprintKeys
+DOCUMENTATION_KEYS = (
+    "configures",
+    "cost",
+    "cost_drivers",
+    "description",
+    "shape",
+    "summary",
+    "traits",
+    "vram_estimate",
+)
+# A variable constraint's keys that explain the rule rather than state it
+CONSTRAINT_DOCUMENTATION_KEYS = ("reason",)
+# A step result's keys that name, place or label its files without changing
+# their bytes. The step cache keeps file_base_name and subfolder: a hit
+# republishes the cached files verbatim and writes none (dw/step_cache.py)
+PLACEMENT_RESULT_KEYS = ("file_base_name", "role", "subfolder")
 FOR_EACH_KEY = "for_each"
 SIZE_LOOKUP_TIMEOUT = 5.0
 GIB = 1024**3
@@ -126,7 +157,17 @@ def build_plan(
         pin_outputs=False,
     )
     return {
-        "fingerprint": fingerprint(work, definition, annotations),
+        "fingerprint": fingerprint(
+            work,
+            definition,
+            {
+                **annotations,
+                "sub_workflows": {
+                    path: child_work_digest(path, base_dir, candidate.workflow_dir)
+                    for path in annotations.get("sub_workflows") or {}
+                },
+            },
+        ),
         "steps": step_count,
         "elided_steps": elided,
         "list_entries": entries,
@@ -206,23 +247,75 @@ def cached_steps(definition, realized, arguments, cache_probe):
     return len(answer) if isinstance(answer, list) else None
 
 
+def output_only(doc):
+    """Remove from a workflow definition, in place, every key that cannot
+    change the generated output (#905): the documentation keys, each
+    variable constraint's reason, and each step result's placement keys.
+    Returns `doc`."""
+    for key in DOCUMENTATION_KEYS:
+        doc.pop(key, None)
+    constraints = doc.get("variable_constraints")
+    if isinstance(constraints, dict):
+        for rule in constraints.values():
+            if isinstance(rule, dict):
+                for key in CONSTRAINT_DOCUMENTATION_KEYS:
+                    rule.pop(key, None)
+    for step in doc.get("steps") or []:
+        result = step.get("result") if isinstance(step, dict) else None
+        if isinstance(result, dict):
+            for key in PLACEMENT_RESULT_KEYS:
+                result.pop(key, None)
+    return doc
+
+
+def _canonical_digest(doc):
+    # default=repr: a realized 'constant:' can be any Python value, and the
+    # fingerprint only needs it to be stable, not round-trippable
+    serialized = json.dumps(
+        same_number(doc),
+        sort_keys=True,
+        separators=(",", ":"),
+        ensure_ascii=False,
+        default=repr,
+    )
+    return hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+
+
+def child_work_digest(path, base_dir, workflow_dir):
+    """The digest of a composed child's work: its file with `output_only`
+    applied, so editing a child's cost or documentation leaves the parent's
+    fingerprint alone. None when the file cannot be read; a file that is not
+    a JSON object is digested as bytes."""
+    raw = read_sub_workflow(path, base_dir, workflow_dir)
+    if raw is None:
+        return None
+    try:
+        child = json.loads(raw)
+    except ValueError:
+        child = None
+    if not isinstance(child, dict):
+        return hashlib.sha256(raw).hexdigest()
+    return _canonical_digest(output_only(child))
+
+
 def fingerprint(expanded, definition, annotations=None):
     """SHA-256 over the expanded definition with everything that is not
-    work removed: the seed wherever it sits, and the documentation keys.
+    work removed: the seed wherever it sits, and whatever `output_only`
+    removes.
 
     `definition` is the workflow as written, consulted for whether the
     top-level seed named a variable - if it did, that variable's folded
     value is the seed too and is blanked at its source. `annotations` is
     what realization recorded beside the copy; its sub-workflow digests go
     into the hash, since a composed child edited between the quote and the
-    call is different work the parent's text cannot show.
+    call is different work the parent's text cannot show - build_plan
+    passes them as `child_work_digest`s.
     """
     doc = copy.deepcopy(expanded)
     if annotations and annotations.get("sub_workflows"):
         doc["__sub_workflows__"] = dict(annotations["sub_workflows"])
     doc.pop("seed", None)
-    for key in DOCUMENTATION_KEYS:
-        doc.pop(key, None)
+    output_only(doc)
     written_seed = definition.get("seed")
     name = references.ref_name(references.VARIABLE, written_seed)
     if name is not None:
@@ -235,21 +328,8 @@ def fingerprint(expanded, definition, annotations=None):
             pipeline = step.get("pipeline")
             if isinstance(pipeline, dict):
                 pipeline.pop("seed", None)
-    # default=repr: a realized 'constant:' can be any Python value, and the
-    # fingerprint only needs it to be stable, not round-trippable
-    serialized = json.dumps(
-        doc, sort_keys=True, separators=(",", ":"), ensure_ascii=False, default=repr
-    )
-    return FINGERPRINT_PREFIX + hashlib.sha256(serialized.encode("utf-8")).hexdigest()
+    return FINGERPRINT_PREFIX + _canonical_digest(doc)
 
-
-UNKNOWN = "unknown"
-CATALOG = "catalog"
-PER_ENTRY = "per_entry"
-DERIVED = "derived"
-OTHER_DEVICE = "other_device"
-OBSERVED = "observed"
-INHERITED = "inherited"
 
 # #301: a single run is not the same statistical basis as a dozen. Below
 # this many observed runs, an "observed" figure is tempered rather than
@@ -313,144 +393,16 @@ def _cached_minutes(minutes, cached_steps, total_steps):
     return round(minutes * remaining / total_steps, 1)
 
 
-COST_DRIVERS_KEY = "cost_drivers"
-
-
-def _declared_drivers(definition):
-    """The variables the author says move this workflow's cost - the same
-    rule `dw/server/observed_cost.py`'s `declared_drivers` applies, kept
-    local so this module does not import the server package (#267)."""
-    drivers = definition.get(COST_DRIVERS_KEY)
-    if not isinstance(drivers, list):
-        return []
-    variables = definition.get("variables") or {}
-    return [name for name in drivers if isinstance(name, str) and name in variables]
-
-
-def _driver_comparable(value):
-    """A driver value as something hashable and stable across JSON round
-    trips, mirroring `dw/server/observed_cost.py`'s `_comparable`."""
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, (int, float)):
-        return float(value)
-    if isinstance(value, str):
-        try:
-            return float(value)
-        except ValueError:
-            return value
-    return json.dumps(value, sort_keys=True, default=str)
-
-
-def _numeric_fields(entries):
-    """{field: {values}} over the numeric fields of a list's dict entries. A
-    numeric string ("243") counts as its number, as `_driver_comparable` does
-    for a scalar driver."""
-    fields = {}
-    if not isinstance(entries, list):
-        return fields
-    for entry in entries:
-        if not isinstance(entry, dict):
-            continue
-        for key, value in entry.items():
-            number = _driver_comparable(value)
-            if isinstance(number, float) and math.isfinite(number):
-                fields.setdefault(key, set()).add(number)
-    return fields
-
-
-LIST_ENTRY_COST_FIELDS = ("num_frames",)
-
-
-def _list_entry_field_shifted(default_entries, effective_entries):
-    """Whether a list driver's entries carry a numeric field (a per-shot
-    `num_frames`, say) with a value none of the default entries had. The
-    curated figure was measured over the default entries' values, so a value
-    outside them has no matching bucket - the #267 rule applied inside a
-    list driver (#593)."""
-    measured = _numeric_fields(default_entries)
-    for field, values in _numeric_fields(effective_entries).items():
-        # Only a field that sets how long a shot renders moves its cost; a
-        # start_frame or cut_frames is a position that moves with the count
-        if (
-            field in LIST_ENTRY_COST_FIELDS
-            and field in measured
-            and not values <= measured[field]
-        ):
-            return True
-    return False
-
-
-def _per_entry_variable(cost, device):
-    """The list variable the cost entry priced for `device` (else the first,
-    as `_price` chooses) re-prices by a measured per-entry rate, or None."""
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    chosen = next((e for e in entries if e.get("device") == device), None)
-    if chosen is None and entries:
-        chosen = entries[0]
-    per = chosen.get("per_entry") if chosen else None
-    return per.get("variable") if isinstance(per, dict) else None
-
-
-def _scalar_driver_shifted(definition, expanded, list_entries, per_entry=None):
-    """Whether a declared, non-list `cost_driver` was overridden away from
-    the default value the curated `cost` was measured against (#267).
-
-    A list driver is `_repriced`'s to catch - it changes the plan's list
-    count, not a bare variable's value. This only asks about a scalar one,
-    which `_repriced` never looks at, so a `catalog` figure measured for one
-    `num_frames` silently priced a run at a different one.
-    """
-    defaults = definition.get("variables") or {}
-    effective = expanded.get("variables") or {}
-    for name in _declared_drivers(definition):
-        default_value = defaults.get(name)
-        if isinstance(default_value, list):
-            # A list the cost prices per entry is already extrapolated in
-            # either direction; its entries' index/name fields are labels,
-            # not cost fields (#772)
-            if name != per_entry and _list_entry_field_shifted(
-                default_value, effective.get(name)
-            ):
-                return True
-            continue
-        if name in list_entries:
-            continue
-        if _driver_comparable(effective.get(name)) != _driver_comparable(default_value):
-            return True
-    return False
-
-
-def _entry_cost_field_shifted(definition, expanded):
-    """Whether any declared list driver carries a per-entry cost field outside
-    the values the default entries had."""
-    defaults = definition.get("variables") or {}
-    effective = expanded.get("variables") or {}
-    return any(
-        isinstance(defaults.get(name), list)
-        and _list_entry_field_shifted(defaults[name], effective.get(name))
-        for name in _declared_drivers(definition)
-    )
-
-
 def _own_price(definition, expanded, list_entries, device, measured_entries):
-    """The workflow's own price, reset to unknown when a scalar driver moved."""
+    """The workflow's own price, scaled along the cost drivers that moved."""
     own = _price(definition.get("cost"), device, list_entries, measured_entries or {})
     # `derived` and `per_entry` are re-priced by entry count alone, so a
-    # per-entry num_frames outside the measured values needs the same check (#796)
-    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY) and (
-        _scalar_driver_shifted(
-            definition,
-            expanded,
-            list_entries,
-            _per_entry_variable(definition.get("cost"), device),
-        )
-    ):
-        # A scalar cost_driver (H3's num_frames, say) moved away from the
-        # value the curated cost was measured against, and _repriced only
-        # re-prices a for_each list's length - so the catalog figure would
-        # otherwise be quoted for a run it was never measured for (#267)
-        own = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+    # per-entry num_frames is scaled as well (#796)
+    if own["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY):
+        # _repriced only re-prices a for_each list's length, so a moved scalar
+        # cost_driver (H3's num_inference_steps, say) is scaled here rather
+        # than quoted at the figure measured for the defaults (#267, #866)
+        own = _scaled(own, _driver_scaling(definition, expanded, list_entries))
     return own
 
 
@@ -512,21 +464,17 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child_list_entries = _list_entries(child_definition, child_expanded)
     child = _price(child_cost, device, child_list_entries, child_measured_entries)
     if (
-        child["basis"] in (CATALOG, OTHER_DEVICE)
+        child["basis"] in (CATALOG, OTHER_DEVICE, DERIVED, PER_ENTRY)
         and child_definition is not None
-        and _scalar_driver_shifted(
-            child_definition,
-            child_expanded,
-            child_list_entries,
-            _per_entry_variable(child_cost, device),
-        )
     ):
-        # A scalar cost_driver the composing step overrode (H3's
-        # num_frames at 345 against a default of 124, say) is the
-        # same #267 failure one level down - the child's own
-        # catalog figure was never measured for the value this
-        # step actually passes it (#341)
-        child = {"minutes": None, "basis": UNKNOWN, "measured_on": None}
+        # A cost_driver the composing step overrode (H3's num_frames at 345
+        # against a default of 124, say) is the same #267 case one level
+        # down - the child's figure was measured at its defaults, so it is
+        # scaled to the value this step actually passes it (#341, #866)
+        child = _scaled(
+            child,
+            _driver_scaling(child_definition, child_expanded, child_list_entries),
+        )
     return child
 
 
@@ -543,6 +491,8 @@ class _ChildTotals:
         self.runs = []
         self.measured_on = set()
         self.bases = []
+        self.scaled = []
+        self.differs = []
 
     def add(self, path, child, observed):
         self.had_child = True
@@ -557,10 +507,18 @@ class _ChildTotals:
             self.unpriced_children.append(path)
             return
         self.bases.append((child["basis"], child.get("measured_on")))
+        if child.get("scaled"):
+            self.scaled.append(f"{path}: {child['scaled']}")
+        if not observed:
+            self.differs.extend(child.get("differs") or [])
         if self.minutes is not None:
             self.minutes += child["minutes"]
         else:
             self.minutes = child["minutes"]
+
+
+def _unique(names):
+    return list(dict.fromkeys(names))
 
 
 def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
@@ -615,6 +573,10 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
         devices = {on for _, on in totals.bases}
         if len(devices) == 1:
             top_measured_on = next(iter(devices))
+    if top_basis == CATALOG and any(basis == DERIVED for basis, _ in totals.bases):
+        # A child scaled for the arguments its step passes is an estimate,
+        # so the sum is one too (#866)
+        top_basis = DERIVED
     rounded = round(minutes, 1) if minutes is not None else None
     result = {
         "minutes": rounded,
@@ -626,6 +588,15 @@ def _rolled_up_estimate(own, totals, device, cached_steps, total_steps):
         "runs": top_runs,
         "cached_minutes": _cached_minutes(rounded, cached_steps, total_steps),
     }
+    scaled = ([own["scaled"]] if own.get("scaled") else []) + totals.scaled
+    if scaled and minutes is not None and top_basis != OBSERVED:
+        result["scaled"] = "; ".join(scaled)
+    differs = _unique((own.get("differs") or []) + totals.differs)
+    if differs and minutes is not None and top_basis != OBSERVED:
+        # A figure, own or a child's, measured at another setting of a driver
+        # nothing scales (#866)
+        result["differs"] = differs
+        result["low_confidence"] = True
     if top_basis == OBSERVED:
         # The rolled-up-from-children case (#268): no curated figure of the
         # parent's own exists to blend toward (that is this branch's own
@@ -662,8 +633,10 @@ def estimate(
     ones it was measured with, 'per_entry' that total re-priced from a
     measured per-entry rate, and 'derived' re-priced by extrapolating the
     stored total linearly over a list whose length the caller changed
-    (#85) - an estimate, not a measurement, and the only alternative to
-    quoting a 5-shot figure for a 10-shot run.
+    (#85), or scaled along the steps, canvas or frames moved off the
+    defaults it was measured at (#866, `scale_curated`) - an estimate, not
+    a measurement, and the only alternative to quoting a 5-shot figure for
+    a 10-shot run.
 
     `measured_entries` is what the stored defaults carry, which is the
     list the catalog figure was measured against; without it a catalog
@@ -690,6 +663,19 @@ def estimate(
         measured = None
     if measured is not None:
         measured = _tempered(measured, own["minutes"])
+        if measured.get("tempered") and own.get("scaled"):
+            # What it blended toward was scaled for this run's drivers, and
+            # `curated_minutes` alone does not say so (#866)
+            measured["scaled"] = "; ".join(
+                part for part in (measured.get("scaled"), own["scaled"]) if part
+            )
+        if measured.get("tempered") and own.get("differs"):
+            # It blended toward a figure measured at another setting of a
+            # driver nothing scales (#866)
+            measured["differs"] = _unique(
+                (measured.get("differs") or []) + own["differs"]
+            )
+            measured["low_confidence"] = True
         measured["cached_minutes"] = _cached_minutes(
             measured["minutes"], cached_steps, total_steps
         )
@@ -723,7 +709,30 @@ def estimate(
         # say which template and why, so it reads differently from no history
         result["inherited_from"] = observed.get("inherited_from")
         result["withheld"] = withheld
+    elif result["basis"] == UNKNOWN and result["minutes"] is None:
+        reason = _unpriced_reason(definition)
+        if reason:
+            result["unpriced_reason"] = reason
     return result
+
+
+def _unpriced_reason(definition):
+    """Why a workflow with no price at all has none, or None when the cause
+    is not a shape this can name (#948). #797 prices an inline workflow from
+    the catalog template with the same pipeline identity, so a workflow of
+    task steps alone has nothing to match and its cost is simply unmeasured -
+    which says nothing about whether the run is seconds or an hour."""
+    steps = [s for s in definition.get("steps") or [] if isinstance(s, dict)]
+    tasks = [s for s in steps if isinstance(s.get("task"), dict)]
+    if not tasks or len(tasks) != len(steps):
+        return None
+    commands = sorted({str(s["task"].get("command", "unknown")) for s in tasks})
+    return (
+        "task-only workflow (" + ", ".join(commands) + "): no pipeline step "
+        "to inherit a price from a catalog template, no cost block and no "
+        "run history of its own. The run's length depends on its input "
+        "media, which nothing here measures"
+    )
 
 
 def _observed(observed, device):
@@ -760,6 +769,10 @@ def _observed(observed, device):
         estimate["basis"] = INHERITED
         estimate["inherited_from"] = inherited_from
         estimate["differs"] = list(observed.get("differs") or [])
+        if estimate["differs"]:
+            # Measured at another attention backend, cache, LoRA, offload or
+            # quantization than this run's: kept, but flagged (#866)
+            estimate["low_confidence"] = True
         if observed.get("scaled"):
             # Re-priced linearly from the template's size (#851): an
             # approximation, not a measurement
@@ -879,6 +892,8 @@ MODEL_NAME_KEY = "model_name"
 LORAS_KEY = "loras"
 SINGLE_FILE_KEY = "from_single_file"
 VARIANT_KEY = "variant"
+LOAD_COMPONENTS_KEY = "load_components"
+OVERRIDE_KEY = "pretrained_model_name_or_path"
 
 
 def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
@@ -887,7 +902,14 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     composed child) that `scan_models` does not find, plus every one it does
     find but whose cached copy is left over from an interrupted pull
     (#382) - a component the load needs is missing, or a blob is still
-    `.incomplete` - plus every `from_single_file` that is a URL. Sizes come
+    `.incomplete` - plus every `from_single_file` that is a URL, and every
+    repo a task step declares through its command's `required_weights` hook
+    (#975, dw/tasks/weights.py), listed once when a pipeline step loads it
+    too. A task that fetches one file of a repo declares the file, keyed by
+    `(repo, filename, revision)`: it is checked in the cache file by file
+    (`_cached_file` - a pinned commit needs no `refs/main`, and another
+    cached file of the repo does not stand in for it), sized by a HEAD of
+    that file, and dropped when the same walk needs the repo whole. Sizes come
     from the hub when asked and are None whenever it does not answer - an
     offline box is a state, not an error, so nothing here raises or logs
     above debug.
@@ -895,15 +917,19 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     names = []
     variants = {}
     urls = []
+    files = []
     _collect_sources(expanded, names, variants, urls)
+    _collect_task_weights(expanded, names, files, urls)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
         if raw is None:
             continue
         try:
-            _collect_sources(json.loads(raw), names, variants, urls)
+            child = json.loads(raw)
         except ValueError:
             continue
+        _collect_sources(child, names, variants, urls)
+        _collect_task_weights(child, names, files, urls)
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
     for name in names:
@@ -919,6 +945,23 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
         if lookup_sizes:
             entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+        required.append(entry)
+    for repo, filename, revision in files:
+        # A whole-repo entry for the same repo already covers the file
+        if repo in names or not _is_repo_id(repo):
+            continue
+        if _cached_file(repo, filename, revision or "main", cache_dir) is not None:
+            continue
+        entry = {
+            "repo": repo,
+            "filename": filename,
+            "revision": revision,
+            "gb": None,
+            "gated": None,
+            "access_blocked": None,
+        }
+        if lookup_sizes:
+            entry["gb"], entry["access_blocked"] = _file_info(repo, filename, revision)
         required.append(entry)
     for url in urls:
         required.append(
@@ -962,11 +1005,76 @@ def _collect_sources(tree, names, variants, urls):
             single = source.get(SINGLE_FILE_KEY)
             if isinstance(single, str) and _is_url(single) and single not in urls:
                 urls.append(single)
+        _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names)
         for value in tree.values():
             _collect_sources(value, names, variants, urls)
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, variants, urls)
+
+
+def _collect_component_overrides(arguments, names):
+    """The repos a modular step's `load_components.pretrained_model_name_or_path`
+    names: a string for every component, or a dict keyed by component name
+    with an optional `default`. Diffusers merges it over each component's
+    spec, so the repo is pulled mid-run (#981). The base repo is still listed
+    whole - the subfolder an override replaces is not subtracted."""
+    if not isinstance(arguments, dict):
+        return
+    value = arguments.get(OVERRIDE_KEY)
+    for name in value.values() if isinstance(value, dict) else [value]:
+        if isinstance(name, str) and name not in names:
+            names.append(name)
+
+
+def _collect_task_weights(tree, names, files, urls):
+    """Every repo, file or URL a task step in a tree declares, appended after
+    the pipeline sources and deduplicated against them - a file as a
+    `(repo, filename, revision)` key in `files`. Each `task` block's
+    command is looked up by name and its hook called on the block's
+    arguments - expanded at the top level; a composed child's are its raw
+    definition, so a `variable:` value there is no repo and gives no entry.
+
+    A hook that raises costs its entries, never the validate: the plan
+    answers what it can name, and the run still loads what it loads.
+    """
+    if isinstance(tree, dict):
+        task = tree.get("task")
+        if isinstance(task, dict) and isinstance(task.get("command"), str):
+            arguments = task.get("arguments")
+            for entry in _task_weights(
+                task["command"], arguments if isinstance(arguments, dict) else {}
+            ):
+                repo, url = entry.get("repo"), entry.get("url")
+                filename = entry.get("filename")
+                if isinstance(repo, str) and isinstance(filename, str):
+                    key = (repo, filename, entry.get("revision"))
+                    if key not in files:
+                        files.append(key)
+                elif isinstance(repo, str) and repo not in names:
+                    names.append(repo)
+                elif repo is None and isinstance(url, str) and _is_url(url):
+                    if url not in urls:
+                        urls.append(url)
+        for value in tree.values():
+            _collect_task_weights(value, names, files, urls)
+    elif isinstance(tree, list):
+        for value in tree:
+            _collect_task_weights(value, names, files, urls)
+
+
+def _task_weights(command, arguments):
+    # Imported here: the registry loads task modules only when a workflow has
+    # a task step, so a pipeline-only validate pays nothing for it
+    from .tasks.registry import required_weights_hook
+
+    try:
+        hook = required_weights_hook(command)
+        entries = hook(copy.deepcopy(arguments)) if hook is not None else []
+    except Exception as error:
+        logger.debug(f"required_weights for task {command!r} failed: {error}")
+        return []
+    return [entry for entry in entries or [] if isinstance(entry, dict)]
 
 
 def gate_warnings(downloads_required):
@@ -979,7 +1087,8 @@ def gate_warnings(downloads_required):
         "Hugging Face token - accept its license at "
         f"https://huggingface.co/{entry['repo']} before running this workflow"
         for entry in downloads_required
-        if entry.get("access_blocked")
+        # A URL entry has no repo to send anyone to
+        if entry.get("access_blocked") and entry.get("repo")
     ]
 
 
@@ -1033,6 +1142,28 @@ def _model_info(name):
     if gated:
         access_blocked = _probe_gate_blocked(name, info.siblings or [])
     return gb, gated, access_blocked
+
+
+def _file_info(repo, filename, revision):
+    """One file's size in GiB and whether this box's token is blocked from it
+    - a `(gb, access_blocked)` pair from a HEAD of the file itself, the call
+    `_probe_gate_blocked` makes. `_model_info` would size the whole repo at
+    main, overstating one file of a multi-file repo. A tiny file reads 0.01
+    rather than 0, which would look like nothing to fetch."""
+    try:
+        metadata = get_hf_file_metadata(
+            hf_hub_url(repo, filename, revision=revision),
+            timeout=SIZE_LOOKUP_TIMEOUT,
+        )
+    except GatedRepoError as e:
+        logger.debug(f"Gate not accepted for {repo}/{filename}: {e}")
+        return None, True
+    except Exception as e:
+        logger.debug(f"No size for {repo}/{filename}: {e}")
+        return None, None
+    size = getattr(metadata, "size", None)
+    gb = max(round(size / GIB, 2), 0.01) if size else None
+    return gb, False
 
 
 def _probe_gate_blocked(name, siblings):

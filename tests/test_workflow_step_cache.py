@@ -1272,3 +1272,112 @@ def test_a_pipeline_reference_runs_with_the_referenced_steps_runtime_settings(
     adapters, shift = seen["C"]
     assert adapters.args == (["0"], [1.0])
     assert shift.args == (6.0,)
+
+
+def _runs_of(tmp_path, first, second):
+    """How many times the step body ran across one run of each definition,
+    two separate Workflows sharing an id and an output dir - the rerun of an
+    edited copy of the same workflow."""
+    step_cache.clear()
+    calls = {"n": 0}
+
+    def fake_step_run(self, previous_results, previous_pipelines, step_action):
+        calls["n"] += 1
+        return FakeResult()
+
+    with (
+        patch.object(Step, "run", fake_step_run),
+        patch.object(Pipeline, "load", _mock_pipeline_load),
+    ):
+        Workflow(first, str(tmp_path), "test.json").run({})
+        Workflow(second, str(tmp_path), "test.json").run({})
+    return calls["n"]
+
+
+def _with_output_settings():
+    """The fixture's step with an attention backend, a cache config, a
+    dtype and a LoRA set, so a test can move each one."""
+    spec = _workflow_def()
+    pipeline = spec["steps"][0]["pipeline"]
+    pipeline["configuration"]["attention_backend"] = "flash"
+    pipeline["configuration"]["cache"] = {"type": "mag", "threshold": 0.1}
+    pipeline["from_pretrained_arguments"]["torch_dtype"] = "torch.bfloat16"
+    pipeline["loras"] = [{"model_name": "org/lora-a", "scale": 1.0}]
+    spec["steps"][0]["result"] = {"content_type": "image"}
+    return spec
+
+
+class TestOutputKeys:
+    """#905: a step's cache key is what can change its output. Workflow
+    metadata never reaches it; a result's role is a label. Its subfolder and
+    file_base_name stay: a hit republishes the cached files' paths."""
+
+    def test_the_exclusion_list_is_pinned(self):
+        from dw.step_cache import NON_OUTPUT_RESULT_KEYS
+
+        assert NON_OUTPUT_RESULT_KEYS == ("role",)
+
+    @pytest.mark.parametrize(
+        "edit",
+        [
+            lambda d: d.update(cost_drivers=["prompt"]),
+            lambda d: d.update(
+                vram_estimate={"base_gb": 4, "voxel_variables": ["prompt"]}
+            ),
+            lambda d: d.update(description="reworded", summary="reworded"),
+            lambda d: d.update(shape="image", traits=["chained"]),
+            lambda d: d["steps"][0]["result"].update(role="final"),
+        ],
+        ids=["cost_drivers", "vram_estimate", "description", "catalog", "role"],
+    )
+    def test_metadata_alone_is_a_hit(self, tmp_path, edit):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        edit(other)
+        assert _runs_of(tmp_path, spec, other) == 1
+
+    def test_cost_drivers_alone_name_the_step_in_cache_hits(self, tmp_path):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["cost_drivers"] = ["prompt"]
+        assert _runs_of(tmp_path, spec, spec) == 1
+        workflow = Workflow(other, str(tmp_path), "test.json")
+        assert "generate" in workflow_run_module.cache_hits(workflow, {})
+
+    @pytest.mark.parametrize(
+        "move",
+        [
+            lambda p: p["configuration"].update(attention_backend="native"),
+            lambda p: p["configuration"]["cache"].update(threshold=0.2),
+            lambda p: p["from_pretrained_arguments"].update(
+                torch_dtype="torch.float16"
+            ),
+            lambda p: p["loras"][0].update(model_name="org/lora-b"),
+            lambda p: p["loras"][0].update(scale=0.5),
+        ],
+        ids=["attention_backend", "cache", "dtype", "lora", "lora_scale"],
+    )
+    def test_an_output_setting_is_a_miss(self, tmp_path, move):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        move(other["steps"][0]["pipeline"])
+        assert _runs_of(tmp_path, spec, other) == 2
+
+    def test_a_subfolder_is_a_miss(self, tmp_path):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["steps"][0]["result"]["subfolder"] = "elsewhere"
+        assert _runs_of(tmp_path, spec, other) == 2
+
+    def test_a_file_base_name_is_a_miss(self, tmp_path):
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["steps"][0]["result"]["file_base_name"] = "renamed"
+        assert _runs_of(tmp_path, spec, other) == 2
+
+    def test_a_seed_is_a_miss(self, tmp_path):
+        # The fingerprint leaves the seed out (#85); the cache never does
+        spec = _with_output_settings()
+        other = copy.deepcopy(spec)
+        other["seed"] = 43
+        assert _runs_of(tmp_path, spec, other) == 2

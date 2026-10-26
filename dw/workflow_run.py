@@ -60,6 +60,7 @@ from .step_cache import (
     borrowed_pipeline_keys,
     copy_containers,
     normalized_downstream,
+    output_identity,
     reference_resolves_to,
     referenced_result_names,
     step_cache,
@@ -469,7 +470,7 @@ def cache_lookup(
     step_data_snapshot = None
     if is_cacheable:
         try:
-            step_data_snapshot = copy.deepcopy(step_data)
+            step_data_snapshot = output_identity(copy.deepcopy(step_data))
             if parent_saves_this:
                 # Keyed apart from the same step run standalone: this
                 # entry's result was never saved here, so a standalone

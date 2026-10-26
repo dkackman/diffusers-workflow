@@ -78,7 +78,7 @@ Magnitude-based caching with error accumulation. Requires `num_inference_steps` 
 | -------- | ------- | ----------- |
 | `mag_ratios` | required | Preset name or explicit per-step ratio array — see below |
 | `threshold` | 0.06 | Accumulated error threshold for skipping |
-| `num_inference_steps` | required | Must match pipeline arguments |
+| `num_inference_steps` | required | The transformer forwards the call runs: the pipeline's `num_inference_steps`, except where the scheduler runs fewer (MiniMax-H3 runs one fewer) |
 | `max_skip_steps` | 3 | Max consecutive steps to skip |
 | `retention_ratio` | 0.2 | Fraction of initial steps where skipping is disabled |
 | `calibrate` | false | Measure ratios for a new model instead of skipping — see below |
@@ -90,7 +90,7 @@ MagCache needs to know how each denoising step's output magnitude typically beha
 - **A preset name** — `"mag_ratios": "flux"` resolves to the ratios diffusers ships for Flux. Any preset a later diffusers release adds is usable by name without a change here.
 - **An explicit array** — `"mag_ratios": [1.0, 0.98, 0.96, ...]`. The array is interpolated automatically when its length differs from `num_inference_steps`, so ratios measured at one step count can be reused at another.
 
-For a model with no preset, run once with `"calibrate": true`. Calibration skips nothing. At the end of the run the measured ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is the step count, so the cache's can be left at its default (a mismatch is reported as a warning). The cache attaches to a pipeline's `transformer`, and only one that supports `enable_cache()`: a UNet pipeline such as SD 1.5 has no transformer, and Z-Image's transformer has no cache support, so both get a warning that the cache was not applied and no calibration. Paste that array into `mag_ratios` and drop the `calibrate` flag for subsequent runs. A pipeline that runs classifier-free guidance as two transformer passes in their own `cond` and `uncond` cache contexts (Qwen-Image-2.1 with `true_cfg_scale` above 1 and a `negative_prompt`, or the other Qwen-Image pipelines) keeps a separate state for each, so it emits **two** lists, each labeled `[cond]` or `[uncond]`; use the `cond` one, since `mag_ratios` takes one array. A guidance-distilled pipeline such as Flux, or one that batches both passes into one forward emits one unlabeled list.
+For a model with no preset, run once with `"calibrate": true`. Calibration skips nothing. At the end of the run the measured ratios appear as a job warning and a `log` event (`get_job`'s `warnings`, `get_job_events`, `export_job`): `MagCache calibration (N steps): [ ... ] — paste into mag_ratios`. While calibrating, the run's own `num_inference_steps` is the step count, so the cache's can be left at its default (a mismatch is reported as a warning). The cache attaches to a pipeline's `transformer`, and only one that supports `enable_cache()`: a UNet pipeline such as SD 1.5 has no transformer, and Z-Image's transformer has no cache support, so both get a warning that the cache was not applied and no calibration. Paste that array into `mag_ratios` and drop the `calibrate` flag for subsequent runs. `N` is the forwards the run actually made, which is not always the call's `num_inference_steps`: MiniMax-H3's scheduler turns N sigmas into N - 1 evaluations, so a 30-step H3 call reports 29 ratios. Set the cache's `num_inference_steps` to that `N` when you paste them, so each ratio lines up with its forward. A pipeline that runs classifier-free guidance as two transformer passes in their own `cond` and `uncond` cache contexts (Qwen-Image-2.1 with `true_cfg_scale` above 1 and a `negative_prompt`, or the other Qwen-Image pipelines) keeps a separate state for each, so it emits **two** lists, each labeled `[cond]` or `[uncond]`; use the `cond` one, since `mag_ratios` takes one array. A guidance-distilled pipeline such as Flux, or one that batches both passes into one forward emits one unlabeled list.
 
 ```json
 "cache": { "type": "mag", "calibrate": true, "num_inference_steps": 28 }
@@ -159,19 +159,57 @@ Select the attention implementation diffusers uses for the duration of each pipe
 }
 ```
 
-Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency, and no bundled workflow sets a backend, so each runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
+Common values: `"flash"`, `"flash_hub"`, `"sage"`, `"sage_hub"`, `"native"`, `"flex"`. The full set is diffusers' `AttentionBackendName` enum - availability depends on what's installed (`flash-attn`, `sageattention`, etc.) and the platform. `_hub`-suffixed backends are fetched from the Hugging Face Hub kernel registry on first use, which needs the `kernels` package installed (`pip install kernels`) - it is not a dw dependency. The only backend a bundled workflow sets is `sparse`, the default on every MiniMax-H3 template, and it needs no `kernels` install (comfy-kitchen is a core dependency), so each bundled workflow runs on a plain install. diffusers also refuses a Hub kernel whose publisher it does not list as trusted - `sage_hub` among them, since SageAttention 2 comes from `SageAttention/sage-attention` - until `DIFFUSERS_TRUST_REMOTE_KERNELS=true`, which allows remote code from any such publisher. On an RTX 3090 `sage_hub` measured about 30% faster per MiniMax-H3 step (13.8 s against 19.2 s at 960x544x124, 54.7 s against 81.2 s at 345 frames); the local `sage` backend needs `sageattention>=2.1.1`, which PyPI does not carry.
 
 Every MiniMax-H3 template in [templates/minimax/](../workflows/templates/minimax/)
 exposes this as a variable: `attention_backend`, pinned on the H3 step's transformer
 (`components.transformer`, or `components.transformer_ref` for a ref2va workflow) and
-`null` by default. That covers the shots, chains and episodes - `dialogue-short`,
+`"sparse"` by default (with `sparse_tau`, below). That covers the shots, chains and episodes - `dialogue-short`,
 `shots-batch`, `music-video` and `storyboard` among them - and only their H3 steps: a
 Z-Image still or Music3 song beside an H3 shot keeps the process default. Pass
-`attention_backend=sage_hub` to a box with the `kernels` package and
-`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS leave it null, since a
-CUDA-only kernel fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
+`attention_backend=sage_hub` (or `native`) to override the default; `sage_hub` needs a box with the `kernels` package and
+`DIFFUSERS_TRUST_REMOTE_KERNELS=true` in its `.env`; on MPS the default falls back to dense, but a CUDA-only kernel such as `sage_hub` fails there at load (validation warns, below). LTX-2.5 cannot use it: its transformer
 passes an attention mask, and sage attention refuses one ("`attn_mask` is not supported
 for sage attention", measured 2026-10-10), so the LTX templates expose no backend.
+
+### `sparse` (MiniMax-H3)
+
+`attention_backend: "sparse"` runs H3's attention through comfy-kitchen's block-sparse kernel: each query tile attends only to the key tiles that matter, so the cost of the long video-token sequence falls. It applies to the H3 transformer only, at pipeline or component level, and is the default on every H3 template (#931). Set at both levels, the component's own `attention_backend` wins, as it does for every backend: a pipeline-level `sparse` skips a component pinned to `sage_hub` (or anything else) and warns `attention_backend 'sparse' at pipeline level skips '<component>', which pins '<backend>'`. When it does install, the run logs `Using attention backend: sparse (tau <tau>) on <components>`, or `(topk <k>)` with top-k routing. `sparse_tau` (number, minimum 0, default 0.5; anything else, such as a `variable:` that resolves to a string or a bool, fails the step rather than running dense) sets how much of the attention mass a tile may drop; 0 keeps the most. Observed at Ref2VA 1344x768, seed 42: tau 1.0 ran 42.1 s/forward against 44.8 s at 0.5, and by Don's eye 1.0 gave smoother skin while 0.5 matched dense (the table below). That is one shape and one seed, not a rule that higher is always faster or smoother.
+
+`sparse_topk` (a number strictly between 0 and 1; the H3 templates set 0.15, and a workflow that sets none routes by `sparse_tau`) switches the kernel to top-k routing: each query tile keeps that fraction of key tiles and drops the rest outright, with `sparse_tau` ignored. It is the selection lightx2v's Turbo-SLA LoRAs were trained against (85% sparsity, so `0.15`). Measured on `video-with-audio-768p`, seed 42 (#932): top-k 0.15 ran 21.1 s/forward against 23.6 s at tau 0.5, about 11% faster, and Don saw no difference on that clip, with either the Turbo-SLA LoRA or the default v1.2 turbo (so dw does not adopt the SLA LoRA). That clip has no faces, so it was checked on the H3 quality ramp's 4-reference sitcom shot at seeds 42, 7 and 1234 against tau 0.5. Don judged top-k equal or better: on the turbo L7 rung tau showed blue ghosting at seed 7 and slight smearing at all three, and on the 30-step base-model L5 rung the skin held. Top-k 0.15 is therefore the H3 templates' default; pass `sparse_topk=null` to route by `sparse_tau` instead.
+
+| rung (minutes per job, seeds 42 / 7 / 1234) | tau 0.5 | top-k 0.15 |
+|---|---|---|
+| L7: ref2v 4-step turbo, int8 | 6.5 / 6.5 / 6.5 | 6.1 / 6.2 / 5.8 |
+| L5: base model, int8, 30 steps | 26.8 / 26.6 / 26.4 | 23.9 / 25.5 / 23.9 |
+
+**What the default buys depends on what it replaces.** Against `native` attention, which is what an H3 template ran before #931 unless `attention_backend` was set, sparse is 2.2-4.4x faster per step. Against `sage_hub`, the gain is much smaller: 6-16% depending on the shape (the second table). So sparse's main win is for a run that set no backend, and it needs no `kernels` package or `DIFFUSERS_TRUST_REMOTE_KERNELS`. A box already on `sage_hub` gains a little, at equal quality: on the H3 skill's quality-ramp rungs, Don judged faces, skin and draft-to-final staging equal under both backends across three seeds (#931 stage 3).
+
+Measured on an RTX 3090, seed 42, s per transformer forward (one per denoise step), lower is faster:
+
+| shape | native | `sage_hub` | sparse | sparse vs native | sparse vs `sage_hub` |
+|---|---|---|---|---|---|
+| T2VA 960x544, 4-step turbo, tau 1.0 | 24.3 | - | 10.8 | 2.25x | - |
+| T2VA 1344x768, 4-step turbo, tau 1.0 | 96.1 | - | 21.9 | 4.38x | - |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 1.0 | 108.4 | - | 42.1 | 2.58x | - |
+| Ref2VA 1344x768, 8-step ref2v turbo, tau 0.5 (the default) | 108.4 | 51.0 | 44.1-44.8 | 2.42x | 1.16x |
+
+Wall time, same order: 150 -> 95 s, 457 -> 158 s, 965 -> 430 s, and for the last row 965 s native, 489 s `sage_hub`, 442-450 s sparse.
+
+Against `sage_hub` on the H3 skill's quality-ramp rungs (ep 6 cold open, 4 references, 1344x768, 124 frames; minutes per job, seeds 42 / 7 / 1234, all on the same diffusers):
+
+| rung | `sage_hub` | sparse | sparse vs `sage_hub` |
+|---|---|---|---|
+| L1: ref2v 4-step turbo, int4, 5 steps | 5.5 / 5.5 / 5.5 | 5.2 / 5.2 / 5.1 | 1.06-1.08x |
+| L7: ref2v 4-step turbo, int8, 5 steps | 7.1 / 6.9 / 7.1 | 6.5 / 6.5 / 6.5 | 1.06-1.09x |
+| B3: base model, int8, 12 steps | 13.0 / 12.9 / 12.9 | 12.3 / 12.0 / 12.1 | 1.06-1.07x |
+| L5: base model, int8, 30 steps | 29.7 / 29.7 / 29.7 | 26.8 / 26.6 / 26.4 | 1.11-1.12x |
+
+The `first_block` cache on `sage_hub` (23.1 min at L5's settings) is still faster than sparse alone there; sparse with that cache is not measured. The native and tau 1.0 figures come from the #931 prototype. The `sage_hub` figure and the 44.1 s come from the engine on lem after the deploy, with a newer diffusers (jobs 94c04976d21d and 593131ca713f), so the sage comparison is between those two jobs only. The T2VA rows have no `sage_hub` run. Peak VRAM did not change. Judged by eye, tau 0.5 matched dense; tau 1.0 was smoother in skin.
+
+It needs CUDA with compute capability 8.0 or higher. Anywhere else (MPS, CPU, an older card, an unsupported dtype or head size) the run goes dense instead of failing, and says so twice: `validate_workflow` warns `sparse_attention_fallback` when the server's device is not CUDA, and the run reports `<label>: sparse attention ran dense - <reason>` once per pipeline call. A job of one call warns once; a chained, `shots-batch` or `dialogue-short` job calls the pipeline once per segment or shot, so it warns once for each, under that segment's or shot's label. A comfy-kitchen kernel that fails on its first invocation in a call also runs that call dense, with `sparse kernel failed: <error>` as the reason; one that fails after it has run in the call fails the run, since some blocks have already run sparse.
+
+Unlike sage, sparse **moves composition** relative to dense: the same subject, story and cuts, but different framing and set dressing. A draft and its final must therefore use the same backend; mixing `sparse` and `sage_hub` between tiers means the draft no longer predicts the final.
 
 A component can also pin its backend persistently instead, via `set_attention_backend`:
 

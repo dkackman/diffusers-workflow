@@ -184,6 +184,7 @@ UI_READ_ROUTES = [
     ("delete", "/api/gallery/{name}"),
     ("get", "/api/gallery/{name}/metadata"),
     ("put", "/api/notes"),
+    ("put", "/api/stars"),
     ("get", "/api/assets"),
     ("post", "/api/uploads"),
     ("post", "/api/assets/keep"),
@@ -252,6 +253,7 @@ def test_health_sends_exactly_its_keys(server):
         "device",
         "mcp",
         "workers",
+        "attention_backends",
     }
     assert type(body["queued"]) is int
     # One worker, not yet started: no process, so no host memory to read

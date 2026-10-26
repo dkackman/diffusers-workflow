@@ -286,6 +286,7 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
     "crop_face_track",
     implementation="dw.tasks.face_track.crop_face_track",
     consumes_device=True,
+    required_weights="dw.tasks.face_track.required_weights",
     summary=(
         "Follow one face through a clip and crop a steady square around it, "
         "with a per-frame record of the box and a face-detail strength."

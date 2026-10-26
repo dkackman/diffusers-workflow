@@ -52,6 +52,9 @@ const archiveOutputs = vi.hoisted(() =>
   vi.fn<(names: string[]) => Promise<void>>(() => Promise.resolve()),
 )
 const setNote = vi.hoisted(() => vi.fn())
+const setStarred = vi.hoisted(() =>
+  vi.fn((name: string, starred: boolean) => Promise.resolve({ name, starred })),
+)
 const galleryMetadata = vi.hoisted(() =>
   vi.fn<(name: string) => Promise<unknown>>(() => new Promise(() => {})),
 )
@@ -63,6 +66,7 @@ vi.mock('../api', () => ({
     galleryUrl: (name: string) => `/outputs/${name}`,
     outputDownloadUrl: (name: string) => `/download/${name}`,
     deleteOutput: (name: string) => deleteOutput(name),
+    setStarred: (name: string, starred: boolean) => setStarred(name, starred),
     archiveOutputs: (names: string[]) => archiveOutputs(names),
     galleryMetadata: (name: string) => galleryMetadata(name),
   },
@@ -80,6 +84,7 @@ afterEach(() => {
   cleanup()
   gallery.mockClear()
   deleteOutput.mockClear()
+  setStarred.mockClear()
   archiveOutputs.mockClear()
   notifyError.mockClear()
   galleryMetadata.mockReset()
@@ -113,6 +118,14 @@ function pressEscape() {
     new KeyboardEvent('keydown', { key: 'Escape', bubbles: true }),
   )
 }
+
+/** Opens a file's detail panel by clicking its tile. */
+const openFile = (name: string) =>
+  fireEvent.click(
+    screen.getByRole('button', {
+      name: new RegExp(`^${name.replace('.', '\\.')}`),
+    }),
+  )
 
 async function answerConfirm(accept: boolean) {
   const dialog = await waitFor(() => screen.getByRole('alertdialog'))
@@ -519,4 +532,76 @@ it('marks every tile of a run after its run note is saved', async () => {
     expect(document.querySelectorAll('.note-mark')).toHaveLength(2),
   )
   expect(setNote).toHaveBeenCalledWith('wf/r1', 'fresh')
+})
+
+it('the arrow keys step through the files the grid shows', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  await fireEvent.keyDown(window, { key: 'ArrowRight' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
+  await fireEvent.keyDown(window, { key: 'ArrowLeft' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('a.png')
+})
+
+it('an arrow key typed in the note box does not move the selection', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  const before = galleryMetadata.mock.calls.length
+  const box = document.createElement('textarea')
+  document.body.append(box)
+  await fireEvent.keyDown(box, { key: 'ArrowRight' })
+  expect(galleryMetadata.mock.calls.length).toBe(before)
+  box.remove()
+})
+
+it('Delete removes the open file and opens the next', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.keyDown(window, { key: 'Delete' })
+  await answerConfirm(true)
+  await waitFor(() => expect(deleteOutput).toHaveBeenCalledWith('a.png'))
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('b.png'))
+})
+
+it('stars the open file and can filter to starred files', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.click(screen.getByRole('button', { name: 'star this file' }))
+  expect(setStarred).toHaveBeenCalledWith('a.png', true)
+  await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
+  expect(screen.queryByTitle('b.png')).toBeNull()
+  expect(screen.getByTitle('a.png')).toBeTruthy()
+})
+
+it('the S key stars the open file', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.keyDown(window, { key: 's' })
+  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', true))
+})
+
+it('the S key leaves a bare s to the page: Shift-S does nothing', async () => {
+  await renderGallery()
+  await openFile('a.png')
+  await fireEvent.keyDown(window, { key: 'S', shiftKey: true })
+  expect(setStarred).not.toHaveBeenCalled()
+})
+
+it('unstarring the open file under Starred steps on from its place', async () => {
+  listing.files = [
+    { ...file('a.png'), starred: true },
+    { ...file('b.png'), starred: true },
+    file('c.png'),
+  ]
+  await renderGallery()
+  await fireEvent.click(screen.getByRole('button', { name: 'Starred' }))
+  await openFile('a.png')
+  await waitFor(() => expect(galleryMetadata).toHaveBeenLastCalledWith('a.png'))
+  await fireEvent.keyDown(window, { key: 's' })
+  await waitFor(() => expect(setStarred).toHaveBeenCalledWith('a.png', false))
+  await waitFor(() => expect(screen.queryByTitle('a.png')).toBeNull())
+  await fireEvent.keyDown(window, { key: 'ArrowRight' })
+  expect(galleryMetadata).toHaveBeenLastCalledWith('b.png')
 })

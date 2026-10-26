@@ -442,3 +442,73 @@ def test_a_job_over_an_inherited_ceiling_queues_and_carries_the_warning(api):
     assert response.status_code == 201, response.text
     (warning,) = _inherited(response.json()["warnings"])
     assert "templates/minimax/reference-to-video" in warning
+
+
+# --- a note when the config differs from the calibrated one (#954) ---------------
+
+
+def _with_config(step, **configuration):
+    step = copy.deepcopy(step)
+    step["pipeline"]["configuration"].update(configuration)
+    return step
+
+
+def _calibrated_index(**configuration):
+    template = _template("ref2va", REF2VA_ESTIMATE)
+    template["steps"] = [_with_config(s, **configuration) for s in template["steps"]]
+    return build_index([("templates/calibrated", template)])
+
+
+class TestConfigDiffers:
+    def _kinds(self, warnings, kind):
+        return [w for w in warnings if f": {kind}:" in w]
+
+    def test_missing_offload_under_the_ceiling_notes_it(self):
+        index = _calibrated_index(offload="model")
+        step = _h3_step("shot", num_frames=124)
+        warnings = _warnings(_inline(step), index=index)
+        (warning,) = warnings
+        assert "vram_config_differs" in warning
+        assert "templates/calibrated" in warning
+        assert "offload: model" in warning
+        assert "no offload" in warning
+        assert "24 GB" in warning
+
+    def test_a_different_quantization_notes_it(self):
+        quantization = {"quantization_config": {"quant_type": "nf4"}}
+        index = _calibrated_index(**quantization)
+        warnings = _warnings(_inline(_h3_step("shot", num_frames=124)), index=index)
+        (warning,) = self._kinds(warnings, "vram_config_differs")
+        assert "quantization_config" in warning
+        assert "no quantization" in warning
+
+    def test_the_same_config_says_nothing(self):
+        index = _calibrated_index(offload="model")
+        step = _with_config(_h3_step("shot", num_frames=124), offload="model")
+        assert _warnings(_inline(step), index=index) == []
+
+    def test_its_own_estimate_says_nothing(self):
+        index = _calibrated_index(offload="model")
+        definition = _inline(
+            _h3_step("shot", num_frames=124),
+            vram_estimate={**REF2VA_ESTIMATE, "base_gb": 4.0},
+            cost=CARD,
+        )
+        assert _warnings(definition, index=index) == []
+
+    def test_over_the_ceiling_one_warning_names_the_difference(self):
+        index = _calibrated_index(offload="model")
+        warnings = _warnings(_inline(_h3_step("shot")), index=index)
+        (warning,) = warnings
+        assert f": {KIND}:" in warning
+        assert "vram_config_differs" not in warning
+        assert "its offload differs from the template's" in warning
+        assert "offload: model" in warning and "no offload" in warning
+
+    def test_offload_set_through_an_overridden_variable_is_compared_resolved(self):
+        index = _calibrated_index(offload="model")
+        step = _with_config(_h3_step("shot", num_frames=124), offload="variable:mode")
+        definition = _inline(step, variables={"mode": "model"})
+        assert _warnings(definition, index=index) == []
+        (warning,) = _warnings(definition, index=index, arguments={"mode": None})
+        assert "vram_config_differs" in warning

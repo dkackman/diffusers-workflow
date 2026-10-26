@@ -658,3 +658,23 @@ it('keeps a saved note on the asset when it is selected again', async () => {
   screen.getByLabelText('show details for iris.png').click()
   await waitFor(() => expect(screen.getByText('hero shot')).toBeTruthy())
 })
+
+it('a drop on the shared page uploads to the shared library without a button click', async () => {
+  listing.libraries = [WORKSPACE_LIBRARY, SHARED_LIBRARY]
+  listing.assets = [asset('shared/logo.png', 'common')]
+  await renderAssets('logo.png', true)
+
+  vi.stubGlobal(
+    'prompt',
+    vi.fn(() => 'dropped.png'),
+  )
+  const file = new File(['x'], 'dropped.png', { type: 'image/png' })
+  const drop = new Event('drop', { bubbles: true, cancelable: true })
+  Object.defineProperty(drop, 'dataTransfer', {
+    value: { types: ['Files'], files: [file] },
+  })
+  document.querySelector('.dropzone')!.dispatchEvent(drop)
+
+  await waitFor(() => expect(uploadMedia).toHaveBeenCalledTimes(1))
+  expect(uploadMedia).toHaveBeenCalledWith(file, 'dropped.png', true)
+})

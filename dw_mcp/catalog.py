@@ -270,8 +270,8 @@ def list_gallery(
     enough to pick between two takes without one metadata call per
     candidate. Off by default; a plain call carries no `duration_seconds`.
 
-    Each file carries `role` (`final`, `intermediate`, or null with no run);
-    `role=[...]` keeps only those, null counting as final."""
+    Each file carries `role` (`final`, `intermediate`, or null when nothing
+    says); `role=[...]` keeps only those, null counting as final."""
     params = {"limit": limit}
     if role:
         params["role"] = list(role)
@@ -296,7 +296,12 @@ def list_gallery(
 
 
 def get_gallery_metadata(
-    client, name, envelope=False, workspace=None, interval_seconds=None
+    client,
+    name,
+    envelope=False,
+    workspace=None,
+    interval_seconds=None,
+    include_workflow=True,
 ):
     """Metadata embedded in a saved file: the full workflow that made it -
     the exact workflow, arguments and seed, so a result can be reproduced
@@ -326,9 +331,12 @@ def get_gallery_metadata(
     measure, and the default answer has to stay small. `interval_seconds`
     (0.05 to 3600, default 1.0) narrows the bins; a finer-than-default width
     that would need over 2400 of them is refused with the interval that fits."""
-    params = {"envelope": "true"} if envelope else None
+    params = {"envelope": "true"} if envelope else {}
     if envelope and interval_seconds is not None:
         params["interval_seconds"] = interval_seconds
+    if not include_workflow:
+        params["include_workflow"] = "false"
+    params = params or None
     body = client.get_json(
         api_path("api", "gallery", name, "metadata"),
         params=params,
@@ -338,7 +346,16 @@ def get_gallery_metadata(
     job = body.get("job")
     hints = []
     if body.get("metadata") is None:
-        if job and job.get("id"):
+        if job and job.get("status") == "forgotten":
+            hints.append(
+                "metadata is null because this file has none embedded, and "
+                f"its job {job.get('id')} is no longer in the server's "
+                "history (status 'forgotten'), so get_job_workflow would "
+                "answer 'Unknown job'. What remains is this file's own "
+                "`note` and `inputs` when present, or get_job_workflow of "
+                "an older job that is still listed."
+            )
+        elif job and job.get("id"):
             hints.append(
                 "metadata is null because this file has none embedded - a "
                 "pipeline's image carries it, but video, audio and an image "

@@ -3,9 +3,11 @@
 A WorkerSlot is one `--devices` card: its worker, the job it runs and the
 lock that serializes talking to it. The functions here read only the slots
 they are given and take no lock - fit (`check_fits`, `dispatch_need`), the
-largest card (`largest_ceiling_gb`) and affinity (`choose_slot`). The
+largest card (`largest_ceiling_gb`), affinity (`choose_slot`) and the
+host-RAM wait (`host_ram_wait`): the cards share one host's RAM, so a job
+that fits a free card may still wait for a running one to finish. The
 JobManager (`dw/server/jobs.py`) calls them under its own lock where the
-answer must agree with dispatch (`JobManager.route`, `_next_dispatch`).
+answer must agree with dispatch (`JobManager.route`, `dispatch.Dispatcher._next_dispatch`).
 """
 
 import logging
@@ -226,3 +228,36 @@ def dispatch_need(slots, need):
     if hard or any(capacity >= gb for _, capacity in capacities(slots)):
         return (gb, hard)
     return None
+
+
+# ---------------------------------------------------------------- host RAM
+
+
+def host_ram_wait(need_mb, available_mb, running, idle_rss_mb=None):
+    """Why a job projected to peak at `need_mb` of host RAM must wait to
+    start now, or None when it may start (#869).
+
+    `available_mb` is the host's MemAvailable; `running` holds one
+    (projected peak MB or None, worker RSS MB now or None) per running job;
+    `idle_rss_mb` is what the idle worker the job would reuse holds, which
+    the job takes over. Each running job is charged the growth it has still
+    to make, `max(0, peak - rss)`: one still loading has not reached its
+    peak, and MemAvailable already reflects what it holds. A running job
+    with no figure is charged nothing more, and an unread RSS is a worker
+    holding nothing yet.
+
+    Never a wait with no other job running, so a job waits only for jobs
+    that will finish; never without a figure for the job or a reading of
+    the host."""
+    if need_mb is None or available_mb is None or not running:
+        return None
+    growth = sum(
+        max(0.0, peak - (rss or 0.0)) for peak, rss in running if peak is not None
+    )
+    free = max(0.0, available_mb - growth + (idle_rss_mb or 0.0))
+    if need_mb <= free:
+        return None
+    return (
+        f"waiting for host RAM: needs ~{need_mb / 1024:.0f} GB, "
+        f"~{free / 1024:.0f} GB free"
+    )

@@ -13,6 +13,7 @@
   import { ASSET, OUTPUT, referenceName } from '../references'
   import { ensureOutputLibrary, outputNamed } from '../outputlib.svelte'
   import type { MediaKind } from '../editor'
+  import { dropFiles } from '../dropFiles'
 
   let {
     id,
@@ -74,8 +75,10 @@
   async function pick(e: Event & { currentTarget: HTMLInputElement }) {
     const file = e.currentTarget.files?.[0]
     e.currentTarget.value = ''
-    if (!file) return
+    if (file) await uploadFile(file)
+  }
 
+  async function uploadFile(file: File) {
     error = ''
     setLocalPreview(URL.createObjectURL(file))
     uploading = true
@@ -103,7 +106,14 @@
   }}
 />
 
-<div class="media">
+<div
+  class="media"
+  use:dropFiles={{
+    ondrop: (files) => uploadFile(files[0]),
+    accept: (f) => f.type.startsWith(`${kind}/`),
+    disabled: uploading,
+  }}
+>
   <div class="row1">
     <Suggest
       {id}
@@ -128,7 +138,7 @@
     <button
       type="button"
       class="quiet icon"
-      title={`browse for a local ${kind} file`}
+      title={`browse for a local ${kind} file, or drop a file here`}
       aria-label={`browse for a local ${kind} file`}
       disabled={uploading}
       onclick={() => fileInput?.click()}

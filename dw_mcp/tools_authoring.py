@@ -18,7 +18,7 @@ class WorkspaceTools:
         shared asset library that `upload_asset(shared=true)` and
         `keep_output(shared=true)` write into - which is how a recurring
         cast stays reachable from the workspace the next piece is made
-        in. Entries carry name, default and usage (files/bytes) only; pass
+        in. Entries carry name, default, usage (files/bytes) and any note; pass
         detail=true for each entry's full folder paths (workflows, assets,
         outputs, prompts, common_assets)."""
         return workspaces.list_workspaces(self.client, detail=detail)

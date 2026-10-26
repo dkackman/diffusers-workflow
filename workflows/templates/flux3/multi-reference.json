@@ -1,0 +1,74 @@
+{
+    "id": "Flux3KleinMultiReference",
+    "description": "FLUX 3 Image Klein with several references: BFL's prompt upsampler reads every reference in order and the instruction, writes the caption, then Klein draws from the caption and the references. The upsampler sees the same references as the pipeline. In a caption written by hand, name them <ref_image_0>, <ref_image_1> and so on (zero-based); the upsampler's own wording is the first image, the second image. The first reference sets the output's aspect ratio, at 1 MP by default. BFL trained Klein on up to 10 references; the pipeline does not enforce that cap, so more than 10 references run but are outside what the model learned. Family rules (16 steps, no guidance, component placement, the gated license) are as in text-to-image.json.",
+    "summary": "FLUX 3 Klein edit from several reference pictures, expanded by BFL's upsampler first.",
+    "cost_drivers": [
+        "images"
+    ],
+    "variables": {
+        "instruction": "print the dog from the second image onto the mug",
+        "images": [
+            {
+                "location": "https://raw.githubusercontent.com/black-forest-labs/flux-3-image-klein/bbfe317dd81c825c30d76090a67d3d0db51da3cc/examples/inputs/2.png"
+            },
+            {
+                "location": "https://raw.githubusercontent.com/black-forest-labs/flux-3-image-klein/bbfe317dd81c825c30d76090a67d3d0db51da3cc/examples/inputs/3.png"
+            }
+        ],
+        "seed": 23
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "upsample",
+            "release_models": true,
+            "workflow": {
+                "path": "builtin:flux3_klein_upsample_edit.json",
+                "arguments": {
+                    "instruction": "variable:instruction",
+                    "images": "variable:images"
+                }
+            },
+            "result": {
+                "content_type": "text/plain",
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "edit",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "previous_result:upsample",
+                    "image": "variable:images",
+                    "num_inference_steps": 16,
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

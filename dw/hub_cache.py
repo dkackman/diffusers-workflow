@@ -11,7 +11,9 @@ revisions it found inside the cache directory.
 import json
 import logging
 import os
+import re
 import shutil
+import tempfile
 import threading
 import time
 import uuid
@@ -419,19 +421,26 @@ class DownloadManager:
             del self._downloads[entry["id"]]
 
 
-def _download_repo(repo_id, tqdm_class, max_workers=4):
+def _download_repo(repo_id, tqdm_class, max_workers=4, cache_dir=None):
     """Fetch every file of repo_id, stopping promptly on a cancel (#899).
 
     Stands in for `snapshot_download`, whose file pool runs every queued file
     to the end after a cancel (its worker threads swallow the tracker's
     exception, and aborting the xet session only ends the files in flight).
     Here each file checks the cancel event before it starts, so a cancel
-    leaves at most the aborted in-flight files behind."""
+    leaves at most the aborted in-flight files behind.
+
+    Every file is pinned to the commit `repo_info` resolved for `main`, and
+    hf_hub_download writes no ref for a commit-hash revision, so this writes
+    `refs/main` itself once every file is in and no cancel came - without it
+    `repo_download_incomplete` reads the pull as unfinished and an offline
+    load cannot resolve `main`. A cancelled pull writes no ref."""
     from concurrent.futures import ThreadPoolExecutor
 
     from huggingface_hub import HfApi, hf_hub_download
 
     cancel_event = tqdm_class._cancel_event
+    # repo_info's default revision is `main` - the ref written below
     info = HfApi().repo_info(repo_id)
     files = [sibling.rfilename for sibling in info.siblings or []]
 
@@ -439,7 +448,11 @@ def _download_repo(repo_id, tqdm_class, max_workers=4):
         if cancel_event.is_set():
             raise DownloadCancelled()
         hf_hub_download(
-            repo_id, filename=filename, revision=info.sha, tqdm_class=tqdm_class
+            repo_id,
+            filename=filename,
+            revision=info.sha,
+            tqdm_class=tqdm_class,
+            cache_dir=cache_dir,
         )
 
     pool = ThreadPoolExecutor(max_workers=max_workers)
@@ -448,6 +461,39 @@ def _download_repo(repo_id, tqdm_class, max_workers=4):
             future.result()
     finally:
         pool.shutdown(wait=True, cancel_futures=True)
+    if cancel_event.is_set():
+        raise DownloadCancelled()
+    _write_main_ref(repo_id, info.sha, cache_dir)
+
+
+_COMMIT_HASH = re.compile(r"^[0-9a-f]{40}$")
+
+
+def _write_main_ref(repo_id, commit, cache_dir=None):
+    """Point repo_id's `refs/main` at `commit`, atomically: a temp file in
+    the refs folder, then os.replace over the ref."""
+    if not isinstance(commit, str) or not _COMMIT_HASH.match(commit):
+        # The ref names a snapshot folder; anything but a commit hash is
+        # not a value to write into the cache
+        raise ValueError(f"'{repo_id}' resolved to no commit hash: {commit!r}")
+    resolved = _resolved_cache_dir(cache_dir)
+    repo_dir = validate_path(
+        os.path.join(resolved, _repo_folder_name(repo_id)), resolved
+    )
+    refs_dir = validate_path(os.path.join(repo_dir, "refs"), repo_dir)
+    ref_path = validate_path(os.path.join(refs_dir, "main"), refs_dir)
+    os.makedirs(refs_dir, exist_ok=True)
+    fd, tmp_path = tempfile.mkstemp(dir=refs_dir, prefix=".main.", suffix=".tmp")
+    try:
+        with os.fdopen(fd, "w") as f:
+            f.write(commit)
+        os.replace(tmp_path, ref_path)
+    except BaseException:
+        try:
+            os.unlink(tmp_path)
+        except OSError:
+            pass
+        raise
 
 
 def _abort_xet_session():

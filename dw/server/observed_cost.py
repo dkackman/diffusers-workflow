@@ -78,7 +78,8 @@ def _bucket_key(definition, arguments):
     With declared drivers: the effective value of each, which is what the run
     passed or else the stored default. Without: only a run that overrode
     nothing that matters is comparable, and since nothing is declared to
-    matter, that means a run that overrode nothing at all.
+    matter, that means a run that overrode nothing at all - except a
+    task-only workflow, whose runs are all comparable (#921).
     """
     variables = definition.get("variables") or {}
     drivers = declared_drivers(definition)
@@ -87,6 +88,11 @@ def _bucket_key(definition, arguments):
             (name, _comparable(arguments.get(name, variables.get(name))))
             for name in sorted(drivers)
         )
+    if _is_task_only(definition):
+        # No pipeline loads, so a task's inputs (an audio file, a list of
+        # lines) are data rather than a size; with nothing declared to
+        # scale the cost, every run is comparable (#921)
+        return ()
     if any(key in variables for key in arguments):
         return None
     return ()

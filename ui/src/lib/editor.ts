@@ -289,12 +289,39 @@ export const CACHE_TYPES = [
   'text_kv',
 ]
 
+/** The variable names that feed an attention_backend, as
+ * "attention_backend": "variable:X", anywhere in the steps - pipeline
+ * configuration, components, and inline sub-workflow definitions. */
+export function attentionBackendVariables(definition: unknown): Set<string> {
+  const found = new Set<string>()
+  const walk = (node: unknown): void => {
+    if (Array.isArray(node)) {
+      node.forEach(walk)
+    } else if (node !== null && typeof node === 'object') {
+      for (const [key, value] of Object.entries(node)) {
+        if (
+          key === 'attention_backend' &&
+          typeof value === 'string' &&
+          value.startsWith(VARIABLE)
+        ) {
+          found.add(value.slice(VARIABLE.length))
+        } else {
+          walk(value)
+        }
+      }
+    }
+  }
+  walk((definition as { steps?: unknown } | null)?.steps)
+  return found
+}
+
 export const ATTENTION_BACKENDS = [
   'native',
   'flash',
   'flash_hub',
   'sage',
   'sage_hub',
+  'sparse',
   'xformers',
 ]
 

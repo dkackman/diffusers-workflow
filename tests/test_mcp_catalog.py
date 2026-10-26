@@ -450,3 +450,37 @@ def test_list_gallery_forwards_role_as_a_repeated_parameter():
 
     catalog.list_gallery(client, role=["final", "intermediate"])
     assert seen["roles"] == ["final", "intermediate"]
+
+
+def test_gallery_metadata_does_not_promise_a_forgotten_job():
+    """#918: a kept asset's job pruned from history reports 'forgotten', and
+    the hint must not point at get_job_workflow, which would say Unknown job."""
+    body = {
+        "name": "asset:qa-cast/ep182-episode.mp4",
+        "source": "asset",
+        "metadata": None,
+        "job": {"id": "ad1adcb65d6d", "status": "forgotten"},
+    }
+    client, _ = scripted(
+        {("GET", "/api/gallery/asset:qa-cast/ep182-episode.mp4/metadata"): (200, body)}
+    )
+
+    result = catalog.get_gallery_metadata(client, "asset:qa-cast/ep182-episode.mp4")
+
+    assert "no longer in the server" in result["next"]
+    assert 'get_job_workflow(job_id="ad1adcb65d6d")' not in result["next"]
+
+
+def test_gallery_metadata_asks_the_server_to_leave_out_the_workflow():
+    seen = []
+
+    def handler(request):
+        seen.append(dict(request.url.params))
+        return httpx.Response(200, json={"name": "a.png", "metadata": None})
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    catalog.get_gallery_metadata(client, "a.png", include_workflow=False)
+    catalog.get_gallery_metadata(client, "a.png")
+
+    assert seen == [{"include_workflow": "false"}, {}]

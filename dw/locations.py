@@ -202,6 +202,7 @@ def validate_media_path(
     if not workflows_are_trusted():
         roots = media_roots(base_dir)
         if not any(_within(resolved, root) for root in roots):
+            own = _own_output_hint(location)
             raise PathTraversalError(
                 f"Refusing to read {what} at '{location}': it resolves "
                 f"outside every directory this workflow may read "
@@ -215,12 +216,35 @@ def validate_media_path(
                 f"'asset:' reference, use keep_output(shared=True) to copy "
                 f"a generated file into the library every workspace shares "
                 f"if it needs to cross that boundary on purpose, or pass "
-                f"--trust-workflows if you trust this workflow's source."
+                f"--trust-workflows if you trust this workflow's source." + own
             )
 
     if require_exists and not os.path.exists(resolved):
         raise InvalidInputError(f"Path does not exist: {resolved}")
     return resolved
+
+
+def _own_output_hint(location):
+    """A sentence naming `output:<location>` when the bare relative name is a
+    file in this workspace's own outputs, else an empty string."""
+    text = str(location)
+    if os.path.isabs(text) or ".." in text.replace("\\", "/").split("/"):
+        return ""
+    try:
+        from .runs import resolve_output_reference
+
+        ref = references.make_ref(references.OUTPUT, text)
+        resolve_output_reference(ref)
+        return (
+            f" This file is one of this workspace's own outputs, so "
+            f"you most likely want '{ref}' - no copy into the "
+            f"asset library is needed."
+        )
+    except (InvalidInputError, PathTraversalError, ValueError):
+        pass
+    except Exception:
+        logger.debug("Could not check the output root for a hint", exc_info=True)
+    return ""
 
 
 def _joined(location, base_dir):
@@ -542,7 +566,7 @@ WEIGHT_NAME_KEY = "weight_name"
 # named bare (no subfolder: the task knows its default repo's layout). A
 # pickle format is refused by name rather than left to fail in the loader:
 # the refusal is the documented contract, not an accident of which loader runs
-SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents",)
+SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents", "remove_object")
 SAFETENSORS_SUFFIX = ".safetensors"
 
 
@@ -620,7 +644,25 @@ def _check(value, base_dir, what):
             validate_media_url(value, what)
         elif os.path.isabs(value):
             validate_media_path(value, base_dir, what, require_exists=False)
-        elif ".." in value.replace("\\", "/").split("/"):
+        elif ".." not in value.replace("\\", "/").split("/"):
+            # A bare relative name resolves against the workflow directory and
+            # is refused at run time when that lands outside every root (a
+            # manifest file name from get_job is the usual case)
+            resolved = validate_media_path(value, base_dir, what, require_exists=False)
+            if not os.path.exists(resolved):
+                # Contained under the workflow directory is not found there:
+                # a task reading the raw string resolves it against the
+                # server's working directory and refuses it, a pipeline
+                # argument finds nothing. Either way the run fails, so it is
+                # refused now, with the output: hint when it names an own
+                # output (#951, #952)
+                raise InvalidInputError(
+                    f"Refusing to read {what} at '{value}': a bare name "
+                    f"is not looked up in the output root, and no file "
+                    f"by that name is beside the workflow, so the run "
+                    f"would refuse it." + _own_output_hint(value)
+                )
+        else:
             # A relative path is under base_dir by construction unless it
             # climbs out, and validate_path refuses '..' - but only when the
             # loader reaches it, which is a queued job and three seconds in

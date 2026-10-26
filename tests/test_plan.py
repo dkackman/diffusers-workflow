@@ -6,7 +6,14 @@ import json
 
 import pytest
 
-from dw.plan import build_plan, gate_warnings
+from dw.plan import (
+    CONSTRAINT_DOCUMENTATION_KEYS,
+    DOCUMENTATION_KEYS,
+    PLACEMENT_RESULT_KEYS,
+    build_plan,
+    gate_warnings,
+)
+from dw.cost_scaling import scale_curated
 from dw.validation import unseeded_cache_warnings
 from dw.runs import new_run_id
 from dw.workflow import workflow_from_definition
@@ -224,6 +231,300 @@ class TestFingerprintChangesWith:
         assert len(prints) == 4
 
 
+# Every top-level schema key and every step `result` key, sorted into what
+# the fingerprint leaves out and what it keeps (#905). A key added to the
+# schema fails TestFingerprintKeys until it is sorted here, so a metadata key
+# can neither bust acknowledgements nor slip into the work unreviewed
+KEPT_TOP_LEVEL_KEYS = {
+    "id",  # names every file the run saves, and the step cache keys on it
+    "variables",  # the folded values are the work
+    "variable_constraints",  # a rule rounds or refuses a value
+    "argument_template",  # read as arguments when not run as a child
+    "seed",  # removed separately: a seed is not the work, but it is the output
+    "steps",
+}
+KEPT_RESULT_KEYS = {
+    "content_type",
+    "save",
+    "fps",
+    "sample_rate",
+    "audio_sample_rate",
+    "subtype",
+    "compression_level",
+    "bitrate_mode",
+    "embed_metadata",
+    "format",
+}
+
+
+def schema():
+    from importlib import resources
+
+    return json.loads(
+        resources.files("dw").joinpath("workflow_schema.json").read_text()
+    )
+
+
+class TestFingerprintKeys:
+    def test_the_exclusion_lists_are_pinned(self):
+        assert DOCUMENTATION_KEYS == (
+            "configures",
+            "cost",
+            "cost_drivers",
+            "description",
+            "shape",
+            "summary",
+            "traits",
+            "vram_estimate",
+        )
+        assert CONSTRAINT_DOCUMENTATION_KEYS == ("reason",)
+        assert PLACEMENT_RESULT_KEYS == ("file_base_name", "role", "subfolder")
+
+    def test_every_top_level_schema_key_is_sorted(self):
+        keys = set(schema()["properties"])
+        assert set(DOCUMENTATION_KEYS) | KEPT_TOP_LEVEL_KEYS == keys
+        assert not set(DOCUMENTATION_KEYS) & KEPT_TOP_LEVEL_KEYS
+
+    def test_every_result_schema_key_is_sorted(self):
+        keys = set(schema()["$defs"]["result"]["properties"])
+        assert set(PLACEMENT_RESULT_KEYS) | KEPT_RESULT_KEYS == keys
+        assert not set(PLACEMENT_RESULT_KEYS) & KEPT_RESULT_KEYS
+
+    def test_every_constraint_schema_key_but_the_reason_is_a_rule(self):
+        keys = set(schema()["$defs"]["variable_constraint"]["properties"])
+        assert set(CONSTRAINT_DOCUMENTATION_KEYS) <= keys
+
+
+def with_pipeline_settings(spec):
+    """The fixture's pipeline step with an attention backend, a cache
+    config, a dtype and a LoRA set, so a test can move each one."""
+    spec = copy.deepcopy(spec)
+    pipeline = spec["steps"][0]["pipeline"]
+    pipeline["configuration"]["attention_backend"] = "flash"
+    pipeline["configuration"]["cache"] = {"type": "mag", "threshold": 0.1}
+    pipeline["from_pretrained_arguments"]["torch_dtype"] = "torch.bfloat16"
+    pipeline["loras"] = [{"model_name": "org/lora-a", "scale": 1.0}]
+    return spec
+
+
+class TestFingerprintIgnoresWhatCannotChangeTheOutput:
+    """#905: the fingerprint is keyed only by what can change the output."""
+
+    def test_cost_drivers(self, plan):
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        other = copy.deepcopy(spec)
+        other["cost_drivers"] = ["frames", "shots"]
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_vram_estimate(self, plan):
+        spec = definition()
+        spec["vram_estimate"] = {
+            "base_gb": 4,
+            "bytes_per_voxel": 1.0,
+            "voxel_variables": ["frames"],
+            "reason": "measured",
+        }
+        other = copy.deepcopy(spec)
+        other["vram_estimate"]["base_gb"] = 9
+        other["vram_estimate"]["reason"] = "re-measured"
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_an_integral_float_spelled_as_an_int(self, plan):
+        # A client's JSON round trip can turn 12.0 into 12 (#905)
+        spec = definition()
+        spec["variables"]["frames"] = 25.0
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_shape_and_traits(self, plan):
+        spec = definition()
+        spec["shape"] = "shot"
+        spec["traits"] = ["has-audio"]
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_a_constraints_reason(self, plan):
+        spec = definition()
+        spec["variable_constraints"] = {
+            "frames": {"modulus": 8, "remainder": 1, "reason": "the VAE packs 8"}
+        }
+        other = copy.deepcopy(spec)
+        other["variable_constraints"]["frames"]["reason"] = "reworded"
+        assert plan(spec)["fingerprint"] == plan(other)["fingerprint"]
+
+    def test_a_results_role_subfolder_and_file_name(self, plan):
+        spec = definition()
+        result = spec["steps"][0]["result"]
+        result.update(role="final", subfolder="final", file_base_name="still")
+        assert plan(spec)["fingerprint"] == plan()["fingerprint"]
+
+    def test_a_composed_childs_cost_and_documentation(self, plan, tmp_path):
+        step = {"name": "x", "task": {"command": "x", "arguments": {}}}
+        child = {"id": "child", "variables": {"n": 1}, "steps": [step]}
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec = composing("child.json")
+        before = plan(spec)["fingerprint"]
+        child.update(
+            cost=[cost("cuda", 5)],
+            cost_drivers=["n"],
+            description="documented",
+            vram_estimate={"base_gb": 1, "voxel_variables": ["n"]},
+        )
+        (tmp_path / "child.json").write_text(json.dumps(child, indent=2))
+        assert plan(spec)["fingerprint"] == before
+
+
+class TestFingerprintStillChangesWithWhatChangesTheOutput:
+    @pytest.mark.parametrize(
+        "move",
+        [
+            lambda p: p["configuration"].update(attention_backend="native"),
+            lambda p: p["configuration"].update(cache={"type": "first_block"}),
+            lambda p: p["configuration"]["cache"].update(threshold=0.2),
+            lambda p: p["from_pretrained_arguments"].update(
+                torch_dtype="torch.float16"
+            ),
+            lambda p: p["loras"][0].update(model_name="org/lora-b"),
+            lambda p: p["loras"][0].update(scale=0.5),
+            lambda p: p.pop("loras"),
+        ],
+        ids=[
+            "attention_backend",
+            "cache_type",
+            "cache_threshold",
+            "dtype",
+            "lora",
+            "lora_scale",
+            "no_lora",
+        ],
+    )
+    def test_a_pipeline_setting(self, plan, move):
+        spec = with_pipeline_settings(definition())
+        other = copy.deepcopy(spec)
+        move(other["steps"][0]["pipeline"])
+        assert plan(spec)["fingerprint"] != plan(other)["fingerprint"]
+
+    def test_a_results_format(self, plan):
+        spec = definition()
+        spec["steps"][0]["result"]["format"] = "webp"
+        assert plan(spec)["fingerprint"] != plan()["fingerprint"]
+
+
+CATALOG_H3 = "workflows/templates/minimax/reference-to-video.json"
+CATALOG_MUSIC = "workflows/templates/minimax/music.json"
+# The knobs stage B of #866 made cost drivers of every H3 template
+H3_UNSCALABLE = ("weights_dtype", "lora_model_name", "attention_backend", "cache")
+
+
+def _repo_json(path):
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    return json.loads((root / path).read_text())
+
+
+def _minimax_with_h3_drivers():
+    import glob
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    found = []
+    for path in sorted(glob.glob(str(root / "workflows/templates/minimax/*.json"))):
+        drivers = json.loads(pathlib.Path(path).read_text()).get("cost_drivers") or []
+        if "weights_dtype" in drivers:
+            found.append(str(pathlib.Path(path).relative_to(root)))
+    return found
+
+
+@pytest.mark.parametrize("path", _minimax_with_h3_drivers())
+def test_h3_unscalable_drivers_leave_every_fingerprint(plan, path):
+    """Stage 0's pin, held for stage B (#866): declaring H3's unscalable
+    knobs as cost drivers changes no template's plan fingerprint."""
+    template = _repo_json(path)
+    before = copy.deepcopy(template)
+    before["cost_drivers"] = [
+        name for name in template["cost_drivers"] if name not in H3_UNSCALABLE
+    ]
+    assert plan(template)["fingerprint"] == plan(before)["fingerprint"]
+
+
+def test_every_h3_template_with_drivers_declares_its_unscalable_knobs():
+    """#866 stage B: a minimax H3 template that buckets on its size also
+    buckets on the knobs that move its wall clock with no rule to scale by."""
+    import glob
+    import pathlib
+
+    root = pathlib.Path(__file__).resolve().parent.parent
+    missing = []
+    for path in sorted(glob.glob(str(root / "workflows/templates/minimax/*.json"))):
+        definition = json.loads(pathlib.Path(path).read_text())
+        variables = definition.get("variables") or {}
+        if not definition.get("cost_drivers") or "weights_dtype" not in variables:
+            continue
+        absent = [n for n in H3_UNSCALABLE if n not in definition["cost_drivers"]]
+        if absent:
+            missing.append((pathlib.Path(path).name, absent))
+    assert _minimax_with_h3_drivers()
+    assert missing == []
+
+
+class TestTheCatalogH3Template:
+    """The stage's repro on the real template: a copy differing only in
+    cost_drivers plans the same work, one differing in attention backend
+    or weights dtype does not."""
+
+    @pytest.fixture
+    def template(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return json.loads((root / CATALOG_H3).read_text())
+
+    def test_cost_drivers_leave_the_fingerprint(self, plan, template):
+        other = copy.deepcopy(template)
+        other["cost_drivers"] = [
+            name for name in other["cost_drivers"] if name not in H3_UNSCALABLE
+        ]
+        del other["vram_estimate"]
+        assert plan(template)["fingerprint"] == plan(other)["fingerprint"]
+
+    def test_a_client_round_trip_keeps_it(self, plan, template):
+        # The inline get_workflow JSON comes back with video_shift 12.0 as
+        # 12 (and its kin); the by-name form keeps the float (#905)
+        def respell(value):
+            if isinstance(value, float) and value.is_integer():
+                return int(value)
+            if isinstance(value, dict):
+                return {key: respell(item) for key, item in value.items()}
+            if isinstance(value, list):
+                return [respell(item) for item in value]
+            return value
+
+        inline = respell(template)
+        # The template does hold one, or this checks nothing
+        assert json.dumps(inline) != json.dumps(template)
+        assert plan(template)["fingerprint"] == plan(inline)["fingerprint"]
+
+    def test_the_seed_stays_out(self, plan, template):
+        # The #85 contract: an acknowledgement buys the cost, not the seed
+        assert (
+            plan(template, arguments={"seed": 42})["fingerprint"]
+            == plan(template, arguments={"seed": 43})["fingerprint"]
+        )
+
+    @pytest.mark.parametrize(
+        "arguments",
+        [{"attention_backend": "native"}, {"weights_dtype": "{int8}"}],
+        ids=["attention_backend", "weights_dtype"],
+    )
+    def test_an_output_setting_moves_it(self, plan, template, arguments):
+        assert (
+            plan(template)["fingerprint"]
+            != plan(template, arguments=arguments)["fingerprint"]
+        )
+
+
 def cost(device="cuda", minutes=10, per_entry=None, name="card"):
     entry = {"device": device, "name": name, "vram_gb": 8, "minutes": minutes}
     if per_entry:
@@ -407,24 +708,29 @@ class TestEstimate:
         spec["cost"] = [cost("cuda", 10.04)]
         assert plan(spec)["estimate"]["minutes"] == 10.0
 
-    def test_a_shifted_scalar_cost_driver_falls_back_to_unknown(self, plan):
+    def test_a_shifted_unscalable_cost_driver_is_flagged(self, plan):
         """The catalog figure was measured at frames=25; a caller who
         overrides a declared cost_driver away from that value is not
-        describing the run the figure was measured for, and `_repriced`
-        only re-prices a for_each list's length, not a bare variable (#267)."""
+        describing the run the figure was measured for (#267). `frames` is
+        not one of the drivers a figure scales along, so the figure is kept
+        and flagged rather than withheld (#866, Q4)."""
         spec = definition()
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
 
-    def test_a_shifted_scalar_driver_is_unknown_on_another_device_too(self, plan):
+    def test_a_shifted_unscalable_driver_is_flagged_on_another_device_too(self, plan):
         """#589: the other_device branch skipped the #267 check, so a 241-frame
-        run was quoted the 121-frame clip's figure."""
+        run was quoted the 121-frame clip's figure with nothing to say so."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["frames"]
         answer = plan(spec, arguments={"frames": 9})["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert (answer["minutes"], answer["basis"]) == (40.0, "other_device")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
 
     def test_an_unshifted_scalar_cost_driver_still_quotes_the_catalog_figure(
         self, plan
@@ -444,9 +750,10 @@ class TestEstimate:
         answer = plan(spec, arguments={"shots": shots})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (50.0, "derived")
 
-    def test_a_shifted_per_entry_field_in_a_list_driver_is_unknown(self, plan):
+    def test_a_shifted_per_entry_field_in_a_list_driver_is_scaled(self, plan):
         """#593: a per-shot num_frames outside the values the default entries
-        were measured with has no matching bucket, same as a scalar (#267)."""
+        were measured with has no matching bucket, same as a scalar (#267) -
+        so the figure is scaled by the frames summed over the list (#866)."""
         spec = definition()
         spec["cost"] = [cost("mps", 40, name="M2")]
         spec["cost_drivers"] = ["shots"]
@@ -462,20 +769,26 @@ class TestEstimate:
             {"name": "x", "prompt": "p", "num_frames": 243},
             {"name": "y", "prompt": "p", "num_frames": 243},
         ]
+        # Another device's figure stays other_device, scaled (#589)
         kept = plan(spec, arguments={"shots": same})["estimate"]
-        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        assert (kept["minutes"], kept["basis"]) == (37.4, "other_device")
+        assert kept["scaled"].endswith("frames 248 vs 265 over shots")
         moved = plan(spec, arguments={"shots": long})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        assert (moved["minutes"], moved["basis"]) == (73.4, "other_device")
         as_text = [dict(entry, num_frames=str(entry["num_frames"])) for entry in long]
         moved = plan(spec, arguments={"shots": as_text})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        assert (moved["minutes"], moved["basis"]) == (73.4, "other_device")
         same_text = [dict(entry, num_frames="124") for entry in same]
         kept = plan(spec, arguments={"shots": same_text})["estimate"]
-        assert (kept["minutes"], kept["basis"]) == (40.0, "other_device")
+        assert (kept["minutes"], kept["basis"]) == (37.4, "other_device")
+        default = plan(spec)["estimate"]
+        assert (default["minutes"], default["basis"]) == (40.0, "other_device")
+        assert "scaled" not in default
 
-    def test_a_lengthened_list_with_a_shifted_field_is_unknown_not_derived(self, plan):
+    def test_a_lengthened_list_with_a_shifted_field_scales_both(self, plan):
         """#796: the derived basis scaled by entry count and skipped the #593
-        field check, so 6 shots with one at 345 frames was quoted confidently."""
+        field check, so 6 shots with one at 345 frames was quoted confidently.
+        The count and the mean frames per entry now both scale (#866)."""
         spec = definition()
         spec["cost_drivers"] = ["shots"]
         spec["variables"]["shots"] = [
@@ -484,9 +797,14 @@ class TestEstimate:
         same = [{"name": f"s{n}", "prompt": "p", "num_frames": 124} for n in range(10)]
         kept = plan(spec, arguments={"shots": same})["estimate"]
         assert (kept["minutes"], kept["basis"]) == (20.0, "derived")
+        assert "scaled" not in kept
         long = same[:9] + [{"name": "z", "prompt": "p", "num_frames": 345}]
         moved = plan(spec, arguments={"shots": long})["estimate"]
-        assert (moved["minutes"], moved["basis"]) == (None, "unknown")
+        # 4 min x 10/5 shots x (1461/10)/(620/5) frames per shot
+        assert (moved["minutes"], moved["basis"]) == (23.6, "derived")
+        assert moved["scaled"] == (
+            "scaled from the curated 20 min: frames 1461 vs 620 over shots"
+        )
 
     def test_position_fields_do_not_block_a_derived_figure(self, plan):
         """#796: start_frame/cut_frames grow with the count; only num_frames
@@ -512,7 +830,8 @@ class TestEstimate:
         long = [dict(e) for e in spec["variables"]["shots"]]
         long[3]["num_frames"] = 345
         answer = plan(spec, arguments={"shots": long}, observed=observed())["estimate"]
-        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        # The observed 8.04 is withheld; the curated 10 is scaled instead
+        assert (answer["minutes"], answer["basis"]) == (14.5, "derived")
 
     def test_a_per_entry_list_driver_prices_past_its_measured_count(self, plan):
         """#772: a windows list whose entries carry an `index` label priced
@@ -686,6 +1005,345 @@ class TestLowConfidenceObservedEstimate:
         assert answer["low_confidence"] is True
 
 
+def scalable(minutes=10):
+    """The fixture with steps and a canvas as declared cost drivers, its
+    curated figure measured at their defaults (#866)."""
+    spec = definition()
+    spec["cost"] = [cost("cuda", minutes)]
+    spec["variables"].update({"num_inference_steps": 9, "width": 960, "height": 544})
+    spec["cost_drivers"] = ["num_inference_steps", "width", "height", "shots"]
+    return spec
+
+
+class TestDriverScaling:
+    """#866: a curated figure is measured at the workflow's variable
+    defaults; a run that moves steps, the canvas or the frames is quoted
+    scaled along them rather than as no figure at all."""
+
+    def test_the_defaults_quote_the_curated_figure(self, plan):
+        answer = plan(scalable())["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+        assert "scaled" not in answer
+
+    def test_steps_scale_in_proportion(self, plan):
+        answer = plan(scalable(), arguments={"num_inference_steps": 30})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (33.3, "derived")
+        assert answer["scaled"] == "scaled from the curated 10 min: steps 30 vs 9"
+
+    def test_the_canvas_scales_by_its_area(self, plan):
+        arguments = {"width": 1344, "height": 768}
+        answer = plan(scalable(), arguments=arguments)["estimate"]
+        # 10 x 1344.768 / 960.544
+        assert (answer["minutes"], answer["basis"]) == (19.8, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: canvas 1344x768 vs 960x544"
+        )
+
+    def test_one_side_of_the_canvas_scales_too(self, plan):
+        answer = plan(scalable(), arguments={"width": 1920})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+        assert "canvas 1920x544 vs 960x544" in answer["scaled"]
+
+    def test_per_entry_frames_scale_by_their_sum(self, plan):
+        spec = scalable()
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "one", "num_frames": 124},
+            {"name": "b", "prompt": "two", "num_frames": 141},
+        ]
+        shots = [
+            {"name": "a", "prompt": "one", "num_frames": 124},
+            {"name": "b", "prompt": "two", "num_frames": 345},
+        ]
+        answer = plan(spec, arguments={"shots": shots})["estimate"]
+        # 10 x 469/265: the same two shots, one of them longer
+        assert (answer["minutes"], answer["basis"]) == (17.7, "derived")
+        assert answer["scaled"].endswith("frames 469 vs 265 over shots")
+
+    def test_a_list_not_priced_by_length_scales_by_the_sum_alone(self, plan):
+        """No for_each runs over `takes`, so its length prices nothing - the
+        summed frames carry the whole ratio, length and all."""
+        spec = scalable()
+        spec["variables"]["takes"] = [{"num_frames": 100}]
+        spec["cost_drivers"] = spec["cost_drivers"] + ["takes"]
+        takes = [{"num_frames": 100}, {"num_frames": 150}]
+        answer = plan(spec, arguments={"takes": takes})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (25.0, "derived")
+        assert answer["scaled"].endswith("frames 250 vs 100 over takes")
+
+    def test_steps_canvas_and_frames_multiply(self, plan):
+        spec = scalable()
+        spec["variables"]["frames"] = 124
+        spec["variables"]["num_frames"] = 124
+        spec["steps"][0]["pipeline"]["arguments"]["num_frames"] = "variable:num_frames"
+        spec["cost_drivers"] = spec["cost_drivers"] + ["num_frames"]
+        arguments = {
+            "num_inference_steps": 30,
+            "width": 1344,
+            "height": 768,
+            "num_frames": 248,
+        }
+        answer = plan(spec, arguments=arguments)["estimate"]
+        # 10 x 30/9 x 1344.768/960.544 x 248/124
+        assert (answer["minutes"], answer["basis"]) == (131.8, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: steps 30 vs 9, "
+            "canvas 1344x768 vs 960x544, frames 248 vs 124"
+        )
+
+    def test_it_multiplies_with_the_list_length(self, plan):
+        shots = [{"name": f"s{n}", "prompt": "x"} for n in range(4)]
+        arguments = {"shots": shots, "num_inference_steps": 18}
+        answer = plan(scalable(), arguments=arguments)["estimate"]
+        # 10 x 4/2 shots x 18/9 steps
+        assert (answer["minutes"], answer["basis"]) == (40.0, "derived")
+        assert answer["scaled"] == "scaled from the curated 20 min: steps 18 vs 9"
+
+    def test_a_non_numeric_value_stays_unknown(self, plan):
+        # A text default keeps a text argument as text; an int one would
+        # have cast "wide" away to the default before the plan saw it
+        spec = scalable()
+        spec["variables"]["width"] = "960"
+        answer = plan(spec, arguments={"width": "wide"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (None, "unknown")
+        assert "scaled" not in answer
+
+    def test_a_number_spelled_as_text_scales(self, plan):
+        answer = plan(scalable(), arguments={"num_inference_steps": "18"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+
+    def test_another_devices_figure_stays_other_device(self, plan):
+        spec = scalable()
+        spec["cost"] = [cost("mps", 40)]
+        answer = plan(spec, arguments={"num_inference_steps": 18})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (80.0, "other_device")
+        assert answer["scaled"] == "scaled from the curated 40 min: steps 18 vs 9"
+
+    def test_a_thin_observed_figure_tempers_toward_the_scaled_one(self, plan):
+        arguments = {"num_inference_steps": 18}
+        thin = observed(minutes=24, runs=1)
+        answer = plan(scalable(), arguments=arguments, observed=thin)["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["tempered"] is True
+        assert answer["curated_minutes"] == 20.0
+        assert 20.0 < answer["minutes"] < 24.0
+        assert answer["scaled"] == "scaled from the curated 10 min: steps 18 vs 9"
+
+    def test_a_settled_observed_figure_is_not_scaled(self, plan):
+        arguments = {"num_inference_steps": 18}
+        answer = plan(scalable(), arguments=arguments, observed=observed(minutes=24))[
+            "estimate"
+        ]
+        assert (answer["minutes"], answer["basis"]) == (24.0, "observed")
+        assert "scaled" not in answer
+
+
+class TestScalingAccuracy:
+    """#866's bar: each measured pair on the RTX 3090 (#851's B and L runs)
+    is predicted within 30% by scaling the other."""
+
+    @pytest.mark.parametrize(
+        "measured, defaults, effective, actual",
+        [
+            # B4 -> B1: steps 12 -> 30 at 960x544
+            (
+                6.6,
+                {"num_inference_steps": 12, "width": 960, "height": 544},
+                {"num_inference_steps": 30, "width": 960, "height": 544},
+                15.1,
+            ),
+            # B4 -> B5: canvas 960x544 -> 1344x768 at 12 steps
+            (
+                6.6,
+                {"num_inference_steps": 12, "width": 960, "height": 544},
+                {"num_inference_steps": 12, "width": 1344, "height": 768},
+                11.8,
+            ),
+            # B3 -> L5: steps 12 -> 30 at 1344x768
+            (
+                12.9,
+                {"num_inference_steps": 12, "width": 1344, "height": 768},
+                {"num_inference_steps": 30, "width": 1344, "height": 768},
+                29.5,
+            ),
+        ],
+    )
+    def test_within_thirty_percent(self, measured, defaults, effective, actual):
+        minutes, axes = scale_curated(measured, defaults, effective)
+        assert axes
+        assert abs(minutes - actual) / actual < 0.30
+
+    def test_nothing_moved_is_the_figure_itself(self):
+        defaults = {"num_inference_steps": 9, "width": 960, "height": 544}
+        assert scale_curated(7.88, defaults, dict(defaults)) == (7.88, [])
+
+    def test_a_moved_non_number_is_none(self):
+        defaults = {"num_inference_steps": 9}
+        assert scale_curated(7.88, defaults, {"num_inference_steps": None}) is None
+
+
+CATALOG_DIALOGUE = "workflows/templates/minimax/dialogue-short.json"
+
+
+class TestTheCatalogTemplatesScale:
+    """#866 on the real templates: H3's reference-to-video and the
+    dialogue-short sequence, measured at their defaults."""
+
+    @staticmethod
+    def load(path):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        return json.loads((root / path).read_text())
+
+    def test_reference_to_video_at_its_defaults(self, plan):
+        answer = plan(self.load(CATALOG_H3))["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert "scaled" not in answer
+
+    def test_reference_to_video_at_thirty_steps(self, plan):
+        template = self.load(CATALOG_H3)
+        answer = plan(template, arguments={"num_inference_steps": 30})["estimate"]
+        # 7.88 x 30/9
+        assert (answer["minutes"], answer["basis"]) == (26.3, "derived")
+        assert "steps 30 vs 9" in answer["scaled"]
+
+    def test_reference_to_video_at_the_larger_canvas(self, plan):
+        template = self.load(CATALOG_H3)
+        arguments = {"width": 1344, "height": 768}
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (15.6, "derived")
+        assert "canvas 1344x768 vs 960x544" in answer["scaled"]
+
+    def test_dialogue_short_at_its_defaults(self, plan):
+        answer = plan(self.load(CATALOG_DIALOGUE))["estimate"]
+        assert answer["basis"] == "catalog"
+        assert answer["minutes"] == pytest.approx(21, abs=0.5)
+
+    def test_dialogue_short_with_one_shot_longer(self, plan):
+        template = self.load(CATALOG_DIALOGUE)
+        shots = copy.deepcopy(template["variables"]["shots"])
+        assert [shot["num_frames"] for shot in shots] == [124, 124, 124, 124, 141]
+        shots[0]["num_frames"] = 192
+        answer = plan(template, arguments={"shots": shots})["estimate"]
+        # 21.2 x 705/637 frames
+        assert (answer["minutes"], answer["basis"]) == (23.5, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 21.2 min: frames 705 vs 637 over shots"
+        )
+
+
+class TestUnscalableDrivers:
+    """#866 stage B: a declared scalar driver with no rule to scale by keeps
+    the (scaled) figure, sets `low_confidence` and names itself in
+    `differs`, for every template (Q4)."""
+
+    def test_reference_to_video_in_int8(self, plan):
+        template = _repo_json(CATALOG_H3)
+        answer = plan(template, arguments={"weights_dtype": "{int8}"})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["weights_dtype"]
+
+    def test_reference_to_video_without_its_lora_at_thirty_steps(self, plan):
+        template = _repo_json(CATALOG_H3)
+        arguments = {"lora_model_name": None, "num_inference_steps": 30}
+        answer = plan(template, arguments=arguments)["estimate"]
+        # 7.88 x 30/9, scaled and flagged
+        assert (answer["minutes"], answer["basis"]) == (26.3, "derived")
+        assert "steps 30 vs 9" in answer["scaled"]
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["lora_model_name"]
+
+    def test_every_moved_knob_is_named(self, plan):
+        template = _repo_json(CATALOG_H3)
+        arguments = {
+            "weights_dtype": "{int8}",
+            "attention_backend": "native",
+            "cache": {"type": "first_block"},
+        }
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert answer["minutes"] == 7.9
+        assert sorted(answer["differs"]) == [
+            "attention_backend",
+            "cache",
+            "weights_dtype",
+        ]
+
+    def test_reference_to_video_at_its_defaults_is_not_flagged(self, plan):
+        template = _repo_json(CATALOG_H3)
+        answer = plan(template)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.9, "catalog")
+        assert "low_confidence" not in answer
+        assert "differs" not in answer
+
+    def test_the_defaults_passed_explicitly_are_not_flagged(self, plan):
+        template = _repo_json(CATALOG_H3)
+        variables = template["variables"]
+        arguments = {name: variables[name] for name in H3_UNSCALABLE}
+        answer = plan(template, arguments=arguments)["estimate"]
+        assert "low_confidence" not in answer
+
+    def test_music_at_another_duration(self, plan):
+        """#440's case, now a flagged figure rather than `unknown`."""
+        template = _repo_json(CATALOG_MUSIC)
+        answer = plan(template, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (3.6, "catalog")
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["audio_duration"]
+
+    def test_a_thin_bucket_blends_toward_a_flagged_figure(self, plan):
+        """One int8 run, blended toward the int4 catalog figure: the blend
+        leans on a figure measured at another setting, so it says so."""
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(
+            spec, arguments={"frames": 9}, observed=observed(minutes=6, runs=1)
+        )["estimate"]
+        assert answer["basis"] == "observed"
+        assert answer["tempered"] is True
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["frames"]
+
+    def test_a_full_bucket_is_not_flagged(self, plan):
+        """Three runs at the moved setting are a measurement of it."""
+        spec = definition()
+        spec["cost_drivers"] = ["frames"]
+        answer = plan(
+            spec, arguments={"frames": 9}, observed=observed(minutes=6, runs=3)
+        )["estimate"]
+        assert answer["minutes"] == 6.0
+        assert "low_confidence" not in answer
+        assert "differs" not in answer
+
+    def test_a_composed_child_at_another_setting_flags_the_total(self, plan, tmp_path):
+        child = {
+            "id": "child",
+            "cost": [cost("cuda", 5)],
+            "variables": {"weights_dtype": "{int4}"},
+            "cost_drivers": ["weights_dtype"],
+            "steps": [],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        parent = {
+            "id": "parent",
+            "cost": [cost("cuda", 2)],
+            "steps": [
+                {"name": "own", "task": {"command": "x", "arguments": {}}},
+                {
+                    "name": "child",
+                    "workflow": {
+                        "path": "child.json",
+                        "arguments": {"weights_dtype": "{int8}"},
+                    },
+                },
+            ],
+        }
+        answer = plan(parent)["estimate"]
+        assert answer["minutes"] == 7.0
+        assert answer["low_confidence"] is True
+        assert answer["differs"] == ["weights_dtype"]
+
+
 def composing(child_path):
     return {
         "id": "parent",
@@ -767,11 +1425,11 @@ class TestSubWorkflowEstimate:
         # the parent's own basis is what is reported
         assert answer["basis"] == "catalog"
 
-    def test_a_composed_childs_shifted_scalar_driver_is_unpriced(self, plan, tmp_path):
+    def test_a_composed_childs_shifted_scalar_driver_is_scaled(self, plan, tmp_path):
         """The composing step's own `arguments` are what the child actually
         runs with, not its declared defaults - a scalar cost_driver moved
         away from the value the child's catalog cost was measured against
-        is the same #267 failure one level down (#341)."""
+        is the same #267 case one level down (#341), scaled (#866)."""
         child = {
             "id": "child",
             "cost": [cost("cuda", 5)],
@@ -783,8 +1441,12 @@ class TestSubWorkflowEstimate:
         parent = composing("child.json")
         parent["steps"][1]["workflow"]["arguments"] = {"num_frames": 345}
         answer = plan(parent)["estimate"]
-        assert (answer["minutes"], answer["partial"]) == (2.0, True)
-        assert answer["unpriced"] == ["child.json"]
+        # 2 of its own + 5 x 345/124
+        assert (answer["minutes"], answer["partial"]) == (15.9, False)
+        assert (answer["basis"], answer["unpriced"]) == ("derived", [])
+        assert answer["scaled"] == (
+            "child.json: scaled from the curated 5 min: frames 345 vs 124"
+        )
 
     def test_a_composed_child_at_its_default_is_still_priced(self, plan, tmp_path):
         """The companion case: a composing step that passes the child's own
@@ -918,16 +1580,16 @@ class TestSubWorkflowEstimate:
         assert answer["basis"] == "unknown"
         assert answer["partial"] is False
 
-    def test_a_composed_childs_shifted_scalar_driver_stays_unpriced_despite_default_bucket_history(
+    def test_a_composed_childs_shifted_scalar_driver_is_scaled_despite_default_bucket_history(
         self, plan, tmp_path
     ):
         """The observed-history rollup must not paper over a shifted scalar
         driver by quoting the *default* bucket's figure just because it
         exists - `observed_for_child` is called with the composing step's
         own arguments, and answering None for the shifted bucket falls
-        through to the catalog path's `_scalar_driver_shifted` unpriced
-        check rather than silently reusing the default bucket's history
-        (#341)."""
+        through to the catalog path's driver check rather than silently
+        reusing the default bucket's history (#341), which now scales the
+        child's figure (#866)."""
         child = {
             "id": "child",
             "cost": [cost("cuda", 5)],
@@ -959,8 +1621,8 @@ class TestSubWorkflowEstimate:
 
         answer = plan(parent, observed_for_child=observed_for_child)["estimate"]
         assert calls == [{"num_frames": 345}]
-        assert answer["basis"] == "unknown"
-        assert (answer["minutes"], answer["partial"]) == (None, False)
+        assert answer["basis"] == "derived"
+        assert (answer["minutes"], answer["partial"]) == (13.9, False)
 
     def test_a_composed_childs_observed_history_is_bucketed_by_the_composing_steps_arguments(
         self, plan, tmp_path
@@ -1127,6 +1789,173 @@ class TestDownloadsRequired:
         assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
             "org/still-model",
             "org/vae",
+        ]
+
+    @pytest.mark.parametrize(
+        "override, expected",
+        [
+            ("org/other", ["org/still-model", "org/other"]),
+            (
+                {"transformer_ref": "org/other", "vae": "org/vae"},
+                ["org/still-model", "org/other", "org/vae"],
+            ),
+            ({"default": "org/other"}, ["org/still-model", "org/other"]),
+            ({"default": "org/still-model"}, ["org/still-model"]),
+            (None, ["org/still-model"]),
+        ],
+    )
+    def test_a_load_components_repo_override_is_listed(self, plan, override, expected):
+        """#981: the string, per-component and default forms, deduplicated
+        against model_name, and unchanged when the key is absent."""
+        spec = definition()
+        if override is not None:
+            spec["steps"][0]["pipeline"]["load_components"] = {
+                "pretrained_model_name_or_path": override
+            }
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == expected
+
+    def test_task_steps_list_the_repos_their_commands_declare(self, plan):
+        """#975: an image processor (remove_background) and a registered
+        command (segment) both name their weights, after the pipeline's."""
+        spec = definition()
+        spec["steps"] += [
+            {
+                "name": "cutout",
+                "task": {"command": "remove_background", "arguments": {}},
+                "result": {"content_type": "image/png"},
+            },
+            {
+                "name": "mask",
+                "task": {"command": "segment", "arguments": {"prompt": "a cup"}},
+                "result": {"content_type": "image/png"},
+            },
+        ]
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "briaai/RMBG-2.0",
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_task_override_replaces_the_default_repo(self, plan):
+        spec = definition()
+        spec["steps"].append(
+            {
+                "name": "mask",
+                "task": {
+                    "command": "segment",
+                    "arguments": {"model_name": "org/dino", "sam_model_name": None},
+                },
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/dino",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
+        spec = definition()
+        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+            "openai/whisper-base"
+        )
+        spec["steps"].append(
+            {
+                "name": "words",
+                "task": {"command": "transcribe_audio", "arguments": {}},
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "openai/whisper-base"
+        ]
+
+    def test_two_task_steps_naming_one_repo_list_it_once(self, plan):
+        spec = definition()
+        spec["steps"] += [
+            {"name": "a", "task": {"command": "transcribe_audio", "arguments": {}}},
+            {"name": "b", "task": {"command": "check_script", "arguments": {}}},
+        ]
+        repos = [d["repo"] for d in plan(spec)["downloads_required"]]
+        assert repos == ["org/still-model", "openai/whisper-base"]
+
+    def test_a_task_argument_that_is_a_reference_or_a_path_is_not_listed(self, plan):
+        for local in ("previous_result:detector", "/models/dino", "./models/dino"):
+            spec = definition()
+            spec["steps"].append(
+                {
+                    "name": "mask",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": local, "sam_model_name": local},
+                    },
+                }
+            )
+            assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+                "org/still-model"
+            ], local
+
+    def test_a_cached_task_repo_is_not_required(self, plan, monkeypatch):
+        import dw.plan
+
+        monkeypatch.setattr(
+            dw.plan,
+            "scan_models",
+            lambda cache_dir=None: {
+                "repos": [
+                    {"repo_id": "org/still-model"},
+                    {"repo_id": "briaai/RMBG-2.0"},
+                ]
+            },
+        )
+        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        spec = definition()
+        spec["steps"].append(
+            {"name": "cutout", "task": {"command": "remove_background"}}
+        )
+        assert plan(spec)["downloads_required"] == []
+
+    def test_a_hook_that_raises_costs_its_entries_and_not_the_plan(
+        self, plan, monkeypatch
+    ):
+        import dw.tasks.registry
+
+        def exploding(command):
+            def hook(arguments):
+                raise RuntimeError("hook broke")
+
+            return hook
+
+        monkeypatch.setattr(dw.tasks.registry, "required_weights_hook", exploding)
+        spec = definition()
+        spec["steps"].append(
+            {"name": "mask", "task": {"command": "segment", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model"
+        ]
+
+    def test_a_composed_childs_task_step_contributes_its_repo(self, plan, tmp_path):
+        spec = definition()
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "c",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": "org/child-dino"},
+                    },
+                }
+            ],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec["steps"].append(
+            {"name": "sub", "workflow": {"path": "child.json", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/child-dino",
+            "facebook/sam2-hiera-large",
         ]
 
     def test_sizes_come_from_the_hub_in_gib(self, plan, monkeypatch):

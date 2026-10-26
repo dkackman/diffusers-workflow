@@ -215,7 +215,11 @@ def _cost_gate_sentence(plan, acknowledge):
             f"(basis {estimate.get('basis')})"
         )
     downloads = [
-        entry.get("repo") or entry.get("url")
+        (
+            f"{entry['repo']}/{entry['filename']}"
+            if entry.get("repo") and entry.get("filename")
+            else entry.get("repo") or entry.get("url")
+        )
         for entry in plan.get("downloads_required") or []
     ]
     if downloads:

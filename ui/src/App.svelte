@@ -4,6 +4,7 @@
   import {
     BookOpen,
     Braces,
+    ChevronDown,
     KeyRound,
     Menu,
     Moon,
@@ -12,14 +13,27 @@
   } from '@lucide/svelte'
   import { Toaster } from 'svelte-sonner'
   import { route } from './lib/router.svelte'
-  import { api } from './lib/api'
+  import { api, TERMINAL_STATUSES } from './lib/api'
+  import { isEditable } from './lib/editable'
+  import { notify } from './lib/toast'
+  import { wsHref } from './lib/routes'
+  import {
+    endedTitle,
+    finishedText,
+    nextWatch,
+    runningIds,
+    tabTitle,
+  } from './lib/jobWatch'
+  import { alertFinished, alertMode, unlockChime } from './lib/finishAlert'
+  import { alerts } from './lib/alerts.svelte'
   import { storageGet, storageSet } from './lib/storage'
-  import type { HealthInfo, MemoryInfo } from './lib/types'
+  import type { HealthInfo, JobDetail, MemoryInfo } from './lib/types'
   import Sidebar from './lib/Sidebar.svelte'
   import Breadcrumb from './lib/Breadcrumb.svelte'
   import KeyboardHelp from './lib/KeyboardHelp.svelte'
   import StatusPopover from './lib/StatusPopover.svelte'
   import TokenPopover from './lib/TokenPopover.svelte'
+  import AlertToggle from './lib/AlertToggle.svelte'
   import ConfirmDialog from './lib/ui/ConfirmDialog.svelte'
   import WorkflowsPage from './lib/pages/WorkflowsPage.svelte'
   import WorkflowPage from './lib/pages/WorkflowPage.svelte'
@@ -29,11 +43,13 @@
   import PromptsPage from './lib/pages/PromptsPage.svelte'
   import PromptEditorPage from './lib/pages/PromptEditorPage.svelte'
   import GalleryPage from './lib/pages/GalleryPage.svelte'
+  import ComparePage from './lib/pages/ComparePage.svelte'
   import OverviewPage from './lib/pages/OverviewPage.svelte'
   import AssetsPage from './lib/pages/AssetsPage.svelte'
   import ModelsPage from './lib/pages/ModelsPage.svelte'
   import SchemaPage from './lib/pages/SchemaPage.svelte'
   import StatusPage from './lib/pages/StatusPage.svelte'
+  import { setAttentionBackends } from './lib/attentionBackends.svelte'
 
   let memory = $state<MemoryInfo | null>(null)
   let health = $state<HealthInfo | null>(null)
@@ -45,16 +61,71 @@
   let statusTrigger = $state<HTMLElement | null>(null)
   let tokenTrigger = $state<HTMLElement | null>(null)
   const currentJob = $derived(health?.current_job ?? null)
+  // One job per card: with more than one running, the chip cannot link to
+  // them all, so it joins the status trigger and the popover lists each
+  const running = $derived(health ? runningIds(health) : [])
+  const statusLabel = $derived(
+    running.length > 1
+      ? `${running.length} jobs running - server & worker status`
+      : 'server & worker status',
+  )
+  const view = $derived(route.view)
 
-  function isEditable(target: EventTarget | null): boolean {
-    if (!(target instanceof HTMLElement)) return false
-    return (
-      target instanceof HTMLInputElement ||
-      target instanceof HTMLTextAreaElement ||
-      target instanceof HTMLSelectElement ||
-      target.isContentEditable
-    )
+  // The tab title and the finish alert (jobWatch.ts, finishAlert.ts); what
+  // a poll means for the watched jobs is nextWatch's to decide
+  let watched: string[] | null = null
+  let runningJob = $state<JobDetail | null>(null)
+  let othersRunning = $state(0)
+  let endedMark = $state<string | null>(null)
+
+  async function watchJobs(info: HealthInfo | null) {
+    const next = nextWatch(watched, info)
+    watched = next.watched
+    // A failed poll leaves the title showing what it last knew
+    if (info) {
+      const now = next.running
+      othersRunning = Math.max(0, now.length - 1)
+      runningJob = now[0] ? await api.getJob(now[0]).catch(() => null) : null
+    }
+    for (const id of next.ended) {
+      const job = await api.getJob(id).catch(() => null)
+      if (job && TERMINAL_STATUSES.includes(job.status)) announce(job)
+    }
   }
+
+  function announce(job: JobDetail) {
+    const text = finishedText(job)
+    if (document.hidden) endedMark = endedTitle(job)
+    // The job's own page already shows its outcome
+    const onItsPage =
+      view.kind === 'ws' && view.section === 'jobs' && view.rest[0] === job.id
+    if (!onItsPage) {
+      if (job.status === 'succeeded') notify.success(text)
+      else notify.error(text)
+    }
+    if (alerts.on && document.hidden)
+      alertFinished(text, wsHref(job.workspace, 'jobs', job.id))
+  }
+
+  $effect(() => {
+    document.title = endedMark ?? tabTitle(runningJob, othersRunning)
+  })
+  $effect(() => {
+    const back = () => {
+      if (!document.hidden) endedMark = null
+    }
+    // A chime may only play after a gesture; after a reload the first
+    // click anywhere is that gesture
+    const unlock = () => {
+      if (alerts.on && alertMode() === 'chime') unlockChime()
+    }
+    document.addEventListener('visibilitychange', back)
+    window.addEventListener('pointerdown', unlock, { once: true })
+    return () => {
+      document.removeEventListener('visibilitychange', back)
+      window.removeEventListener('pointerdown', unlock)
+    }
+  })
 
   function onKeydown(event: KeyboardEvent) {
     if (event.key === '?' && !isEditable(event.target)) {
@@ -76,6 +147,8 @@
       ])
       memory = memoryInfo.status === 'fulfilled' ? memoryInfo.value : null
       health = healthInfo.status === 'fulfilled' ? healthInfo.value : null
+      setAttentionBackends(health?.attention_backends)
+      void watchJobs(health)
     }
     return poll(refreshStatus, 5000)
   })
@@ -133,7 +206,6 @@
     drawerOpen = false
     window.scrollTo(0, 0)
   })
-  const view = $derived(route.view)
   const wide = $derived(
     (view.kind === 'ws' && view.section === 'edit') ||
       (view.kind === 'shared' && view.section === 'prompt-edit'),
@@ -171,29 +243,38 @@
         <Breadcrumb />
         <span class="flex"></span>
         <div class="state">
-          {#if currentJob}
+          {#if running.length === 1}
             <!-- The one thing worth pinning to every page: what the GPU is
              doing, and a way straight to it. The legacy '#/jobs/<id>' form is
-             deliberate: health.current_job carries no workspace, so the legacy
+             deliberate: health carries no workspace for the job, so the legacy
              redirect plus JobPage's correction is how it lands under the job's
              own workspace -->
             <a
               class="plain live"
-              href="#/jobs/{currentJob}"
+              href="#/jobs/{running[0]}"
               title="go to the job"
             >
               <span class="pulse-dot"></span>running
             </a>
           {/if}
+          {#snippet busy()}
+            <!-- Inside the trigger rather than beside it: a second button
+             opening the same popover would read as a press outside it -->
+            <span class="live">
+              <span class="pulse-dot"></span>{running.length} running
+              <ChevronDown size={13} />
+            </span>
+          {/snippet}
           {#if metered.length}
             <button
               class="bare vram"
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title={meterTitle(metered) || 'VRAM allocated'}
-              aria-label="server & worker status"
+              aria-label={statusLabel}
               aria-expanded={statusOpen}
             >
+              {#if running.length > 1}{@render busy()}{/if}
               <span class="meters">
                 {#each metered as card, i (card.device ?? i)}
                   <span class="meter">
@@ -215,10 +296,11 @@
               bind:this={statusTrigger}
               onclick={() => (statusOpen = !statusOpen)}
               title="server & worker status"
-              aria-label="server & worker status"
+              aria-label={statusLabel}
               aria-expanded={statusOpen}
             >
-              {currentJob ? 'status' : 'idle'}
+              {#if running.length > 1}{@render busy()}
+              {:else}{currentJob ? 'status' : 'idle'}{/if}
             </button>
           {/if}
           <StatusPopover
@@ -238,6 +320,7 @@
             <KeyRound size={15} />
           </button>
           <TokenPopover bind:open={tokenOpen} anchor={tokenTrigger} />
+          <AlertToggle />
           <button
             class="bare icon"
             onclick={cycleTheme}
@@ -289,6 +372,7 @@
         {:else}<WorkflowsPage examples />{/if}
       {:else if view.section === 'overview'}<OverviewPage />
       {:else if view.section === 'gallery'}<GalleryPage />
+      {:else if view.section === 'compare'}<ComparePage names={view.rest} />
       {:else if view.section === 'assets'}<AssetsPage />
       {:else if view.section === 'edit'}<EditorPage
           name={view.rest.join('/')}

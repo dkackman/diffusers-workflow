@@ -239,6 +239,21 @@ class TestTaskOnlyHasNoWarmState:
         assert observed["cold_minutes"] == 12.0 and observed["cold_runs"] == 24
         assert "warm_minutes" not in observed
 
+    def test_a_task_only_workflow_without_drivers_counts_runs_with_overrides(self):
+        """#921: templates/check-script is called with its own audio and
+        lines every time; none of that makes runs incomparable."""
+        definition = workflow(None, input_audio="asset:take.wav", lines=None)
+        definition["steps"] = [{"name": "check", "task": "check_script"}]
+        args = {"input_audio": "asset:other.mp4", "lines": ["a", "b"]}
+
+        observed = observed_for(
+            definition,
+            [run(5, args), run(6, {"lines": ["x"]}), run(5, {})],
+            arguments=args,
+        )
+
+        assert observed["runs"] == 3 and observed["cold_runs"] == 3
+
     def test_a_pipeline_step_keeps_the_ordinary_had_load_split(self):
         """A workflow that does load a model is unaffected - the split still
         comes from what the run actually logged."""
@@ -633,6 +648,10 @@ NO_DRIVERS = {
     "workflows/templates/upscale-spandrel.json": "cost follows the input image",
     # Three prompt edits over one image: nothing numeric moves the run.
     "workflows/templates/consistent-set.json": "no variable moves the cost",
+    # One LaMa pass (after one segment pass) over the image handed to it:
+    # `dilate` grows the mask, not the work, so nothing moves the run (#974).
+    "workflows/templates/remove-object.json": "cost follows the input image",
+    "workflows/templates/segment-and-remove.json": "cost follows the input image",
 }
 
 
@@ -662,8 +681,14 @@ class TestTheCatalogsDriversAreReal:
         """A prompt, a seed or a URL moves the output, not the wall clock,
         and bucketing on one gives every run its own bucket and so a
         permanent `runs: 1`. `num_images_per_prompt` is a count and is
-        fine - the rule is the value's *type*, not the name's spelling."""
+        fine - the rule is the value's *type*, not the name's spelling.
+
+        The exception is a configuration choice drawn from a short list:
+        H3's weights dtype and LoRA move the wall clock and are text, and
+        bucket by exact value (#866, Q5). So is the attention backend, which
+        changes the wall clock by 2-4x (#931)."""
         never = {"seed", "prompt", "negative_prompt"}
+        choices = {"weights_dtype", "lora_model_name", "attention_backend"}
         for path in sorted(
             glob.glob(
                 os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
@@ -675,7 +700,7 @@ class TestTheCatalogsDriversAreReal:
             where = os.path.relpath(path, REPO_ROOT)
             for name in definition.get("cost_drivers") or []:
                 assert name not in never, f"{where} buckets on '{name}'"
-                assert not isinstance(variables.get(name), str), (
+                assert name in choices or not isinstance(variables.get(name), str), (
                     f"{where} buckets on '{name}', whose default is text"
                 )
 
@@ -750,6 +775,54 @@ class TestTheCatalogsDriversAreReal:
             with open(path, encoding="utf-8") as handle:
                 definition = json.load(handle)
             assert definition.get("cost_drivers"), os.path.relpath(path, REPO_ROOT)
+
+
+class TestH3KnobsSplitTheBucket:
+    """#866 stage B: a run that overrode a knob with no rule to scale by no
+    longer pools with the runs at the default."""
+
+    @staticmethod
+    def h3():
+        return workflow(
+            ["num_frames", "weights_dtype", "lora_model_name", "attention_backend"],
+            num_frames=124,
+            weights_dtype="{int4}",
+            lora_model_name="lightx2v/Minimax-h3-Turbo",
+            attention_backend=None,
+        )
+
+    def test_an_int8_run_does_not_pool_with_int4_runs(self):
+        rows = [
+            run(8 * MINUTE, {}),
+            run(8 * MINUTE, {"weights_dtype": "{int4}"}),
+            run(20 * MINUTE, {"weights_dtype": "{int8}"}),
+        ]
+        default = observed_for(self.h3(), rows)
+        assert (default["runs"], default["cold_minutes"]) == (2, 8.0)
+        int8 = observed_for(self.h3(), rows, arguments={"weights_dtype": "{int8}"})
+        assert (int8["runs"], int8["cold_minutes"]) == (1, 20.0)
+
+    def test_a_lora_buckets_by_its_exact_name(self):
+        rows = [
+            run(8 * MINUTE, {}),
+            run(12 * MINUTE, {"lora_model_name": None}),
+            run(9 * MINUTE, {"lora_model_name": "someone/other-lora"}),
+        ]
+        assert observed_for(self.h3(), rows)["runs"] == 1
+        none = observed_for(self.h3(), rows, arguments={"lora_model_name": None})
+        assert none["cold_minutes"] == 12.0
+        other = observed_for(
+            self.h3(), rows, arguments={"lora_model_name": "someone/other-lora"}
+        )
+        assert other["cold_minutes"] == 9.0
+
+    def test_a_native_attention_run_leaves_the_default_bucket(self):
+        rows = [run(8 * MINUTE, {}), run(11 * MINUTE, {"attention_backend": "native"})]
+        assert observed_for(self.h3(), rows)["runs"] == 1
+        native = observed_for(
+            self.h3(), rows, arguments={"attention_backend": "native"}
+        )
+        assert native["cold_minutes"] == 11.0
 
 
 @pytest.mark.parametrize("value", [None, "", "[]", "not json"])

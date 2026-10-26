@@ -28,10 +28,12 @@ arguments; prompt format is MiniMax's, from its text not here.
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
-- **A locked frame that lip-syncs to a song** (FL2VA takes no audio): Ref2VA
-  `[keyframe completion + audio reuse]`, `<Picture 1>` the first frame,
-  `<Audio 1>` the song, held with `hold_audio` (#852). It keeps the framing,
-  not the pixels; a last frame costs 45% more and does not land.
+- **A locked frame that lip-syncs to a song**: FL2VA with the song held by
+  `hold_audio` keeps the first frame's pixels and the mouth follows the track
+  (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
+  Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
+  first frame, `<Audio 1>` the song, also held (#852). It keeps the framing,
+  not the pixels, at ~4.7x the denoise; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
@@ -103,20 +105,11 @@ section).
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it and warns on a `weight_name` naming neither.
-- Smeary faces: int8 base model, `references/quality-and-speed.md`.
-- CUDA: `attention_backend=sage_hub` (null elsewhere; mps fails at run).
-- Fit a crowd's action to what it holds: candle-holders asked to clap
-  rendered three-handed people.
-- A directed crowd move needs its landmark in frame: "marches up to the
-  house" put it behind camera. Track from the side, landmark ahead.
-- Two people in frame can lip-sync the wrong one, seemingly by whichever
-  voice enters first: credit a shout to the crowd, spell the sung line in
-  `<d>` tags, frame the singer face-on at medium close-up.
-- State a crowd's age range; unstated skews young.
-- A three-reference shot can open on the portraits' backdrop
-  for ~1.5s (about 1 in 25): check a shot's first frames and say in
-  `subject_definitions` that the portrait's backdrop, pose and framing are
-  not reused.
+- Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
+- Backend: default `sparse` (dense off CUDA); same one at draft and final.
+- A crowd, two people in frame, or a three-reference shot: read
+  `references/staging.md` before the prompt - who lip-syncs, where the
+  landmark is, and the portrait backdrop that can open a shot.
 - Ref2VA reaches 1344x768 too (trade-off: the `recipes` guide's MiniMax-H3
   section). There the 24 GB ceiling on the `17n+5` grid drops with each
   reference: 243 frames at one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
@@ -124,6 +117,10 @@ section).
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
+- Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes voices
+  (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
+  `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it (int8 +
+  turbo is less bad, not clean). Turbo stays the default otherwise (#984 B0).
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip: there is no latent memory. Identity rides
   on a picture, voice timbre on an audio clip, motion/camera on a video

@@ -23,6 +23,7 @@ from pydantic import BaseModel, Field
 from ..api_models import (
     GalleryMetadata,
     NoteSet,
+    StarSet,
 )
 from ...assets import is_asset_reference
 from ...library import ReadOnlyLibraryError
@@ -33,6 +34,7 @@ from ...notes import (
     effective_note,
     read_notes,
     set_file_note,
+    set_file_starred,
     set_run_note,
     set_workspace_note,
 )
@@ -86,8 +88,9 @@ from ..outputs import (
     job_provenance,
     resolve_output_file,
     run_directory,
+    consumed_in,
+    output_annotations,
     run_inputs,
-    run_roles,
     strip_output_prefix,
     validated_run_split,
     workspace_asset_library,
@@ -109,6 +112,7 @@ def gallery_metadata(
     name: str,
     envelope: bool = False,
     interval_seconds: float = 1.0,
+    include_workflow: bool = True,
     ws: Workspace = Depends(selected_workspace),
 ):
     """Generation metadata embedded in a saved image ('workflow' inside
@@ -130,6 +134,12 @@ def gallery_metadata(
     would need more than 2400 bins at a finer-than-default width is
     refused (422) with the interval that fits; the default width is
     never refused for length (#823).
+
+    An image's `media` is its measured `{kind, width, height, mode}`,
+    read from the file header (#922) - not the width/height arguments
+    the pipeline was asked for. `include_workflow=false` drops the
+    embedded `metadata.workflow` (the whole definition, often 20 KB) and
+    leaves the rest of `metadata` with `workflow_omitted: true`.
 
     `name` may also be an 'asset:' reference, and then it is the input
     asset of that name that is described rather than an output (#127).
@@ -163,6 +173,15 @@ def gallery_metadata(
         kept = kept_provenance(path)
         if kept:
             job = kept.get("job")
+            if (
+                job
+                and job.get("id")
+                and (request.app.state.job_manager.get(job["id"]) is None)
+            ):
+                # Pruned from history (the cap, or a deleted workspace):
+                # the id is a record, not something get_job_workflow can
+                # open, so the stale status is not reported as current (#918)
+                job = {**job, "status": "forgotten"}
             run_id = kept.get("run_id") or ""
             version = kept.get("version")
             inputs = kept.get("inputs") or None
@@ -178,20 +197,46 @@ def gallery_metadata(
         # run directory the manifest is read from is a validator's output
         split = validated_run_split(ws.outputs, path)
         if split:
-            role = run_roles(split[0]).get(split[1])
+            # The role the listing shows: demoted once a later run read
+            # the file (#928)
+            relative = os.path.relpath(path, os.path.realpath(ws.outputs))
+            consumed = relative.replace(os.sep, "/") in consumed_in(
+                request.app.state, ws
+            )
+            annotated = output_annotations(split[0], split[1], consumed, {})
+            role = annotated["role"]
+            version = annotated["version"]
             inputs = run_inputs(split[0])
-            notes = _note_fields(read_notes(split[0]), split[1])
+            notes = {
+                key: annotated[key]
+                for key in ("note", "note_source", "starred")
+                if key in annotated
+            }
+            run_note = read_notes(split[0])["run"]
+            if run_note:
+                notes["run_note"] = run_note
     metadata = read_embedded_metadata(path)
+    if metadata is not None and not include_workflow and "workflow" in metadata:
+        metadata = {
+            **{k: v for k, v in metadata.items() if k != "workflow"},
+            "workflow_omitted": True,
+        }
     extension = os.path.splitext(path)[1].lower()
+    kind = MEDIA_KINDS.get(extension)
     try:
-        media = (
-            probe_media(path, envelope=envelope, interval_seconds=interval_seconds)
-            if MEDIA_KINDS.get(extension) in ("audio", "video")
-            else None
-        )
+        if kind in ("audio", "video"):
+            media = probe_media(
+                path, envelope=envelope, interval_seconds=interval_seconds
+            )
+        elif kind == "image":
+            media = _image_media(path)
+        else:
+            media = None
     except ValueError as error:
         raise HTTPException(status_code=422, detail=str(error)) from error
-    if media is not None and source == "output":
+    if kind == "image":
+        pass  # no shots in a still
+    elif media is not None and source == "output":
         # Where each shot of a joined video sits, as the run that wrote
         # it recorded (dw/shots.py) - null for a file not joined from shots
         media["shots"] = recorded_shots(ws.outputs, name)
@@ -215,12 +260,22 @@ def gallery_metadata(
     }
 
 
-def _note_fields(notes, name):
-    """The metadata route's note keys for file `name` of a run, each only
-    when set."""
-    note, source = effective_note(notes, name)
-    fields = {"note": note, "note_source": source, "run_note": notes["run"]}
-    return {key: value for key, value in fields.items() if value}
+def _image_media(path):
+    """An image's `media` block - kind, pixel size and mode - read from
+    the header alone, so no pixel is decoded; None for a file Pillow cannot
+    read (#922)."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return {
+                "kind": "image",
+                "width": image.width,
+                "height": image.height,
+                "mode": image.mode,
+            }
+    except (OSError, ValueError, SyntaxError):
+        return None
 
 
 @router.get("/api/gallery/{name:path}/assess")
@@ -967,3 +1022,32 @@ def put_note(
         "note": stored,
         "note_source": source if stored else None,
     }
+
+
+class StarRequest(BaseModel):
+    name: str = Field(description="A gallery file name")
+    starred: bool
+
+
+@router.put("/api/stars", response_model=StarSet)
+def put_star(
+    request: Request, body: StarRequest, ws: Workspace = Depends(selected_workspace)
+):
+    """Star or unstar one output file - the "keep" mark a person culls a run
+    with. It lives in the run's notes.json beside the notes, so it is
+    resolved exactly as a file note is, and only a file in a run directory
+    can carry one."""
+    if is_ref(WORKSPACE, body.name) or is_asset_reference(body.name):
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    directory, name, kind = resolve_note_target(request.app.state, ws, body.name)
+    if kind != "file":
+        raise HTTPException(
+            status_code=400, detail="Only an output file can be starred"
+        )
+    try:
+        starred = set_file_starred(directory, name, body.starred)
+    except OSError:
+        raise internal_error(f"Could not write the star on {body.name!r}")
+    return {"name": body.name, "starred": starred}

@@ -5,7 +5,7 @@
         "seed": null
     },
     "id": "FluxFill",
-    "description": "Inpaints the masked region of an image with FLUX.1 Fill dev.",
+    "description": "Inpaints the masked region of an image with FLUX.1 Fill dev. It repaints the mask with what the prompt names and is not the removal route: to erase an object, use templates/remove-object (the prompt-free remove_object task).",
     "seed": "variable:seed",
     "steps": [
         {

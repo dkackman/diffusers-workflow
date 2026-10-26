@@ -235,6 +235,16 @@ A later workflow names what an earlier run made with an `output:` reference —
 longer needs files copied back by hand. See
 [Output References](WORKFLOW_GUIDE.md#output-references).
 
+Each step's entry in `manifest.json` records its `role`, `final` or
+`intermediate` (and `role_declared` when the step's `result.role` stated it),
+from that one run's data flow. The gallery reads across runs as well: a file a
+later run in the same workspace read - by an `output:` reference, or by an
+`asset:` that `keep_output` kept from it - lists as `intermediate`, so a
+project's shots, narration and score stop reading as finals once the assembly
+that cuts them has run. Nothing is rewritten; a role `result.role` declared
+`final` stays final, and a run from before roles stays unknown. See
+`dw/roles.py`.
+
 To keep the previous layout — everything at the output root, with only a
 `workflows/`-mirroring subfolder — use `--output-layout flat`, `DW_OUTPUT_LAYOUT=flat`,
 or `"output_layout": "flat"` in settings. Scripts that glob the output directory
@@ -268,6 +278,21 @@ A step that set a `cache` also carries `timing.cache`: `{type, threshold, forwar
 A step served from the step cache (`reused: true`) has no `timing`, nor does a
 task step or a composed (sub-workflow) step. A failed or cancelled step has no
 manifest entry, so no timing. Job summaries and history are unchanged.
+
+### Host-memory history
+
+Each finished job's history row records a `memory_key`: a digest of the
+run's pipeline identities (`component_type`, `model_name`, `workflow` of
+every pipeline step) and every `quantization_config`, `offload` and
+`group_offload` value, with the caller's arguments resolved. The
+workflow's name is not in it, so a renamed or inline copy of a template
+shares the template's history, and a different `weights_dtype` or offload
+is a different key. From it the server projects a run's host-RAM peak:
+`observed` (the largest job peak RSS among this machine's successful runs
+with the same key), else `fit` (the list-run projection from the
+workflow's own history), else no figure. Rows recorded before the column
+existed have no key and count as no data. Validate reports it as
+`plan.host_memory`.
 
 ## Several workspaces on one server
 
@@ -441,9 +466,9 @@ dw already has.
 4. **One `run_workflow` per variant, with a `note`.** The note's first line
    is the overrides, `steps=8` or `steps=20 attention=sage`, so a listing
    that clips notes still shows which variant is which. Call `wait_for_job`
-   until the variant finishes before submitting the next. Dispatch is not
-   yet aware of host RAM (#869), so two large variants on two cards can run
-   the host out of memory together.
+   until the variant finishes before submitting the next. The server holds a
+   second large variant until the host can hold it beside the first (see
+   [SERVER.md](SERVER.md)), so waiting is for ordering, not for memory.
 
 5. **Only the latest run of a step is cached.** The step cache holds one
    entry per workflow step: its most recent run. A variant whose step and

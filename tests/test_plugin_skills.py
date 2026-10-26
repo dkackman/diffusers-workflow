@@ -470,14 +470,20 @@ class TestMiniMaxH3Skill:
         assert workflow.validation_errors() == []
 
     def test_the_locked_frame_lip_sync_recipe_names_real_task_types(self):
-        """#852: a locked frame that lip-syncs is Ref2VA with a first-frame
-        keyframe and the song held. The task types are MiniMax's, which the
+        """#985: a locked frame that lip-syncs is FL2VA with the song held,
+        which keeps the pixels; #852's Ref2VA with a first-frame keyframe and
+        the song held is the fallback. "FL2VA takes no audio" was false as
+        stated, and stays out. The task types are MiniMax's, which the
         built-in Context-IR enhancer teaches, and `hold_audio` is the argument
         music-video's ref2va step takes, so a rename of either fails here."""
-        body = skill_body(H3_SKILL)
+        body = " ".join(skill_body(H3_SKILL).split())
+        assert "FL2VA takes no audio" not in body
+        assert (
+            "FL2VA with the song held by `hold_audio` keeps the first frame's pixels"
+            in body
+        )
         task = "[keyframe completion + audio reuse]"
-        assert f"`{task}`" in body
-        assert "FL2VA takes no audio" in body
+        assert f"Fallback: Ref2VA `{task}`" in body
         assert "`hold_audio`" in body
 
         enhancer = os.path.join(REPO_ROOT, "dw", "workflows", "h3_context_ir.json")
@@ -717,6 +723,58 @@ class TestKandinsky6Skill:
     def test_the_skill_starts_with_the_server(self):
         text = skill_text(KANDINSKY6_SKILL)
         assert text.index("get_server_info") < text.index("templates/kandinsky6/")
+
+
+FLUX3_SKILL = os.path.join(PLUGIN_DIR, "skills", "flux3-klein", "SKILL.md")
+
+
+def flux3_text():
+    """The Klein skill with its line wraps collapsed, so a phrase the tests
+    pin does not break when a paragraph is rewrapped."""
+    return " ".join(skill_text(FLUX3_SKILL).split())
+
+
+class TestFlux3KleinSkill:
+    """The Klein skill's numbers come from the diffusers modular blocks that
+    enforce them; the 10-reference cap is the vendor's training limit, which
+    the pipeline does not enforce, and the skill says so."""
+
+    def test_the_step_count_is_the_distilled_pipeline_s(self):
+        # The distilled denoise step, not Flux3SetTimestepsStep (which
+        # defaults to 50), holds the 16 the templates run.
+        from diffusers.modular_pipelines.flux3.modular_blocks_flux3_distilled import (
+            Flux3DistilledCoreDenoiseStep,
+        )
+
+        defaults = {p.name: p.default for p in Flux3DistilledCoreDenoiseStep().inputs}
+        assert defaults["num_inference_steps"] == 16
+        assert "16 steps" in flux3_text()
+
+    def test_the_grid_is_the_vae_scale_times_the_2x2_packing(self):
+        from diffusers.modular_pipelines.flux3 import before_denoise
+
+        # The multiple is read off the loaded VAE, so only the source shows it.
+        assert "vae_scale_factor * 2" in inspect.getsource(before_denoise)
+        assert "multiples of 16" in flux3_text()
+
+    def test_the_distilled_model_takes_no_guidance(self):
+        assert "no guidance" in flux3_text()
+
+    def test_the_reference_cap_is_stated_as_the_vendor_s(self):
+        text = flux3_text()
+        assert "10 references" in text and "<ref_image_0>" in text
+        assert "does not enforce" in text
+
+    def test_the_skill_defers_prompt_format_to_bfl(self):
+        text = flux3_text()
+        assert "https://docs.bfl.ml/guides/prompting_summary" in text
+        assert "`flux3_klein_upsample`" in text
+        assert "`flux3_klein_upsample_edit`" in text
+
+    def test_the_skill_starts_with_the_server(self):
+        text = flux3_text()
+        assert text.index("get_server_info") < text.index("list_workflows")
+        assert text.index("get_server_info") < text.index("templates/flux3/")
 
 
 SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")

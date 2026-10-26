@@ -5,6 +5,17 @@ from torchvision import transforms
 
 from .. import preferred_task_dtype
 from .model_cache import cached_model
+from .weights import repo_entries
+
+# transformers' own default for "depth-estimation", named so the plan can list
+# it and a transformers upgrade cannot move it silently
+_MODEL_NAME = "Intel/dpt-large"
+_REVISION = "bc15f29"
+
+
+def required_weights(arguments):
+    """The depth model's repo, for the plan (dw/tasks/weights.py)."""
+    return repo_entries(_MODEL_NAME)
 
 
 def make_hint_tensor(image, device, dtype=None):
@@ -21,7 +32,9 @@ def make_hint_tensor(image, device, dtype=None):
     """
     depth_estimator = cached_model(
         ("depth_estimator", str(device)),
-        lambda: pipeline("depth-estimation", device=device),
+        lambda: pipeline(
+            "depth-estimation", model=_MODEL_NAME, revision=_REVISION, device=device
+        ),
     )
 
     image = depth_estimator(image)["depth"]

@@ -1,0 +1,46 @@
+{
+    "id": "SegmentAndRemove",
+    "description": "Finds an object by name and erases it with no prompt, filling from the surroundings (segment, then remove_object). This is the removal route when there is no mask to hand: segment's mask is white on the object, which is what remove_object erases. Suits small to medium objects; a large region comes back smeared. Raise dilate (16 to 24) when the object has a soft edge or casts a shadow. If segment finds nothing, the image comes back unchanged with a warning. To replace the object with something else, use segment-and-inpaint instead.",
+    "shape": "image-edit",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 4, "minutes": 1.2}
+    ],
+    "variables": {
+        "image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "object": "cup",
+        "dilate": 8
+    },
+    "steps": [
+        {
+            "name": "mask",
+            "task": {
+                "command": "segment",
+                "arguments": {
+                    "image": "variable:image",
+                    "prompt": "variable:object"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true,
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "erase",
+            "task": {
+                "command": "remove_object",
+                "arguments": {
+                    "image": "variable:image",
+                    "mask_image": "previous_result:mask",
+                    "dilate": "variable:dilate"
+                }
+            },
+            "result": {
+                "content_type": "image/png",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

@@ -17,7 +17,7 @@ import logging
 
 from .image_ops import per_frame
 from .registry import register_command
-from ..task_domains import POSITIVE, UNIT
+from ..task_domains import NON_NEGATIVE, POSITIVE, UNIT
 from ..task_problems import script_lines_errors
 
 logger = logging.getLogger("dw")
@@ -33,6 +33,7 @@ def _voices_argument_errors(arguments):
 @register_command(
     "attribute_voices",
     implementation="dw.tasks.voice_attribution.attribute_voices",
+    required_weights="dw.tasks.voice_attribution.required_weights",
     consumes_device=True,
     returns="json",
     domains={"window_seconds": POSITIVE, "min_reference_seconds": POSITIVE},
@@ -48,6 +49,7 @@ def _handle_attribute_voices(task, arguments, previous_pipelines):
 @register_command(
     "check_script",
     implementation="dw.tasks.script_check.check_script",
+    required_weights="dw.tasks.audio_transcription.required_weights",
     consumes_device=True,
     returns="json",
     domains={"similarity": UNIT},
@@ -73,7 +75,10 @@ def _handle_separate_stems(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "upscale", implementation="dw.tasks.upscale.upscale_image", consumes_device=True
+    "upscale",
+    implementation="dw.tasks.upscale.upscale_image",
+    consumes_device=True,
+    required_weights="dw.tasks.upscale.required_weights",
 )
 def _handle_upscale(task, arguments, previous_pipelines):
     """Upscale an image using a spandrel-compatible super-resolution model"""
@@ -92,6 +97,7 @@ def _handle_upscale(task, arguments, previous_pipelines):
 @register_command(
     "diffusion_upscale",
     implementation="dw.tasks.diffusion_upscale.diffusion_upscale",
+    required_weights="dw.tasks.diffusion_upscale.required_weights",
     consumes_device=True,
 )
 def _handle_diffusion_upscale(task, arguments, previous_pipelines):
@@ -110,6 +116,7 @@ def _handle_diffusion_upscale(task, arguments, previous_pipelines):
     "restore_faces",
     implementation="dw.tasks.restore_faces.restore_faces",
     consumes_device=True,
+    required_weights="dw.tasks.restore_faces.required_weights",
 )
 def _handle_restore_faces(task, arguments, previous_pipelines):
     """Restore faces in an image using a spandrel-compatible face restoration model"""
@@ -134,7 +141,10 @@ def _handle_restore_faces(task, arguments, previous_pipelines):
 
 
 @register_command(
-    "segment", implementation="dw.tasks.segment.segment_image", consumes_device=True
+    "segment",
+    implementation="dw.tasks.segment.segment_image",
+    required_weights="dw.tasks.segment.required_weights",
+    consumes_device=True,
 )
 def _handle_segment(task, arguments, previous_pipelines):
     """Segment objects in an image using text prompt"""
@@ -150,9 +160,68 @@ def _handle_segment(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "remove_object",
+    implementation="dw.tasks.remove_object.remove_object",
+    consumes_device=True,
+    required_weights="dw.tasks.remove_object.required_weights",
+    summary=(
+        "Erase what a mask covers and fill the hole from the surrounding "
+        "texture, with no prompt (LaMa). Suits small to medium objects; an "
+        "image or video frames, one still mask applied to every frame."
+    ),
+    parameter_descriptions={
+        "image": (
+            "The image to clean, or video frames (e.g. from video_frames): the "
+            "one mask applies to every frame, and fps and audio are kept."
+        ),
+        "mask_image": (
+            "White where to erase, black where to keep - segment's polarity, "
+            "so its mask chains with no invert. Binarized at 128 and resized "
+            "to the image if it differs. An all-black mask returns the image "
+            "unchanged, with a warning."
+        ),
+        "dilate": (
+            "Pixels to grow the mask by before the fill, a whole number 0 or "
+            "above (default 8). LaMa fills cleanly only past the object's "
+            "edge; raise it for a soft or tight mask."
+        ),
+        "model_name": (
+            "Hugging Face repo id holding the LaMa weights, never a path "
+            "(default michaelgold/big-lama, read at a pinned revision)."
+        ),
+        "weight_name": (
+            "The safetensors file within model_name, a bare file name "
+            "(default big-lama.safetensors); a .pt/.ckpt is refused."
+        ),
+    },
+    domains={"dilate": NON_NEGATIVE},
+    whole_numbers=("dilate",),
+)
+def _handle_remove_object(task, arguments, previous_pipelines):
+    """Erase a masked region and fill it from the surroundings"""
+    logger.debug("Removing object")
+    image = arguments.pop("image")
+    mask_image = arguments.pop("mask_image")
+    from ..events import emit_warning
+    from .remove_object import EMPTY_MASK_WARNING, mask_is_empty, remove_object
+
+    if mask_is_empty(mask_image):
+        # Checked once here, so a video warns once rather than per frame
+        emit_warning(EMPTY_MASK_WARNING)
+        return per_frame(image, lambda frame: frame)
+
+    device = task.device_for(arguments)
+    return per_frame(
+        image,
+        lambda frame: remove_object(frame, mask_image, device=device, **arguments),
+    )
+
+
+@register_command(
     "interpolate_frames",
     implementation="dw.tasks.interpolate_frames.interpolate_frames",
     consumes_device=True,
+    required_weights="dw.tasks.interpolate_frames.required_weights",
 )
 def _handle_interpolate_frames(task, arguments, previous_pipelines):
     """Interpolate video frames to increase frame rate"""
@@ -167,6 +236,7 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     "upscale_h3_latents",
     implementation="dw.tasks.h3_latent_upscale.upscale_h3_latents",
     consumes_device=True,
+    required_weights="dw.tasks.h3_latent_upscale.required_weights",
     summary=(
         "Resize MiniMax-H3 video latents to a larger canvas (e.g. a 960x544 "
         "take to 1344x768) without denoising again; decode_h3_latents turns "
@@ -241,6 +311,7 @@ def _handle_decode_h3_latents(task, arguments, previous_pipelines):
 @register_command(
     "image_to_text",
     implementation="dw.tasks.image_to_text.image_to_text",
+    required_weights="dw.tasks.image_to_text.required_weights",
     consumes_device=True,
 )
 def _handle_image_to_text(task, arguments, previous_pipelines):
@@ -255,6 +326,7 @@ def _handle_image_to_text(task, arguments, previous_pipelines):
 @register_command(
     "judge",
     implementation="dw.tasks.judge.judge",
+    required_weights="dw.tasks.judge.required_weights",
     consumes_device=True,
     returns="scalar",
 )
@@ -270,6 +342,7 @@ def _handle_judge(task, arguments, previous_pipelines):
 @register_command(
     "transcribe_audio",
     implementation="dw.tasks.audio_transcription.transcribe_audio",
+    required_weights="dw.tasks.audio_transcription.required_weights",
     consumes_device=True,
 )
 def _handle_transcribe_audio(task, arguments, previous_pipelines):
@@ -284,6 +357,7 @@ def _handle_transcribe_audio(task, arguments, previous_pipelines):
 @register_command(
     "text_generation",
     implementation="dw.tasks.text_generation.generate_text",
+    required_weights="dw.tasks.text_generation.required_weights",
     consumes_device=True,
 )
 def _handle_text_generation(task, arguments, previous_pipelines):
@@ -298,10 +372,12 @@ def _handle_text_generation(task, arguments, previous_pipelines):
 @register_command(
     "generate_speech",
     implementation="dw.tasks.speech_generation.generate_speech",
+    required_weights="dw.tasks.speech_generation.required_weights",
     consumes_device=True,
 )
 def _handle_speech_generation(task, arguments, previous_pipelines):
-    """Speak a line of text with a local text-to-speech model"""
+    """Speak a line of text with a local text-to-speech model (Bark, MMS/VITS
+    or SpeechT5)"""
     logger.debug("Generating speech")
     if ("text" in arguments) == ("messages" in arguments):
         raise ValueError(

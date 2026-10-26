@@ -83,12 +83,18 @@ def _is_type_key(key):
     )
 
 
-def _loose_type_reference_error(key, value, path):
+def _loose_type_reference_error(key, value, path, warnings=None):
     """Any other '*_type' / '*_dtype' / 'dtype' value the run loads as a type
     (a pipeline's torch_dtype, say), put to the same untrusted gate. Only the
-    gate's refusal is reported: a name that merely fails to resolve is left
+    gate's refusal is an error: a name that merely fails to resolve is left
     to the run, since realize_args reads some of these keys as something
-    other than a type."""
+    other than a type.
+
+    That rule stops short of a bare, undotted name (#926): a type or
+    quantization name written without braces (`weights_dtype: "int8"`) loads
+    as a diffusers attribute and dies after the model has loaded, so one that
+    fails to resolve is reported to `warnings` (when given) with its braced
+    spelling - a warning, since the key may still be read as something else."""
     if not isinstance(value, str) or not _DOTTED_NAME_PATTERN.match(value):
         return None
 
@@ -97,7 +103,17 @@ def _loose_type_reference_error(key, value, path):
     except UntrustedWorkflowError as e:
         return {"path": path, "message": str(e)}
     except (ImportError, AttributeError, ValueError):
-        pass
+        if warnings is not None and "." not in value:
+            warnings.append(
+                {
+                    "path": path,
+                    "message": (
+                        f"{key} {value!r} is not a diffusers type, and a "
+                        f"'{key}' value loads as one; a type or quantization "
+                        f'name that is only a name needs braces: "{{{value}}}"'
+                    ),
+                }
+            )
     return None
 
 
@@ -116,7 +132,7 @@ def _constant_reference_error(value, path):
     return None
 
 
-def _walk_type_references(node, path, errors):
+def _walk_type_references(node, path, errors, warnings=None):
     # A {media_type, location} dict is loaded as media, and its media_type
     # names a kind rather than a type - realize_args never reads it as one
     if isinstance(node, dict) and not is_media_reference(node):
@@ -124,20 +140,20 @@ def _walk_type_references(node, path, errors):
             if k in _TYPE_REFERENCE_KEYS:
                 error = _type_reference_error(k, v, path + (k,))
             elif _is_type_key(k):
-                error = _loose_type_reference_error(k, v, path + (k,))
+                error = _loose_type_reference_error(k, v, path + (k,), warnings)
             else:
                 error = _constant_reference_error(v, path + (k,))
             if error is not None:
                 errors.append(error)
             else:
-                _walk_type_references(v, path + (k,), errors)
+                _walk_type_references(v, path + (k,), errors, warnings)
     elif isinstance(node, list):
         for i, item in enumerate(node):
             error = _constant_reference_error(item, path + (i,))
             if error is not None:
                 errors.append(error)
             else:
-                _walk_type_references(item, path + (i,), errors)
+                _walk_type_references(item, path + (i,), errors, warnings)
 
 
 def component_type_errors(workflow_definition, source_indices=None):
@@ -178,6 +194,24 @@ def component_type_errors(workflow_definition, source_indices=None):
                 }
             )
     return errors
+
+
+def unbraced_type_warnings(workflow_definition, source_indices=None):
+    """Every bare name handed to a `*_type`/`*_dtype`/`dtype` key that is not
+    a diffusers type, as warning strings (#926) - found by the same walk and
+    resolver `component_type_errors` uses, on the substituted definition, so a
+    value a `variable:` supplied is covered."""
+    found = []
+    for _, step, _, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
+        entries = []
+        _walk_type_references(step, (), [], entries)
+        found.extend(
+            f"{render_path(('steps', source) + e['path'])}: {e['message']}{where}"
+            for e in entries
+        )
+    return found
 
 
 def component_name_errors(workflow_definition, source_indices=None):

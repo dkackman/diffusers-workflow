@@ -273,8 +273,11 @@ document, which is where a draft that validates still fails.
 When exploring variations, pass `note` to `run_workflow` saying what each run
 tests ("video_shift 5 against 3"), and call `set_note` to mark the keeper: the
 note is shown with every file the run made. Each file carries a `role`
-(`final` or `intermediate`) inferred from how a step's output is used; set
-`result.role` on a step to override it when the default is wrong.
+(`final` or `intermediate`) inferred from how a step's output is used - a file
+a later run reads (`output:`, or an `asset:` kept from it) lists as
+intermediate too; set `result.role` on a step to override it when the default
+is wrong, and set `"role": "intermediate"` on a workflow whose deliverable is an
+ingredient a later assembly consumes.
 
 ### References
 
@@ -491,7 +494,12 @@ step (for a `for_each`, the heaviest member). It warns rather than
 refuses: your offload and quantization config may differ from the
 template's. Cut frames, size or references until it goes quiet, or declare
 your own `vram_estimate`, which always wins and is judged exactly as a
-template's. A pipeline the catalog declares no ceiling for gets no warning -
+template's. Under the ceiling it is not always silent: the template's
+estimate was calibrated on its own offload and quantization, so a workflow
+that sets either differently (no `offload` where the template sets
+`model`, say) gets one warning of kind `vram_config_differs` naming both
+settings and the projection - real usage may be higher. Over the ceiling the
+one `vram_projection_inherited` warning names that difference instead. A pipeline the catalog declares no ceiling for gets no warning -
 silence there is not a clearance - and H3's `t2va` and `ref2va` are
 different identities with different ceilings.
 
@@ -710,7 +718,9 @@ by the source, and `validate_workflow` names the entries to add or drop.
    a measured per-entry rate re-priced for your list; `catalog` is a
    measured total for a run whose lists are the ones it was measured with;
    `derived` is that total extrapolated over a list you changed the length
-   of - say it is an estimate; `inherited` is an inline workflow priced
+   of, or scaled along the steps, canvas or frames you moved off the
+   defaults it was measured at (`scaled` names each axis that moved) - say
+   it is an estimate; `inherited` is an inline workflow priced
    from this box's runs of the catalog template with the same pipeline
    (`inherited_from`) - say it is an approximation, and relay the warning
    if offload, quantization or frame count differ; `other_device` is a figure from another
@@ -769,7 +779,7 @@ by the source, and `validate_workflow` names the entries to add or drop.
    arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
    it takes an audio file or a video's muxed soundtrack directly, and
    `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
-   a line's shot, `[]` for a take that should be silent), then
+   a line's shot (plus `start_frame` when the cut repeats that shot's name), `[]` for a take that should be silent), then
    `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
    "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
    `get_output_text` on the result, and `delete_output(job_id=...)` the
@@ -818,6 +828,25 @@ workflow.
   `templates/multi-image-reference.json`, and for video the MiniMax
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
+
+### Erasing versus repainting a masked region
+
+A request to *erase or remove* an object and a request to *put something
+new* in its place are different operations, and only one of them takes a
+prompt.
+
+- **Erase or remove an object** → the `remove_object` task: prompt-free, it
+  fills the hole from the surrounding scene, and suits small to medium
+  objects (a cup, a sign, a watermark). `templates/remove-object.json` takes
+  a mask you already have; `templates/segment-and-remove.json` masks the
+  object by name first. A large region, such as a person filling a third of
+  the frame, comes back smeared.
+- **Put something new inside a mask** → a prompted inpainter,
+  `models/z-image-inpaint` or `templates/inpaint.json`. The prompt names what
+  to paint. Do not use one to erase: given a prompt for "empty background" it
+  paints a new object or a patch that does not match (#946).
+
+`docs/TASKS.md` *Object Removal* has the task's arguments and its mask rules.
 
 ### A spoken scene breaking into a song
 
@@ -979,7 +1008,12 @@ longer than that is truncated with an ellipsis in every listing.
 Declare `shape`, `traits` or `summary` at the top level only when derivation
 gets it wrong; a declaration that merely repeats the derivation is noise that
 rots when the rules change, and the repo's catalog tests refuse it. `cost` is
-never derived — leave it absent until a run has been measured. That makes it
+never derived — leave it absent until a run has been measured. A `cost` entry
+is measured at the workflow's variable defaults: a run that moves
+`num_inference_steps`, `width`/`height` or `num_frames` (per entry in a list,
+summed) is quoted scaled in proportion to them, so a figure measured at some
+other size or step count is re-priced to the defaults before it is written
+(dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). That makes it
 the catalog's verified marker as well: an entry carrying `cost` has been run
 to completion on the device it names, and one without has only been authored
 — its description may still say what it has not been able to check (VRAM at
@@ -994,7 +1028,12 @@ reports the result as `observed` beside the curated `cost`, so a 345-frame
 run never informs a 124-frame figure and a list driver buckets on its length.
 Declaring none is not neutral: the figure then falls back to runs that
 overrode nothing at all, which most real runs do, so a measured workflow with
-no drivers keeps answering "unknown". Each name must be a variable the
+no drivers keeps answering "unknown". A driver the estimate cannot scale
+along - anything but steps, width, height and frames, such as a weights
+dtype, a LoRA name or an audio duration - still splits the buckets (a text
+value buckets by its exact value). When a run moves one off its default, the
+curated figure is kept but carries `low_confidence: true`, and `differs`
+names the drivers, since it was measured at the default. Each name must be a variable the
 workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
 that is not, since a driver bucketing on nothing looks exactly like a driver
 that works.
@@ -1244,9 +1283,19 @@ For components the pipeline loads itself — which is all of a modular pipeline'
   `diffusion_decoder`, for example).
 - `attention_backend` — a persistent `set_attention_backend` on one component, which a
   compiled component needs (the pipeline-level `attention_backend` applies per call).
-  Every MiniMax-H3 template wires an `attention_backend` variable (default `null`) here,
-  on its H3 step's `transformer` or `transformer_ref`; see
-  [ACCELERATION.md](ACCELERATION.md) for `sage_hub` and what it needs.
+  Every MiniMax-H3 template wires an `attention_backend` variable here, on its H3 step's
+  `transformer` or `transformer_ref`, defaulting to `"sparse"` (dw's comfy-kitchen sparse
+  attention, which needs no extra install), with `sparse_topk` 0.15; pass `sage_hub` or
+  `native` to override it. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3) for
+  `sparse` and [Attention Backends](ACCELERATION.md#attention-backends) for `sage_hub`
+  and what it needs.
+- `sparse_tau` — the sparsity threshold for a component whose `attention_backend` is
+  `"sparse"` (number, minimum 0, default 0.5). A runtime setting: changing it reuses the
+  loaded pipeline. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_topk` — top-k routing instead of `sparse_tau`: keep this fraction of key tiles
+  (strictly between 0 and 1). The H3 templates set 0.15; when set, `sparse_tau` is
+  ignored, and a component that sets none routes by `sparse_tau`. A runtime setting,
+  like `sparse_tau`.
 - `attn_processor_type` — the attention processor the component runs, constructed with no
   arguments and handed to `set_attn_processor`. The `unet` and `transformer` blocks cover
   those two; this covers any other component that carries attention (LTX-2.5's
@@ -1519,7 +1568,14 @@ stays alive for the steps that reuse it.
   cost to speed. Automatic on MPS unless `disable_attention_slicing` is set
   (UNet/ControlNet models only; worth disabling for SDXL on a Mac).
 - `attention_backend` — selects a diffusers attention backend (e.g. `"flash_hub"`) for
-  the duration of each pipeline call.
+  the duration of each pipeline call. `"sparse"` is dw's own instead: comfy-kitchen sparse
+  attention on a MiniMax-H3 transformer, installed for the call only, and dense with a
+  warning where it cannot run. See [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_tau` — the sparsity threshold for a pipeline-level `attention_backend:
+  "sparse"` (number, minimum 0, default 0.5). See
+  [ACCELERATION.md](ACCELERATION.md#sparse-minimax-h3).
+- `sparse_topk` — top-k routing for a pipeline-level `"sparse"` instead of `sparse_tau`
+  (strictly between 0 and 1); unset unless the workflow sets it.
 - `prompt_weighting` — enables A1111-style prompt weighting (`(word:1.5)`, `[word]`,
   `((word))`) and prompts over 77 tokens. Currently supports Flux pipelines. Mutually
   exclusive with `remote_text_encoder`.
@@ -1732,6 +1788,10 @@ open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, 
 speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
 so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
 is also for picture that must fit audio exactly, such as motion cut to music.
+On `fl2va`, hold is the locked-frame lip-sync route (#985: `image-to-video`'s fl2va, a first
+frame plus a held 5.17 s song, int8 turbo, two seeds): frame 0 kept the picture's pixels and
+the mouth followed the song as in an audio-referenced Ref2VA shot, at about a fifth of the
+denoise time of Ref2VA `[keyframe completion + audio reuse]`, which keeps only the framing.
 `refine_strength` also uses hold, to keep the base pass's own audio, which was generated
 jointly with that video - a different case from lip sync to supplied audio (see the refine
 section below).
@@ -1867,10 +1927,10 @@ upscaling only makes sense for a take chosen from something already reviewed, so
 
 The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, Apache-2.0,
 read at a pinned revision) and the H3 VAE download on first use, the same as any other
-model. Neither is counted in `plan.downloads_required`, since that walk collects
-`from_pretrained_arguments` sources on pipeline steps and does not see a task
-argument naming a Hugging Face repo - a box that has run the base pass before but never
-this task can still stall mid-run pulling the upscaler.
+model. A validate's `plan.downloads_required` lists the upscaler file as a file entry
+(`{repo, filename, revision, ...}`) while it is not cached, and the VAE is covered by
+the pipeline step's whole `MiniMaxAI/MiniMax-H3` entry, so a box that has run the base
+pass before but never this task is told of the upscaler download beforehand.
 
 ```json
 {
@@ -2644,6 +2704,26 @@ same seed, same arguments - do not share a cache entry, so
 is pinned to, not for every workspace that happens to hold a matching run.
 Deleting a workspace takes its cache entries with it, the same as deleting
 its `outputs/` directory would.
+
+The step cache is also per card and per workflow identity. Identity is the stored
+workflow's name, or an inline workflow's `id`; entries are keyed on the definition `id`
+and step name (`StepCache.get` in `dw/step_cache.py`), and an inline job's identity is
+`("inline", id)` (`workflow_identity` in `dw/worker_protocol.py`). Switching identity on a
+card empties that card's cache (the worker's `_cleanup_all` calls `step_cache.clear()`),
+so:
+
+- running any other workflow on the card in between starts the next run cold: A, then B,
+  then A runs the second A cold. This is the common case. On a multi-card server
+  warm-identity routing (`choose_slot` in `dw/server/pool.py`) mostly avoids it unless
+  that card is busy; on a single card it happens every time.
+- a renamed copy, a new inline `id`, or switching between a stored workflow and its
+  inline copy also starts cold.
+
+To reuse cached upstream steps, rerun the same workflow (same name, or the same inline
+`id`), for example with `rerun_job` or changed arguments. Only arguments that reach
+*later* steps leave the earlier steps cached: changing an argument the expensive first
+step reads re-runs that step. To check before running, `validate_workflow`'s
+`plan.cached_steps` says how many steps would be reused.
 
 ## Type System
 

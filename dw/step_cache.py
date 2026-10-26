@@ -32,6 +32,15 @@ A step is safe to skip only if:
   6. the entry retained the step's Result if this run needs one - an entry
      stored for a step nothing downstream read holds only its saved_files
 
+The cache is keyed only by what can change the output (#905). A workflow's
+top-level keys never reach a key - an entry is the step alone, under the
+workflow id - so its cost, cost_drivers, vram_estimate and documentation
+move nothing here. Inside a step, `output_identity` drops the result keys
+that only label a file (NON_OUTPUT_RESULT_KEYS). A result's subfolder and
+file_base_name stay: a hit writes nothing and republishes the cached paths,
+so a run that moved either would be handed files where it did not ask for
+them.
+
 Entries are keyed by (workflow_id, step_name), not by step name alone:
 saved files are named "{workflow_id}-{step_name}.{index}", so a bare-name
 key would let a different workflow (or the same one after an id rename, or
@@ -74,6 +83,24 @@ logger = logging.getLogger("dw")
 # entry records the stamp of each upstream it was computed from. Never reset
 # (clear() included) - a reused number would make a stale entry look fresh.
 _generations = itertools.count(1)
+
+
+# A step result's keys that label its files without changing them or where
+# they are written: the run records a step's role from its own definition as
+# it opens (dw/roles.py role_basis), never from a cached entry. Pinned by
+# tests/test_workflow_step_cache.py::TestOutputKeys
+NON_OUTPUT_RESULT_KEYS = ("role",)
+
+
+def output_identity(step_data):
+    """`step_data` with NON_OUTPUT_RESULT_KEYS removed from its result
+    block, in place - what a step cache entry is keyed and compared on.
+    Returns `step_data`."""
+    result = step_data.get("result")
+    if isinstance(result, dict):
+        for key in NON_OUTPUT_RESULT_KEYS:
+            result.pop(key, None)
+    return step_data
 
 
 def reference_resolves_to(reference, name):
@@ -122,6 +149,7 @@ def component_names(pipeline_definition, key):
 
 
 RUNTIME_LORA_KEYS = ("scale", "alpha")
+RUNTIME_SPARSE_KEYS = ("sparse_tau", "sparse_topk")
 
 
 def weights_identity(pipeline_definition):
@@ -141,6 +169,10 @@ def weights_identity(pipeline_definition):
     (or nulls the variable behind it) must reload to get the default back,
     where 16 -> 8 just re-applies. A scale needs no marker - an absent scale
     re-applies as 1.0.
+
+    sparse_tau (#931), on the configuration and on each of its components,
+    needs no marker either: it has no checkpoint value to restore, and an
+    absent one re-applies as DEFAULT_TAU.
     """
     identity = {
         k: v
@@ -159,14 +191,31 @@ def weights_identity(pipeline_definition):
         scheduler = identity.get(name)
         if isinstance(scheduler, dict):
             identity[name] = _without_runtime(scheduler, ("shift",), "shift")
+    configuration = identity.get("configuration")
+    if isinstance(configuration, dict):
+        identity["configuration"] = _without_sparse_tau(configuration)
     return identity
 
 
-def _without_runtime(block, runtime_keys, marked):
+def _without_sparse_tau(configuration):
+    """The configuration without sparse_tau, at pipeline or component level."""
+    stripped = _without_runtime(configuration, RUNTIME_SPARSE_KEYS)
+    entries = stripped.get("components")
+    if isinstance(entries, dict):
+        stripped["components"] = {
+            name: _without_runtime(entry, RUNTIME_SPARSE_KEYS)
+            if isinstance(entry, dict)
+            else entry
+            for name, entry in entries.items()
+        }
+    return stripped
+
+
+def _without_runtime(block, runtime_keys, marked=None):
     """`block` without its runtime keys, but with `marked` as True when the
     block states it - see weights_identity for why its presence counts."""
     stripped = {k: v for k, v in block.items() if k not in runtime_keys}
-    if block.get(marked) is not None:
+    if marked is not None and block.get(marked) is not None:
         stripped[marked] = True
     return stripped
 

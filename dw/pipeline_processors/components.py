@@ -15,6 +15,12 @@ from .. import get_device_type, resolve_device
 from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning
 from .. import download_watch
 from .. import quantized_cache
+from ..sparse_attention import (
+    DEFAULT_TAU,
+    SPARSE_BACKEND,
+    install_sparse,
+    uninstall_sparse,
+)
 from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .h3_guides import insert_guides
@@ -77,6 +83,15 @@ def configure_components(pipeline, configuration, default_device, reused_compone
             )
             continue
 
+        # The worker keeps models loaded between jobs, so a component an
+        # earlier job set to 'sparse' still carries its processors: anything
+        # but 'sparse' takes them off before its own backend or processor goes on
+        component_attention_backend = component_configuration.get(
+            "attention_backend", None
+        )
+        if component_attention_backend != SPARSE_BACKEND:
+            uninstall_sparse(component)
+
         # Prune before any hooks are installed - an offload hook pins and tracks
         # exactly the modules that exist when it is applied, so pruning afterwards
         # would leave it streaming weights that can never run
@@ -124,18 +139,32 @@ def configure_components(pipeline, configuration, default_device, reused_compone
         # A compiled component should pin its attention backend - the per-call
         # attention_backend context manager would switch implementations under a
         # compiled graph and force a recompile on every run
-        component_attention_backend = component_configuration.get(
-            "attention_backend", None
-        )
         if component_attention_backend is not None:
             message = f"Setting {component_name} attention backend: {component_attention_backend}"
+            tau = component_configuration.get("sparse_tau", DEFAULT_TAU)
+            topk = component_configuration.get("sparse_topk")
+            if component_attention_backend == SPARSE_BACKEND:
+                # tau and top-k routing differ in speed and output, so the
+                # run's log says which ran (#932)
+                message += f" (topk {topk})" if topk is not None else f" (tau {tau})"
             logger.info(message)
             emit_log(
                 message,
                 component=component_name,
                 attention_backend=str(component_attention_backend),
             )
-            set_component_attention_backend(component, component_attention_backend)
+            if component_attention_backend == SPARSE_BACKEND:
+                # dw's own processor, not a diffusers backend - it never
+                # reaches set_attention_backend (#931)
+                if not install_sparse(component, tau, topk):
+                    emit_warning(
+                        f"{component_name}: attention_backend 'sparse' needs a "
+                        "MiniMax-H3 transformer; runs dense",
+                        component=component_name,
+                        attention_backend=SPARSE_BACKEND,
+                    )
+            else:
+                set_component_attention_backend(component, component_attention_backend)
 
         # Compile last - the graph must capture final dtypes, adapters,
         # quantization, and offload hooks
@@ -876,15 +905,43 @@ class _MagCalibrationHandler(logging.Handler):
             context = _active_cache_context_name(self.transformer)
         except (ValueError, SyntaxError):
             return
-        label = f" [{context}]" if context in ("cond", "uncond") else ""
-        text = (
-            f"MagCache calibration ({len(ratios)} steps){label}: "
-            f"{ratios} \u2014 paste into mag_ratios"
-        )
-        if context == "cond":
-            text += " (classifier-free guidance runs two lists; the cond one is the usual choice)"
-        emit_log(text)
-        emit_warning(text)
+        _report_mag_ratios(ratios, context)
+
+
+def _report_mag_ratios(ratios, context):
+    label = f" [{context}]" if context in ("cond", "uncond") else ""
+    text = (
+        f"MagCache calibration ({len(ratios)} steps){label}: "
+        f"{ratios} \u2014 paste into mag_ratios"
+    )
+    if context == "cond":
+        text += " (classifier-free guidance runs two lists; the cond one is the usual choice)"
+    emit_log(text)
+    emit_warning(text)
+
+
+def _report_unfinished_mag_calibration(transformer):
+    """Report the ratios a calibrating call left in its mag state (#927).
+
+    diffusers logs a calibration only when its step counter reaches the
+    config's num_inference_steps, and a scheduler can run fewer forwards than
+    that: MiniMax-H3's turns N sigmas into N - 1 evaluations. Such a call ends
+    with its ratios still in the state, which the call's reset then drops. A
+    call that did finish has nothing left here - diffusers clears the list
+    when it logs - so nothing is reported twice.
+    """
+    if not getattr(getattr(transformer, "_cache_config", None), "calibrate", False):
+        return
+    from diffusers.hooks.mag_cache import MagCacheBlockHook
+
+    for module in transformer.modules():
+        registry = getattr(module, "_diffusers_hook", None)
+        for hook in getattr(registry, "hooks", {}).values():
+            if isinstance(hook, MagCacheBlockHook) and hook.is_tail:
+                for name, state in hook.state_manager._state_cache.items():
+                    if state.calibration_ratios:
+                        _report_mag_ratios(list(state.calibration_ratios), name)
+                return
 
 
 @contextlib.contextmanager
@@ -964,6 +1021,8 @@ def stateful_cache_context(pipeline, segment=None):
     try:
         with transformer.cache_context(_CACHE_CONTEXT_NAME):
             yield
+        # Only a call that completed has ratios worth pasting
+        _report_unfinished_mag_calibration(transformer)
     finally:
         try:
             report_cache_stats(counter, segment)

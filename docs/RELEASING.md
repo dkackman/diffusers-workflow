@@ -7,12 +7,189 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+- A validate's `downloads_required` now also lists the Hugging Face repos
+  task steps fetch (`segment`, `remove_background`, `diffusion_upscale`,
+  `transcribe_audio`, `check_script`, `generate_speech`, `attribute_voices`,
+  `text_generation`, `image_to_text`, `judge`, the image processors; #977).
+  A bound `acknowledged_cost` taken from a validate made before this deploy
+  is answered 409 `downloads` after it when the workflow has one of these
+  tasks and its repo is not cached: re-validate and resend the new
+  `acknowledge`. The same holds for the tasks that fetch single files
+  (`upscale`, `restore_faces`, `remove_object`, `upscale_h3_latents`,
+  `crop_face_track`, `interpolate_frames`), and `restore_faces` also lists
+  facexlib's two weights as URL entries. A `downloads_required` entry gains
+  the optional `filename` and `revision` fields; the OpenAPI document and
+  the UI's types carry them.
+
+### 0.15.0
+
+<!-- Drafted from v0.14.0..develop (0c4ed5ea). Paste into the GitHub release body once the tag has published: gh release edit v0.15.0 --notes-file ... -->
+
+A release about speed for MiniMax H3 and a new image family. H3 now runs
+sparse attention by default, 2-4x faster per step than plain attention and
+6-20% faster than `sage_hub`, with no extra install and equal quality on
+Don's judging. FLUX 3 Image Klein joins the catalog with its own templates
+and skill. It also closes a remote-code hole in `speech_generation`.
+
+**Sparse attention for MiniMax H3** (#931, #932)
+
+- A new `attention_backend: "sparse"` runs H3's generated-video attention
+  through comfy-kitchen's Sol-Attn kernel. Text, references and audio stay
+  exact. It is the default on every H3 template, routed by top-k 0.15
+  (`sparse_topk`), with `sparse_tau` as the alternative routing.
+  - Against plain attention it is 2.2-4.4x faster per step on an RTX 3090.
+  - Against `sage_hub`, on the H3 quality-ramp rungs, it is 6-20% faster.
+    The L5 cinema final runs in 23.9-25.5 min, against 29.7 on sage.
+  - Don judged faces, skin and draft-to-final staging equal or better on
+    three seeds.
+- It needs CUDA with compute capability 8.0+. Anywhere else (mps, cpu, an
+  older card) H3 runs dense instead of failing. On mps and cpu
+  `validate_workflow` warns `sparse_attention_fallback`; on an older card
+  or a CUDA box missing the kernels, the run says why it went dense.
+- Sparse moves details against dense and sage (same shot, different set
+  dressing), so the `minimax-h3` skill's quality ramp keeps a draft and its
+  final on one backend. The ramp's TV and cinema paths now run sparse; the
+  sage B3 -> P1 pair stays as the fastest cached cinema final.
+- `/api/health` lists the attention backends the server can run, and the
+  web UI's `attention_backend` fields are dropdowns of that list.
+- A component that pins a backend keeps it under a pipeline-level
+  `sparse`, with a warning, and the run log names sparse's routing.
+- lightx2v's Turbo-SLA LoRA was evaluated and not adopted: top-k routing
+  gives the same result on the existing turbo LoRA (#932).
+
+**FLUX 3 Image Klein** (#930)
+
+- Templates for text-to-image, upsample-then-generate, image edit,
+  multi-reference and layout-with-boxes, plus the model entry and a
+  `flux3-klein` composition skill.
+- `text_generation` gains `chat_template_kwargs`, a `revision`, a list of
+  images, and a `system_prompt` read from a Hub repo file at a pinned
+  commit (anonymous, public files only, size-capped). Its `generate_kwargs`
+  are filtered, and `custom_generate` / `trust_remote_code` need trusted
+  workflows.
+
+**Security**
+
+- `speech_generation` passed a workflow's `generate_kwargs` and
+  `forward_params` to the model's `generate()` unfiltered, so an untrusted
+  workflow could set `custom_generate` / `trust_remote_code` and run code
+  from the Hub. Both are now refused unless workflows are trusted, before
+  the model loads. Every release through 0.14.0 is affected.
+
+**Dependencies and deploy**
+
+- New core dependency: `comfy-kitchen>=0.2.38,<0.3` (Apache-2.0). Linux and
+  Windows get the compiled CUDA/HIP kernels; macOS gets a pure-Python wheel
+  and runs H3 dense. `scripts/deploy.sh` reinstalls on the pyproject change.
+
 ### 0.14.0
 
-- Gallery files are tagged final or intermediate (inferred when a
-  workflow doesn't say) and the gallery opens on finals; runs, files,
-  assets and workspaces take an optional note (`note` on `run_workflow`,
-  MCP `set_note`).
+<!-- Drafted from v0.13.0..develop (7b72a7de). Paste into the GitHub release body once the tag has published: gh release edit v0.14.0 --notes-file ... -->
+
+A release about what a run is and what it will cost. Gallery files say
+whether they are a final or an intermediate, anything can carry a note, and
+runs copy between workspaces. The cost estimate scales with steps, canvas
+and frames instead of quoting a flat figure that was up to 12x off, and a
+queued job waits for host RAM rather than being OOM-killed.
+
+**Roles and notes** (#855-#858)
+
+- Gallery files are tagged final or intermediate (inferred when a workflow
+  doesn't say), and the gallery opens on finals. A run lists what it was
+  Made from.
+- A file a later run in the workspace read, through `output:` or an asset
+  kept from it, lists as intermediate, so a project's shots, narration and
+  score step aside once the cut that uses them exists. A step that sets
+  `result.role: "final"` stays final. The `script-to-video` and
+  `series-episodes` skills have ingredient workflows declare
+  `"role": "intermediate"` (#928).
+- Runs, files, assets and workspaces take an optional note: `note` on
+  `run_workflow`, `upload_asset` and `keep_output`, and MCP `set_note`.
+  Every listing carries notes; the web UI edits them in place as Markdown.
+- Starring a file keeps it. A rerun records the job it reran (`rerun_of`).
+- `copy_to_workspace` copies whole runs, with manifests, and asset-library
+  entries into another workspace (#853, #859, #860).
+
+**Cost and host RAM** (#866, #869, #881)
+
+- The estimate scales as steps x canvas x frames against the template's
+  defaults (`basis: "derived"`, `scaled` names the axes). Any other driver
+  that moves keeps the figure and sets `low_confidence`; H3 adds weights,
+  LoRA, attention and cache as drivers. On the H3 matrix it lands within
+  30% (B3->L5: 32.3 min quoted, 29.5 run), and an inline copy prices
+  within 2% of its template (#906-#908, #915, #916, #921).
+- A queued job is held at dispatch while its projected host-RAM peak won't
+  fit, and stays `queued` with `waiting_for` and a `queue_wait` event. It
+  is never held with nothing else running. On a 125 GB, 2x 3090 host a
+  second int8 H3 job waited ("needs ~87 GB, ~57 GB free") while two int4
+  jobs ran at once (#909, #910).
+- An OOM kill now takes the newest dispatch, not the earlier job (#881).
+
+**Timing and caches** (#867, #868, #905)
+
+- Manifest entries carry per-step timing (`first_pass_s`, `pass_s`) and
+  step-cache skip counts (`cache_stats`). A `first_pass_slow` warning names
+  a warm pipeline's slow first pass (#924: 202 s against 37 s/pass).
+- Validate warns on acceleration that can't pay off or won't run: a cache
+  on a short schedule or with no transformer to attach to, `fullgraph`
+  with a cache, a CUDA-only attention backend, and an unbraced type name
+  under a `*_dtype` key (#887, #904, #926).
+- The plan fingerprint and step cache key only on what changes the output,
+  so metadata edits and `12.0` vs `12` no longer miss the cache (#905,
+  #911).
+- Every H3 template exposes `attention_backend` and `cache` (#883, #884).
+  MagCache calibration now reports its ratios on H3 (#927); with them,
+  MagCache 0.06 ran the cinema final in 18.1 min, 39% under L5 (#875).
+
+**H3 quality ramp** (#861, #862, #882)
+
+- The `minimax-h3` skill has measured draft -> final rungs. TV: L1 (~5.4
+  min) -> L7 (~7.2 min), changing only `weights_dtype`. Cinema: B3 (~12.9
+  min) -> L5 (~29.5 min), changing only steps. Staging carries at the same
+  seed; the skill says what to approve at each tier.
+- A proven LoRA catalog entry decides which H3 step an adapter fits,
+  ahead of its filename (#870, #888).
+
+**Compare, sweeps and check-script** (#871, #872, #919-#925)
+
+- `compare_outputs` puts 2-4 outputs side by side with PSNR/SSIM; the web
+  UI's Compare page plays them in sync and lists the differing arguments.
+  The workspaces guide has a Running a sweep section.
+- check-script refuses a wrong shot name at validate, adds
+  `unscripted_speech` and `speech_not_transcribed`, and levels its input
+  so the verdict no longer depends on loudness.
+
+**Web UI**
+
+- A running-jobs chip, a tab title that tracks the running job, measured
+  run times on cards, drag-and-drop upload, and keyboard culling in the
+  gallery.
+
+**Fixes**
+
+- `cancel_download` stops queued files and shows `cancel_requested`
+  (#899); a model download records `refs/main`, so it reads complete.
+  `cancel_job` takes effect during a load (#892).
+- A kept asset keeps its lineage and its job survives the workspace's
+  deletion (#902, #913, #917, #918).
+- `get_gallery_metadata` measures an image, and `include_workflow=false`
+  omits the embedded workflow (#922).
+- An inline copy of a list-driven template is no longer quoted the
+  template's default-length price unscaled.
+- The host-RAM gate no longer under-projects a list-driven run whose peak
+  grows with the list.
+- Whole-module `compile: {fullgraph: true}` no longer fails at the first
+  denoise step after the timing hook.
+- FasterCache runs on FLUX.1-dev (#897); denoise time on mps is no longer
+  billed to decode (#896).
+- The gallery's sort no longer stalls each keystroke on a large library.
+
+**Dependencies and deploy**
+
+- No dependency floors changed.
+- `scripts/dw-serve.service` sets `OOMPolicy=continue`, so one worker's
+  OOM kill no longer stops the server. Reinstall the unit to pick it up.
+- The jobs history gains a `memory_key` column, migrated on start.
 
 ### 0.13.0
 

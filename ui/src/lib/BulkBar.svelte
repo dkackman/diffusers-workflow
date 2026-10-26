@@ -3,7 +3,8 @@
   // bar while anything is ticked, and the select-all button above the grid.
   // Shared by the gallery and the assets page, which run the same selection
   // (see picks.svelte.ts) and had two copies of this markup and its CSS.
-  import { Download, Trash2 } from '@lucide/svelte'
+  import { Columns2, Download, Trash2 } from '@lucide/svelte'
+  import { COMPARE_MAX } from './compare'
   import type { Picks } from './picks.svelte'
 
   let {
@@ -14,6 +15,7 @@
     noun,
     ondownload,
     ondelete,
+    oncompare,
   }: {
     picks: Picks
     /** How many the grid is showing - what "select all" would take. */
@@ -24,6 +26,8 @@
     noun: string
     ondownload: () => void
     ondelete: () => void
+    /** Only the gallery compares; without it no button shows. */
+    oncompare?: () => void
   } = $props()
 </script>
 
@@ -31,6 +35,19 @@
   <div class="picks panel" role="region" aria-label="selected {noun}s">
     <strong>{picks.size} selected</strong>
     <span class="flex"></span>
+    {#if oncompare}
+      <button
+        class="quiet icon"
+        onclick={oncompare}
+        disabled={busy || picks.size < 2 || picks.size > COMPARE_MAX}
+        title={picks.size > COMPARE_MAX
+          ? `compare up to ${COMPARE_MAX} at a time`
+          : 'compare the selected side by side'}
+        aria-label="compare the selected {noun}s side by side"
+      >
+        <Columns2 size={14} />
+      </button>
+    {/if}
     <button
       class="quiet icon"
       onclick={ondownload}

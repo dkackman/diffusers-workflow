@@ -66,6 +66,9 @@ def finished_job(manager):
     while job.status not in TERMINAL_STATES and time.time() < deadline:
         time.sleep(0.01)
     assert job.status == "succeeded", job.error
+    # The status turns terminal a moment before _finish records the row
+    while manager.history.get(job.id) is None and time.time() < deadline:
+        time.sleep(0.01)
     return job
 
 
@@ -142,6 +145,43 @@ def test_a_database_without_the_columns_is_migrated(tmp_path):
     history = JobHistory(path)
     row = history.get("old-1")
     assert row["run_id"] is None and row["run_dir"] is None
+
+
+def test_a_v0_13_0_database_gains_the_columns_added_since(tmp_path):
+    """A jobs.sqlite as v0.13.0 wrote it - every column through
+    device_card, none of note/memory_key/rerun_of/kept - opens, gains the
+    four, and keeps its card fields as they were."""
+    import sqlite3
+
+    path = str(tmp_path / "v0.13.0.sqlite")
+    with sqlite3.connect(path) as connection:
+        connection.execute(
+            "CREATE TABLE jobs (id TEXT PRIMARY KEY, workflow TEXT, status TEXT,"
+            " created_at REAL, started_at REAL, finished_at REAL, arguments TEXT,"
+            " spec TEXT, manifest TEXT, warnings TEXT, error TEXT, events TEXT,"
+            " workspace TEXT DEFAULT 'default', workflow_name TEXT, run_id TEXT,"
+            " run_dir TEXT, run_version INTEGER, acknowledged TEXT DEFAULT 'none',"
+            " host_memory_peak_rss_mb REAL, host_memory_job_peak_rss_mb REAL,"
+            " device TEXT, device_ordinal TEXT, device_card TEXT)"
+        )
+        connection.execute(
+            "INSERT INTO jobs (id, status, workspace, device, device_ordinal,"
+            " device_card) VALUES ('old-1', 'succeeded', 'w', 'cuda:1 Card',"
+            " 'cuda:1', 'Card')"
+        )
+
+    history = JobHistory(path)
+    with history._connect() as connection:
+        columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
+        kept = connection.execute("SELECT kept FROM jobs").fetchone()[0]
+    assert {"note", "memory_key", "rerun_of", "kept"} <= columns
+    assert kept == 0
+    row = history.get("old-1")
+    assert row["workspace"] == "w" and "note" not in row and "rerun_of" not in row
+    assert history.device_ordinal("old-1") == "cuda:1"
+    assert history.peaks_for_key("any") == []
+    # Opening it again finds nothing left to add
+    JobHistory(path)
 
 
 def _for_each_workflow(**overrides):
@@ -648,3 +688,48 @@ def test_run_location_is_the_jobs_own_root(manager, tmp_path):
     root, run_dir = manager.run_location("named")
     assert root == os.path.realpath(str(other))
     assert run_dir == RUN_DIR
+
+
+def test_history_keeps_the_roles_a_live_manifest_carries(tmp_path):
+    """#957: a finished job's manifest entries carry `role`, and history
+    reads them back even after the run directory is gone."""
+    run_dir = tmp_path / "outputs" / RUN_DIR
+    name = f"{RUN_DIR}/final/a.png"
+
+    def roled_script(command):
+        for message in tracked_script(command):
+            if message["type"] == "success":
+                (run_dir / "final").mkdir(parents=True)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "steps": [
+                                {"step": "s", "files": ["final/a.png"], "role": "final"}
+                            ]
+                        }
+                    )
+                )
+                message = {
+                    **message,
+                    "manifest": [
+                        {"step": "s", "files": [str(tmp_path / "outputs" / name)]}
+                    ],
+                }
+            yield message
+
+    made = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(roled_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = finished_job(made)
+        live = made.describe(job)["manifest"]
+        assert live[0]["role"] == "final"
+        import shutil
+
+        shutil.rmtree(run_dir)
+        assert made.history.get(job.id)["manifest"] == live
+    finally:
+        made.shutdown()

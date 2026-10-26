@@ -7,7 +7,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "vram_estimate": {
         "base_gb": 16.0,
@@ -41,7 +45,9 @@
         "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "seed": 12345,
-        "attention_backend": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
         "cache": null
     },
     "variable_constraints": {
@@ -132,6 +138,8 @@
                     "components": {
                         "transformer_ref": {
                             "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 1,

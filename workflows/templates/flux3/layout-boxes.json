@@ -1,0 +1,67 @@
+{
+    "id": "Flux3KleinLayoutBoxes",
+    "summary": "FLUX 3 Klein image placed by a caption with layout boxes (BFL's balloons example).",
+    "description": "FLUX 3 Image Klein text to image from a caption with layout boxes: the prose tags each element as <id>, and a JSON table gives every id a bbox as [top, left, bottom, right] on a 0 to 1000 grid plus a description. The caption here is BFL's own upsampled balloons example, used as written; upsampling boxes from a short request is not covered yet. Boxes are hints, not masks: a small boxed element may not appear, and elements can run past their box. The family rules for steps, guidance, size, placement and the license are in text-to-image.",
+    "cost_drivers": [
+        "width",
+        "height"
+    ],
+    "variables": {
+        "prompt": "prompt:flux3/balloons_layout",
+        "width": 1024,
+        "height": 1024,
+        "seed": 1
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a width not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        },
+        "height": {
+            "modulus": 16,
+            "remainder": 0,
+            "reason": "FLUX 3 Image Klein's pipeline refuses a height not divisible by 16 (the VAE's 8x compression times the 2x2 latent packing), and only after the weights have loaded, so it is checked here first"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "layout_to_image",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "load_components": {
+                        "dtype": "torch.bfloat16"
+                    },
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "device": "cuda"
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "black-forest-labs/flux-3-image-klein"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": 16,
+                    "output": "images"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

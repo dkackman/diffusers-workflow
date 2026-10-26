@@ -8,8 +8,9 @@ measurements), the `first_block` lever and the base-model prompt rules - read
 it, not restated here. What a multi-shot episode adds:
 
 - Wides as a 12-step draft, then a 30-step final; close-ups at 12 steps.
-  One int8 job at a time. A five-shot episode ran ~156 GPU-min with three
-  rejected drafts.
+  Submit the shots freely: the server holds a second int8 job for host RAM
+  (`waiting_for`). A five-shot episode ran ~156 GPU-min with three rejected
+  drafts.
 - Place every subject explicitly in every shot and name the set dressing, or
   the base model adds a person and each shot draws its own chair.
 - Four references at 1344x768 cap a shot at 124 frames: write tags to 124 or

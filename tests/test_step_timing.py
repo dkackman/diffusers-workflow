@@ -319,6 +319,63 @@ def test_the_denoise_hook_is_removed_when_forward_never_ran():
     assert not module._forward_pre_hooks
 
 
+def _compiled_linear(**options):
+    """A tiny Linear compiled in place the way `apply_compile` does it, or a
+    skip where torch.compile cannot run on this platform."""
+    module = torch.nn.Linear(2, 2)
+    try:
+        module.compile(**options)
+        module(torch.zeros(1, 2))
+    except Exception as error:  # pragma: no cover - platform dependent
+        pytest.skip(f"torch.compile is unavailable here: {error}")
+    return module
+
+
+def test_a_fullgraph_compiled_denoiser_runs_and_still_gets_the_start_mark():
+    # A forward pre-hook runs inside the compiled `_call_impl`, where its
+    # clock read is untraceable and fullgraph=True fails the first step
+    module = _compiled_linear(fullgraph=True)
+    original = module._compiled_call_impl
+    timer = StepTimer()
+
+    with timed_step(timer):
+        timer.call_started()
+        with denoise_start_hook(module):
+            module(torch.zeros(1, 2))
+            first = timer._segments[0].denoise_started
+            module(torch.zeros(1, 2))
+
+    assert first is not None
+    assert timer._segments[0].denoise_started == first
+    assert module._compiled_call_impl is original
+
+
+def test_a_compiled_denoiser_is_restored_when_forward_never_ran():
+    module = torch.nn.Linear(2, 2)
+    original = lambda *args, **kwargs: None  # noqa: E731
+    module._compiled_call_impl = original
+
+    with denoise_start_hook(module):
+        assert module._compiled_call_impl is not original
+
+    assert module._compiled_call_impl is original
+
+
+def test_repeated_blocks_compiled_keeps_the_pre_hook_on_the_eager_parent():
+    child = _compiled_linear(fullgraph=True)
+    parent = torch.nn.Sequential(child)
+    timer = StepTimer()
+
+    with timed_step(timer):
+        timer.call_started()
+        with denoise_start_hook(parent):
+            assert len(parent._forward_pre_hooks) == 1
+            parent(torch.zeros(1, 2))
+            assert not parent._forward_pre_hooks
+
+    assert timer._segments[0].denoise_started is not None
+
+
 def test_a_plain_module_is_not_compiled():
     assert is_compiled(torch.nn.Sequential(torch.nn.Linear(2, 2))) is False
 
@@ -534,3 +591,47 @@ def test_default_clock_does_not_sync_on_cpu(monkeypatch):
     monkeypatch.setattr(timing_module, "get_device_type", lambda: "cpu")
     monkeypatch.setattr(torch.mps, "synchronize", lambda: pytest.fail("synced on cpu"))
     StepTimer().load_started()
+
+
+def _passes(clock, timer, cached, first, steady):
+    timer.load_cached(cached)
+    marked(
+        clock,
+        timer,
+        (0.0, "call_started"),
+        (1.0, "denoise_started"),
+        (1.0 + first, "pass_ended"),
+        (1.0 + first + steady, "pass_ended"),
+        (1.0 + first + 2 * steady, "pass_ended"),
+        (2.0 + first + 2 * steady, "call_ended"),
+    )
+
+
+def test_a_cached_pipeline_whose_first_pass_dwarfs_the_rest_warns_once(monkeypatch):
+    """#924: 202 s then 37 s/pass on a loaded pipeline is said, not silent."""
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _passes(clock, timer, True, 202.0, 37.0)
+    assert len(warnings) == 1
+    assert warnings[0]["kind"] == "first_pass_slow"
+    assert warnings[0]["first_pass_s"] == 202.0
+    assert warnings[0]["pass_s"] == 37.0
+
+
+@pytest.mark.parametrize(
+    "cached, first, steady",
+    [(True, 29.0, 28.4), (True, 60.0, 37.0), (False, 202.0, 37.0)],
+)
+def test_no_warning_for_a_normal_first_pass_or_a_fresh_load(
+    monkeypatch, cached, first, steady
+):
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _passes(clock, timer, cached, first, steady)
+    assert warnings == []

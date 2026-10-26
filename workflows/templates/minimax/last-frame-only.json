@@ -6,7 +6,11 @@
         "num_frames",
         "num_inference_steps",
         "width",
-        "height"
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
     ],
     "variables": {
         "prompt": "How the reference pictures align with the target video - <Picture 1> (from [Shot 1]) aligns with the 5.17-second mark of the target video.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot from the first frame to the last. The video opens on a translucent blown glass figure held far back in a dark, softly graded field, small in frame and turned away from the lens, its tentacles trailing loosely behind it and only a thin cool rim light picking out their edges. The figure drifts steadily toward the lens through the whole clip, growing in the frame as it comes, and turns as it travels until it faces camera straight on. The tentacles gather in from their trailing spread and curl close to the body along the way, the rim light strengthening along every curve as the figure nears, and caustics begin to pool on the surface beneath it. The camera pushes in slowly to meet it. The clip ends on exactly the framing, pose and lighting of <Picture 1>, the figure centred and still.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum, the hum rising very slightly in level as the figure closes on the lens. The tentacle movement carries a fine, dry glass-on-glass squeak that grows more present as the figure nears, with an occasional soft chime as two limbs touch, and the last second settles into near silence.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, swelling steadily as the figure approaches and cutting to nothing on the final frame, with no discernible melody or pulse.",
@@ -26,7 +30,9 @@
         "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
         "lora_adapter_name": "turbo",
         "seed": null,
-        "attention_backend": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
         "cache": null
     },
     "variable_constraints": {
@@ -118,6 +124,8 @@
                     "components": {
                         "transformer": {
                             "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
                             "group_offload": {
                                 "offload_type": "block_level",
                                 "num_blocks_per_group": 2,

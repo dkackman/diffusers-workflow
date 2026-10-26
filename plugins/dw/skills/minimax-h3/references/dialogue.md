@@ -65,7 +65,11 @@ rule and none is worth prompt words yet:
   - `<pause>`, `<softer>`, `<breath>` and a bare `…` inside `<d>` were
     neither spoken nor turned into invented words (rows 6, 6b);
   - a negated noun ("There is no dog in the room") didn't render the
-    thing (row 10b).
+    thing (row 10b);
+  - leaving the words out of `<d>` when a track is held for lip sync
+    (WanGP's claim) is not needed: one person in frame, Ref2VA with the
+    track held, sung and spoken, moved the mouth at the same instants with
+    the words in `<d>` or not (`2026-10-h3-wangp-probes.md`, #985).
 - Not settled:
   - whether `<breath>` adds a beat: it may lengthen a pause H3 already takes
     at a sentence break, but it doesn't create one (row 6b);

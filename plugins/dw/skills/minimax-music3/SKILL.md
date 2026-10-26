@@ -18,21 +18,10 @@ shapes; do not author a new workflow until the shape decision below fails.
 2. `list_workflows(shape="audio")`, and `shape="sequence"` for the music video.
    Trust the names below only after the listing confirms them.
 3. `get_workflow` on the one chosen, for its variables and defaults.
-4. Before a long track or the music video - anything near the
-   card's ceiling - `get_memory` with the server idle and read a `live: true`
-   reading's `gpu_memory_allocated_mb`. Only a live reading is the worker's own
-   and only live readings compare: `info: null` means nothing
-   is resident, go ahead, while a `live: false` reading with a populated `info`
-   is cached from another moment - it reads low while a job is loading a model,
-   so ask again once idle rather than trusting it. A non-trivial
-   idle figure is what an earlier run left behind, coming off the ~22 GB
-   these templates need. With the server idle, `clear_memory` clears it
-   (refused while a job is queued or running) - it also drops the step cache,
-   so the next run, including a seeded rerun, is cold and regenerates. Re-read
-   `get_memory` afterwards to confirm. Don't retry into a failed attempt
-   without clearing first - a failed attempt is what leaves weight
-   resident, so an immediate retry starts from less than the attempt that
-   failed had.
+4. Before a long track or the music video - anything near the card's
+   ceiling, the ~22 GB these templates need - read `references/memory.md`:
+   which `get_memory` reading to trust, when `clear_memory` first, and why
+   never to retry into a failed attempt without it.
 
 ## Which shape is the request
 

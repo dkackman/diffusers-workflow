@@ -3,6 +3,7 @@
   import DownloadLink from '../DownloadLink.svelte'
   import JsonEditor from '../editor/JsonEditor.svelte'
   import VariablesForm from '../editor/VariablesForm.svelte'
+  import { attentionBackendVariables } from '../editor'
   import { api } from '../api'
   import { goWs, route } from '../router.svelte'
   import { leafOf } from '../grouping'
@@ -10,8 +11,10 @@
   import { workspace } from '../workspace.svelte'
   import { loadPromptLibrary } from '../promptlib.svelte'
   import { notify } from '../toast'
+  import { observedText, observedTitle } from '../observed'
   import { confirmDialog } from '../confirm.svelte'
   import type { GalleryFile, WorkflowDefinition } from '../types'
+  import ClampedText from '../ui/ClampedText.svelte'
 
   let { name }: { name: string } = $props()
 
@@ -34,6 +37,8 @@
    * catalog card shows, in the place where you decide whether to run it
    * again. */
   let proofs = $state<GalleryFile[]>([])
+  /** This server's own measured run time for the workflow, if it has one. */
+  let observed = $state<Record<string, unknown> | null>(null)
 
   $effect(() => {
     overrides = {}
@@ -49,6 +54,16 @@
         writable = fetched.writable
       })
       .catch((e) => (error = e.message))
+    observed = null
+    const wanted = name
+    api
+      .listWorkflows()
+      .then((r) => {
+        if (wanted !== name) return
+        observed =
+          (r.details?.[name]?.observed as Record<string, unknown>) ?? null
+      })
+      .catch(() => {})
   })
 
   $effect(() => {
@@ -161,6 +176,11 @@
   >
     <Copy size={14} />Duplicate
   </button>
+  {#if observedText(observed)}
+    <span class="num muted" title={observedTitle(observed) ?? ''}
+      >{observedText(observed)}</span
+    >
+  {/if}
   <button
     class="withicon run"
     onclick={run}
@@ -175,7 +195,9 @@
 
 {#if workflow}
   {#if workflow.description}
-    <p class="muted desc prose">{workflow.description}</p>
+    <div class="muted desc prose">
+      <ClampedText text={String(workflow.description)} />
+    </div>
   {/if}
 
   <!-- What it made last time, before you decide to make another -->
@@ -223,6 +245,7 @@
         variables={workflow.variables ?? {}}
         bind:overrides
         idPrefix="var-"
+        backendVariables={attentionBackendVariables(workflow)}
       />
     </div>
   {:else}

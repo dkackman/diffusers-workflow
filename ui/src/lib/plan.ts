@@ -61,19 +61,27 @@ export function describePlan(plan: Plan): PlanLine[] {
   return lines
 }
 
+/** The qualifiers every priced figure carries: the card it was measured
+ * on, what it was scaled along (#866: steps, canvas or frames moved off the
+ * defaults it was measured at), and the steps it leaves unpriced. */
+function qualifiers(estimate: Plan['estimate']) {
+  const { measured_on, partial, unpriced, scaled } = estimate
+  return {
+    card: measured_on ? `measured on ${measured_on}` : 'measured',
+    along: scaled ? ` (${scaled})` : '',
+    missing: partial ? `, plus unpriced: ${(unpriced ?? []).join(', ')}` : '',
+  }
+}
+
 function figure(plan: Plan): PlanLine {
-  const { minutes, basis, device, measured_on, partial, unpriced } =
-    plan.estimate
-  const card = measured_on ? `measured on ${measured_on}` : 'measured'
-  const missing = partial
-    ? `, plus unpriced: ${(unpriced ?? []).join(', ')}`
-    : ''
+  const { minutes, basis, device } = plan.estimate
   if (basis === 'unknown' || minutes === null) {
     return { text: 'no measured cost', tone: 'warn' }
   }
+  const { card, along, missing } = qualifiers(plan.estimate)
   if (basis === 'other_device') {
     return {
-      text: `no figure for ${device} - ${minutes} min was ${card}${missing}`,
+      text: `no figure for ${device} - ${minutes} min was ${card}${along}${missing}`,
       tone: 'warn',
     }
   }
@@ -81,16 +89,18 @@ function figure(plan: Plan): PlanLine {
     .map(([name, count]) => `${count} ${name}`)
     .join(', ')
   // `derived` is the stored total stretched over a list the caller
-  // resized - an estimate, so it is said to be one rather than quoted
+  // resized, or scaled along the drivers they moved - an estimate, so it is
+  // said to be one rather than quoted
   if (basis === 'derived') {
+    const target = forList ? ` for ${forList}` : ''
     return {
-      text: `~${minutes} min on ${device} - estimated for ${forList}, from a figure ${card}${missing}`,
+      text: `~${minutes} min on ${device} - estimated${target}${along}, from a figure ${card}${missing}`,
       tone: 'warn',
     }
   }
-  const scaled = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
+  const repriced = basis === 'per_entry' ? `re-priced for ${forList}, ` : ''
   return {
-    text: `~${minutes} min on ${device} - ${scaled}${card}${missing}`,
+    text: `~${minutes} min on ${device} - ${repriced}${card}${along}${missing}`,
     tone: 'plain',
   }
 }

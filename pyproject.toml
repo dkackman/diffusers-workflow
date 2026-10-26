@@ -8,7 +8,7 @@ name = "diffusers-workflow"
 # runtime (static in TOML because importing dw at build time would drag
 # torch into the build environment). Release tags must match it - see
 # docs/RELEASING.md
-version = "0.14.0-alpha.1"
+version = "0.16.0-alpha.1"
 description = "Declarative workflow engine and web UI for Hugging Face Diffusers"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -70,6 +70,10 @@ dependencies = [
     # without it that decoder falls back to a FlexAttention path diffusers' own
     # docstring calls larger than device memory at production grids
     "kernels>=0.17.2",
+    # Sol-Attn sparse attention for MiniMax H3's generated-video rows (#931);
+    # compiled CUDA/HIP kernels on Linux and Windows, an eager-only wheel elsewhere
+    # pre-1.0 kernel API; bump deliberately after a GPU smoke
+    "comfy-kitchen>=0.2.38,<0.3",
     # Upscaling and face restoration tasks
     "spandrel>=0.4.2",
     "facexlib>=0.3.0",
@@ -173,6 +177,7 @@ ignore = ["E501"]
 "tests/test_server_downloads.py" = ["F811"]
 "tests/test_server_exports.py" = ["F811"]
 "tests/test_server_jobs.py" = ["F811"]
+"tests/test_stars.py" = ["F811"]
 
 [tool.setuptools.packages.find]
 # tasks/, pipeline_processors/ and community_pipelines/ are namespace

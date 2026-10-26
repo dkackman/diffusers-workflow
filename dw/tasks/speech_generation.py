@@ -26,7 +26,9 @@ from ..dsp import as_channels_samples
 from ..media_types import AudioTrack
 from ..dsp import resample_waveform
 from .audio_utils import load_audio
+from ..trust import require_trusted_generate_arguments
 from .model_cache import cached_model, hf_pipeline_placement
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -44,6 +46,21 @@ _SPEAKER_ENCODER_MODEL = "speechbrain/spkrec-xvect-voxceleb"
 # What the encoder was trained on - resampling anything else to this rate is
 # part of extracting a voiceprint, not an approximation of one
 _SPEAKER_ENCODER_SAMPLE_RATE = 16000
+
+
+def model_source(arguments):
+    """The text-to-speech repo a generate_speech step loads."""
+    return argument_or_default(arguments, "model_name", _DEFAULT_MODEL)
+
+
+def required_weights(arguments):
+    """The speech model's repo, plus speechbrain's speaker encoder when the
+    step clones a voice from a `speaker_embedding` clip, for the plan
+    (dw/tasks/weights.py)."""
+    encoder = (
+        _SPEAKER_ENCODER_MODEL if (arguments or {}).get("speaker_embedding") else None
+    )
+    return repo_entries(model_source(arguments), encoder)
 
 
 def _speaker_embedding_tensor(location, device, dtype):
@@ -84,8 +101,49 @@ def _speaker_embedding_tensor(location, device, dtype):
     return embedding.squeeze().unsqueeze(0).to(device=device, dtype=dtype)
 
 
+def _check_messages(messages):
+    """Chat-templated input: a non-empty list of {role, content} string dicts."""
+    valid = isinstance(messages, list) and len(messages) > 0
+    if valid:
+        for message in messages:
+            if (
+                not isinstance(message, dict)
+                or not isinstance(message.get("role"), str)
+                or not isinstance(message.get("content"), str)
+            ):
+                valid = False
+                break
+    if not valid:
+        raise ValueError(
+            "generate_speech's 'messages' needs a non-empty list of "
+            "{'role': ..., 'content': ...} dicts, both strings - a bare "
+            "string or a wrong-keyed dict is not chat-templated input"
+        )
+
+
+def _generation_settings(value, name):
+    """A workflow's forward_params or generate_kwargs: an object, with the
+    Hub-code arguments refused unless workflows are trusted."""
+    if not value:
+        return {}
+    if not isinstance(value, dict):
+        raise ValueError(
+            f"generate_speech: {name} must be an object of settings, got "
+            f"{type(value).__name__}"
+        )
+    require_trusted_generate_arguments(value, f"speech_generation ({name})")
+    return value
+
+
 def generate_speech(text=None, device="cpu", seed=None, **kwargs):
-    """Speak a line of text with a local text-to-speech model.
+    """Speak a line of text with a local text-to-speech model - any
+    transformers text-to-speech checkpoint named by model_name. Three
+    families are wired for their voice controls: Bark (suno/bark-small, the
+    default; distinct speakers by voice_preset), MMS/VITS
+    (facebook/mms-tts-eng and the other per-language mms-tts-* checkpoints;
+    one voice, small and fast; a multi-speaker VITS takes speaker_id through
+    forward_params) and SpeechT5 (microsoft/speecht5_tts; speaks in the
+    voice of a reference clip given as speaker_embedding).
 
     Args:
         text: The line to speak. Mutually exclusive with messages - exactly
@@ -141,25 +199,19 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
             "such as VibeVoice"
         )
     if messages is not None:
-        valid = isinstance(messages, list) and len(messages) > 0
-        if valid:
-            for message in messages:
-                if (
-                    not isinstance(message, dict)
-                    or not isinstance(message.get("role"), str)
-                    or not isinstance(message.get("content"), str)
-                ):
-                    valid = False
-                    break
-        if not valid:
-            raise ValueError(
-                "generate_speech's 'messages' needs a non-empty list of "
-                "{'role': ..., 'content': ...} dicts, both strings - a bare "
-                "string or a wrong-keyed dict is not chat-templated input"
-            )
+        _check_messages(messages)
     text_inputs = messages if messages is not None else text
+    # Both reach model.generate() for a generative model, where
+    # custom_generate / trust_remote_code download and run Hub code: refused
+    # for an untrusted workflow before anything loads, as text_generation does
+    forward_params = _generation_settings(
+        kwargs.get("forward_params"), "forward_params"
+    )
+    generate_kwargs = _generation_settings(
+        kwargs.get("generate_kwargs"), "generate_kwargs"
+    )
 
-    model_name = kwargs.get("model_name", _DEFAULT_MODEL)
+    model_name = model_source(kwargs)
     voice_preset = kwargs.get("voice_preset", None)
     speaker_embedding = kwargs.get("speaker_embedding", None)
     dtype = preferred_task_dtype(device)
@@ -187,7 +239,6 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
             "preset, or use a model with speaker presets such as suno/bark-small"
         )
 
-    forward_params = kwargs.get("forward_params") or {}
     if speaker_embedding:
         model_type = getattr(getattr(pipe.model, "config", None), "model_type", None)
         if model_type != "speecht5":
@@ -216,7 +267,7 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
         text_inputs,
         preprocess_params={"voice_preset": voice_preset} if voice_preset else {},
         forward_params=forward_params,
-        generate_kwargs=kwargs.get("generate_kwargs") or {},
+        generate_kwargs=generate_kwargs,
     )
 
     sample_rate = output.get("sampling_rate")

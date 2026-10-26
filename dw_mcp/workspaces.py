@@ -63,8 +63,9 @@ def _switch(client, name):
 def list_workspaces(client, detail=False):
     """The workspaces on the server, and which one this session is using.
 
-    Compact by default - each entry cut to `name`, `default` and `usage`
-    (files/bytes) - because a server that has accumulated dozens of
+    Compact by default - each entry cut to `name`, `default`, `usage`
+    (files/bytes) and its `note` (clipped, `note_truncated` when cut) -
+    because a server that has accumulated dozens of
     workspaces across episodes and regression runs answers in the tens of
     KB otherwise for a question that is usually "which workspaces exist and
     how big are they" (#249). Pass `detail=True` for each entry's full
@@ -84,8 +85,8 @@ def list_workspaces(client, detail=False):
                     if isinstance(entry, dict)
                 ],
                 "note": (
-                    "Compact: each entry is name/default/usage only. Call "
-                    "list_workspaces(detail=True) for full folder paths."
+                    "Compact: each entry is name/default/usage and any note. "
+                    "Call list_workspaces(detail=True) for full folder paths."
                 ),
             }
     return {**result, "current": client.workspace}

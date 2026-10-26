@@ -1,6 +1,7 @@
 <script lang="ts">
   import Suggest from '../ui/Suggest.svelte'
   import { editorLists } from '../editorLists.svelte'
+  import { attentionBackends } from '../attentionBackends.svelte'
   import { Boxes, Layers, Timer, Zap } from '@lucide/svelte'
   import ArgumentsEditor from './ArgumentsEditor.svelte'
   import ComponentEditor from './ComponentEditor.svelte'
@@ -10,6 +11,7 @@
     CACHE_TYPES,
     COMPONENT_SLOTS,
     classDescription,
+    isReference,
     emptyComponent,
     setNumber,
   } from '../editor'
@@ -243,16 +245,39 @@
     </div>
 
     <label for={'attn-' + index}>attention backend</label>
-    <Suggest
-      id={'attn-' + index}
-      suggestions={ATTENTION_BACKENDS}
-      value={configuration.attention_backend ?? ''}
-      placeholder="pipeline default"
-      onchange={(v) => {
-        if (v) configuration.attention_backend = v
-        else delete configuration.attention_backend
-      }}
-    />
+    {#if attentionBackends.list.length && typeof (configuration.attention_backend ?? '') === 'string' && !isReference(configuration.attention_backend)}
+      {@const current = configuration.attention_backend ?? ''}
+      <select
+        id={'attn-' + index}
+        value={current}
+        onchange={(e) => {
+          if (e.currentTarget.value)
+            configuration.attention_backend = e.currentTarget.value
+          else delete configuration.attention_backend
+        }}
+      >
+        <option value="">pipeline default</option>
+        {#if current && !attentionBackends.list.includes(current)}
+          <option value={current}
+            >{current} (not available on this server)</option
+          >
+        {/if}
+        {#each attentionBackends.list as backend (backend)}
+          <option value={backend}>{backend}</option>
+        {/each}
+      </select>
+    {:else}
+      <Suggest
+        id={'attn-' + index}
+        suggestions={ATTENTION_BACKENDS}
+        value={configuration.attention_backend ?? ''}
+        placeholder="pipeline default"
+        onchange={(v) => {
+          if (v) configuration.attention_backend = v
+          else delete configuration.attention_backend
+        }}
+      />
+    {/if}
 
     <label for={'pw-' + index}>prompt weighting</label>
     <input

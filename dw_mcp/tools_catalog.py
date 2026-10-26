@@ -272,7 +272,7 @@ class CatalogTools:
         carries `folder` (the workflow), `subfolder` (the step's chosen
         subfolder, '' for none; `subfolder=` filters on it) and `role`:
         `final` is a deliverable, `intermediate` a file a later step
-        consumed, null with no run. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
+        or run consumed, null if unknown. `role=` filters. Each entry's `url` is workspace-scoped; use it as given.
 
         Entries carry `run_id` and `version`, the run's stable ordinal
         (the web UI's `v5`) - quote it to a person. `folder=` plus
@@ -282,8 +282,8 @@ class CatalogTools:
         only bookkeeping (manifest.json, workflow.json, job.json) as
         `runs`, each `{name, mtime}` - output deleted, or a run that failed
         before writing anything; `name` is what `delete_output` accepts.
-        A run that wrote any file is not listed. `subfolder` does not
-        apply. Whether an entry is junk is yours to decide.
+        A run that wrote a file is not listed. `subfolder` is
+        ignored. Whether an entry is junk is yours to decide.
 
         `workspace` scopes one call without switching the session.
 
@@ -307,6 +307,7 @@ class CatalogTools:
         envelope: bool = False,
         workspace: str | None = None,
         interval_seconds: float | None = None,
+        include_workflow: bool = True,
     ) -> dict:
         """Get the metadata embedded in a generated file: the exact
         workflow, arguments and seed that produced it, so a result can be
@@ -314,8 +315,9 @@ class CatalogTools:
         and video `metadata` is null and `next` names
         `get_job_workflow(job_id)` when known. `media` carries duration,
         sample rate, channels, fps, size and level - how an agent that
-        cannot listen checks a deliverable; `media.shots` places a joined
-        video's shots.
+        cannot listen checks a deliverable, or an image's measured
+        `width`/`height`; `media.shots` places a joined video's shots.
+        `include_workflow=false` omits the large embedded workflow.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a
         track something is: a shot's last frame, a seam's hole, where a
@@ -339,6 +341,7 @@ class CatalogTools:
             envelope=envelope,
             workspace=workspace,
             interval_seconds=interval_seconds,
+            include_workflow=include_workflow,
         )
 
     def list_guides(

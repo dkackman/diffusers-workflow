@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..assets import (
     activate_asset_dir,
@@ -27,7 +27,7 @@ from ..assets import (
 )
 from .. import get_device_type, references, validation
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import build_plan
+from ..plan import build_plan, list_entries
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -39,7 +39,8 @@ from ..validation import WARNING, run_checks, to_warnings
 from ..variables import argument_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .deps import ceiling_index, server_prompt_library
+from .host_ram_need import projected_peak
+from .deps import ceiling_index, lora_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
 
@@ -83,6 +84,10 @@ class Admission:
     # What a card must hold to run it, (gb, hard) or None - the worker pool
     # dispatches on it (dw/vram_estimate.py required_vram_gb, #462)
     vram_need: Optional[tuple] = None
+    # The host RAM it is projected to hold at its peak, (mb, basis, runs) or
+    # None for no figure (dw/server/host_ram_need.py, #869). Set by
+    # admit_for, which has the server's history; nothing dispatches on it yet
+    host_ram_need: Optional[tuple] = None
 
     @property
     def ok(self):
@@ -114,6 +119,7 @@ def admit(
     plan_for=None,
     capacity_gb=None,
     capacity_label=None,
+    lora_index=None,
 ):
     """Load the request's workflow once and check it once, with the
     workspace's asset library active for every check (the validate route
@@ -125,7 +131,8 @@ def admit(
 
     `asset_library` and `prompt_library` are the `LibraryPath`s the workspace's
     'asset:' and 'prompt:' references resolve over; `ceiling_index` is the
-    catalog's VRAM ceilings for inherited_vram_warnings.
+    catalog's VRAM ceilings for inherited_vram_warnings; `lora_index` the
+    LoRA catalog's partitions for the adapter checks (`deps.lora_index`).
 
     One ValidationContext serves the whole request: the error pass and the
     warning pass (`validation.WARNING_CHECKS`) read one expansion and one
@@ -177,6 +184,7 @@ def admit(
                 candidate,
                 checked,
                 ceiling_index=ceiling_index,
+                lora_index=lora_index,
                 capacity_gb=capacity_gb,
                 capacity_label=capacity_label,
             )
@@ -185,6 +193,18 @@ def admit(
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
         if admission.errors:
+            # Every error comes back at once (#976): the caller's own bad
+            # arguments (an unknown name) are reported beside the
+            # document's errors, not only after they are fixed
+            try:
+                known = {(e.get("path"), e.get("message")) for e in admission.errors}
+                admission.errors += [
+                    e
+                    for e in argument_errors(candidate.workflow_definition, arguments)
+                    if (e.get("path"), e.get("message")) not in known
+                ]
+            except Exception:
+                logger.debug("argument_errors skipped beside a failed document")
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
             admission.schema_errors = True
@@ -364,6 +384,32 @@ class AcknowledgedCost(BaseModel):
         description="The repos in plan.downloads_required that were acknowledged",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _from_plan(cls, value):
+        # The plan validate answered with, passed as-is (#975): its
+        # downloads_required and estimate.minutes are what was quoted. Only
+        # when `downloads` is absent - an explicit list, even an empty one,
+        # is what the caller acknowledged
+        if (
+            not isinstance(value, dict)
+            or "downloads" in value
+            or not isinstance(value.get("downloads_required"), list)
+        ):
+            return value
+        bound = {
+            **value,
+            "downloads": [
+                entry.get("repo")
+                for entry in value["downloads_required"]
+                if isinstance(entry, dict)
+            ],
+        }
+        estimate = value.get("estimate")
+        if "minutes" not in value and isinstance(estimate, dict):
+            bound["minutes"] = estimate.get("minutes")
+        return bound
+
     @field_validator("downloads", mode="after")
     @classmethod
     def _drop_unnamed(cls, downloads):
@@ -428,20 +474,63 @@ def pool_capacity(state):
     return manager.largest_ceiling()
 
 
-def admit_for(state, workspace, **request):
+def admit_for(
+    state, workspace, *, catalog_name=None, history_workspace=None, **request
+):
     """`admit()` with this server's view of `workspace` - the asset and
     prompt search paths and the catalog's VRAM ceilings, which live on the
-    app's state rather than in the request."""
+    app's state rather than in the request - and, for an admitted request,
+    its projected host-RAM peak from this server's history.
+
+    `catalog_name` and `history_workspace` say whose runs the fit reads, as
+    `ObservedCosts.rows_for` takes them; None for an inline definition."""
     capacity_gb, capacity_label = pool_capacity(state)
-    return admit(
+    admission = admit(
         workspace=workspace,
         ceiling_index=ceiling_index(state, workspace),
+        lora_index=lora_index(state),
         capacity_gb=capacity_gb,
         capacity_label=capacity_label,
         asset_library=resolution_library(state, workspace),
         prompt_library=server_prompt_library(state),
         **request,
     )
+    if admission.ok:
+        admission.host_ram_need = _host_ram_need(
+            state, admission, catalog_name, history_workspace
+        )
+    return admission
+
+
+def _host_ram_need(state, admission, catalog_name, history_workspace):
+    """projected_peak for an admitted request - best effort: a projection
+    that fails leaves no figure rather than refusing a request admission
+    took."""
+    try:
+        manager = getattr(state, "job_manager", None)
+        history = getattr(manager, "history", None)
+        costs = getattr(state, "observed_costs", None)
+        rows = (
+            costs.rows_for(catalog_name, workspace=history_workspace)
+            if costs is not None and catalog_name
+            else []
+        )
+        candidate = admission.workflow
+        definition = candidate.workflow_definition
+        entries = list_entries(
+            definition,
+            {"variables": candidate.folded_variables(admission.arguments)},
+        )
+        return projected_peak(
+            definition,
+            admission.arguments,
+            history,
+            rows=rows,
+            list_entries=entries,
+        )
+    except Exception:
+        logger.debug("Could not project the job's host-RAM peak", exc_info=True)
+        return None
 
 
 def acknowledgement_form(value):

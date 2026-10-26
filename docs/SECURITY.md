@@ -120,6 +120,32 @@ diffusers' remote-code paths open. No bundled catalog entry sets either
 (`tests/test_catalog_structure.py` refuses one that does); a workflow that
 needs them needs `--trust-workflows`.
 
+`text_generation`'s `generate_kwargs` reach the model's `generate()`, which
+has a remote-code path of its own: `custom_generate` names a Hub repo whose
+`custom_generate/generate.py` transformers downloads and runs, and
+`trust_remote_code` lets it. Both are refused untrusted
+(`require_trusted_generate_arguments` in `dw/trust.py`), before the model
+loads. Its other keys must be scalars or lists of them, and none may be one of
+the pipeline call's own arguments - the same filter `chat_template_kwargs`
+gets, so neither can pass `tokenizer_encode_kwargs`, `images` or a template
+of its own around the task's checks.
+
+`speech_generation` has the same path twice: the text-to-audio pipeline hands
+both its `generate_kwargs` and its `forward_params` to `generate()` for a
+generative model (Bark, VibeVoice). Each must be an object, and
+`custom_generate` / `trust_remote_code` in either are refused untrusted, before
+the model loads (released versions through 0.14.0 passed them through).
+
+`text_generation`'s `system_prompt` may be read from a Hub repo file
+(`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
+without credentials (`token=False`) whether it serves the file publicly at the
+pinned 40-hex commit before every use, and the download carries no token
+either, so the server's own login never reaches a gated or private file on a
+workflow's say-so. It fails closed - any error from that ask, being offline,
+or `HF_HUB_OFFLINE` refuses the run rather than fall back to the cache - and
+it is capped at 1 MiB, checked against the Hub's reported size before the
+download (no reported size is a refusal) and against the file after it.
+
 ### Where a workflow may read and reach (`dw/locations.py`)
 
 Code execution is not the only thing a workflow file chooses. Its arguments

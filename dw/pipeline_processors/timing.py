@@ -3,7 +3,8 @@
 A `StepTimer` is opened around one step by the step loop
 (`dw/workflow_run.py`) and fed marks from wherever they happen: the load
 around `create_step_action`, the pipeline call in `Pipeline._call_pipeline`,
-the first denoiser forward (a self-removing pre-forward hook) or the opening
+the first denoiser call (a self-removing pre-forward hook, or a wrapper
+around a whole-compiled denoiser's compiled call) or the opening
 of a modular pipeline's denoise bar (`progress.py`), each step callback or bar
 advance, and the result save. Its `timing()` is the dict a step's manifest
 entry carries as `timing`.
@@ -37,6 +38,10 @@ from .config_objects import _MAG_CACHE_KEYS, _TAYLORSEER_CACHE_KEYS
 logger = logging.getLogger("dw")
 
 _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
+
+# A first pass this much slower than a steady one, on a loaded pipeline, is
+# worth a warning (#924)
+_SLOW_FIRST_PASS_EXTRA_S = 30.0
 
 
 def _synced_clock():
@@ -137,6 +142,39 @@ class StepTimer:
         segment = self._current_segment()
         if segment is not None:
             segment.pass_ends.append(self._clock())
+            self._warn_on_slow_first_pass(segment)
+
+    def _warn_on_slow_first_pass(self, segment):
+        """Say so once when a cached pipeline's first pass dwarfs the steady one.
+
+        The pipeline is loaded, so the minutes are not a load. A later entry
+        that runs the cached pipeline at a larger shape (more frames) pays a
+        one-off warm-up on its first pass - re-allocation, offload buffers,
+        kernels meeting a new shape - and without a word the consumer sees only
+        a `phase_stall` (#924). Judged at the second pass interval, when a
+        steady pass is known."""
+        passes = segment.pass_ends
+        if (
+            len(passes) != 3
+            or self._load_cached is not True
+            or segment.denoise_started is None
+        ):
+            return
+        first = passes[0] - segment.denoise_started
+        steady = passes[2] - passes[1]
+        if first - steady < _SLOW_FIRST_PASS_EXTRA_S or first < steady * 3:
+            return
+        emit_warning(
+            f"First denoise pass took {first:.0f}s against {steady:.0f}s for "
+            "the passes after it, with the pipeline already loaded: a one-off "
+            "warm-up (typically a cached pipeline meeting a larger shape than "
+            "it last ran, such as more frames). Later passes run at the "
+            "steady rate.",
+            kind="first_pass_slow",
+            first_pass_s=round(first, 1),
+            pass_s=round(steady, 1),
+            step=self.step,
+        )
 
     def call_ended(self):
         segment = self._current_segment()
@@ -250,12 +288,45 @@ def is_compiled(module):
 
 @contextlib.contextmanager
 def denoise_start_hook(module):
-    """Mark denoise start at the first forward of `module`, then remove the
-    hook: one clock read, so a compiled denoiser sees it once and never
-    again. Removed on the way out too, for a call that never reached it."""
+    """Mark denoise start at the first call of `module`, then stop marking:
+    one clock read, so a compiled denoiser sees it once and never again.
+    Undone on the way out too, for a call that never reached it.
+
+    Where the mark is taken depends on how the denoiser is compiled. Eager, or
+    compiled by its repeated blocks, it is a self-removing forward pre-hook on
+    the denoiser, which runs eagerly. Compiled whole (`compile` without
+    `repeated_blocks`, which `module.compile()` does by setting
+    `_compiled_call_impl`), a pre-hook would run inside the compiled
+    `_call_impl`: Dynamo cannot trace the clock read (`time.monotonic`, the
+    device sync), so `fullgraph: true` fails the first denoise step and a
+    non-fullgraph compile breaks its graph there. So a whole-compiled
+    denoiser has its `_compiled_call_impl` wrapped instead, for this call
+    only: the wrapper marks before handing over to the compiled callable, so
+    the mark is outside the compiled region and is the same instant a
+    pre-hook would have stamped, and `first_pass_s` and the slow-first-pass
+    warning (#924) read the same in both cases."""
     if module is None or not hasattr(module, "register_forward_pre_hook"):
         yield
         return
+
+    compiled_call = getattr(module, "_compiled_call_impl", None)
+    if compiled_call is not None:
+        marked = False
+
+        def first_call(*args, **kwargs):
+            nonlocal marked
+            if not marked:
+                marked = True
+                mark("denoise_started")
+            return compiled_call(*args, **kwargs)
+
+        module._compiled_call_impl = first_call
+        try:
+            yield
+        finally:
+            module._compiled_call_impl = compiled_call
+        return
+
     handle = None
 
     def first_forward(_module, _inputs):

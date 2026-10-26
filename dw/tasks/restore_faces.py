@@ -12,8 +12,45 @@ import torch
 from PIL import Image
 
 from .model_cache import cached_model
+from .upscale import required_weights as spandrel_weights, spandrel_source
+from .weights import package_dir
 
 logger = logging.getLogger("dw")
+
+
+# The weights facexlib's FaceRestoreHelper fetches itself, into its own
+# package's weights dir rather than the Hub cache (det_model
+# "retinaface_resnet50"; ParseNet only with use_parse)
+FACEXLIB_DETECTION_URL = "https://github.com/xinntao/facexlib/releases/download/v0.1.0/detection_Resnet50_Final.pth"
+FACEXLIB_PARSING_URL = (
+    "https://github.com/xinntao/facexlib/releases/download/v0.2.2/parsing_parsenet.pth"
+)
+
+
+def uses_parse(arguments):
+    """Whether the helper loads ParseNet - `use_parse`, default True."""
+    return (arguments or {}).get("use_parse", True)
+
+
+def facexlib_weights(use_parse):
+    """`{"url"}` for each facexlib weight not yet in facexlib's weights dir
+    (`<package>/weights`, facexlib's default `model_rootpath`), found without
+    importing facexlib. Not installed, every weight is listed: over-warning,
+    never under."""
+    package = package_dir("facexlib")
+    weights = package / "weights" if package else None
+    urls = [FACEXLIB_DETECTION_URL] + ([FACEXLIB_PARSING_URL] if use_parse else [])
+    return [
+        {"url": url}
+        for url in urls
+        if weights is None or not (weights / url.rsplit("/", 1)[1]).is_file()
+    ]
+
+
+def required_weights(arguments):
+    """The spandrel face model (as `upscale` declares it) and the facexlib
+    weights not yet fetched, for the plan (dw/tasks/weights.py)."""
+    return spandrel_weights(arguments) + facexlib_weights(uses_parse(arguments))
 
 
 def restore_faces(image, model_name, device="cpu", **kwargs):
@@ -45,10 +82,10 @@ def restore_faces(image, model_name, device="cpu", **kwargs):
 
     from .upscale import resolve_model_path
 
-    filename = kwargs.get("filename", None)
+    model_name, filename = spandrel_source({**kwargs, "model_name": model_name})
     upscale_factor = kwargs.get("upscale_factor", 1)
     face_size = kwargs.get("face_size", 512)
-    use_parse = kwargs.get("use_parse", True)
+    use_parse = uses_parse(kwargs)
     only_center_face = kwargs.get("only_center_face", False)
     detection_resize = kwargs.get("detection_resize", 640)
     eye_dist_threshold = kwargs.get("eye_dist_threshold", 5)

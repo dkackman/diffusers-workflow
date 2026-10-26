@@ -166,11 +166,13 @@ def list_assets(
     because that URL would serve the file that shadows it.
 
     Compact by default - each `assets`/`shadowed` entry cut to
-    `name`/`reference`/`kind`/`size`/`origin` - because a library that has
+    `name`/`reference`/`kind`/`size`/`origin` and its `note` (clipped,
+    `note_truncated` when cut) - because a library that has
     accumulated months of episode and regression assets answers in the tens
     of KB otherwise for a question that is usually "what's available and
     under what name" (#249). Pass `detail=True` for each entry's `folder`,
-    `mtime` and `url` too.
+    `mtime`, `url` and `writable` too, and `absolute_url`/`used_by` when
+    set.
 
     Newest first and bounded to `limit` (default 50; None for all), filtered
     server-side by `prefix` (a name or folder start such as 'cast/'), so the
@@ -208,8 +210,9 @@ def list_assets(
         if isinstance(shadowed, list)
         else shadowed,
         "note": (
-            "Compact: each entry is name/reference/kind/size/origin only. "
-            "Call list_assets(detail=True) for folder, mtime and url too."
+            "Compact: each entry is name/reference/kind/size/origin and any "
+            "note. Call list_assets(detail=True) for folder, mtime, url and "
+            "writable too."
         ),
     }
 

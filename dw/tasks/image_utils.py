@@ -174,14 +174,17 @@ def image_to_canny(image, low_threshold=100, high_threshold=200):
     return Image.fromarray(image)
 
 
+_DEPTH_MODEL = "Intel/dpt-hybrid-midas"
+_SEGMENTATION_MODEL = "openmmlab/upernet-convnext-small"
+_SAM_REPO = "ybelkada/segment-anything"
+
+
 def image_to_depth(image, device, height=1024, width=1024):
     from transformers import DPTForDepthEstimation, DPTImageProcessor
 
     size = (width, height)
-    depth_estimator = DPTForDepthEstimation.from_pretrained(
-        "Intel/dpt-hybrid-midas"
-    ).to(device)
-    feature_extractor = DPTImageProcessor.from_pretrained("Intel/dpt-hybrid-midas")
+    depth_estimator = DPTForDepthEstimation.from_pretrained(_DEPTH_MODEL).to(device)
+    feature_extractor = DPTImageProcessor.from_pretrained(_DEPTH_MODEL)
 
     image = feature_extractor(images=image, return_tensors="pt").pixel_values.to(device)
     # MPS doesn't support autocast, so use 'cpu' for autocast when on MPS
@@ -216,11 +219,9 @@ def image_to_segmentation(image):
     """Semantic segmentation map from the UperNet ConvNeXt model, colored by class."""
     from transformers import AutoImageProcessor, UperNetForSemanticSegmentation
 
-    image_processor = AutoImageProcessor.from_pretrained(
-        "openmmlab/upernet-convnext-small"
-    )
+    image_processor = AutoImageProcessor.from_pretrained(_SEGMENTATION_MODEL)
     image_segmentor = UperNetForSemanticSegmentation.from_pretrained(
-        "openmmlab/upernet-convnext-small"
+        _SEGMENTATION_MODEL
     )
     pixel_values = image_processor(image, return_tensors="pt").pixel_values
     with torch.no_grad():
@@ -554,7 +555,7 @@ for _name, (
 # the pre-refactor behavior, which called it straight off from_pretrained().
 _PROCESSORS["sam"] = _make_pretrained_handler(
     "SamDetector",
-    ("ybelkada/segment-anything",),
+    (_SAM_REPO,),
     {"subfolder": "checkpoints"},
     {},
     to_device=False,
@@ -566,6 +567,33 @@ for _name, _attr in _ZERO_ARG_DETECTOR_SPECS.items():
 _PROCESSORS["dw_pose"] = _dw_pose_handler
 
 del _name, _attr, _repo_args, _repo_kwargs, _call_kwargs
+
+
+def required_weights(processor, arguments):
+    """The repos an image processor step loads, for the plan
+    (dw/tasks/weights.py). Unlike a registered command's hook it takes the
+    processor name too, since one table serves every processor; one that loads
+    nothing from the Hub (or, like zoe_depth and dw_pose, fetches outside the
+    Hugging Face cache) gives none."""
+    from .weights import repo_entries
+
+    if processor in _PRETRAINED_DETECTOR_SPECS:
+        return repo_entries(_PRETRAINED_DETECTOR_SPECS[processor][1][0])
+    if processor == "sam":
+        return repo_entries(_SAM_REPO)
+    if processor == "depth":
+        return repo_entries(_DEPTH_MODEL)
+    if processor == "segmentation":
+        return repo_entries(_SEGMENTATION_MODEL)
+    if processor == "remove_background":
+        from .background_remover import required_weights as background_weights
+
+        return background_weights(arguments)
+    if processor in ("depth_estimator", "depth_estimator_tensor"):
+        from .depth_estimator import required_weights as depth_weights
+
+        return depth_weights(arguments)
+    return []
 
 
 def available_processors():

@@ -557,6 +557,31 @@ def test_job_workflow_returns_an_inline_definition(server):
         assert historical["definition"] == valid_workflow()
 
 
+def test_job_workflow_of_a_deleted_workspace_folds_the_arguments(server):
+    """#944: a job id still resolves once its workspace is deleted - the
+    definition comes back unrealized with the recorded arguments folded in."""
+    workflow = valid_workflow("fold")
+    workflow["variables"] = {**workflow.get("variables", {}), "n": 1, "label": "x"}
+    with server(success_script) as client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"n": "30", "label": "coerced"}},
+        )
+        assert response.status_code == 201, response.json()
+        job = response.json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.forget_workspace(manager.get(job["id"]).spec["workspace"])
+        manager.jobs.pop(job["id"], None)
+
+        assert client.get(f"/api/jobs/{job['id']}").status_code == 200
+        body = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert body["realized"] is False
+        variables = body["definition"]["variables"]
+        assert (variables["n"], variables["label"]) == (30, "coerced")
+        assert "n, label" in body["note"] or "label, n" in body["note"]
+
+
 def test_job_workflow_reads_back_a_job_launched_from_a_file(server):
     """A job submitted by path names no definition - the file it ran is
     re-read from the root the job was confined to."""
@@ -1616,6 +1641,41 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
         assert read_embedded_metadata(str(outputs / "meta.jpg"))["step_name"] == "gen"
 
 
+def test_gallery_metadata_measures_an_image_and_can_omit_the_workflow(server, tmp_path):
+    """#922: an image's `media` was null, so its size was only in the
+    arguments the pipeline was asked for; `include_workflow=false` drops
+    the embedded definition."""
+    from PIL import Image
+    from dw.writers import embed_image_metadata
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        metadata = {"step_name": "gen", "workflow": valid_workflow("from_image")}
+        embed_image_metadata(
+            Image.new("RGB", (6, 4)),
+            str(outputs / "m.0-0.0.jpg"),
+            "image/jpeg",
+            metadata,
+        )
+        full = client.get("/api/gallery/m.0-0.0.jpg/metadata").json()
+        assert full["media"] == {
+            "kind": "image",
+            "width": 6,
+            "height": 4,
+            "mode": "RGB",
+        }
+        assert full["findings"] == []
+        assert full["metadata"]["workflow"]["id"] == "from_image"
+
+        lean = client.get(
+            "/api/gallery/m.0-0.0.jpg/metadata?include_workflow=false"
+        ).json()
+        assert "workflow" not in lean["metadata"]
+        assert lean["metadata"]["workflow_omitted"] is True
+        assert lean["metadata"]["step_name"] == "gen"
+        assert lean["media"]["width"] == 6
+
+
 def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
     """A generated mp3 answered metadata: null and nothing else, so every
     duration and level check was ffprobe by hand. The route now says what
@@ -1640,7 +1700,12 @@ def test_gallery_metadata_describes_audio_and_video(server, tmp_path):
         assert shot["media"]["frame_count"] == 12
 
         still = client.get("/api/gallery/still-gen.0-0.0.png/metadata").json()
-        assert still["media"] is None
+        assert still["media"] == {
+            "kind": "image",
+            "width": 4,
+            "height": 4,
+            "mode": "RGB",
+        }
 
 
 def test_gallery_metadata_accepts_an_output_reference(server, tmp_path):
@@ -6068,7 +6133,12 @@ def test_gallery_metadata_reads_an_asset_reference(asset_server, tmp_path):
         # an image asset carries no media block, the same as an image output
         still = client.get("/api/gallery/asset:still.png/metadata").json()
         assert still["source"] == "asset"
-        assert still["media"] is None
+        assert still["media"] == {
+            "kind": "image",
+            "width": 4,
+            "height": 4,
+            "mode": "RGB",
+        }
 
         # and an output is unchanged - it still says where it came from
         write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)

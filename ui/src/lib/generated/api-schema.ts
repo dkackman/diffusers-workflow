@@ -341,8 +341,11 @@ export interface paths {
          *     stays proportional to the page size rather than the library size.
          *
          *     Each entry carries `role`, `final` or `intermediate` (null for a
-         *     flat-layout file or one no manifest lists). `role` is a repeatable
-         *     filter; a null role counts as final. Omitted, every file is listed.
+         *     flat-layout file or one no manifest lists); a file a later run read
+         *     lists as intermediate unless its step declared it final
+         *     (dw/roles.py rule 4). A run that recorded no role takes the role its
+         *     file's subfolder names, then rule 4; with neither it is null. `role`
+         *     is a repeatable filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
         put?: never;
@@ -615,6 +618,12 @@ export interface paths {
          *     refused (422) with the interval that fits; the default width is
          *     never refused for length (#823).
          *
+         *     An image's `media` is its measured `{kind, width, height, mode}`,
+         *     read from the file header (#922) - not the width/height arguments
+         *     the pipeline was asked for. `include_workflow=false` drops the
+         *     embedded `metadata.workflow` (the whole definition, often 20 KB) and
+         *     leaves the rest of `metadata` with `workflow_omitted: true`.
+         *
          *     `name` may also be an 'asset:' reference, and then it is the input
          *     asset of that name that is described rather than an output (#127).
          *     The numbers here - duration, frame count, fps, sample rate - are
@@ -631,7 +640,7 @@ export interface paths {
          *     back the same way it reads a kept file's shots (#556). `run_id`/
          *     `version` are that source run's own - `job.id` is still the one to
          *     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
-         *     of its own to reopen.
+         *     of its own to reopen. `inputs` is the source run's too (#902).
          */
         get: operations["gallery_metadata_api_gallery__name__metadata_get"];
         put?: never;
@@ -1399,6 +1408,29 @@ export interface paths {
          */
         get: operations["server_info_api_server_get"];
         put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/api/stars": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        /**
+         * Put Star
+         * @description Star or unstar one output file - the "keep" mark a person culls a run
+         *     with. It lives in the run's notes.json beside the notes, so it is
+         *     resolved exactly as a file note is, and only a file in a run directory
+         *     can carry one.
+         */
+        put: operations["put_star_api_stars_put"];
         post?: never;
         delete?: never;
         options?: never;
@@ -2334,7 +2366,7 @@ export interface components {
             note?: string;
             /**
              * Role
-             * @description `final` for a deliverable, `intermediate` for a file a later step consumed; null under the flat layout or when no manifest lists the file.
+             * @description `final` for a deliverable, `intermediate` for a file a later step or run consumed; null under the flat layout or when no manifest lists the file.
              */
             role?: ("final" | "intermediate") | null;
             /**
@@ -2344,6 +2376,11 @@ export interface components {
             run_id: string;
             /** Size */
             size: number;
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /**
              * Subfolder
              * @description What followed the run id in the file's path - the `final` / `intermediate` a step's `result.subfolder` chose, `''` for none.
@@ -2399,7 +2436,7 @@ export interface components {
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
-             * @description The probe of an audio or video file; null for an image.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.
              */
             media: {
                 [key: string]: unknown;
@@ -2441,6 +2478,11 @@ export interface components {
              * @enum {string}
              */
             source: "output" | "asset";
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /** Version */
             version: number | null;
         };
@@ -2451,6 +2493,11 @@ export interface components {
         };
         /** HealthInfo */
         HealthInfo: {
+            /**
+             * Attention Backends
+             * @description Attention backends this server's device can run, for the UI's dropdown; 'sparse' only where comfy-kitchen's compiled kernels loaded
+             */
+            attention_backends?: string[];
             /**
              * Current Job
              * @description The longest-running job; `workers` names every running one.
@@ -2550,6 +2597,11 @@ export interface components {
              * @description Index in the waiting queue; only while queued.
              */
             queue_position?: number;
+            /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
             /** Run Dir */
             run_dir: string | null;
             /**
@@ -2571,6 +2623,11 @@ export interface components {
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
             /** Traceback */
             traceback: string | null;
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /** Warnings */
             warnings: string[];
             /**
@@ -2758,6 +2815,11 @@ export interface components {
              */
             queue_position?: number;
             /**
+             * Rerun Of
+             * @description The job this one reran; absent for a job submitted fresh.
+             */
+            rerun_of?: string;
+            /**
              * Run Id
              * @description The run this job opened - null until it opens one, and for a job recorded before runs were tracked.
              */
@@ -2774,6 +2836,11 @@ export interface components {
              * @enum {string}
              */
             status: "queued" | "running" | "succeeded" | "failed" | "cancelled";
+            /**
+             * Waiting For
+             * @description Why dispatch is holding this queued job though a card is free - 'waiting for host RAM: needs ~N GB, ~M GB free'; only while queued and held. It starts when a running job frees the RAM.
+             */
+            waiting_for?: string;
             /**
              * Workflow
              * @description Null only on a row recorded before the workflow was stored.
@@ -3223,6 +3290,8 @@ export interface components {
             estimate: components["schemas"]["PlanEstimate"];
             /** Fingerprint */
             fingerprint: string;
+            /** @description The host RAM this run is projected to hold at its peak, from this machine's own history (#869); absent when there is no figure. */
+            host_memory?: components["schemas"]["PlanHostMemory"];
             /** List Entries */
             list_entries: {
                 [key: string]: number;
@@ -3247,7 +3316,7 @@ export interface components {
             device: string;
             /**
              * Differs
-             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does.
+             * @description With basis `inherited`: what this workflow sets differently from `inherited_from` among offload, quantization and frame count; empty when nothing does. Otherwise: the cost drivers with no rule to scale by that moved off the default the figure was measured at, with `low_confidence` true.
              */
             differs?: string[];
             /**
@@ -3274,7 +3343,7 @@ export interface components {
             runs: number | null;
             /**
              * Scaled
-             * @description With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
+             * @description With basis `derived` (or `other_device`, or a tempered `observed`): what the curated figure was scaled along - steps, canvas or frames moved off the variable defaults it was measured at (#866). With basis `inherited`: why the template's minutes were re-priced linearly (more pipeline steps or frames than the template run measured) - an approximation, with `low_confidence` true.
              */
             scaled?: string;
             /** Tempered */
@@ -3285,10 +3354,34 @@ export interface components {
              */
             unpriced: string[];
             /**
+             * Unpriced Reason
+             * @description With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).
+             */
+            unpriced_reason?: string;
+            /**
              * Withheld
              * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
              */
             withheld?: string;
+        };
+        /** PlanHostMemory */
+        PlanHostMemory: {
+            /**
+             * Basis
+             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.
+             * @enum {string}
+             */
+            basis: "observed" | "fit";
+            /**
+             * Projected Mb
+             * @description The host RAM, in MB, this run is projected to hold at its peak.
+             */
+            projected_mb: number;
+            /**
+             * Runs
+             * @description How many runs the figure is read from.
+             */
+            runs: number;
         };
         /** PromptCard */
         PromptCard: {
@@ -3350,6 +3443,11 @@ export interface components {
             /** Access Blocked */
             access_blocked: boolean | null;
             /**
+             * Filename
+             * @description A single weight file within `repo`, for a task that fetches one file rather than the whole repo.
+             */
+            filename?: string;
+            /**
              * Gated
              * @description The hub's own `gated` field: false, or how access is granted.
              */
@@ -3358,6 +3456,11 @@ export interface components {
             gb: number | null;
             /** Repo */
             repo: string | null;
+            /**
+             * Revision
+             * @description The commit the file is read at; null means main.
+             */
+            revision?: string | null;
             /**
              * Url
              * @description A from_single_file URL, which has no repo.
@@ -3506,6 +3609,23 @@ export interface components {
              * @enum {string}
              */
             shadowed_by: "workspace" | "common" | "examples" | "builtin";
+        };
+        /** StarRequest */
+        StarRequest: {
+            /**
+             * Name
+             * @description A gallery file name
+             */
+            name: string;
+            /** Starred */
+            starred: boolean;
+        };
+        /** StarSet */
+        StarSet: {
+            /** Name */
+            name: string;
+            /** Starred */
+            starred: boolean;
         };
         /**
          * StepTiming
@@ -4659,6 +4779,7 @@ export interface operations {
             query?: {
                 envelope?: boolean;
                 interval_seconds?: number;
+                include_workflow?: boolean;
                 workspace?: string | null;
             };
             header?: never;
@@ -5860,6 +5981,41 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ServerInfo"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+        };
+    };
+    put_star_api_stars_put: {
+        parameters: {
+            query?: {
+                workspace?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StarRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["StarSet"];
                 };
             };
             /** @description Validation Error */

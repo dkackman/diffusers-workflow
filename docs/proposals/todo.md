@@ -37,6 +37,41 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 quality ramp: draft -> final tiers** (#862, stage #882), shipped
+  2026-10-15. A `## Ramp` section in the `minimax-h3` skill's
+  `references/quality-and-speed.md`, not a new skill: TV L1 -> L7, cinema
+  B3 -> L5/P1, ship a close-up draft, with the arguments per rung, what
+  carries (with #861's seed counts), what to approve per tier, how to judge
+  and how to quote cost. Record, including what was deferred (MagCache M2
+  as the cinema-final cache, a top-level skill once a second family has a
+  ladder): `complete/h3-quality-ramp-complete.md`.
+- **Dispatch holds a queued job for host RAM** (#869, stages #909-#910),
+  shipped 2026-10-15. A job waits `queued`, with a `queue_wait` event and a
+  live `waiting_for`, while its projected peak (the max observed for its
+  memory key, else the list fit) won't fit beside the running jobs. It is
+  never refused, and never held alone. Record, including what was deferred
+  (a validate "would wait" prediction, frame count in the key):
+  `complete/host-ram-dispatch-gate-complete.md`.
+- **`plan.estimate` scales the curated figure** (#866, stages #905-#908),
+  shipped 2026-10-15. A move of `num_inference_steps`, `width`/`height` or
+  `num_frames` off the defaults now scales the catalog or inherited figure
+  in proportion (`basis: "derived"`, `scaled` names the axes) instead of
+  quoting `unknown` or the flat figure. Any other declared driver (H3
+  weights, LoRA, attention, cache) keeps the figure with `low_confidence`
+  and `differs`. The fingerprint and step cache are keyed only by what
+  changes the output. Record, including what was cut (compile as a driver,
+  the learned fixed + per-pass fit) and follow-ups #911 and #912:
+  `complete/estimate-scaling-complete.md`.
+
+- **H3 adapter check reads the LoRA catalog first** (#870, stage #888),
+  shipped 2026-10-14. On the server, validate and admission look up the
+  LoRA in the shared catalog: a `proven` entry whose `workflow` puts it on
+  the other partition refuses the step (Realism People on `ref2va`), a
+  `trial`/`rejected` one only warns, naming the entry; uncatalogued files
+  keep the filename rule. Record, including what was cut (reading the
+  safetensors header, any Hub request from validation):
+  `complete/catalog-adapter-check-complete.md`.
+
 - **Running a sweep: a written method, not a server feature** (#872, stage
   #890), shipped 2026-10-14. `## Running a sweep` in `docs/WORKSPACES.md`
   (`get_guide("workspaces", section="Running a sweep")`) writes down the
@@ -294,6 +329,37 @@ remaining deferred fix is recorded in
   two-shot and lip-syncs the right singer; a last frame doesn't help. One
   `minimax-h3` skill line; no template, since `music-video` takes the
   recipe with arguments. Record: `complete/h3-keyframe-audio-complete.md`.
+- **A `stacked_vocals` warning from `separate_stems`** (#947, stage #955),
+  shipped 2026-10-19. A stereo check on the vocals stem names the spans
+  that hold layered voices (a Music 3 chorus). Record, including what was
+  deferred (the voice/pitch conversion task, structured spans, the check in
+  `attribute_voices`): `complete/stacked-vocals-warning-complete.md`.
+- **`remove_object`, prompt-free LaMa object removal** (#956, stages
+  #973-#974), shipped 2026-10-22. A task that fills a white-means-fill mask
+  from the surrounding image, with no prompt and fp32 on any device, using
+  pinned `big-lama.safetensors` loaded through spandrel. It comes with the
+  `remove-object` and `segment-and-remove` templates and an
+  erase-versus-repaint routing rule. `segment` now keeps SAM2's best-rated
+  mask. Record, including what was deferred (temporal video removal,
+  per-frame masks, a larger model for big regions, #975's download
+  warning): `complete/remove-object-complete.md`.
+- **Task weights in `plan.downloads_required`** (#975, stages #977-#978),
+  shipped 2026-10-23. Each model-backed task declares
+  `required_weights(arguments)`. Its loader reads the same resolution, and
+  the plan lists those repos, plus single files at their pinned revision
+  and facexlib's URLs, so a bound acknowledgement covers them. Record,
+  including what was deferred (fetchers outside the HF cache, pinned-file
+  `download_model`, `gated` on file entries):
+  `complete/task-weights-downloads-complete.md`.
+- **H3 rules from WanGP's field notes** (#985, stages #988-#989), shipped
+  2026-10-25. Probed on lem at int8 + turbo: FL2VA with `hold_audio` keeps
+  the first frame's pixels and lip-syncs, so it is now the skill's
+  locked-frame route (Ref2VA keyframe completion the fallback); leaving
+  words out of `<d>` under a held track was refuted. The `h3` enhancer
+  writes `<d>` blocks again. Record, including what was dropped (tail-frame
+  discard: dw chains have no per-window end image) and deferred (keyframe
+  strength, not reachable from a workflow):
+  `complete/h3-wangp-field-notes-complete.md`.
 
 ## Declined
 

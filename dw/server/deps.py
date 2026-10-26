@@ -13,14 +13,20 @@ from typing import Optional
 from fastapi import HTTPException, Request
 
 from .. import references
+from ..adapter_compatibility import catalog_index
+from ..lora_catalog import entry_errors
 from ..realize import strings_with_prefix
 from ..security import SecurityError, validate_asset_reference
 from ..vram_inheritance import (
     build_index,
     inherited_differences,
     pipeline_frames,
+    pipeline_steps,
+    pipeline_values,
+    sets_differently,
     template_identity,
 )
+from ..cost_scaling import FRAMES_DRIVER, STEPS_DRIVER, scale_curated
 from .observed_cost import declared_drivers
 from ..library import ASSETS_KIND, LORAS_KIND, PROMPTS_KIND, library_path
 from ..workspace import (
@@ -178,6 +184,60 @@ def ceiling_index(state, ws):
     return index
 
 
+def catalog_entries(state):
+    """(entries, roots, library): every valid entry on the search path by
+    name, the root each came from, and the path. An unreadable or invalid
+    file is logged and skipped - one bad file must not hide the catalog."""
+    library = server_lora_library(state).existing()
+    winners, _hidden = library.entries()
+    entries, roots = {}, {}
+    for name, root in winners.items():
+        path = library.path_in(root, name)
+        if path is None:
+            continue
+        try:
+            with open(path, "r") as file:
+                entry = json.load(file)
+        except (OSError, ValueError) as error:
+            logger.warning(f"Skipping unreadable LoRA entry {name}: {error}")
+            continue
+        problem = entry_errors(entry) if isinstance(entry, dict) else "not an object"
+        if problem:
+            logger.warning(f"Skipping invalid LoRA entry {name}: {problem}")
+            continue
+        entries[name] = entry
+        roots[name] = root
+    return entries, roots, library
+
+
+def lora_index(state):
+    """The LoRA catalog's partitions by file (`adapter_compatibility.
+    catalog_index`), for the adapter checks: one catalog every workspace
+    shares, so one index (#870).
+
+    Built once per distinct listing and kept on the app
+    (`state.lora_indexes`), as `ceiling_index` is: an edited, added or
+    removed entry rebuilds it and nothing else does."""
+    library = server_lora_library(state).existing()
+    listing = []
+    for name, root in library.entries()[0].items():
+        path = library.path_in(root, name)
+        if path is None:
+            continue
+        try:
+            listing.append((name, path, os.path.getmtime(path)))
+        except OSError:
+            continue
+    signature = tuple(listing)
+    cached = getattr(state, "lora_indexes", None)
+    if cached and cached[0] == signature:
+        return cached[1]
+    entries, _roots, _library = catalog_entries(state)
+    index = catalog_index(entries)
+    state.lora_indexes = (signature, index)
+    return index
+
+
 def asset_users(state, ws):
     """Which of this workspace's own workflows name each asset: `{asset name:
     [workflow name, ...]}`, over the writable libraries of its search path -
@@ -208,42 +268,84 @@ def asset_users(state, ws):
     return users
 
 
-def _pipeline_steps(definition):
-    return sum(
-        1
-        for step in definition.get("steps") or []
-        if isinstance(step, dict) and isinstance(step.get("pipeline"), dict)
-    )
+def _canvases(definition, arguments=None):
+    """Each pipeline step's `(width, height)`, as `pipeline_values` reads
+    them, None for a step that does not set both as numbers."""
+    widths = pipeline_values(definition, "width", arguments)
+    heights = pipeline_values(definition, "height", arguments)
+    return [(w, h) if w and h else None for w, h in zip(widths, heights)]
+
+
+def _means(keys, values):
+    """{key: the mean over `values`}: one key per value, or a canvas's
+    `("width", "height")` over its `(width, height)` pairs."""
+    if len(keys) == 1:
+        values = [(value,) for value in values]
+    return {
+        key: sum(value[index] for value in values) / len(values)
+        for index, key in enumerate(keys)
+    }
 
 
 def _scale_past_template(definition, template, drivers, arguments):
     """How the workflow's size compares to the template run the bucket was
-    measured on (#821, #851): (factor, reason). The factor is the ratio of
-    pipeline steps times the ratio of mean frames per step - linear, as
-    `derived` re-prices a list of another length - and the reason names
+    measured on (#821, #851, #866): (factor, reason). The factor is the
+    ratio of pipeline steps times what `scale_curated` makes of the mean
+    frames, inference steps and canvas per pipeline step - one rule, so the
+    catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
     size; (None, reason) when its size cannot be compared."""
-    steps, template_steps = _pipeline_steps(definition), _pipeline_steps(template)
     # The template as the bucket's drivers set it
     bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
+    # Counted with for_each expanded, so a list longer than the one the
+    # bucket ran (a fallback to the template's default bucket) re-prices by
+    # its member count
+    steps = len(pipeline_steps(definition, arguments))
+    template_steps = len(pipeline_steps(bucket))
+    if not steps or not template_steps:
+        return None, "its pipeline step count cannot be compared"
     factor, reasons = 1.0, []
     if steps != template_steps:
         factor *= steps / template_steps
         reasons.append(
             f"runs the pipeline in {steps} steps, template measured {template_steps}"
         )
-    # `pipeline_frames` takes the template's variables as the bucket sets them
-    mine = [f for f in pipeline_frames(definition, arguments) if f]
-    theirs = [f for f in pipeline_frames(bucket) if f]
-    if mine and theirs:
-        mean_mine, mean_theirs = sum(mine) / len(mine), sum(theirs) / len(theirs)
-        if mean_mine != mean_theirs:
-            factor *= mean_mine / mean_theirs
-            reasons.append(
-                f"frame count {_number(mean_mine)} vs {_number(mean_theirs)} per step"
-            )
-    elif "frame count" in inherited_differences(definition, bucket, arguments):
-        return None, "frame count differs and cannot be compared"
+    # Each axis read per pipeline step, the template's variables as the
+    # bucket sets them, and averaged for `scale_curated`; a step that does
+    # not set it as a number is left out
+    measured, effective = {}, {}
+    for label, keys, mine, theirs in (
+        (
+            "frame count",
+            (FRAMES_DRIVER,),
+            pipeline_frames(definition, arguments),
+            pipeline_frames(bucket),
+        ),
+        (
+            "inference steps",
+            (STEPS_DRIVER,),
+            pipeline_values(definition, STEPS_DRIVER, arguments),
+            pipeline_values(bucket, STEPS_DRIVER),
+        ),
+        (
+            "canvas",
+            ("width", "height"),
+            _canvases(definition, arguments),
+            _canvases(bucket),
+        ),
+    ):
+        mine = [value for value in mine if value]
+        theirs = [value for value in theirs if value]
+        if mine and theirs:
+            effective.update(_means(keys, mine))
+            measured.update(_means(keys, theirs))
+        elif any(sets_differently(definition, bucket, key, arguments) for key in keys):
+            return None, f"{label} differs and cannot be compared"
+    scaled = scale_curated(factor, measured, effective)
+    if scaled is None:
+        return None, "its size is not a positive number"
+    factor, axes = scaled
+    reasons.extend(axes)
     return factor, "; ".join(reasons) or None
 
 

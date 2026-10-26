@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { Bookmark, FolderOpen, Trash2, X } from '@lucide/svelte'
+  import { Bookmark, FolderOpen, Star, Trash2, X } from '@lucide/svelte'
   import DownloadLink from '../DownloadLink.svelte'
   import { api } from '../api'
   import { goWs } from '../router.svelte'
@@ -29,6 +29,8 @@
     runNote = null,
     noteSource = null,
     onnotesaved,
+    starred = false,
+    onstar,
     onremove,
     onclose,
   }: {
@@ -46,6 +48,9 @@
     noteSource?: 'file' | 'run' | null
     /** A note changed, so the page can refetch what it shows */
     onnotesaved?: (kind: 'run' | 'file') => void | Promise<void>
+    /** Whether the file is starred, and the toggle */
+    starred?: boolean
+    onstar?: () => void
     onremove: () => void
     onclose: () => void
   } = $props()
@@ -198,6 +203,14 @@
       >{formatBytes(file.size)} · {formatMtime(file.mtime)}</span
     >
     <DownloadLink href={api.outputDownloadUrl(file.name)} />
+    <button
+      class="quiet icon"
+      onclick={onstar}
+      aria-pressed={starred}
+      aria-label={starred ? 'unstar this file' : 'star this file'}
+      title={starred ? 'starred - press S to unstar' : 'star to keep - press S'}
+      ><Star size={14} fill={starred ? 'currentColor' : 'none'} /></button
+    >
     <button
       class="quiet icon danger"
       onclick={onremove}

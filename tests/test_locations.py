@@ -865,3 +865,85 @@ class TestFaceTrackAndFitArguments:
     ):
         definition = self._step(command, key, {"mode": "crop"})
         assert location_errors(definition, base_dir=workflow_dir) == []
+
+
+class TestOwnOutputHint:
+    """#951: a bare manifest file name is refused with `output:` as the fix."""
+
+    def test_bare_name_of_an_own_output_names_the_output_reference(
+        self, untrusted, workflow_dir
+    ):
+        from dw import runs
+
+        with tempfile.TemporaryDirectory() as outputs:
+            sub = os.path.join(outputs, "wf", "run")
+            os.makedirs(sub)
+            _image(os.path.join(sub, "a.png"))
+            token = runs.activate_output_root(outputs)
+            try:
+                with pytest.raises(PathTraversalError) as refusal:
+                    validate_media_path("wf/run/a.png", None, "an image argument")
+            finally:
+                runs.deactivate_output_root(token)
+        assert "output:wf/run/a.png" in str(refusal.value)
+
+    def test_validate_refuses_a_bare_own_output_name_with_the_hint(
+        self, untrusted, workflow_dir
+    ):
+        """The tester's repro: check-script's input_audio given a manifest
+        file name without its prefix fails validation, not the run."""
+        import shutil
+
+        from dw import runs
+        from dw.workflow import workflow_from_file
+
+        template = os.path.join(workflow_dir, "check-script.json")
+        shutil.copy(
+            os.path.join(
+                os.path.dirname(__file__),
+                "..",
+                "workflows",
+                "templates",
+                "check-script.json",
+            ),
+            template,
+        )
+        with tempfile.TemporaryDirectory() as outputs:
+            sub = os.path.join(outputs, "cut", "run", "final")
+            os.makedirs(sub)
+            with open(os.path.join(sub, "episode.mp4"), "wb") as f:
+                f.write(b"\0")
+            token = runs.activate_output_root(outputs)
+            try:
+                workflow = workflow_from_file(template, outputs)
+                bare = workflow.validation_errors(
+                    {"input_audio": "cut/run/final/episode.mp4", "lines": ["x"]}
+                )
+                prefixed = workflow.validation_errors(
+                    {
+                        "input_audio": "output:cut/run/final/episode.mp4",
+                        "lines": ["x"],
+                    }
+                )
+            finally:
+                runs.deactivate_output_root(token)
+        messages = [e["message"] for e in bare if e["path"].endswith(".audio")]
+        assert messages, bare
+        assert "'output:cut/run/final/episode.mp4'" in messages[0]
+        assert not [e for e in prefixed if e["path"].endswith(".audio")], prefixed
+
+    def test_validate_keeps_a_bare_name_beside_the_workflow(
+        self, untrusted, workflow_dir
+    ):
+        _image(os.path.join(workflow_dir, "a.png"))
+        definition = {"steps": [{"name": "s", "arguments": {"image": "a.png"}}]}
+        assert location_errors(definition, None, workflow_dir) == []
+
+    def test_validate_refuses_a_bare_name_that_resolves_nowhere(
+        self, untrusted, workflow_dir
+    ):
+        definition = {"steps": [{"name": "s", "arguments": {"image": "no-such.png"}}]}
+        errors = location_errors(definition, None, workflow_dir)
+        assert len(errors) == 1, errors
+        assert "no file by that name is beside the workflow" in errors[0]["message"]
+        assert "output:" not in errors[0]["message"]
