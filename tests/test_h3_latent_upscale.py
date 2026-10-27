@@ -95,21 +95,35 @@ class TestTargetLatentSizeRefusals:
         with pytest.raises(ValueError, match="height"):
             target_latent_size(latents, width=960, height=550)
 
-    def test_over_the_canvas_long_edge(self):
+    def test_over_the_cap_long_edge(self):
         latents = h3_latents()
-        with pytest.raises(ValueError, match="canvas"):
+        with pytest.raises(ValueError, match="1920x1088"):
             target_latent_size(latents, width=4000, height=768)
 
-    def test_over_the_canvas_short_edge(self):
+    def test_over_the_cap_width_by_one_step(self):
         latents = h3_latents()
-        with pytest.raises(ValueError, match="canvas"):
-            target_latent_size(latents, width=1344, height=800)
+        with pytest.raises(ValueError, match="1920x1088"):
+            target_latent_size(latents, width=1952, height=1088)
 
-    def test_portrait_canvas_is_accepted(self):
+    def test_over_the_cap_height_by_one_step(self):
+        latents = h3_latents()
+        with pytest.raises(ValueError, match="1920x1088"):
+            target_latent_size(latents, width=1920, height=1120)
+
+    def test_the_cap_itself_is_accepted(self):
+        latents = h3_latents()
+        size, _ = target_latent_size(latents, width=1920, height=1088)
+        assert size == (5, 1088 // 16, 1920 // 16)
+
+    def test_portrait_cap_is_accepted(self):
         latents = h3_latents(height=60, width=34)
-        # 768x1344 portrait is within the canvas (short edge <= 768, long <= 1344)
-        size, _ = target_latent_size(latents, width=768, height=1344)
-        assert size == (5, 1344 // 16, 768 // 16)
+        size, _ = target_latent_size(latents, width=1088, height=1920)
+        assert size == (5, 1920 // 16, 1088 // 16)
+
+    def test_portrait_over_the_cap_is_refused(self):
+        latents = h3_latents(height=60, width=34)
+        with pytest.raises(ValueError, match="1920x1088"):
+            target_latent_size(latents, width=1120, height=1920)
 
     def test_downscale_is_refused(self):
         # 34x60 latents (544x960) downscaled to 528x944 - just under 1x on both axes

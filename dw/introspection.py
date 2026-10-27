@@ -368,6 +368,7 @@ def _modular_block_parameters(cls):
 
     from .pipeline_processors.h3_guides import insert_guides
     from .pipeline_processors.h3_hold import insert_audio_hold
+    from .pipeline_processors.h3_rules import REFINE_NOISE
 
     blocks_class = getattr(importlib.import_module(cls.__module__), blocks_name, None)
     if blocks_class is None:
@@ -387,7 +388,9 @@ def _modular_block_parameters(cls):
         return []
     parameters = []
     for block_input in block_inputs:
-        if not block_input.name:
+        # None for a kwargs group; REFINE_NOISE is dw's own hand-off between its
+        # tiled refine and the refine block, not something a workflow sets
+        if not block_input.name or block_input.name == REFINE_NOISE:
             continue
         parameters.append(
             {

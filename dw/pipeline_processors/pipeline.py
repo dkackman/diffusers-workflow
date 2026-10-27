@@ -41,8 +41,10 @@ from .h3_rules import (
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
+    REFINE_TILES_INPUT,
     refine_problems,
 )
+from .h3_tiles import run_tiled_refine
 from .progress import reported_blocks, reported_progress_bars
 from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
@@ -682,7 +684,12 @@ class Pipeline:
                 )
 
             try:
-                output = self.pipeline(**arguments)
+                if arguments.get(REFINE_TILES_INPUT) is not None:
+                    output = run_tiled_refine(
+                        self.pipeline, arguments, self.segment_label or self.name
+                    )
+                else:
+                    output = self.pipeline(**arguments)
             except IndexError as e:
                 cache = self.configuration.get("cache")
                 if (
@@ -783,9 +790,12 @@ class Pipeline:
                 is out of range, or the step passes no `latents` or `hold_audio`
         """
         strength = arguments.get(REFINE_STRENGTH_INPUT)
-        if strength is None:
+        if strength is None and arguments.get(REFINE_TILES_INPUT) is None:
             return
-        where = f"Step '{self.name}': refine_strength"
+        where = (
+            f"Step '{self.name}': "
+            f"{REFINE_STRENGTH_INPUT if strength is not None else REFINE_TILES_INPUT}"
+        )
         if not refines(self.pipeline):
             raise ValueError(
                 f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
