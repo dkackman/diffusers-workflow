@@ -221,8 +221,16 @@ class TestTheFill:
         assert len(stub.calls) == 4
 
     def test_the_command_takes_the_tasks_device(self, stub, all_backends_available):
+        # The tensors stay on the CPU: this checks the device the remover is
+        # loaded on, and a runner's torch may not be built with mps at all
+        to_cpu = remover.pil_to_float_tensor
         task = Task({"command": "remove_object", "arguments": {}}, "mps")
-        task.run({"image": photo(), "mask_image": square_mask()})
+        with mock.patch.object(
+            remover,
+            "pil_to_float_tensor",
+            side_effect=lambda image, device, dtype=None: to_cpu(image, "cpu", dtype),
+        ):
+            task.run({"image": photo(), "mask_image": square_mask()})
         assert stub.load.call_args.args[0] == "mps"
 
 
