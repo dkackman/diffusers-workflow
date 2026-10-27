@@ -343,12 +343,23 @@ def _numbers(definition):
     return tuple(estimate.get(field) for field in _ESTIMATE_FIELDS), cards
 
 
-def disagreements(catalog):
+# Templates measured on their own: they carry a formula that differs from
+# their identity's, because their bound is a different point on the card. Only
+# a name here may differ; every other template on the identity carries the
+# identity-level formula, or declares none and inherits it
+TEMPLATE_SPECIFIC = {"templates/ltx2/reference-sheet"}
+
+
+def disagreements(catalog, specific=()):
     """Every identity two templates declare different ceilings for. A
-    template with no card agrees on the formula alone."""
+    template with no card agrees on the formula alone. A template named in
+    `specific` is compared with nothing: its formula overrides the identity's
+    for that template only."""
     seen = {}
     found = []
     for identity, name, definition in declarations(catalog):
+        if name in specific:
+            continue
         formula, cards = _numbers(definition)
         if identity not in seen:
             seen[identity] = (name, formula)
@@ -362,7 +373,37 @@ def disagreements(catalog):
 def test_every_template_declaring_one_identity_declares_the_same_numbers():
     catalog = _real_catalog()
     assert len(list(declarations(catalog))) > 1
-    assert disagreements(catalog) == []
+    assert disagreements(catalog, TEMPLATE_SPECIFIC) == []
+
+
+def test_a_template_specific_formula_overrides_only_for_its_own_template():
+    catalog = _real_catalog()
+    by_name = {name: (identity, d) for identity, name, d in declarations(catalog)}
+    index = build_index(catalog)
+    for name in TEMPLATE_SPECIFIC:
+        identity, definition = by_name[name]
+        formula = _numbers(definition)[0]
+        # It really differs (a stale entry would hide a drift) ...
+        siblings = [
+            _numbers(d)[0]
+            for i, n, d in declarations(catalog)
+            if i == identity and n not in TEMPLATE_SPECIFIC
+        ]
+        assert siblings and all(formula != other for other in siblings), name
+        # ... and inheritance still resolves to the identity-level formula
+        assert index[identity]["template"] not in TEMPLATE_SPECIFIC
+
+
+def test_a_specific_template_is_exempt_but_a_sibling_is_not():
+    drifted = {**REF2VA_ESTIMATE, "base_gb": 15.0}
+    catalog = [
+        ("templates/a", _template("ref2va", REF2VA_ESTIMATE)),
+        ("templates/b", _template("ref2va", drifted, cost=None)),
+        ("templates/c", _template("ref2va", drifted, cost=None)),
+    ]
+    assert disagreements(catalog, {"templates/b"}) == [
+        (REF2VA, "templates/a", "templates/c")
+    ]
 
 
 def test_every_card_a_shared_identity_declares_is_the_same_card():
