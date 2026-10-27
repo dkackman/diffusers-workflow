@@ -352,6 +352,19 @@ class TestTileLoopReporting:
         paired = paired[0] if isinstance(paired, list) else paired
         assert paired.fps == 24
 
+    def test_the_videos_are_dws_one_frame_list(self):
+        """One rate-carrying frame list, beside AudioVideo: the tiled
+        refine's videos are the type `load_video` answers, not a second
+        class of the same name."""
+        from dw import media_types
+        from dw.tasks import video_utils
+
+        assert video_utils.FrameList is media_types.FrameList
+        _, _, result, _ = TestTileLoop().run(output=["videos"])
+        videos = result["videos"]
+        assert type(videos) is media_types.FrameList
+        assert all(type(video) is media_types.FrameList for video in videos)
+
     def test_the_frame_rate_survives_the_worker_queue(self):
         import pickle
 
