@@ -15,17 +15,34 @@ logger = logging.getLogger("dw")
 
 
 class FrameList(list):
-    """A list of frames, or of videos, carrying the rate they play at.
+    """The frames of a video file, carrying the rate the file plays at and
+    the shot boundaries its run recorded, if any.
 
-    What a step that knows its rate returns where a pipeline returns bare
-    frame lists - a tiled H3 refine's `videos` (#1048). `.fps` is the
-    attribute `pair_audio` and the result writer read, as on AudioVideo, so
-    the frames play at their own rate rather than the writer's default of 8.
+    `load_video` answers a plain list of images, which is what every
+    pipeline argument and every task wants - and which says nothing about
+    how fast those frames are meant to run. A step handed a 24 fps file
+    then wrote it back at `result.fps`'s default of 8, three times long,
+    with its soundtrack finishing a third of the way in and nothing said
+    about it (#104, the file-loading half of #84). A list subclass keeps
+    every consumer working unchanged while `getattr(video, "fps", None)` -
+    the question AudioVideo, concat_videos and interpolate_frames already
+    ask - gets a real answer.
+
+    `shots` is the same idea for the boundaries `dw.runs.shots_beside`
+    finds beside the file: a video loaded from an `asset:`/`output:` path
+    carried no way to answer `getattr(video, "shots", None)`, so
+    `pair_audio` had nothing to remeasure even though the file's own
+    manifest (or its kept-asset sidecar) already held them (#398).
+
+    The one rate-carrying frame list in dw: a step that knows its rate and
+    would otherwise return bare frame lists returns these too - a tiled H3
+    refine's `videos`, and each video in them (#1048).
     """
 
-    def __init__(self, items=(), fps=None):
-        super().__init__(items)
+    def __init__(self, frames, fps=None, shots=None):
+        super().__init__(frames)
         self.fps = fps
+        self.shots = shots
 
 
 class AudioVideo:
