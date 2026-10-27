@@ -18,7 +18,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
    that shape. Take names, `summary`, `traits` and `cost` from the
    listing over names quoted below.
 3. `get_workflow` on the one chosen, for its variables and defaults.
-4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
+4. Before anything near the card's ceiling - a full-size refine, 401 frames, a
    2x upscale - `get_memory` on an idle server; a leftover `live: true` figure
    is an earlier run's, and `clear_memory` (idle only) drops it and the step
    cache.
@@ -72,7 +72,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
   of generating; `templates/ltx2/chained-segments` re-runs per segment on
   the previous last frame and stitches. Both are dw's own recipes (Lightricks
-  added a chunked one 2026-09-29); one 481-frame pass reaches 20 seconds first.
+  added a chunked one 2026-09-29); one 401-frame pass reaches 17 seconds first.
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first. Other

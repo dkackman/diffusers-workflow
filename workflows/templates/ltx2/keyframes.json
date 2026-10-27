@@ -3,6 +3,12 @@
     "description": "Pinning the first and last frames and letting the model fill in the motion between them. The keyframes are conditions - objects built from the arguments the workflow names, each with the latent index it lands on.",
     "summary": "LTX-2.5 video with audio between two supplied stills, pinned as the first and last frames.",
     "traits": ["has-audio", "image-conditioned", "needs-input-media"],
+    "vram_estimate": {
+        "base_gb": 21.3,
+        "bytes_per_voxel": 16.04,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the same LTX-2.5 VAE decode scaling as templates/ltx2/text-to-video, since this template shares its quantized pipeline resident beside the decode; the two pinned frames ride in the same conditioning pipeline. Bracketed by real runs on a 24 GB RTX 3090 (#1054): 768x768x241 (142M voxels) completes, 768x768x321 (189M) ran out of memory in decode, 768x768x401 (236M) and x481 (283M) before or in the denoise. The bound sits between 142M and 189M voxels; the ceiling passes the first and refuses the second"
+    },
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",

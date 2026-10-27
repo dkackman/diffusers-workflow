@@ -10,6 +10,12 @@
             "minutes": 8.2
         }
     ],
+    "vram_estimate": {
+        "base_gb": 17.5,
+        "bytes_per_voxel": 64.16,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the refine stage runs at 2x width and 2x height, so each voxel costs 4x the single-stage 16.04 bytes and the base is lower than text-to-video's because the quantized pipeline is the only thing resident. Bracketed by real runs on a 24 GB RTX 3090 (#1054), width x height x num_frames as the template takes them: 768x768x161 (95M voxels) and 768x448x201 (69M) complete; 768x768x201 (118M) and x241 (142M) ran out of memory in the refine denoise, as did x321 (189M). The bound sits between 95M and 118M voxels; the ceiling passes the first and refuses the second"
+    },
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
