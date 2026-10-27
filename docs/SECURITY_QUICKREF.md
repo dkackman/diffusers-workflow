@@ -109,4 +109,5 @@ Invalid: file:///etc/passwd, ftp://server/file
 | `Path contains dangerous pattern matching \.\.` | Path traversal | Use absolute or `./` relative paths |
 | `Invalid variable name: my.var` | Special characters | Use `my_var` instead |
 | `Invalid URL: URL scheme not allowed: file` | Non-http scheme | Use https or local file path |
+| `Refusing a redirect to '<target>' (from '<url>'): ...` | A media URL redirected to an internal host or a non-http scheme | Host the media where it is served directly; a refused hop is never fetched |
 | `Argument contains dangerous characters: ...` | Shell metacharacters | Remove `` ` `` `$` `\|` `&` `;` `>` `<` |

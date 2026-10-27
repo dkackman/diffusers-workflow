@@ -459,11 +459,16 @@ def _follow(
                 response.close()
                 logger.debug(f"{current} redirects to {target}")
                 checked = []
-                target = validate(
-                    target,
-                    f"{what} (redirected from '{url}')",
-                    addresses=checked,
-                )
+                try:
+                    target = validate(target, what, addresses=checked)
+                except InvalidInputError as e:
+                    # Say it was a redirect, and name the hop and the URL
+                    # asked for, whichever rule refused it: the scheme rule
+                    # alone read 'URL scheme not allowed: file', which a
+                    # reader could not tell from an upstream error (#1055)
+                    raise InvalidInputError(
+                        f"Refusing a redirect to '{target}' (from '{url}'): {e}"
+                    ) from e
                 method, kwargs = _redirected(method, response.status_code, kwargs)
                 kwargs = _without_credential(kwargs, current, target)
                 current = target

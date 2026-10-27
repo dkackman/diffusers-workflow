@@ -199,7 +199,13 @@ One policy now answers all of it, untrusted:
   (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
   host policy before it is dialed. A public URL answering `302` to
   `http://127.0.0.1:8765/api/server` is refused with the target named, and
-  nothing is fetched from it. Images are decoded from the fetched bytes and
+  nothing is fetched from it. A refused hop's error always begins
+  `Refusing a redirect to '<target>' (from '<the URL asked for>'): ` and
+  then gives the rule that refused it (an internal address, a scheme other
+  than http(s), an unresolvable host), whereas an error status from a URL
+  itself stays the HTTP client's own `403 Client Error: Forbidden for url:
+  ...` - so a refused redirect and an upstream failure read differently
+  (#1055). Images are decoded from the fetched bytes and
   still go through diffusers' `load_image`, so EXIF orientation and RGB
   conversion are unchanged. Each hop's host is resolved once, by the policy,
   and dialed at the address it checked - so a name that answers differently

@@ -33,7 +33,8 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
     bytes; /nolength streams 1000 bytes with no Content-Length; /trickle
     sends 50 declared bytes one at a time; /method echoes the method and the
     body length it received. /hop redirects to /ok; /loop to itself;
-    /internal to the metadata address; /elsewhere 307s to /auth (which
+    /internal to the metadata address; /to-file to a file: URL; /forbidden
+    answers 403; /elsewhere 307s to /auth (which
     echoes Authorization) under another name for the same server;
     /to-port/N 307s to /auth on this host at port N; /see-other, /found and /temporary answer 303, 302 and 307 to /method.
     /slow-headers starts a header and adds a byte every 0.2 s, never
@@ -61,6 +62,7 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
             "/hop": (302, f"{here}/ok"),
             "/loop": (302, f"{here}/loop"),
             "/internal": (302, "http://169.254.169.254/latest/meta-data/"),
+            "/to-file": (302, "file:///etc/hosts"),
             "/see-other": (303, f"{here}/method"),
             "/found": (302, f"{here}/method"),
             "/temporary": (307, f"{here}/method"),
@@ -78,6 +80,11 @@ class _EchoHandler(http.server.BaseHTTPRequestHandler):
             return self._redirect(f"http://localhost:{port}/auth", status=307)
         if path.startswith("/trickle"):
             return self._trickle()
+        if path.startswith("/forbidden"):
+            self.send_response(403)
+            self.send_header("Content-Length", "0")
+            self.end_headers()
+            return
         if path.startswith("/slow-headers"):
             return self._slow_headers()
         if path.startswith("/host"):
@@ -423,9 +430,53 @@ class TestSafeRequest:
 
         port = local_server.split(":")[1]
         _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
-        with pytest.raises(InvalidInputError, match="inside this deployment"):
+        with pytest.raises(InvalidInputError, match="inside this deployment") as e:
             safe_get(f"http://media.example:{port}/internal", timeout=5)
         assert _EchoHandler.seen == ["/internal"]
+        # #1055: a tester reading the job's error must be able to tell a
+        # refused hop from an upstream failure - the message says it was a
+        # redirect, and names both the refused target and the URL asked for
+        message = str(e.value)
+        assert message.startswith(
+            "Refusing a redirect to 'http://169.254.169.254/latest/meta-data/' "
+            f"(from 'http://media.example:{port}/internal'): "
+        )
+
+    def test_a_redirect_to_another_scheme_names_the_target(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        """A hop to `file:` fails the scheme rule before the host policy
+        runs; that refusal used to read 'URL scheme not allowed: file' with
+        no target and no word of a redirect (#1055)."""
+        from dw.outbound import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        with pytest.raises(InvalidInputError) as e:
+            safe_get(f"http://media.example:{port}/to-file", timeout=5)
+        message = str(e.value)
+        assert message.startswith(
+            "Refusing a redirect to 'file:///etc/hosts' "
+            f"(from 'http://media.example:{port}/to-file'): "
+        )
+        assert "scheme not allowed: file" in message
+        assert _EchoHandler.seen == ["/to-file"]
+
+    def test_an_error_status_on_the_first_hop_is_the_upstream_error(
+        self, untrusted, local_server, server_is_public, monkeypatch
+    ):
+        """A 403 from the URL itself (what httpbin's redirect-to answered
+        in #1055) stays requests' own HTTPError, and says nothing about a
+        redirect - the two failures must read differently."""
+        import requests
+
+        from dw.outbound import safe_get
+
+        port = local_server.split(":")[1]
+        _scripted(monkeypatch, {"media.example": [["127.0.0.1"]]})
+        with pytest.raises(requests.HTTPError, match="403 Client Error") as e:
+            safe_get(f"http://media.example:{port}/forbidden", timeout=5)
+        assert "redirect" not in str(e.value).lower()
 
     @pytest.mark.parametrize(
         "path, answer",

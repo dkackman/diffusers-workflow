@@ -488,8 +488,15 @@ class TestRedirects:
         ).install(monkeypatch)
 
         with patch("dw.locations.socket.getaddrinfo", fake_resolver(PUBLIC)):
-            with pytest.raises(InvalidInputError):
+            with pytest.raises(InvalidInputError) as refusal:
                 load_audio("https://cdn.example.com/a.wav", str(tmp_path))
+
+        # #1055: the scheme rule's refusal names the hop and the redirect too
+        assert str(refusal.value).startswith(
+            "Refusing a redirect to 'file:///etc/passwd' "
+            "(from 'https://cdn.example.com/a.wav'): "
+        )
+        assert "scheme not allowed: file" in str(refusal.value)
 
     def test_fetch_video_does_not_follow_a_redirect_inside(
         self, untrusted, no_real_sockets, monkeypatch, tmp_path
