@@ -3,6 +3,7 @@ import {
   formatBytes,
   formatDuration,
   formatMinutes,
+  formatDay,
   formatMtime,
   gbFromBytes,
   gbFromMb,
@@ -65,4 +66,12 @@ describe('formatMinutes', () => {
     expect(formatMinutes(12.946)).toBe('~12.95 min')
     expect(formatMinutes(0.4)).toBe('<1 min')
   })
+})
+
+it('gives a day without its time, and the year only from another one', () => {
+  const stamp = Date.parse('2023-11-14T22:13:20Z') / 1000
+  const thisYear = formatDay(stamp, new Date('2023-12-01T00:00:00Z'))
+  expect(thisYear).toMatch(/Nov/)
+  expect(thisYear).not.toMatch(/2023|:/)
+  expect(formatDay(stamp, new Date('2024-02-01T00:00:00Z'))).toMatch(/2023/)
 })

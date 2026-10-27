@@ -30,6 +30,26 @@ export function formatMtime(mtime: number, now: Date = new Date()): string {
   })
 }
 
+/** Just the day, in the same compact form - 'Oct 26', or 'Mar 3, 2025'
+ * from another year - for a list where the time of day says nothing. */
+export function formatDay(mtime: number, now: Date = new Date()): string {
+  const date = new Date(mtime * 1000)
+  return date.toLocaleDateString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: date.getFullYear() === now.getFullYear() ? undefined : 'numeric',
+  })
+}
+
+/** The same timestamp to the second, with the year - for a tooltip behind
+ * the compact form, where the detail is wanted but not the width. */
+export function formatExact(mtime: number): string {
+  return new Date(mtime * 1000).toLocaleString(undefined, {
+    dateStyle: 'medium',
+    timeStyle: 'medium',
+  })
+}
+
 /** A size in GB to one decimal and no unit - the header meter and the
  * models list put the unit beside it themselves. */
 export const gbFromMb = (mb: number): string => (mb / 1024).toFixed(1)

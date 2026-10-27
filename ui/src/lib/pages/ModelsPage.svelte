@@ -1,6 +1,6 @@
 <script lang="ts">
   import { poll } from '../poll'
-  import { gbFromBytes } from '../format'
+  import { formatDay, gbFromBytes } from '../format'
   import {
     ChevronDown,
     ChevronRight,
@@ -148,8 +148,7 @@
   }
 
   const gb = gbFromBytes
-  const day = (stamp: number | null) =>
-    stamp ? new Date(stamp * 1000).toLocaleDateString() : '—'
+  const day = (stamp: number | null) => (stamp ? formatDay(stamp) : '—')
   const hubUrl = (repo: ModelRepo) =>
     'https://huggingface.co/' +
     (repo.repo_type === 'model' ? '' : repo.repo_type + 's/') +
