@@ -9,7 +9,7 @@
         "base_gb": 21.3,
         "bytes_per_voxel": 16.04,
         "voxel_variables": ["width", "height", "num_frames"],
-        "reason": "the same LTX-2.5 VAE decode scaling as templates/ltx2/text-to-video, since this template shares its quantized pipeline resident beside the decode; the in-context reference adds to it. Bracketed by real runs on a 24 GB RTX 3090: 1344x768x129 completes, 1920x1088x129 ran out of memory in decode (#1050) - the ceiling is conservative, not calibrated between them"
+        "reason": "the same LTX-2.5 VAE decode scaling as templates/ltx2/text-to-video, since this template shares its quantized pipeline resident beside the decode; the in-context reference adds to it. Bracketed by real runs on a 24 GB RTX 3090: 1344x768x129 completes, 1632x928x129 ran out of memory in the first denoise step (#1052; 1920x1088x129 also did, in decode, #1050) - the bound sits between 1344x768 and 1632x928 and the ceiling refuses the latter while passing the former"
     },
     "cost_drivers": [
         "num_frames",

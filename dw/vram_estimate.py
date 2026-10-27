@@ -560,11 +560,20 @@ def vram_estimate_errors(
     )
     where = _where(estimate, index, step, supplied, source_indices, written)
     values, tiled = _tiled_note(step, values)
+    exceeded = [
+        entry
+        for entry in entries
+        if entry.get("vram_gb") is not None and projected > entry["vram_gb"]
+    ]
+    # The synthetic capacity entry _entries_for adds (the card's reported
+    # 23.6 beside a catalog "24") only speaks when no declared card does, so
+    # one projection never reads twice (#1053)
+    declared = [entry for entry in exceeded if "device" in entry]
+    if declared:
+        exceeded = declared
     errors = []
-    for entry in entries:
+    for entry in exceeded:
         capacity = entry.get("vram_gb")
-        if capacity is None or projected <= capacity:
-            continue
         device_label = entry.get("name") or entry.get("device", "this device")
         errors.append(
             {

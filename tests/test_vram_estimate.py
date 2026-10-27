@@ -445,6 +445,22 @@ def test_a_projection_between_the_real_card_and_its_rounded_catalog_entry_is_ref
         apply_vram_estimate(d, d["variables"], device_type="cuda", capacity_gb=23.6)
 
 
+def test_a_projection_past_both_the_catalog_card_and_the_real_card_is_one_error():
+    # Over a 3090's "24" and its reported 23.6 alike: one error naming the
+    # declared card, not one per ceiling (#1053)
+    d = definition()
+    d["vram_estimate"] = {
+        "voxel_variables": ["width", "height", "num_frames"],
+        "base_gb": 30,
+        "bytes_per_voxel": 1,
+    }
+    errors = vram_estimate_errors(
+        d, device_type="cuda", capacity_gb=23.6, capacity_label="cuda:0 RTX 3090"
+    )
+    assert len(errors) == 1
+    assert "declared for RTX 3090" in errors[0]["message"]
+
+
 # --- refine_tiles (#1043): denoise per tile, decode at the canvas -----------
 
 H3_768P = {
