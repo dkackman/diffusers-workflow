@@ -633,7 +633,11 @@ class TestShotPlacement(unittest.TestCase):
         answer = shot_run(
             [{"text": "alpha bravo", "shot": "A"}, {"text": "delta echo", "shot": "B"}],
             chunks,
-            mono=numpy.concatenate([voiced(0.9), silent(2.6), voiced(1.0)]),
+            # Silence after "echo" to the end of shot B: the word is not clipped
+            # (#953) and the tail holds no untranscribed sound (#970)
+            mono=numpy.concatenate(
+                [voiced(0.9), silent(2.6), voiced(1.0), silent(1.5)]
+            ),
         )
         self.assertEqual([x["shot"] for x in answer["lines"]], ["A", "B"])
         self.assertEqual(answer["findings"], [])
