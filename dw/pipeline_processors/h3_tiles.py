@@ -36,15 +36,17 @@ import contextlib
 import torch
 
 from ..events import emit_log, emit_phase, get_context
+from ..media_types import FrameList
 from .h3_rules import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    H3_FPS,
     LATENT_SCALE,
     REFINE_NOISE,
     REFINE_TILES_INPUT,
     tile_plan,
 )
-from .progress import reported_blocks
+from .progress import decoded_later, reported_blocks
 
 TEXT_BLOCK = "text_encoder"
 TEXT_OUTPUTS = ["prompt_embeds", "text_token_tags"]
@@ -289,7 +291,7 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
 
     context = get_context()
     tiles, held = [], {}
-    with swapped_blocks(pipeline, tile_blocks):
+    with swapped_blocks(pipeline, tile_blocks), decoded_later():
         for index, tile in enumerate(plan):
             context.check_cancelled()
             x, y, width, height = tile
@@ -323,6 +325,16 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
     canvas = blend(tiles, plan, tuple(latents.shape))
     emit_phase("decoding")
     videos = (decode or (lambda value: decode_canvas(pipeline, value)))(canvas)
+    if isinstance(videos, list):
+        # Bare frame lists carry no rate, and pair_audio or the writer would
+        # play them at 8 fps: say they are H3's 24
+        videos = FrameList(
+            (
+                FrameList(video, H3_FPS) if isinstance(video, list) else video
+                for video in videos
+            ),
+            H3_FPS,
+        )
     outputs = {"videos": videos, "latents": canvas, **held}
     if requested is None:
         return outputs

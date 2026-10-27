@@ -341,3 +341,29 @@ def test_a_container_that_chooses_one_block_is_left_alone():
 
     assert pipeline.ran == ["video"]
     assert _logs(events) == []
+
+
+def _phases_of_a_loop(decode_follows):
+    from dw.events import activate_context, deactivate_context
+    from dw.pipeline_processors.progress import decoded_later, reported_progress_bars
+
+    collected = []
+    token = activate_context(RunContext(on_event=collected.append))
+    try:
+        pipeline = FakeModularPipeline()
+        with reported_progress_bars(pipeline):
+            if decode_follows:
+                pipeline()
+            else:
+                with decoded_later():
+                    pipeline()
+    finally:
+        deactivate_context(token)
+    return [e.get("phase") for e in collected if e["event"] == "phase"]
+
+
+def test_a_loop_the_decode_does_not_follow_reports_no_decoding():
+    """A tiled refine's tiles (#1048): the decode comes once, after the blend,
+    so the end of each tile's loop is not 'decoding'."""
+    assert _phases_of_a_loop(decode_follows=True) == ["decoding"]
+    assert _phases_of_a_loop(decode_follows=False) == []

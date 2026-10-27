@@ -232,6 +232,14 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     return interpolate_frames(video, device=task.device_for(arguments), **arguments)
 
 
+def _upscale_size_errors(arguments):
+    """The literal width/height upscale_h3_latents refuses at the run, refused
+    at validate in the same words"""
+    from .h3_latent_upscale import target_size_problems
+
+    return target_size_problems(arguments.get("width"), arguments.get("height"))
+
+
 @register_command(
     "upscale_h3_latents",
     implementation="dw.tasks.h3_latent_upscale.upscale_h3_latents",
@@ -270,6 +278,7 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
         ),
     },
     domains={"width": POSITIVE, "height": POSITIVE},
+    static_check=_upscale_size_errors,
 )
 def _handle_upscale_h3_latents(task, arguments, previous_pipelines):
     """Resize MiniMax-H3 video latents to a larger canvas"""

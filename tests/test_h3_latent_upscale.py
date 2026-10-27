@@ -518,3 +518,73 @@ if __name__ == "__main__":
             "cpu", hlu.LMS_UPSCALER_REPO, "h3_upscaler_lms_v0.1_fp32.safetensors"
         )
         assert captured == {"subfolder": None, "revision": None}
+
+
+def _upscale_workflow(width, height):
+    return {
+        "id": "x",
+        "steps": [
+            {
+                "name": "up",
+                "task": {
+                    "command": "upscale_h3_latents",
+                    "arguments": {
+                        "latents": "previous_result:base.latents",
+                        "width": width,
+                        "height": height,
+                    },
+                },
+            }
+        ],
+    }
+
+
+class TestTargetSizeRefusedAtValidate:
+    """The run's grid and cap rule, applied by validate to literal sizes
+    (#1048, M-F175): refused at both or neither, in the same words."""
+
+    @staticmethod
+    def errors(width, height):
+        import dw.tasks.model_handlers  # noqa: F401 - registers the task
+        from dw.task_domains import task_argument_errors
+
+        return task_argument_errors(_upscale_workflow(width, height))
+
+    @pytest.mark.parametrize(
+        "width, height, argument",
+        [
+            (1952, 1088, "width"),
+            (1920, 1120, "height"),
+            (3840, 2176, "width"),
+            (1088, 1952, "height"),
+            (1120, 1920, "width"),
+        ],
+    )
+    def test_over_the_cap(self, width, height, argument):
+        errors = self.errors(width, height)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith(f"arguments.{argument}")
+        assert "over the upscale cap" in errors[0]["message"]
+        assert "1920x1088" in errors[0]["message"]
+
+    def test_off_the_grid(self):
+        errors = self.errors(1000, 544)
+        assert [e["path"].rsplit(".", 1)[-1] for e in errors] == ["width"]
+        assert "multiple of 16" in errors[0]["message"]
+
+    @pytest.mark.parametrize("width, height", [(1920, 1088), (1088, 1920), (1344, 768)])
+    def test_within_the_cap(self, width, height):
+        assert self.errors(width, height) == []
+
+    def test_unresolved_sizes_are_left_to_the_run(self):
+        assert self.errors("variable:width", 1088) == []
+
+    @pytest.mark.parametrize(
+        "width, height", [(1952, 1088), (1920, 1120), (1000, 544), (1088, 1952)]
+    )
+    def test_the_run_refuses_in_the_same_words(self, width, height):
+        message = self.errors(width, height)[0]["message"]
+        latents = torch.zeros(1, 24, 3, 34, 60)
+        with pytest.raises(ValueError) as refused:
+            target_latent_size(latents, width, height)
+        assert message.startswith(str(refused.value).rstrip("."))

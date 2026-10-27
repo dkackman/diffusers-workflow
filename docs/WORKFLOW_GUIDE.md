@@ -1918,7 +1918,10 @@ So this is a measurement path, not a catalog template: the catalog's native 768p
 is `templates/minimax/video-with-audio-768p`, and it is the one to use when faces matter.
 
 Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
-latents' own size, and within H3's 1344x768 (or portrait 768x1344) canvas. The latents
+latents' own size, and within the upscale cap of 1920x1088 (or portrait 1088x1920);
+validation refuses a literal size off the grid or over the cap before the run. Above
+1344x768 the plate is for a tiled refine ([Refining above 768p in
+tiles](#refining-above-768p-in-tiles)), and upscale-only it is soft. The latents
 pass from `base` to `up` to `decode` entirely in memory. A `previous_result:` property
 on a modular step names a key of the dict its `output` list returns, spelled as the
 pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` - not
@@ -2509,7 +2512,8 @@ tiles start from the same noise. Each tile is denoised through H3 without its de
 and the prompt is encoded once. The tiles are blended in latent space with a linear feather
 across each overlap, the weights normalized, and the blended canvas is decoded once with VAE
 spatial tiling. The step returns the full-canvas `latents`, the video and stage 1's held
-audio, once. The job's events show one log line per tile and one decoding phase.
+audio, once. Its `videos` carry H3's 24 fps, so the `pair_audio` below writes them at
+that rate without being told. The job's events show one log line per tile and one decoding phase.
 
 It is slow. A 1920x1088 refine is roughly 4 tiles, each a 768p refine, plus a 1080p decode:
 about 25-30 minutes, against about 9.6 minutes for a native 768p take (an estimate, not

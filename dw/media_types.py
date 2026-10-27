@@ -14,6 +14,20 @@ from .events import emit_warning
 logger = logging.getLogger("dw")
 
 
+class FrameList(list):
+    """A list of frames, or of videos, carrying the rate they play at.
+
+    What a step that knows its rate returns where a pipeline returns bare
+    frame lists - a tiled H3 refine's `videos` (#1048). `.fps` is the
+    attribute `pair_audio` and the result writer read, as on AudioVideo, so
+    the frames play at their own rate rather than the writer's default of 8.
+    """
+
+    def __init__(self, items=(), fps=None):
+        super().__init__(items)
+        self.fps = fps
+
+
 class AudioVideo:
     """A generated video together with the audio track generated alongside it.
 
