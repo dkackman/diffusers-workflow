@@ -464,3 +464,43 @@ class TestEveryHubLoadIsDeclared:
         for command, rules in registry._COMMAND_RULES.items():
             if rules.get("required_weights"):
                 assert callable(required_weights_hook(command)), command
+
+
+def _dw_imports(path):
+    """Every `dw` module `path` imports, top-level or inside a function (grimp
+    counts both as edges), as dotted names relative to dw/tasks."""
+    found = set()
+    for node in ast.walk(ast.parse(open(path).read())):
+        if isinstance(node, ast.ImportFrom) and (
+            node.level or (node.module or "").startswith("dw.")
+        ):
+            found.add("." * node.level + (node.module or ""))
+        elif isinstance(node, ast.Import):
+            found |= {a.name for a in node.names if a.name.startswith("dw.")}
+    return found
+
+
+class TestTheHookPathStaysAcyclic:
+    """The plan asks the registry for a hook; the registry is read by
+    dw/locations.py; the task modules import the location policy and
+    dw/tasks/weights.py. So neither the registry nor weights.py may import a
+    task module or the location policy, even lazily, or the architecture
+    ratchet's `import_cycles` counts the loop (the one it did count: weights
+    -> locations -> registry -> image_utils -> background_remover -> weights).
+    The registry reaches a processor's hook through `register_weights_fallback`
+    instead, and `validate_weight_name` lives in dw/security.py."""
+
+    def test_weights_imports_only_the_security_leaf_from_dw(self):
+        assert _dw_imports(os.path.join(TASKS, "weights.py")) == {"..security"}
+
+    def test_the_registry_imports_nothing_from_dw(self):
+        assert _dw_imports(os.path.join(TASKS, "registry.py")) == set()
+
+    def test_a_processor_hook_is_registered_not_imported(self):
+        from dw.tasks import image_utils, registry
+
+        assert image_utils.processor_weights_hook in registry._WEIGHTS_FALLBACKS
+        assert required_weights_hook("Remove_Background")({}) == [
+            {"repo": "briaai/RMBG-2.0"}
+        ]
+        assert image_utils.processor_weights_hook("not_a_processor") is None

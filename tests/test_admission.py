@@ -190,9 +190,11 @@ def test_a_bound_submit_expands_once(server, folds):
 def empty_hub_cache(monkeypatch):
     """No repo cached, whatever this machine's own Hugging Face cache holds,
     so every task step's repo is a download to acknowledge."""
-    import dw.plan
+    import dw.plan_downloads
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
 
 
 def segment_workflow():

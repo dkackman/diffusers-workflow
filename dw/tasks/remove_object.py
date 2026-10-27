@@ -73,11 +73,8 @@ def _check_remover_source(model_name, weight_name):
     """Refuse a remover source that is not a Hub repo and a safetensors file
     in it - the run-time half of the SAFETENSORS_ONLY_COMMANDS gate, for a
     value that arrives through a variable or a run that skipped validation."""
-    from ..locations import (
-        SAFETENSORS_SUFFIX,
-        validate_hub_repo_id,
-        validate_weight_name,
-    )
+    from ..locations import SAFETENSORS_SUFFIX, validate_hub_repo_id
+    from ..security import validate_weight_name
 
     validate_hub_repo_id(model_name)
     validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,), subfolders=False)

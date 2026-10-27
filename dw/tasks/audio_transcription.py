@@ -10,13 +10,13 @@ A dedicated module, like text_generation.py, rather than living in
 audio_utils.py alongside the other audio tasks: those tasks share that
 module and lazily import transformers only when a task that needs it runs,
 and a module-level import here would force that heavy import on every one
-of them.
+of them. transformers is imported inside the loader for the same reason:
+the plan's `required_weights` lookup imports this module at validate time.
 """
 
 import logging
 
 import numpy
-from transformers import pipeline as hf_pipeline
 
 from .. import preferred_task_dtype
 from ..events import emit_warning
@@ -29,6 +29,18 @@ from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
 
 logger = logging.getLogger("dw")
+
+
+def hf_pipeline(*args, **kwargs):
+    """`transformers.pipeline`, imported on the first call rather than at
+    module top: the plan's `required_weights` lookup imports this module on
+    every validate of one of its steps, and transformers costs a second-plus
+    the server need not pay. A module-level name so the tests patch it as
+    one (`patch("dw.tasks.audio_transcription.hf_pipeline")`)."""
+    from transformers import pipeline
+
+    return pipeline(*args, **kwargs)
+
 
 WHISPER_DEFAULT_MODEL = "openai/whisper-base"
 _ASR_SAMPLE_RATE = 16000

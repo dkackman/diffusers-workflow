@@ -746,6 +746,58 @@ def validate_commit_hash(commit: str) -> str:
     return commit
 
 
+def validate_weight_name(name, suffixes=None, what="weight_name", subfolders=True):
+    """A file name inside a Hub repo: relative, and never climbing out of it.
+
+    `hf_hub_download(filename=...)` joins the name onto the local cache
+    directory, so a name shaped like a path is a path on this machine. A
+    subfolder is legitimate where `subfolders` allows one (an IP adapter's
+    lives under one); an absolute path, a backslash, a drive, an empty segment or a '.'/'..'
+    segment is not. The refusal names only what the caller wrote, never a
+    directory on the server.
+
+    Here rather than in `dw/locations.py` with the other Hub-name policy:
+    `dw/tasks/weights.py` reads it on every validate and must stay a leaf
+    of the package (see its docstring).
+
+    Args:
+        name: The file name the workflow supplied
+        suffixes: The file endings allowed, or None for any
+        what: Short phrase naming the argument, for the error message
+        subfolders: Whether the name may hold a '/' at all
+
+    Raises:
+        PathTraversalError: On a name that is not a plain relative path
+        InvalidInputError: On an empty name, or one with a refused ending
+    """
+    if not isinstance(name, str) or not name.strip():
+        raise InvalidInputError(f"Refusing an empty {what}.")
+    if "\x00" in name:
+        raise InvalidInputError(f"Refusing a {what} containing a null byte.")
+    if name.startswith(("/", "~")) or "\\" in name or ":" in name:
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it names a file inside the model "
+            f"repo, so it must be a relative path - no leading '/' or '~', no "
+            f"backslash, no drive."
+        )
+    if any(segment in ("", ".", "..") for segment in name.split("/")):
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it has an empty, '.' or '..' "
+            f"path segment, so it does not name a file inside the model repo."
+        )
+    if not subfolders and "/" in name:
+        raise PathTraversalError(
+            f"Refusing a {what} of '{name}': it is a file name, not a path - no '/'."
+        )
+    if suffixes and not name.lower().endswith(tuple(suffixes)):
+        raise InvalidInputError(
+            f"Refusing a {what} of '{name}': only "
+            f"{', '.join(repr(suffix) for suffix in suffixes)} weights are "
+            f"read here."
+        )
+    return name
+
+
 def validate_json_size(file_path: str) -> None:
     """
     Validate JSON file size before loading.

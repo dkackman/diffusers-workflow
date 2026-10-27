@@ -3166,7 +3166,7 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 
 Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). A take checked alone, with no shot map (an `asset:` file with no manifest beside it), therefore never raises `unscripted_speech`, however many words are `unmatched`: read `unmatched` there, or pass `shots`. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.
 
-The thresholds are module constants in `dw/tasks/script_check.py`, deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
+The thresholds are module constants in `dw/tasks/script_check.py` (the guard's `GUARD_FLOOR_DBFS` and `GUARD_WINDOW_SECONDS` in its sibling `dw/tasks/script_take.py`, beside `guard_words`), deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
 
 | Constant | Value | What crossing it does |
 | -------- | ----- | --------------------- |

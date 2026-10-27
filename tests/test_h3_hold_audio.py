@@ -16,8 +16,10 @@ from dw.media_types import AudioTrack, AudioVideo
 from dw.output_extraction import modular_artifacts
 from dw.pipeline_processors import h3_rules
 from dw.pipeline_processors.h3_hold import (
+    HELD_LATENTS_OUTPUT,
     blocks,
     core_denoise_sequences,
+    encoded_hold_audio,
     hold_audio_reference,
     holds_audio,
     insert_audio_hold,
@@ -308,6 +310,47 @@ class TestHoldBlock:
         release()(comps, state)
         assert state.get("num_condition_audio_rows") == k
         assert state.get(HELD_ROWS) == 0
+
+    def test_a_carried_encode_is_written_without_encoding_again(self):
+        """The hold block run on a track it already encoded, handed that encode
+        back through `encoded_hold_audio`, leaves the audio VAE alone and
+        writes the same rows and the same held track."""
+
+        class Counting(FakeAudioVae):
+            encodes = 0
+
+            def encode(self, x, return_dict=False):
+                Counting.encodes += 1
+                return super().encode(x, return_dict)
+
+        wave = torch.randn(2, 3 * RATE, generator=torch.manual_seed(8))
+        track = MiniMaxH3AudioReference(audio=wave, sample_rate=RATE)
+        comps = components()
+        comps.audio_vae = Counting()
+        hold = blocks()[0]()
+
+        first = make_state(track)
+        hold(comps, first)
+        encoded = first.get(HELD_LATENTS_OUTPUT)
+        assert Counting.encodes >= 1 and encoded is not None
+        assert encoded.shape == (2, NUM_LATENTS, CHANNELS)
+
+        encodes = Counting.encodes
+        second = make_state(encoded_hold_audio(track, encoded))
+        hold(comps, second)
+        assert Counting.encodes == encodes
+        for name in (
+            "audio_latents",
+            HELD_AUDIO_OUTPUT,
+            HELD_LATENTS_OUTPUT,
+        ):
+            assert torch.equal(first.get(name), second.get(name)), name
+        for name in (
+            "num_condition_audio_rows",
+            HELD_ROWS,
+            HELD_AUDIO_RATE_OUTPUT,
+        ):
+            assert first.get(name) == second.get(name), name
 
     def test_release_restores_the_count(self):
         wave = torch.randn(2, 2 * RATE, generator=torch.manual_seed(6))

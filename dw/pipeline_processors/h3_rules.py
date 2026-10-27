@@ -19,6 +19,7 @@ HOLD_AUDIO_INPUT = "hold_audio"
 HELD_ROWS = "dw_held_audio_rows"
 HELD_AUDIO_OUTPUT = "dw_held_audio"
 HELD_AUDIO_RATE_OUTPUT = "dw_held_audio_sampling_rate"
+HELD_LATENTS_OUTPUT = "dw_held_audio_latents"
 
 # The refine call argument
 REFINE_STRENGTH_INPUT = "refine_strength"
@@ -121,10 +122,12 @@ def _latent_canvas(arguments, canvas):
     return canvas
 
 
+_TILE_KEYS = ("width", "height", "overlap")
+
+
 def _tile_problems(arguments, canvas):
     """Why this step's `refine_tiles` cannot run - a list, empty when it can."""
     tiles = arguments[REFINE_TILES_INPUT]
-    keys = ("width", "height", "overlap")
     if _deferred(tiles):
         return []
     if not isinstance(tiles, dict):
@@ -132,9 +135,20 @@ def _tile_problems(arguments, canvas):
             f"refine_tiles is {{width, height, overlap}} in pixels, and "
             f"{tiles!r} is not a mapping"
         ]
+    problems, known = _tile_mapping_problems(tiles)
+    width, height, overlap = (known.get(key) for key in _TILE_KEYS)
+    problems += _tile_size_problems(width, height, overlap)
+    problems += _tile_conflict_problems(arguments)
+    problems += _tile_canvas_problems(arguments, canvas, width, height)
+    return problems
+
+
+def _tile_mapping_problems(tiles):
+    """The key and per-value rules of the `refine_tiles` mapping: the problems,
+    and the values that passed, by key."""
     problems = []
-    missing = [key for key in keys if key not in tiles]
-    extra = sorted(str(key) for key in tiles if key not in keys)
+    missing = [key for key in _TILE_KEYS if key not in tiles]
+    extra = sorted(str(key) for key in tiles if key not in _TILE_KEYS)
     if missing:
         problems.append(
             f"refine_tiles needs width, height and overlap, and is missing "
@@ -145,7 +159,7 @@ def _tile_problems(arguments, canvas):
             f"refine_tiles takes only width, height and overlap, not {', '.join(extra)}"
         )
     known = {}
-    for key in keys:
+    for key in _TILE_KEYS:
         value = tiles.get(key)
         if key not in tiles or _deferred(value):
             continue
@@ -161,7 +175,13 @@ def _tile_problems(arguments, canvas):
                     f"refine_tiles {key} is a multiple of {TILE_GRID} px, and "
                     f"{value} is not"
                 )
-    width, height, overlap = (known.get(key) for key in keys)
+    return problems, known
+
+
+def _tile_size_problems(width, height, overlap):
+    """The tile against H3's trained canvas, and the overlap against the tile:
+    each value None when not known."""
+    problems = []
     if width is not None and height is not None:
         longer, shorter = max(TILE_LIMIT), min(TILE_LIMIT)
         if not (width <= longer and height <= shorter) and not (
@@ -183,6 +203,12 @@ def _tile_problems(arguments, canvas):
             f"refine_tiles overlap is at least {TILE_OVERLAP_FLOOR} px, or the seams "
             f"show, and {overlap} is below it"
         )
+    return problems
+
+
+def _tile_conflict_problems(arguments):
+    """The arguments a tiled refine cannot be combined with."""
+    problems = []
     for key in TILE_CONFLICTS:
         if arguments.get(key) is not None:
             problems.append(
@@ -195,6 +221,13 @@ def _tile_problems(arguments, canvas):
             "refine_tiles refines the 'latents' canvas alone, and the prompt "
             "names a <Picture N> reference"
         )
+    return problems
+
+
+def _tile_canvas_problems(arguments, canvas, width, height):
+    """The tile against the canvas it refines, and the step's own width and
+    height against that canvas when the `latents` canvas is known."""
+    problems = []
     derived = _latent_canvas(arguments, canvas)
     # With no latents canvas known, the step's own explicit size stands in
     sizes = derived or tuple(

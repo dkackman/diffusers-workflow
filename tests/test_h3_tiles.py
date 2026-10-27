@@ -6,10 +6,11 @@ from types import SimpleNamespace
 import pytest
 import torch
 
-from dw.pipeline_processors.h3_hold import insert_audio_hold
+from dw.pipeline_processors.h3_hold import HELD_LATENTS_OUTPUT, insert_audio_hold
 from dw.pipeline_processors.h3_rules import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    HOLD_AUDIO_INPUT,
     LATENT_SCALE,
     REFINE_BLOCK,
     REFINE_NOISE,
@@ -30,6 +31,10 @@ minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
 from diffusers.modular_pipelines.minimax_h3.before_denoise import (  # noqa: E402
     patchify_video_latents,
 )
+from diffusers.modular_pipelines.minimax_h3.references import (  # noqa: E402
+    MiniMaxH3AudioReference,
+)
+from dw.pipeline_processors.h3_hold_steps import EncodedAudioReference  # noqa: E402
 from tests.test_h3_refine import components, make_state, run  # noqa: E402
 
 PLAN = tile_plan(1920, 1088, 1344, 768, 256)
@@ -226,6 +231,10 @@ class FakePipeline:
         if HELD_AUDIO_OUTPUT in kwargs["output"]:
             result[HELD_AUDIO_OUTPUT] = "audio"
             result[HELD_AUDIO_RATE_OUTPUT] = 44100
+        if HELD_LATENTS_OUTPUT in kwargs["output"]:
+            # The hold block's encode of the track, which only an encode produces
+            assert getattr(kwargs[HOLD_AUDIO_INPUT], "latents", None) is None
+            result[HELD_LATENTS_OUTPUT] = "encoded"
         return result
 
 
@@ -271,12 +280,41 @@ class TestTileLoop:
         assert [kind for kind, _ in pipeline.calls].count("text") == 1
         assert HELD_AUDIO_OUTPUT in tile_calls[0]["output"]
         assert HELD_AUDIO_OUTPUT not in tile_calls[1]["output"]
+        # Nothing held, so no tile is asked for an encode of it
+        assert not any(HELD_LATENTS_OUTPUT in kw["output"] for kw in tile_calls)
         assert pipeline._blocks == "full"
         assert len(decoded) == 1 and decoded[0].shape == latents.shape
         assert torch.allclose(result["latents"], latents, atol=1e-5)
         assert result["videos"] == [["frame"]]
         assert result[HELD_AUDIO_OUTPUT] == "audio"
         assert result[HELD_AUDIO_RATE_OUTPUT] == 44100
+
+    def test_the_track_is_encoded_by_one_tile_and_handed_to_the_rest(self):
+        """The audio hold runs once per refine, not once per tile: the first
+        tile is asked for the hold block's encode, and every later tile's
+        `hold_audio` carries it, so the block writes it instead of encoding."""
+        track = MiniMaxH3AudioReference(audio=torch.zeros(2, 160), sample_rate=16000)
+        pipeline, _, result, _ = self.run(**{HOLD_AUDIO_INPUT: track})
+        tile_calls = [kw for kind, kw in pipeline.calls if kind == "tile"]
+        assert len(tile_calls) == 4
+        encoding = [
+            kw
+            for kw in tile_calls
+            if getattr(kw[HOLD_AUDIO_INPUT], "latents", None) is None
+        ]
+        assert len(encoding) == 1 and encoding[0] is tile_calls[0]
+        assert tile_calls[0][HOLD_AUDIO_INPUT] is track
+        assert HELD_LATENTS_OUTPUT in tile_calls[0]["output"]
+        for kwargs in tile_calls[1:]:
+            carried = kwargs[HOLD_AUDIO_INPUT]
+            assert isinstance(carried, EncodedAudioReference)
+            assert carried.latents == "encoded"
+            assert carried.audio is track.audio
+            assert carried.sample_rate == track.sample_rate
+            assert HELD_LATENTS_OUTPUT not in kwargs["output"]
+        # The encode is the tiles' hand-off, never part of the step's result
+        assert HELD_LATENTS_OUTPUT not in result
+        assert result[HELD_AUDIO_OUTPUT] == "audio"
 
     def test_output_is_narrowed_to_what_was_asked(self):
         _, _, result, _ = self.run(output=["videos"])

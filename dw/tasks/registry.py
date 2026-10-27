@@ -11,6 +11,13 @@ on its registration too (#692). `TASK_ARGUMENT_DOMAINS`,
 `TASK_ARGUMENT_CHOICES` and `TASK_MEDIA_ARGUMENTS` are `RegistryTable` views
 of them, so a command cannot be registered and miss a table: before, each was
 a hand-kept dict, and a command left out of one lost that check silently.
+
+This module imports nothing from `dw`: `dw/locations.py` reads its tables,
+and the task modules import the location policy, so a task import from here
+(even a lazy one - grimp counts those) is a cycle. A task module it needs
+something from registers that thing here instead (`register_command`,
+`register_weights_fallback`), or is named by a dotted path and imported
+when a lookup needs it.
 """
 
 import importlib
@@ -42,6 +49,15 @@ _COMMAND_RULES: Dict[str, dict] = {}
 # The module whose import registers every command - itself, and each
 # self-registering task module through its own import lines
 _REGISTERING_MODULE = "dw.tasks.task"
+
+# command -> its `required_weights(arguments)` hook, for the names that are
+# commands of a workflow step but not registrations: `process_image`'s
+# processors, dispatched by dw/tasks/image_utils.py from its own table. That
+# module registers a resolver here when it is imported (which importing
+# _REGISTERING_MODULE does), so this module never imports it: it imports
+# torch and the media loaders, which import the location policy, which
+# imports this module - a cycle the architecture ratchet counts
+_WEIGHTS_FALLBACKS: list = []
 
 
 class RegistryTable(Mapping):
@@ -213,10 +229,22 @@ def register_command(
     return decorator
 
 
+def register_weights_fallback(resolver):
+    """Add a `resolver(command) -> hook | None` consulted by
+    `required_weights_hook` for a command no registration declares - the
+    way a dispatch table outside the registry (image_utils' processors)
+    declares what its commands fetch. Registered once per resolver; a
+    re-import of the registering module is not a second entry."""
+    if resolver not in _WEIGHTS_FALLBACKS:
+        _WEIGHTS_FALLBACKS.append(resolver)
+    return resolver
+
+
 def required_weights_hook(command):
     """The `required_weights(arguments)` callable for `command`, or None when
     it fetches nothing the plan lists - a registered command's declared hook,
-    or an image processor's (`process_image`'s names are commands of their
+    else the first answer from a resolver `register_weights_fallback` holds
+    (an image processor's: `process_image`'s names are commands of their
     own, dispatched by `dw/tasks/image_utils.py` rather than registered)."""
     if not isinstance(command, str):
         return None
@@ -227,8 +255,8 @@ def required_weights_hook(command):
             return None
         module_path, _, name = path.rpartition(".")
         return getattr(importlib.import_module(module_path), name)
-    from .image_utils import available_processors, required_weights
-
-    if command.lower() in available_processors():
-        return lambda arguments: required_weights(command.lower(), arguments)
+    for resolver in _WEIGHTS_FALLBACKS:
+        hook = resolver(command)
+        if hook is not None:
+            return hook
     return None

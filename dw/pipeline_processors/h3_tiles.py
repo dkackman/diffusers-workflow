@@ -25,7 +25,12 @@ Four things make the seams disappear, and each is here:
   on by default.
 
 The held soundtrack is the hold block's own output, taken from the first tile:
-every tile holds the same track, and none of them decodes audio.
+every tile holds the same track, and none of them decodes audio. The track is
+encoded once, too: the first tile is asked for the block's encode of it
+(`h3_hold.HELD_LATENTS_OUTPUT`) and every later tile is handed a `hold_audio`
+carrying it (`h3_hold.encoded_hold_audio`), which the block writes in place of
+running the audio VAE again - the per-tile call still runs every non-decode
+block, so the hold is hoisted through the block rather than around it.
 
 Imports diffusers only inside the functions that need it, like the rest of the
 H3 modules, so validation never loads a modular pipeline.
@@ -37,9 +42,12 @@ import torch
 
 from ..events import emit_log, emit_phase, get_context
 from ..media_types import FrameList
+from .h3_hold import encoded_hold_audio
+from .h3_rules import HELD_LATENTS_OUTPUT
 from .h3_rules import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    HOLD_AUDIO_INPUT,
     H3_FPS,
     LATENT_SCALE,
     REFINE_NOISE,
@@ -239,6 +247,58 @@ def decode_canvas(pipeline, canvas):
     return state.get("videos")
 
 
+def _refine_tiles(pipeline, arguments, plan, noise, label):
+    """One call of `pipeline` (its tile blocks in place) per tile of `plan`:
+    `(tiles, held)`, the denoised latents in plan order and the held-audio
+    outputs of the first tile. The first tile is asked for the hold block's
+    encode of the track as well, and every later tile is handed a `hold_audio`
+    carrying it, so the audio VAE encodes the track once per refine."""
+    context = get_context()
+    latents = arguments["latents"]
+    holding = arguments.get(HOLD_AUDIO_INPUT) is not None
+    tiles, held = [], {}
+    for index, tile in enumerate(plan):
+        context.check_cancelled()
+        x, y, width, height = tile
+        emit_log(
+            f"Refining tile {index + 1}/{len(plan)} ({x},{y} {width}x{height})",
+            tile=index + 1,
+            tiles=len(plan),
+            x=x,
+            y=y,
+            width=width,
+            height=height,
+        )
+        names = ["latents"]
+        if index == 0:
+            names += [HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
+            if holding:
+                names.append(HELD_LATENTS_OUTPUT)
+        with reported_blocks(pipeline, f"{label} tile {index + 1}/{len(plan)}"):
+            result = pipeline(
+                **{
+                    **arguments,
+                    "width": width,
+                    "height": height,
+                    "latents": crop(latents, tile),
+                    REFINE_NOISE: crop(noise, tile),
+                    "output": names,
+                }
+            )
+        tiles.append(result["latents"])
+        if index == 0:
+            held = {k: result.get(k) for k in names[1:3]}
+            encoded = result.get(HELD_LATENTS_OUTPUT)
+            if holding and encoded is not None:
+                arguments = {
+                    **arguments,
+                    HOLD_AUDIO_INPUT: encoded_hold_audio(
+                        arguments[HOLD_AUDIO_INPUT], encoded
+                    ),
+                }
+    return tiles, held
+
+
 def run_tiled_refine(pipeline, arguments, label, decode=None):
     """Refine `arguments["latents"]` as the tiles of `arguments["refine_tiles"]`
     and return what a plain call returns for the step's `output`: a dict of
@@ -289,38 +349,8 @@ def run_tiled_refine(pipeline, arguments, label, decode=None):
         arguments = {k: v for k, v in arguments.items() if k not in takes or k in kept}
         arguments.update(encoded)
 
-    context = get_context()
-    tiles, held = [], {}
     with swapped_blocks(pipeline, tile_blocks), decoded_later():
-        for index, tile in enumerate(plan):
-            context.check_cancelled()
-            x, y, width, height = tile
-            emit_log(
-                f"Refining tile {index + 1}/{len(plan)} ({x},{y} {width}x{height})",
-                tile=index + 1,
-                tiles=len(plan),
-                x=x,
-                y=y,
-                width=width,
-                height=height,
-            )
-            names = ["latents"]
-            if index == 0:
-                names += [HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
-            with reported_blocks(pipeline, f"{label} tile {index + 1}/{len(plan)}"):
-                result = pipeline(
-                    **{
-                        **arguments,
-                        "width": width,
-                        "height": height,
-                        "latents": crop(latents, tile),
-                        REFINE_NOISE: crop(noise, tile),
-                        "output": names,
-                    }
-                )
-            tiles.append(result["latents"])
-            if index == 0:
-                held = {k: result.get(k) for k in names[1:]}
+        tiles, held = _refine_tiles(pipeline, arguments, plan, noise, label)
 
     canvas = blend(tiles, plan, tuple(latents.shape))
     emit_phase("decoding")

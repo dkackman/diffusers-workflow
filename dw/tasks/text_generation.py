@@ -17,14 +17,26 @@ import os
 import re
 
 from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
-from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
-from ..locations import validate_hub_repo_id, validate_weight_name
+from ..locations import validate_hub_repo_id
+from ..security import validate_weight_name
 from ..trust import require_trusted_generate_arguments
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
+
+
+def hf_pipeline(*args, **kwargs):
+    """`transformers.pipeline`, imported on the first call rather than at
+    module top: the plan's `required_weights` lookup imports this module on
+    every validate of one of its steps, and transformers costs a second-plus
+    the server need not pay. A module-level name so the tests patch it as
+    one (`patch("dw.tasks.text_generation.hf_pipeline")`)."""
+    from transformers import pipeline
+
+    return pipeline(*args, **kwargs)
+
 
 _DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 # Small enough to stand in for the old captioning default; override for

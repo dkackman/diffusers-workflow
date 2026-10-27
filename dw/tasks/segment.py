@@ -9,16 +9,34 @@ import logging
 import torch
 import numpy as np
 from PIL import Image, ImageOps
-from transformers import (
-    AutoProcessor,
-    AutoModelForZeroShotObjectDetection,
-    Sam2Model,
-    Sam2Processor,
-)
 from .model_cache import cached_model
 from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
+
+
+class _TransformersClass:
+    """A `transformers` class resolved on its first attribute read rather
+    than at module top: the plan's `required_weights` lookup imports this
+    module on every validate of a segment step, and transformers costs a
+    second-plus the server need not pay. Module-level names so the tests
+    patch them as such (`patch("dw.tasks.segment.Sam2Model")`)."""
+
+    def __init__(self, name):
+        self._name = name
+
+    def __getattr__(self, attribute):
+        import transformers
+
+        return getattr(getattr(transformers, self._name), attribute)
+
+
+AutoProcessor = _TransformersClass("AutoProcessor")
+AutoModelForZeroShotObjectDetection = _TransformersClass(
+    "AutoModelForZeroShotObjectDetection"
+)
+Sam2Model = _TransformersClass("Sam2Model")
+Sam2Processor = _TransformersClass("Sam2Processor")
 
 _DEFAULT_DINO_MODEL = "IDEA-Research/grounding-dino-base"
 _DEFAULT_SAM_MODEL = "facebook/sam2-hiera-large"

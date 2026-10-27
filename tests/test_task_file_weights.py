@@ -8,7 +8,7 @@ import textwrap
 
 import pytest
 
-import dw.plan
+import dw.plan_downloads
 from dw.plan import build_plan, downloads_required, gate_warnings
 from dw.tasks import face_track, h3_latent_upscale, interpolate_frames
 from dw.tasks import remove_object, restore_faces, upscale
@@ -42,7 +42,9 @@ def hub(tmp_path):
 def plan(tmp_path, hub, monkeypatch):
     """build_plan against an empty fake hub cache, offline, with facexlib's
     weights all present so only the hub entries are in play."""
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
     weights = tmp_path / "facexlib" / "weights"
     weights.mkdir(parents=True)
     for url in (
@@ -199,7 +201,7 @@ class TestFacexlib:
     def test_the_plan_lists_them_as_url_entries(self, tmp_path, monkeypatch):
         monkeypatch.setattr(restore_faces, "package_dir", lambda name: None)
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         spec = workflow(("restore_faces", {"use_parse": False}))
         required = downloads_required(
@@ -295,16 +297,21 @@ class TestFileInfo:
             seen["url"] = url
             return Meta()
 
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", head)
-        assert dw.plan._file_info("org/r", "sub/w.safetensors", PIN) == (3.0, False)
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", head)
+        assert dw.plan_downloads._file_info("org/r", "sub/w.safetensors", PIN) == (
+            3.0,
+            False,
+        )
         assert PIN in seen["url"] and seen["url"].endswith("sub/w.safetensors")
 
     def test_a_tiny_file_is_not_zero(self, monkeypatch):
         class Meta:
             size = 1000
 
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", lambda *a, **k: Meta())
-        assert dw.plan._file_info("org/r", "w.onnx", None) == (0.01, False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "get_hf_file_metadata", lambda *a, **k: Meta()
+        )
+        assert dw.plan_downloads._file_info("org/r", "w.onnx", None) == (0.01, False)
 
     def test_a_gated_file_is_blocked(self, monkeypatch):
         import httpx
@@ -315,15 +322,15 @@ class TestFileInfo:
         def gated(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", gated)
-        assert dw.plan._file_info("org/r", "w.onnx", None) == (None, True)
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", gated)
+        assert dw.plan_downloads._file_info("org/r", "w.onnx", None) == (None, True)
 
     def test_offline_is_unknown(self, monkeypatch):
         def offline(*a, **k):
             raise OSError("offline")
 
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", offline)
-        assert dw.plan._file_info("org/r", "w.onnx", None) == (None, None)
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", offline)
+        assert dw.plan_downloads._file_info("org/r", "w.onnx", None) == (None, None)
 
 
 def test_gate_warnings_skip_an_entry_with_no_repo():

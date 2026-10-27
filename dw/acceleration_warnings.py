@@ -91,7 +91,7 @@ SPARSE_FALLBACK = "sparse_attention_fallback"
 CACHE_UNSUPPORTED = "cache_unsupported"
 
 # The component names a cache hook attaches to, as in
-# dw.pipeline_processors.components.get_cache_transformer
+# dw.pipeline_processors.mag_calibration.get_cache_transformer
 _CACHE_COMPONENTS = ("transformer", "transformer_ref")
 
 

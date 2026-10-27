@@ -5390,10 +5390,10 @@ class TestValidatePlan:
     box lacks named. Best effort - the verdict is never the planner's."""
 
     def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             result = client.post(
@@ -5418,11 +5418,11 @@ class TestValidatePlan:
         """#186: a repo this box's token cannot access is a 403 partway into
         a run unless the pre-flight says so first."""
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -5430,7 +5430,7 @@ class TestValidatePlan:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate",
@@ -5446,10 +5446,10 @@ class TestValidatePlan:
         """#154: `basis: unknown` has to mean nobody has a number. A stored
         workflow this server has finished eleven times is priced from those
         runs, and the aggregate is asked with the caller's arguments."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         from dw import get_device, get_device_type
 
@@ -5493,10 +5493,10 @@ class TestValidatePlan:
 
     def test_an_inline_workflow_has_no_history_to_quote(self, server, monkeypatch):
         """It has no catalog name, so nothing joins it to a job row."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
 
         class History:
@@ -5554,10 +5554,10 @@ class TestValidatePlan:
         assert seen == [True, False]
 
     def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             manager = client.app.state.job_manager
@@ -5580,10 +5580,10 @@ class TestValidatePlan:
         assert probe[0]["output_dir"] == manager.output_dir
 
     def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             manager = client.app.state.job_manager
@@ -5595,10 +5595,10 @@ class TestValidatePlan:
         assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
 
     def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             body = {"workflow": valid_workflow("v")}
@@ -5799,9 +5799,11 @@ def bound(plan):
 
 @pytest.fixture
 def no_hub(monkeypatch):
-    import dw.plan
+    import dw.plan_downloads
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
 
 
 def list_workflow(job_id="listed"):
@@ -5931,10 +5933,10 @@ class TestBoundAcknowledgement:
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             assert bound(plan)["downloads"] == ["m"]
-            import dw.plan
+            import dw.plan_downloads
 
             monkeypatch.setattr(
-                dw.plan,
+                dw.plan_downloads,
                 "scan_models",
                 lambda cache_dir=None: {"repos": [{"repo_id": "m"}]},
             )
@@ -5969,11 +5971,11 @@ class TestBoundAcknowledgement:
     ):
         """#1038: the rebind a 409 offers carries the same observed figure
         a re-validate of the same run quotes, not `basis: unknown`."""
-        import dw.plan
+        import dw.plan_downloads
         from dw import get_device, get_device_type
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         serving = get_device_type(get_device())
 

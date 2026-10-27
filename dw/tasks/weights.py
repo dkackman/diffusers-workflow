@@ -16,7 +16,13 @@ a download it can name, so it gives no entry and never raises: whether a name
 is a hub id is decided by its shape, never by touching the disk, as the
 pipeline walk decides it.
 
-Torch-free on purpose: `dw/plan.py` imports it on every validate.
+Torch-free on purpose: `dw/plan.py` imports it on every validate. And a
+leaf of the package on purpose: its one `dw` import is `dw/security.py`.
+`dw/locations.py` imports the task registry, whose hook lookup reaches the
+task modules, which import this module - so an import of the location
+policy from here closed a cycle (the architecture ratchet's
+`import_cycles`), and `validate_weight_name` lives in `dw/security.py` for
+that reason.
 """
 
 import importlib.util
@@ -61,8 +67,7 @@ def file_entries(repo, filename, revision=None):
     plain relative name inside it - the plan checks the cache by joining the
     name onto it, so a name climbing out would make that check a probe of
     the disk."""
-    from ..locations import validate_weight_name
-    from ..security import SecurityError
+    from ..security import SecurityError, validate_weight_name
 
     if not is_hub_repo(repo):
         return []

@@ -12,6 +12,7 @@ from ..task_problems import (
 )
 from .borders import add_border_and_mask, add_border_and_mask_with_size
 from .model_cache import cached_model
+from .registry import register_weights_fallback
 import torch
 
 # cv2, controlnet_aux, transformers and the model-backed task modules are imported
@@ -603,6 +604,17 @@ def available_processors():
     without duplicating this dispatch table.
     """
     return sorted(_PROCESSORS)
+
+
+@register_weights_fallback
+def processor_weights_hook(command):
+    """`required_weights_hook`'s answer for a processor name (any case), or
+    None for a name that is not one - registered with the registry at
+    import so it can ask without importing this module (dw/tasks/registry.py)."""
+    processor = command.lower()
+    if processor not in _PROCESSORS:
+        return None
+    return lambda arguments: required_weights(processor, arguments)
 
 
 # Processors whose handler is a plain (image, device, kwargs) -> function(image, **kwargs)

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-import dw.plan
+import dw.plan_downloads
 from dw.plan import build_plan
 from dw.server.observed_cost import observed_for
 from dw.server.routes.jobs import _inherited_cost_warnings
@@ -237,7 +237,7 @@ class TestThePlanReportsIt:
         candidate = workflow_from_definition(
             definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {"num_frames": 124},
@@ -320,7 +320,7 @@ class TestScaledWhenItScales:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -413,7 +413,7 @@ class TestAListLongerThanTheFallbackBucket:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -462,7 +462,7 @@ class TestVariableFrameCountAndWithheldReason:
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
         withheld = {"inherited_from": "templates/t", "withheld": "not priced: why"}
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -494,7 +494,7 @@ class TestTaskOnlyWorkflowSaysWhyUnpriced:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
         estimate = plan["estimate"]
         assert estimate["basis"] == "unknown" and estimate["minutes"] is None
@@ -505,7 +505,7 @@ class TestTaskOnlyWorkflowSaysWhyUnpriced:
         candidate = workflow_from_definition(
             definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
         assert "unpriced_reason" not in plan["estimate"]
 
@@ -581,7 +581,7 @@ class TestScaledByStepsAndCanvas:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},
@@ -636,7 +636,7 @@ class TestAttentionCacheAndLoraDiffer:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},
@@ -675,7 +675,9 @@ class TestTheTemplateAndAnInlineCopyAgree:
             candidate = workflow_from_definition(
                 definition, str(tmp_path), str(tmp_path), str(tmp_path)
             )
-            with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            with patch.object(
+                dw.plan_downloads, "scan_models", return_value={"repos": []}
+            ):
                 return build_plan(
                     candidate,
                     self.ARGUMENTS,
@@ -778,7 +780,7 @@ class TestTheShippedTemplatesLoraIsCompared:
         candidate = workflow_from_definition(
             copy, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},

@@ -236,11 +236,8 @@ def _check_upscaler_source(model_name, weight_name):
     read with safetensors, so anything else - a local path, a name climbing
     out of the repo, a pickle format - is refused rather than handed on.
     """
-    from ..locations import (
-        SAFETENSORS_SUFFIX,
-        validate_hub_repo_id,
-        validate_weight_name,
-    )
+    from ..locations import SAFETENSORS_SUFFIX, validate_hub_repo_id
+    from ..security import validate_weight_name
 
     validate_hub_repo_id(model_name)
     validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,), subfolders=False)

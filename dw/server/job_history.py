@@ -101,9 +101,11 @@ _ADDED_COLUMNS = (
     # The job a rerun reran. NULL for a fresh submit and for every row
     # before the column
     ("rerun_of", "TEXT"),
-    # 1 once a kept asset's provenance names the job (#917), so a workspace
-    # delete leaves the row for get_job_workflow to read
-    ("kept", "INTEGER DEFAULT 0"),
+    # A database may hold a column no longer declared here (`kept`, #917,
+    # retired once #944 made a workspace delete retire every row rather
+    # than keep the ones an asset named): the migration only adds what is
+    # missing (`_add_missing_columns`), so a stray physical column is left
+    # alone and never read
 )
 
 
@@ -456,12 +458,6 @@ class JobHistory:
                 " WHERE workspace = ? AND workflow_name = ?",
                 (workspace, workflow_name),
             )
-
-    def mark_kept(self, job_id):
-        """Record that a kept asset's provenance names this job (#917), so
-        `forget_workspace` leaves its row."""
-        with self._lock, self._connect() as connection:
-            connection.execute("UPDATE jobs SET kept = 1 WHERE id = ?", (job_id,))
 
     def forget_workspace(self, workspace):
         """Retire the rows recorded in this workspace (#913). A new workspace

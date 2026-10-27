@@ -205,7 +205,8 @@ def paste_face_track_errors(arguments):
 def check_face_detector_source(repo, filename):
     """Refuse a detector source that is not a Hub repo id and a bare .onnx
     file name in it - before anything is downloaded."""
-    from .locations import validate_hub_repo_id, validate_weight_name
+    from .locations import validate_hub_repo_id
+    from .security import validate_weight_name
 
     validate_hub_repo_id(repo, what="detector_repo")
     validate_weight_name(
@@ -234,8 +235,8 @@ def face_track_errors(arguments):
         if name in arguments
     }
     errors = face_track_problems(**literal)
-    from .locations import validate_hub_repo_id, validate_weight_name
-    from .security import SecurityError
+    from .locations import validate_hub_repo_id
+    from .security import SecurityError, validate_weight_name
 
     for name, check in (
         ("detector_repo", lambda v: validate_hub_repo_id(v, what=name)),

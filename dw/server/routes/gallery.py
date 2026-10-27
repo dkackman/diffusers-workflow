@@ -120,8 +120,9 @@ def _gallery_entries(root, ws, consumed=frozenset()):
             annotated = output_annotations(
                 split[0], split[1], relative_name in consumed, cache
             )
-            # The listing does not report whose note it is
+            # The listing does not report whose note it is, nor the run's
             annotated.pop("note_source", None)
+            annotated.pop("run_note", None)
             entry.update(annotated)
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:

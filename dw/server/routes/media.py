@@ -209,12 +209,9 @@ def gallery_metadata(
             inputs = run_inputs(split[0])
             notes = {
                 key: annotated[key]
-                for key in ("note", "note_source", "starred")
+                for key in ("note", "note_source", "starred", "run_note")
                 if key in annotated
             }
-            run_note = read_notes(split[0])["run"]
-            if run_note:
-                notes["run_note"] = run_note
     metadata = read_embedded_metadata(path)
     if metadata is not None and not include_workflow and "workflow" in metadata:
         metadata = {

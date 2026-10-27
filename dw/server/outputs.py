@@ -559,10 +559,11 @@ def listed_file_role(run_dir, name, consumed):
 
 def output_annotations(run_dir, file_name, consumed, cache):
     """What the server says about one output file of a run: `role` (demoted
-    when `consumed`), `note` and `note_source` when it has a note, `starred`
-    when it is starred, and `version`, the run's ordinal among its workflow's
-    runs. The listing and the metadata route both describe a file through
-    this and build none of these themselves.
+    when `consumed`), `note` and `note_source` when it has a note, `run_note`
+    when its run has one, `starred` when it is starred, and `version`, the
+    run's ordinal among its workflow's runs. The listing and the metadata
+    route both describe a file through this and build none of these
+    themselves - the run's notes.json is read here, once, for all of them.
 
     `cache` is a dict the caller keeps for one listing, so each run's notes,
     stars and each workflow's versions are read once, not once per file."""
@@ -584,6 +585,8 @@ def output_annotations(run_dir, file_name, consumed, cache):
     if note:
         fields["note"] = note
         fields["note_source"] = source
+    if notes[run_dir]["run"]:
+        fields["run_note"] = notes[run_dir]["run"]
     if file_name in stars[run_dir]:
         fields["starred"] = True
     return fields
@@ -674,15 +677,18 @@ def with_run_note(summary, path):
     return {**summary, "note": note} if note else summary
 
 
-def with_run_state(detail, root, run_dir, roles=True):
+def with_run_state(detail, root, run_dir, roles=True, note=True):
     """A job's detail with what its run directory says now: the run note,
     and each manifest entry's role. The worker reports the manifest it held
     in memory, which carries no roles - so each entry takes the role
-    `run_roles` gives its files; a run from before roles stays without. `roles` false leaves the manifest alone."""
+    `run_roles` gives its files; a run from before roles stays without.
+    `roles` false leaves the manifest alone; `note` false skips the notes
+    read, for a caller stamping roles alone (`JobManager._stamp_roles`)."""
     path = job_run_directory(root, run_dir)
     if path is None:
         return detail
-    detail = with_run_note(detail, path)
+    if note:
+        detail = with_run_note(detail, path)
     roles = run_roles(path) if roles else None
     manifest = detail.get("manifest")
     if not roles or not isinstance(manifest, list):

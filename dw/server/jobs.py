@@ -826,13 +826,13 @@ class JobManager(Dispatcher):
     def _stamp_roles(self, job):
         """Put each manifest entry's role on the job while its run directory
         is read, so history serves the entries a live job does (#957) - the
-        run may be moved or deleted before the job is read back."""
+        run may be moved before the job is read back. Roles only: no note."""
         try:
             location = self.run_location(job.id)
             if location is not None and isinstance(job.manifest, list):
-                job.manifest = with_run_state({"manifest": job.manifest}, *location)[
-                    "manifest"
-                ]
+                job.manifest = with_run_state(
+                    {"manifest": job.manifest}, *location, note=False
+                )["manifest"]
         except Exception as e:
             logger.warning(f"Could not read roles for job {job.id}: {e}")
 

@@ -46,7 +46,7 @@ import math
 from types import SimpleNamespace
 
 from .. import dsp
-from ..assessment_rules import DEAD_AIR_FLOOR_DBFS, finding
+from ..assessment_rules import finding
 from ..task_domains import check_arguments
 from ..events import emit_log
 from ..locations import is_http_url
@@ -62,9 +62,21 @@ from ..script_lines import (
     shot_names_error,
     with_full_shot_names,
 )
-from .assess import DEAD_AIR_WINDOW, resolve_shots, sample_span
+from .assess import resolve_shots
 from .audio_transcription import WHISPER_DEFAULT_MODEL
 from .audio_utils import waveform_and_rate
+from .script_take import (
+    GUARD_FLOOR_DBFS,
+    GUARD_WINDOW_SECONDS,
+    round_seconds,
+    guard_words,
+    level_for_transcription,
+    overlapping_shot,
+    per_shot_chunks,
+    shot_at,
+    shot_spans,
+    word_level,
+)
 
 logger = logging.getLogger("dw")
 
@@ -72,14 +84,8 @@ logger = logging.getLogger("dw")
 # it is a `line_mismatch`. The template's own default is set from stage A's
 # two-model measurement (#609 Q3); this one is the task's
 DEFAULT_SIMILARITY = 0.85
-# A heard word is guarded (discarded as unheard) when its loudest
-# GUARD_WINDOW_SECONDS window sits at or below GUARD_FLOOR_DBFS. The floor is
-# the assessment probes' dead-air floor and the window is the one
-# `shot_dead_air` measures in (`DEAD_AIR_WINDOW`), both read, not copied. The loudest window rather than the whole
-# span, because a word timestamp is approximate (+-0.1-0.3 s) and a span
-# that overhangs the pause after a word must not average a real word away
-GUARD_FLOOR_DBFS = DEAD_AIR_FLOOR_DBFS
-GUARD_WINDOW_SECONDS = DEAD_AIR_WINDOW
+# GUARD_FLOOR_DBFS and GUARD_WINDOW_SECONDS, the guard over heard words,
+# live in dw/tasks/script_take.py beside `guard_words`
 # A line is clipped at the end when its last heard word ends inside the
 # file's final CLIP_TAIL_SECONDS and that tail measures above
 # GUARD_FLOOR_DBFS - still voiced when the file stops, not a word that
@@ -191,175 +197,6 @@ UNSCRIPTED_SPEECH = _rule(
 )
 
 
-# Whisper drops soft speech from a quiet input, so the same shot got different
-# verdicts by level (#925). The transcriber hears the take scaled so its loud
-# end sits near full scale - a take only 2 dB under that still lost a soft
-# "Uh," that +6 dB brought back; the level checks keep reading the original
-# waveform.
-TRANSCRIBE_PEAK = 0.9
-TRANSCRIBE_MAX_GAIN = 100.0  # 40 dB: a near-silent take is not boosted to noise
-
-
-def level_for_transcription(waveform):
-    """(waveform, gain) with the 99.9th-percentile magnitude scaled to
-    TRANSCRIBE_PEAK (spikes past full scale clipped); gain is 1.0 for silence."""
-    import numpy
-
-    loud = float(numpy.percentile(numpy.abs(waveform), 99.9)) if waveform.size else 0.0
-    if loud <= 0.0:
-        return waveform, 1.0
-    gain = min(TRANSCRIBE_PEAK / loud, TRANSCRIBE_MAX_GAIN)
-    leveled = numpy.clip(waveform * gain, -1.0, 1.0).astype(numpy.float32)
-    return leveled, gain
-
-
-def shot_spans(records, sample_rate, fps, duration):
-    """Each shot record as {name, start, end} in seconds on the take, or None
-    when one cannot be placed. Placed by `assess.sample_span`, the rule the
-    probes use (recorded sample span, else frames by `fps`). Clipped to the
-    take's `duration`."""
-    if not sample_rate:
-        return None
-    media = SimpleNamespace(fps=fps, sample_rate=sample_rate)
-    spans = []
-    for record in records:
-        start, count, _source = sample_span(record, media)
-        if start is None:
-            return None
-        start, end = start / sample_rate, (start + count) / sample_rate
-        start = min(max(0.0, float(start)), duration)
-        spans.append(
-            {
-                "name": record["name"],
-                "start": start,
-                "end": max(start, min(float(end), duration)),
-            }
-        )
-    return spans
-
-
-def overlapping_shot(spans, start, end):
-    """The name of the shot [start, end] overlaps most, or None. A span of no
-    length (a one-word line's zero-length chunk) is placed by where it sits."""
-    best, best_overlap = None, 0.0
-    for span in spans:
-        overlap = min(span["end"], end) - max(span["start"], start)
-        if overlap > best_overlap or (
-            best is None and overlap == 0 and span["start"] <= start < span["end"]
-        ):
-            best, best_overlap = span["name"], overlap
-    return best
-
-
-def shot_at(spans, seconds):
-    """The name of the shot holding `seconds`, or None."""
-    for span in spans:
-        if span["start"] <= seconds < span["end"]:
-            return span["name"]
-    return None
-
-
-def word_level(mono, sample_rate, start, end):
-    """The loudest GUARD_WINDOW_SECONDS window's rms over [start, end], in
-    dBFS, or None for silence (`dsp.loudest_window_dbfs`)."""
-    return dsp.loudest_window_dbfs(mono, sample_rate, start, end, GUARD_WINDOW_SECONDS)
-
-
-def _round(value, places=3):
-    return None if value is None else round(float(value), places)
-
-
-def guard_words(chunks, mono, sample_rate, script_words=None):
-    """Split transcribe_audio's word chunks into (heard, discarded).
-
-    `heard` is [{word, text, start, end}], one per normalized word - a chunk
-    that normalizes to nothing ('♪', '...') is neither; `discarded` is
-    [{text, start, end, level_dbfs, reason, count}] for a chunk at or below
-    the floor ("below_floor"), a chunk repeating the previous one's exact span
-    ("repeated_span": words cannot share a span, #971) or a repetition loop
-    ("repetition": one entry
-    per run of consecutive looped chunks, `count` chunks, `text` the first's,
-    `start`/`end` the run's span).
-
-    A loop's first occurrence is kept as heard when `script_words` (the
-    words the script holds) contains all of its words and it has real
-    duration and speech level: Whisper loops on a line it did hear (#961).
-    """
-    spoken = []
-    for chunk in chunks:
-        words = normalize_words(chunk.get("text", ""))
-        if words:
-            spoken.append((chunk, words))
-    # The loop detector is script_lines' (shared with transcribe_audio's
-    # `suspect: "repetition"`); a chunk with no word is in no loop
-    looped, firsts = looped_texts_firsts([chunk.get("text", "") for chunk, _ in spoken])
-
-    heard, discarded = [], []
-    run_end = None  # spoken index of the last chunk folded into discarded[-1]
-    for index, (chunk, words) in enumerate(spoken):
-        start, end = chunk["start"], chunk["end"]
-        level = word_level(mono, sample_rate, start, end)
-        before = spoken[index - 1] if index else None
-        previous_span = (
-            None
-            if before is None
-            else (before[0]["start"], before[0]["end"], before[1])
-        )
-        first_of_line = (
-            index in firsts
-            and script_words is not None
-            and set(words) <= script_words
-            and end > start
-        )
-        if (start, end, words) == previous_span:
-            reason = "repeated_span"
-        elif index in looped and not first_of_line:
-            reason = "repetition"
-        elif level is None or level <= GUARD_FLOOR_DBFS:
-            reason = "below_floor"
-        else:
-            reason = None
-        if (
-            reason in ("repetition", "repeated_span")
-            and run_end == index - 1
-            and discarded[-1]["reason"] == reason
-        ):
-            # A loop is one entry: its span, its chunk count, its loudest level
-            last = discarded[-1]
-            last["end"] = _round(max(last["end"], end))
-            last["count"] += 1
-            if level is not None and (
-                last["level_dbfs"] is None or level > last["level_dbfs"]
-            ):
-                last["level_dbfs"] = _round(level, 2)
-            run_end = index
-            continue
-        if reason:
-            discarded.append(
-                {
-                    "text": chunk.get("text", "").strip(),
-                    "start": _round(start),
-                    "end": _round(end),
-                    "level_dbfs": _round(level, 2),
-                    "reason": reason,
-                    "count": 1,
-                }
-            )
-            run_end = index if reason in ("repetition", "repeated_span") else None
-            continue
-        run_end = None
-        for word in words:
-            heard.append(
-                {
-                    "word": word,
-                    "text": chunk.get("text", "").strip(),
-                    "start": start,
-                    "end": end,
-                }
-            )
-    return heard, discarded
-
-
 def align(expected_lines, heard):
     """Assign each heard word to the expected line it was spoken for.
 
@@ -451,10 +288,10 @@ def tail_level(mono, sample_rate, end=None):
 def _at(line, heard_word=None, seconds=None, shot=None):
     at = {"line": line}
     if heard_word is not None:
-        at["seconds"] = _round(heard_word["start"])
+        at["seconds"] = round_seconds(heard_word["start"])
         at["word"] = heard_word["text"]
     else:
-        at["seconds"] = _round(seconds)
+        at["seconds"] = round_seconds(seconds)
     if shot is not None:
         at["shot"] = shot
     return at
@@ -517,8 +354,8 @@ def _shots_entry(spans):
     return [
         {
             "name": span["name"],
-            "start": _round(span["start"]),
-            "end": _round(span["end"]),
+            "start": round_seconds(span["start"]),
+            "end": round_seconds(span["end"]),
         }
         for span in spans
     ]
@@ -538,111 +375,149 @@ def check(
     waveforms. `chunks` is transcribe_audio's word chunks; `mono` a 1-D
     float waveform; `spans` the take's shots as shot_spans() places them, or
     None when none are known, and `shots_source` where they came from
-    (resolve_shots: argument, artifact, manifest or none)."""
+    (resolve_shots: argument, artifact, manifest or none).
+
+    The phases, each a helper below: the guard (`guard_words`) and the
+    silent-take answer (`_silent_take`); the loop findings
+    (`_loop_findings`); the alignment (`align`, `_release_repeats`); the
+    line pass (`_line_pass`: one `lines` entry and the line rules per line);
+    the tags left between lines (`_unassigned_tags`); the shot rules
+    (`_shot_rules`)."""
     script_words = {
         word for line in parsed_lines for word in normalize_words(line["text"])
     }
     heard, discarded = guard_words(chunks, mono, sample_rate, script_words)
-    duration = len(mono) / sample_rate if sample_rate else 0.0
-    findings = _loop_findings(chunks, script_words) if parsed_lines else []
-    loop_starts = [found["at"]["seconds"] for found in findings]
-
     if not parsed_lines:
         return _silent_take(heard, discarded, spans, shots_source)
 
+    duration = len(mono) / sample_rate if sample_rate else 0.0
+    findings = _loop_findings(chunks, script_words)
+    loop_starts = [found["at"]["seconds"] for found in findings]
     expected = [normalize_words(line["text"]) for line in parsed_lines]
     assigned, unassigned = align(expected, heard)
     _release_repeats(expected, heard, assigned, unassigned)
-    mismatch = mismatch_rule(similarity_threshold)
-    by_name = {span["name"]: span for span in spans or ()}
+    lines, claimed, found = _line_pass(
+        parsed_lines,
+        expected,
+        assigned,
+        heard,
+        unassigned,
+        mono,
+        sample_rate,
+        duration,
+        spans,
+        loop_starts,
+        similarity_threshold,
+    )
+    findings.extend(found)
+    findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
+    rules_applied, rules_skipped, found = _shot_rules(
+        spans,
+        shots_source,
+        parsed_lines,
+        expected,
+        heard,
+        unassigned,
+        claimed,
+        similarity_threshold,
+    )
+    findings.extend(found)
+    findings.sort(key=lambda found: found["at"].get("seconds") or 0.0)
+    return {
+        "findings": findings,
+        "lines": lines,
+        "discarded": discarded,
+        "unmatched": [_heard_entry(heard[j]) for j, _ in unassigned],
+        "shots": _shots_entry(spans),
+        "shots_source": shots_source,
+        "rules_applied": rules_applied,
+        "rules_skipped": rules_skipped,
+    }
 
-    lines = []
-    # The shot of the line each heard word was matched to: a word a line in
-    # another shot claimed (one straddling the cut) is that line's speech,
-    # not speech in a silent shot
-    claimed = {}
+
+def _line_pass(
+    parsed_lines,
+    expected,
+    assigned,
+    heard,
+    unassigned,
+    mono,
+    sample_rate,
+    duration,
+    spans,
+    loop_starts,
+    similarity_threshold,
+):
+    """The line pass: each line's `lines` entry (`_line_entry`) and, for a
+    line something was heard for, the gap before it
+    (`_between_lines_findings`), its clipped tail (`_clipped_findings`) and
+    the sound its words leave out (`_untranscribed_findings`); then the
+    stretch after the last line heard, to the end of the take.
+
+    Returns (lines, claimed, findings): `claimed` maps each assigned heard
+    index to the shot of the line it was matched to - a word a line in
+    another shot claimed (one straddling the cut) is that line's speech, not
+    speech in a silent shot."""
+    by_name = {span["name"]: span for span in spans or ()}
+    mismatch = mismatch_rule(similarity_threshold)
+    lines, claimed, findings = [], {}, []
     strays = [heard[j] for j, _ in unassigned]
     previous_end = 0.0
     heard_end = None  # end of the last word any earlier line was heard to say
+    last_line = last_shot = None
     for index, (line, words, indices) in enumerate(
         zip(parsed_lines, expected, assigned)
     ):
         own = [heard[j] for j in indices]
-        # A markup word spoken aloud is tag_spoken's to report, not a
-        # mismatch too: it is left out of the line's score
-        tokens = set(line["tokens"]) - set(words)
-        score = line_similarity(
-            words, [word["word"] for word in own if word["word"] not in tokens]
-        )
-        start = own[0]["start"] if own else None
-        end = own[-1]["end"] if own else None
         # The shot the line names, else the one its heard words overlap most
         shot = line["shot"]
         if shot is None and spans is not None and own:
-            shot = overlapping_shot(spans, start, end)
+            shot = overlapping_shot(spans, own[0]["start"], own[-1]["end"])
         span = by_name.get(shot)
         claimed.update((j, shot) for j in indices)
-        # A line nothing was heard for, at or after a transcript_loop, was
-        # never transcribed: Whisper was stuck, so it is not a 0.0 mismatch
+        # Where a dropped line sits: its shot's start, else after the last
+        # line heard
         position = span["start"] if span else previous_end
-        looped = not own and any(at <= position for at in loop_starts)
-        lines.append(
-            {
-                "expected": line["text"],
-                "heard": None if looped else _joined(own),
-                "similarity": None if looped else round(score, 4),
-                "start": _round(start),
-                "end": _round(end),
-                "shot": shot,
-            }
+        entry, found = _line_entry(
+            index,
+            line,
+            words,
+            own,
+            shot,
+            position,
+            # A line nothing was heard for, at or after a transcript_loop,
+            # was never transcribed: Whisper was stuck, so it is not a 0.0
+            # mismatch
+            looped=not own and any(at <= position for at in loop_starts),
+            mismatch=mismatch,
+            similarity_threshold=similarity_threshold,
         )
-        if looped:
-            lines[-1]["not_transcribed"] = "transcript_loop"
-        elif score < similarity_threshold:
-            if own:
-                at = _at(index, own[0], shot=shot)
-            else:
-                # A dropped line: where its shot starts, else after the last
-                # line heard
-                at = _at(
+        lines.append(entry)
+        findings.extend(found)
+        if not own:
+            continue
+        start, end = own[0]["start"], own[-1]["end"]
+        if heard_end is not None:
+            findings.extend(
+                _between_lines_findings(
+                    mono,
+                    sample_rate,
                     index,
-                    seconds=span["start"] if span else previous_end,
-                    shot=shot,
+                    heard_end,
+                    start,
+                    shot,
+                    strays,
+                    spans,
+                    parsed_lines,
                 )
-            findings.append(finding(mismatch, round(score, 4), at))
-
-        for word in own:
-            if word["word"] in tokens:
-                findings.append(
-                    finding(TAG_SPOKEN, word["word"], _at(index, word, shot=shot))
-                )
-
-        if own:
-            if heard_end is not None:
-                findings.extend(
-                    _between_lines_findings(
-                        mono,
-                        sample_rate,
-                        index,
-                        heard_end,
-                        start,
-                        shot,
-                        strays,
-                        spans,
-                        parsed_lines,
-                    )
-                )
-            if heard_end is None or end >= heard_end:
-                last_line, last_shot = index, shot
-            heard_end = max(heard_end or 0.0, end)
-            tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
-            findings.extend(
-                _clipped_findings(mono, sample_rate, tails, index, own, shot)
             )
-            findings.extend(
-                _untranscribed_findings(mono, sample_rate, index, own, shot)
-            )
-            previous_end = end
+        if heard_end is None or end >= heard_end:
+            last_line, last_shot = index, shot
+        heard_end = max(heard_end or 0.0, end)
+        tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
+        findings.extend(_clipped_findings(mono, sample_rate, tails, index, own, shot))
+        findings.extend(_untranscribed_findings(mono, sample_rate, index, own, shot))
+        previous_end = end
 
     if heard_end is not None:
         # The stretch after the last line heard, to the end of the take: the
@@ -661,14 +536,68 @@ def check(
                 parsed_lines,
             )
         )
+    return lines, claimed, findings
 
-    findings.extend(_unassigned_tags(heard, unassigned, parsed_lines, expected, spans))
 
+def _line_entry(
+    index, line, words, own, shot, position, looped, mismatch, similarity_threshold
+):
+    """One line's `lines` entry and its own findings: `line_mismatch` when
+    its heard words score under the threshold (placed at its first heard
+    word, else at `position`), and `tag_spoken` for each markup word heard
+    in it. A looped line (`looped`) scores nothing and is marked
+    `not_transcribed`. Returns (entry, findings)."""
+    # A markup word spoken aloud is tag_spoken's to report, not a
+    # mismatch too: it is left out of the line's score
+    tokens = set(line["tokens"]) - set(words)
+    score = line_similarity(
+        words, [word["word"] for word in own if word["word"] not in tokens]
+    )
+    entry = {
+        "expected": line["text"],
+        "heard": None if looped else _joined(own),
+        "similarity": None if looped else round(score, 4),
+        "start": round_seconds(own[0]["start"]) if own else None,
+        "end": round_seconds(own[-1]["end"]) if own else None,
+        "shot": shot,
+    }
+    findings = []
+    if looped:
+        entry["not_transcribed"] = "transcript_loop"
+    elif score < similarity_threshold:
+        if own:
+            at = _at(index, own[0], shot=shot)
+        else:
+            at = _at(index, seconds=position, shot=shot)
+        findings.append(finding(mismatch, round(score, 4), at))
+    for word in own:
+        if word["word"] in tokens:
+            findings.append(
+                finding(TAG_SPOKEN, word["word"], _at(index, word, shot=shot))
+            )
+    return entry, findings
+
+
+def _shot_rules(
+    spans,
+    shots_source,
+    parsed_lines,
+    expected,
+    heard,
+    unassigned,
+    claimed,
+    similarity_threshold,
+):
+    """The shot rules (`SHOT_RULES`) when the shots are known and a line
+    names one (`_no_shot_reason`), else their skip entries. Returns
+    (rules_applied, rules_skipped, findings); `SILENT_RULES` are skipped
+    whenever lines were given."""
     rules_applied = list(LINE_RULES)
     rules_skipped = [
         {"rule": rule, "reason": "lines were given - speech is expected"}
         for rule in SILENT_RULES
     ]
+    findings = []
     no_shot = _no_shot_reason(shots_source, spans, parsed_lines)
     if no_shot is None:
         rules_applied.extend(SHOT_RULES)
@@ -680,18 +609,7 @@ def check(
         )
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
-
-    findings.sort(key=lambda found: found["at"].get("seconds") or 0.0)
-    return {
-        "findings": findings,
-        "lines": lines,
-        "discarded": discarded,
-        "unmatched": [_heard_entry(heard[j]) for j, _ in unassigned],
-        "shots": _shots_entry(spans),
-        "shots_source": shots_source,
-        "rules_applied": rules_applied,
-        "rules_skipped": rules_skipped,
-    }
+    return rules_applied, rules_skipped, findings
 
 
 def _loop_findings(chunks, script_words):
@@ -709,7 +627,7 @@ def _loop_findings(chunks, script_words):
                     set(normalize_words(m["text"])) <= script_words for m in members
                 ):
                     at = _at(None, seconds=members[0]["start"])
-                    at["end"] = _round(members[-1]["end"])
+                    at["end"] = round_seconds(members[-1]["end"])
                     found.append(finding(TRANSCRIPT_LOOP, len(members), at))
             run = []
         if index is not None:
@@ -850,8 +768,8 @@ def _untranscribed(mono, sample_rate, index, start, end, shot):
     if level is None or level <= UNHEARD_FLOOR_DBFS:
         return None
     at = _at(index, seconds=start, shot=shot)
-    at["end"] = _round(end)
-    return finding(SPEECH_NOT_TRANSCRIBED, _round(end - start, 2), at)
+    at["end"] = round_seconds(end)
+    return finding(SPEECH_NOT_TRANSCRIBED, round_seconds(end - start, 2), at)
 
 
 def _clipped_findings(mono, sample_rate, tails, index, own, shot):
@@ -866,10 +784,10 @@ def _clipped_findings(mono, sample_rate, tails, index, own, shot):
     )
     if clipped is None:
         return []
-    at = {"line": index, "seconds": _round(end), "word": own[-1]["text"]}
+    at = {"line": index, "seconds": round_seconds(end), "word": own[-1]["text"]}
     if clipped[0] is not None or shot is not None:
         at["shot"] = clipped[0] or shot
-    return [finding(CLIPPED_AT_END, _round(clipped[1], 2), at)]
+    return [finding(CLIPPED_AT_END, round_seconds(clipped[1], 2), at)]
 
 
 def _unassigned_tags(heard, unassigned, parsed_lines, expected, spans):
@@ -910,7 +828,7 @@ def _silent_shot_findings(spans, parsed_lines, heard, claimed):
         if inside:
             at = _at(None, inside[0], shot=span["name"])
             # A word straddling the cut into this shot is placed at the cut
-            at["seconds"] = max(at["seconds"], _round(span["start"]))
+            at["seconds"] = max(at["seconds"], round_seconds(span["start"]))
             findings.append(finding(SPEECH_IN_SILENT_SHOT, len(inside), at))
     return findings
 
@@ -940,7 +858,7 @@ def _unscripted_findings(
             continue
         at = _at(None, inside[0], shot=span["name"])
         words = [word["word"] for word in inside]
-        at["end"] = _round(inside[-1]["end"])
+        at["end"] = round_seconds(inside[-1]["end"])
         at["repeats_line"] = any(
             line and _contains(words, line) for line in lines
         ) or any(line and _contains(line, words) for line in lines)
@@ -962,8 +880,8 @@ def _contains(words, part):
 def _heard_entry(word):
     return {
         "text": word["text"],
-        "start": _round(word["start"]),
-        "end": _round(word["end"]),
+        "start": round_seconds(word["start"]),
+        "end": round_seconds(word["end"]),
     }
 
 
@@ -977,27 +895,6 @@ def _joined(words):
             texts.append(word["text"])
             last = key
     return " ".join(texts)
-
-
-def per_shot_chunks(transcribe, waveform, rate, spans):
-    """Word chunks from transcribing each shot's span on its own, timestamps
-    moved back onto the take's clock. `transcribe(leveled, rate)` is
-    transcribe_audio's chunks for one slice; each is levelled alone."""
-    chunks = []
-    for span in spans:
-        lo, hi = int(round(span["start"] * rate)), int(round(span["end"] * rate))
-        if hi <= lo:
-            continue
-        piece, _gain = level_for_transcription(waveform[..., lo:hi])
-        for chunk in transcribe(piece, rate):
-            chunks.append(
-                dict(
-                    chunk,
-                    start=chunk["start"] + span["start"],
-                    end=chunk["end"] + span["start"],
-                )
-            )
-    return chunks
 
 
 def check_script(

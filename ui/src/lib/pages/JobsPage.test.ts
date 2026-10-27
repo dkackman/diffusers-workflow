@@ -15,8 +15,13 @@ vi.mock('../api', () => ({
   api: {
     listJobs: () =>
       Promise.resolve({ jobs: [...data.jobs], total: data.jobs.length }),
+    // The listing names the default workspace, as the server's always does:
+    // a route parse that found it missing would redirect to overview
     listWorkspaces: () =>
-      Promise.resolve({ default: 'default', workspaces: [] }),
+      Promise.resolve({
+        default: 'default',
+        workspaces: [{ name: 'default', default: true }],
+      }),
   },
 }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -123,5 +128,27 @@ it('reads its filters from the link and writes them back to it', async () => {
   await fireEvent.click(screen.getByText('clear filters'))
   expect(location.hash).toBe('#/ws/default/jobs')
   expect(screen.getByText('fine')).toBeTruthy()
+  location.hash = ''
+})
+
+it('navigating to the bare jobs route clears the filters', async () => {
+  location.hash = '#/ws/default/jobs?status=failed&q=bro'
+  data.jobs = [
+    summary({ id: 'f1', workflow: 'broke', status: 'failed' }),
+    summary({ id: 'ok', workflow: 'fine' }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
+  expect(screen.queryByText('fine')).toBeNull()
+  // The Jobs nav link: same route view, so the page is not re-created
+  location.hash = '#/ws/default/jobs'
+  await waitFor(() => expect(screen.getByText('fine')).toBeTruthy())
+  const status = screen.getByTitle('filter by status') as HTMLSelectElement
+  expect(status.value).toBe('')
+  const input = screen.getByPlaceholderText(
+    'filter by workflow…',
+  ) as HTMLInputElement
+  expect(input.value).toBe('')
+  expect(location.hash).toBe('#/ws/default/jobs')
   location.hash = ''
 })

@@ -35,6 +35,19 @@
       ws: scope === 'all' ? workspaceFilter : '',
     }),
   )
+  // The route's view is unchanged when the Jobs nav link lands on the bare
+  // route from a narrowed one, so the page is not re-created: the filters
+  // follow the hash too, and a hash with no query clears them
+  $effect(() => {
+    const sync = () => {
+      const query = hashQuery()
+      statusFilter = query.status ?? ''
+      nameFilter = query.q ?? ''
+      workspaceFilter = query.ws ?? ''
+    }
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  })
   const filtered = $derived(
     !!statusFilter || !!nameFilter || (scope === 'all' && !!workspaceFilter),
   )

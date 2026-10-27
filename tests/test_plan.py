@@ -84,13 +84,15 @@ def output_root(tmp_path):
 def plan(tmp_path, prompt_library, output_root, monkeypatch):
     """build_plan over the fixture, with the hub cache empty and the hub
     unreachable, so downloads never touch the network in these tests."""
-    import dw.plan
+    import dw.plan_downloads
 
     def offline(*a, **k):
         raise RuntimeError("offline")
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
-    monkeypatch.setattr(dw.plan, "model_info", offline)
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
+    monkeypatch.setattr(dw.plan_downloads, "model_info", offline)
 
     def make(spec=None, arguments=None, **overrides):
         spec = definition() if spec is None else spec
@@ -1667,14 +1669,16 @@ class TestDownloadsRequired:
         ]
 
     def test_a_cached_repo_is_not(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
         assert plan()["downloads_required"] == []
 
     def test_a_present_but_incomplete_repo_is_still_required(self, plan, monkeypatch):
@@ -1682,10 +1686,10 @@ class TestDownloadsRequired:
         revision folder in place) but whose snapshot is missing files the
         load needs stays in downloads_required rather than reading as
         cached."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
@@ -1695,7 +1699,9 @@ class TestDownloadsRequired:
             seen.append((name, variant))
             return True
 
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", fake_incomplete)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", fake_incomplete
+        )
         assert plan()["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1707,7 +1713,7 @@ class TestDownloadsRequired:
         assert seen == [("org/still-model", None)]
 
     def test_cache_dir_reaches_scan_models(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         seen = []
 
@@ -1715,7 +1721,7 @@ class TestDownloadsRequired:
             seen.append(cache_dir)
             return {"repos": []}
 
-        monkeypatch.setattr(dw.plan, "scan_models", spy)
+        monkeypatch.setattr(dw.plan_downloads, "scan_models", spy)
         plan(cache_dir="/somewhere")
         assert seen == ["/somewhere"]
 
@@ -1895,10 +1901,10 @@ class TestDownloadsRequired:
             ], local
 
     def test_a_cached_task_repo_is_not_required(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {
                 "repos": [
@@ -1907,7 +1913,9 @@ class TestDownloadsRequired:
                 ]
             },
         )
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
         spec = definition()
         spec["steps"].append(
             {"name": "cutout", "task": {"command": "remove_background"}}
@@ -1959,7 +1967,7 @@ class TestDownloadsRequired:
         ]
 
     def test_sizes_come_from_the_hub_in_gib(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             def __init__(self, size):
@@ -1975,7 +1983,7 @@ class TestDownloadsRequired:
             calls.append((name, kwargs))
             return Info()
 
-        monkeypatch.setattr(dw.plan, "model_info", fake_model_info)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", fake_model_info)
         answer = plan(lookup_sizes=True)["downloads_required"]
         assert answer == [
             {
@@ -1990,7 +1998,7 @@ class TestDownloadsRequired:
         assert calls[0][1]["timeout"] == 5.0
 
     def test_a_gated_repo_this_token_may_access_is_not_blocked(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             rfilename = "config.json"
@@ -1999,8 +2007,10 @@ class TestDownloadsRequired:
             siblings = [Sibling()]
             gated = "manual"
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", lambda url, **k: object())
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(
+            dw.plan_downloads, "get_hf_file_metadata", lambda url, **k: object()
+        )
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2014,7 +2024,7 @@ class TestDownloadsRequired:
         self, plan, monkeypatch
     ):
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -2029,8 +2039,8 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2042,7 +2052,7 @@ class TestDownloadsRequired:
 
     def test_a_gated_repo_model_info_itself_refuses_is_blocked(self, plan, monkeypatch):
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -2050,7 +2060,7 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2061,13 +2071,13 @@ class TestDownloadsRequired:
         ]
 
     def test_a_gated_repo_with_no_probeable_file_is_unknown(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Info:
             siblings = []
             gated = "auto"
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2080,7 +2090,7 @@ class TestDownloadsRequired:
     def test_a_gate_probe_failing_for_an_unrelated_reason_is_unknown(
         self, plan, monkeypatch
     ):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             rfilename = "config.json"
@@ -2092,8 +2102,8 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise RuntimeError("offline")
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2104,12 +2114,12 @@ class TestDownloadsRequired:
         ]
 
     def test_a_hub_failure_is_a_null_size(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         def boom(*a, **k):
             raise RuntimeError("offline")
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -2120,12 +2130,12 @@ class TestDownloadsRequired:
         ]
 
     def test_lookup_sizes_false_never_calls_the_hub(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         def boom(*a, **k):
             raise AssertionError("must not be called")
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         plan(lookup_sizes=False)
 
 
@@ -2286,17 +2296,19 @@ class TestAnAdapterIsADownloadToo:
         }
 
     def repos(self, present, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": name} for name in present]},
         )
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
         return [
             entry["repo"]
-            for entry in dw.plan.downloads_required(
+            for entry in dw.plan_downloads.downloads_required(
                 self.definition(), None, None, None, False
             )
         ]

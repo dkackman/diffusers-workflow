@@ -10,7 +10,8 @@ from unittest import mock
 import pytest
 import torch
 
-from dw.locations import location_errors, validate_weight_name
+from dw.locations import location_errors
+from dw.security import validate_weight_name
 from dw.security import InvalidInputError, PathTraversalError
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
 from dw.tasks import h3_latent_upscale
