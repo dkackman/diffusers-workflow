@@ -74,6 +74,53 @@ def refine_problems(arguments):
     return problems
 
 
+# refine_tiles (#1043): a refine above H3's 768p canvas, run as overlapping
+# tiles of at most TILE_LIMIT, blended in latent space and decoded once
+REFINE_TILES_INPUT = "refine_tiles"
+# The canvas noise drawn once and cropped per tile, handed to the refine block
+REFINE_NOISE = "dw_refine_noise"
+TILE_LIMIT = (1344, 768)
+TILE_GRID = 32
+TILE_OVERLAP_FLOOR = 192
+# Pixels per latent cell: a `latents` canvas is its latent height x width x 16
+LATENT_SCALE = 16
+
+
+def _axis_starts(length, tile, overlap):
+    """The tile origins along one axis: the fewest tiles whose every overlap is
+    at least `overlap`, spread evenly on the TILE_GRID, the last flush to the
+    edge."""
+    if tile >= length:
+        return [0]
+    span = length - tile
+    count = 2 + max(0, -(-span // (tile - overlap)) - 1)
+    while True:
+        starts = [
+            (span * index // (count - 1)) // TILE_GRID * TILE_GRID
+            for index in range(count - 1)
+        ] + [span]
+        if all(
+            tile - (later - earlier) >= overlap
+            for earlier, later in zip(starts, starts[1:])
+        ):
+            return starts
+        count += 1
+
+
+def tile_plan(width, height, tile_width, tile_height, overlap):
+    """The tiles covering a `width` x `height` canvas, as (x, y, w, h) in
+    pixels, row-major: per axis the fewest tiles whose overlap is at least
+    `overlap`, spread evenly on the 32 px grid, the last flush to the edge.
+    1920x1088 at 1344x768/256 is 2x2. A pure function - the run and its
+    tests both ask it."""
+    tile_width, tile_height = min(tile_width, width), min(tile_height, height)
+    return [
+        (x, y, tile_width, tile_height)
+        for y in _axis_starts(height, tile_height, overlap)
+        for x in _axis_starts(width, tile_width, overlap)
+    ]
+
+
 def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
     arguments - or None when it can or cannot be told before the load."""
