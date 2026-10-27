@@ -220,7 +220,7 @@ class TestTheFill:
         assert len(out.frames) == 4 and out.fps == 8
         assert len(stub.calls) == 4
 
-    def test_the_command_takes_the_tasks_device(self, stub):
+    def test_the_command_takes_the_tasks_device(self, stub, all_backends_available):
         task = Task({"command": "remove_object", "arguments": {}}, "mps")
         task.run({"image": photo(), "mask_image": square_mask()})
         assert stub.load.call_args.args[0] == "mps"
