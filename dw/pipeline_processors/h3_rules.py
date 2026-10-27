@@ -94,6 +94,8 @@ TILE_GRID = 32
 TILE_OVERLAP_FLOOR = 192
 # Pixels per latent cell: a `latents` canvas is its latent height x width x 16
 LATENT_SCALE = 16
+# The rate H3 generates video at
+H3_FPS = 24
 
 
 # The arguments that condition a step on a reference, a keyframe or a guide: the

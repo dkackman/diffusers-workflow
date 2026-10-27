@@ -296,3 +296,65 @@ class TestTileLoop:
         with pytest.raises(ZeroDivisionError):
             run_tiled_refine(pipeline, arguments, "step", decode=lambda c: c)
         assert pipeline._blocks == "full"
+
+
+class TestTileLoopReporting:
+    def test_tiles_report_no_decoding_and_the_canvas_decode_reports_one(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.pipeline_processors import progress
+
+        follows = []
+
+        class Recording(FakePipeline):
+            def __call__(self, **kwargs):
+                follows.append(progress._DECODE_FOLLOWS.get())
+                return super().__call__(**kwargs)
+
+        collected = []
+        token = activate_context(RunContext(on_event=collected.append))
+        try:
+            run_tiled_refine(
+                Recording(),
+                {
+                    "latents": torch.zeros(CANVAS),
+                    REFINE_TILES_INPUT: {"width": 1344, "height": 768, "overlap": 256},
+                },
+                "step",
+                decode=lambda canvas: [["frame"]],
+            )
+        finally:
+            deactivate_context(token)
+        # The text encode may report a decode-free loop either way; the
+        # tiles never do
+        assert follows[-len(PLAN) :] == [False] * len(PLAN)
+        assert progress._DECODE_FOLLOWS.get() is True
+        phases = [e.get("phase") for e in collected if e["event"] == "phase"]
+        assert phases == ["decoding"]
+
+    def test_the_videos_carry_h3s_frame_rate(self):
+        """Bare frame lists play at the writer's 8 fps: pair_audio fed the
+        tiled step's videos wrote a 15.5 s file of a 5.17 s take."""
+        _, _, result, _ = TestTileLoop().run(output=["videos"])
+        videos = result["videos"]
+        assert videos.fps == 24
+        assert all(video.fps == 24 for video in videos)
+        assert videos == [["frame"]]
+
+    def test_pair_audio_plays_the_tiled_videos_at_24_fps(self):
+        import numpy
+
+        from dw.tasks.pair_audio import pair_audio
+
+        _, _, result, _ = TestTileLoop().run(output=["videos"])
+        paired = pair_audio(
+            result["videos"], numpy.zeros((2, 48000), numpy.float32), sample_rate=48000
+        )
+        paired = paired[0] if isinstance(paired, list) else paired
+        assert paired.fps == 24
+
+    def test_the_frame_rate_survives_the_worker_queue(self):
+        import pickle
+
+        _, _, result, _ = TestTileLoop().run(output=["videos"])
+        videos = pickle.loads(pickle.dumps(result["videos"]))
+        assert videos.fps == 24 and videos[0].fps == 24

@@ -23,6 +23,7 @@ import logging
 
 import torch
 
+from ..pipeline_processors.h3_rules import H3_FPS
 from ..result import AudioVideo
 from .weights import file_entries
 
@@ -65,8 +66,6 @@ MAX_SCALE = 4.0
 # is soft until it is refined.
 MAX_SHORT_EDGE = 1088
 MAX_LONG_EDGE = 1920
-# The rate H3 generates video at
-H3_FPS = 24
 
 # The per-channel statistics the upscaler's training normalized its latents
 # by - the ComfyUI node's LATENTS_MEAN / LATENTS_STD, equal to the H3 VAE
@@ -125,6 +124,51 @@ LATENTS_STD = (
 )
 
 
+def _whole(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def target_size_problems(width, height):
+    """What is wrong with a literal pixel target, as [(argument, message)].
+
+    The one rule validate (the task's `static_check`) and the run
+    (`target_latent_size`) both apply, so a size is refused at both or
+    neither, in the same words: each side on the 16 px grid, and the pair
+    within the 1920x1088 (or 1088x1920 portrait) cap. A side that is not a
+    positive whole number - a reference or a variable not yet resolved - is
+    left to the run.
+    """
+    problems = []
+    for name, value in (("width", width), ("height", height)):
+        if _whole(value) and value % SPATIAL_FACTOR:
+            problems.append(
+                (
+                    name,
+                    f"{name} must be a multiple of {SPATIAL_FACTOR} (the H3 "
+                    f"VAE's spatial factor), got {value}; the nearest are "
+                    f"{value // SPATIAL_FACTOR * SPATIAL_FACTOR} and "
+                    f"{(value // SPATIAL_FACTOR + 1) * SPATIAL_FACTOR}",
+                )
+            )
+    if not (_whole(width) and _whole(height)):
+        return problems
+    long_name, short_name = (
+        ("width", "height") if width >= height else ("height", "width")
+    )
+    over_long = max(width, height) > MAX_LONG_EDGE
+    if over_long or min(width, height) > MAX_SHORT_EDGE:
+        # Named on the side that breaks the cap
+        problems.append(
+            (
+                long_name if over_long else short_name,
+                f"width x height {width}x{height} is over the upscale cap: "
+                f"at most {MAX_LONG_EDGE}x{MAX_SHORT_EDGE} (or "
+                f"{MAX_SHORT_EDGE}x{MAX_LONG_EDGE} portrait)",
+            )
+        )
+    return problems
+
+
 def target_latent_size(latents, width, height):
     """The (T, H, W) latent size a pixel target names, or a directed refusal.
 
@@ -159,19 +203,9 @@ def target_latent_size(latents, width, height):
             raise ValueError(
                 f"{name} must be a positive whole number of pixels, got {value!r}"
             )
-        if value % SPATIAL_FACTOR:
-            raise ValueError(
-                f"{name} must be a multiple of {SPATIAL_FACTOR} (the H3 VAE's "
-                f"spatial factor), got {value}; the nearest are "
-                f"{value // SPATIAL_FACTOR * SPATIAL_FACTOR} and "
-                f"{(value // SPATIAL_FACTOR + 1) * SPATIAL_FACTOR}"
-            )
-    if min(width, height) > MAX_SHORT_EDGE or max(width, height) > MAX_LONG_EDGE:
-        raise ValueError(
-            f"width x height {width}x{height} is over the upscale cap: "
-            f"at most {MAX_LONG_EDGE}x{MAX_SHORT_EDGE} (or "
-            f"{MAX_SHORT_EDGE}x{MAX_LONG_EDGE} portrait)"
-        )
+    problems = target_size_problems(width, height)
+    if problems:
+        raise ValueError(problems[0][1])
 
     frames, in_h, in_w = latents.shape[-3:]
     out_h, out_w = height // SPATIAL_FACTOR, width // SPATIAL_FACTOR
