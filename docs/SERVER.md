@@ -47,7 +47,10 @@ the same choice, and the flag wins over it. A list (`--devices cuda:0,cuda:1`)
 runs one worker per card, each running one job at a time. A card named twice,
 or a bare `cuda` in a list of several, is refused at startup, as is a card the
 machine lacks, with the message naming the cards that are present
-(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...).
+(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...). A list survives a card being
+pulled: an entry the machine lacks is dropped with a warning naming it, and
+the server starts on the rest. Only a list none of whose cards is present
+(or a single absent card) is refused.
 
 Each job's record carries `device` - the card it ran on, as the server
 addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`), set when the job starts

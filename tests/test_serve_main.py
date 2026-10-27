@@ -110,6 +110,18 @@ def two_cards(monkeypatch):
 
 
 @pytest.fixture
+def one_card(monkeypatch):
+    """A box that had two cards and now has one - lem with a card pulled."""
+    import torch
+
+    monkeypatch.setattr(torch.cuda, "is_available", lambda: True)
+    monkeypatch.setattr(torch.cuda, "device_count", lambda: 1)
+    monkeypatch.setattr(
+        torch.cuda, "get_device_name", lambda index=0: "NVIDIA GeForce RTX 3090"
+    )
+
+
+@pytest.fixture
 def settings_devices(monkeypatch):
     """Sets what the `devices` setting holds."""
     import importlib
@@ -159,6 +171,22 @@ class TestResolveServeDevices:
         assert "cuda:0 (NVIDIA GeForce RTX 4090)" in message
         assert "cuda:1 (NVIDIA GeForce RTX 3090)" in message
 
+    def test_a_card_gone_from_a_list_is_dropped_and_reported(self, one_card):
+        from dw.devices import resolve_serve_devices
+
+        absent = []
+        devices = resolve_serve_devices("cuda:0,cuda:1", None, on_absent=absent.append)
+        assert devices == ["cuda:0"]
+        assert len(absent) == 1
+        assert "There is no cuda:1" in absent[0]
+        assert "cuda:0 (NVIDIA GeForce RTX 3090)" in absent[0]
+
+    def test_a_list_with_no_card_present_is_refused(self, one_card):
+        from dw.devices import DeviceConfigError, resolve_serve_devices
+
+        with pytest.raises(DeviceConfigError, match="There is no cuda:1"):
+            resolve_serve_devices("cuda:1,cuda:2", None, on_absent=lambda _: None)
+
     @pytest.mark.parametrize("value", [None, ""])
     def test_naming_nothing_is_none(self, value):
         from dw.devices import resolve_serve_devices
@@ -199,6 +227,25 @@ class TestConfigureDevices:
         assert exit_info.value.code == 2
         assert "cuda:1 (NVIDIA GeForce RTX 3090)" in capsys.readouterr().err
         assert "DW_DEVICE" not in os.environ
+
+    def test_a_pulled_card_in_the_setting_starts_on_the_rest_and_warns(
+        self, one_card, settings_devices, monkeypatch, capsys
+    ):
+        import types
+
+        from dw.serve import configure_devices
+
+        # setenv first so monkeypatch records the original state and undoes
+        # whatever configure_devices assigns
+        monkeypatch.setenv("DW_DEVICE", "unset")
+        monkeypatch.delenv("DW_DEVICE")
+        settings_devices("cuda:0,cuda:1")
+        devices = configure_devices(types.SimpleNamespace(devices=None))
+        assert devices == ["cuda:0"]
+        assert os.environ["DW_DEVICE"] == "cuda:0"
+        err = capsys.readouterr().err
+        assert "There is no cuda:1" in err
+        assert "cuda:0" in err
 
     def test_success_sets_dw_device(self, two_cards, settings_devices, monkeypatch):
         import types
