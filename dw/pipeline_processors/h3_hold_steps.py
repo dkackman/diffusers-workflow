@@ -21,6 +21,7 @@ import logging
 import torch
 from diffusers.modular_pipelines.minimax_h3.before_denoise import (
     MiniMaxH3SetTimestepsStep,
+    patchify_video_latents,
 )
 from diffusers.modular_pipelines.minimax_h3.before_encoder import (
     MiniMaxH3Ref2VASetupStep,
@@ -44,7 +45,9 @@ from .h3_rules import (
     HELD_AUDIO_RATE_OUTPUT,
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
+    REFINE_NOISE,
     REFINE_STRENGTH_INPUT,
+    REFINE_TILES_INPUT,
 )
 
 logger = logging.getLogger("dw")
@@ -269,6 +272,25 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                     "about 0.2. Runs num_inference_steps - 1 evaluations."
                 ),
             ),
+            InputParam(
+                name=REFINE_TILES_INPUT,
+                type_hint=dict,
+                default=None,
+                description=(
+                    "{width, height, overlap} in pixels: refine a `latents` canvas past H3's own size as "
+                    "overlapping tiles. dw's tiled refine handles it before the call, one call per tile; "
+                    "this block never reads it."
+                ),
+            ),
+            InputParam(
+                name=REFINE_NOISE,
+                type_hint=torch.Tensor,
+                default=None,
+                description=(
+                    "Internal: noise shaped like `latents`, drawn once for the whole canvas and cropped per "
+                    "tile, so tiles that overlap start from the same noise. Used in place of a draw of its own."
+                ),
+            ),
             InputParam(name="num_inference_steps", type_hint=int, default=50),
             InputParam.template("generator"),
             InputParam(name="latents", type_hint=torch.Tensor, required=True),
@@ -341,12 +363,24 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
         latents = block_state.latents
         start = block_state.num_condition_video_rows or 0
         clean = latents[start:]
-        noise = randn_tensor(
-            clean.shape,
-            generator=block_state.generator,
-            device=clean.device,
-            dtype=clean.dtype,
-        )
+        supplied = getattr(block_state, REFINE_NOISE, None)
+        if supplied is None:
+            noise = randn_tensor(
+                clean.shape,
+                generator=block_state.generator,
+                device=clean.device,
+                dtype=clean.dtype,
+            )
+        else:
+            # Packed the way `latents` reached its rows
+            noise = patchify_video_latents(
+                supplied.to(clean.device, torch.float32), components.patch_size
+            ).to(clean.dtype)
+            if noise.shape != clean.shape:
+                raise ValueError(
+                    f"{REFINE_NOISE} packs to {tuple(noise.shape)}, but the rows "
+                    f"to re-noise are {tuple(clean.shape)}"
+                )
         # The scheduler's own forward process, in H3's t = 1 - σ convention
         block_state.latents = torch.cat(
             [

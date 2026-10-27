@@ -24,7 +24,7 @@ from ..sparse_attention import (
 from huggingface_hub.errors import HfHubHTTPError
 from .timing import counting_forwards, report_cache_stats
 from .h3_guides import insert_guides
-from .h3_hold import insert_audio_hold
+from .h3_hold import core_denoise_sequences, insert_audio_hold
 from .placement import (
     apply_on_demand_placement,
     create_components_manager,
@@ -714,6 +714,11 @@ def load_component(
             insert_audio_hold(component)
             # ...and `guides` on t2va and fl2va
             insert_guides(component)
+            # ...and the decode-free graph a `refine_tiles` step runs per tile
+            from .h3_tiles import attach_tile_blocks
+
+            if core_denoise_sequences(component):
+                attach_tile_blocks(component)
 
         if defer_placement:
             # The caller places this itself, once it has finished loading the

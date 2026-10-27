@@ -238,9 +238,11 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
     consumes_device=True,
     required_weights="dw.tasks.h3_latent_upscale.required_weights",
     summary=(
-        "Resize MiniMax-H3 video latents to a larger canvas (e.g. a 960x544 "
-        "take to 1344x768) without denoising again; decode_h3_latents turns "
-        "the result into frames. The whole promoting workflow is "
+        "Resize MiniMax-H3 video latents to a larger plate (e.g. a 960x544 "
+        "take to 1920x1088) without denoising again; decode_h3_latents turns "
+        "the result into frames. The plate is for a tiled refine_tiles "
+        "refine (denoised in tiles of at most 1344x768); upscale-only above "
+        "768p it is soft. The whole promoting workflow is "
         "get_guide('workflows', section='upscale_h3_latents')."
     ),
     parameter_descriptions={
@@ -251,11 +253,11 @@ def _handle_interpolate_frames(task, arguments, previous_pipelines):
         ),
         "width": (
             "Target width in pixels: a multiple of 16, 1x to 4x the latents' "
-            "own width, within H3's 1344x768 canvas."
+            "own width, up to 1920x1088 (1088x1920 portrait)."
         ),
         "height": (
             "Target height in pixels: a multiple of 16, 1x to 4x the latents' "
-            "own height, within H3's 1344x768 canvas."
+            "own height, up to 1920x1088 (1088x1920 portrait)."
         ),
         "model_name": (
             "Hugging Face repo id holding the upscaler, never a path (default "

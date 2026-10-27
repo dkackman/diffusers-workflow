@@ -3,8 +3,9 @@ MiniMax-H3 latent upscale and decode.
 
 `upscale_h3_latents` resizes the video latents a MiniMax-H3 pipeline returns
 (`output: [..., "latents"]`) with a vendored 3D-convolution network
-(`h3_latent_upscaler_model`), so a 544p take can be promoted to 1344x768
-without denoising it again. `decode_h3_latents` turns latents back into
+(`h3_latent_upscaler_model`), so a 544p take can be promoted to a plate of up to
+1920x1088 (a `refine_tiles` refine, #1043, then denoises it) without denoising
+it again here. `decode_h3_latents` turns latents back into
 frames through diffusers' own H3 video decode block, so the VAE's
 denormalization, autocast and pixel un-normalization stay diffusers' rather
 than a copy that could drift from it.
@@ -58,9 +59,12 @@ LATENT_CHANNELS = 24
 # The per-axis scale range the upscaler was trained over
 MIN_SCALE = 1.0
 MAX_SCALE = 4.0
-# H3's canvas: a short edge of at most 768 and a long edge of at most 1344
-MAX_SHORT_EDGE = 768
-MAX_LONG_EDGE = 1344
+# The target is a plate for a tiled `refine_tiles` refine (#1043), which
+# denoises it in tiles of at most 1344x768. 1920x1088 is 2x a 960x544 take,
+# inside the upscaler's trained 1-4x range. An upscale-only plate above 768p
+# is soft until it is refined.
+MAX_SHORT_EDGE = 1088
+MAX_LONG_EDGE = 1920
 # The rate H3 generates video at
 H3_FPS = 24
 
@@ -164,7 +168,7 @@ def target_latent_size(latents, width, height):
             )
     if min(width, height) > MAX_SHORT_EDGE or max(width, height) > MAX_LONG_EDGE:
         raise ValueError(
-            f"width x height {width}x{height} is over MiniMax-H3's canvas: "
+            f"width x height {width}x{height} is over the upscale cap: "
             f"at most {MAX_LONG_EDGE}x{MAX_SHORT_EDGE} (or "
             f"{MAX_SHORT_EDGE}x{MAX_LONG_EDGE} portrait)"
         )

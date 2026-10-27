@@ -2485,6 +2485,378 @@ Validation refuses a `refine_strength` that is not a number between 0 and 1 (exc
 refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
 
+To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
+tiles](#refining-above-768p-in-tiles).
+
+### Refining above 768p in tiles
+
+H3's refine runs at 1344x768 at most, and `upscale_h3_latents` now reaches 1920x1088 (or
+1088x1920). An upscale-only plate above 768p is soft: `upscale_h3_latents` to 1920x1088
+alone, decoded, is not a 1080p render, since the interpolation adds no detail. To put the
+detail in, give the refine step `refine_tiles`, which refines a `latents` canvas bigger than
+H3's own in overlapping tiles. It is a second argument to `refine_strength`, not a
+replacement: the strength, the held audio and the step count mean what they did above.
+
+```json
+{"refine_tiles": {"width": 1344, "height": 768, "overlap": 256}}
+```
+
+The step plans the tiles on the 32 px grid: the fewest per axis whose overlap is at least
+the requested one, spread evenly, the last flush to the edge. A 1920x1088 canvas at
+1344x768 with overlap 256 is 2x2, tiles at x 0 and 576, y 0 and 320. The noise is drawn
+once for the whole canvas from the step's generator and cropped per tile, so overlapping
+tiles start from the same noise. Each tile is denoised through H3 without its decode block,
+and the prompt is encoded once. The tiles are blended in latent space with a linear feather
+across each overlap, the weights normalized, and the blended canvas is decoded once with VAE
+spatial tiling. The step returns the full-canvas `latents`, the video and stage 1's held
+audio, once. The job's events show one log line per tile and one decoding phase.
+
+It is slow. A 1920x1088 refine is roughly 4 tiles, each a 768p refine, plus a 1080p decode:
+about 25-30 minutes, against about 9.6 minutes for a native 768p take (an estimate, not
+measured). The validate projection prices the denoise at the tile's size and the decode at the
+canvas's, so a tiled refine does not warn as if it denoised 1080p at once.
+
+```json
+{
+    "id": "H3LatentUpscaleRefineTiles",
+    "description": "Promote a MiniMax-H3 take from 960x544 to a 1920x1088 canvas in latent space, refine it in overlapping 1344x768 tiles, and pair the held audio.",
+    "variables": {
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
+        "num_frames": 124,
+        "num_inference_steps": 5,
+        "video_shift": 6.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "reason": "the video VAE encodes 17 * n + 5 frames"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "base",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": 960,
+                    "height": 544,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate",
+                        "latents"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "up",
+            "task": {
+                "command": "upscale_h3_latents",
+                "arguments": {
+                    "latents": "previous_result:base.latents",
+                    "width": 1920,
+                    "height": 1088
+                }
+            }
+        },
+        {
+            "name": "refine",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ],
+                    "latents": "previous_result:up",
+                    "refine_strength": 0.2,
+                    "refine_tiles": {
+                        "width": 1344,
+                        "height": 768,
+                        "overlap": 256
+                    },
+                    "hold_audio": "previous_result:base.audio"
+                }
+            }
+        },
+        {
+            "name": "mux",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:refine.videos",
+                    "audio": "previous_result:base.audio",
+                    "sample_rate": "previous_result:base.sampling_rate",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
+```
+
+The refine step uses the 768p turbo LoRA with its own schedule (`video_shift` 6, `audio_shift`
+3, alpha left to the file), as `workflows/templates/minimax/video-with-audio-768p.json` does. It
+carries no `width` or `height`: the canvas is the `latents`. Naming them is allowed, and must
+equal the canvas, which is the latent height x width x 16.
+
+Validation and the run refuse, naming `refine_tiles`:
+
+- `refine_tiles` without `refine_strength`, or without what refine needs: `latents`,
+  `hold_audio`, an H3 step and `num_inference_steps` of at least 2;
+- a `width`, `height` or `overlap` that is not an integer multiple of 32;
+- a tile larger than 1344x768 (or 768x1344), or larger than the canvas;
+- an `overlap` below 192, or at or above half the tile's shorter side;
+- a reference image or video, a `<Picture N>`, a keyframe or `guides` on the step;
+- an explicit `width` or `height` that does not match the `latents` canvas.
+
 ### Chained Video Generation
 
 Video pipelines generate short clips - a `chain` block on a pipeline step runs the

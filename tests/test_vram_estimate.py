@@ -12,7 +12,12 @@ from unittest.mock import patch
 import pytest
 
 import dw.validation
-from dw.vram_estimate import apply_vram_estimate, reference_count, vram_estimate_errors
+from dw.vram_estimate import (
+    apply_vram_estimate,
+    largest_projection,
+    reference_count,
+    vram_estimate_errors,
+)
 from dw.workflow import workflow_from_definition
 
 
@@ -438,3 +443,87 @@ def test_a_projection_between_the_real_card_and_its_rounded_catalog_entry_is_ref
     assert vram_estimate_errors(d, device_type="cuda", capacity_gb=24) == []
     with pytest.raises(ValueError):
         apply_vram_estimate(d, d["variables"], device_type="cuda", capacity_gb=23.6)
+
+
+# --- refine_tiles (#1043): denoise per tile, decode at the canvas -----------
+
+H3_768P = {
+    "base_gb": 16.3,
+    "bytes_per_voxel": 28.71,
+    "voxel_variables": ["width", "height", "num_frames"],
+}
+
+
+def _h3_refine(canvas=(1920, 1088), frames=124, tiles=None):
+    arguments = {"width": canvas[0], "height": canvas[1], "num_frames": frames}
+    if tiles is not None:
+        arguments["refine_tiles"] = tiles
+    return {
+        "cost": [
+            {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 9.87}
+        ],
+        "vram_estimate": dict(H3_768P),
+        "steps": [{"name": "refine", "pipeline": {"arguments": arguments}}],
+    }
+
+
+def _projected(definition):
+    return largest_projection(definition, device_type="cuda")["gb"]
+
+
+def _tiles(width=1344, height=768, overlap=128):
+    return {"width": width, "height": height, "overlap": overlap}
+
+
+def test_a_tiled_refine_denoises_at_the_tile_size():
+    gb = _projected(_h3_refine(tiles=_tiles()))
+    assert gb == pytest.approx(16.3 + 28.71 * 1344 * 768 * 124 / 1024**3)
+    assert gb == pytest.approx(19.7, abs=0.05)
+
+
+def test_the_canvas_decode_term_wins_when_it_dominates():
+    definition = _h3_refine(frames=2000, tiles=_tiles(320, 320))
+    decode = 28.71 * 1920 * 1088 * 2000 / 1024**3
+    denoise = 16.3 + 28.71 * 320 * 320 * 2000 / 1024**3
+    assert decode > denoise
+    assert _projected(definition) == pytest.approx(decode)
+
+
+def test_an_untiled_step_is_unchanged():
+    gb = _projected(_h3_refine())
+    assert gb == pytest.approx(16.3 + 28.71 * 1920 * 1088 * 124 / 1024**3)
+
+
+def test_a_tiled_step_that_warns_untiled_does_not_when_tiled():
+    untiled = _h3_refine(frames=250)
+    assert _projected(untiled) > 24
+    assert vram_estimate_errors(untiled, device_type="cuda")
+    tiled = _h3_refine(frames=250, tiles=_tiles())
+    assert _projected(tiled) < 24
+    assert vram_estimate_errors(tiled, device_type="cuda") == []
+
+
+def test_a_tiled_error_message_names_what_was_priced():
+    errors = vram_estimate_errors(
+        _h3_refine(frames=2000, tiles=_tiles(320, 320)), device_type="cuda"
+    )
+    message = errors[0]["message"]
+    assert "320*320*2000 (refine_tiles 320x320: denoise priced per tile" in message
+    assert "decode at the 1920x1088 canvas" in message
+
+
+@pytest.mark.parametrize(
+    "tiles",
+    [
+        "1344x768",
+        [1344, 768],
+        {"width": "wide", "height": 768},
+        {"width": 1344},
+        {"width": True, "height": 768},
+        {"width": 0, "height": 768},
+    ],
+)
+def test_a_malformed_refine_tiles_falls_back_to_the_untiled_projection(tiles):
+    assert _projected(_h3_refine(tiles=tiles)) == pytest.approx(
+        _projected(_h3_refine())
+    )

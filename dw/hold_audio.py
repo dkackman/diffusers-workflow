@@ -33,10 +33,13 @@ from .for_each import render_path
 from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
+    REFINE_TILES_INPUT,
     not_h3,
     refine_problems,
 )
 from .security import ALLOWED_AUDIO_EXTENSIONS
+
+UPSCALE_COMMAND = "upscale_h3_latents"
 
 
 def _not_audio(value):
@@ -97,26 +100,62 @@ def hold_audio_errors(workflow_definition, source_indices=None):
     return errors
 
 
+def _upscaled_canvas(steps, latents):
+    """The (width, height) an `upscale_h3_latents` step the `latents` argument
+    names will produce, or None when it names something else or the task's size
+    is not a literal pair."""
+    name = references.ref_name(references.PREVIOUS_RESULT, latents)
+    if name is None:
+        return None
+    name = name.partition(".")[0]
+    for _, step, task, _, _ in references.iter_steps(steps, None, "task"):
+        if step.get("name") != name:
+            continue
+        arguments = task.get("arguments")
+        if task.get("command") != UPSCALE_COMMAND or not isinstance(arguments, dict):
+            return None
+        width, height = arguments.get("width"), arguments.get("height")
+        if all(isinstance(v, int) and not isinstance(v, bool) for v in (width, height)):
+            return width, height
+        return None
+    return None
+
+
 def refine_strength_errors(workflow_definition, source_indices=None):
-    """Every `refine_strength` argument refused before the run, as
-    [{path, message}] - walked the way `hold_audio_errors` walks."""
+    """Every `refine_strength` or `refine_tiles` argument refused before the
+    run, as [{path, message}] - walked the way `hold_audio_errors` walks. A
+    problem about `refine_tiles` is at its path; the rest are at
+    `refine_strength`'s."""
     errors = []
+    steps = workflow_definition.get("steps")
     for _, _, pipeline, source, where in references.iter_steps(
-        workflow_definition.get("steps"), source_indices, "pipeline"
+        steps, source_indices, "pipeline"
     ):
         arguments = pipeline.get("arguments")
-        if (
-            not isinstance(arguments, dict)
-            or arguments.get(REFINE_STRENGTH_INPUT) is None
+        if not isinstance(arguments, dict) or (
+            arguments.get(REFINE_STRENGTH_INPUT) is None
+            and arguments.get(REFINE_TILES_INPUT) is None
         ):
             continue
-        path = render_path(
-            ("steps", source, "pipeline", "arguments", REFINE_STRENGTH_INPUT)
-        )
-        h3_problem = not_h3(pipeline, REFINE_STRENGTH_INPUT)
-        problems = ([h3_problem] if h3_problem else []) + refine_problems(arguments)
-        for problem in problems:
-            errors.append({"path": path, "message": f"{problem}{where}"})
+        paths = {
+            name: render_path(("steps", source, "pipeline", "arguments", name))
+            for name in (REFINE_STRENGTH_INPUT, REFINE_TILES_INPUT)
+        }
+        problems = []
+        for name in (REFINE_STRENGTH_INPUT, REFINE_TILES_INPUT):
+            if arguments.get(name) is not None:
+                problems.append((name, not_h3(pipeline, name)))
+        canvas = _upscaled_canvas(steps, arguments.get("latents"))
+        for problem in refine_problems(arguments, canvas):
+            name = (
+                REFINE_TILES_INPUT
+                if problem.startswith(REFINE_TILES_INPUT)
+                else REFINE_STRENGTH_INPUT
+            )
+            problems.append((name, problem))
+        for name, problem in problems:
+            if problem is not None:
+                errors.append({"path": paths[name], "message": f"{problem}{where}"})
     return errors
 
 
