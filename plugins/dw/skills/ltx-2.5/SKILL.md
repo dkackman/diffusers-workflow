@@ -26,8 +26,8 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 ## Which shape is the request
 
 - **A clip from text**: `templates/ltx2/text-to-video` (960x544, 121 frames, 5s).
-- **From a picture**: `templates/ltx2/image-to-video` (first frame; 481 frames
-  is 20s in one pass, so extend or chain only past that);
+- **From a picture**: `templates/ltx2/image-to-video` (first frame; 401 frames
+  is ~17s in one pass at 768x768 on a 24 GB card, so extend or chain only past that);
   `templates/ltx2/keyframes` (first and last frames pinned);
   `templates/ltx2/enhance-prompt` (a one-line idea plus a picture; the model's
   enhancer writes the caption).
