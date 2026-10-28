@@ -7,19 +7,142 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
-- A validate's `downloads_required` now also lists the Hugging Face repos
-  task steps fetch (`segment`, `remove_background`, `diffusion_upscale`,
-  `transcribe_audio`, `check_script`, `generate_speech`, `attribute_voices`,
-  `text_generation`, `image_to_text`, `judge`, the image processors; #977).
-  A bound `acknowledged_cost` taken from a validate made before this deploy
-  is answered 409 `downloads` after it when the workflow has one of these
-  tasks and its repo is not cached: re-validate and resend the new
-  `acknowledge`. The same holds for the tasks that fetch single files
-  (`upscale`, `restore_faces`, `remove_object`, `upscale_h3_latents`,
-  `crop_face_track`, `interpolate_frames`), and `restore_faces` also lists
-  facexlib's two weights as URL entries. A `downloads_required` entry gains
-  the optional `filename` and `revision` fields; the OpenAPI document and
-  the UI's types carry them.
+### 0.16.0
+
+<!-- Drafted from v0.15.0..develop (7a0884ee). Paste into the GitHub release body once the tag has published: gh release edit v0.16.0 --notes-file ... -->
+
+A release about reaching past a 24 GB card and about removing things from
+a picture. MiniMax H3 refines to 1920x1088 in tiles, the plan prices every
+weight a task step will fetch before a run is accepted, and the cost quotes
+and VRAM ceilings for LTX-2.5 and Z-Image are calibrated against real runs.
+A prompt-free object-removal task joins the catalog with a small inpaint
+model beside it, and check-script is sturdier on looped, clipped and
+repeated takes.
+
+**H3 tiled refine to 1920x1088** (#1043, #1048, #1056)
+
+- An H3 refine step takes `refine_tiles: {width, height, overlap}` and
+  denoises an upscaled plate in feathered tiles on the 32 px grid, so a
+  1920x1088 refine fits a 24 GB card. The tiles blend in latent space and
+  the canvas decodes once; the soundtrack held from the base take is
+  encoded once per refine, not once per tile. The guide's *Refining above
+  768p in tiles* section is the recipe: 544p base, `upscale_h3_latents`,
+  tiled refine on the 768p turbo LoRA, one decode (about 12 min on an RTX
+  3090 for 124 frames).
+- `upscale_h3_latents` caps at 1920x1088 (or 1088x1920) and validate
+  refuses past it; references, guides, keyframes and `<Picture N>` are
+  refused in tile mode; validate prices tile mode by the tile and the
+  decode, not as a full-canvas denoise.
+- Every pipeline step whose pipeline reports its own frame rate now hands
+  its `videos` on carrying it, so `pair_audio` on an H3 base take fits the
+  track at 24 fps instead of the 8 fps fallback. The guide's keep-the-544p
+  recipe no longer asks for `result.fps`, which runs after the task.
+- `analyze_seams` reports look measures (lightness, contrast, saturation,
+  detail) at each seam beside the motion fields, so a re-roll can say
+  which side stepped (#1031, #1042). The `script-to-video` skill says when to
+  re-roll a seam (#1034).
+- H3 dialogue shots drop the turbo LoRA, the enhancer writes spoken and
+  sung lines as `<d>` blocks, and locked-frame lip sync is FL2VA with
+  `hold_audio` (#985, #989, #992). `slice_audio` with `start_seconds` and
+  `num_frames` keeps the frame length (#990). A one-segment H3 chain is
+  bit-identical to a native run (#1046).
+
+**Object removal** (#956, #973, #974, #946)
+
+- `remove_object` erases a masked region with LaMa, prompt-free, and
+  `templates/remove-object` and `templates/segment-and-remove` (SAM2 mask
+  from a box or a label, then erase) run it. `segment` takes each box's
+  best-rated SAM2 mask rather than its first.
+- `models/z-image-inpaint` configures `templates/inpaint` with Z-Image
+  Turbo for masked add-or-replace, a fraction of FLUX.1 Fill's 54 GB. The
+  guide's *Erasing versus repainting a masked region* section routes
+  between the two.
+
+**Cost, downloads and admission** (#975, #977, #978, #981, #1037, #1038, #948, #954)
+
+- A validate's `downloads_required` lists the Hugging Face repos and
+  single files task steps fetch (`segment`, `remove_background`,
+  `diffusion_upscale`, `transcribe_audio`, `check_script`,
+  `generate_speech`, `attribute_voices`, `text_generation`,
+  `image_to_text`, `judge`, the image processors, `upscale`,
+  `restore_faces`, `remove_object`, `upscale_h3_latents`,
+  `crop_face_track`, `interpolate_frames`, and facexlib's two weights),
+  plus `load_components` repo overrides. Entries gain optional `filename`
+  and `revision`; the OpenAPI document and the UI's types carry them.
+- The validate plan passed back verbatim is a bound acknowledgement. A
+  bound `acknowledged_cost` taken from a validate made before this deploy
+  is answered 409 `downloads` when the workflow has one of these tasks and
+  its repo is not cached: re-validate and resend the new `acknowledge`.
+  The 409's rebind plan carries the observed estimate validate quotes.
+- The observed estimate is the median of the newest runs, not the whole
+  history, and an inherited quote pays the model load once across scaled
+  steps. A task-only workflow's unknown estimate names why it is unpriced
+  (`unpriced_reason`), and validate notes `vram_config_differs` when a
+  step's offload or quantization differs from the calibrated template.
+- Validate reports one VRAM error per projection. LTX-2.5's
+  `upscale-clip`, `image-to-video`, `keyframes`, `two-stage`,
+  `refine-clip` and `reference-sheet` declare calibrated `vram_estimate`s,
+  so a 1080p or 481-frame request past a 24 GB card is refused at
+  validate instead of running out of memory late in the denoise; the
+  image-to-video default and the `ltx-2.5` skill move to 401 frames
+  (#1050, #1052, #1053, #1054). `models/z-image` declares one over batch,
+  width and height (#945).
+
+**check-script and audio** (#953, #955, #959-#971, #1039, #1041)
+
+- A looped cut is re-transcribed shot by shot when shots are known; a
+  scripted loop keeps its first take and flags `transcript_loop`; a chunk
+  repeating the previous span is discarded as `repeated_span`; a second
+  copy of a line inside its matched words is `unscripted_speech`; audible
+  untranscribed sound between two lines, and after the last one, is
+  reported and placed in the shot holding most of it; a clipped tail is
+  judged against the line's loudest window, so a score bed is not a clip.
+- `separate_stems` warns `stacked_vocals` over layered-stereo spans of the
+  vocal stem (#947). `normalize_audio(limit)` warns when the limiter works
+  mostly on one shot of a cut, and reads a saved cut's manifest shots when
+  given its path.
+
+**Server, worker and validation** (#928, #944, #949, #950, #951, #952, #957, #972, #976, #993, #995, #996)
+
+- A worker whose CUDA context a device-side assert poisoned is recycled
+  instead of answering every later job with the same error. A pulled card
+  in a `--devices` list no longer stops the server: it starts on the cards
+  present and warns. `scripts/dw-serve.service` sets
+  `RestartPreventExitStatus=2` so a refused configuration stops the unit
+  rather than looping; reinstall the unit to pick it up.
+- A file of a run with no recorded role lists as intermediate when in
+  `intermediate/` or read by a later run; manifest roles are stamped on
+  the job at finish so history serves what a live job did; a deleted
+  workspace's job rows stay resolvable by id.
+- Validate refuses a bare relative media name that resolves nowhere,
+  naming `output:<name>` for an own output; an unknown argument is
+  reported as itself; a document error no longer hides an unknown argument
+  in the same call; no undertrained-LoRA warning on a null LoRA whose steps
+  were raised.
+- A redirect hop the outbound guard refuses now names the target and the
+  URL asked for, so a refused hop reads apart from an upstream error
+  (#1055).
+
+**Web UI**
+
+- The flow view routes column-skipping edges in lanes and merges same-pair
+  labels. The jobs page filters follow the URL hash. Jobs and models list
+  the day (with the year only when it is not this one) and give the exact
+  timestamp where it matters. undici 8.12.3.
+
+**Engine structure**
+
+- The task-weights hook path is acyclic (`validate_weight_name` in
+  `dw/security.py`, processor weights registered into the task registry),
+  and `transformers` no longer loads into the server's validate path.
+  `dw/plan_downloads.py`, `dw/tasks/script_take.py` and
+  `dw/pipeline_processors/mag_calibration.py` split out of their parents;
+  `docs/ARCHITECTURE.md` names each seam.
+
+**Dependencies and deploy**
+
+- No dependency floors changed. The engine changes in this release need a
+  server restart (the persistent worker) after deploy.
 
 ### 0.15.0
 
