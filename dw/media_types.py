@@ -45,6 +45,28 @@ class FrameList(list):
         self.shots = shots
 
 
+def rated_videos(videos, fps):
+    """A pipeline's batch of videos as FrameLists carrying `fps` - the batch
+    and each list in it - or `videos` as it is when it is not a list (an
+    array or tensor batch) or no rate is known.
+
+    What a step that knows its rate but would hand on bare frame lists
+    answers with: a tiled H3 refine's `videos`, and any pipeline step whose
+    pipeline reports its own `fps` (MiniMax-H3, #1056). `previous_result:
+    base.videos` is read as the batch and unwrapped by pair_audio, so both
+    levels carry it.
+    """
+    if not fps or not isinstance(videos, list):
+        return videos
+    return FrameList(
+        (
+            FrameList(video, fps) if isinstance(video, list) else video
+            for video in videos
+        ),
+        fps,
+    )
+
+
 class AudioVideo:
     """A generated video together with the audio track generated alongside it.
 

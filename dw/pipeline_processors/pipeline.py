@@ -61,6 +61,7 @@ from diffusers import attention_backend
 
 from ..events import WorkflowCancelled, emit_log, emit_phase, emit_warning, get_context
 from ..media_types import AudioVideo
+from ..output_extraction import attach_video_frame_rate
 from ..step_cache import component_names, copy_containers
 from ..sparse_attention import (
     SPARSE_BACKEND,
@@ -627,6 +628,9 @@ class Pipeline:
             output = output.to("cpu")
 
         attach_audio_sample_rate(self.pipeline, output)
+        output = attach_video_frame_rate(
+            self.pipeline, output, requested=arguments.get("output")
+        )
         warn_if_safety_checker_blanked(output)
 
         return output

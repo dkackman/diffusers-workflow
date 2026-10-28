@@ -257,7 +257,9 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             path is (#553); the
             frames' own rate is carried through to the output, so set
             `result.fps` only to override it (a loaded file brings its rate
-            along; frames that carry none are written at 8 fps)
+            along, and so does a pipeline step whose pipeline reports one -
+            MiniMax-H3's `videos`; frames that carry none are fitted and
+            written at 8 fps unless `fps` says otherwise)
         audio: The soundtrack - a waveform, an AudioVideo (or any object
             carrying '.audio') to take it from, or the path or URL of an
             audio or video file; the last two bring their sample rate along.
@@ -267,7 +269,10 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
             carries one; given here it wins, for a track whose rate was
             reported wrong
         fps: The rate the frames play at, when the frames do not carry one -
-            only used to work out how long the video is, never written
+            what `fit` and the length check measure the track against, and
+            the rate the output then carries to the writer. `result.fps`
+            cannot stand in for it: the writer applies that after the fit
+            has run (#1056)
         fit: "video" cuts or pads the track with silence to the length of the
             frames, warning either way (`audio_padded_to_video` when it pads,
             `audio_trimmed_to_video` when it cuts). This is
@@ -340,11 +345,17 @@ def pair_audio(video, audio, sample_rate=None, fps=None, fit=None):
         # The writer falls back to this same rate, so fitting against it keeps
         # the track and the picture the length the file really gets (#673)
         frame_rate = DEFAULT_VIDEO_FPS
+        # 'result.fps' is not the remedy: the writer applies it after this
+        # step has already measured and fitted the track at the fallback
+        # rate, so declaring it alone re-times the picture under a track
+        # padded to three times its length (#1056)
         emit_warning(
-            f"pair_audio: the frames carry no frame rate, so the file is "
-            f"written at {DEFAULT_VIDEO_FPS} fps - a video that played at 24 "
-            f"fps will be three times slow. Pass 'fps' (the source's rate) or "
-            f"declare 'result.fps'.",
+            f"pair_audio: the frames carry no frame rate, so the track is "
+            f"fitted and the file is written at {DEFAULT_VIDEO_FPS} fps - a "
+            f"video that played at 24 fps will be three times slow. Pass "
+            f"'fps' (the source's rate) to this step; 'result.fps' alone "
+            f"changes the rate the file is written at, not the length the "
+            f"track was fitted to.",
             kind="video_fps_defaulted",
             command="pair_audio",
             fps=DEFAULT_VIDEO_FPS,

@@ -2141,12 +2141,16 @@ pass before but never this task is told of the upscaler download beforehand.
 ```
 
 To keep the 544p take beside the promotion for comparison, add one more `pair_audio`
-step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`,
-saved with `"result": {"content_type": "video/mp4", "fps": 24, "subfolder":
+step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`
+(and `fit`), saved with `"result": {"content_type": "video/mp4", "subfolder":
 "intermediate"}`. `base.videos` is the pipeline's batch - a list holding the one video -
 and `pair_audio` unwraps a batch of one (a batch of several is refused, since one track
-goes under one video). The dict's frames carry no frame rate, so the result's `fps`
-says it; without it the file is written at the 8 fps fallback.
+goes under one video). The H3 step hands its `videos` on carrying the model's 24 fps,
+the way the tiled refine's do, so `pair_audio` fits the track against 5.17 s and the
+file is written at 24 fps without being told. Frames that carry no rate - a plain list
+from a task - need `pair_audio`'s own `fps` argument, not the result's: the result's
+`fps` is applied by the writer after `fit` has already measured the frames at the 8 fps
+fallback, so it would re-time the picture under a track padded to three times its length.
 
 ### Refining the upscaled latents: refine_strength
 

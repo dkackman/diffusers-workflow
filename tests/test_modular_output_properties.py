@@ -188,17 +188,60 @@ class TestTheBasesOwnTakeSavesBesideIt:
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": FPS,
                 "subfolder": "intermediate",
             },
         }
+
+    def base_as_the_step_hands_it_on(self):
+        """The base step's result as Step.run leaves it: the raw output dict
+        after `_run_once` stamped the pipeline's own frame rate on it."""
+        from types import SimpleNamespace
+
+        from dw.output_extraction import attach_video_frame_rate
+
+        result = Result({})
+        output = attach_video_frame_rate(SimpleNamespace(fps=FPS), modular_output())
+        result.add_result(output)
+        return result
 
     def test_the_guide_names_the_reference_step(self):
         text = GUIDE.read_text()
         section = text[text.index(HEADING) :]
         section = section[: section.index("\n### ", 1)]
         assert '"video": "previous_result:base.videos"' in section
-        assert '"fps": 24' in section
+        # The take carries H3's rate, so the recipe no longer has to declare
+        # one on the result - and must not say that doing so fixes the fit
+        # (#1056)
+        assert "result's `fps`" not in section
+        assert "carry" in section and "24 fps" in section
+
+    def test_the_base_take_pairs_at_its_own_rate_with_no_padding(self):
+        """#1056: the guide's recipe wrote a 15.5 s file of a 5.17 s take -
+        the frames carried no rate, so `fit` padded the track to 124 frames
+        at 8 fps, and `result.fps: 24` only re-timed the picture afterwards."""
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        warnings = []
+        token = activate_context(
+            RunContext(
+                on_event=lambda e: (
+                    warnings.append(e["message"]) if e["event"] == "warning" else None
+                )
+            )
+        )
+        try:
+            step = self.reference_step()
+            (arguments,) = get_iterations(
+                step["task"]["arguments"], {"base": self.base_as_the_step_hands_it_on()}
+            )
+            paired = pair_audio(**arguments)
+        finally:
+            deactivate_context(token)
+
+        assert paired.fps == FPS
+        assert paired.audio.shape[1] == int(FRAME_COUNT / FPS * SAMPLE_RATE)
+        assert warnings == []
+        assert Result(step["result"]).video_fps(paired) == FPS
 
     def test_the_base_videos_save_as_one_mp4_with_its_frames_and_audio(self, tmp_path):
         import av

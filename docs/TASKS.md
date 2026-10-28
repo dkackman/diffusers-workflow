@@ -1266,10 +1266,10 @@ returns frames without it, and this puts it back:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it (frames that carry none are written at 8 fps) |
+| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it. A file brings its rate along, and so does a pipeline step whose pipeline reports one (MiniMax-H3's `videos` carry 24 fps, #1056); frames that carry none are fitted and written at 8 fps unless `fps` says otherwise |
 | `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
-| `fps` | No | The rate the frames play at, only needed when they carry none of their own. Used solely to work out how long the video is - what `fit` and the length-mismatch check measure the track against - and is never written to the file; that's `result.fps`, which sets the rate the output plays at and defaults to 8 fps when the frames carry none |
+| `fps` | No | The rate the frames play at, only needed when they carry none of their own. What `fit` and the length-mismatch check measure the track against, and the rate the paired video then carries to the writer. `result.fps` is not a substitute: the writer applies it after the fit has run, so declaring it alone on rate-less frames writes a 24 fps picture under a track padded to the 8 fps length (`video_fps_defaulted` says so, #1056) |
 | `fit` | No | `"video"` cuts or pads the track with silence to the length of the frames, warning either way (`audio_padded_to_video` / `audio_trimmed_to_video`). Left unset (the default) the track is used as it is, and a length that disagrees with the frames' is warned about rather than corrected (`audio_video_length_mismatch`). Any other value is refused at run time, not by `validate_workflow` |
 
 `fit`'s guarantee is exact for the waveform handed to the encoder, not for

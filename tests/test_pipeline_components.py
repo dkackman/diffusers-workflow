@@ -1020,3 +1020,74 @@ class TestLoadLeavesTheDefinitionAlone:
 
         assert step["pipeline"]["loras"] == before["pipeline"]["loras"]
         assert "generator" not in step["pipeline"]["arguments"]
+
+
+class TestVideoFrameRate:
+    """A pipeline that knows its own frame rate (MiniMax-H3's `fps` property)
+    hands its `videos` on carrying it, so `previous_result:base.videos` reaches
+    pair_audio and the writer as 24 fps frames rather than bare lists played
+    at the 8 fps fallback (#1056)."""
+
+    def _pipeline(self, **attributes):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(**attributes)
+
+    def test_a_dict_outputs_videos_carry_the_pipelines_rate(self):
+        from dw.media_types import FrameList
+        from dw.output_extraction import attach_video_frame_rate
+
+        output = {"videos": [["frame"]], "audio": [0.0]}
+        attached = attach_video_frame_rate(self._pipeline(fps=24), output)
+
+        assert attached is output
+        assert type(output["videos"]) is FrameList and output["videos"].fps == 24
+        assert all(
+            type(video) is FrameList and video.fps == 24 for video in output["videos"]
+        )
+        assert output["videos"] == [["frame"]]
+
+    def test_an_output_objects_videos_carry_the_pipelines_rate(self):
+        from types import SimpleNamespace
+
+        from dw.output_extraction import attach_video_frame_rate
+
+        output = SimpleNamespace(videos=[["frame"]])
+        attach_video_frame_rate(self._pipeline(fps=24), output)
+
+        assert output.videos.fps == 24 and output.videos[0].fps == 24
+
+    def test_a_single_videos_output_is_handed_back_rated(self):
+        from dw.output_extraction import attach_video_frame_rate
+
+        output = attach_video_frame_rate(
+            self._pipeline(fps=24), [["frame"]], requested="videos"
+        )
+
+        assert output.fps == 24 and output[0].fps == 24
+
+    def test_a_pipeline_with_no_rate_leaves_the_lists_bare(self):
+        from dw.output_extraction import attach_video_frame_rate
+
+        output = {"videos": [["frame"]]}
+        attach_video_frame_rate(self._pipeline(), output)
+
+        assert type(output["videos"]) is list
+
+    def test_an_array_of_videos_is_left_as_it_is(self):
+        import numpy
+
+        from dw.output_extraction import attach_video_frame_rate
+
+        videos = numpy.zeros((1, 2, 4, 4, 3))
+        output = {"videos": videos}
+        attach_video_frame_rate(self._pipeline(fps=24), output)
+
+        assert output["videos"] is videos
+
+    def test_an_output_with_no_videos_is_untouched(self):
+        from dw.output_extraction import attach_video_frame_rate
+
+        output = {"latents": [1.0]}
+        assert attach_video_frame_rate(self._pipeline(fps=24), output) is output
+        assert output == {"latents": [1.0]}
