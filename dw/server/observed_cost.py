@@ -171,12 +171,21 @@ def _median(values):
     return (ordered[middle - 1] + ordered[middle]) / 2
 
 
+# The newest runs a side's median is taken over. A box gets faster (an engine
+# change, a cache) or slower, so a median over its whole history keeps quoting
+# the speed it had months ago: lem's reference-to-video template sat at ~460 s
+# from September runs while it now takes ~250-340 s, a 1.3x over-quote on every
+# inline copy (#1037). `runs` and the range still cover every comparable run.
+RECENT_RUNS = 5
+
+
 def _minutes_block(prefix, durations):
-    """One side of the cold/warm split, or {} when it has no runs."""
+    """One side of the cold/warm split, or {} when it has no runs. `durations`
+    are newest first (`observed_for` sorts them); the figure is the median of the newest `RECENT_RUNS`."""
     if not durations:
         return {}
     return {
-        f"{prefix}_minutes": round(_median(durations) / 60, 2),
+        f"{prefix}_minutes": round(_median(durations[:RECENT_RUNS]) / 60, 2),
         f"{prefix}_runs": len(durations),
         f"{prefix}_range_minutes": [
             round(min(durations) / 60, 2),
@@ -207,7 +216,8 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         return None
     task_only = _is_task_only(definition)
     cold, warm, unclassified, earliest = [], [], 0, None
-    for row in rows:
+    # Rows arrive unordered; the recent-runs median reads newest first
+    for row in sorted(rows, key=lambda r: r["finished_at"] or 0, reverse=True):
         if _every_step_was_reused(row["manifest"]):
             continue
         try:

@@ -1,6 +1,12 @@
 {
     "id": "LTX2I2V",
     "description": "Conditioning generation on a supplied still, which becomes the video's first frame. Otherwise the baseline: same components, same distilled schedule, with VAE tiling for the longer clip.",
+    "vram_estimate": {
+        "base_gb": 19.7,
+        "bytes_per_voxel": 16.04,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the LTX-2.5 VAE scaling of templates/ltx2/text-to-video with a lower base, calibrated on a 24 GB RTX 3090 (#1052): 768x768x401 (236M voxels) and 768x768x329 complete; 768x768x481 (283M) ran out of memory late in denoise, 832x832x481 (333M) and 960x832x481 in the denoise, 1024x1024x481 before it. The bound sits between 236M and 283M voxels; the ceiling passes the first and refuses the second"
+    },
     "cost_drivers": ["num_frames", "width", "height"],
     "variables": {
         "transformer_weights_dtype": "{uint4}",
@@ -10,7 +16,7 @@
         "width": 768,
         "height": 768,
         "frame_rate": 24.0,
-        "num_frames": 481,
+        "num_frames": 401,
         "image": {
             "location": "https://pbs.twimg.com/media/HPxFgsIXIAAjtUu?format=jpg&name=medium"
         },

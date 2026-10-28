@@ -13,6 +13,7 @@ import time
 
 import pytest
 
+from dw import notes as N
 from dw.runs import REALIZED_FILE_NAME, new_run_id
 from dw.server.jobs import JobManager
 from dw.server.job_history import JobHistory
@@ -66,6 +67,9 @@ def finished_job(manager):
     while job.status not in TERMINAL_STATES and time.time() < deadline:
         time.sleep(0.01)
     assert job.status == "succeeded", job.error
+    # The status turns terminal a moment before _finish records the row
+    while manager.history.get(job.id) is None and time.time() < deadline:
+        time.sleep(0.01)
     return job
 
 
@@ -146,8 +150,9 @@ def test_a_database_without_the_columns_is_migrated(tmp_path):
 
 def test_a_v0_13_0_database_gains_the_columns_added_since(tmp_path):
     """A jobs.sqlite as v0.13.0 wrote it - every column through
-    device_card, none of note/memory_key/rerun_of/kept - opens, gains the
-    four, and keeps its card fields as they were."""
+    device_card, none of note/memory_key/rerun_of - opens, gains the
+    three, and keeps its card fields as they were. `kept` (#917) is not
+    among them: retired, it is never added to a database that lacks it."""
     import sqlite3
 
     path = str(tmp_path / "v0.13.0.sqlite")
@@ -170,9 +175,8 @@ def test_a_v0_13_0_database_gains_the_columns_added_since(tmp_path):
     history = JobHistory(path)
     with history._connect() as connection:
         columns = {row[1] for row in connection.execute("PRAGMA table_info(jobs)")}
-        kept = connection.execute("SELECT kept FROM jobs").fetchone()[0]
-    assert {"note", "memory_key", "rerun_of", "kept"} <= columns
-    assert kept == 0
+    assert {"note", "memory_key", "rerun_of"} <= columns
+    assert "kept" not in columns
     row = history.get("old-1")
     assert row["workspace"] == "w" and "note" not in row and "rerun_of" not in row
     assert history.device_ordinal("old-1") == "cuda:1"
@@ -685,3 +689,114 @@ def test_run_location_is_the_jobs_own_root(manager, tmp_path):
     root, run_dir = manager.run_location("named")
     assert root == os.path.realpath(str(other))
     assert run_dir == RUN_DIR
+
+
+def test_finishing_a_job_reads_its_roles_once_and_its_notes_never(
+    tmp_path, monkeypatch
+):
+    """`_finish` stamps roles from the run manifest with one `run_roles` read
+    and no notes.json read: the run note is read when the job is served,
+    and reading it at finish only to discard it was waste."""
+    from dw.server import outputs
+
+    run_dir = tmp_path / "outputs" / RUN_DIR
+    name = f"{RUN_DIR}/final/a.png"
+
+    def roled_script(command):
+        for message in tracked_script(command):
+            if message["type"] == "success":
+                (run_dir / "final").mkdir(parents=True)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "steps": [
+                                {"step": "s", "files": ["final/a.png"], "role": "final"}
+                            ]
+                        }
+                    )
+                )
+                N.set_run_note(str(run_dir), "mid-run")
+                message = {
+                    **message,
+                    "manifest": [
+                        {"step": "s", "files": [str(tmp_path / "outputs" / name)]}
+                    ],
+                }
+            yield message
+
+    calls = {"notes": 0, "roles": 0}
+    real_run_roles = outputs.run_roles
+
+    def counted_notes(directory):
+        calls["notes"] += 1
+        return N.read_notes(directory)
+
+    def counted_roles(path):
+        calls["roles"] += 1
+        return real_run_roles(path)
+
+    monkeypatch.setattr(outputs, "read_notes", counted_notes)
+    monkeypatch.setattr(outputs, "run_roles", counted_roles)
+    made = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(roled_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = finished_job(made)
+        assert job.manifest[0]["role"] == "final"
+        assert calls == {"notes": 0, "roles": 1}
+        # served, the detail carries the note - read then, not at finish
+        from dw.server.outputs import with_run_state
+
+        served = with_run_state(made.describe(job), *made.run_location(job.id))
+        assert served["note"] == "mid-run"
+        assert calls["notes"] == 1
+    finally:
+        made.shutdown()
+
+
+def test_history_keeps_the_roles_a_live_manifest_carries(tmp_path):
+    """#957: a finished job's manifest entries carry `role`, and history
+    reads them back even after the run directory is gone."""
+    run_dir = tmp_path / "outputs" / RUN_DIR
+    name = f"{RUN_DIR}/final/a.png"
+
+    def roled_script(command):
+        for message in tracked_script(command):
+            if message["type"] == "success":
+                (run_dir / "final").mkdir(parents=True)
+                (run_dir / "manifest.json").write_text(
+                    json.dumps(
+                        {
+                            "steps": [
+                                {"step": "s", "files": ["final/a.png"], "role": "final"}
+                            ]
+                        }
+                    )
+                )
+                message = {
+                    **message,
+                    "manifest": [
+                        {"step": "s", "files": [str(tmp_path / "outputs" / name)]}
+                    ],
+                }
+            yield message
+
+    made = JobManager(
+        str(tmp_path / "outputs"),
+        worker_manager=ScriptedWorkerManager(roled_script),
+        history_path=str(tmp_path / "jobs.sqlite"),
+        workflow_dir=str(tmp_path),
+    )
+    try:
+        job = finished_job(made)
+        live = made.describe(job)["manifest"]
+        assert live[0]["role"] == "final"
+        import shutil
+
+        shutil.rmtree(run_dir)
+        assert made.history.get(job.id)["manifest"] == live
+    finally:
+        made.shutdown()

@@ -13,7 +13,7 @@ from unittest.mock import patch
 
 import pytest
 
-import dw.plan
+import dw.plan_downloads
 from dw.plan import build_plan
 from dw.server.observed_cost import observed_for
 from dw.server.routes.jobs import _inherited_cost_warnings
@@ -237,7 +237,7 @@ class TestThePlanReportsIt:
         candidate = workflow_from_definition(
             definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {"num_frames": 124},
@@ -273,6 +273,19 @@ class TestScaledWhenItScales:
         assert block["inherited_from"] == "templates/t"
         assert "3 steps, template measured 1" in block["scaled"]
 
+    def test_the_model_load_is_paid_once_across_steps(self):
+        # cold 8 min, warm 6: a 2 min load plus 6 min of work per step (#1037)
+        history = {
+            "templates/t": [
+                run(8 * MINUTE, {"num_frames": 124}),
+                run(6 * MINUTE, {"num_frames": 124}, had_load=False),
+            ]
+        }
+        inline = definition("inline")
+        inline["steps"] = [{**inline["steps"][0], "id": f"shot{n}"} for n in range(2)]
+        block = inherited(inline, self.CATALOG, history)
+        assert block["cold_minutes"] == pytest.approx(14.0)
+
     def test_a_longer_frame_count_scales_by_frames(self):
         inline = definition("inline")
         inline["variables"] = {}
@@ -307,7 +320,7 @@ class TestScaledWhenItScales:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -400,7 +413,7 @@ class TestAListLongerThanTheFallbackBucket:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -449,7 +462,7 @@ class TestVariableFrameCountAndWithheldReason:
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
         withheld = {"inherited_from": "templates/t", "withheld": "not priced: why"}
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             plan = build_plan(
                 candidate,
                 {},
@@ -462,6 +475,39 @@ class TestVariableFrameCountAndWithheldReason:
         assert estimate["inherited_from"] == "templates/t"
         assert estimate["withheld"] == "not priced: why"
         assert "withheld" in _inherited_cost_warnings(estimate)[0]
+
+
+class TestTaskOnlyWorkflowSaysWhyUnpriced:
+    """#948: a workflow of task steps has no pipeline identity to inherit a
+    price from, and its unknown estimate says so."""
+
+    def test_the_plan_names_the_reason(self, tmp_path):
+        inline = {
+            "id": "stems",
+            "steps": [
+                {
+                    "id": "split",
+                    "task": {"command": "separate_stems", "arguments": {}},
+                }
+            ],
+        }
+        candidate = workflow_from_definition(
+            inline, str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
+            plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
+        estimate = plan["estimate"]
+        assert estimate["basis"] == "unknown" and estimate["minutes"] is None
+        assert "separate_stems" in estimate["unpriced_reason"]
+        assert "task-only" in estimate["unpriced_reason"]
+
+    def test_a_pipeline_workflow_gets_no_task_only_reason(self, tmp_path):
+        candidate = workflow_from_definition(
+            definition("inline"), str(tmp_path), str(tmp_path), str(tmp_path)
+        )
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
+            plan = build_plan(candidate, {}, device="cpu", lookup_sizes=False)
+        assert "unpriced_reason" not in plan["estimate"]
 
 
 def sized(name, steps=9, width=960, height=544, **extra):
@@ -535,7 +581,7 @@ class TestScaledByStepsAndCanvas:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},
@@ -590,7 +636,7 @@ class TestAttentionCacheAndLoraDiffer:
         candidate = workflow_from_definition(
             inline, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},
@@ -629,7 +675,9 @@ class TestTheTemplateAndAnInlineCopyAgree:
             candidate = workflow_from_definition(
                 definition, str(tmp_path), str(tmp_path), str(tmp_path)
             )
-            with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+            with patch.object(
+                dw.plan_downloads, "scan_models", return_value={"repos": []}
+            ):
                 return build_plan(
                     candidate,
                     self.ARGUMENTS,
@@ -732,7 +780,7 @@ class TestTheShippedTemplatesLoraIsCompared:
         candidate = workflow_from_definition(
             copy, str(tmp_path), str(tmp_path), str(tmp_path)
         )
-        with patch.object(dw.plan, "scan_models", return_value={"repos": []}):
+        with patch.object(dw.plan_downloads, "scan_models", return_value={"repos": []}):
             estimate = build_plan(
                 candidate,
                 {},

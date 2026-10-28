@@ -2,6 +2,12 @@
     "id": "LTX2ReferenceSheet",
     "description": "Holds a cast, their props and their set consistent across a clip by conditioning on a reference sheet - one composite image with a clean panel per element, which is how the LTX-2.5 line does identity. This is the family's only reference template: everything else here pins appearance through a first or last frame, which fixes one moment rather than a subject. The sheet is supplied as a still and looped into a static video by the first step, because the IC-LoRA reads it as reference latents and was trained with the sheet held for the whole clip - 'reference_frames' must be at least 121 or the 121-frame read bucket is missed, and it defaults to matching 'num_frames'. Authoring the sheet is the work: a front-facing close-up plus a full turnaround for each character, a product-style render of each prop, one clean location panel, no text, and bigger panels for the elements that matter most - what is not on the sheet will not appear, and what is small or crowded carries over worst. The prompt is in the two-part trained form, 'Reference sheet:' naming the panels and 'Generated video:' driving the action. The LoRA is a 0.9 preview weight trained at 768x448, 121 frames, 24 fps, which is what the defaults are.",
     "summary": "Holds a cast, their props and their set consistent across a clip by conditioning on a reference sheet.",
+    "vram_estimate": {
+        "base_gb": 17.5,
+        "bytes_per_voxel": 64.16,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "this template's own measurement, not the 21.3 / 16.04 the other LTX2InContextPipeline templates carry: the reference sheet is held as a static clip for the whole denoise, and the read costs more per voxel than upscale-clip's. Bracketed by real runs on a 24 GB RTX 3090 (#1054), width x height x num_frames as the template takes them: 768x768x161 (95M voxels) completes; 768x768x201 (118M) ran out of memory. The bound sits between 95M and 118M voxels; the ceiling passes the first and refuses the second. One reference, so no gb_per_reference"
+    },
     "cost_drivers": [
         "num_frames",
         "width",

@@ -14,6 +14,7 @@ from ..media_types import AudioVideo
 from ..shots import rescaled_shots
 from .tensor_image import pil_to_float_tensor as _pil_to_tensor, float_tensor_to_pil
 from .video_utils import frames_as_pil_list
+from .weights import argument_or_default, file_entries
 
 logger = logging.getLogger("dw")
 
@@ -101,6 +102,20 @@ _DEFAULT_RIFE_REPO = "imaginairy/rife-interpolation"
 _DEFAULT_RIFE_FILENAME = "rife-flownet-4.13.2.safetensors"
 
 
+def rife_source(arguments):
+    """The (repo, file) an interpolate_frames step loads RIFE from -
+    `model_name` and `filename` over the defaults."""
+    return (
+        argument_or_default(arguments, "model_name", _DEFAULT_RIFE_REPO),
+        argument_or_default(arguments, "filename", _DEFAULT_RIFE_FILENAME),
+    )
+
+
+def required_weights(arguments):
+    """The RIFE weight file, for the plan (dw/tasks/weights.py)."""
+    return file_entries(*rife_source(arguments))
+
+
 def _pad_tensor(t, ph, pw):
     """Zero-pad a (1, 3, H, W) tensor on the bottom/right to (ph, pw)."""
     h, w = t.shape[2], t.shape[3]
@@ -151,8 +166,9 @@ def _load_rife_model(device, model_name=None, filename=None):
     from huggingface_hub import hf_hub_download
     from .model_cache import cached_model
 
-    repo_id = model_name if model_name is not None else _DEFAULT_RIFE_REPO
-    weights_file = filename if filename is not None else _DEFAULT_RIFE_FILENAME
+    repo_id, weights_file = rife_source(
+        {"model_name": model_name, "filename": filename}
+    )
 
     def load_net():
         model_path = hf_hub_download(repo_id=repo_id, filename=weights_file)

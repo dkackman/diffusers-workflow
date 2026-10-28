@@ -24,8 +24,11 @@ def test_recorded_roles_reach_the_listing(gallery_client, output_root, write_run
     assert files["b.png"]["role"] == "final"
 
 
-def test_older_run_has_no_role(gallery_client, output_root, write_run):
-    # A manifest from before roles: b reads a, but nothing is guessed
+def test_older_run_reads_its_intermediate_subfolder_as_intermediate(
+    gallery_client, output_root, write_run
+):
+    # A manifest from before roles: a sits in intermediate/, so it lists as
+    # intermediate (#928); b has nothing to say and stays unknown
     realized = {
         "id": "wf",
         "steps": [
@@ -51,8 +54,10 @@ def test_older_run_has_no_role(gallery_client, output_root, write_run):
         files=["intermediate/a.png", "b.png"],
     )
     files = {f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]}
-    assert files["a.png"]["role"] is None
+    assert files["a.png"]["role"] == "intermediate"
     assert files["b.png"]["role"] is None
+    assert _roles(gallery_client, role="intermediate") == {"a.png": "intermediate"}
+    assert _roles(gallery_client, role="final") == {"b.png": None}
 
 
 def test_role_filter(gallery_client, output_root, write_run):
@@ -215,7 +220,12 @@ def test_job_detail_entries_carry_the_run_roles(tmp_path):
     with TestClient(app, base_url="http://localhost") as client:
         job = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
         detail = wait_for_status(client, job["id"], ["succeeded"])
-        assert all("role" not in e for e in manager.jobs[job["id"]].manifest)
+        # the job is stamped at finish, so history holds the roles too (#957)
+        stored = manager.history.get(job["id"])["manifest"]
+        assert {e["step"]: e["role"] for e in stored} == {
+            "a": "intermediate",
+            "b": "final",
+        }
         assert {e["step"]: e["role"] for e in detail["manifest"]} == {
             "a": "intermediate",
             "b": "final",
@@ -350,7 +360,7 @@ def test_a_declared_final_stays_final(gallery_client, output_root, write_run):
     }
 
 
-def test_a_pre_roles_file_a_later_run_read_stays_unknown(
+def test_a_pre_roles_file_a_later_run_read_lists_as_intermediate(
     gallery_client, output_root, write_run
 ):
     write_run(
@@ -368,7 +378,68 @@ def test_a_pre_roles_file_a_later_run_read_stays_unknown(
         files=["cut.png"],
         inputs=[{"reference": f"output:shots/{SHOT_RUN}/shot.png", "kind": "output"}],
     )
-    assert _roles(gallery_client)["shot.png"] is None
+    assert _roles(gallery_client)["shot.png"] == "intermediate"
+    assert _roles(gallery_client, role="final") == {"cut.png": "final"}
+
+
+def test_metadata_agrees_with_the_listing_for_an_older_run(
+    gallery_client, output_root, write_run
+):
+    # A run that recorded no role: the metadata route goes through the same
+    # owner as the listing, so the two say the same thing (#928)
+    write_run(
+        output_root,
+        "shots",
+        SHOT_RUN,
+        [
+            {"step": "clip", "files": ["intermediate/clip.mp4"]},
+            {"step": "still", "files": ["final/still.png"]},
+            {"step": "shot", "files": ["shot.png"]},
+        ],
+        files=["intermediate/clip.mp4", "final/still.png", "shot.png"],
+    )
+    listed = _roles(gallery_client)
+    assert listed == {
+        "clip.mp4": "intermediate",
+        "still.png": "final",
+        "shot.png": None,
+    }
+    for name, label in (
+        ("intermediate/clip.mp4", "clip.mp4"),
+        ("final/still.png", "still.png"),
+        ("shot.png", "shot.png"),
+    ):
+        meta = gallery_client.get(
+            f"/api/gallery/shots/{SHOT_RUN}/{name}/metadata"
+        ).json()
+        assert meta["role"] == listed[label]
+
+
+def test_metadata_agrees_with_the_listing_on_a_starred_noted_demoted_file(
+    gallery_client, output_root, write_run
+):
+    # One owner (output_annotations) builds role, note, starred and version
+    # for both routes, so a file starred, noted and demoted by a later run
+    # reads the same from each
+    from dw.notes import set_file_note, set_file_starred
+
+    _shot_and_cut(output_root, write_run, f"output:shots/{SHOT_RUN}/final/shot.png")
+    run_dir = os.path.join(output_root, "shots", SHOT_RUN)
+    set_file_note(run_dir, "final/shot.png", "the keeper")
+    set_file_starred(run_dir, "final/shot.png", True)
+    listed = {
+        f["label"]: f for f in gallery_client.get("/api/gallery").json()["files"]
+    }["shot.png"]
+    meta = gallery_client.get(
+        f"/api/gallery/shots/{SHOT_RUN}/final/shot.png/metadata"
+    ).json()
+    assert listed["starred"] is True
+    assert listed["role"] == "intermediate"
+    assert listed["note"] == "the keeper"
+    for key in ("role", "note", "starred", "version"):
+        assert meta[key] == listed[key], key
+    assert meta["note_source"] == "file"
+    assert meta["version"] is not None
 
 
 def test_an_asset_kept_from_a_file_demotes_it(tmp_path, write_run):

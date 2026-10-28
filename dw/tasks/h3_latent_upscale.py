@@ -3,8 +3,9 @@ MiniMax-H3 latent upscale and decode.
 
 `upscale_h3_latents` resizes the video latents a MiniMax-H3 pipeline returns
 (`output: [..., "latents"]`) with a vendored 3D-convolution network
-(`h3_latent_upscaler_model`), so a 544p take can be promoted to 1344x768
-without denoising it again. `decode_h3_latents` turns latents back into
+(`h3_latent_upscaler_model`), so a 544p take can be promoted to a plate of up to
+1920x1088 (a `refine_tiles` refine, #1043, then denoises it) without denoising
+it again here. `decode_h3_latents` turns latents back into
 frames through diffusers' own H3 video decode block, so the VAE's
 denormalization, autocast and pixel un-normalization stay diffusers' rather
 than a copy that could drift from it.
@@ -22,7 +23,9 @@ import logging
 
 import torch
 
+from ..pipeline_processors.h3_rules import H3_FPS
 from ..result import AudioVideo
+from .weights import file_entries
 
 logger = logging.getLogger("dw")
 
@@ -57,11 +60,12 @@ LATENT_CHANNELS = 24
 # The per-axis scale range the upscaler was trained over
 MIN_SCALE = 1.0
 MAX_SCALE = 4.0
-# H3's canvas: a short edge of at most 768 and a long edge of at most 1344
-MAX_SHORT_EDGE = 768
-MAX_LONG_EDGE = 1344
-# The rate H3 generates video at
-H3_FPS = 24
+# The target is a plate for a tiled `refine_tiles` refine (#1043), which
+# denoises it in tiles of at most 1344x768. 1920x1088 is 2x a 960x544 take,
+# inside the upscaler's trained 1-4x range. An upscale-only plate above 768p
+# is soft until it is refined.
+MAX_SHORT_EDGE = 1088
+MAX_LONG_EDGE = 1920
 
 # The per-channel statistics the upscaler's training normalized its latents
 # by - the ComfyUI node's LATENTS_MEAN / LATENTS_STD, equal to the H3 VAE
@@ -120,6 +124,51 @@ LATENTS_STD = (
 )
 
 
+def _whole(value):
+    return isinstance(value, int) and not isinstance(value, bool) and value > 0
+
+
+def target_size_problems(width, height):
+    """What is wrong with a literal pixel target, as [(argument, message)].
+
+    The one rule validate (the task's `static_check`) and the run
+    (`target_latent_size`) both apply, so a size is refused at both or
+    neither, in the same words: each side on the 16 px grid, and the pair
+    within the 1920x1088 (or 1088x1920 portrait) cap. A side that is not a
+    positive whole number - a reference or a variable not yet resolved - is
+    left to the run.
+    """
+    problems = []
+    for name, value in (("width", width), ("height", height)):
+        if _whole(value) and value % SPATIAL_FACTOR:
+            problems.append(
+                (
+                    name,
+                    f"{name} must be a multiple of {SPATIAL_FACTOR} (the H3 "
+                    f"VAE's spatial factor), got {value}; the nearest are "
+                    f"{value // SPATIAL_FACTOR * SPATIAL_FACTOR} and "
+                    f"{(value // SPATIAL_FACTOR + 1) * SPATIAL_FACTOR}",
+                )
+            )
+    if not (_whole(width) and _whole(height)):
+        return problems
+    long_name, short_name = (
+        ("width", "height") if width >= height else ("height", "width")
+    )
+    over_long = max(width, height) > MAX_LONG_EDGE
+    if over_long or min(width, height) > MAX_SHORT_EDGE:
+        # Named on the side that breaks the cap
+        problems.append(
+            (
+                long_name if over_long else short_name,
+                f"width x height {width}x{height} is over the upscale cap: "
+                f"at most {MAX_LONG_EDGE}x{MAX_SHORT_EDGE} (or "
+                f"{MAX_SHORT_EDGE}x{MAX_LONG_EDGE} portrait)",
+            )
+        )
+    return problems
+
+
 def target_latent_size(latents, width, height):
     """The (T, H, W) latent size a pixel target names, or a directed refusal.
 
@@ -154,19 +203,9 @@ def target_latent_size(latents, width, height):
             raise ValueError(
                 f"{name} must be a positive whole number of pixels, got {value!r}"
             )
-        if value % SPATIAL_FACTOR:
-            raise ValueError(
-                f"{name} must be a multiple of {SPATIAL_FACTOR} (the H3 VAE's "
-                f"spatial factor), got {value}; the nearest are "
-                f"{value // SPATIAL_FACTOR * SPATIAL_FACTOR} and "
-                f"{(value // SPATIAL_FACTOR + 1) * SPATIAL_FACTOR}"
-            )
-    if min(width, height) > MAX_SHORT_EDGE or max(width, height) > MAX_LONG_EDGE:
-        raise ValueError(
-            f"width x height {width}x{height} is over MiniMax-H3's canvas: "
-            f"at most {MAX_LONG_EDGE}x{MAX_SHORT_EDGE} (or "
-            f"{MAX_SHORT_EDGE}x{MAX_LONG_EDGE} portrait)"
-        )
+    problems = target_size_problems(width, height)
+    if problems:
+        raise ValueError(problems[0][1])
 
     frames, in_h, in_w = latents.shape[-3:]
     out_h, out_w = height // SPATIAL_FACTOR, width // SPATIAL_FACTOR
@@ -197,14 +236,37 @@ def _check_upscaler_source(model_name, weight_name):
     read with safetensors, so anything else - a local path, a name climbing
     out of the repo, a pickle format - is refused rather than handed on.
     """
-    from ..locations import (
-        SAFETENSORS_SUFFIX,
-        validate_hub_repo_id,
-        validate_weight_name,
-    )
+    from ..locations import SAFETENSORS_SUFFIX, validate_hub_repo_id
+    from ..security import validate_weight_name
 
     validate_hub_repo_id(model_name)
     validate_weight_name(weight_name, (SAFETENSORS_SUFFIX,), subfolders=False)
+
+
+def upscaler_source(arguments):
+    """The (repo, file, subfolder, revision) an upscale_h3_latents step
+    loads - `model_name` and `weight_name` over the defaults. The pin names a
+    commit of the default repo; a caller naming another repo gets that
+    repo's main."""
+    arguments = arguments or {}
+    model_name = arguments.get("model_name") or DEFAULT_UPSCALER_REPO
+    weight_name = arguments.get("weight_name") or DEFAULT_UPSCALER_WEIGHTS
+    source = KNOWN_UPSCALER_SOURCES.get(
+        (model_name, weight_name)
+    ) or KNOWN_UPSCALER_SOURCES.get((model_name, None))
+    subfolder, revision = source if source else (None, None)
+    return model_name, weight_name, subfolder, revision
+
+
+def required_weights(arguments):
+    """The upscaler's weight file, for the plan (dw/tasks/weights.py). The
+    H3 VAE that decodes its latents is not listed: the H3 pipeline step that
+    makes them lists MiniMaxAI/MiniMax-H3 whole (#975 Q4)."""
+    model_name, weight_name, subfolder, revision = upscaler_source(arguments)
+    if not isinstance(weight_name, str):
+        return []
+    filename = f"{subfolder}/{weight_name}" if subfolder else weight_name
+    return file_entries(model_name, filename, revision)
 
 
 def _load_upscaler(device, model_name, weight_name):
@@ -213,12 +275,9 @@ def _load_upscaler(device, model_name, weight_name):
     from .h3_latent_upscaler_model import build_upscaler
     from .model_cache import cached_model
 
-    # The pin names a commit of the default repo; a caller naming another
-    # repo gets that repo's main
-    source = KNOWN_UPSCALER_SOURCES.get(
-        (model_name, weight_name)
-    ) or KNOWN_UPSCALER_SOURCES.get((model_name, None))
-    subfolder, revision = source if source else (None, None)
+    model_name, weight_name, subfolder, revision = upscaler_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
 
     def load_net():
         from safetensors.torch import load_file
@@ -268,8 +327,9 @@ def upscale_h3_latents(
         input's dtype and on the input's device
     """
     size, (scale_h, scale_w) = target_latent_size(latents, width, height)
-    model_name = model_name or DEFAULT_UPSCALER_REPO
-    weight_name = weight_name or DEFAULT_UPSCALER_WEIGHTS
+    model_name, weight_name, _, _ = upscaler_source(
+        {"model_name": model_name, "weight_name": weight_name}
+    )
     # Before anything downloads: a value arriving through a variable or an
     # earlier step was never in the document validation checked
     _check_upscaler_source(model_name, weight_name)

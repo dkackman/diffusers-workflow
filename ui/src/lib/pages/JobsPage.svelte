@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { formatDuration } from '../format'
+  import { formatDuration, formatExact, formatMtime } from '../format'
   import { queueWait } from '../jobTimes'
   import { poll } from '../poll'
   import { onMount } from 'svelte'
@@ -9,20 +9,53 @@
   import { notify } from '../toast'
   import type { JobSummary } from '../types'
   import { wsHref } from '../routes'
+  import { hashQuery, setHashQuery } from '../router.svelte'
   import { loadWorkspaces, workspace } from '../workspace.svelte'
 
   let { scope = 'workspace' }: { scope?: 'workspace' | 'all' } = $props()
 
   let jobs = $state<JobSummary[]>([])
   let error = $state('')
-  let statusFilter = $state('')
-  let nameFilter = $state('')
+  // The filters live in the hash's query, so opening a job and coming back
+  // - or sharing the link - keeps the narrowed view
+  const initial = hashQuery()
+  let statusFilter = $state(initial.status ?? '')
+  let nameFilter = $state(initial.q ?? '')
   // Server-side, unlike the two filters above: it changes which jobs are
   // fetched at all, not just which of the fetched ones are shown. Only read
   // under scope 'all' - empty there means every workspace, which is the
   // point of that view; a workspace's own Jobs page filters by
   // `workspace.current` instead.
-  let workspaceFilter = $state('')
+  let workspaceFilter = $state(initial.ws ?? '')
+
+  $effect(() =>
+    setHashQuery({
+      status: statusFilter,
+      q: nameFilter,
+      ws: scope === 'all' ? workspaceFilter : '',
+    }),
+  )
+  // The route's view is unchanged when the Jobs nav link lands on the bare
+  // route from a narrowed one, so the page is not re-created: the filters
+  // follow the hash too, and a hash with no query clears them
+  $effect(() => {
+    const sync = () => {
+      const query = hashQuery()
+      statusFilter = query.status ?? ''
+      nameFilter = query.q ?? ''
+      workspaceFilter = query.ws ?? ''
+    }
+    window.addEventListener('hashchange', sync)
+    return () => window.removeEventListener('hashchange', sync)
+  })
+  const filtered = $derived(
+    !!statusFilter || !!nameFilter || (scope === 'all' && !!workspaceFilter),
+  )
+  function clearFilters() {
+    statusFilter = ''
+    nameFilter = ''
+    workspaceFilter = ''
+  }
 
   // Only worth a picker once there is a choice - a single-workspace server
   // has nothing to filter by
@@ -73,9 +106,22 @@
     }
   }
 
-  const when = (t: number | null) =>
-    t ? new Date(t * 1000).toLocaleTimeString() : '—'
+  const when = (t: number | null) => (t ? formatMtime(t) : '—')
   const waitOf = (job: JobSummary) => queueWait(job, Date.now() / 1000)
+  // The row shows the compact start; hovering gives it to the second, with
+  // the finish and any time spent queued
+  const timesOf = (job: JobSummary) => {
+    const wait = waitOf(job)
+    return [
+      job.started_at && `started ${formatExact(job.started_at)}`,
+      job.finished_at && `finished ${formatExact(job.finished_at)}`,
+      wait !== null &&
+        wait >= 1 &&
+        `waited ${formatDuration(wait)} in the queue`,
+    ]
+      .filter(Boolean)
+      .join('\n')
+  }
   const duration = (job: JobSummary) => {
     if (!job.started_at) return ''
     const end = job.finished_at ?? Date.now() / 1000
@@ -110,13 +156,16 @@
 
 {#if error}<p class="muted">Could not reach the server: {error}</p>{/if}
 
-{#if jobs.length === 0}
+{#if jobs.length === 0 && !filtered}
   <Empty>
     {#snippet icon()}<Inbox size={36} strokeWidth={1.5} />{/snippet}
     No jobs yet — pick a workflow and run it.
   </Empty>
 {:else if visible.length === 0}
-  <p class="muted">No jobs match the filter.</p>
+  <p class="muted">
+    No jobs match the filter.
+    <button class="quiet" onclick={clearFilters}>clear filters</button>
+  </p>
 {:else}
   <div class="panel list">
     {#each visible as job (job.id)}
@@ -199,16 +248,16 @@
         </span>
         {#if job.status === 'queued'}
           {@const wait = waitOf(job)}
-          <span class="muted started" title="time spent waiting for a card"
+          <span
+            class="muted started"
+            title={job.created_at
+              ? `queued ${formatExact(job.created_at)} - time spent waiting for a card`
+              : 'time spent waiting for a card'}
             >waiting {wait === null ? '' : formatDuration(wait)}</span
           >
         {:else}
-          {@const wait = waitOf(job)}
-          <span
-            class="muted started"
-            title={wait !== null && wait >= 1
-              ? `waited ${formatDuration(wait)} in the queue`
-              : ''}>{when(job.started_at)}</span
+          <span class="muted started" title={timesOf(job)}
+            >{when(job.started_at)}</span
           >
         {/if}
         <span class="muted dur">{duration(job)}</span>

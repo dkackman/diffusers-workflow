@@ -11,6 +11,7 @@ import copy
 import json
 import logging
 import os
+from types import SimpleNamespace
 from typing import Optional, Union
 from urllib.parse import quote
 
@@ -44,7 +45,6 @@ from ..admission import (
     acknowledgement_form,
     admitted_note,
     admit_for,
-    bound_plan_for,
     check_bound_acknowledgement,
 )
 from ..catalog import (
@@ -147,8 +147,18 @@ def submit_job(
             base_dir=request.base_dir,
             output_dir=workspace.outputs,
             workflow_dir=workflow_dir,
+            # The plan validate builds, history included, so a 409 quotes
+            # the figure a re-validate would (#1038); only the hub size
+            # lookup is skipped
             plan_for=(
-                bound_plan_for(request.arguments, workspace)
+                _bound_plan_for(
+                    state,
+                    workspace,
+                    request.workflow_path,
+                    request.arguments,
+                    source,
+                    catalog_name_for(resolved, source),
+                )
                 if form == ACK_BOUND
                 else None
             ),
@@ -433,7 +443,18 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             output_dir=spec.get("output_dir") or manager.output_dir,
             workflow_dir=spec.get("workflow_dir") or manager.workflow_dir,
             plan_for=(
-                bound_plan_for(arguments, workspace) if form == ACK_BOUND else None
+                _bound_plan_for(
+                    state,
+                    workspace,
+                    spec.get("workflow_path"),
+                    arguments,
+                    resolve_workflow_reference(
+                        spec.get("workflow_path"), sources_for(state, workspace)
+                    )[1],
+                    spec.get("catalog_name"),
+                )
+                if form == ACK_BOUND
+                else None
             ),
             catalog_name=spec.get("catalog_name"),
         )
@@ -788,6 +809,20 @@ def _validation_plan(
     except Exception:
         logger.exception("Plan could not be built")
         return None
+
+
+def _bound_plan_for(state, workspace, workflow_path, arguments, source, catalog_name):
+    """The `plan_for` a bound acknowledgement is checked against: the plan
+    /api/validate builds for the same run, without the hub size lookup, so
+    a 409 quotes the observed estimate validate would (#1038)."""
+    request = SimpleNamespace(workflow_path=workflow_path, arguments=arguments)
+
+    def plan_for(candidate, vram_need=None):
+        return _validation_plan(
+            state, candidate, vram_need, request, workspace, source, catalog_name, False
+        )
+
+    return plan_for
 
 
 @router.post(

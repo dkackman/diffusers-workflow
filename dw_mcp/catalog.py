@@ -270,8 +270,8 @@ def list_gallery(
     enough to pick between two takes without one metadata call per
     candidate. Off by default; a plain call carries no `duration_seconds`.
 
-    Each file carries `role` (`final`, `intermediate`, or null with no run);
-    `role=[...]` keeps only those, null counting as final."""
+    Each file carries `role` (`final`, `intermediate`, or null when nothing
+    says); `role=[...]` keeps only those, null counting as final."""
     params = {"limit": limit}
     if role:
         params["role"] = list(role)

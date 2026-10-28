@@ -21,7 +21,7 @@ from dw.server.admission import admit
 from dw.server.app import create_app
 from dw.server.jobs import JobManager
 from dw.server.job_record import TERMINAL_STATES
-from dw.workflow import Workflow
+from dw.workflow import Workflow, workflow_from_definition
 from dw.workspace import Workspace
 
 from .test_prepare_pipeline import DEFINITION as prepare_definition
@@ -184,6 +184,126 @@ def test_a_bound_submit_expands_once(server, folds):
         assert response.status_code == 201, response.text
         assert response.json()["acknowledged"] == "bound"
         assert len(folds) == 1
+
+
+@pytest.fixture
+def empty_hub_cache(monkeypatch):
+    """No repo cached, whatever this machine's own Hugging Face cache holds,
+    so every task step's repo is a download to acknowledge."""
+    import dw.plan_downloads
+
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
+
+
+def segment_workflow():
+    """A task-only workflow whose one model is a task step's: the plan lists
+    the segment step's two repos, and no pipeline step loads either."""
+    return {
+        "id": "segmented",
+        "variables": {"image": "asset:present.png"},
+        "steps": [
+            {
+                "name": "mask",
+                "task": {
+                    "command": "segment",
+                    "arguments": {"image": "variable:image", "prompt": "a cup"},
+                },
+                "result": {"content_type": "image/png"},
+            }
+        ],
+    }
+
+
+def test_a_bound_acknowledgement_missing_a_task_steps_repo_is_refused(
+    server, empty_hub_cache
+):
+    """#975: a task step's weights are in downloads_required, so an
+    acknowledgement that names none of them is a download the caller never
+    saw - answered 409 "downloads" like a pipeline's."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        repos = [entry["repo"] for entry in plan["downloads_required"]]
+        assert "IDEA-Research/grounding-dino-base" in repos
+
+        response = client.post(
+            "/api/jobs",
+            json={
+                **body,
+                "acknowledged_cost": {
+                    "fingerprint": plan["fingerprint"],
+                    "minutes": plan["estimate"]["minutes"],
+                    "downloads": [],
+                },
+            },
+        )
+
+        assert response.status_code == 409, response.text
+        detail = response.json()["detail"]
+        assert detail["reason"] == "downloads"
+        assert set(repos) <= set(detail["acknowledge"]["downloads"])
+
+
+def test_a_bound_acknowledgement_naming_a_task_steps_repos_is_admitted(
+    server, empty_hub_cache
+):
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        repos = [entry["repo"] for entry in plan["downloads_required"]]
+        assert repos
+
+        response = client.post(
+            "/api/jobs",
+            json={
+                **body,
+                "acknowledged_cost": {
+                    "fingerprint": plan["fingerprint"],
+                    "minutes": plan["estimate"]["minutes"],
+                    "downloads": repos,
+                },
+            },
+        )
+
+        assert response.status_code == 201, response.text
+        assert response.json()["acknowledged"] == "bound"
+
+
+def test_the_plan_passed_verbatim_is_a_bound_acknowledgement(server, empty_hub_cache):
+    """#975: a client that hands back the validate plan unedited has
+    acknowledged its downloads_required - the refusal's own example (C-F525
+    step 5)."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+        assert plan["downloads_required"]
+
+        response = client.post("/api/jobs", json={**body, "acknowledged_cost": plan})
+
+        assert response.status_code == 201, response.text
+        assert response.json()["acknowledged"] == "bound"
+
+
+def test_a_plan_with_its_downloads_emptied_is_still_refused(server, empty_hub_cache):
+    """An explicit `downloads` is what was acknowledged, even beside the
+    plan's own downloads_required."""
+    body = {"workflow": segment_workflow()}
+    with server() as client:
+        plan = client.post("/api/validate?sizes=false", json=body).json()["plan"]
+        assert plan is not None
+
+        response = client.post(
+            "/api/jobs",
+            json={**body, "acknowledged_cost": {**plan, "downloads": []}},
+        )
+
+        assert response.status_code == 409, response.text
+        assert response.json()["detail"]["reason"] == "downloads"
 
 
 def test_a_rerun_expands_once(server, folds):
@@ -448,6 +568,101 @@ def test_admission_checks_content_type_against_the_callers_arguments(root):
 
     assert admitted({"ct": "text/plain"}).ok
     assert not admitted({}).ok
+
+
+def test_an_unknown_argument_does_not_make_a_given_one_read_as_null(root):
+    """A bad argument leaves the others unfolded, so the document check read
+    `audio` as null though the caller passed it (#972). The refusal names the
+    unknown argument instead."""
+    definition = {
+        "id": "se-972",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    admission = admit(
+        workflow_path=None,
+        workflow=definition,
+        arguments={"audio": "asset:x.wav", "bogus": 1},
+        base_dir=None,
+        workspace=root,
+        ceiling_index={},
+        output_dir=root.outputs,
+        workflow_dir=root.workflows,
+        asset_library=library_path("assets", root),
+        prompt_library=library_path("prompts", root),
+    )
+    assert not admission.ok
+    messages = " ".join(e["message"] for e in admission.errors)
+    assert "bogus" in messages
+    assert "which is null" not in messages
+
+
+def test_a_null_variable_and_an_unknown_argument_are_both_reported(root):
+    """Every error comes back at once (#976): the null `audio` no longer
+    hides the unknown `bogus`."""
+    definition = {
+        "id": "se-976",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    admission = admit(
+        workflow_path=None,
+        workflow=definition,
+        arguments={"bogus": 1},
+        base_dir=None,
+        workspace=root,
+        ceiling_index={},
+        output_dir=root.outputs,
+        workflow_dir=root.workflows,
+        asset_library=library_path("assets", root),
+        prompt_library=library_path("prompts", root),
+    )
+    assert not admission.ok
+    messages = [e["message"] for e in admission.errors]
+    assert any("which is null" in m for m in messages)
+    assert any("bogus" in m and "Unknown variable" in m for m in messages)
+
+
+def test_validation_errors_do_not_read_a_supplied_variable_as_null_beside_a_bad_argument():
+    """The owner of the rule is validation_errors itself (#972): any caller,
+    not only admit(), gets no null finding for a name it supplied."""
+    definition = {
+        "id": "ve-972",
+        "variables": {"audio": None},
+        "steps": [
+            {
+                "name": "n",
+                "task": {
+                    "command": "normalize_audio",
+                    "arguments": {"audio": "variable:audio"},
+                },
+                "result": {"content_type": "audio/wav"},
+            }
+        ],
+    }
+    workflow = workflow_from_definition(definition, "/tmp", None, None)
+    bad = workflow.validation_errors(arguments={"audio": "a.wav", "bogus": 1})
+    assert not any("variable" in e for e in bad)
+    left_null = workflow.validation_errors(arguments={"bogus": 1})
+    assert any(e.get("variable") == "audio" for e in left_null)
 
 
 def _a_crashing_select_check(monkeypatch):

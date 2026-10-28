@@ -312,6 +312,21 @@ class TestSliceLeadFrames:
             24000,
         )
 
+    def test_start_in_seconds_with_length_in_frames_is_that_long(self):
+        """#990: num_frames was dropped and the slice ran to the track's end"""
+        track = slice_audio(
+            numpy.zeros((1, 100 * 1000), dtype="float32") + 0.1,
+            start_seconds=42.5,
+            num_frames=124,
+            fps=24,
+            sample_rate=1000,
+        )
+        assert track.audio.shape == (1, 5167)
+        assert slice_region(1000, start_seconds=42.5, num_frames=124, fps=24) == (
+            42500,
+            5167,
+        )
+
 
 class TestThroughValidateWorkflow:
     def _workflow(self, arguments):

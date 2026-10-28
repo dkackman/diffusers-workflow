@@ -47,7 +47,10 @@ the same choice, and the flag wins over it. A list (`--devices cuda:0,cuda:1`)
 runs one worker per card, each running one job at a time. A card named twice,
 or a bare `cuda` in a list of several, is refused at startup, as is a card the
 machine lacks, with the message naming the cards that are present
-(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...).
+(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...). A list survives a card being
+pulled: an entry the machine lacks is dropped with a warning naming it, and
+the server starts on the rest. Only a list none of whose cards is present
+(or a single absent card) is refused.
 
 Each job's record carries `device` - the card it ran on, as the server
 addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`), set when the job starts
@@ -200,7 +203,7 @@ running:
 
 | Route | What it does |
 | --- | --- |
-| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
+| `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. No parameters means every job, which is what the web UI polls |
 | `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
@@ -426,7 +429,7 @@ The editor's forms come from these; they are just as usable from scripts:
   when the worker is busy or did not answer - a workflow with no `seed`
   also gets a warning saying so, since `0` alone does not distinguish a
   disabled cache from an empty one);
-  `downloads_required`, each `model_name` the hub cache does not hold as
+  `downloads_required`, each `model_name` the hub cache does not hold, and each repo a task step fetches (`dw/tasks/weights.py`; a repo shared with a pipeline step is listed once, a reference or local-path argument gives none) as
   `{repo, gb, gated, access_blocked}` (`gb` from the hub, `null` when it
   could not be asked - `?sizes=false` skips the hub, and then `gated` and
   `access_blocked` are `null` too); `gated` is the hub's own field for the
@@ -445,7 +448,21 @@ The editor's forms come from these; they are just as usable from scripts:
   offline) - "unknown" is not "not blocked". `validate_workflow`'s
   `warnings` carries one line per entry with `access_blocked: true`. Each
   `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
-  access_blocked: null}`, since a direct file URL is never gated; and
+  access_blocked: null}`, since a direct file URL is never gated.
+  A task that fetches one file rather than a whole repo is listed as a file
+  entry, `{repo, filename, revision, gb, gated, access_blocked}`: `revision`
+  is a 40-character commit pin or `null` for `main`; `gb` is that one file's
+  size, from a HEAD of the file (`null` offline or with `?sizes=false`);
+  `gated` is `null`, since the HEAD that sizes it does not say; and
+  `access_blocked` is `true` when that HEAD is refused by the gate, `false`
+  when it succeeds, `null` when unknown. It is listed when that file at that
+  revision is not in the hub cache (checked per file, so another cached file
+  of the same repo does not count), and a whole-repo entry for the same repo
+  subsumes it. Acknowledgements still compare by `repo`. `restore_faces`
+  also lists facexlib's weights as URL entries (`detection_Resnet50_Final.pth`,
+  and `parsing_parsenet.pth` unless `use_parse` is false) while they are
+  missing from facexlib's weights directory; they download outside the
+  Hugging Face cache. And
   `estimate`, `{minutes, basis,
   device, measured_on, partial, runs}` from this box's own history when it
   has one and otherwise from the workflow's `cost` block -
@@ -467,7 +484,8 @@ The editor's forms come from these; they are just as usable from scripts:
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for
   the serving backend; the first entry's figure, which is a warning rather
-  than a quote) or `unknown` (no cost block, or more than one list changed
+  than a quote) or `unknown` (no cost block - a workflow of task steps alone says so in
+  `unpriced_reason`, since it has no pipeline to inherit from - or more than one list changed
   so there is nothing honest to extrapolate along) or `inherited` (an
   inline workflow has no catalog name, so its price is this server's
   `observed` runs of the catalog template that loads the same pipeline -
@@ -595,8 +613,9 @@ The editor's forms come from these; they are just as usable from scripts:
   `subfolders` list every distinct value over the whole tree, `''` always a
   member of each so root-level files stay selectable. Each entry also
   carries `role`, `final` or `intermediate` (null for a flat-layout file with
-  no run; `intermediate` once a later run read the file, unless the step's
-  `result.role` declared it), and `GET /api/gallery?role=final` lists only
+  no run, or a file of a run that recorded no role whose subfolder says
+  nothing and that no later run read; `intermediate` once a later run read
+  the file, unless the step's `result.role` declared it), and `GET /api/gallery?role=final` lists only
   those (repeatable; a null role counts as final). See `dw/roles.py` for how
   a role is decided;
   the metadata route reports the file's `role` and the run's `inputs` too

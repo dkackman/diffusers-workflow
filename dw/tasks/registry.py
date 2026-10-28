@@ -11,6 +11,13 @@ on its registration too (#692). `TASK_ARGUMENT_DOMAINS`,
 `TASK_ARGUMENT_CHOICES` and `TASK_MEDIA_ARGUMENTS` are `RegistryTable` views
 of them, so a command cannot be registered and miss a table: before, each was
 a hand-kept dict, and a command left out of one lost that check silently.
+
+This module imports nothing from `dw`: `dw/locations.py` reads its tables,
+and the task modules import the location policy, so a task import from here
+(even a lazy one - grimp counts those) is a cycle. A task module it needs
+something from registers that thing here instead (`register_command`,
+`register_weights_fallback`), or is named by a dotted path and imported
+when a lookup needs it.
 """
 
 import importlib
@@ -42,6 +49,15 @@ _COMMAND_RULES: Dict[str, dict] = {}
 # The module whose import registers every command - itself, and each
 # self-registering task module through its own import lines
 _REGISTERING_MODULE = "dw.tasks.task"
+
+# command -> its `required_weights(arguments)` hook, for the names that are
+# commands of a workflow step but not registrations: `process_image`'s
+# processors, dispatched by dw/tasks/image_utils.py from its own table. That
+# module registers a resolver here when it is imported (which importing
+# _REGISTERING_MODULE does), so this module never imports it: it imports
+# torch and the media loaders, which import the location policy, which
+# imports this module - a cycle the architecture ratchet counts
+_WEIGHTS_FALLBACKS: list = []
 
 
 class RegistryTable(Mapping):
@@ -96,6 +112,7 @@ def register_command(
     static_check=None,
     media_arguments=(),
     whole_numbers=(),
+    required_weights=None,
 ):
     """
     Decorator to register a command handler function.
@@ -158,6 +175,11 @@ def register_command(
             reads as whole numbers (`task_domains.whole_number`): 3, 3.0,
             "3" and "3.0" are 3, and 3.5 is refused - at validation as at
             run time. Every other argument with a domain is a real number
+        required_weights: Dotted path to the task module's
+            `required_weights(arguments)` - the hub repos the command fetches,
+            listed in the plan's `downloads_required` (`dw/tasks/weights.py`,
+            #975). A string, so the plan path imports the module only for a
+            workflow that has the command
 
     Returns:
         Decorator function
@@ -198,8 +220,43 @@ def register_command(
             rules["media_arguments"] = tuple(media_arguments)
         if whole_numbers:
             rules["whole_numbers"] = tuple(whole_numbers)
+        if required_weights:
+            rules["required_weights"] = required_weights
         _COMMAND_RULES[command_name] = rules
         logger.debug(f"Registered command handler: {command_name}")
         return func
 
     return decorator
+
+
+def register_weights_fallback(resolver):
+    """Add a `resolver(command) -> hook | None` consulted by
+    `required_weights_hook` for a command no registration declares - the
+    way a dispatch table outside the registry (image_utils' processors)
+    declares what its commands fetch. Registered once per resolver; a
+    re-import of the registering module is not a second entry."""
+    if resolver not in _WEIGHTS_FALLBACKS:
+        _WEIGHTS_FALLBACKS.append(resolver)
+    return resolver
+
+
+def required_weights_hook(command):
+    """The `required_weights(arguments)` callable for `command`, or None when
+    it fetches nothing the plan lists - a registered command's declared hook,
+    else the first answer from a resolver `register_weights_fallback` holds
+    (an image processor's: `process_image`'s names are commands of their
+    own, dispatched by `dw/tasks/image_utils.py` rather than registered)."""
+    if not isinstance(command, str):
+        return None
+    importlib.import_module(_REGISTERING_MODULE)
+    if command in _COMMAND_RULES:
+        path = _COMMAND_RULES[command].get("required_weights")
+        if path is None:
+            return None
+        module_path, _, name = path.rpartition(".")
+        return getattr(importlib.import_module(module_path), name)
+    for resolver in _WEIGHTS_FALLBACKS:
+        hook = resolver(command)
+        if hook is not None:
+            return hook
+    return None

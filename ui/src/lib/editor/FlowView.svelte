@@ -1,6 +1,21 @@
 <script lang="ts">
   import { dataFlowGraph, type FlowNode } from '../flow'
   import { formatDuration } from '../format'
+  import {
+    BOX_H,
+    BOX_W,
+    CHIP_CHARS,
+    CHIP_CHARS_TIMED,
+    CHIP_H,
+    CHIP_STEP,
+    CHIP_TOP,
+    DETAIL_CHARS,
+    NAME_CHARS,
+    NAME_CHARS_WITH_TAG,
+    fit,
+    heightOf,
+    layoutGraph,
+  } from './flowLayout'
 
   let {
     workflow,
@@ -40,23 +55,6 @@
 
   const graph = $derived(dataFlowGraph(workflow))
 
-  // SVG text neither wraps nor takes text-overflow, so a label longer than
-  // the box ran out of its right edge. Budgets are characters at the box's
-  // inner width (BOX_W less the 10px inset each side) for each line's font
-  // - bold 12px sans for the name, 10px mono for the detail - and the
-  // clipPath below catches what a wider glyph set still pushes past.
-  const NAME_CHARS = 20
-  const NAME_CHARS_WITH_TAG = 15 // the entry tag sits in the top-right corner
-  const DETAIL_CHARS = 26
-
-  /** The text cut to `max` characters with an ellipsis where it was cut: a
-   * name is told apart by how it starts, a path by how it ends. */
-  function fit(text: string, max: number, keep: 'head' | 'tail'): string {
-    if (text.length <= max) return text
-    return keep === 'head'
-      ? text.slice(0, max - 1) + '…'
-      : '…' + text.slice(text.length - max + 1)
-  }
   /** The parts of a node's labels that did not fit, in full, for its tooltip. */
   function overflowTitle(node: FlowNode): string {
     const nameShown = fit(
@@ -74,105 +72,9 @@
       .join('\n')
   }
 
-  // Layered left-to-right layout: a node's layer is one past the deepest
-  // producer that feeds it directly, so entry points (no previous_result
-  // input) sit in the first column and depth reads as real dependency
-  // distance rather than just JSON step order.
-  const BOX_W = 176
-  const BOX_H = 60
-  const COL_W = 232
-  const ROW_H = 92
-  const PAD = 28
-  // Member chips: a list-driven step's box grows to hold one inset chip
-  // per entry, beneath the header the ordinary box's three lines occupy
-  const CHIP_H = 15
-  const CHIP_STEP = 19
-  const CHIP_CHARS = 26
-  const CHIP_CHARS_TIMED = 17 // a finished chip's run time takes the right end
-  const CHIP_TOP = BOX_H - 2
-  // The gap ROW_H left between fixed-height boxes, kept for the
-  // height-aware stacking below
-  const ROW_GAP = ROW_H - BOX_H
-
-  /** The box's height: the standard header, plus a chip row per entry for
-   * a list-driven step - or one empty slot when the step carries
-   * for_each but its list cannot be read from the definition. */
-  function heightOf(node: FlowNode): number {
-    const count = node.members?.length ?? 0
-    if (count) return CHIP_TOP + (count - 1) * CHIP_STEP + CHIP_H + 6
-    return node.forEach ? BOX_H + 26 : BOX_H
-  }
-
-  const layout = $derived.by(() => {
-    const { nodes, edges } = graph
-    // Plain objects rather than Map/Set here: these are throw-away
-    // scratch structures rebuilt on every recompute, not reactive state,
-    // and svelte's lint rule wants SvelteMap for anything mutated after
-    // construction.
-    const producersOf: Record<string, string[]> = {}
-    for (const e of edges) {
-      producersOf[e.to] = [...(producersOf[e.to] ?? []), e.from]
-    }
-    const layerOf: Record<string, number> = {}
-    function layerFor(name: string, guard: Record<string, true>): number {
-      if (name in layerOf) return layerOf[name]
-      if (guard[name]) return 0 // defensive only - refs only target earlier steps
-      const nextGuard = { ...guard, [name]: true as const }
-      const producers = producersOf[name] ?? []
-      const layer = producers.length
-        ? 1 + Math.max(...producers.map((p) => layerFor(p, nextGuard)))
-        : 0
-      layerOf[name] = layer
-      return layer
-    }
-    for (const n of nodes) layerFor(n.name, {})
-
-    const columns: FlowNode[][] = []
-    for (const n of nodes) {
-      const l = layerOf[n.name] ?? 0
-      columns[l] = [...(columns[l] ?? []), n]
-    }
-
-    // Boxes in a column stack by their own height now - a for_each box
-    // holding many chips must not overlap the node beneath it
-    const positions: Record<string, { x: number; y: number }> = {}
-    const heightOfName: Record<string, number> = {}
-    const bottoms: number[] = []
-    columns.forEach((col, c) => {
-      let y = PAD
-      col.forEach((n) => {
-        positions[n.name] = { x: PAD + c * COL_W, y }
-        heightOfName[n.name] = heightOf(n)
-        y += heightOf(n) + ROW_GAP
-      })
-      bottoms.push(y - ROW_GAP)
-    })
-
-    const width = PAD * 2 + BOX_W + Math.max(0, columns.length - 1) * COL_W
-    const height = Math.max(...bottoms, PAD * 2 + BOX_H)
-    // One clip box per distinct member-box height; the standard box keeps
-    // the shared clipPath below
-    const tallHeights = [
-      ...new Set(nodes.map((n) => heightOf(n)).filter((h) => h > BOX_H)),
-    ]
-
-    const edgeLines = edges.map((e) => {
-      const from = positions[e.from]
-      const to = positions[e.to]
-      if (!from || !to) return null
-      const x1 = from.x + BOX_W
-      const y1 = from.y + (heightOfName[e.from] ?? BOX_H) / 2
-      const x2 = to.x
-      const y2 = to.y + (heightOfName[e.to] ?? BOX_H) / 2
-      // A gentle horizontal-first curve keeps lines readable when an
-      // edge skips columns or two edges share a target row.
-      const dx = Math.max(40, (x2 - x1) / 2)
-      const path = `M ${x1} ${y1} C ${x1 + dx} ${y1}, ${x2 - dx} ${y2}, ${x2} ${y2}`
-      return { ...e, path, labelX: (x1 + x2) / 2, labelY: (y1 + y2) / 2 }
-    })
-
-    return { positions, width, height, tallHeights, edgeLines }
-  })
+  // The geometry - box positions, lanes, edge paths - is flowLayout.ts;
+  // the template draws what it returns
+  const layout = $derived(layoutGraph(graph))
 
   function kindLabel(kind: string): string {
     if (kind === 'pipeline') return 'pipeline'
@@ -254,8 +156,15 @@
         {#each layout.edgeLines ?? [] as edge, i (i)}
           {#if edge}
             <path d={edge.path} class="edge" marker-end="url(#flow-arrow)" />
-            <text x={edge.labelX} y={edge.labelY - 6} class="edgelabel"
-              >{edge.attribute}</text
+          {/if}
+        {/each}
+        <!-- Labels after every line, so a label's halo masks a line that
+             crosses it rather than the line striking the label through -->
+        {#each layout.edgeLines ?? [] as edge, i (i)}
+          {#if edge}
+            <text x={edge.labelX} y={edge.labelY} class="edgelabel"
+              >{#if edge.label !== edge.title}<title>{edge.title}</title
+                >{/if}{edge.label}</text
             >
           {/if}
         {/each}
@@ -404,6 +313,10 @@
     fill: var(--muted);
     text-anchor: middle;
     font-family: var(--font-mono);
+    paint-order: stroke;
+    stroke: var(--panel-2);
+    stroke-width: 3px;
+    stroke-linejoin: round;
   }
   .node.clickable {
     cursor: pointer;

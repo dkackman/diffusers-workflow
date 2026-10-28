@@ -170,7 +170,8 @@ def check_bind_safety(args, token):
 
 def configure_devices(args):
     """Pick the workers' cards from --devices, else the `devices` setting,
-    and refuse one this machine lacks (exit 2) - before any worker spawns.
+    and refuse one this machine lacks (exit 2), unless others in a list are
+    present (it is then dropped with a warning) - before any worker spawns.
     Returns the list, or None when neither names any.
 
     The first is pinned as DW_DEVICE, which `get_device()` reads in this
@@ -181,9 +182,14 @@ def configure_devices(args):
     from .devices import DeviceConfigError, resolve_serve_devices
     from .settings import load_settings
 
+    def report_absent(message):
+        print(f"dw-serve: WARNING: {message} - starting without it", file=sys.stderr)
+
     try:
         devices = resolve_serve_devices(
-            getattr(args, "devices", None), load_settings().devices
+            getattr(args, "devices", None),
+            load_settings().devices,
+            on_absent=report_absent,
         )
     except DeviceConfigError as error:
         print(f"dw-serve: {error}", file=sys.stderr)

@@ -5,9 +5,8 @@ description: Use when a dw MCP server is connected and the user wants MiniMax H3
 
 # MiniMax H3 on a dw server
 
-H3 generates video and audio together: speech with lip sync, ambient sound,
-score. Every template fits a 24 GB card. This skill picks the template and
-arguments; prompt format is MiniMax's, from its text not here.
+H3 generates video and audio together. Every template fits a 24 GB card.
+This skill picks the template and arguments; prompt format is MiniMax's.
 
 ## Before anything
 
@@ -28,14 +27,16 @@ arguments; prompt format is MiniMax's, from its text not here.
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
   `templates/minimax/enhance-prompt-with-image`.
-- **A locked frame that lip-syncs to a song** (FL2VA takes no audio): Ref2VA
-  `[keyframe completion + audio reuse]`, `<Picture 1>` the first frame,
-  `<Audio 1>` the song, held with `hold_audio` (#852). It keeps the framing,
-  not the pixels; a last frame costs 45% more and does not land.
+- **A locked frame that lip-syncs to a song**: FL2VA with the song held by
+  `hold_audio` keeps the first frame's pixels and the mouth follows the track
+  (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
+  Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
+  first frame, `<Audio 1>` the song, also held (#852). It keeps the framing,
+  not the pixels, at ~4.7x the denoise; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
-  guide's frames on the canvas. A guide holds look as well as motion: a full-length one
+  guide's frames on the canvas, dropping with each guide's length as for references. A guide holds look as well as motion: a full-length one
   copies the take, and a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
@@ -48,18 +49,21 @@ arguments; prompt format is MiniMax's, from its text not here.
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
-  past that use the cuts pattern below.
+  past that, the cuts pattern.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
   (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
   22 or 39 - default 22 - holds the last frames and voice as a guide instead.
-  `carry_audio` (default true, a chain-block setting, not a variable)
-  brings the voice. Not on the ref2va chains, as guides stay off ref2va),
+  The guide prefix is trimmed off the deliverable (`trim_frames` and the
+  crossfade do not apply). `carry_audio` (default true, a chain-block setting)
+  holds the previous tail's audio. Guide only here: the reference chains
+  (`chain-video-continuity`, `chain-matched-and-aligned`, `music-video`) are
+  ref2va, and guides stay off ref2va),
   `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
-  sets the length, muxed back seamless), `templates/minimax/chain-matched-and-aligned`
+  sets the length), `templates/minimax/chain-matched-and-aligned`
   (per-segment prompts). Drift compounds per seam: reference the subject
   picture each segment, prefer `last_segment` continuity, use the longest
   segments memory allows.
@@ -88,37 +92,29 @@ section).
 - `num_frames` is `17n + 5`, from 124 to 345, at a fixed 24 fps: 5.17 to 14.4
   seconds in one clip. Most default to 124 (storyboard 192);
   `num_frames=345` is the full length, and fits 24 GB at 544p only (#271).
-  The 5-second floor is diffusers'; the model card says 4.
 - Canvas: 768-pixel short edge, at most 768x1344, in multiples of 32, aspect
   1:4 to 4:1. Output audio is 32 kHz stereo.
 - A checkpoint comes with a canvas, a sigma shift and an alpha and they move
   together - change one, change all. Before swapping one or adding a LoRA,
   read `references/checkpoints-and-loras.md`: the tested combinations,
-  the LoRAs that need their own loaders, and the catalog.
+  the LoRAs needing their own loaders, the catalog.
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
-  `validate_workflow` refuses it and warns on a `weight_name` naming neither.
+  `validate_workflow` refuses it, warns on a `weight_name` naming neither.
 - Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
 - Backend: default `sparse` (dense off CUDA); same one at draft and final.
-- Fit a crowd's action to what it holds: candle-holders asked to clap
-  rendered three-handed people.
-- A directed crowd move needs its landmark in frame: "marches up to the
-  house" put it behind camera. Track from the side, landmark ahead.
-- Two people in frame can lip-sync the wrong one, seemingly by whichever
-  voice enters first: credit a shout to the crowd, spell the sung line in
-  `<d>` tags, frame the singer face-on at medium close-up.
-- State a crowd's age range; unstated skews young.
-- A three-reference shot can open on the portraits' backdrop
-  for ~1.5s (about 1 in 25): check a shot's first frames and say in
-  `subject_definitions` that the portrait's backdrop, pose and framing are
-  not reused.
-- Ref2VA reaches 1344x768 too (trade-off: the `recipes` guide's MiniMax-H3
-  section). There the 24 GB ceiling on the `17n+5` grid drops with each
+- A crowd, two people in frame, or a three-reference shot: read
+  `references/staging.md` before the prompt - who lip-syncs, where the
+  landmark is, and the portrait backdrop that can open a shot.
+- Ref2VA reaches 1344x768 too (`recipes` guide, MiniMax-H3). There the 24 GB ceiling on the `17n+5` grid drops with each
   reference: 243 frames at one, 209 at two, 175 at three, 141 at four. `validate_workflow` refuses
   the largest `for_each` shot over budget.
 - Steps are the LoRA's passes plus one (5 for the 4-step default, 9 for
   8-step): the scheduler counts the terminal zero, so `denoise_total_steps`
   reports 4. A null `lora_model_name` drops the LoRA; raise steps and shifts too.
+- Dialogue shots (any `<d>` line) drop the turbo LoRA, which digitizes voices
+  (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
+  `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it. Turbo stays the default otherwise (#984 B0).
 - Nothing carries between generations except a passed reference, a
   held track or a `guides` clip: there is no latent memory. Identity rides
   on a picture, voice timbre on an audio clip, motion/camera on a video

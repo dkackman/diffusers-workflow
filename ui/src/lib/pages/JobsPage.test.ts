@@ -1,6 +1,13 @@
-import { cleanup, render, screen, waitFor } from '@testing-library/svelte'
+import {
+  cleanup,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+} from '@testing-library/svelte'
 import { afterEach, expect, it, vi } from 'vitest'
 import JobsPage from './JobsPage.svelte'
+import { formatExact } from '../format'
 import type { JobSummary } from '../types'
 
 const data = vi.hoisted(() => ({ jobs: [] as unknown[] }))
@@ -8,8 +15,13 @@ vi.mock('../api', () => ({
   api: {
     listJobs: () =>
       Promise.resolve({ jobs: [...data.jobs], total: data.jobs.length }),
+    // The listing names the default workspace, as the server's always does:
+    // a route parse that found it missing would redirect to overview
     listWorkspaces: () =>
-      Promise.resolve({ default: 'default', workspaces: [] }),
+      Promise.resolve({
+        default: 'default',
+        workspaces: [{ name: 'default', default: true }],
+      }),
   },
 }))
 vi.mock('../toast', () => ({ notify: { error: vi.fn(), success: vi.fn() } }))
@@ -81,6 +93,62 @@ it('shows a queued job as waiting and a started one with its wait', async () => 
   await waitFor(() => expect(screen.getByText('ws')).toBeTruthy())
   expect(container.textContent).toContain('waiting')
   expect(
-    container.querySelector('[title="waited 1m 00s in the queue"]'),
+    container.querySelector('[title$="waited 1m 00s in the queue"]'),
   ).toBeTruthy()
+})
+
+it('hovering a start time gives it to the second, with the finish', async () => {
+  data.jobs = [
+    summary({
+      id: 's1',
+      workflow: 'ws',
+      started_at: 1700000000,
+      finished_at: 1700000243,
+    }),
+  ]
+  const { container } = render(JobsPage)
+  await waitFor(() => expect(screen.getByText('ws')).toBeTruthy())
+  const title = container.querySelector('.started')!.getAttribute('title')!
+  expect(title).toContain(`started ${formatExact(1700000000)}`)
+  expect(title).toContain(`finished ${formatExact(1700000243)}`)
+})
+
+it('reads its filters from the link and writes them back to it', async () => {
+  location.hash = '#/ws/default/jobs?status=failed'
+  data.jobs = [
+    summary({ id: 'f1', workflow: 'broke', status: 'failed' }),
+    summary({ id: 'ok', workflow: 'fine' }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
+  expect(screen.queryByText('fine')).toBeNull()
+  const input = screen.getByPlaceholderText('filter by workflow…')
+  await fireEvent.input(input, { target: { value: 'zzz' } })
+  expect(location.hash).toBe('#/ws/default/jobs?status=failed&q=zzz')
+  await fireEvent.click(screen.getByText('clear filters'))
+  expect(location.hash).toBe('#/ws/default/jobs')
+  expect(screen.getByText('fine')).toBeTruthy()
+  location.hash = ''
+})
+
+it('navigating to the bare jobs route clears the filters', async () => {
+  location.hash = '#/ws/default/jobs?status=failed&q=bro'
+  data.jobs = [
+    summary({ id: 'f1', workflow: 'broke', status: 'failed' }),
+    summary({ id: 'ok', workflow: 'fine' }),
+  ]
+  render(JobsPage)
+  await waitFor(() => expect(screen.getByText('broke')).toBeTruthy())
+  expect(screen.queryByText('fine')).toBeNull()
+  // The Jobs nav link: same route view, so the page is not re-created
+  location.hash = '#/ws/default/jobs'
+  await waitFor(() => expect(screen.getByText('fine')).toBeTruthy())
+  const status = screen.getByTitle('filter by status') as HTMLSelectElement
+  expect(status.value).toBe('')
+  const input = screen.getByPlaceholderText(
+    'filter by workflow…',
+  ) as HTMLInputElement
+  expect(input.value).toBe('')
+  expect(location.hash).toBe('#/ws/default/jobs')
+  location.hash = ''
 })

@@ -1,6 +1,6 @@
 {
   "id": "GenerateSpeech",
-  "description": "Speaks a line of text with a local text-to-speech model and saves it as a wav. The result declares no 'sample_rate': a generated track carries the rate its model produced it at, so saying nothing is what saves it correctly.",
+  "description": "Speaks a line of text with a local text-to-speech model and saves it as a wav. model_name picks the voice: facebook/mms-tts-eng (the default, one voice; other languages are mms-tts-<code>), suno/bark-small (distinct speakers via a voice_preset task argument) or microsoft/speecht5_tts (the voice of a reference clip via speaker_embedding). The result declares no 'sample_rate': a generated track carries the rate its model produced it at, so saying nothing is what saves it correctly.",
   "variables": {
     "text": "Somebody finished the pistachio and nobody is saying anything.",
     "model_name": "facebook/mms-tts-eng"

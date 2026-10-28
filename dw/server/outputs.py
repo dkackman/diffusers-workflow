@@ -32,7 +32,7 @@ from ..library import (
     LibraryRoot,
     library_path,
 )
-from ..notes import read_notes
+from ..notes import effective_note, read_notes, read_starred
 from ..roles import ROLE_DECLARED_KEY, consumed_outputs, entry_role, listed_role
 from ..runs import (
     MANIFEST_FILE_NAME,
@@ -547,10 +547,49 @@ def declared_files(run_dir):
 
 def listed_file_role(run_dir, name, consumed):
     """The role a listing shows for file `name` of a run: its recorded role,
-    demoted when `consumed` (dw/roles.py rule 4)."""
+    demoted when `consumed` (dw/roles.py rule 4), or for a run that recorded
+    none, what the file's subfolder and `consumed` still say."""
     return listed_role(
-        run_roles(run_dir).get(name), name in declared_files(run_dir), consumed
+        run_roles(run_dir).get(name),
+        name in declared_files(run_dir),
+        consumed,
+        name,
     )
+
+
+def output_annotations(run_dir, file_name, consumed, cache):
+    """What the server says about one output file of a run: `role` (demoted
+    when `consumed`), `note` and `note_source` when it has a note, `run_note`
+    when its run has one, `starred` when it is starred, and `version`, the
+    run's ordinal among its workflow's runs. The listing and the metadata
+    route both describe a file through this and build none of these
+    themselves - the run's notes.json is read here, once, for all of them.
+
+    `cache` is a dict the caller keeps for one listing, so each run's notes,
+    stars and each workflow's versions are read once, not once per file."""
+    notes = cache.setdefault("notes", {})
+    if run_dir not in notes:
+        notes[run_dir] = read_notes(run_dir)
+    stars = cache.setdefault("starred", {})
+    if run_dir not in stars:
+        stars[run_dir] = read_starred(run_dir)
+    identity_dir = os.path.dirname(run_dir)
+    versions = cache.setdefault("versions", {})
+    if identity_dir not in versions:
+        versions[identity_dir] = run_versions(identity_dir)
+    fields = {
+        "role": listed_file_role(run_dir, file_name, consumed),
+        "version": versions[identity_dir].get(os.path.basename(run_dir)),
+    }
+    note, source = effective_note(notes[run_dir], file_name)
+    if note:
+        fields["note"] = note
+        fields["note_source"] = source
+    if notes[run_dir]["run"]:
+        fields["run_note"] = notes[run_dir]["run"]
+    if file_name in stars[run_dir]:
+        fields["starred"] = True
+    return fields
 
 
 def consumed_in(state, ws):
@@ -638,15 +677,18 @@ def with_run_note(summary, path):
     return {**summary, "note": note} if note else summary
 
 
-def with_run_state(detail, root, run_dir, roles=True):
+def with_run_state(detail, root, run_dir, roles=True, note=True):
     """A job's detail with what its run directory says now: the run note,
     and each manifest entry's role. The worker reports the manifest it held
     in memory, which carries no roles - so each entry takes the role
-    `run_roles` gives its files; a run from before roles stays without. `roles` false leaves the manifest alone."""
+    `run_roles` gives its files; a run from before roles stays without.
+    `roles` false leaves the manifest alone; `note` false skips the notes
+    read, for a caller stamping roles alone (`JobManager._stamp_roles`)."""
     path = job_run_directory(root, run_dir)
     if path is None:
         return detail
-    detail = with_run_note(detail, path)
+    if note:
+        detail = with_run_note(detail, path)
     roles = run_roles(path) if roles else None
     manifest = detail.get("manifest")
     if not roles or not isinstance(manifest, list):

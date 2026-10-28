@@ -25,6 +25,7 @@ from ..worker_protocol import (
     WorkerCrashed,
     WorkflowLoaded,
     parse_reply,
+    poisons_cuda_context,
 )
 from ..notes import set_run_note
 from ..security import SecurityError, validate_path
@@ -194,6 +195,11 @@ def consume_results(job, manager, slot, output_dir, record_memory):
             # real files, and a job that reports an empty manifest hides
             # them behind the error that stopped the run
             record_manifest(job, reply.manifest, output_dir)
+            if poisons_cuda_context(reply.message, reply.traceback):
+                # The worker exits after this reply; let it finish so the
+                # next job respawns a clean process rather than queueing
+                # behind a dying one
+                manager.await_exit()
             return (FAILED, reply.message, reply.traceback)
         elif isinstance(reply, WorkerCrashed):
             manager.mark_crashed()

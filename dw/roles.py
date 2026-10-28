@@ -17,8 +17,11 @@ step, first rule wins:
 
 A composed child's rolled-up manifest entries carry `parent_step` and take
 that step's role. The engine records roles when a run ends, from the
-`role_basis` it took as the run opened; the server reads only what was
-recorded, so a run that predates roles has none - unknown, not guessed. Inputs
+`role_basis` it took as the run opened. A run that predates roles recorded
+none, and its realized workflow no longer shows its data flow (a run
+resolves its references in place), so a listing falls back on what is
+still readable: rule 2 from the file's own subfolder, then rule 4 below. A
+file neither says anything about stays unknown. Inputs
 are the asset: and output: references the expanded steps carry - a run's
 'made from' list.
 
@@ -34,14 +37,15 @@ rewriting a manifest (`consumed_outputs`, `listed_role`):
    'latest' is the newest run that started before it), or through an asset:
    reference to an asset keep_output kept from that file. A role rule 1
    declared is recorded as such (`role_declared`) and never demoted; an entry
-   from before that flag is demotable, and a file with no recorded role
-   stays unknown.
+   from before that flag is demotable, and so is a file with no recorded
+   role, which lists as intermediate once read.
 
 This module names no model.
 """
 
 import json
 import os
+import posixpath
 
 from .references import (
     ASSET,
@@ -227,11 +231,17 @@ def run_inputs(steps):
     return seen
 
 
-def listed_role(role, declared, consumed):
+def listed_role(role, declared, consumed, name=None):
     """Rule 4: the role a listing shows for a file whose run recorded
     `role` - intermediate once a later run `consumed` it, unless rule 1
-    `declared` the role. An unknown role stays unknown."""
-    if role is None or declared or not consumed:
+    `declared` the role. With no recorded role (a run that predates roles),
+    rule 2 reads the subfolder of `name`, the file's '/' separated path
+    inside its run, before rule 4 applies; with neither, it stays None."""
+    if role is None:
+        role = _subfolder_role(posixpath.dirname(name or "") or None)
+        if role is None:
+            return INTERMEDIATE if consumed else None
+    if declared or not consumed:
         return role
     return INTERMEDIATE
 

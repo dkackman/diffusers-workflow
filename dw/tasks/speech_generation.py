@@ -28,6 +28,7 @@ from ..dsp import resample_waveform
 from .audio_utils import load_audio
 from ..trust import require_trusted_generate_arguments
 from .model_cache import cached_model, hf_pipeline_placement
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -45,6 +46,21 @@ _SPEAKER_ENCODER_MODEL = "speechbrain/spkrec-xvect-voxceleb"
 # What the encoder was trained on - resampling anything else to this rate is
 # part of extracting a voiceprint, not an approximation of one
 _SPEAKER_ENCODER_SAMPLE_RATE = 16000
+
+
+def model_source(arguments):
+    """The text-to-speech repo a generate_speech step loads."""
+    return argument_or_default(arguments, "model_name", _DEFAULT_MODEL)
+
+
+def required_weights(arguments):
+    """The speech model's repo, plus speechbrain's speaker encoder when the
+    step clones a voice from a `speaker_embedding` clip, for the plan
+    (dw/tasks/weights.py)."""
+    encoder = (
+        _SPEAKER_ENCODER_MODEL if (arguments or {}).get("speaker_embedding") else None
+    )
+    return repo_entries(model_source(arguments), encoder)
 
 
 def _speaker_embedding_tensor(location, device, dtype):
@@ -120,7 +136,14 @@ def _generation_settings(value, name):
 
 
 def generate_speech(text=None, device="cpu", seed=None, **kwargs):
-    """Speak a line of text with a local text-to-speech model.
+    """Speak a line of text with a local text-to-speech model - any
+    transformers text-to-speech checkpoint named by model_name. Three
+    families are wired for their voice controls: Bark (suno/bark-small, the
+    default; distinct speakers by voice_preset), MMS/VITS
+    (facebook/mms-tts-eng and the other per-language mms-tts-* checkpoints;
+    one voice, small and fast; a multi-speaker VITS takes speaker_id through
+    forward_params) and SpeechT5 (microsoft/speecht5_tts; speaks in the
+    voice of a reference clip given as speaker_embedding).
 
     Args:
         text: The line to speak. Mutually exclusive with messages - exactly
@@ -188,7 +211,7 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
         kwargs.get("generate_kwargs"), "generate_kwargs"
     )
 
-    model_name = kwargs.get("model_name", _DEFAULT_MODEL)
+    model_name = model_source(kwargs)
     voice_preset = kwargs.get("voice_preset", None)
     speaker_embedding = kwargs.get("speaker_embedding", None)
     dtype = preferred_task_dtype(device)

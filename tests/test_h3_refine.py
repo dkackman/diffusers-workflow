@@ -594,3 +594,217 @@ class TestOneOwnerOfTheRules:
         with pytest.raises(ValueError) as raised:
             Pipeline._check_refine(refining, arguments)
         assert str(raised.value) == f"Step 'video': {problems[0]}"
+
+
+# 10. refine_tiles (#1043)
+
+TILES = {"width": 1344, "height": 768, "overlap": 256}
+
+
+def tiled(tiles=TILES, **overrides):
+    return step_with(refine_tiles=tiles, **overrides)
+
+
+def messages(step):
+    return [error["message"] for error in errors_for(step)]
+
+
+def tile_errors(step):
+    return [e for e in errors_for(step) if e["path"].endswith("refine_tiles")]
+
+
+def upscale_workflow(up_width=1920, up_height=1088, tiles=TILES, **overrides):
+    refine = tiled(tiles, **overrides)
+    refine["name"] = "refine"
+    refine["pipeline"]["arguments"]["latents"] = "previous_result:up"
+    return {
+        "steps": [
+            h3_step(),
+            {
+                "name": "up",
+                "task": {
+                    "command": "upscale_h3_latents",
+                    "arguments": {
+                        "latents": "previous_result:video.latents",
+                        "width": up_width,
+                        "height": up_height,
+                    },
+                },
+            },
+            refine,
+        ]
+    }
+
+
+class TestTileStatic:
+    def test_tiles_without_a_strength_are_refused_at_the_tiles_path(self):
+        errors = errors_for(tiled(refine_strength=None))
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("arguments.refine_tiles")
+        assert errors[0]["message"].startswith("refine_tiles tiles a refine_strength")
+
+    @pytest.mark.parametrize(
+        "tiles, fragment",
+        [
+            ({"width": 1000, "height": 544, "overlap": 256}, "multiple of 32"),
+            ({"width": 1920, "height": 1088, "overlap": 256}, "1920x1088"),
+            ({"width": 1344, "height": 768, "overlap": 128}, "128"),
+            ({"width": 1344, "height": 768, "overlap": 400}, "400"),
+            ({"width": 1344, "height": 768, "overlap": 384}, "384"),
+            ({"width": 1344, "height": 768, "overlap": 160}, "160"),
+            ({"width": 1344, "height": 768, "overlap": 250}, "multiple of 32"),
+            ({"width": "wide", "height": 768, "overlap": 256}, "'wide'"),
+            ({"width": 1344, "height": 768.0, "overlap": 256}, "768.0"),
+            ({"width": 1344, "height": 768, "overlap": True}, "True"),
+            ({"width": 1344, "height": 768}, "missing overlap"),
+            ({"width": 1344, "height": 768, "overlap": 256, "pad": 1}, "pad"),
+            ("1344x768", "mapping"),
+        ],
+    )
+    def test_a_bad_tile_is_refused_naming_refine_tiles(self, tiles, fragment):
+        errors = tile_errors(tiled(tiles))
+        assert errors
+        assert all(e["message"].startswith("refine_tiles") for e in errors)
+        assert any(fragment in e["message"] for e in errors)
+        assert len(errors) == len(errors_for(tiled(tiles)))
+
+    @pytest.mark.parametrize(
+        "tiles",
+        [
+            {"width": 1344, "height": 768, "overlap": 256},
+            {"width": 768, "height": 1088, "overlap": 192},
+            {"width": 768, "height": 768, "overlap": 352},
+        ],
+    )
+    def test_a_boundary_tile_is_clean(self, tiles):
+        assert errors_for(tiled(tiles)) == []
+
+    def test_an_unresolved_value_skips_its_checks(self):
+        tiles = {"width": "variable:w", "height": 768, "overlap": "variable:o"}
+        assert errors_for(tiled(tiles)) == []
+        assert errors_for(tiled("variable:tiles")) == []
+
+    @pytest.mark.parametrize(
+        "argument, value",
+        [
+            ("image", {"location": "a.png"}),
+            ("last_image", "asset:a.png"),
+            ("references", [{"reference_type": "image"}]),
+            ("guides", [{"video": "asset:a.mp4"}]),
+        ],
+    )
+    def test_a_reference_keyframe_or_guide_is_refused(self, argument, value):
+        step = tiled(**{argument: value})
+        found = [m for m in messages(step) if argument in m]
+        assert len(found) == 1
+        assert found[0].startswith("refine_tiles")
+
+    def test_a_null_reference_does_not_count(self):
+        assert errors_for(tiled(image=None, guides=None)) == []
+
+    def test_a_picture_in_the_prompt_is_refused(self):
+        found = messages(tiled(prompt="<Picture 1> walks"))
+        assert len(found) == 1 and "<Picture N>" in found[0]
+
+    def test_a_tile_over_a_known_canvas_is_refused(self):
+        found = messages(tiled(width=1280, height=704))
+        assert len(found) == 1
+        assert "larger than the 1280x704 canvas" in found[0]
+
+    def test_a_tile_over_one_axis_is_refused(self):
+        tall = {"width": 768, "height": 1344, "overlap": 192}
+        found = messages(tiled(tall, width=1920, height=1088))
+        assert len(found) == 1
+        assert "768x1344 is larger than the 1920x1088 canvas" in found[0]
+
+    def test_the_canvas_comes_from_the_upscale_step(self):
+        assert refine_strength_errors(upscale_workflow()) == []
+        problems = refine_strength_errors(upscale_workflow(1280, 704))
+        assert any("1280x704 canvas" in p["message"] for p in problems)
+        assert all(p["path"].endswith("refine_tiles") for p in problems)
+
+    def test_a_disagreeing_size_is_refused_against_the_upscale_step(self):
+        problems = refine_strength_errors(upscale_workflow(width=1344))
+        assert len(problems) == 1
+        assert "width 1344" in problems[0]["message"]
+        assert "1920x1088" in problems[0]["message"]
+
+    def test_an_agreeing_size_is_clean(self):
+        assert refine_strength_errors(upscale_workflow(width=1920, height=1088)) == []
+
+    def test_an_unknown_canvas_skips_the_canvas_checks(self):
+        assert errors_for(tiled()) == []
+
+    def test_a_non_h3_step_is_refused_naming_refine_tiles(self):
+        step = tiled()
+        step["pipeline"]["configuration"]["component_type"] = "StableDiffusionPipeline"
+        found = tile_errors(step)
+        assert len(found) == 1
+        assert "refine_tiles is a MiniMax-H3 argument" in found[0]["message"]
+
+    def test_a_tiles_step_keeps_the_strength_rules(self):
+        errors = errors_for(tiled(hold_audio=None))
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("refine_strength")
+
+    def test_the_happy_workflow_is_clean(self):
+        definition = copy.deepcopy(upscale_workflow())
+        workflow = workflow_from_definition(definition, tempfile.mkdtemp())
+        assert [
+            p
+            for p in workflow.validation_errors()
+            if "refine_" in str(p.get("path")) or "refine_" in p["message"]
+        ] == []
+
+
+class TestTileRuntime:
+    def canvas(self, height=1088, width=1920):
+        return torch.zeros(1, 16, 8, height // 16, width // 16)
+
+    def test_tiles_without_a_strength_raise_naming_refine_tiles(self, run):
+        with pytest.raises(ValueError, match="refine_tiles tiles a refine_strength"):
+            run(refine_strength=None)
+
+    def test_a_non_h3_pipeline_names_refine_tiles(self):
+        with pytest.raises(ValueError, match="refine_tiles is a MiniMax-H3"):
+            Pipeline._check_refine(
+                ns(object()),
+                runtime_arguments(
+                    refine_strength=None, refine_tiles=TILES, latents=self.canvas()
+                ),
+            )
+
+    @pytest.fixture
+    def run(self, refining):
+        def call(tiles=TILES, canvas=None, **overrides):
+            arguments = runtime_arguments(
+                refine_tiles=tiles,
+                latents=self.canvas() if canvas is None else canvas,
+                **overrides,
+            )
+            return Pipeline._check_refine(refining, arguments)
+
+        return call
+
+    def test_a_valid_tiled_call_passes(self, run):
+        assert run() is None
+
+    def test_an_off_limit_tile_raises(self, run):
+        with pytest.raises(ValueError, match="refine_tiles.*1920x1088"):
+            run({"width": 1920, "height": 1088, "overlap": 256})
+
+    def test_a_low_overlap_raises(self, run):
+        with pytest.raises(ValueError, match="refine_tiles overlap.*128"):
+            run({"width": 1344, "height": 768, "overlap": 128})
+
+    def test_a_tile_over_the_tensor_canvas_raises(self, run):
+        with pytest.raises(ValueError, match="1280x704 canvas"):
+            run(canvas=self.canvas(704, 1280))
+
+    def test_a_size_disagreeing_with_the_tensor_raises(self, run):
+        with pytest.raises(ValueError, match="width 1344 disagrees"):
+            run(width=1344, height=1088)
+
+    def test_a_guide_raises(self, run):
+        with pytest.raises(ValueError, match="refine_tiles.*guides"):
+            run(guides=[{"video": "a.mp4"}])

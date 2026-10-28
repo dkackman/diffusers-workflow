@@ -8,7 +8,7 @@ import logging
 import numpy
 import torch
 
-from .media_types import AudioTrack, AudioVideo
+from .media_types import AudioTrack, AudioVideo, rated_videos
 from .pipeline_processors.h3_rules import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
 
 logger = logging.getLogger("dw")
@@ -238,8 +238,15 @@ def pair_audio_with_frames(videos, audio, sample_rate):
     Returns:
         List of AudioVideo artifacts, one per generated video
     """
+    # Frames that carry their rate (a FrameList, dw/media_types.py) keep it on
+    # the pair, so a step that declares no result.fps still writes at it
     return [
-        AudioVideo(frames, audio[i] if i < len(audio) else None, sample_rate)
+        AudioVideo(
+            frames,
+            audio[i] if i < len(audio) else None,
+            sample_rate,
+            fps=getattr(frames, "fps", None),
+        )
         for i, frames in enumerate(videos)
     ]
 
@@ -262,3 +269,44 @@ def as_waveform_array(audio):
         return audio.T.float().cpu().numpy()
 
     return numpy.asarray(audio).T.astype(numpy.float32, copy=False)
+
+
+def attach_video_frame_rate(pipeline, output, requested=None):
+    """Hand a pipeline's `videos` on carrying the rate the pipeline itself
+    reports, and answer the output (the same object, or the rated batch when
+    `videos` alone was asked for).
+
+    A modular pipeline returns its frames as bare lists, which say nothing
+    about how fast they play: `previous_result:base.videos` from a MiniMax-H3
+    step reached pair_audio with no rate, so `fit` measured the 124 frames
+    at the writer's 8 fps fallback and padded a 5.17 s track to 15.5 s, and a
+    `result.fps` of 24 only re-timed the picture afterwards (#1056). The
+    rate is the model's, so it is read off the pipeline, which is where
+    MiniMax-H3 publishes it (its `fps` property); a pipeline that reports
+    none leaves its lists as they were, the way a tiled refine's `videos`
+    already carried H3's rate (dw/pipeline_processors/h3_tiles.py). Called by
+    `_run_once` beside `attach_audio_sample_rate`.
+
+    Args:
+        pipeline: The pipeline that produced the output
+        output: The pipeline output - a dict of requested outputs, an output
+            object, or the one value a single-name `output` asked for
+        requested: The step's `output` argument, when it names one output
+    """
+    fps = getattr(pipeline, "fps", None)
+    if not isinstance(fps, (int, float)) or isinstance(fps, bool) or not fps:
+        return output
+    if isinstance(output, dict):
+        if output.get("videos") is not None:
+            output["videos"] = rated_videos(output["videos"], fps)
+        return output
+    if requested == "videos":
+        return rated_videos(output, fps)
+    videos = getattr(output, "videos", None)
+    if videos is not None:
+        try:
+            output.videos = rated_videos(videos, fps)
+        except AttributeError:
+            # A read-only output: left as it was, and the result declares its rate
+            pass
+    return output

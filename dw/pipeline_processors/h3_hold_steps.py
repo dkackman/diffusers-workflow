@@ -16,11 +16,13 @@ guide's audio through `encode_audio_span` here, which this module never
 imports back.
 """
 
+import dataclasses
 import logging
 
 import torch
 from diffusers.modular_pipelines.minimax_h3.before_denoise import (
     MiniMaxH3SetTimestepsStep,
+    patchify_video_latents,
 )
 from diffusers.modular_pipelines.minimax_h3.before_encoder import (
     MiniMaxH3Ref2VASetupStep,
@@ -42,9 +44,12 @@ from diffusers.utils.torch_utils import randn_tensor
 from .h3_rules import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    HELD_LATENTS_OUTPUT,
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
+    REFINE_NOISE,
     REFINE_STRENGTH_INPUT,
+    REFINE_TILES_INPUT,
 )
 
 logger = logging.getLogger("dw")
@@ -154,6 +159,25 @@ def encode_audio_span(encoder, components, waveform, num_latents):
     return fit_latents(latents, num_latents, silence[:, middle : middle + 1])
 
 
+@dataclasses.dataclass
+class EncodedAudioReference(MiniMaxH3AudioReference):
+    """A `hold_audio` reference carrying `latents`, the hold block's own
+    `(channels, num_latents, C)` encode of it from an earlier run on the same
+    target, which the block then writes in place of encoding again. The tiled
+    refine (dw/pipeline_processors/h3_tiles.py) hands every tile after the
+    first one of these, built by `h3_hold.encoded_hold_audio`."""
+
+    latents: torch.Tensor | None = None
+
+    @classmethod
+    def of(cls, reference, latents):
+        fields = {
+            f.name: getattr(reference, f.name) for f in dataclasses.fields(reference)
+        }
+        fields["latents"] = latents
+        return cls(**fields)
+
+
 class DwH3HoldAudioStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -193,6 +217,14 @@ class DwH3HoldAudioStep(ModularPipelineBlocks):
             OutputParam(HELD_ROWS, type_hint=int),
             OutputParam(HELD_AUDIO_OUTPUT, type_hint=torch.Tensor),
             OutputParam(HELD_AUDIO_RATE_OUTPUT, type_hint=int),
+            OutputParam(
+                HELD_LATENTS_OUTPUT,
+                type_hint=torch.Tensor,
+                description=(
+                    "The encode of the held track, `(channels, num_latents, C)`: handed back through an "
+                    "EncodedAudioReference, the block writes it instead of encoding again."
+                ),
+            ),
         ]
 
     @torch.no_grad()
@@ -201,6 +233,7 @@ class DwH3HoldAudioStep(ModularPipelineBlocks):
         block_state.dw_held_audio_rows = 0
         block_state.dw_held_audio = None
         block_state.dw_held_audio_sampling_rate = None
+        block_state.dw_held_audio_latents = None
         held = block_state.hold_audio
         if held is None:
             self.set_block_state(state, block_state)
@@ -212,13 +245,19 @@ class DwH3HoldAudioStep(ModularPipelineBlocks):
         original = as_channels_samples(held.audio)
         rate = held.sample_rate or vae_rate
 
-        # Onto the VAE's rate and channels the way a Ref2VA reference is, then
-        # padded with silence to the whole target - a short track encodes
-        # with its silence rather than having it appended in latent space
-        waveform = MiniMaxH3Ref2VASetupStep._normalize_audio_condition(
-            original, rate, vae_rate, max_duration=duration
-        )
-        latents = encode_audio_span(self._encoder, components, waveform, num_latents)
+        latents = getattr(held, "latents", None)
+        if latents is None:
+            # Onto the VAE's rate and channels the way a Ref2VA reference is,
+            # then padded with silence to the whole target - a short track
+            # encodes with its silence rather than having it appended in
+            # latent space
+            waveform = MiniMaxH3Ref2VASetupStep._normalize_audio_condition(
+                original, rate, vae_rate, max_duration=duration
+            )
+            latents = encode_audio_span(
+                self._encoder, components, waveform, num_latents
+            )
+        block_state.dw_held_audio_latents = latents
 
         # Channel-major target rows, after any Ref2VA reference rows
         audio_latents = block_state.audio_latents
@@ -267,6 +306,25 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                 description=(
                     "The sigma in (0, 1) to re-denoise a passed `latents` from - an upscaled take refined at "
                     "about 0.2. Runs num_inference_steps - 1 evaluations."
+                ),
+            ),
+            InputParam(
+                name=REFINE_TILES_INPUT,
+                type_hint=dict,
+                default=None,
+                description=(
+                    "{width, height, overlap} in pixels: refine a `latents` canvas past H3's own size as "
+                    "overlapping tiles. dw's tiled refine handles it before the call, one call per tile; "
+                    "this block never reads it."
+                ),
+            ),
+            InputParam(
+                name=REFINE_NOISE,
+                type_hint=torch.Tensor,
+                default=None,
+                description=(
+                    "Internal: noise shaped like `latents`, drawn once for the whole canvas and cropped per "
+                    "tile, so tiles that overlap start from the same noise. Used in place of a draw of its own."
                 ),
             ),
             InputParam(name="num_inference_steps", type_hint=int, default=50),
@@ -341,12 +399,24 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
         latents = block_state.latents
         start = block_state.num_condition_video_rows or 0
         clean = latents[start:]
-        noise = randn_tensor(
-            clean.shape,
-            generator=block_state.generator,
-            device=clean.device,
-            dtype=clean.dtype,
-        )
+        supplied = getattr(block_state, REFINE_NOISE, None)
+        if supplied is None:
+            noise = randn_tensor(
+                clean.shape,
+                generator=block_state.generator,
+                device=clean.device,
+                dtype=clean.dtype,
+            )
+        else:
+            # Packed the way `latents` reached its rows
+            noise = patchify_video_latents(
+                supplied.to(clean.device, torch.float32), components.patch_size
+            ).to(clean.dtype)
+            if noise.shape != clean.shape:
+                raise ValueError(
+                    f"{REFINE_NOISE} packs to {tuple(noise.shape)}, but the rows "
+                    f"to re-noise are {tuple(clean.shape)}"
+                )
         # The scheduler's own forward process, in H3's t = 1 - σ convention
         block_state.latents = torch.cat(
             [

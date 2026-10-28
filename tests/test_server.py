@@ -557,6 +557,31 @@ def test_job_workflow_returns_an_inline_definition(server):
         assert historical["definition"] == valid_workflow()
 
 
+def test_job_workflow_of_a_deleted_workspace_folds_the_arguments(server):
+    """#944: a job id still resolves once its workspace is deleted - the
+    definition comes back unrealized with the recorded arguments folded in."""
+    workflow = valid_workflow("fold")
+    workflow["variables"] = {**workflow.get("variables", {}), "n": 1, "label": "x"}
+    with server(success_script) as client:
+        response = client.post(
+            "/api/jobs",
+            json={"workflow": workflow, "arguments": {"n": "30", "label": "coerced"}},
+        )
+        assert response.status_code == 201, response.json()
+        job = response.json()
+        wait_for_status(client, job["id"], TERMINAL_STATES)
+        manager = client.app.state.job_manager
+        manager.forget_workspace(manager.get(job["id"]).spec["workspace"])
+        manager.jobs.pop(job["id"], None)
+
+        assert client.get(f"/api/jobs/{job['id']}").status_code == 200
+        body = client.get(f"/api/jobs/{job['id']}/workflow").json()
+        assert body["realized"] is False
+        variables = body["definition"]["variables"]
+        assert (variables["n"], variables["label"]) == (30, "coerced")
+        assert "n, label" in body["note"] or "label, n" in body["note"]
+
+
 def test_job_workflow_reads_back_a_job_launched_from_a_file(server):
     """A job submitted by path names no definition - the file it ran is
     re-read from the root the job was confined to."""
@@ -5365,10 +5390,10 @@ class TestValidatePlan:
     box lacks named. Best effort - the verdict is never the planner's."""
 
     def test_a_valid_answer_carries_a_plan(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             result = client.post(
@@ -5393,11 +5418,11 @@ class TestValidatePlan:
         """#186: a repo this box's token cannot access is a 403 partway into
         a run unless the pre-flight says so first."""
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -5405,7 +5430,7 @@ class TestValidatePlan:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         with server(success_script) as client:
             result = client.post(
                 "/api/validate",
@@ -5421,10 +5446,10 @@ class TestValidatePlan:
         """#154: `basis: unknown` has to mean nobody has a number. A stored
         workflow this server has finished eleven times is priced from those
         runs, and the aggregate is asked with the caller's arguments."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         from dw import get_device, get_device_type
 
@@ -5468,10 +5493,10 @@ class TestValidatePlan:
 
     def test_an_inline_workflow_has_no_history_to_quote(self, server, monkeypatch):
         """It has no catalog name, so nothing joins it to a job row."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
 
         class History:
@@ -5529,10 +5554,10 @@ class TestValidatePlan:
         assert seen == [True, False]
 
     def test_cached_steps_comes_from_the_worker(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             manager = client.app.state.job_manager
@@ -5555,10 +5580,10 @@ class TestValidatePlan:
         assert probe[0]["output_dir"] == manager.output_dir
 
     def test_an_unseeded_workflow_does_not_probe(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             manager = client.app.state.job_manager
@@ -5570,10 +5595,10 @@ class TestValidatePlan:
         assert all(c["type"] != "probe_cache" for c in manager.worker_manager.commands)
 
     def test_the_plan_sees_the_callers_arguments(self, server, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan, "scan_models", lambda cache_dir=None: {"repos": []}
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
         )
         with server(success_script) as client:
             body = {"workflow": valid_workflow("v")}
@@ -5774,9 +5799,11 @@ def bound(plan):
 
 @pytest.fixture
 def no_hub(monkeypatch):
-    import dw.plan
+    import dw.plan_downloads
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
 
 
 def list_workflow(job_id="listed"):
@@ -5906,10 +5933,10 @@ class TestBoundAcknowledgement:
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
             assert bound(plan)["downloads"] == ["m"]
-            import dw.plan
+            import dw.plan_downloads
 
             monkeypatch.setattr(
-                dw.plan,
+                dw.plan_downloads,
                 "scan_models",
                 lambda cache_dir=None: {"repos": [{"repo_id": "m"}]},
             )
@@ -5922,7 +5949,7 @@ class TestBoundAcknowledgement:
     def test_an_unplannable_run_is_refused_not_passed(
         self, server, no_hub, monkeypatch
     ):
-        import dw.server.admission as admission_module
+        import dw.server.routes.jobs as jobs_module
 
         with server(success_script) as client:
             plan = plan_for(client, list_workflow())
@@ -5930,7 +5957,7 @@ class TestBoundAcknowledgement:
             def boom(*a, **k):
                 raise RuntimeError("no plan")
 
-            monkeypatch.setattr(admission_module, "build_plan", boom)
+            monkeypatch.setattr(jobs_module, "build_plan", boom)
             response = client.post(
                 "/api/jobs",
                 json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
@@ -5939,13 +5966,60 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["reason"] == "unplannable"
             assert response.json()["detail"]["plan"] is None
 
+    def test_the_409_quotes_the_observed_estimate_validate_does(
+        self, server, no_hub, monkeypatch
+    ):
+        """#1038: the rebind a 409 offers carries the same observed figure
+        a re-validate of the same run quotes, not `basis: unknown`."""
+        import dw.plan_downloads
+        from dw import get_device, get_device_type
+
+        monkeypatch.setattr(
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        serving = get_device_type(get_device())
+
+        class History:
+            def observed(
+                self, name, definition, arguments=None, *, workspace=None, card=None
+            ):
+                return {
+                    "device": serving,
+                    "name": "RTX 3090",
+                    "runs": 11,
+                    "cold_minutes": 8.04,
+                    "cold_runs": 11,
+                }
+
+        with server(success_script) as client:
+            client.app.state.observed_costs = History()
+            body = {"workflow_path": "Basic", "arguments": {"prompt": "x"}}
+            validated = client.post("/api/validate?sizes=false", json=body).json()
+            response = client.post(
+                "/api/jobs",
+                json={
+                    **body,
+                    "acknowledged_cost": {
+                        "fingerprint": "sha256:stale",
+                        "minutes": 1,
+                        "downloads": [],
+                    },
+                },
+            )
+        assert response.status_code == 409
+        detail = response.json()["detail"]
+        assert detail["reason"] == "fingerprint"
+        assert detail["plan"]["estimate"]["basis"] == "observed"
+        assert detail["acknowledge"]["minutes"] == 8.0
+        assert detail["acknowledge"] == bound(validated["plan"])
+
     def test_true_and_absent_queue_without_planning(self, server, no_hub, monkeypatch):
-        import dw.server.admission as admission_module
+        import dw.server.routes.jobs as jobs_module
 
         def boom(*a, **k):
             raise AssertionError("the boolean path must not plan")
 
-        monkeypatch.setattr(admission_module, "build_plan", boom)
+        monkeypatch.setattr(jobs_module, "build_plan", boom)
         with server(success_script) as client:
             plain = client.post("/api/jobs", json={"workflow": valid_workflow("p")})
             flagged = client.post(

@@ -36,6 +36,7 @@ from ..task_domains import check_arguments
 from ..dsp import resample_waveform
 from .audio_utils import waveform_and_rate, load_audio
 from .model_cache import cached_model
+from .weights import repo_entries
 
 logger = logging.getLogger("dw")
 
@@ -104,6 +105,38 @@ THRESHOLDS = {
     "mixed_line_share": MIXED_LINE_SHARE,
     "voices_too_similar": VOICES_TOO_SIMILAR,
 }
+
+# separate_stems' stacked-vocals check (#947), on the 44.1 kHz stereo vocal
+# stem. Music 3 records a chorus as layered stereo doubles, and htdemucs
+# returns them in the one vocal stem: one voice processed as one where two
+# sing distorts (the 1:19 chorus of `two-minds` *Always On*). A window is
+# stacked when it is sung - at least STACK_VOICED_SHARE of its frames
+# voiced, and its mid level within STACK_LEVEL_BELOW_DB of the stem's level
+# (the VOICED_LEVEL_PERCENTILE frame rms) - and its left and right channels
+# disagree: their correlation below STACK_CORRELATION_MAX and the side/mid
+# energy ratio above STACK_SIDE_RATIO_MIN. The level gate is there because
+# faint content decorrelates as readily as a double: on *Always On* an
+# intro hum 16.5 dB down measured as stacked as the chorus. Flagged windows
+# merge across gaps of one window or less, and a span shorter than
+# STACK_MIN_SPAN_SECONDS (a single doubled word) is dropped. Calibrated on
+# *Always On* take A (job 494d1a7469b7): its chorus windows measure
+# correlation -0.28 to 0.25 and side/mid 0.61 to 1.68, its verse windows
+# 0.66 to 0.97 and 0.02 to 0.21
+STACK_WINDOW_SECONDS = 1.0
+STACK_VOICED_SHARE = 0.5
+STACK_LEVEL_BELOW_DB = 14.0
+STACK_CORRELATION_MAX = 0.45
+STACK_SIDE_RATIO_MIN = 0.4
+STACK_MIN_SPAN_SECONDS = 2.0
+# How many spans the warning names before "and N more"
+STACK_SPANS_LISTED = 8
+
+
+def required_weights(arguments):
+    """speechbrain's speaker encoder, for the plan (dw/tasks/weights.py).
+    The demucs separator downloads outside the Hugging Face cache and is not
+    listed (docs/TASKS.md)."""
+    return repo_entries(_EMBEDDER_MODEL)
 
 
 def _missing(package, error):
@@ -331,14 +364,20 @@ def voiced_mask(waveform, sample_rate):
     """Per-frame voiced flags for a mono waveform, the frame length in
     samples and the floor used: FRAME_SECONDS frames whose rms reaches
     voiced_floor_dbfs."""
-    frame = max(1, int(round(FRAME_SECONDS * sample_rate)))
-    count = len(waveform) // frame
-    if count == 0:
+    rms, frame = _frame_rms(waveform, sample_rate)
+    if len(rms) == 0:
         return numpy.zeros(0, dtype=bool), frame, VOICED_FLOOR_MIN_DBFS
-    frames = waveform[: count * frame].reshape(count, frame)
-    rms = numpy.sqrt(numpy.mean(frames.astype(numpy.float64) ** 2, axis=1))
     floor_dbfs = voiced_floor_dbfs(rms)
     return rms >= 10 ** (floor_dbfs / 20), frame, floor_dbfs
+
+
+def _frame_rms(waveform, sample_rate):
+    """The rms of each FRAME_SECONDS frame of a mono waveform, and the frame
+    length in samples."""
+    frame = max(1, int(round(FRAME_SECONDS * sample_rate)))
+    count = len(waveform) // frame
+    frames = waveform[: count * frame].reshape(count, frame)
+    return numpy.sqrt(numpy.mean(frames.astype(numpy.float64) ** 2, axis=1)), frame
 
 
 class _Voicing:
@@ -868,6 +907,74 @@ def attribute_voices(
 STEMS_COMMAND = "separate_stems"
 
 
+def stacked_spans(stereo, sample_rate):
+    """The spans of a stereo vocal stem that hold stacked (layered stereo)
+    voices, as (start, end) seconds: the STACK_* check above. A mono stem, or
+    one with nothing sung, has none."""
+    audio = numpy.asarray(stereo, dtype=numpy.float64)
+    if audio.ndim != 2 or audio.shape[0] < 2:
+        return []
+    left, right = audio[0], audio[1]
+    mid, side = (left + right) / 2, (left - right) / 2
+    window = max(1, int(round(STACK_WINDOW_SECONDS * sample_rate)))
+    voiced, frame, _ = voiced_mask(mid, sample_rate)
+    rms, _ = _frame_rms(mid, sample_rate)
+    if not voiced.any():
+        return []
+    level = float(numpy.percentile(rms, VOICED_LEVEL_PERCENTILE))
+    quietest = level * 10 ** (-STACK_LEVEL_BELOW_DB / 20)
+    flagged = []
+    for index in range(len(mid) // window):
+        span = slice(index * window, (index + 1) * window)
+        frames = voiced[span.start // frame : span.stop // frame]
+        if len(frames) == 0 or frames.mean() < STACK_VOICED_SHARE:
+            continue
+        lw, rw, mw, sw = left[span], right[span], mid[span], side[span]
+        mid_energy = float(mw @ mw)
+        if math.sqrt(mid_energy / window) < quietest:
+            continue
+        denominator = math.sqrt(float(lw @ lw) * float(rw @ rw))
+        correlation = float(lw @ rw) / denominator if denominator else 1.0
+        if (
+            correlation < STACK_CORRELATION_MAX
+            and float(sw @ sw) / mid_energy > STACK_SIDE_RATIO_MIN
+        ):
+            flagged.append(index)
+    runs = []
+    for index in flagged:
+        # a gap of one window or less joins the run
+        if runs and index - runs[-1][1] <= 1:
+            runs[-1][1] = index + 1
+        else:
+            runs.append([index, index + 1])
+    seconds = window / sample_rate
+    return [
+        (first * seconds, last * seconds)
+        for first, last in runs
+        if (last - first) * seconds >= STACK_MIN_SPAN_SECONDS
+    ]
+
+
+def _minutes(seconds):
+    whole = int(seconds)
+    return f"{whole // 60}:{whole % 60:02d}"
+
+
+def stacked_vocals_message(spans):
+    """The stacked_vocals warning for these spans."""
+    listed = ", ".join(
+        f"{_minutes(start)}–{_minutes(end)}"
+        for start, end in spans[:STACK_SPANS_LISTED]
+    )
+    if len(spans) > STACK_SPANS_LISTED:
+        listed += f" and {len(spans) - STACK_SPANS_LISTED} more"
+    return (
+        f"{STEMS_COMMAND}: the vocals stem holds stacked (layered stereo) "
+        f"voices over {listed}; treat those spans as more than one voice "
+        "before processing them as one"
+    )
+
+
 def separate_stems(audio, sample_rate=None, device="cpu"):
     """Task command: split a mix into its vocals, drums, bass and other stems.
 
@@ -899,6 +1006,13 @@ def separate_stems(audio, sample_rate=None, device="cpu"):
     stems, stem_rate = _separate_with_fallback(
         _run_separator_stems, STEMS_COMMAND, waveform, rate, device, torch.float32
     )
+    spans = stacked_spans(stems["vocals"], stem_rate)
+    if spans:
+        emit_warning(
+            stacked_vocals_message(spans),
+            kind="stacked_vocals",
+            command=STEMS_COMMAND,
+        )
     return {
         name: as_track(array, stem_rate, STEMS_COMMAND) for name, array in stems.items()
     }

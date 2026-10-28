@@ -349,6 +349,18 @@ def _scale_past_template(definition, template, drivers, arguments):
     return factor, "; ".join(reasons) or None
 
 
+def _rescaled_cold(block, factor):
+    """The bucket's cold minutes at `factor` times the work. A cold run is a
+    warm run plus a one-off model load, and the load is paid once however many
+    pipeline steps or frames the workflow renders (a second `for_each` entry
+    finds the weights cached, #1037), so only the warm part scales. A bucket
+    with no warm runs has no split to make and scales whole."""
+    cold, warm = block["cold_minutes"], block.get("warm_minutes")
+    if isinstance(warm, (int, float)) and 0 < warm < cold:
+        return (cold - warm) + warm * factor
+    return cold * factor
+
+
 def _number(value):
     return int(value) if float(value).is_integer() else round(value, 1)
 
@@ -418,7 +430,7 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         if reason:
             block = {
                 **block,
-                "cold_minutes": block["cold_minutes"] * factor,
+                "cold_minutes": _rescaled_cold(block, factor),
                 "scaled": f"scaled from {name}: {reason}",
             }
         key = (-block["cold_runs"], name)

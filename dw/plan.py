@@ -19,10 +19,6 @@ import json
 import logging
 import os
 
-from huggingface_hub import model_info
-from huggingface_hub import get_hf_file_metadata, hf_hub_url
-from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
-
 from .cost_scaling import (
     CATALOG,
     DERIVED,
@@ -36,10 +32,13 @@ from .cost_scaling import (
     _scaled,
 )
 from .elision import elide_definition
-from .hub_cache import repo_download_incomplete, scan_models
 from . import references
+from .plan_downloads import _sub_workflow_paths, downloads_required
+
+# Re-exported: dw/server/routes/jobs.py and the tests read the plan's gate
+# warnings from here, beside build_plan
+from .plan_downloads import gate_warnings as gate_warnings
 from .realize import read_sub_workflow, realize_workflow
-from .security import validate_url
 from .validation import _is_seeded
 from .variables import same_number
 
@@ -67,8 +66,6 @@ CONSTRAINT_DOCUMENTATION_KEYS = ("reason",)
 # republishes the cached files verbatim and writes none (dw/step_cache.py)
 PLACEMENT_RESULT_KEYS = ("file_base_name", "role", "subfolder")
 FOR_EACH_KEY = "for_each"
-SIZE_LOOKUP_TIMEOUT = 5.0
-GIB = 1024**3
 
 
 def build_plan(
@@ -708,7 +705,30 @@ def estimate(
         # say which template and why, so it reads differently from no history
         result["inherited_from"] = observed.get("inherited_from")
         result["withheld"] = withheld
+    elif result["basis"] == UNKNOWN and result["minutes"] is None:
+        reason = _unpriced_reason(definition)
+        if reason:
+            result["unpriced_reason"] = reason
     return result
+
+
+def _unpriced_reason(definition):
+    """Why a workflow with no price at all has none, or None when the cause
+    is not a shape this can name (#948). #797 prices an inline workflow from
+    the catalog template with the same pipeline identity, so a workflow of
+    task steps alone has nothing to match and its cost is simply unmeasured -
+    which says nothing about whether the run is seconds or an hour."""
+    steps = [s for s in definition.get("steps") or [] if isinstance(s, dict)]
+    tasks = [s for s in steps if isinstance(s.get("task"), dict)]
+    if not tasks or len(tasks) != len(steps):
+        return None
+    commands = sorted({str(s["task"].get("command", "unknown")) for s in tasks})
+    return (
+        "task-only workflow (" + ", ".join(commands) + "): no pipeline step "
+        "to inherit a price from a catalog template, no cost block and no "
+        "run history of its own. The run's length depends on its input "
+        "media, which nothing here measures"
+    )
 
 
 def _observed(observed, device):
@@ -755,19 +775,6 @@ def _observed(observed, device):
             estimate["scaled"] = observed["scaled"]
             estimate["low_confidence"] = True
     return estimate
-
-
-def _sub_workflow_paths(expanded):
-    """The local (non-builtin) sub-workflow path and composing arguments of
-    every composing step, as (path, arguments) - `expanded` has already
-    substituted and expanded `for_each`, so each occurrence carries the
-    concrete arguments that step actually passes the child (#341)."""
-    for step in expanded.get("steps") or []:
-        reference = step.get("workflow") if isinstance(step, dict) else None
-        path = reference.get("path") if isinstance(reference, dict) else None
-        if isinstance(path, str) and not references.is_ref(references.BUILTIN, path):
-            arguments = reference.get("arguments")
-            yield path, arguments if isinstance(arguments, dict) else {}
 
 
 def _only_composes_children(definition):
@@ -860,187 +867,3 @@ def _repriced(minutes, list_entries, measured_entries):
     if measured_with <= 0:
         return None, UNKNOWN
     return minutes * count / measured_with, DERIVED
-
-
-FROM_PRETRAINED_KEY = "from_pretrained_arguments"
-MODEL_NAME_KEY = "model_name"
-# An adapter names its repo directly, not through from_pretrained_arguments
-LORAS_KEY = "loras"
-SINGLE_FILE_KEY = "from_single_file"
-VARIANT_KEY = "variant"
-
-
-def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
-    """The hub repos and checkpoint URLs the run would fetch before its
-    first step: every `model_name` in the expanded definition (and in each
-    composed child) that `scan_models` does not find, plus every one it does
-    find but whose cached copy is left over from an interrupted pull
-    (#382) - a component the load needs is missing, or a blob is still
-    `.incomplete` - plus every `from_single_file` that is a URL. Sizes come
-    from the hub when asked and are None whenever it does not answer - an
-    offline box is a state, not an error, so nothing here raises or logs
-    above debug.
-    """
-    names = []
-    variants = {}
-    urls = []
-    _collect_sources(expanded, names, variants, urls)
-    for path, _arguments in _sub_workflow_paths(expanded):
-        raw = read_sub_workflow(path, base_dir, workflow_dir)
-        if raw is None:
-            continue
-        try:
-            _collect_sources(json.loads(raw), names, variants, urls)
-        except ValueError:
-            continue
-    present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
-    required = []
-    for name in names:
-        # A name not shaped like a hub id is a local checkout - decided by
-        # shape, never by touching the disk: the name came from the request
-        # body, and a free pre-flight must not be a directory-existence oracle
-        if not _is_repo_id(name):
-            continue
-        if name in present and not repo_download_incomplete(
-            name, cache_dir, variant=variants.get(name)
-        ):
-            continue
-        entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
-        if lookup_sizes:
-            entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
-        required.append(entry)
-    for url in urls:
-        required.append(
-            {
-                "repo": None,
-                "url": url,
-                "gb": None,
-                "gated": None,
-                "access_blocked": None,
-            }
-        )
-    return required
-
-
-def _collect_sources(tree, names, variants, urls):
-    """Every from_pretrained source in a tree, first-seen order, deduplicated.
-    `variants` collects each name's requested `variant` (first-seen), used to
-    tell a repo that is merely missing its fp16 files from one that is fully
-    cached without them.
-
-    A `loras` entry counts too. It carries its repo under `model_name`
-    directly rather than inside a `from_pretrained_arguments` block, so the
-    walk missed it: `templates/ltx2/reference-sheet` on a box that had
-    every base weight but not the IC-LoRA answered `downloads_required:
-    []` and then pulled it mid-run, which is the one question the field
-    exists to answer (found verifying #151).
-    """
-    if isinstance(tree, dict):
-        for lora in tree.get(LORAS_KEY) or []:
-            name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
-            if isinstance(name, str) and name not in names:
-                names.append(name)
-        source = tree.get(FROM_PRETRAINED_KEY)
-        if isinstance(source, dict):
-            name = source.get(MODEL_NAME_KEY)
-            if isinstance(name, str) and name not in names:
-                names.append(name)
-                variant = source.get(VARIANT_KEY)
-                if isinstance(variant, str):
-                    variants[name] = variant
-            single = source.get(SINGLE_FILE_KEY)
-            if isinstance(single, str) and _is_url(single) and single not in urls:
-                urls.append(single)
-        for value in tree.values():
-            _collect_sources(value, names, variants, urls)
-    elif isinstance(tree, list):
-        for value in tree:
-            _collect_sources(value, names, variants, urls)
-
-
-def gate_warnings(downloads_required):
-    """One line per required download this box's token is blocked from -
-    the pre-flight signal #186 asked for, so a gated repo is a
-    `validate_workflow`-visible condition rather than a 403 the run only
-    discovers after it has loaded everything ahead of that step."""
-    return [
-        f"{entry['repo']} is gated and not accessible with this box's "
-        "Hugging Face token - accept its license at "
-        f"https://huggingface.co/{entry['repo']} before running this workflow"
-        for entry in downloads_required
-        if entry.get("access_blocked")
-    ]
-
-
-def _is_repo_id(name):
-    try:
-        validate_repo_id(name)
-        return True
-    except HFValidationError:
-        return False
-
-
-def _is_url(value):
-    if not value.startswith(("http://", "https://")):
-        return False
-    try:
-        validate_url(value)
-        return True
-    except Exception:
-        return False
-
-
-def _model_info(name):
-    """A repo's size in GiB, gate status, and whether this box's token is
-    blocked from it - a `(gb, gated, access_blocked)` triple.
-
-    `gated` is `model_info`'s own field (`False` / `"auto"` / `"manual"`),
-    readable only when the call succeeds - and the hub answers `model_info`
-    for a gated repo regardless of whether this token has been granted
-    access, since that call serves metadata rather than file bytes (found
-    verifying #186: `access_blocked` came back `false` for repos this box's
-    token was actually refused on). A `GatedRepoError` straight out of
-    `model_info` is still a real signal - some other endpoint behind it
-    checked and refused - but its absence proves nothing, so a `gated` repo
-    that got this far is checked for real with a HEAD request against one of
-    its own files (`_probe_gate_blocked`), the same request class a run's
-    actual load would make and the one place the hub's 403 for "gated, token
-    not accepted" actually appears.
-    """
-    try:
-        info = model_info(name, files_metadata=True, timeout=SIZE_LOOKUP_TIMEOUT)
-    except GatedRepoError as e:
-        logger.debug(f"Gate not accepted for {name}: {e}")
-        return None, True, True
-    except Exception as e:
-        logger.debug(f"No size for {name}: {e}")
-        return None, None, None
-    total = sum(s.size for s in (info.siblings or []) if getattr(s, "size", None))
-    gb = round(total / GIB, 1) if total else None
-    gated = getattr(info, "gated", False) or False
-    access_blocked = False
-    if gated:
-        access_blocked = _probe_gate_blocked(name, info.siblings or [])
-    return gb, gated, access_blocked
-
-
-def _probe_gate_blocked(name, siblings):
-    """HEAD one real file of a gated repo to see whether this box's token is
-    actually accepted - `model_info` succeeding says nothing either way
-    (#186). `None` when there is no file to probe or the probe fails for a
-    reason other than the gate, since that is "unknown", not "not blocked".
-    """
-    filename = next(
-        (s.rfilename for s in siblings if getattr(s, "rfilename", None)), None
-    )
-    if filename is None:
-        return None
-    try:
-        get_hf_file_metadata(hf_hub_url(name, filename), timeout=SIZE_LOOKUP_TIMEOUT)
-        return False
-    except GatedRepoError as e:
-        logger.debug(f"Gate not accepted for {name}: {e}")
-        return True
-    except Exception as e:
-        logger.debug(f"Gate probe inconclusive for {name}: {e}")
-        return None

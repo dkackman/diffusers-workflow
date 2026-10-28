@@ -1,0 +1,53 @@
+{
+    "cost_drivers": ["num_images_per_prompt", "num_inference_steps"],
+    "variables": {
+        "image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup.png",
+        "mask_image": "https://huggingface.co/datasets/diffusers/diffusers-images-docs/resolve/main/cup_mask.png",
+        "prompt": "a clean empty background that continues the surrounding scene",
+        "num_images_per_prompt": 1,
+        "num_inference_steps": 9,
+        "guidance_scale": 0.0,
+        "strength": 1.0,
+        "seed": null
+    },
+    "seed": "variable:seed",
+    "id": "ZImageInpaint",
+    "description": "Masked add or replace with Z-Image Turbo (ZImageInpaintPipeline): white mask pixels are repainted with what the prompt names, the rest is kept. NOT for object removal: with a prompt it paints a new object or a mismatched patch rather than continuing the surrounding scene (#946); to erase an object use templates/remove-object (a mask to hand) or templates/segment-and-remove (the object by name), which run the prompt-free remove_object task, and to extend past the frame use templates/outpaint. Uses the same Tongyi-MAI/Z-Image-Turbo checkpoint as models/z-image, so a server that has one has the other, and fits a 24 GB card with offload where FLUX.1 Fill needs a 54 GB download. Prompt for the thing to put in the mask.",
+    "vram_estimate": {
+        "base_gb": 11.8,
+        "bytes_per_voxel": 1031,
+        "voxel_variables": ["num_images_per_prompt"],
+        "reason": "reuses the models/z-image text-to-image calibration (#945): same transformer, text encoder and VAE with offload: model, so the resident weights match; the inpaint pass adds the encoded source image and mask latents, small beside the weights. Image size follows the input image, so the per-voxel term is only the batch count here. Calibrate on lem (#946)"
+    },
+    "configures": "templates/inpaint",
+    "steps": [
+        {
+            "name": "inpaint",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ZImageInpaintPipeline",
+                    "offload": "model"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Tongyi-MAI/Z-Image-Turbo",
+                    "torch_dtype": "torch.bfloat16",
+                    "low_cpu_mem_usage": true
+                },
+                "arguments": {
+                    "image": {"location": "variable:image"},
+                    "mask_image": {"location": "variable:mask_image"},
+                    "prompt": "variable:prompt",
+                    "strength": "variable:strength",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "num_images_per_prompt": "variable:num_images_per_prompt",
+                    "guidance_scale": "variable:guidance_scale"
+                }
+            },
+            "result": {
+                "content_type": "image/jpeg",
+                "embed_metadata": true,
+                "subfolder": "final"
+            }
+        }
+    ]
+}

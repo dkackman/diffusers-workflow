@@ -28,6 +28,9 @@ TimeoutStopSec=30
 OOMPolicy=continue
 Restart=on-failure
 RestartSec=5
+# Exit 2 is a refused configuration (a card that is not there, --mcp without
+# a token): restarting cannot fix it, so stop instead of looping every 5 s
+RestartPreventExitStatus=2
 
 [Install]
 WantedBy=default.target

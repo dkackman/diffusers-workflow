@@ -397,10 +397,14 @@ def test_validation_answers_keep_their_keys(server):
 def test_validate_answers_for_an_uncached_gated_model(server, monkeypatch):
     # model_info's own `gated` is False, "auto" or "manual" - a gated repo
     # the cache does not hold must still get a plan, not a 500
-    import dw.plan
+    import dw.plan_downloads
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
-    monkeypatch.setattr(dw.plan, "_model_info", lambda name: (31.4, "manual", False))
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
+    monkeypatch.setattr(
+        dw.plan_downloads, "_model_info", lambda name: (31.4, "manual", False)
+    )
     with server(success_script) as client:
         response = client.post("/api/validate", json={"workflow": valid_workflow()})
     assert response.status_code == 200, response.text

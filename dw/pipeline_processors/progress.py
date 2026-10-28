@@ -1,10 +1,26 @@
 import torch
 import contextlib
+import contextvars
 import logging
 from ..events import WorkflowCancelled, emit_phase, get_context
 from .timing import mark
 
 logger = logging.getLogger("dw")
+
+# Whether a denoise loop finishing means the decode comes next. Not for a
+# tiled refine's tiles, which leave the decode for once all are blended
+_DECODE_FOLLOWS = contextvars.ContextVar("dw_decode_follows", default=True)
+
+
+@contextlib.contextmanager
+def decoded_later():
+    """Denoise loops run inside this are not followed by a decode, so their
+    last step reports no 'decoding' phase - the caller emits the one that is."""
+    token = _DECODE_FOLLOWS.set(False)
+    try:
+        yield
+    finally:
+        _DECODE_FOLLOWS.reset(token)
 
 
 class _ReportingProgressBar:
@@ -110,7 +126,12 @@ def reported_progress_bars(pipeline):
         run_context.emit("pipeline_step", step=done, total_steps=total)
         # Past the last step there is still the decode, which on video is
         # minutes with the bar sitting at 100%
-        if done is not None and total is not None and done >= total:
+        if (
+            done is not None
+            and total is not None
+            and done >= total
+            and _DECODE_FOLLOWS.get()
+        ):
             emit_phase("decoding")
         # The one cancellation checkpoint inside a modular denoise loop:
         # without it a cancel waits out the whole generation

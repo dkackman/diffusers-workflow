@@ -254,3 +254,19 @@ def parse_reply(wire: Dict[str, Any]):
     no class claims, never an exception."""
     reply_type = _REPLY_TYPES.get(wire.get("type"), UnknownReply)
     return reply_type.from_wire(wire)
+
+
+_POISONED_CUDA_MARKERS = (
+    "device-side assert",
+    "CUDA_ERROR_ASSERT",
+    "Sticky error detected",
+    "illegal memory access",
+)
+
+
+def poisons_cuda_context(*texts) -> bool:
+    """True when a failure's text shows a CUDA error that no later call in
+    this process can recover from."""
+    return any(
+        marker in (text or "") for text in texts for marker in _POISONED_CUDA_MARKERS
+    )

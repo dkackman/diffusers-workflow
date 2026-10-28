@@ -195,3 +195,90 @@ describe('for_each members', () => {
     expect(shot.querySelector('.membersunknown')?.textContent).toBe('for_each')
   })
 })
+
+describe('edges', () => {
+  // Job 16c15bbff9d9's shape: base feeds up, refine and mux, so two edges
+  // skip a column, and base -> mux carries two arguments
+  const skipping = {
+    steps: [
+      { name: 'base', pipeline: {} },
+      {
+        name: 'up',
+        task: { arguments: { latents: 'previous_result:base.latents' } },
+      },
+      {
+        name: 'refine',
+        pipeline: {
+          arguments: {
+            latents: 'previous_result:up',
+            hold_audio: 'previous_result:base.audio',
+          },
+        },
+      },
+      {
+        name: 'mux',
+        task: {
+          arguments: {
+            video: 'previous_result:refine.videos',
+            audio: 'previous_result:base.audio',
+            sample_rate: 'previous_result:base.sampling_rate',
+          },
+        },
+      },
+    ],
+  }
+
+  it('draws one line per pair of steps, labeled with every argument it feeds', () => {
+    const { container } = render(FlowView, { workflow: skipping })
+    expect(container.querySelectorAll('path.edge')).toHaveLength(5)
+    const labels = [...container.querySelectorAll('text.edgelabel')].map(
+      (t) => t.textContent,
+    )
+    expect(labels).toContain('audio, sample_rate')
+    expect(labels).not.toContain('audio')
+  })
+
+  it('gives every label its own place, lane labels above the boxes', () => {
+    const { container } = render(FlowView, { workflow: skipping })
+    const labels = [...container.querySelectorAll('text.edgelabel')]
+    const places = labels.map(
+      (t) => `${t.getAttribute('x')},${t.getAttribute('y')}`,
+    )
+    expect(new Set(places).size).toBe(places.length)
+
+    const nodeTop = Number(
+      /translate\([^,]+, ([\d.]+)\)/.exec(
+        nodeFor(container, 'up').getAttribute('transform')!,
+      )![1],
+    )
+    const laneLabels = labels.filter((t) =>
+      ['hold_audio', 'audio, sample_rate'].includes(t.textContent!),
+    )
+    expect(laneLabels).toHaveLength(2)
+    for (const t of laneLabels)
+      expect(Number(t.getAttribute('y'))).toBeLessThan(nodeTop)
+  })
+
+  it('keeps the whole argument list on hover when the label is cut', () => {
+    const long = {
+      steps: [
+        { name: 'a', pipeline: {} },
+        {
+          name: 'b',
+          pipeline: {
+            arguments: {
+              first_very_long_argument: 'previous_result:a',
+              second_very_long_argument: 'previous_result:a',
+            },
+          },
+        },
+      ],
+    }
+    const { container } = render(FlowView, { workflow: long })
+    const label = container.querySelector('text.edgelabel')!
+    expect(label.textContent).toMatch(/…$/)
+    expect(label.querySelector('title')?.textContent).toBe(
+      'first_very_long_argument, second_very_long_argument',
+    )
+  })
+})

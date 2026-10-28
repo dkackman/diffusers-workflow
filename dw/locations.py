@@ -51,6 +51,7 @@ from .security import (
     validate_json_size,
     validate_path,
     validate_url,
+    validate_weight_name,
 )
 from .tasks.registry import RegistryTable
 from .trust import workflows_are_trusted
@@ -202,6 +203,7 @@ def validate_media_path(
     if not workflows_are_trusted():
         roots = media_roots(base_dir)
         if not any(_within(resolved, root) for root in roots):
+            own = _own_output_hint(location)
             raise PathTraversalError(
                 f"Refusing to read {what} at '{location}': it resolves "
                 f"outside every directory this workflow may read "
@@ -215,12 +217,35 @@ def validate_media_path(
                 f"'asset:' reference, use keep_output(shared=True) to copy "
                 f"a generated file into the library every workspace shares "
                 f"if it needs to cross that boundary on purpose, or pass "
-                f"--trust-workflows if you trust this workflow's source."
+                f"--trust-workflows if you trust this workflow's source." + own
             )
 
     if require_exists and not os.path.exists(resolved):
         raise InvalidInputError(f"Path does not exist: {resolved}")
     return resolved
+
+
+def _own_output_hint(location):
+    """A sentence naming `output:<location>` when the bare relative name is a
+    file in this workspace's own outputs, else an empty string."""
+    text = str(location)
+    if os.path.isabs(text) or ".." in text.replace("\\", "/").split("/"):
+        return ""
+    try:
+        from .runs import resolve_output_reference
+
+        ref = references.make_ref(references.OUTPUT, text)
+        resolve_output_reference(ref)
+        return (
+            f" This file is one of this workspace's own outputs, so "
+            f"you most likely want '{ref}' - no copy into the "
+            f"asset library is needed."
+        )
+    except (InvalidInputError, PathTraversalError, ValueError):
+        pass
+    except Exception:
+        logger.debug("Could not check the output root for a hint", exc_info=True)
+    return ""
 
 
 def _joined(location, base_dir):
@@ -542,56 +567,8 @@ WEIGHT_NAME_KEY = "weight_name"
 # named bare (no subfolder: the task knows its default repo's layout). A
 # pickle format is refused by name rather than left to fail in the loader:
 # the refusal is the documented contract, not an accident of which loader runs
-SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents",)
+SAFETENSORS_ONLY_COMMANDS = ("upscale_h3_latents", "remove_object")
 SAFETENSORS_SUFFIX = ".safetensors"
-
-
-def validate_weight_name(name, suffixes=None, what="weight_name", subfolders=True):
-    """A file name inside a Hub repo: relative, and never climbing out of it.
-
-    `hf_hub_download(filename=...)` joins the name onto the local cache
-    directory, so a name shaped like a path is a path on this machine. A
-    subfolder is legitimate where `subfolders` allows one (an IP adapter's
-    lives under one); an absolute path, a backslash, a drive, an empty segment or a '.'/'..'
-    segment is not. The refusal names only what the caller wrote, never a
-    directory on the server.
-
-    Args:
-        name: The file name the workflow supplied
-        suffixes: The file endings allowed, or None for any
-        what: Short phrase naming the argument, for the error message
-        subfolders: Whether the name may hold a '/' at all
-
-    Raises:
-        PathTraversalError: On a name that is not a plain relative path
-        InvalidInputError: On an empty name, or one with a refused ending
-    """
-    if not isinstance(name, str) or not name.strip():
-        raise InvalidInputError(f"Refusing an empty {what}.")
-    if "\x00" in name:
-        raise InvalidInputError(f"Refusing a {what} containing a null byte.")
-    if name.startswith(("/", "~")) or "\\" in name or ":" in name:
-        raise PathTraversalError(
-            f"Refusing a {what} of '{name}': it names a file inside the model "
-            f"repo, so it must be a relative path - no leading '/' or '~', no "
-            f"backslash, no drive."
-        )
-    if any(segment in ("", ".", "..") for segment in name.split("/")):
-        raise PathTraversalError(
-            f"Refusing a {what} of '{name}': it has an empty, '.' or '..' "
-            f"path segment, so it does not name a file inside the model repo."
-        )
-    if not subfolders and "/" in name:
-        raise PathTraversalError(
-            f"Refusing a {what} of '{name}': it is a file name, not a path - no '/'."
-        )
-    if suffixes and not name.lower().endswith(tuple(suffixes)):
-        raise InvalidInputError(
-            f"Refusing a {what} of '{name}': only "
-            f"{', '.join(repr(suffix) for suffix in suffixes)} weights are "
-            f"read here."
-        )
-    return name
 
 
 # ------------------------------------------------------------- validation
@@ -620,7 +597,25 @@ def _check(value, base_dir, what):
             validate_media_url(value, what)
         elif os.path.isabs(value):
             validate_media_path(value, base_dir, what, require_exists=False)
-        elif ".." in value.replace("\\", "/").split("/"):
+        elif ".." not in value.replace("\\", "/").split("/"):
+            # A bare relative name resolves against the workflow directory and
+            # is refused at run time when that lands outside every root (a
+            # manifest file name from get_job is the usual case)
+            resolved = validate_media_path(value, base_dir, what, require_exists=False)
+            if not os.path.exists(resolved):
+                # Contained under the workflow directory is not found there:
+                # a task reading the raw string resolves it against the
+                # server's working directory and refuses it, a pipeline
+                # argument finds nothing. Either way the run fails, so it is
+                # refused now, with the output: hint when it names an own
+                # output (#951, #952)
+                raise InvalidInputError(
+                    f"Refusing to read {what} at '{value}': a bare name "
+                    f"is not looked up in the output root, and no file "
+                    f"by that name is beside the workflow, so the run "
+                    f"would refuse it." + _own_output_hint(value)
+                )
+        else:
             # A relative path is under base_dir by construction unless it
             # climbs out, and validate_path refuses '..' - but only when the
             # loader reaches it, which is a queued job and three seconds in

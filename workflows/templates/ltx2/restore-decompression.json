@@ -2,6 +2,15 @@
     "id": "LTX2Decompression",
     "description": "Removes compression artefacts - macroblocking, chroma bleed, ringing, banding - from a low bit-rate clip by regenerating it clean, with the compressed clip attached as an in-context reference for the whole denoise, so identity, framing and geometry are the source's and only the artefacts go. A different trade from re-rendering: it reads footage it did not generate. The LoRA is a 0.9 preview weight and targets compression only - defocus blur is 'restore-deblur', and motion blur, grain and low resolution are outside what it was trained to invert. Trained at 960x544, 121 frames, 24 fps, which is what the defaults are; generating far above that bucket leaves artefacts in the high-frequency detail. The prompt follows the trained convention ('Reference shows ... heavily compressed ... ENHANCE QUALITY ... only compression artifacts and image quality differ'), describing the same scene in both halves.",
     "summary": "Strips macroblocking and ringing from a low bit-rate clip, the compressed clip attached as an in-context reference.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.4}
+    ],
+    "vram_estimate": {
+        "base_gb": 21.3,
+        "bytes_per_voxel": 16.04,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the same LTX-2.5 VAE decode scaling as templates/ltx2/text-to-video, since this template shares its quantized pipeline resident beside the decode; the in-context reference adds to it. Bracketed by real runs on a 24 GB RTX 3090: 1344x768x129 completes, 1632x928x129 ran out of memory in the first denoise step (#1052; 1920x1088x129 also did, in decode, #1050) - the bound sits between 1344x768 and 1632x928 and the ceiling refuses the latter while passing the former"
+    },
     "cost_drivers": [
         "num_frames",
         "width",

@@ -221,6 +221,19 @@ class WorkerManager:
         if process.is_alive():
             process.kill()
 
+    def await_exit(self):
+        """Wait for a worker that is exiting on its own (a poisoned CUDA
+        context), terminating it if it lingers, and clear the tracking state
+        so the next job respawns it."""
+        process = self.worker_process
+        if process is None:
+            return
+        process.join(timeout=WORKER_SHUTDOWN_TIMEOUT_SECONDS)
+        if process.is_alive():
+            process.terminate()
+            process.join(timeout=WORKER_TERMINATE_TIMEOUT_SECONDS)
+        self.mark_crashed()
+
     def crash_details(self):
         """Why the worker process is gone, as far as the OS will say.
 

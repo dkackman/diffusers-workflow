@@ -608,6 +608,11 @@ class ElidedStep(ApiModel):
 class RequiredDownload(ApiModel):
     repo: str | None
     url: str = sometimes("A from_single_file URL, which has no repo.")
+    filename: str = sometimes(
+        "A single weight file within `repo`, for a task that fetches one file "
+        "rather than the whole repo."
+    )
+    revision: str | None = sometimes("The commit the file is read at; null means main.")
     gb: int | float | None
     gated: bool | Literal["auto", "manual"] | None = Field(
         description="The hub's own `gated` field: false, or how access is granted."
@@ -665,6 +670,11 @@ class PlanEstimate(ApiModel):
         "With basis `unknown` and `inherited_from` set: why the template's runs "
         "could not be re-priced for this workflow (its size cannot be compared "
         "to the template's)."
+    )
+    unpriced_reason: str = sometimes(
+        "With basis `unknown` and no `withheld`: why a workflow of task steps "
+        "alone has no price - it has no pipeline to inherit one from, and its "
+        "length follows its input media (#948)."
     )
     priced_for: str = sometimes(
         "The card the run would be dispatched to, whose history the figure is - "
@@ -824,6 +834,7 @@ class GalleryMetadata(ApiModel):
     note: str = sometimes("The effective note: the file's own, else its run's.")
     run_note: str = sometimes("The note of the run that wrote the file.")
     note_source: Literal["file", "run"] = sometimes("Whose note `note` is.")
+    starred: bool = sometimes("True when the file is starred; absent otherwise.")
 
 
 class AssetLibraryRoot(ApiModel):

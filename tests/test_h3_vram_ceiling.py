@@ -248,3 +248,19 @@ def test_ltx2_text_to_video_refuses_361_frames():
         workflow = _load(os.path.join(TEMPLATES_DIR, "ltx2", "text-to-video.json"))
         errors = _vram_errors(workflow.validation_errors(arguments={"num_frames": 361}))
         assert len(errors) == 1
+
+
+def test_ltx2_upscale_clip_projects_past_24gb_at_1080p_but_not_at_1344x768():
+    """#1050: 1920x1088x129 OOMed on a 3090 while validate said clean."""
+    import json
+
+    path = os.path.join(TEMPLATES_DIR, "ltx2", "upscale-clip.json")
+    with open(path) as handle:
+        estimate = json.load(handle)["vram_estimate"]
+
+    def projected(width, height, frames):
+        voxels = width * height * frames
+        return estimate["base_gb"] + voxels * estimate["bytes_per_voxel"] / 2**30
+
+    assert projected(1344, 768, 129) <= 24
+    assert projected(1920, 1088, 129) > 24

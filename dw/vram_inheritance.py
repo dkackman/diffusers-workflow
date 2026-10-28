@@ -23,7 +23,11 @@ against.
 An inherited ceiling warns and never refuses (#479, Q3): the hand-built
 workflow may offload or quantize differently from the template, and the
 escape hatch for a leaner config is declaring its own `vram_estimate`, which
-always wins. There is no run-time backstop - the worker has no catalog, and
+always wins. A projection *under* the ceiling is not silent when the
+workflow's offload or quantization differs from the template's: the
+estimate was calibrated on that configuration, so it gets a
+`vram_config_differs` note (#954) naming both settings. Over the ceiling
+the one warning names the difference instead. There is no run-time backstop - the worker has no catalog, and
 the pre-queue check covers every server submission.
 """
 
@@ -38,9 +42,16 @@ from .variables import (
     same_number,
     undeclared_variable_references,
 )
-from .vram_estimate import pipeline_identity, vram_estimate_errors
+from .vram_estimate import (
+    largest_projection,
+    pipeline_identity,
+    vram_estimate_errors,
+)
 
 KIND = "vram_projection_inherited"
+# A projection under the ceiling whose offload or quantization is not the
+# one the template was calibrated on (#954)
+CONFIG_KIND = "vram_config_differs"
 
 
 def template_identity(definition):
@@ -285,8 +296,47 @@ def build_index(catalog):
             "vram_estimate": definition[ESTIMATE_KEY],
             "cost": cost,
             "template": name,
+            "definition": definition,
         }
     return found
+
+
+# The differences that move a template's measured VRAM; frame count is scaled
+# by the projection and cache, attention backend and LoRA are named elsewhere
+_CALIBRATED = (("offload", "offload"), ("quantization", "quantization_config"))
+
+
+def _setting_text(definition, label, key, arguments=None):
+    """How `definition` sets `key`, as 'offload: model' - or 'no offload' when
+    it sets none - with `variable:` references resolved."""
+    values = sorted(
+        _found_expanded(definition, key, _compared_variables(definition, arguments))
+    )
+    if not values:
+        return f"no {label}"
+    shown = ", ".join(
+        value if len(value) <= 60 else value[:57] + "..."
+        for value in (v.strip('"') for v in values)
+    )
+    return f"{key}: {shown}"
+
+
+def calibration_differences(written, entry, arguments=None):
+    """(labels, calibrated text, written text) for the offload and
+    quantization `written` sets differently from the template `entry` was
+    built from; empty when they match or the template was not kept."""
+    template = entry.get("definition")
+    if not isinstance(template, dict) or not isinstance(written, dict):
+        return [], "", ""
+    labels = []
+    calibrated = []
+    used = []
+    for label, key in _CALIBRATED:
+        if sets_differently(written, template, key, arguments):
+            labels.append(label)
+            calibrated.append(_setting_text(template, label, key))
+            used.append(_setting_text(written, label, key, arguments))
+    return labels, "; ".join(calibrated), "; ".join(used)
 
 
 def inherited_vram_warnings(
@@ -316,6 +366,14 @@ def inherited_vram_warnings(
     variables = definition.get("variables")
     variables = variables if isinstance(variables, dict) else {}
     identities = [pipeline_identity(step, variables) for step in steps]
+    written_definition = written if isinstance(written, dict) else definition
+    written_variables = written_definition.get("variables")
+    written_variables = {
+        **(written_variables if isinstance(written_variables, dict) else {}),
+        **(arguments or {}),
+    }
+    written_steps = written_definition.get("steps")
+    written_steps = written_steps if isinstance(written_steps, list) else []
     warnings = []
     for identity in dict.fromkeys(i for i in identities if i in index):
         entry = index[identity]
@@ -336,9 +394,20 @@ def inherited_vram_warnings(
             },
             "cost": entry["cost"],
         }
-        errors = vram_estimate_errors(
-            matched,
-            arguments,
+        # Only this identity's written steps, so another pipeline's offload
+        # is not held against this one's calibration
+        own = {
+            **written_definition,
+            "steps": [
+                step
+                if isinstance(step, dict)
+                and pipeline_identity(step, written_variables) == identity
+                else {}
+                for step in written_steps
+            ],
+        }
+        labels, calibrated, used = calibration_differences(own, entry, arguments)
+        common = dict(
             supplied=supplied,
             device_type=device_type,
             capacity_gb=capacity_gb,
@@ -348,15 +417,35 @@ def inherited_vram_warnings(
             base_dir=base_dir,
             probe=probe,
         )
-        if not errors:
-            continue
-        error = errors[0]
-        warnings.append(
-            f"{error['path']}: {KIND}: {error['message'].rstrip('.')}. The "
-            f"ceiling is inherited from '{entry['template']}', which loads "
-            f"the same pipeline; this workflow declares no vram_estimate and "
-            f"its offload and quantization config may differ from the "
-            f"template's, so this warns rather than refuses - declare a "
-            f"vram_estimate to be judged by your own numbers"
-        )
+        errors = vram_estimate_errors(matched, arguments, **common)
+        if errors:
+            error = errors[0]
+            if labels:
+                config = (
+                    f"its {' and '.join(labels)} differs from the template's "
+                    f"(calibrated with {calibrated}; this workflow sets {used})"
+                )
+            else:
+                config = (
+                    "its offload and quantization config may differ from the template's"
+                )
+            warnings.append(
+                f"{error['path']}: {KIND}: {error['message'].rstrip('.')}. The "
+                f"ceiling is inherited from '{entry['template']}', which loads "
+                f"the same pipeline; this workflow declares no vram_estimate and "
+                f"{config}, so this warns rather than refuses - declare a "
+                f"vram_estimate to be judged by your own numbers"
+            )
+        elif labels:
+            projection = largest_projection(matched, arguments, **common)
+            if projection is None:
+                continue
+            warnings.append(
+                f"{projection['path']}: {CONFIG_KIND}: the VRAM projection is "
+                f"inherited from '{entry['template']}', calibrated with "
+                f"{calibrated}; this workflow sets {used}, so real usage may "
+                f"be higher than the projection ({projection['gb']:.1f} GB of "
+                f"{projection['card']}) - declare a vram_estimate to be "
+                f"judged by your own numbers"
+            )
     return warnings

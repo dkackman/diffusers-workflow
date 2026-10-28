@@ -17,7 +17,7 @@ from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from fastapi import HTTPException
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from ..assets import (
     activate_asset_dir,
@@ -27,7 +27,7 @@ from ..assets import (
 )
 from .. import get_device_type, references, validation
 from ..notes import MAX_NOTE_LENGTH, NoteTooLong, clean_note
-from ..plan import build_plan, list_entries
+from ..plan import list_entries
 from ..prompts import resolve_prompt_reference
 from ..runs import (
     activate_output_root,
@@ -193,6 +193,18 @@ def admit(
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
         if admission.errors:
+            # Every error comes back at once (#976): the caller's own bad
+            # arguments (an unknown name) are reported beside the
+            # document's errors, not only after they are fixed
+            try:
+                known = {(e.get("path"), e.get("message")) for e in admission.errors}
+                admission.errors += [
+                    e
+                    for e in argument_errors(candidate.workflow_definition, arguments)
+                    if (e.get("path"), e.get("message")) not in known
+                ]
+            except Exception:
+                logger.debug("argument_errors skipped beside a failed document")
             # The warnings walk the steps array, which a definition failing
             # the schema may not have
             admission.schema_errors = True
@@ -372,6 +384,32 @@ class AcknowledgedCost(BaseModel):
         description="The repos in plan.downloads_required that were acknowledged",
     )
 
+    @model_validator(mode="before")
+    @classmethod
+    def _from_plan(cls, value):
+        # The plan validate answered with, passed as-is (#975): its
+        # downloads_required and estimate.minutes are what was quoted. Only
+        # when `downloads` is absent - an explicit list, even an empty one,
+        # is what the caller acknowledged
+        if (
+            not isinstance(value, dict)
+            or "downloads" in value
+            or not isinstance(value.get("downloads_required"), list)
+        ):
+            return value
+        bound = {
+            **value,
+            "downloads": [
+                entry.get("repo")
+                for entry in value["downloads_required"]
+                if isinstance(entry, dict)
+            ],
+        }
+        estimate = value.get("estimate")
+        if "minutes" not in value and isinstance(estimate, dict):
+            bound["minutes"] = estimate.get("minutes")
+        return bound
+
     @field_validator("downloads", mode="after")
     @classmethod
     def _drop_unnamed(cls, downloads):
@@ -501,29 +539,6 @@ def acknowledgement_form(value):
     if isinstance(value, AcknowledgedCost):
         return ACK_BOUND
     return ACK_BOOLEAN if value is True else ACK_NONE
-
-
-def bound_plan_for(arguments, workspace):
-    """The `plan_for` a bound acknowledgement is checked against - the
-    run these arguments execute, planned without asking the hub for
-    sizes. None when it cannot be built, which the check refuses."""
-
-    def plan_for(candidate, vram_need=None):
-        try:
-            from .. import get_device, get_device_type
-
-            return build_plan(
-                candidate,
-                arguments,
-                device=get_device_type(get_device()),
-                prompt_dir=workspace.prompts,
-                lookup_sizes=False,
-            )
-        except Exception:
-            logger.exception("Plan could not be built for a bound acknowledgement")
-            return None
-
-    return plan_for
 
 
 def check_bound_acknowledgement(current, acknowledged, workspace):

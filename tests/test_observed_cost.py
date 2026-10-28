@@ -648,6 +648,10 @@ NO_DRIVERS = {
     "workflows/templates/upscale-spandrel.json": "cost follows the input image",
     # Three prompt edits over one image: nothing numeric moves the run.
     "workflows/templates/consistent-set.json": "no variable moves the cost",
+    # One LaMa pass (after one segment pass) over the image handed to it:
+    # `dilate` grows the mask, not the work, so nothing moves the run (#974).
+    "workflows/templates/remove-object.json": "cost follows the input image",
+    "workflows/templates/segment-and-remove.json": "cost follows the input image",
 }
 
 
@@ -1044,3 +1048,18 @@ class TestByCard:
         costs = self._costs(history, monkeypatch, default=True)
 
         assert costs.observed("templates/x", workflow())["runs"] == 1
+
+
+class TestRecentRuns:
+    def test_the_median_follows_the_newest_runs_not_the_whole_history(self):
+        """A box that got faster stops quoting its old speed (#1037)."""
+        definition = workflow(["num_frames"], num_frames=124)
+        old = [run(8 * MINUTE, finished_at=1_700_000_000.0 + day) for day in range(20)]
+        new = [run(4 * MINUTE, finished_at=1_800_000_000.0 + day) for day in range(5)]
+        # Handed over oldest-last on purpose: the order must not matter
+        observed = observed_for(definition, new + old, arguments={})
+        assert observed["cold_minutes"] == 4.0
+        assert observed["cold_runs"] == 25
+        assert observed["cold_range_minutes"] == [4.0, 8.0]
+        shuffled = observed_for(definition, old + new, arguments={})
+        assert shuffled["cold_minutes"] == 4.0

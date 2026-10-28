@@ -4,5 +4,5 @@ Guidance for the `dw_mcp/` stdio MCP server package. What it covers and how its 
 
 ## Writing text an agent reads
 
-- A tool description (the docstring in `dw_mcp/tools_*.py`) or the instructions in `dw_mcp/server.py` must put what an agent has to act on first, and point at a guide section rather than restate it. `tests/test_mcp_server.py` pins the length (`CLIENT_TEXT_LIMIT`, `SURFACE_BUDGET`) but not the ordering, and the instructions and `list_workflows` sit within a few dozen characters of the limit.
+- A tool description (the docstring in `dw_mcp/tools_*.py`) or the instructions in `dw_mcp/server.py` must put what an agent has to act on first, and point at a guide section rather than restate it. `tests/test_mcp_server.py` pins the length (`CLIENT_TEXT_LIMIT`, `SURFACE_BUDGET`) but not the ordering, and the instructions and `list_workflows` sit within a few dozen characters of the limit. `SURFACE_BUDGET` is a fixed ceiling with headroom, not a ratchet: when it fails, move narrative to a guide and leave a pointer before raising it. `tests/test_guide_pointers.py` checks every pointer resolves and that a tool which points at a guide keeps its pointer.
 - `MAX_WAIT_SECONDS` (`dw_mcp/diagnose.py`) is interpolated into the tool descriptions, so no doc or skill quotes the number.

@@ -18,7 +18,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
    that shape. Take names, `summary`, `traits` and `cost` from the
    listing over names quoted below.
 3. `get_workflow` on the one chosen, for its variables and defaults.
-4. Before anything near the card's ceiling - a full-size refine, 481 frames, a
+4. Before anything near the card's ceiling - a full-size refine, 401 frames, a
    2x upscale - `get_memory` on an idle server; a leftover `live: true` figure
    is an earlier run's, and `clear_memory` (idle only) drops it and the step
    cache.
@@ -26,8 +26,8 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 ## Which shape is the request
 
 - **A clip from text**: `templates/ltx2/text-to-video` (960x544, 121 frames, 5s).
-- **From a picture**: `templates/ltx2/image-to-video` (first frame; 481 frames
-  is 20s in one pass, so extend or chain only past that);
+- **From a picture**: `templates/ltx2/image-to-video` (first frame; 401 frames
+  is ~17s in one pass at 768x768 on a 24 GB card, so extend or chain only past that);
   `templates/ltx2/keyframes` (first and last frames pinned);
   `templates/ltx2/enhance-prompt` (a one-line idea plus a picture; the model's
   enhancer writes the caption).
@@ -53,7 +53,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
   (its own latents, no LoRA), `width`/`height` the working size. Both fit
-  the source first and restore after: output exactly 2x the source at its
+  the source first and restore after: output exactly 2x the source (2x the kept region under crop) at its
   length, any aspect ratio letterboxed and cut back (`fit`), a short source
   held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
   `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). A small,
@@ -72,7 +72,7 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
   of generating; `templates/ltx2/chained-segments` re-runs per segment on
   the previous last frame and stitches. Both are dw's own recipes (Lightricks
-  added a chunked one 2026-09-29); one 481-frame pass reaches 20 seconds first.
+  added a chunked one 2026-09-29); one 401-frame pass reaches 17 seconds first.
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first. Other

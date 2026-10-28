@@ -64,7 +64,9 @@ class TestSegmentImage:
         mock_sam_model_instance.to.return_value = mock_sam_model_instance
         mask_tensor = torch.zeros(1, 1, 3, 480, 640)
         mask_tensor[0, 0, 0, 100:300, 100:300] = 1.0
-        mock_sam_model_instance.return_value = MagicMock(pred_masks=mask_tensor)
+        mock_sam_model_instance.return_value = MagicMock(
+            pred_masks=mask_tensor, iou_scores=torch.ones(1, 1, 1)
+        )
 
         post_mask = torch.zeros(1, 1, 480, 640)
         post_mask[0, 0, 100:300, 100:300] = 1.0
@@ -198,13 +200,67 @@ class TestSegmentWithRealSam2Processor:
         # SAM2's low-res mask logits: (batch, boxes, masks, 256, 256)
         logits = torch.full((1, 1, 3, 256, 256), -10.0)
         logits[..., 64:128, 64:128] = 10.0
-        sam_model.return_value = MagicMock(pred_masks=logits)
+        sam_model.return_value = MagicMock(
+            pred_masks=logits, iou_scores=torch.tensor([[[0.7, 0.9, 0.8]]])
+        )
 
         result = segment_image(_make_test_image(), "dog")
 
         assert result.mode == "L"
         assert result.size == (640, 480)
         assert np.array(result).max() == 255
+
+    @patch("dw.tasks.segment.Sam2Model")
+    @patch("dw.tasks.segment.Sam2Processor")
+    @patch("dw.tasks.segment.AutoModelForZeroShotObjectDetection")
+    @patch("dw.tasks.segment.AutoProcessor")
+    def test_each_box_takes_its_best_rated_candidate(
+        self, mock_auto_proc, mock_auto_model, mock_sam_proc, mock_sam_model
+    ):
+        """SAM2 returns three candidates per box; the first is often a part of
+        the object (the docs cup's body without its lid, #974). The mask is
+        the union of each box's highest-iou candidate."""
+        from dw.tasks.segment import segment_image
+
+        dino = MagicMock()
+        mock_auto_proc.from_pretrained.return_value = dino
+        dino.return_value = _make_batch_encoding({"input_ids": torch.zeros(1, 10)})
+        dino.post_process_grounded_object_detection.return_value = [
+            {
+                "boxes": torch.tensor([[0.0, 0.0, 100.0, 100.0]] * 2),
+                "scores": torch.tensor([0.9, 0.8]),
+                "labels": ["cup", "cup"],
+            }
+        ]
+        dino_model = MagicMock()
+        mock_auto_model.from_pretrained.return_value = dino_model
+        dino_model.to.return_value = dino_model
+
+        sam_proc = MagicMock()
+        mock_sam_proc.from_pretrained.return_value = sam_proc
+        sam_proc.return_value = _make_batch_encoding(
+            {"original_sizes": torch.tensor([[480, 640]])}
+        )
+        sam_model = MagicMock()
+        mock_sam_model.from_pretrained.return_value = sam_model
+        sam_model.to.return_value = sam_model
+        sam_model.return_value = MagicMock(
+            pred_masks=torch.zeros(1, 2, 3, 256, 256),
+            iou_scores=torch.tensor([[[0.74, 0.99, 0.98], [0.5, 0.6, 0.9]]]),
+        )
+        # Each candidate marks its own column band, so the result names which
+        # candidates were taken
+        post = torch.zeros(2, 3, 480, 640)
+        for box in range(2):
+            for k in range(3):
+                col = (box * 3 + k) * 100
+                post[box, k, :, col : col + 100] = 1.0
+        sam_proc.post_process_masks.return_value = [post]
+
+        mask = np.array(segment_image(_make_test_image(), "cup"))
+
+        taken = [band for band in range(6) if mask[0, band * 100] == 255]
+        assert taken == [1, 5]
 
 
 class TestGroundingDinoQuery:

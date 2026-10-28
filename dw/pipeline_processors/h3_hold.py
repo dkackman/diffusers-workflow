@@ -44,6 +44,7 @@ built on these, is dw/pipeline_processors/h3_guides.py.
 import logging
 
 from .h3_rules import (
+    HELD_LATENTS_OUTPUT as HELD_LATENTS_OUTPUT,
     CORE_DENOISE_SEQUENCES,
     DENOISE_STEP,
     HOLD_BEFORE,
@@ -55,6 +56,13 @@ from .h3_rules import (
 )
 
 logger = logging.getLogger("dw")
+
+# The hold block's encode of the held track - `(channels, num_latents, C)`
+# audio latents - as a state output, so a caller running the block more than
+# once on one track (the tiled refine, dw/pipeline_processors/h3_tiles.py) can
+# hand it back through `encoded_hold_audio` and the block encodes once per
+# refine. Named here beside the block's owner rather than in h3_rules because
+# validation never sees it: it is a block output, not a workflow argument.
 
 
 def blocks():
@@ -68,6 +76,16 @@ def blocks():
         h3_hold_steps.DwH3RefineScheduleStep,
         h3_hold_steps.DwH3ReleaseAudioStep,
     )
+
+
+def encoded_hold_audio(reference, latents):
+    """`reference` - a `hold_audio` MiniMaxH3AudioReference - carrying `latents`,
+    the hold block's `HELD_LATENTS_OUTPUT` encode of it, so the block reuses the
+    encode instead of running the audio VAE again. Imports the block module on
+    first use, as `blocks()` does (#790)."""
+    from . import h3_hold_steps
+
+    return h3_hold_steps.EncodedAudioReference.of(reference, latents)
 
 
 def core_denoise_sequences(pipeline):

@@ -23,9 +23,6 @@ from ...media import probe_media
 from ...notes import (
     NOTES_FILE_NAME,
     drop_file_note,
-    effective_note,
-    read_notes,
-    read_starred,
 )
 from ...roles import ROLES
 from ...runs import (
@@ -33,7 +30,6 @@ from ...runs import (
     REALIZED_FILE_NAME,
     is_run_id,
     record_run_versions,
-    run_versions,
     split_run_path,
 )
 from ...security import SecurityError, validate_path
@@ -49,7 +45,7 @@ from ..outputs import (
     resolve_output_file,
     run_directory,
     consumed_in,
-    listed_file_role,
+    output_annotations,
     served_url,
     split_run_name,
     strip_output_prefix,
@@ -74,20 +70,9 @@ def _gallery_entries(root, ws, consumed=frozenset()):
         files = list(iter_gallery_files(root))
     except OSError:
         files = []
-    # One read of each workflow's run ordinals per listing, not per file:
-    # a run of fifty files would otherwise re-read the same manifests
-    # fifty times
-    versions_by_folder = {}
-    # And one read of each run's notes.json, for the same reason
-    notes_by_run = {}
-    starred_by_run = {}
-
-    def _version(folder, run_id):
-        if not run_id:
-            return None
-        if folder not in versions_by_folder:
-            versions_by_folder[folder] = run_versions(os.path.join(root, folder))
-        return versions_by_folder[folder].get(run_id)
+    # The per-listing cache output_annotations reads each run's notes,
+    # stars and versions through, once rather than once per file
+    cache = {}
 
     for relative_name, folder, subfolder, run_id, kind, path in files:
         try:
@@ -114,7 +99,7 @@ def _gallery_entries(root, ws, consumed=frozenset()):
             # `name` is too long to quote. None under the flat
             # layout, which has no runs to number
             "run_id": run_id,
-            "version": _version(folder, run_id),
+            "version": None,
             # Quoted (slashes kept literal): a name carrying '#', '?'
             # or '%' would otherwise break the src the gallery
             # renders it into. The mtime still rides along for cache
@@ -130,21 +115,15 @@ def _gallery_entries(root, ws, consumed=frozenset()):
         }
         # None under the flat layout, and for a file no manifest lists
         split = split_run_name(root, relative_name) if run_id else None
-        entry["role"] = (
-            listed_file_role(split[0], split[1], relative_name in consumed)
-            if split
-            else None
-        )
+        entry["role"] = None
         if split:
-            if split[0] not in notes_by_run:
-                notes_by_run[split[0]] = read_notes(split[0])
-            note = effective_note(notes_by_run[split[0]], split[1])[0]
-            if note:
-                entry["note"] = note
-            if split[0] not in starred_by_run:
-                starred_by_run[split[0]] = read_starred(split[0])
-            if split[1] in starred_by_run[split[0]]:
-                entry["starred"] = True
+            annotated = output_annotations(
+                split[0], split[1], relative_name in consumed, cache
+            )
+            # The listing does not report whose note it is, nor the run's
+            annotated.pop("note_source", None)
+            annotated.pop("run_note", None)
+            entry.update(annotated)
         absolute_url = absolute_served_url(output_path, ws, int(stat.st_mtime))
         if absolute_url is not None:
             entry["absolute_url"] = absolute_url
@@ -246,8 +225,9 @@ def gallery(
     Each entry carries `role`, `final` or `intermediate` (null for a
     flat-layout file or one no manifest lists); a file a later run read
     lists as intermediate unless its step declared it final
-    (dw/roles.py rule 4). `role` is a repeatable
-    filter; a null role counts as final. Omitted, every file is listed."""
+    (dw/roles.py rule 4). A run that recorded no role takes the role its
+    file's subfolder names, then rule 4; with neither it is null. `role`
+    is a repeatable filter; a null role counts as final. Omitted, every file is listed."""
     if role:
         unknown = sorted(set(role) - set(ROLES))
         if unknown:

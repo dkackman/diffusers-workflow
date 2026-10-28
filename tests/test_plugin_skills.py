@@ -151,6 +151,7 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 SKILL_TASKS = {
     "minimax-music3": ["attribute_voices"],
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
+    "script-to-video": ["concat_videos"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
 }
 
@@ -470,14 +471,20 @@ class TestMiniMaxH3Skill:
         assert workflow.validation_errors() == []
 
     def test_the_locked_frame_lip_sync_recipe_names_real_task_types(self):
-        """#852: a locked frame that lip-syncs is Ref2VA with a first-frame
-        keyframe and the song held. The task types are MiniMax's, which the
+        """#985: a locked frame that lip-syncs is FL2VA with the song held,
+        which keeps the pixels; #852's Ref2VA with a first-frame keyframe and
+        the song held is the fallback. "FL2VA takes no audio" was false as
+        stated, and stays out. The task types are MiniMax's, which the
         built-in Context-IR enhancer teaches, and `hold_audio` is the argument
         music-video's ref2va step takes, so a rename of either fails here."""
-        body = skill_body(H3_SKILL)
+        body = " ".join(skill_body(H3_SKILL).split())
+        assert "FL2VA takes no audio" not in body
+        assert (
+            "FL2VA with the song held by `hold_audio` keeps the first frame's pixels"
+            in body
+        )
         task = "[keyframe completion + audio reuse]"
-        assert f"`{task}`" in body
-        assert "FL2VA takes no audio" in body
+        assert f"Fallback: Ref2VA `{task}`" in body
         assert "`hold_audio`" in body
 
         enhancer = os.path.join(REPO_ROOT, "dw", "workflows", "h3_context_ir.json")

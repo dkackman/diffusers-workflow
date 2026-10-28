@@ -1843,3 +1843,71 @@ class TestAnalyzeAudio:
 
         with pytest.raises(ValueError, match="sample_rate"):
             analyze_audio(numpy.ones((1, 10)))
+
+
+class TestNormalizeLimitedShotWarning:
+    """#1039: limiting that lands on one shot of a cut is warned, by name."""
+
+    RATE = 16000
+    FPS = 24
+
+    def _cut(self):
+        import types
+
+        t = numpy.arange(self.RATE * 4) / self.RATE
+        wave = 0.01 * numpy.sin(2 * numpy.pi * 220 * t)
+        # Two shots of 2 s; the first holds sparse hot transients
+        for start in range(0, self.RATE * 2, self.RATE // 4):
+            wave[start : start + self.RATE // 20] *= 60
+        shots = [
+            {"name": "kazoo", "start_frame": 0, "num_frames": 48},
+            {"name": "thimble", "start_frame": 48, "num_frames": 48},
+        ]
+        return types.SimpleNamespace(
+            audio=wave[numpy.newaxis, :].astype(numpy.float32),
+            sample_rate=self.RATE,
+            fps=self.FPS,
+            shots=shots,
+        )
+
+    def _events(self, audio):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.tasks.audio_dynamics import normalize_audio
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            normalize_audio(audio, peak_dbfs=-3.0, target_lufs=-10.0, limit=True)
+        finally:
+            deactivate_context(token)
+        return [e for e in events if e.get("kind") == "limiter_uneven_across_shots"]
+
+    def test_names_the_shot_the_limiter_works_on(self):
+        found = self._events(self._cut())
+        assert found and found[0]["shot"] == "kazoo"
+        assert found[0]["shot_reduction_db"] > found[0]["median_reduction_db"]
+
+    def test_silent_without_shots(self):
+        audio = self._cut()
+        audio.shots = None
+        assert self._events(audio) == []
+
+    def test_saved_cut_given_as_a_path_carries_its_manifest_shots(self, monkeypatch):
+        # #1041: an `output:`/`asset:` cut reaches the task as a path string
+        cut = self._cut()
+        monkeypatch.setattr(
+            "dw.tasks.audio_dynamics.waveform_and_rate",
+            lambda audio, rate, command: (cut.audio, cut.sample_rate),
+        )
+        monkeypatch.setattr(
+            "dw.tasks.video_utils.local_video_path", lambda path, base_dir=None: path
+        )
+        monkeypatch.setattr("dw.runs.shots_beside", lambda path: cut.shots)
+        monkeypatch.setattr("dw.media.container_fps", lambda path: cut.fps)
+        found = self._events("runs/qa-cut-edit.4-0.0.mp4")
+        assert found and found[0]["shot"] == "kazoo"
+
+    def test_audio_file_path_has_no_shots(self, monkeypatch):
+        from dw.tasks.audio_dynamics import _shots_of_file
+
+        assert _shots_of_file("bed.wav") == (None, None)

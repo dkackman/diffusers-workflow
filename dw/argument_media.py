@@ -220,7 +220,7 @@ def _with_frame_rate(frames, location):
     only looks at a real local path. A file that says neither stays a plain
     list.
     """
-    from .tasks.video_utils import FrameList
+    from .media_types import FrameList
 
     if not isinstance(frames, list):
         return frames
@@ -273,7 +273,7 @@ def local_media_file(location, what, default_suffix=""):
 
 def _fetch_remote_video(url):
     """A video URL's frames, decoded from `local_media_file`'s copy."""
-    from .tasks.video_utils import FrameList
+    from .media_types import FrameList
 
     with local_media_file(url, "a video argument", default_suffix=".mp4") as path:
         frames = load_video(path)

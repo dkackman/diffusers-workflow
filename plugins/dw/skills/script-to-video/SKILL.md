@@ -104,6 +104,20 @@ time without an audio reference, and only a narrower spread with one
 (`voice` / `voice-timbre-reference`). So when the voice is right and the
 picture is wrong, change the prompt and keep the seed; reach for
 `new_seed` only when the voice is pinned by a reference or does not matter.
+After a chained take (`templates/ltx2/chained-segments` or
+`templates/minimax/chained-segments`), call
+`assess_output(name, probe="analyze_seams")`: seam *n* is the join into
+segment *n+1* (the chain names its shots `segment N`). A `seam_frame_jump`
+is severity `info` and also fires on deliberate cuts (#466), so look at
+`get_output_frames(name, seams=[n])` before spending anything. A chain
+re-rolls whole: `rerun_job(new_seed=True)` redraws every segment, so quote
+the full chain's cost and get the go-ahead. If re-rolls keep failing at one
+seam, shorten the chain, simplify that segment's prompt, or make the seam a
+cut between two shots (`templates/ltx2/image-to-video` from a kept still,
+joined by `templates/assemble-and-score`). Never splice a re-rolled segment
+in with `concat_videos`: that join is recorded `hard_cut`, so
+`seam_frame_jump` stops checking it. A seam re-roll counts against the
+shot's budget below.
 Give each shot a budget of three failed attempts, then stop and ask the user
 rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the

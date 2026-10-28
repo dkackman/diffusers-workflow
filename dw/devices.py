@@ -109,7 +109,7 @@ def check_device_present(device):
         raise DeviceConfigError(f"{device} is not available on this machine")
 
 
-def resolve_serve_devices(cli_value, settings_value):
+def resolve_serve_devices(cli_value, settings_value, on_absent=None):
     """The devices a server runs on - `--devices`, else the `devices`
     setting - or None when neither names any, which leaves today's single
     device (`DW_DEVICE`, then the `device` setting, then detection) alone.
@@ -117,7 +117,14 @@ def resolve_serve_devices(cli_value, settings_value):
     More than one entry runs a worker per card, so each must be a card of
     its own. Raises DeviceConfigError for a duplicate, for an unindexed
     `cuda` in a list of several (it would not be pinned, and would share
-    card 0), and for a device this machine does not have."""
+    card 0), and for a device this machine does not have.
+
+    A list of several survives a card being pulled: an absent entry is
+    dropped and its refusal passed to `on_absent`, so a box with a card
+    out for service comes up on the rest instead of refusing to start (a
+    service manager restarting it would loop forever). Only when no entry
+    is present - or `on_absent` is None - is the first absence raised, so
+    a lone typo (`cuda:7`) still refuses."""
     raw = cli_value if cli_value else settings_value
     devices = parse_devices(raw)
     if not devices:
@@ -139,9 +146,19 @@ def resolve_serve_devices(cli_value, settings_value):
                 "--devices with several entries must name each CUDA card by "
                 "index ('cuda:0,cuda:1'), not a bare 'cuda'"
             )
+    present, absences = [], []
     for device in devices:
-        check_device_present(device)
-    return devices
+        try:
+            check_device_present(device)
+        except DeviceConfigError as absence:
+            absences.append(absence)
+        else:
+            present.append(device)
+    if absences and (not present or on_absent is None):
+        raise absences[0]
+    for absence in absences:
+        on_absent(str(absence))
+    return present
 
 
 def _explicit_cuda_index(device):

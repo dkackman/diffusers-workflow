@@ -17,13 +17,26 @@ import os
 import re
 
 from huggingface_hub import get_hf_file_metadata, hf_hub_download, hf_hub_url
-from transformers import pipeline as hf_pipeline
 from .. import preferred_task_dtype
-from ..locations import validate_hub_repo_id, validate_weight_name
+from ..locations import validate_hub_repo_id
+from ..security import validate_weight_name
 from ..trust import require_trusted_generate_arguments
 from .model_cache import cached_model, hf_pipeline_placement
+from .weights import argument_or_default, repo_entries
 
 logger = logging.getLogger("dw")
+
+
+def hf_pipeline(*args, **kwargs):
+    """`transformers.pipeline`, imported on the first call rather than at
+    module top: the plan's `required_weights` lookup imports this module on
+    every validate of one of its steps, and transformers costs a second-plus
+    the server need not pay. A module-level name so the tests patch it as
+    one (`patch("dw.tasks.text_generation.hf_pipeline")`)."""
+    from transformers import pipeline
+
+    return pipeline(*args, **kwargs)
+
 
 _DEFAULT_MODEL = "Qwen/Qwen2.5-1.5B-Instruct"
 # Small enough to stand in for the old captioning default; override for
@@ -328,6 +341,26 @@ def _validated_generate_kwargs(value):
     return value
 
 
+def model_source(arguments):
+    """The repo a text_generation step loads - `model_name` over the text
+    default, or over the vision default when the step gives an image (an
+    image_to_text or judge step always does)."""
+    default = DEFAULT_VISION_MODEL if (arguments or {}).get("image") else _DEFAULT_MODEL
+    return argument_or_default(arguments, "model_name", default)
+
+
+def required_weights(arguments):
+    """The language model's repo, for the plan (dw/tasks/weights.py). A
+    `system_prompt.from_hub` file is a single-file fetch, not listed."""
+    return repo_entries(model_source(arguments))
+
+
+def vision_required_weights(arguments):
+    """required_weights for a task that always hands generate_text an image
+    (image_to_text, judge)."""
+    return required_weights({**(arguments or {}), "image": True})
+
+
 def generate_text(prompt, device="cpu", **kwargs):
     """Generate text from a prompt using a local language model.
 
@@ -372,12 +405,8 @@ def generate_text(prompt, device="cpu", **kwargs):
     )
     generate_kwargs = _validated_generate_kwargs(kwargs.get("generate_kwargs"))
 
-    if images is None:
-        pipeline_task = "text-generation"
-        model_name = kwargs.get("model_name", _DEFAULT_MODEL)
-    else:
-        pipeline_task = "image-text-to-text"
-        model_name = kwargs.get("model_name", DEFAULT_VISION_MODEL)
+    pipeline_task = "text-generation" if images is None else "image-text-to-text"
+    model_name = model_source({**kwargs, "image": images})
 
     dtype = preferred_task_dtype(device)
 

@@ -128,7 +128,12 @@ class TestThroughTheTemplate:
                 "references": [reference(AUDIO)],
             }
         ]
-        errors = self._template().validation_errors({"shots": shots})
+        errors = [
+            e
+            for e in self._template().validation_errors({"shots": shots})
+            # the placeholder file name resolves nowhere, which is its own error
+            if not e["path"].endswith(".from_file")
+        ]
         assert len(errors) == 1
         assert errors[0]["path"].endswith("pipeline.arguments.references")
         assert "shot@audio_only" in errors[0]["message"]

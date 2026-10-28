@@ -50,6 +50,16 @@ steps carry no pipeline identity metadata at all, as every workflow before
 #516 and most of this module's own tests do - projection falls back to every
 pipeline step, unchanged from before.
 
+A refine step that carries `refine_tiles` does not denoise its canvas in one
+call (#1043): it denoises overlapping tiles one at a time, then decodes the
+blended canvas once with VAE spatial tiling, after the denoise calls. Pricing
+it by the canvas would warn for a run that fits, so a tiled step is priced as
+the larger of two stages (`tiled_required_gb`) - the denoise at the tile's own
+`width`/`height`, with the base, references and guides as for any step, and
+the decode at the canvas's voxel term alone, since the resident base belongs
+to the denoise. A `refine_tiles` that is not a dict of numeric `width` and
+`height` is not tile mode, and the step is priced as before.
+
 The entries checked are the serving device's own (see `_entries_for`);
 `bytes_per_voxel` was calibrated on CUDA, so a check against a Mac's capacity
 is an estimate of an estimate.
@@ -67,6 +77,10 @@ REFERENCES_KEY = "references"
 GUIDE_VOXEL_KEY = "bytes_per_guide_voxel"
 # The voxel variable a guide's own frame count stands in for
 FRAMES_VARIABLE = "num_frames"
+# The H3 argument that puts a refine step in tile mode (the name
+# `pipeline_processors.h3_rules.REFINE_TILES_INPUT` owns; kept local so this
+# module takes no dependency on the processors package)
+TILES_KEY = "refine_tiles"
 _SOURCE_KEYS = (FROM_FILE_KEY, FROM_PREVIOUS_RESULT_KEY)
 
 
@@ -171,6 +185,39 @@ def required_gb(estimate, values, references=0, guides=()):
         + per_reference * references
         + per_guide_voxel * guide_voxels / (1024**3)
     )
+
+
+def tile_size(arguments):
+    """The (width, height) of `refine_tiles` in a step's pipeline arguments,
+    or None when the step is not in tile mode: the argument is absent, not a
+    dict, or its width or height is not a positive number."""
+    tiles = arguments.get(TILES_KEY) if isinstance(arguments, dict) else None
+    if not isinstance(tiles, dict):
+        return None
+    width = _as_number(tiles.get("width"))
+    height = _as_number(tiles.get("height"))
+    if width is None or height is None or width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def tiled_required_gb(estimate, values, tile, references=0, guides=()):
+    """The projected requirement of a step in tile mode (#1043), or None when
+    `required_gb` cannot compute `values`: the larger of the denoise, priced
+    at `tile`'s (width, height) in place of the canvas's, and the decode,
+    which is the canvas's own voxel term - `bytes_per_voxel` times the
+    canvas voxels - without `base_gb`, since the tiled path decodes after the
+    denoise calls and the resident base belongs to the denoise."""
+    if required_gb(estimate, values) is None:
+        return None
+    denoise = required_gb(
+        estimate, {**values, "width": tile[0], "height": tile[1]}, references, guides
+    )
+    voxels = 1.0
+    for name in estimate.get("voxel_variables", []):
+        voxels *= _as_number(values.get(name))
+    decode = estimate.get("bytes_per_voxel", 0) * voxels / (1024**3)
+    return max(denoise, decode)
 
 
 def _guide_frames(pipeline, values, variables, base_dir, probe):
@@ -330,9 +377,12 @@ def _projections(definition, estimate, arguments, base_dir=None, probe=None):
         )
         if guides is None:
             continue
-        projected = required_gb(
-            estimate, values, references, [frames for frames, _ in guides]
-        )
+        frames = [count for count, _ in guides]
+        tile = tile_size(step_arguments)
+        if tile is not None:
+            projected = tiled_required_gb(estimate, values, tile, references, frames)
+        else:
+            projected = required_gb(estimate, values, references, frames)
         if projected is not None:
             yield index, step, values, references, guides, projected
 
@@ -414,6 +464,22 @@ def _formula(estimate):
     return formula
 
 
+def _tiled_note(step, values):
+    """(priced values, ' (refine_tiles 1344x768: ...)') for a step in tile
+    mode (#1043), or (values, '') when it is not. The priced values are what
+    the denoise was charged: the tile in place of the canvas."""
+    pipeline = step.get("pipeline") if isinstance(step, dict) else None
+    tile = tile_size(pipeline.get("arguments") if isinstance(pipeline, dict) else None)
+    if tile is None:
+        return values, ""
+    width, height = (int(n) if n == int(n) else n for n in tile)
+    note = (
+        f" (refine_tiles {width}x{height}: denoise priced per tile, decode at "
+        f"the {values.get('width')}x{values.get('height')} canvas)"
+    )
+    return {**values, "width": width, "height": height}, note
+
+
 def _with_guides(guides):
     """' with 3 guides (22+22+124 frames)', naming the guides charged at the
     worst case, or '' with none."""
@@ -493,11 +559,21 @@ def vram_estimate_errors(
         else ""
     )
     where = _where(estimate, index, step, supplied, source_indices, written)
+    values, tiled = _tiled_note(step, values)
+    exceeded = [
+        entry
+        for entry in entries
+        if entry.get("vram_gb") is not None and projected > entry["vram_gb"]
+    ]
+    # The synthetic capacity entry _entries_for adds (the card's reported
+    # 23.6 beside a catalog "24") only speaks when no declared card does, so
+    # one projection never reads twice (#1053)
+    declared = [entry for entry in exceeded if "device" in entry]
+    if declared:
+        exceeded = declared
     errors = []
-    for entry in entries:
+    for entry in exceeded:
         capacity = entry.get("vram_gb")
-        if capacity is None or projected <= capacity:
-            continue
         device_label = entry.get("name") or entry.get("device", "this device")
         errors.append(
             {
@@ -505,7 +581,7 @@ def vram_estimate_errors(
                 "message": (
                     f"{member}{'*'.join(voxel_variables)} = "
                     f"{'*'.join(str(values.get(v)) for v in voxel_variables)}"
-                    f"{with_references}{_with_guides(guides)} projects to "
+                    f"{tiled}{with_references}{_with_guides(guides)} projects to "
                     f"{projected:.2f} GB VRAM, "
                     f"above the {capacity} GB declared for {device_label}"
                     f"{because}. {_formula(estimate)}"
@@ -513,6 +589,44 @@ def vram_estimate_errors(
             }
         )
     return errors
+
+
+def largest_projection(
+    definition,
+    arguments=None,
+    supplied=(),
+    device_type=None,
+    capacity_gb=None,
+    source_indices=None,
+    written=None,
+    capacity_label=None,
+    base_dir=None,
+    probe=None,
+):
+    """The largest step a declared vram_estimate projects, as
+    {path, gb, card} (`card` names the smallest card checked against), over
+    or under the ceiling alike; None when nothing is projected. The same
+    arguments as `vram_estimate_errors`, for a note on a projection that
+    passes."""
+    estimate = declared_estimate(definition)
+    if estimate is None:
+        return None
+    cost = definition.get("cost")
+    entries = _entries_for(
+        cost if isinstance(cost, list) else [], device_type, capacity_gb, capacity_label
+    )
+    cards = [e for e in entries if _as_number(e.get("vram_gb")) is not None]
+    projections = list(_projections(definition, estimate, arguments, base_dir, probe))
+    if not cards or not projections:
+        return None
+    index, step, _, _, _, projected = max(projections, key=lambda p: p[-1])
+    card = min(cards, key=lambda e: e["vram_gb"])
+    label = card.get("name") or card.get("device", "this device")
+    return {
+        "path": _where(estimate, index, step, supplied, source_indices, written),
+        "gb": projected,
+        "card": f"{card['vram_gb']} GB {label}",
+    }
 
 
 def required_vram_gb(

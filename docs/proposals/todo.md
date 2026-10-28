@@ -329,6 +329,44 @@ remaining deferred fix is recorded in
   two-shot and lip-syncs the right singer; a last frame doesn't help. One
   `minimax-h3` skill line; no template, since `music-video` takes the
   recipe with arguments. Record: `complete/h3-keyframe-audio-complete.md`.
+- **A `stacked_vocals` warning from `separate_stems`** (#947, stage #955),
+  shipped 2026-10-19. A stereo check on the vocals stem names the spans
+  that hold layered voices (a Music 3 chorus). Record, including what was
+  deferred (the voice/pitch conversion task, structured spans, the check in
+  `attribute_voices`): `complete/stacked-vocals-warning-complete.md`.
+- **`remove_object`, prompt-free LaMa object removal** (#956, stages
+  #973-#974), shipped 2026-10-22. A task that fills a white-means-fill mask
+  from the surrounding image, with no prompt and fp32 on any device, using
+  pinned `big-lama.safetensors` loaded through spandrel. It comes with the
+  `remove-object` and `segment-and-remove` templates and an
+  erase-versus-repaint routing rule. `segment` now keeps SAM2's best-rated
+  mask. Record, including what was deferred (temporal video removal,
+  per-frame masks, a larger model for big regions, #975's download
+  warning): `complete/remove-object-complete.md`.
+- **Task weights in `plan.downloads_required`** (#975, stages #977-#978),
+  shipped 2026-10-23. Each model-backed task declares
+  `required_weights(arguments)`. Its loader reads the same resolution, and
+  the plan lists those repos, plus single files at their pinned revision
+  and facexlib's URLs, so a bound acknowledgement covers them. Record,
+  including what was deferred (fetchers outside the HF cache, pinned-file
+  `download_model`, `gated` on file entries):
+  `complete/task-weights-downloads-complete.md`.
+- **H3 rules from WanGP's field notes** (#985, stages #988-#989), shipped
+  2026-10-25. Probed on lem at int8 + turbo: FL2VA with `hold_audio` keeps
+  the first frame's pixels and lip-syncs, so it is now the skill's
+  locked-frame route (Ref2VA keyframe completion the fallback); leaving
+  words out of `<d>` under a held track was refuted. The `h3` enhancer
+  writes `<d>` blocks again. Record, including what was dropped (tail-frame
+  discard: dw chains have no per-window end image) and deferred (keyframe
+  strength, not reachable from a workflow):
+  `complete/h3-wangp-field-notes-complete.md`.
+- **Look measures in `analyze_seams`** (#1031, stage #1042), shipped
+  2026-10-26. Every seam record carries signed `saturation_step`,
+  `lightness_step` and `contrast_step`, a local-rate `look_ratio` with its
+  `look_ratio_measure`, and a `detail_ratio`, taken from a 128x72 colour
+  copy during the one decode. Measures only, no rules. Record, including
+  what was deferred (rules until #1033 measures real chains, take drift,
+  apparent age): `complete/seam-look-measures-complete.md`.
 
 ## Declined
 

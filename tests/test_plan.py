@@ -84,13 +84,15 @@ def output_root(tmp_path):
 def plan(tmp_path, prompt_library, output_root, monkeypatch):
     """build_plan over the fixture, with the hub cache empty and the hub
     unreachable, so downloads never touch the network in these tests."""
-    import dw.plan
+    import dw.plan_downloads
 
     def offline(*a, **k):
         raise RuntimeError("offline")
 
-    monkeypatch.setattr(dw.plan, "scan_models", lambda cache_dir=None: {"repos": []})
-    monkeypatch.setattr(dw.plan, "model_info", offline)
+    monkeypatch.setattr(
+        dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+    )
+    monkeypatch.setattr(dw.plan_downloads, "model_info", offline)
 
     def make(spec=None, arguments=None, **overrides):
         spec = definition() if spec is None else spec
@@ -1667,14 +1669,16 @@ class TestDownloadsRequired:
         ]
 
     def test_a_cached_repo_is_not(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
         assert plan()["downloads_required"] == []
 
     def test_a_present_but_incomplete_repo_is_still_required(self, plan, monkeypatch):
@@ -1682,10 +1686,10 @@ class TestDownloadsRequired:
         revision folder in place) but whose snapshot is missing files the
         load needs stays in downloads_required rather than reading as
         cached."""
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": "org/still-model"}]},
         )
@@ -1695,7 +1699,9 @@ class TestDownloadsRequired:
             seen.append((name, variant))
             return True
 
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", fake_incomplete)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", fake_incomplete
+        )
         assert plan()["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1707,7 +1713,7 @@ class TestDownloadsRequired:
         assert seen == [("org/still-model", None)]
 
     def test_cache_dir_reaches_scan_models(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         seen = []
 
@@ -1715,7 +1721,7 @@ class TestDownloadsRequired:
             seen.append(cache_dir)
             return {"repos": []}
 
-        monkeypatch.setattr(dw.plan, "scan_models", spy)
+        monkeypatch.setattr(dw.plan_downloads, "scan_models", spy)
         plan(cache_dir="/somewhere")
         assert seen == ["/somewhere"]
 
@@ -1791,8 +1797,177 @@ class TestDownloadsRequired:
             "org/vae",
         ]
 
+    @pytest.mark.parametrize(
+        "override, expected",
+        [
+            ("org/other", ["org/still-model", "org/other"]),
+            (
+                {"transformer_ref": "org/other", "vae": "org/vae"},
+                ["org/still-model", "org/other", "org/vae"],
+            ),
+            ({"default": "org/other"}, ["org/still-model", "org/other"]),
+            ({"default": "org/still-model"}, ["org/still-model"]),
+            (None, ["org/still-model"]),
+        ],
+    )
+    def test_a_load_components_repo_override_is_listed(self, plan, override, expected):
+        """#981: the string, per-component and default forms, deduplicated
+        against model_name, and unchanged when the key is absent."""
+        spec = definition()
+        if override is not None:
+            spec["steps"][0]["pipeline"]["load_components"] = {
+                "pretrained_model_name_or_path": override
+            }
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == expected
+
+    def test_task_steps_list_the_repos_their_commands_declare(self, plan):
+        """#975: an image processor (remove_background) and a registered
+        command (segment) both name their weights, after the pipeline's."""
+        spec = definition()
+        spec["steps"] += [
+            {
+                "name": "cutout",
+                "task": {"command": "remove_background", "arguments": {}},
+                "result": {"content_type": "image/png"},
+            },
+            {
+                "name": "mask",
+                "task": {"command": "segment", "arguments": {"prompt": "a cup"}},
+                "result": {"content_type": "image/png"},
+            },
+        ]
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "briaai/RMBG-2.0",
+            "IDEA-Research/grounding-dino-base",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_task_override_replaces_the_default_repo(self, plan):
+        spec = definition()
+        spec["steps"].append(
+            {
+                "name": "mask",
+                "task": {
+                    "command": "segment",
+                    "arguments": {"model_name": "org/dino", "sam_model_name": None},
+                },
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/dino",
+            "facebook/sam2-hiera-large",
+        ]
+
+    def test_a_repo_a_pipeline_and_a_task_both_load_is_listed_once(self, plan):
+        spec = definition()
+        spec["steps"][0]["pipeline"]["from_pretrained_arguments"]["model_name"] = (
+            "openai/whisper-base"
+        )
+        spec["steps"].append(
+            {
+                "name": "words",
+                "task": {"command": "transcribe_audio", "arguments": {}},
+            }
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "openai/whisper-base"
+        ]
+
+    def test_two_task_steps_naming_one_repo_list_it_once(self, plan):
+        spec = definition()
+        spec["steps"] += [
+            {"name": "a", "task": {"command": "transcribe_audio", "arguments": {}}},
+            {"name": "b", "task": {"command": "check_script", "arguments": {}}},
+        ]
+        repos = [d["repo"] for d in plan(spec)["downloads_required"]]
+        assert repos == ["org/still-model", "openai/whisper-base"]
+
+    def test_a_task_argument_that_is_a_reference_or_a_path_is_not_listed(self, plan):
+        for local in ("previous_result:detector", "/models/dino", "./models/dino"):
+            spec = definition()
+            spec["steps"].append(
+                {
+                    "name": "mask",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": local, "sam_model_name": local},
+                    },
+                }
+            )
+            assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+                "org/still-model"
+            ], local
+
+    def test_a_cached_task_repo_is_not_required(self, plan, monkeypatch):
+        import dw.plan_downloads
+
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "scan_models",
+            lambda cache_dir=None: {
+                "repos": [
+                    {"repo_id": "org/still-model"},
+                    {"repo_id": "briaai/RMBG-2.0"},
+                ]
+            },
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
+        spec = definition()
+        spec["steps"].append(
+            {"name": "cutout", "task": {"command": "remove_background"}}
+        )
+        assert plan(spec)["downloads_required"] == []
+
+    def test_a_hook_that_raises_costs_its_entries_and_not_the_plan(
+        self, plan, monkeypatch
+    ):
+        import dw.tasks.registry
+
+        def exploding(command):
+            def hook(arguments):
+                raise RuntimeError("hook broke")
+
+            return hook
+
+        monkeypatch.setattr(dw.tasks.registry, "required_weights_hook", exploding)
+        spec = definition()
+        spec["steps"].append(
+            {"name": "mask", "task": {"command": "segment", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model"
+        ]
+
+    def test_a_composed_childs_task_step_contributes_its_repo(self, plan, tmp_path):
+        spec = definition()
+        child = {
+            "id": "child",
+            "steps": [
+                {
+                    "name": "c",
+                    "task": {
+                        "command": "segment",
+                        "arguments": {"model_name": "org/child-dino"},
+                    },
+                }
+            ],
+        }
+        (tmp_path / "child.json").write_text(json.dumps(child))
+        spec["steps"].append(
+            {"name": "sub", "workflow": {"path": "child.json", "arguments": {}}}
+        )
+        assert [d["repo"] for d in plan(spec)["downloads_required"]] == [
+            "org/still-model",
+            "org/child-dino",
+            "facebook/sam2-hiera-large",
+        ]
+
     def test_sizes_come_from_the_hub_in_gib(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             def __init__(self, size):
@@ -1808,7 +1983,7 @@ class TestDownloadsRequired:
             calls.append((name, kwargs))
             return Info()
 
-        monkeypatch.setattr(dw.plan, "model_info", fake_model_info)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", fake_model_info)
         answer = plan(lookup_sizes=True)["downloads_required"]
         assert answer == [
             {
@@ -1823,7 +1998,7 @@ class TestDownloadsRequired:
         assert calls[0][1]["timeout"] == 5.0
 
     def test_a_gated_repo_this_token_may_access_is_not_blocked(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             rfilename = "config.json"
@@ -1832,8 +2007,10 @@ class TestDownloadsRequired:
             siblings = [Sibling()]
             gated = "manual"
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", lambda url, **k: object())
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(
+            dw.plan_downloads, "get_hf_file_metadata", lambda url, **k: object()
+        )
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1847,7 +2024,7 @@ class TestDownloadsRequired:
         self, plan, monkeypatch
     ):
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -1862,8 +2039,8 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1875,7 +2052,7 @@ class TestDownloadsRequired:
 
     def test_a_gated_repo_model_info_itself_refuses_is_blocked(self, plan, monkeypatch):
         import httpx
-        import dw.plan
+        import dw.plan_downloads
         from huggingface_hub.utils import GatedRepoError
 
         response = httpx.Response(403, request=httpx.Request("GET", "https://hf.co/x"))
@@ -1883,7 +2060,7 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise GatedRepoError("no access", response=response)
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1894,13 +2071,13 @@ class TestDownloadsRequired:
         ]
 
     def test_a_gated_repo_with_no_probeable_file_is_unknown(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         class Info:
             siblings = []
             gated = "auto"
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1913,7 +2090,7 @@ class TestDownloadsRequired:
     def test_a_gate_probe_failing_for_an_unrelated_reason_is_unknown(
         self, plan, monkeypatch
     ):
-        import dw.plan
+        import dw.plan_downloads
 
         class Sibling:
             rfilename = "config.json"
@@ -1925,8 +2102,8 @@ class TestDownloadsRequired:
         def boom(*a, **k):
             raise RuntimeError("offline")
 
-        monkeypatch.setattr(dw.plan, "model_info", lambda name, **k: Info())
-        monkeypatch.setattr(dw.plan, "get_hf_file_metadata", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", lambda name, **k: Info())
+        monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1937,12 +2114,12 @@ class TestDownloadsRequired:
         ]
 
     def test_a_hub_failure_is_a_null_size(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         def boom(*a, **k):
             raise RuntimeError("offline")
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         assert plan(lookup_sizes=True)["downloads_required"] == [
             {
                 "repo": "org/still-model",
@@ -1953,12 +2130,12 @@ class TestDownloadsRequired:
         ]
 
     def test_lookup_sizes_false_never_calls_the_hub(self, plan, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         def boom(*a, **k):
             raise AssertionError("must not be called")
 
-        monkeypatch.setattr(dw.plan, "model_info", boom)
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
         plan(lookup_sizes=False)
 
 
@@ -2119,17 +2296,19 @@ class TestAnAdapterIsADownloadToo:
         }
 
     def repos(self, present, monkeypatch):
-        import dw.plan
+        import dw.plan_downloads
 
         monkeypatch.setattr(
-            dw.plan,
+            dw.plan_downloads,
             "scan_models",
             lambda cache_dir=None: {"repos": [{"repo_id": name} for name in present]},
         )
-        monkeypatch.setattr(dw.plan, "repo_download_incomplete", lambda *a, **k: False)
+        monkeypatch.setattr(
+            dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
+        )
         return [
             entry["repo"]
-            for entry in dw.plan.downloads_required(
+            for entry in dw.plan_downloads.downloads_required(
                 self.definition(), None, None, None, False
             )
         ]

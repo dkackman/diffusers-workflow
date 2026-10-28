@@ -302,6 +302,15 @@ def _task_errors(context):
     )
     if context.arguments is None:
         errors = [e for e in errors if "variable" not in e]
+    elif argument_errors(context.definition, context.arguments):
+        # A bad argument leaves every argument unfolded, so a variable the
+        # caller did supply still reads as null here (#972). The argument
+        # error is the one to say; drop the finding for a supplied name
+        errors = [
+            e
+            for e in errors
+            if "variable" not in e or e["variable"] not in context.supplied
+        ]
     return errors
 
 
@@ -656,7 +665,8 @@ WARNING_CHECKS = [
     # A step loading a pipeline the catalog declares a VRAM ceiling for, in a
     # workflow that declares none, projected past it - a warning, since this
     # workflow's offload/quantization may be leaner than the template's
-    # (#502)
+    # (#502); under it, a note when that offload/quantization differs from
+    # the one the estimate was calibrated on (#954)
     Check(
         "inherited_vram_warnings",
         # No index, nothing to inherit - and no expansion read for it

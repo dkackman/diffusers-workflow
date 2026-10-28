@@ -152,6 +152,37 @@ def test_put_file_and_run_note_and_read_back(client, output_root, make_run):
     }
 
 
+def test_metadata_reads_the_run_notes_once(client, output_root, make_run, monkeypatch):
+    """The file's note and the run's come from one notes.json read, through
+    `output_annotations`, so the metadata route never reads it a second time
+    for `run_note`; the listing takes the same fields and shows no run_note."""
+    from dw.server import outputs
+    from dw.server.routes import media
+
+    run_dir = make_run("wf", ["a.png"])
+    run = run_name(run_dir, output_root)
+    N.set_run_note(run_dir, "shift 3 vs 5")
+    reads = []
+
+    def counted(directory):
+        reads.append(directory)
+        return N.read_notes(directory)
+
+    monkeypatch.setattr(outputs, "read_notes", counted)
+    monkeypatch.setattr(media, "read_notes", counted)
+
+    meta = client.get(f"/api/gallery/{run}/a.png/metadata").json()
+    assert (meta["note"], meta["run_note"], meta["note_source"]) == (
+        "shift 3 vs 5",
+        "shift 3 vs 5",
+        "run",
+    )
+    assert reads == [run_dir]
+    listed = {f["label"]: f for f in client.get("/api/gallery").json()["files"]}
+    assert listed["a.png"]["note"] == "shift 3 vs 5"
+    assert "run_note" not in listed["a.png"]
+
+
 def test_a_file_without_its_own_note_answers_with_the_run_note(
     client, output_root, make_run
 ):

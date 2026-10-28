@@ -1,10 +1,33 @@
 import torch
 import numpy as np
-from transformers import pipeline
+
 from torchvision import transforms
 
 from .. import preferred_task_dtype
 from .model_cache import cached_model
+from .weights import repo_entries
+
+
+def pipeline(*args, **kwargs):
+    """`transformers.pipeline`, imported on the first call rather than at
+    module top: the plan's `required_weights` lookup imports this module on
+    every validate of a depth step, and transformers costs a second-plus the
+    server need not pay. A module-level name so the tests patch it as one
+    (`patch("dw.tasks.depth_estimator.pipeline")`)."""
+    from transformers import pipeline as hf_pipeline
+
+    return hf_pipeline(*args, **kwargs)
+
+
+# transformers' own default for "depth-estimation", named so the plan can list
+# it and a transformers upgrade cannot move it silently
+_MODEL_NAME = "Intel/dpt-large"
+_REVISION = "bc15f29"
+
+
+def required_weights(arguments):
+    """The depth model's repo, for the plan (dw/tasks/weights.py)."""
+    return repo_entries(_MODEL_NAME)
 
 
 def make_hint_tensor(image, device, dtype=None):
@@ -21,7 +44,9 @@ def make_hint_tensor(image, device, dtype=None):
     """
     depth_estimator = cached_model(
         ("depth_estimator", str(device)),
-        lambda: pipeline("depth-estimation", device=device),
+        lambda: pipeline(
+            "depth-estimation", model=_MODEL_NAME, revision=_REVISION, device=device
+        ),
     )
 
     image = depth_estimator(image)["depth"]

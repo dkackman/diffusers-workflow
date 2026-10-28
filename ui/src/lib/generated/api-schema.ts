@@ -343,8 +343,9 @@ export interface paths {
          *     Each entry carries `role`, `final` or `intermediate` (null for a
          *     flat-layout file or one no manifest lists); a file a later run read
          *     lists as intermediate unless its step declared it final
-         *     (dw/roles.py rule 4). `role` is a repeatable
-         *     filter; a null role counts as final. Omitted, every file is listed.
+         *     (dw/roles.py rule 4). A run that recorded no role takes the role its
+         *     file's subfolder names, then rule 4; with neither it is null. `role`
+         *     is a repeatable filter; a null role counts as final. Omitted, every file is listed.
          */
         get: operations["gallery_api_gallery_get"];
         put?: never;
@@ -2477,6 +2478,11 @@ export interface components {
              * @enum {string}
              */
             source: "output" | "asset";
+            /**
+             * Starred
+             * @description True when the file is starred; absent otherwise.
+             */
+            starred?: boolean;
             /** Version */
             version: number | null;
         };
@@ -3348,6 +3354,11 @@ export interface components {
              */
             unpriced: string[];
             /**
+             * Unpriced Reason
+             * @description With basis `unknown` and no `withheld`: why a workflow of task steps alone has no price - it has no pipeline to inherit one from, and its length follows its input media (#948).
+             */
+            unpriced_reason?: string;
+            /**
              * Withheld
              * @description With basis `unknown` and `inherited_from` set: why the template's runs could not be re-priced for this workflow (its size cannot be compared to the template's).
              */
@@ -3432,6 +3443,11 @@ export interface components {
             /** Access Blocked */
             access_blocked: boolean | null;
             /**
+             * Filename
+             * @description A single weight file within `repo`, for a task that fetches one file rather than the whole repo.
+             */
+            filename?: string;
+            /**
              * Gated
              * @description The hub's own `gated` field: false, or how access is granted.
              */
@@ -3440,6 +3456,11 @@ export interface components {
             gb: number | null;
             /** Repo */
             repo: string | null;
+            /**
+             * Revision
+             * @description The commit the file is read at; null means main.
+             */
+            revision?: string | null;
             /**
              * Url
              * @description A from_single_file URL, which has no repo.

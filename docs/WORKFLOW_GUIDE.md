@@ -494,14 +494,21 @@ step (for a `for_each`, the heaviest member). It warns rather than
 refuses: your offload and quantization config may differ from the
 template's. Cut frames, size or references until it goes quiet, or declare
 your own `vram_estimate`, which always wins and is judged exactly as a
-template's. A pipeline the catalog declares no ceiling for gets no warning -
+template's. Under the ceiling it is not always silent: the template's
+estimate was calibrated on its own offload and quantization, so a workflow
+that sets either differently (no `offload` where the template sets
+`model`, say) gets one warning of kind `vram_config_differs` naming both
+settings and the projection - real usage may be higher. Over the ceiling the
+one `vram_projection_inherited` warning names that difference instead. A pipeline the catalog declares no ceiling for gets no warning -
 silence there is not a clearance - and H3's `t2va` and `ref2va` are
 different identities with different ceilings.
 
 The projection is `base_gb`, plus `bytes_per_voxel` times the product of
 the `voxel_variables`, plus `gb_per_reference` per non-null reference, plus
 `bytes_per_guide_voxel` times each guide's frames times the canvas (every
-voxel variable but `num_frames`). The guides counted are the step's own
+voxel variable but `num_frames`); an absent key adds nothing. A declared
+estimate refuses on the guide term as on the rest; an inherited one only
+warns. The guides counted are the step's own
 `guides` with a non-null `video`, at their snapped length, and the one a
 `continuity: "guide"` chain appends (`guide_frames`, 22 or 39). A guide
 clip is probed at validate, at admission and at run; one that cannot be
@@ -822,6 +829,25 @@ workflow.
   `reference-to-video` and `dialogue-short` templates). The `identity-referenced`
   trait in the listing marks the workflows that take one.
 
+### Erasing versus repainting a masked region
+
+A request to *erase or remove* an object and a request to *put something
+new* in its place are different operations, and only one of them takes a
+prompt.
+
+- **Erase or remove an object** → the `remove_object` task: prompt-free, it
+  fills the hole from the surrounding scene, and suits small to medium
+  objects (a cup, a sign, a watermark). `templates/remove-object.json` takes
+  a mask you already have; `templates/segment-and-remove.json` masks the
+  object by name first. A large region, such as a person filling a third of
+  the frame, comes back smeared.
+- **Put something new inside a mask** → a prompted inpainter,
+  `models/z-image-inpaint` or `templates/inpaint.json`. The prompt names what
+  to paint. Do not use one to erase: given a prompt for "empty background" it
+  paints a new object or a patch that does not match (#946).
+
+`docs/TASKS.md` *Object Removal* has the task's arguments and its mask rules.
+
 ### A spoken scene breaking into a song
 
 A musical number: spoken shots, each carrying its own dialogue audio, then
@@ -1046,7 +1072,11 @@ Pass `probe="analyze_seams"` (or either of the other two probe names) to
 get that one probe's full body: every seam's or shot's measurements, not
 just the ones that crossed a rule. `detail=true` adds every applicable
 probe's full body under `probes`. An unknown probe is refused before
-anything is read, and the error names the three probes.
+anything is read, and the error names the three probes. Each seam's full
+record also carries look measures - saturation, lightness and contrast
+steps, `look_ratio` and `detail_ratio` - that catch a colour or brightness
+shift `jump_ratio` misses; no rule reads them (the tasks guide's
+`analyze_seams` field table).
 
 **The answer.**
 
@@ -1762,6 +1792,10 @@ open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, 
 speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
 so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
 is also for picture that must fit audio exactly, such as motion cut to music.
+On `fl2va`, hold is the locked-frame lip-sync route (#985: `image-to-video`'s fl2va, a first
+frame plus a held 5.17 s song, int8 turbo, two seeds): frame 0 kept the picture's pixels and
+the mouth followed the song as in an audio-referenced Ref2VA shot, at about a fifth of the
+denoise time of Ref2VA `[keyframe completion + audio reuse]`, which keeps only the framing.
 `refine_strength` also uses hold, to keep the base pass's own audio, which was generated
 jointly with that video - a different case from lip sync to supplied audio (see the refine
 section below).
@@ -1804,7 +1838,7 @@ declared variable, so reference a `guides` variable or edit the argument.
 | `frame` | a multiple of 17 (a VAE chunk boundary): 0, 17, 34, ... |
 | clip length | 1, 5 or 17m + 5 frames (22, 39, 56, ... 124); any other length is cut down to the longest such length (n < 5 gives 1, 5 <= n < 22 gives 5, else 17 * ((n - 5) // 17) + 5) with a warning |
 | extent | `frame` + length must not run past `num_frames` (H3 rounds it up to 17n + 5; default 124); ending exactly at the end is fine |
-| count | at most 4 guides per step (a VRAM limit: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas); `guides: []` is the same as none |
+| count | at most 4 guides per step. Each guide is also checked against the card: each guide frame adds attention rows, and the template's `vram_estimate` charges each guide's frames on the canvas; `guides: []` is the same as none |
 | where | `t2va` or `fl2va` on an H3 pipeline; not with `references` (`ref2va`), not on a non-H3 pipeline |
 
 Validation refuses all of the above before the run (`dw/guides.py`); a `previous_result:`
@@ -1884,7 +1918,10 @@ So this is a measurement path, not a catalog template: the catalog's native 768p
 is `templates/minimax/video-with-audio-768p`, and it is the one to use when faces matter.
 
 Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
-latents' own size, and within H3's 1344x768 (or portrait 768x1344) canvas. The latents
+latents' own size, and within the upscale cap of 1920x1088 (or portrait 1088x1920);
+validation refuses a literal size off the grid or over the cap before the run. Above
+1344x768 the plate is for a tiled refine ([Refining above 768p in
+tiles](#refining-above-768p-in-tiles)), and upscale-only it is soft. The latents
 pass from `base` to `up` to `decode` entirely in memory. A `previous_result:` property
 on a modular step names a key of the dict its `output` list returns, spelled as the
 pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` - not
@@ -1897,10 +1934,10 @@ upscaling only makes sense for a take chosen from something already reviewed, so
 
 The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, Apache-2.0,
 read at a pinned revision) and the H3 VAE download on first use, the same as any other
-model. Neither is counted in `plan.downloads_required`, since that walk collects
-`from_pretrained_arguments` sources on pipeline steps and does not see a task
-argument naming a Hugging Face repo - a box that has run the base pass before but never
-this task can still stall mid-run pulling the upscaler.
+model. A validate's `plan.downloads_required` lists the upscaler file as a file entry
+(`{repo, filename, revision, ...}`) while it is not cached, and the VAE is covered by
+the pipeline step's whole `MiniMaxAI/MiniMax-H3` entry, so a box that has run the base
+pass before but never this task is told of the upscaler download beforehand.
 
 ```json
 {
@@ -2104,12 +2141,16 @@ this task can still stall mid-run pulling the upscaler.
 ```
 
 To keep the 544p take beside the promotion for comparison, add one more `pair_audio`
-step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`,
-saved with `"result": {"content_type": "video/mp4", "fps": 24, "subfolder":
+step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_rate`
+(and `fit`), saved with `"result": {"content_type": "video/mp4", "subfolder":
 "intermediate"}`. `base.videos` is the pipeline's batch - a list holding the one video -
 and `pair_audio` unwraps a batch of one (a batch of several is refused, since one track
-goes under one video). The dict's frames carry no frame rate, so the result's `fps`
-says it; without it the file is written at the 8 fps fallback.
+goes under one video). The H3 step hands its `videos` on carrying the model's 24 fps,
+the way the tiled refine's do, so `pair_audio` fits the track against 5.17 s and the
+file is written at 24 fps without being told. Frames that carry no rate - a plain list
+from a task - need `pair_audio`'s own `fps` argument, not the result's: the result's
+`fps` is applied by the writer after `fit` has already measured the frames at the 8 fps
+fallback, so it would re-time the picture under a track padded to three times its length.
 
 ### Refining the upscaled latents: refine_strength
 
@@ -2450,6 +2491,379 @@ from the upscaled take, a lower one stays closer to it.
 Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive), a
 refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
+
+To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
+tiles](#refining-above-768p-in-tiles).
+
+### Refining above 768p in tiles
+
+H3's refine runs at 1344x768 at most, and `upscale_h3_latents` now reaches 1920x1088 (or
+1088x1920). An upscale-only plate above 768p is soft: `upscale_h3_latents` to 1920x1088
+alone, decoded, is not a 1080p render, since the interpolation adds no detail. To put the
+detail in, give the refine step `refine_tiles`, which refines a `latents` canvas bigger than
+H3's own in overlapping tiles. It is a second argument to `refine_strength`, not a
+replacement: the strength, the held audio and the step count mean what they did above.
+
+```json
+{"refine_tiles": {"width": 1344, "height": 768, "overlap": 256}}
+```
+
+The step plans the tiles on the 32 px grid: the fewest per axis whose overlap is at least
+the requested one, spread evenly, the last flush to the edge. A 1920x1088 canvas at
+1344x768 with overlap 256 is 2x2, tiles at x 0 and 576, y 0 and 320. The noise is drawn
+once for the whole canvas from the step's generator and cropped per tile, so overlapping
+tiles start from the same noise. Each tile is denoised through H3 without its decode block,
+and the prompt is encoded once. The tiles are blended in latent space with a linear feather
+across each overlap, the weights normalized, and the blended canvas is decoded once with VAE
+spatial tiling. The step returns the full-canvas `latents`, the video and stage 1's held
+audio, once. Its `videos` carry H3's 24 fps, so the `pair_audio` below writes them at
+that rate without being told. The job's events show one log line per tile and one decoding phase.
+
+It is slow. A 1920x1088 refine is roughly 4 tiles, each a 768p refine, plus a 1080p decode:
+about 25-30 minutes, against about 9.6 minutes for a native 768p take (an estimate, not
+measured). The validate projection prices the denoise at the tile's size and the decode at the
+canvas's, so a tiled refine does not warn as if it denoised 1080p at once.
+
+```json
+{
+    "id": "H3LatentUpscaleRefineTiles",
+    "description": "Promote a MiniMax-H3 take from 960x544 to a 1920x1088 canvas in latent space, refine it in overlapping 1344x768 tiles, and pair the held audio.",
+    "variables": {
+        "prompt": "prompt:minimax/fox_dawn_context_ir",
+        "num_frames": 124,
+        "num_inference_steps": 5,
+        "video_shift": 6.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "seed": 42
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "reason": "the video VAE encodes 17 * n + 5 frames"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "base",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "width": 960,
+                    "height": 544,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate",
+                        "latents"
+                    ]
+                }
+            }
+        },
+        {
+            "name": "up",
+            "task": {
+                "command": "upscale_h3_latents",
+                "arguments": {
+                    "latents": "previous_result:base.latents",
+                    "width": 1920,
+                    "height": 1088
+                }
+            }
+        },
+        {
+            "name": "refine",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "num_frames": "variable:num_frames",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ],
+                    "latents": "previous_result:up",
+                    "refine_strength": 0.2,
+                    "refine_tiles": {
+                        "width": 1344,
+                        "height": 768,
+                        "overlap": 256
+                    },
+                    "hold_audio": "previous_result:base.audio"
+                }
+            }
+        },
+        {
+            "name": "mux",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:refine.videos",
+                    "audio": "previous_result:base.audio",
+                    "sample_rate": "previous_result:base.sampling_rate",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
+```
+
+The refine step uses the 768p turbo LoRA with its own schedule (`video_shift` 6, `audio_shift`
+3, alpha left to the file), as `workflows/templates/minimax/video-with-audio-768p.json` does. It
+carries no `width` or `height`: the canvas is the `latents`. Naming them is allowed, and must
+equal the canvas, which is the latent height x width x 16.
+
+Validation and the run refuse, naming `refine_tiles`:
+
+- `refine_tiles` without `refine_strength`, or without what refine needs: `latents`,
+  `hold_audio`, an H3 step and `num_inference_steps` of at least 2;
+- a `width`, `height` or `overlap` that is not an integer multiple of 32;
+- a tile larger than 1344x768 (or 768x1344), or larger than the canvas;
+- an `overlap` below 192, or at or above half the tile's shorter side;
+- a reference image or video, a `<Picture N>`, a keyframe or `guides` on the step;
+- an explicit `width` or `height` that does not match the `latents` canvas.
 
 ### Chained Video Generation
 

@@ -2,6 +2,15 @@
     "id": "LTX2Deblur",
     "description": "Restores sharpness to out-of-focus footage by regenerating it in focus, with the blurry clip attached as an in-context reference for the whole denoise - so the subject, the framing and the background geometry are the ones that were shot and only the focus changes. A different trade from re-rendering: 'two-stage' invents a sharper version of a scene it generated, this one reads a scene it did not. The LoRA is a 0.9 preview weight trained on spatial defocus only - motion blur, noise, compression artefacts and low resolution are not what it inverts, and 'restore-decompression' is the sibling for the third of those. Trained at 960x544, 121 frames, 24 fps, which is what the defaults are; generating far above that bucket weakens the effect, so raise the size only with a measurement in hand. 'lora_scale' is 1.0 because the weights ship pre-scaled - lower it toward 0.8 if the result over-sharpens into haloing or ringing. The prompt follows the trained dual-panel convention ('Reference shows ... DEBLUR ... only focus and sharpness differ'), because the reference does most of the work and the prompt is what anchors the scene and the intent.",
     "summary": "Sharpens out-of-focus footage by regenerating it in focus, the blurry clip attached as an in-context reference.",
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.4}
+    ],
+    "vram_estimate": {
+        "base_gb": 21.3,
+        "bytes_per_voxel": 16.04,
+        "voxel_variables": ["width", "height", "num_frames"],
+        "reason": "the same LTX-2.5 VAE decode scaling as templates/ltx2/text-to-video, since this template shares its quantized pipeline resident beside the decode; the in-context reference adds to it. Bracketed by real runs on a 24 GB RTX 3090: 1344x768x129 completes, 1632x928x129 ran out of memory in the first denoise step (#1052; 1920x1088x129 also did, in decode, #1050) - the bound sits between 1344x768 and 1632x928 and the ceiling refuses the latter while passing the former"
+    },
     "cost_drivers": [
         "num_frames",
         "width",

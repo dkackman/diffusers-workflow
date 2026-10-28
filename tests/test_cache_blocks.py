@@ -487,11 +487,11 @@ def _run_calibration_steps(model, context, steps):
 
 def test_mag_calibration_ratios_reach_job_events_for_both_cfg_contexts(monkeypatch):
     """#891: diffusers logs the ratios and clears them; both CFG lists must be emitted."""
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     logs, warnings = [], []
-    monkeypatch.setattr(components, "emit_log", logs.append)
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_log", logs.append)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
 
     model = _mag_model(4)
     with components.captured_mag_calibration(_FakePipeline(model)):
@@ -509,10 +509,10 @@ def test_mag_calibration_ratios_reach_job_events_for_both_cfg_contexts(monkeypat
 def test_mag_calibration_silent_without_calibrate(monkeypatch):
     from diffusers import MagCacheConfig
 
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     warnings = []
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
     model = _mag_model(3)
     model.disable_cache()
     model.enable_cache(
@@ -526,11 +526,11 @@ def test_mag_calibration_silent_without_calibrate(monkeypatch):
 
 def test_mag_calibration_counts_the_steps_the_call_runs(monkeypatch):
     """#891: a config left at 28 steps never finishes a 4-step run; the call's count is used."""
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     warnings = []
-    monkeypatch.setattr(components, "emit_log", lambda *a, **k: None)
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
 
     model = _mag_model(28)
     with components.captured_mag_calibration(
@@ -586,11 +586,11 @@ def test_mag_calibration_reports_a_call_that_ends_one_forward_short(monkeypatch)
     """#927: H3's scheduler runs num_inference_steps - 1 forwards, so diffusers
     never reaches its end-of-run log; the ratios left in the state are reported
     before the call's reset drops them."""
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     warnings = []
-    monkeypatch.setattr(components, "emit_log", lambda *a, **k: None)
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
 
     _calibrate_call(components, _mag_model(4), steps_run=3)
 
@@ -603,11 +603,11 @@ def test_mag_calibration_reports_a_call_that_ends_one_forward_short(monkeypatch)
 def test_mag_calibration_a_finished_call_is_reported_once(monkeypatch):
     """#927: diffusers clears the list when it logs, so the end-of-call read
     finds nothing left and does not repeat the lists."""
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     warnings = []
-    monkeypatch.setattr(components, "emit_log", lambda *a, **k: None)
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
 
     _calibrate_call(components, _mag_model(4), steps_run=4)
 
@@ -617,11 +617,11 @@ def test_mag_calibration_a_finished_call_is_reported_once(monkeypatch):
 
 
 def test_mag_calibration_an_errored_call_reports_no_partial_lists(monkeypatch):
-    from dw.pipeline_processors import components
+    from dw.pipeline_processors import components, mag_calibration
 
     warnings = []
-    monkeypatch.setattr(components, "emit_log", lambda *a, **k: None)
-    monkeypatch.setattr(components, "emit_warning", warnings.append)
+    monkeypatch.setattr(mag_calibration, "emit_log", lambda *a, **k: None)
+    monkeypatch.setattr(mag_calibration, "emit_warning", warnings.append)
 
     model = _mag_model(4)
     with pytest.raises(RuntimeError):

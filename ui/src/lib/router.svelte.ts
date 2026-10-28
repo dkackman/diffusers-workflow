@@ -24,9 +24,45 @@ function decode(part: string): string {
   }
 }
 
-function split(): string[] {
+/** The hash's path and its '?query' tail - '#/ws/studio/jobs?status=failed'.
+ * The query is a page's own view state (a list's filters); it is not part
+ * of the route, so changing it is not a navigation. */
+function hashParts(): [string, string] {
   const hash = location.hash.replace(/^#\/?/, '')
-  return hash ? hash.split('/').map(decode) : []
+  const at = hash.indexOf('?')
+  return at < 0 ? [hash, ''] : [hash.slice(0, at), hash.slice(at + 1)]
+}
+
+function split(): string[] {
+  const [path] = hashParts()
+  return path ? path.split('/').map(decode) : []
+}
+
+/** The current hash's query, as key -> value. */
+export function hashQuery(): Record<string, string> {
+  const query: Record<string, string> = {}
+  for (const pair of hashParts()[1].split('&')) {
+    if (!pair) continue
+    const at = pair.indexOf('=')
+    const key = at < 0 ? pair : pair.slice(0, at)
+    query[decode(key)] = at < 0 ? '' : decode(pair.slice(at + 1))
+  }
+  return query
+}
+
+/** Replace the hash's query in place: no history entry and no hashchange,
+ * so typing in a filter neither floods Back nor re-runs the route. Empty
+ * values are dropped, so a cleared filter leaves a clean link. */
+export function setHashQuery(values: Record<string, string>) {
+  const query = Object.entries(values)
+    .filter(([, value]) => value)
+    .map(
+      ([key, value]) =>
+        `${encodeURIComponent(key)}=${encodeURIComponent(value)}`,
+    )
+    .join('&')
+  const hash = '#/' + hashParts()[0] + (query ? '?' + query : '')
+  if (hash !== location.hash) history.replaceState(history.state, '', hash)
 }
 
 function parse(): { parts: string[]; view: RouteView } {

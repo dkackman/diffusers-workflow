@@ -16,6 +16,12 @@
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 1.4}
     ],
+    "vram_estimate": {
+        "base_gb": 11.8,
+        "bytes_per_voxel": 1031,
+        "voxel_variables": ["num_images_per_prompt", "width", "height"],
+        "reason": "peak reserved VRAM on an RTX 3090 with offload: model, bf16, 9 steps (#945): 12.2 GiB at 1x512x512, 12.9 at 1x1024x1024, 13.8 at 4x960x544, 15.8 at 4x1344x768 - batch size multiplies the latent and VAE decode tensors as pixels do. Calibrated WITH offload: model; a workflow that omits it keeps the whole pipeline resident (~22.9 GiB at 4x1344x768 on lem) and runs out of memory well below this projection"
+    },
     "configures": "templates/text-to-image",
     "steps": [
         {

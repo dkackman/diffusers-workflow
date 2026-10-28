@@ -107,6 +107,15 @@ A new task is:
    automatically, so a module it does not import registers nothing;
 3. a section in this file.
 
+A task that loads Hub weights also declares `required_weights(arguments)`,
+named on the decorator as
+`register_command(required_weights="dw.tasks.<module>.required_weights")`. It
+returns `[{"repo": ...}]` for the step's arguments (an empty list when the
+repo is not known yet, e.g. a `previous_result:` `model_name`), and resolves
+each repo with `argument_or_default` from `dw/tasks/weights.py`, the same call
+the loader makes, so the declaration and the load cannot name different
+repos. A validate's `downloads_required` lists those repos; `tests/test_task_weights.py` pins it.
+
 ## Image Processing
 
 ### ControlNet Preprocessors
@@ -138,6 +147,8 @@ Generate control images for ControlNet pipelines:
 | `segmentation` | Semantic segmentation |
 | `depth_estimator` | Depth hint generation |
 | `depth_estimator_tensor` | Depth hint as tensor |
+
+A validate's `downloads_required` lists the repo each detector fetches when it is not cached: `depth` `Intel/dpt-hybrid-midas`; `depth_estimator` and `depth_estimator_tensor` `Intel/dpt-large`; the `controlnet_aux` detectors `lllyasviel/Annotators` (`teed` `fal-ai/teed`, `anyline` `TheMistoAI/MistoLine`, `sam` `ybelkada/segment-anything`); `segmentation` `openmmlab/upernet-convnext-small`. `zoe_depth` and `dw_pose` fetch outside the Hugging Face cache and are not listed.
 
 All accept an `image` argument with processing parameters:
 
@@ -174,6 +185,8 @@ All accept an `image` argument with processing parameters:
 | `strip_exif` | Remove all EXIF/metadata from image | |
 | `add_watermark` | Add visible text watermark | `text`, `position`, `opacity`, `font_size`, `color`, `margin` |
 | `get_image_size` | Return `{width, height}` dict | |
+
+A validate's `downloads_required` lists `briaai/RMBG-2.0` for `remove_background` when it is not cached.
 
 ### EXIF Stripping
 
@@ -1099,6 +1112,8 @@ face-detail pass that needs the face large and still:
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
 
+A validate's `downloads_required` lists the detector file as a file entry when it is not cached, pinned at its revision for the default repo and file.
+
 `modulus`, `remainder` and `multiple` follow `plan_cuts`: the model's grid is
 the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
 32-pixel steps, so a workflow that names none gets the output it always did;
@@ -1251,10 +1266,10 @@ returns frames without it, and this puts it back:
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it (frames that carry none are written at 8 fps) |
+| `video` | Yes | The frames - a frame list, a frame array or tensor, or an audio+video pair whose own soundtrack is replaced; their own rate is carried through to the output, so `result.fps` is only needed to override it. A file brings its rate along, and so does a pipeline step whose pipeline reports one (MiniMax-H3's `videos` carry 24 fps, #1056); frames that carry none are fitted and written at 8 fps unless `fps` says otherwise |
 | `audio` | Yes | The soundtrack - a waveform, the earlier step whose video carried one, or the path or URL of an audio or video file; the last two bring their sample rate along. A mono track is fine: an mp4 audio stream takes stereo and nothing else, so saving duplicates the one channel into two and warns that it did |
 | `sample_rate` | No | Sample rate of the waveform. Required unless `audio` carries one; given here it wins |
-| `fps` | No | The rate the frames play at, only needed when they carry none of their own. Used solely to work out how long the video is - what `fit` and the length-mismatch check measure the track against - and is never written to the file; that's `result.fps`, which sets the rate the output plays at and defaults to 8 fps when the frames carry none |
+| `fps` | No | The rate the frames play at, only needed when they carry none of their own. What `fit` and the length-mismatch check measure the track against, and the rate the paired video then carries to the writer. `result.fps` is not a substitute: the writer applies it after the fit has run, so declaring it alone on rate-less frames writes a 24 fps picture under a track padded to the 8 fps length (`video_fps_defaulted` says so, #1056) |
 | `fit` | No | `"video"` cuts or pads the track with silence to the length of the frames, warning either way (`audio_padded_to_video` / `audio_trimmed_to_video`). Left unset (the default) the track is used as it is, and a length that disagrees with the frames' is warned about rather than corrected (`audio_video_length_mismatch`). Any other value is refused at run time, not by `validate_workflow` |
 
 `fit`'s guarantee is exact for the waveform handed to the encoder, not for
@@ -1315,7 +1330,7 @@ a length still passes the whole track along:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack (which brings its sample rate along) |
-| `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted |
+| `start_seconds` / `duration_seconds` | One pair | The slice in seconds; either may be omitted. `start_seconds` with `num_frames` + `fps` and no duration takes its length from the frames |
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
@@ -2161,6 +2176,18 @@ Every seam between shots, audio and picture:
 | `seams[].frame_delta` | The largest single-frame picture change across the seam |
 | `seams[].typical_delta` | The larger shot's own typical frame-to-frame change, floored |
 | `seams[].jump_ratio` | `frame_delta` divided by `typical_delta` |
+| `seams[].saturation_step` | Mean saturation (per-pixel max(RGB) - min(RGB)) of the 4 frames after the seam minus the 4 before it (before a dissolve's fade), clipped to the shots. Signed: positive means the incoming shot is more saturated |
+| `seams[].lightness_step` | The same for mean Rec. 709 luma. Signed: negative means the incoming shot is darker |
+| `seams[].contrast_step` | The same for the luma standard deviation. Signed |
+| `seams[].look_ratio` | The largest of the three steps' sizes divided by that measure's own local rate: the 90th percentile of its change from one 4-frame mean to the next inside either shot, floored at 1.0. A step inside a shot that is itself changing that way (a sunrise) scores low |
+| `seams[].look_ratio_measure` | Which measure gave `look_ratio`: `saturation`, `lightness` or `contrast` |
+| `seams[].detail_ratio` | Mean high-pass detail (luma against its 3x3 blur) after the seam divided by before it: below 1 means the incoming shot is softer. Null when the before window has almost no detail (below 0.5) |
+
+The six look fields are measures, not rules: none raises a finding, and they
+appear in neither `rules_applied` nor `rules_skipped`. They are on the 0-255
+scale of a 128x72 colour copy of each frame, and the numbers are not
+perceptual - a `look_ratio` of 10 is not a calibrated "visible". They are null
+when the file has no picture.
 
 ### analyze_sync_drift
 
@@ -2233,7 +2260,7 @@ score bed.
         "command": "separate_stems",
         "arguments": { "audio": "asset:song.mp3" }
     },
-    "result": { "content_type": "audio/wav", "file_name": "stems" }
+    "result": { "content_type": "audio/wav", "file_base_name": "stems" }
 },
 {
     "name": "lyrics",
@@ -2250,14 +2277,39 @@ score bed.
 | `audio` | Yes | Path or URL of an audio file (or of a video file, whose soundtrack is taken), a waveform from a previous step, or an earlier step's video generated with a soundtrack |
 | `sample_rate` | With a waveform | Sample rate of a directly passed waveform (files carry their own) |
 
-The result saves one file per stem, `<file_name>-vocals`, `-drums`, `-bass`
+The result saves one file per stem, `<file_base_name>-vocals`, `-drums`, `-bass`
 and `-other`, and a later step reads one as `previous_result:<step>.vocals`.
 Stems are 44.1 kHz stereo, whatever the source was, and sum back to the mix.
 The model is fixed (`htdemucs`, run in fp32), its weights download on first
 use, and it needs the `demucs` package. On MPS a failed separation falls back
 to the CPU and warns (`separation_cpu_fallback`).
 
+**Stacked vocals.** A chorus is often recorded as layered stereo doubles - every
+Music 3 chorus is - and htdemucs returns all of them in the one `vocals` stem.
+When the stem's left and right channels sing different lines over a sung span,
+the step warns `stacked_vocals` and names the spans in m:ss (up to 8, then "and
+N more"):
+
+```
+separate_stems: the vocals stem holds stacked (layered stereo) voices over
+1:19–1:34, 1:59–2:09; treat those spans as more than one voice before
+processing them as one
+```
+
+Read it before working on a span as one voice: pitch or formant work on a
+stacked span distorts it, and an `attribute_voices` window or a lip-sync shot
+over one has two singers in it. Pick a span outside the flagged ones, or plan
+the shot as a two-shot. The stems themselves are unchanged. The check is a 1 s
+window test on the stereo stem: the window must be sung (half its frames voiced,
+and within 14 dB of the stem's level), with an L/R correlation under 0.45 and a
+side/mid energy ratio over 0.4. Windows merge across a one-window gap, and
+spans under 2 s are dropped. A mono source, an instrumental and a single doubled
+word never flag it. The thresholds are the `STACK_*` constants in
+`dw/tasks/voice_attribution.py`.
+
 ## Voice attribution
+
+A validate's `downloads_required` lists `speechbrain/spkrec-ecapa-voxceleb` only. The demucs separator (and `separate_stems`) downloads outside the Hugging Face cache and is not listed.
 
 Which reference voice sings each line of a song, by timbre - staging
 lip-sync shots for a generated song needs its section-to-singer map, and a
@@ -2506,8 +2558,8 @@ Pass through arguments directly. Useful for organizing data flow.
 
 ## Videos in image tasks
 
-Every image command - the upscalers, face restoration, segmentation and the
-image processors - takes a video where it takes an image: an `AudioVideo` from
+Every image command - the upscalers, face restoration, segmentation, object
+removal and the image processors - takes a video where it takes an image: an `AudioVideo` from
 a generation, `concat_videos` or `dissolve_videos` step, or a frame array from
 `video_frames`. The command runs over the frames one at a time and returns one
 video artifact, its soundtrack carried through untouched, so a generated clip
@@ -2559,6 +2611,8 @@ Upscale images using spandrel-compatible super-resolution models (ESRGAN, SwinIR
 | `tile_size` | No | Tile size for large images (default: 512) |
 | `tile_overlap` | No | Overlap between tiles in pixels (default: 32) |
 
+A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached, or the whole repo when no `filename` is given (such a repo must hold exactly one weight file); a `previous_result:` or local-path model gives none.
+
 Large images are automatically tiled to avoid GPU memory issues. Models can be loaded from HuggingFace Hub repos or local `.pth`/`.safetensors` files.
 
 **Examples:**
@@ -2572,6 +2626,8 @@ Upscale images using Stable Diffusion upscale pipelines. Text-guided upscaling w
 Two modes are available:
 - **x4** (default): `StableDiffusionUpscalePipeline` — 4x upscale via `stabilityai/stable-diffusion-x4-upscaler`
 - **x2**: `StableDiffusionLatentUpscalePipeline` — 2x upscale via `stabilityai/sd-x2-latent-upscaler`
+
+A validate's `downloads_required` lists the repo for the `mode` given; `model_name` overrides it.
 
 ```json
 {
@@ -2632,6 +2688,8 @@ Restore and enhance faces in images using spandrel-compatible face restoration m
 | `eye_dist_threshold` | No | Skip faces with eye distance below this (default: 5) |
 | `upsample_img` | No | Pre-upscaled background image (e.g., from a prior upscale step) |
 
+A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached (the whole repo when no `filename` is given), and facexlib's two weights as URL entries while they are missing from facexlib's weights directory: `detection_Resnet50_Final.pth` always and `parsing_parsenet.pth` unless `use_parse` is false. Those still download outside the Hugging Face cache.
+
 Models are loaded via spandrel, so any `.pth`/`.safetensors` face restoration weights work. CodeFormer requires `pip install spandrel-extra-arches` (non-commercial license). The detector and parser are loaded once per settings/device and reused across frames; `release_models` drops them with the restorer.
 
 **Example:** [restore-faces.json](../workflows/templates/restore-faces.json) — Generate a portrait, then restore faces with GFPGAN v1.4.
@@ -2684,6 +2742,8 @@ This gives the best results: the super-resolution model handles background detai
 
 Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns a binary mask image suitable for inpainting workflows.
 
+A validate's `downloads_required` lists `IDEA-Research/grounding-dino-base` and `facebook/sam2-hiera-large`; `model_name` and `sam_model_name` override them.
+
 ```json
 {
     "task": {
@@ -2706,18 +2766,66 @@ Detect and segment objects using text prompts via GroundingDINO + SAM2. Returns 
 | `threshold` | No | Detection confidence threshold (default: 0.3) |
 | `invert` | No | Invert the output mask (default: false) |
 
-Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. Use with inpainting pipelines like FluxFillPipeline.
+Returns a grayscale PIL Image (mode "L") — white (255) for detected objects, black (0) for background. SAM2 proposes three masks for each detected box, and segment keeps the one SAM2 rates best. That is usually the whole object: on the docs cup photo the first proposal was the body alone, without the lid and with a hole at the logo. To erase what it found, pass the mask to [`remove_object`](#object-removal), which chains with no `invert`. To paint something new in its place, pass it to a prompted inpainter such as FluxFillPipeline.
 
 **Examples:**
 
 - [segment.json](../workflows/templates/segment.json) — Segment an object from an image
-- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then inpaint the masked region
+- [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Segment, then erase the object with `remove_object` (no prompt)
+- [segment-and-inpaint.json](../workflows/templates/segment-and-inpaint.json) — Segment, then repaint the masked region with a prompt
+
+## Object Removal
+
+Erase what a mask covers and fill the hole from the surrounding texture, with no prompt (#956). `remove_object` runs [LaMa](https://github.com/advimman/lama) (big-lama) through spandrel: no diffusion, so a warm run takes well under a second on a GPU, and it runs on CUDA, MPS and CPU.
+
+```json
+{
+    "task": {
+        "command": "remove_object",
+        "arguments": {
+            "image": "asset:photo.png",
+            "mask_image": "previous_result:mask",
+            "dilate": 8
+        }
+    },
+    "result": { "content_type": "image/png" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `image` | Yes | PIL Image or reference - a video runs frame by frame, see [Videos in image tasks](#videos-in-image-tasks) |
+| `mask_image` | Yes | White where to erase, black where to keep |
+| `dilate` | No | Pixels to grow the mask by before the fill, a whole number 0 or above (default: 8) |
+| `model_name` | No | Hugging Face repo id of the weights, never a local path (default: `michaelgold/big-lama`, at a pinned revision) |
+| `weight_name` | No | The `.safetensors` file in that repo (default: `big-lama.safetensors`) |
+
+**The mask.** White means fill, the polarity [`segment`](#object-segmentation) returns, so `segment` → `remove_object` chains with no `invert`. The mask is converted to grayscale and binarized at 128 (at or above is fill). A mask of a different size from the image is resized to it (nearest). An all-black mask, as `segment` returns when it finds nothing, gives the image back unchanged with a warning in the job's events, and loads no model.
+
+**`dilate`.** LaMa fills cleanly only when the mask overshoots the object's edge, and a `segment` mask is tight to it. The default 8 px suits a segmented object. Raise it (16 to 24) for a soft edge, a shadow or a glow around the object. Use 0 only for a hand-drawn mask that already has a margin.
+
+**The output** is the input's size. Only the region inside the dilated mask comes from the model: every pixel outside it is the input's own, unchanged.
+
+**Video.** Frames (e.g. from `video_frames`) are cleaned one at a time with the same still mask, and come back at the same count and fps, with the audio kept. There is no temporal model, so a fill can flicker from frame to frame, and the mask cannot follow a moving object.
+
+**Limits.** LaMa suits small to medium objects: a cup, a sign, a watermark, a passer-by in the distance. A large region, such as a person filling a third of the frame, comes back smeared. For that, a prompted inpainter whose prompt names the background is the remaining route, and it may paint a patch that does not match (#946).
+
+**Weights.** `michaelgold/big-lama`, file `big-lama.safetensors` (about 200 MB), read at revision `98ab7cface89a594b381f32fc7a9f2cae3f91ccc`. `biali/big-lama` holds a byte-identical copy and is the fallback if that repo disappears; it is not tried automatically. LaMa is by advimman (Suvorov et al., *Resolution-robust Large Mask Inpainting with Fourier Convolutions*) and is licensed **Apache-2.0**. The Hub repo's card says MIT, but the upstream licence is the one that applies. The task reads safetensors only: `validate_workflow` refuses a `weight_name` that is not `.safetensors` (the common `big-lama.pt` is a TorchScript file) and a `model_name` that is a local path, and the loader refuses both again at run time. Weights that do not load as an inpainting model are refused too. The network runs in fp32 on every device.
+
+**First run.** The weights download on the first run, about 200 MB. A validate's `downloads_required` lists `michaelgold/big-lama` / `big-lama.safetensors` as a file entry (pinned at that revision for the default pair only; another `model_name` or `weight_name` is read at `main`) while it is not cached, so the download is quoted beforehand.
+
+**Examples:**
+
+- [remove-object.json](../workflows/templates/remove-object.json) — Erase what a supplied mask covers
+- [segment-and-remove.json](../workflows/templates/segment-and-remove.json) — Find an object by name, then erase it
 
 ## Image Captioning
 
 Generate text captions from images using a vision-language model.
 
 Transformers 5 removed the dedicated `image-to-text` pipeline this task used to build, along with the BLIP/ViT-GPT2/GIT captioning models that ran on it. Captioning now goes through the same `image-text-to-text` pipeline as any other VLM, so `model_name` needs a vision-language model (SmolVLM, Qwen2.5-VL, LLaVA, etc.) and `prompt` is a question put to the model rather than a text fragment to continue.
+
+A validate's `downloads_required` lists `HuggingFaceTB/SmolVLM-256M-Instruct` for `image_to_text` and `judge`; `model_name` overrides it.
 
 ```json
 {
@@ -2828,6 +2936,8 @@ The built-in `h3_context_ir` workflow applies this to its own output, so a workf
 
 Generate or expand text using a local language model. Useful for expanding short prompts into detailed image generation prompts, rewriting text, or other text-to-text tasks.
 
+A validate's `downloads_required` lists `Qwen/Qwen2.5-1.5B-Instruct`, or `HuggingFaceTB/SmolVLM-256M-Instruct` when an `image` is given; `model_name` overrides it. A `system_prompt.from_hub` file is not listed.
+
 ```json
 {
     "task": {
@@ -2912,7 +3022,15 @@ It is merged after everything else, so it can override `repetition_penalty` and 
 
 ## Speech Generation
 
-Speak a line of text with a local text-to-speech model. The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
+Speak a line of text with a local text-to-speech model. A validate's `downloads_required` lists `suno/bark-small` (`model_name` overrides it), plus `speechbrain/spkrec-xvect-voxceleb` when `speaker_embedding` is given. Any transformers text-to-speech checkpoint can be named as `model_name`; three families are wired for their voice controls:
+
+| Family | Checkpoint | Voice |
+|--------|-----------|-------|
+| Bark | `suno/bark-small` (the command's default) | Distinct speakers by `voice_preset` |
+| MMS / VITS | `facebook/mms-tts-eng`, and `mms-tts-<code>` per language (the template's default) | One voice, a quarter Bark's size; a multi-speaker VITS takes `speaker_id` in `forward_params` |
+| SpeechT5 | `microsoft/speecht5_tts` | The voice of a reference clip, given as `speaker_embedding` |
+
+The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
 
 ```json
 {
@@ -2967,6 +3085,8 @@ A speech model is worth releasing before a video model loads — set `release_mo
 
 ## Speech Transcription
 
+A validate's `downloads_required` lists `openai/whisper-base`; `model_name` overrides it. `check_script` uses the same model.
+
 Transcribe spoken audio to text with a local Whisper-class model. The word-correctness of a TTS deliverable — a dropped line, a mid-sentence truncation — can only be inferred from duration and timing arithmetic without this; `transcribe_audio` checks it directly against the text the deliverable was supposed to speak.
 
 ```json
@@ -2999,6 +3119,8 @@ To compare a take against the lines it was meant to speak, use [`check_script`](
 **Example:** [transcribe-audio.json](../workflows/templates/transcribe-audio.json) — Transcribe an audio file to text.
 
 ## Script check
+
+A validate's `downloads_required` lists `openai/whisper-base` for its transcription; `model_name` overrides it.
 
 Whether a dialogue take speaks its script. Confirming it used to mean transcribing the take and comparing the transcript to the script by eye, which missed a word Whisper dropped, an H3 tag read aloud, and a last word cut off by the end of the file. `check_script` does the comparison and reports where to look.
 
@@ -3035,27 +3157,29 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 | ---- | ---------- | --------------------- | ---- |
 | `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
 | `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
-| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one |
+| `transcript_loop` | A repetition loop (`REPEAT_RUN_MIN` periods of up to `REPEAT_MAX_PERIOD` words) made only of words the script holds - Whisper stuck on a line it heard, so speech after it can be missing from `heard` and lines read 0.0 without being wrong (#961). The loop's first occurrence is kept as heard when it has real duration and speech level; the rest is under `discarded`, one entry per loop (`count`, `start`..`end`). A line heard nowhere, at or after the loop, reads `heard: null`, `similarity: null`, `not_transcribed: "transcript_loop"` and raises no `line_mismatch`. When the shots are known the cut is then transcribed again one shot at a time and the findings and `lines` come from that pass (`transcription_pass: "per_shot"`, each line `pass: "per_shot"`, #963) | Chunks in the loop / `REPEAT_RUN_MIN` | `{line: null, seconds, end}` |
+| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word - #953) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one |
 | `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
 | `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names. A word is in the shot its midpoint falls in; one a line in another shot matched (a word straddling the cut) is that line's, not counted | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first counted word, `seconds` no earlier than the shot's start |
 | `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
-| `speech_not_transcribed` | Between two words of one matched line there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
+| `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (#960; the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
 
-Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent).
+Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). A take checked alone, with no shot map (an `asset:` file with no manifest beside it), therefore never raises `unscripted_speech`, however many words are `unmatched`: read `unmatched` there, or pass `shots`. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.
 
-The thresholds are module constants in `dw/tasks/script_check.py`, deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
+The thresholds are module constants in `dw/tasks/script_check.py` (the guard's `GUARD_FLOOR_DBFS` and `GUARD_WINDOW_SECONDS` in its sibling `dw/tasks/script_take.py`, beside `guard_words`), deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
 
 | Constant | Value | What crossing it does |
 | -------- | ----- | --------------------- |
 | `DEFAULT_SIMILARITY` | 0.85 | A line below this similarity is a `line_mismatch` (the `similarity` argument overrides it) |
 | `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
-| `UNHEARD_MIN_SECONDS` / `UNHEARD_MARGIN_SECONDS` / `UNHEARD_FLOOR_DBFS` | 1.0 s / 0.25 s / -40 dBFS | A gap in a line's words (or a stretched word) this long, with a window above the floor in its margin-trimmed interior, is a `speech_not_transcribed` |
+| `UNHEARD_MIN_SECONDS` / `UNHEARD_MARGIN_SECONDS` / `UNHEARD_FLOOR_DBFS` | 1.0 s / 0.25 s / -40 dBFS | A gap in a line's words or between two lines (or a stretched word) this long, with a window above the floor in its margin-trimmed interior, is a `speech_not_transcribed` |
 | `GUARD_WINDOW_SECONDS` | 0.05 s (= `DEAD_AIR_WINDOW`, `shot_dead_air`'s window) | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
 | `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
+| `CLIP_TAIL_BELOW_WORD_DB` | 15 dB | A tail more than this far under the last word's loudest window is not the word still sounding (a bed under a finished line), so not `line_clipped_at_end` |
 | `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
 | `REPEAT_MAX_PERIOD` | 4 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
 
-The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor` or `repetition`), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor`, `repeated_span` (a chunk repeating the previous one's exact span) or `repetition`, `count` - a repetition loop is one entry spanning its chunks), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
 
 How the alignment reads a take:
 
@@ -3093,7 +3217,7 @@ Increase video frame rate using RIFE (Real-Time Intermediate Flow Estimation). T
 | `model_name` | No | HuggingFace repo with RIFE v4.13 weights (default: `imaginairy/rife-interpolation`) |
 | `filename` | No | Weights filename within the repo (default: `rife-flownet-4.13.2.safetensors`) |
 
-Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use.
+Uses vendored IFNet v4.13 architecture. Weights are downloaded from HuggingFace Hub on first use. A validate's `downloads_required` lists the `model_name` / `filename` file when it is not cached.
 
 **Example:** [interpolate-frames.json](../workflows/templates/interpolate-frames.json) — Generate video with Mochi, then 2x interpolate from 30fps to 60fps.
 

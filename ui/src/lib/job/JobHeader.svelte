@@ -6,7 +6,7 @@
   import { wsHref } from '../routes'
   import { workspace } from '../workspace.svelte'
   import CopyButton from '../CopyButton.svelte'
-  import { formatDuration } from '../format'
+  import { formatDuration, formatExact, formatMtime } from '../format'
   import { notify } from '../toast'
   import type { JobDetail } from '../types'
 
@@ -151,6 +151,14 @@
         class="muted seed"
         title={`version ${runVersion} of this workflow${job.run_id ? ` - run ${job.run_id}` : ''}`}
         >v{runVersion}</code
+      >
+    {/if}
+    {#if job.started_at}
+      <code
+        class="muted seed"
+        title={`started ${formatExact(job.started_at)}${
+          job.finished_at ? `\nfinished ${formatExact(job.finished_at)}` : ''
+        }`}>{formatMtime(job.started_at)}</code
       >
     {/if}
     {#if took !== null}

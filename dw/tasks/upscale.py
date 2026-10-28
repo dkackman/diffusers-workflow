@@ -12,11 +12,29 @@ import torch
 
 from .model_cache import cached_model
 from .tensor_image import pil_to_float_tensor, float_tensor_to_pil
+from .weights import file_entries, repo_entries
 
 logger = logging.getLogger("dw")
 
 # Maximum tile size before we switch to tiled processing
 _MAX_PIXELS_NO_TILE = 512 * 512
+
+
+def spandrel_source(arguments):
+    """The (model_name, filename) an upscale or restore_faces step loads -
+    filename None reads the repo's one weight file (`resolve_model_path`)."""
+    arguments = arguments or {}
+    return arguments.get("model_name"), arguments.get("filename")
+
+
+def required_weights(arguments):
+    """The weight file, or with no `filename` the repo whole - the task needs
+    such a repo to hold exactly one weight file, so the repo's size is the
+    file's - for the plan (dw/tasks/weights.py)."""
+    model_name, filename = spandrel_source(arguments)
+    if filename is None:
+        return repo_entries(model_name)
+    return file_entries(model_name, filename)
 
 
 def upscale_image(image, model_name, device="cpu", **kwargs):
@@ -42,7 +60,7 @@ def upscale_image(image, model_name, device="cpu", **kwargs):
             "spandrel is required for upscaling. Install with: pip install spandrel"
         )
 
-    filename = kwargs.get("filename", None)
+    model_name, filename = spandrel_source({**kwargs, "model_name": model_name})
     tile_size = kwargs.get("tile_size", 512)
     tile_overlap = kwargs.get("tile_overlap", 32)
 
