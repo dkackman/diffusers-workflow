@@ -245,3 +245,4 @@ frame interpolation and more.
 - [Testing](docs/TESTING.md) — Running the test suite
 - [Releasing](docs/RELEASING.md) — Cutting a release from a version tag
 - [Agent Loop](docs/AGENT_LOOP.md) — What the automated implementer/tester ticket labels mean, for anyone joining an Issue
+- [Attributions](docs/ATTRIBUTIONS.md) — Code included from other projects, and the projects whose ideas dw reimplemented
