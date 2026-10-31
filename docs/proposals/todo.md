@@ -367,6 +367,14 @@ remaining deferred fix is recorded in
   copy during the one decode. Measures only, no rules. Record, including
   what was deferred (rules until #1033 measures real chains, take drift,
   apparent age): `complete/seam-look-measures-complete.md`.
+- **H3 AISkills claims: style-skills pointer and three probes** (#1059,
+  stages #1070-#1072), shipped 2026-10-30. `minimax-h3/references/style.md`
+  points a style-heavy request at MiniMax's eight style packs, by name. On
+  lem, P2 (timbre reference replays source words), P3 (style image pulls in
+  its person) and P5 (screen side holds handedness) were all refuted
+  (`audits/2026-10-h3-aiskills-probes.md`) and listed as probed-and-not-a-rule.
+  Record, including what was deferred (P1 anime cadence, P4 POV) and dropped
+  (P6, P7): `complete/h3-aiskills-probes-complete.md`.
 
 ## Declined
 
