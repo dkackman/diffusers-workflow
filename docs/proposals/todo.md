@@ -393,6 +393,14 @@ remaining deferred fix is recorded in
   branch. Record, including what was deferred (audio intervals, masked
   tiles, chains, upstream `denoise_mask`):
   `complete/h3-regional-edit-complete.md`.
+- **H3 Open-Regenerate-2K refiner** (#1065, stages #1081-#1082), shipped
+  2026-10-31. A `trial` catalog entry for Kijai's rank-384 extraction of
+  NVlabs' regenerate refiner: it loads and fits a full-frame 1920x1088
+  refine on 24 GB, and is far sharper, but at strength 0.909 it redraws
+  identity (18.6 dB vs #1049 (d)'s 26.4). Adds `refine_sigmas`, an explicit
+  H3 refine schedule; the recipe's exact points measured the same as the
+  shift-2 grid. Don's lower-strength arms (0.6, 0.7) are still owed.
+  Record: `complete/h3-open-regenerate-2k-complete.md`.
 
 ## Declined
 
