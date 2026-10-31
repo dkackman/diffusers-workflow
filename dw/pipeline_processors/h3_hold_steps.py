@@ -67,12 +67,15 @@ def refine_sigmas(strength, num_points, shift):
     full grid, which `set_timesteps(sigmas=...)` does not apply itself.
 
     Raises:
-        ValueError: If `strength` is not in (0, 1) or `num_points` is below 2
+        ValueError: If `strength` is not in (0, 1] or `num_points` is below 2.
+            At 1 the schedule is the stock full grid - a regional edit that
+            regenerates its region from noise; which callers may pass 1 is
+            `h3_rules.refine_problems`'s rule
     """
     if isinstance(strength, bool) or not isinstance(strength, (int, float)):
         raise ValueError(f"refine_strength must be a number, got {strength!r}")
-    if not 0 < strength < 1:
-        raise ValueError(f"refine_strength must be in (0, 1), got {strength}")
+    if not 0 < strength <= 1:
+        raise ValueError(f"refine_strength must be in (0, 1], got {strength}")
     if num_points is None or num_points < 2:
         raise ValueError(
             f"refine_strength needs num_inference_steps of 2 or more, got {num_points}"
@@ -306,7 +309,8 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                 default=None,
                 description=(
                     "The sigma in (0, 1) to re-denoise a passed `latents` from - an upscaled take refined at "
-                    "about 0.2. Runs num_inference_steps - 1 evaluations."
+                    "about 0.2 - or in (0, 1] for a `source_video` regional edit, where 1.0 regenerates the "
+                    "masked region from noise. Runs num_inference_steps - 1 evaluations."
                 ),
             ),
             InputParam(

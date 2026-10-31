@@ -726,7 +726,210 @@ class TestStaticEdit:
         from dw import validation
 
         source = open(validation.__file__).read()
-        assert 'Check("regional_edit"' in source
+        assert '"regional_edit",' in source
+        assert (
+            "mask_errors(c.expanded, c.source_indices, c.base_dir, probe=c.probe)"
+            in (source)
+        )
+
+
+# 5c. Validation reads the files: size, frame count and an empty mask (#1077)
+
+
+def write_video(path, frames=9, size=(64, 48), value=0, sample_rate=None):
+    """A real h264 mp4 of `frames` flat frames at `value`, `size` (w, h), with a
+    soundtrack when `sample_rate` is given."""
+    import av
+
+    container = av.open(str(path), "w")
+    video = container.add_stream("libx264", rate=8)
+    video.width, video.height, video.pix_fmt = size[0], size[1], "yuv420p"
+    audio = container.add_stream("aac", rate=sample_rate) if sample_rate else None
+    pixels = np.full((size[1], size[0], 3), value, dtype=np.uint8)
+    for _ in range(frames):
+        frame = av.VideoFrame.from_ndarray(pixels, format="rgb24")
+        container.mux(video.encode(frame))
+    container.mux(video.encode())
+    if audio is not None:
+        samples = np.zeros((1, sample_rate * frames // 8), dtype=np.float32)
+        frame = av.AudioFrame.from_ndarray(samples, format="flt", layout="mono")
+        frame.sample_rate = sample_rate
+        container.mux(audio.encode(frame))
+        container.mux(audio.encode())
+    container.close()
+    return path.name
+
+
+def write_mask(path, size=(64, 48), value=255):
+    from PIL import Image
+
+    Image.new("L", size, value).save(path)
+    return path.name
+
+
+def probed_errors(tmp_path, **arguments):
+    from dw.media import probe_metadata
+
+    arguments.setdefault("refine_strength", 0.9)
+    return mask_errors(
+        {"steps": [h3_step(**arguments)]}, None, str(tmp_path), probe=probe_metadata
+    )
+
+
+class TestStaticMedia:
+    def test_a_fitting_edit_is_clean(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png")
+        assert probed_errors(tmp_path, source_video=source, mask_image=mask) == []
+
+    def test_the_canvas_defaults_to_the_source(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        assert probed_errors(tmp_path, source_video=source) == []
+
+    def test_a_source_off_the_canvas_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        errors = probed_errors(tmp_path, source_video=source, width=128, height=48)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("source_video")
+        assert "64x48" in errors[0]["message"] and "128x48" in errors[0]["message"]
+
+    def test_a_source_frame_mismatch_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4", frames=9)
+        errors = probed_errors(tmp_path, source_video=source, num_frames=17)
+        assert len(errors) == 1
+        assert "num_frames=17" in errors[0]["message"]
+
+    def test_a_mask_image_of_another_size_is_refused_at_its_path(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png", size=(32, 32))
+        errors = probed_errors(tmp_path, source_video=source, mask_image=mask)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("mask_image")
+        assert "32x32" in errors[0]["message"]
+
+    def test_an_all_black_mask_image_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png", value=0)
+        errors = probed_errors(tmp_path, source_video=source, mask_image=mask)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("mask_image")
+        assert "all black" in errors[0]["message"]
+
+    def test_an_all_black_mask_video_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_video(tmp_path / "m.mp4", value=0)
+        errors = probed_errors(tmp_path, source_video=source, mask_video=mask)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("mask_video")
+        assert "all black" in errors[0]["message"]
+
+    def test_a_white_mask_video_that_fits_is_clean(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_video(tmp_path / "m.mp4", value=255)
+        assert probed_errors(tmp_path, source_video=source, mask_video=mask) == []
+
+    def test_a_mask_video_frame_mismatch_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4", frames=9)
+        mask = write_video(tmp_path / "m.mp4", frames=5, value=255)
+        errors = probed_errors(tmp_path, source_video=source, mask_video=mask)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("mask_video")
+        assert "5 frames" in errors[0]["message"]
+
+    def test_a_mask_video_that_is_an_image_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png")
+        errors = probed_errors(tmp_path, source_video=source, mask_video=mask)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("mask_video")
+        assert "1 frames" in errors[0]["message"]
+
+    def test_without_a_probe_only_the_rules_are_checked(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png", value=0)
+        step = h3_step(source_video=source, mask_image=mask, refine_strength=0.9)
+        assert mask_errors({"steps": [step]}, None, str(tmp_path)) == []
+
+    def test_a_previous_result_is_left_to_the_call(self, tmp_path):
+        errors = probed_errors(
+            tmp_path,
+            source_video="previous_result:base.video",
+            mask_video="previous_result:mask",
+        )
+        assert errors == []
+
+    def test_the_size_refusal_surfaces_through_the_workflow(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4")
+        mask = write_mask(tmp_path / "m.png", value=0)
+        definition = h3_definition(
+            source_video=source,
+            mask_image=mask,
+            refine_strength=0.9,
+            hold_audio=source,
+            width=64,
+            height=48,
+            num_frames=9,
+        )
+        workflow = workflow_from_definition(
+            definition, str(tmp_path), base_dir=str(tmp_path)
+        )
+        errors = [
+            e
+            for e in workflow.validation_errors()
+            if any(n in e["path"] for n in ("source_video", "mask_"))
+        ]
+        assert any("all black" in e["message"] for e in errors), errors
+
+
+class TestStrengthOne:
+    def test_one_is_accepted_with_a_source_video(self):
+        arguments = {
+            "refine_strength": 1.0,
+            "source_video": "asset:clip.mp4",
+            "hold_audio": "asset:clip.mp4",
+            "num_inference_steps": 5,
+        }
+        assert refine_problems(arguments) == []
+
+    def test_one_is_refused_without_a_source_video(self):
+        arguments = {
+            "refine_strength": 1.0,
+            "latents": "previous_result:up",
+            "hold_audio": "previous_result:base.audio",
+            "num_inference_steps": 5,
+        }
+        problems = refine_problems(arguments)
+        assert len(problems) == 1 and "source_video" in problems[0]
+
+    def test_above_one_is_refused_with_a_source_video(self):
+        arguments = {
+            "refine_strength": 1.5,
+            "source_video": "asset:clip.mp4",
+            "hold_audio": "asset:clip.mp4",
+        }
+        problems = refine_problems(arguments)
+        assert len(problems) == 1 and "(0, 1]" in problems[0]
+
+    def test_the_schedule_at_one_is_the_stock_grid(self):
+        from dw.pipeline_processors.h3_hold_steps import (
+            refine_sigmas,
+            shifted_sigma_grid,
+        )
+
+        sigmas = refine_sigmas(1.0, 5, 12)
+        stock = shifted_sigma_grid(5, 12.0).float()
+        stock[-1] = 0.0
+        assert sigmas[0] == 1.0
+        assert np.allclose(sigmas.numpy(), stock.numpy())
+
+    def test_a_validated_step_at_one_is_clean(self):
+        step = h3_step(
+            **args(refine_strength=1.0, hold_audio="asset:clip.mp4"),
+            num_inference_steps=5,
+        )
+        from dw.hold_audio import refine_strength_errors
+
+        assert refine_strength_errors({"steps": [step]}) == []
 
 
 # The call: Pipeline._with_mask

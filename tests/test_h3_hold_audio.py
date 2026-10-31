@@ -427,11 +427,44 @@ class TestRefusals:
     def test_the_h3_workflows_are_accepted(self, workflow):
         assert errors_for(h3_step(workflow, hold_audio="asset:track.wav")) == []
 
-    @pytest.mark.parametrize("value", ["asset:frame.png", "clip.mp4", "x.png"])
+    @pytest.mark.parametrize("value", ["asset:frame.png", "clip.gif", "x.png"])
     def test_a_non_audio_path_is_refused(self, value):
         errors = errors_for(h3_step(hold_audio=value))
         assert len(errors) == 1
         assert "not an audio file" in errors[0]["message"]
+
+    @pytest.mark.parametrize(
+        "value", ["asset:clip.mp4", "output:a/latest/final/take.mov", "clip.mkv"]
+    )
+    def test_a_video_is_held_by_its_soundtrack(self, value):
+        assert errors_for(h3_step(hold_audio=value)) == []
+
+    def test_a_silent_video_is_refused_when_it_resolves(self, tmp_path):
+        from tests.test_h3_mask import write_video
+
+        from dw.media import probe_metadata
+
+        name = write_video(tmp_path / "silent.mp4")
+        step = h3_step(hold_audio=name)
+        errors = hold_audio_errors(
+            {"steps": [step]}, None, str(tmp_path), probe=probe_metadata
+        )
+        assert len(errors) == 1
+        assert "no audio stream" in errors[0]["message"]
+
+    def test_a_video_with_a_soundtrack_is_clean_when_it_resolves(self, tmp_path):
+        from tests.test_h3_mask import write_video
+
+        from dw.media import probe_metadata
+
+        name = write_video(tmp_path / "take.mp4", sample_rate=16000)
+        step = h3_step(hold_audio=name)
+        assert (
+            hold_audio_errors(
+                {"steps": [step]}, None, str(tmp_path), probe=probe_metadata
+            )
+            == []
+        )
 
     @pytest.mark.parametrize("value", ["hello", "asset:track", "clip"])
     def test_a_name_with_no_audio_extension_is_refused(self, value):
@@ -665,6 +698,28 @@ class TestHoldAudioLocation:
             MiniMaxH3AudioReference, "from_file", classmethod(from_file)
         )
         return opened
+
+    def test_a_video_path_is_opened_for_its_soundtrack(self, tmp_path, opened):
+        (tmp_path / "take.mp4").write_bytes(b"")
+
+        hold_audio_reference("take.mp4", str(tmp_path))
+
+        assert opened == [os.path.realpath(tmp_path / "take.mp4")]
+
+    def test_a_video_with_no_soundtrack_is_refused_at_the_call(self, tmp_path):
+        from tests.test_h3_mask import write_video
+
+        name = write_video(tmp_path / "silent.mp4")
+        with pytest.raises(ValueError, match="soundtrack of 'silent.mp4'"):
+            hold_audio_reference(name, str(tmp_path))
+
+    def test_a_video_soundtrack_is_decoded_for_real(self, tmp_path):
+        from tests.test_h3_mask import write_video
+
+        name = write_video(tmp_path / "take.mp4", sample_rate=16000)
+        reference = hold_audio_reference(name, str(tmp_path))
+        assert reference.sample_rate == 16000
+        assert reference.audio.shape[-1] > 0
 
     def test_a_relative_path_resolves_against_the_workflow_directory(
         self, tmp_path, opened

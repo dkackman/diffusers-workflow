@@ -614,6 +614,14 @@ def decode_rgb_frames(path):
         ]
 
 
+def iter_rgb_frames(path):
+    """The picture frames of `path` as (height, width, 3) uint8 arrays, one at
+    a time, so a caller can stop at the frame it is looking for."""
+    with av.open(path) as container:
+        for frame in container.decode(_threaded(container.streams.video[0])):
+            yield frame.to_ndarray(format="rgb24")
+
+
 def read_thumbnails_and_track(
     path, thumb_width, thumb_height, look=None, look_width=128, look_height=72
 ):
