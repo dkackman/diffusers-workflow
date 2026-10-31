@@ -277,3 +277,28 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
 
         assert not workflow["variables"]["prompt"].startswith("prompt:")
         assert "Replace the default prompt" in workflow["description"]
+
+
+class TestTheAlphaMatteKeepsItsDecodersOffTheCard:
+    """#1079 (plan v6, Q8 (a)): the 145-frame cap ran out of memory on a warm
+    24 GB card. The VAE is only used to encode the reference and decode the
+    matte, and the matte never reads the audio, so all three rest in system
+    memory and visit the card only for their own calls."""
+
+    @pytest.mark.parametrize("component", ["vae", "audio_vae", "vocoder"])
+    def test_it_is_on_demand(self, component):
+        components = conditioned_step("alpha-matte")["pipeline"]["configuration"][
+            "components"
+        ]
+
+        assert components[component] == {"device": "cuda", "residency": "on_demand"}
+
+    def test_it_keeps_deblurs_pipeline_identity(self):
+        """The placement is not part of the (pipeline, model, workflow)
+        identity the VRAM estimate is matched on, so the matte still
+        inherits restore-deblur's estimate."""
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step("alpha-matte")) == (
+            pipeline_identity(conditioned_step("restore-deblur"))
+        )
