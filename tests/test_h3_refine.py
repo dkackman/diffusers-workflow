@@ -808,3 +808,36 @@ class TestTileRuntime:
     def test_a_guide_raises(self, run):
         with pytest.raises(ValueError, match="refine_tiles.*guides"):
             run(guides=[{"video": "a.mp4"}])
+
+
+def full_frame_workflow(up_width=1920, up_height=1088, **sizes):
+    workflow = upscale_workflow(up_width, up_height)
+    arguments = workflow["steps"][2]["pipeline"]["arguments"]
+    del arguments["refine_tiles"]
+    arguments.update(sizes)
+    return workflow
+
+
+class TestFullFrameStatic:
+    def test_an_omitted_size_over_larger_latents_is_refused(self):
+        problems = refine_strength_errors(full_frame_workflow())
+        assert len(problems) == 1
+        assert problems[0]["path"].endswith("refine_strength")
+        assert "1920x1088" in problems[0]["message"]
+        assert "no width" in problems[0]["message"]
+
+    def test_a_disagreeing_height_is_refused(self):
+        problems = refine_strength_errors(full_frame_workflow(width=1920, height=768))
+        assert len(problems) == 1
+        assert "height 768" in problems[0]["message"]
+
+    def test_a_matching_size_is_clean(self):
+        assert (
+            refine_strength_errors(full_frame_workflow(width=1920, height=1088)) == []
+        )
+
+    def test_latents_at_the_layout_default_need_no_size(self):
+        assert refine_strength_errors(full_frame_workflow(1344, 768)) == []
+
+    def test_an_unknown_canvas_is_not_checked(self):
+        assert errors_for(step_with()) == []

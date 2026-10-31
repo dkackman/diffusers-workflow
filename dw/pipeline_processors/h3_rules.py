@@ -93,6 +93,33 @@ def refine_problems(arguments, canvas=None):
         )
     if arguments.get(REFINE_TILES_INPUT) is not None:
         problems.extend(_tile_problems(arguments, canvas))
+    elif canvas is not None:
+        problems.extend(_full_frame_problems(arguments, canvas))
+    return problems
+
+
+def _full_frame_problems(arguments, canvas):
+    """A full-frame refine's own width and height against the `latents` canvas
+    the static check read: an omitted size falls to the layout default
+    (TILE_LIMIT), and any size but the canvas's fails at the denoise."""
+    problems = []
+    for key, size, default in zip(("width", "height"), canvas, TILE_LIMIT):
+        value = arguments.get(key)
+        if value is None:
+            if size != default:
+                problems.append(
+                    f"refine_strength re-denoises the 'latents' canvas, "
+                    f"{canvas[0]}x{canvas[1]}, and this step sets no {key}, so its "
+                    f"layout falls to {TILE_LIMIT[0]}x{TILE_LIMIT[1]} - set width "
+                    f"{canvas[0]} and height {canvas[1]}"
+                )
+                break
+        elif _is_int(value) and value != size:
+            problems.append(
+                f"refine_strength re-denoises the 'latents' canvas, "
+                f"{canvas[0]}x{canvas[1]}, and the step's {key} {value} disagrees "
+                f"- set it to {size}"
+            )
     return problems
 
 
