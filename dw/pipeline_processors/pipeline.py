@@ -46,8 +46,8 @@ from .h3_rules import (
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
     REGENERATE_MASK,
-    REGIONAL_EDIT_INPUTS,
     SOURCE_VIDEO_INPUT,
+    edits_region,
     mask_problems,
     media_problems,
     refine_problems,
@@ -806,10 +806,12 @@ class Pipeline:
                 arguments break `mask_problems`, the mask is all black, or the
                 source or mask does not fit the canvas
         """
-        if all(arguments.get(name) is None for name in REGIONAL_EDIT_INPUTS):
+        takes = edits_regions(self.pipeline)
+        # An inpaint pipeline's own mask_image is no regional edit
+        if not edits_region(arguments, takes):
             return arguments
         where = f"Step '{self.name}'"
-        if not edits_regions(self.pipeline):
+        if not takes:
             raise ValueError(
                 f"{where}: {SOURCE_VIDEO_INPUT} is a MiniMax-H3 argument (t2va, "
                 f"fl2va or ref2va), and {type(self.pipeline).__name__} cannot "

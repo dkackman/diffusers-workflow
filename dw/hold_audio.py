@@ -25,6 +25,10 @@ or no `hold_audio` to keep its soundtrack, and when `num_inference_steps` is
 below 2 - the refine schedule is that many points, so one point is no step.
 Those per-argument rules are `h3_rules.refine_problems`, which the run-time
 check calls too; only the H3 test is here.
+
+A regional edit - `source_video` with a `mask_video` or `mask_image` - rides on
+them as well (dw/pipeline_processors/h3_mask.py): its rules are
+`h3_rules.mask_problems`, called here and at the call alike.
 """
 
 from . import references
@@ -34,6 +38,10 @@ from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
+    REGIONAL_EDIT_INPUTS,
+    edits_region,
+    is_h3_step,
+    mask_problems,
     not_h3,
     refine_problems,
 )
@@ -159,4 +167,30 @@ def refine_strength_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["hold_audio_errors", "refine_strength_errors"]
+def mask_errors(workflow_definition, source_indices=None):
+    """Every regional-edit argument (`source_video`, `mask_video`,
+    `mask_image`, `mask_grow`) refused before the run, as [{path, message}] -
+    each at the path of the first of them the step passes. A step not known
+    to be H3 is a regional edit only with `source_video`: an inpaint
+    pipeline's `mask_image` is its own."""
+    errors = []
+    steps = workflow_definition.get("steps")
+    for _, _, pipeline, source, where in references.iter_steps(
+        steps, source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict) or not edits_region(
+            arguments, is_h3_step(pipeline)
+        ):
+            continue
+        given = [n for n in REGIONAL_EDIT_INPUTS if arguments.get(n) is not None]
+        path = render_path(("steps", source, "pipeline", "arguments", given[0]))
+        problems = [not_h3(pipeline, given[0])]
+        problems += mask_problems(arguments, chained=pipeline.get("chain") is not None)
+        for problem in problems:
+            if problem is not None:
+                errors.append({"path": path, "message": f"{problem}{where}"})
+    return errors
+
+
+__all__ = ["hold_audio_errors", "mask_errors", "refine_strength_errors"]

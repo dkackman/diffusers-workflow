@@ -475,6 +475,25 @@ KEEP_ROWS = "dw_keep_rows"
 REFINE_ROW_NOISE = "dw_refine_row_noise"
 
 
+def is_h3_step(pipeline):
+    """Whether a step's pipeline is known to be H3 before the load - its
+    `from_pretrained` `workflow` is one of H3's three."""
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    return isinstance(workflow, str) and workflow in H3_WORKFLOWS
+
+
+def edits_region(arguments, h3):
+    """Whether a step's arguments ask for a regional edit. `mask_image` and
+    `mask_video` are diffusers inpaint arguments too, so on a pipeline not
+    known to be H3 (`h3` false) only `source_video` does."""
+    if _given(arguments, SOURCE_VIDEO_INPUT):
+        return True
+    return h3 and any(_given(arguments, name) for name in REGIONAL_EDIT_INPUTS)
+
+
 def _given(arguments, name):
     return arguments.get(name) is not None
 
