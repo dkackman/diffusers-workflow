@@ -40,12 +40,12 @@ from dataclasses import dataclass
 import numpy
 import torch
 from PIL import Image
-from diffusers.utils import encode_video, is_av_available
+from diffusers.utils import is_av_available
 
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
-from ..writers import frames_for_encoding, output_file_path
+from ..writers import encode_video, frames_for_encoding, output_file_path
 from ..events import emit_log
 from ..shots import shot_record, without_samples
 from ..dsp import as_channels_samples, slice_samples
