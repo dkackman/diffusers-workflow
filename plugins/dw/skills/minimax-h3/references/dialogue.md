@@ -70,6 +70,10 @@ rule and none is worth prompt words yet:
     (WanGP's claim) is not needed: one person in frame, Ref2VA with the
     track held, sung and spoken, moved the mouth at the same instants with
     the words in `<d>` or not (`2026-10-h3-wangp-probes.md`, #985).
+  - a timbre-only audio reference didn't replay its source words: with
+    `templates/minimax/voice-timbre-reference` as shipped, two Bark source
+    clips and two seeds each, `check-script` heard only the new `<d>` line
+    and no source word (`2026-10-h3-aiskills-probes.md` row P2, #1059).
 - Not settled:
   - whether `<breath>` adds a beat: it may lengthen a pause H3 already takes
     at a sentence break, but it doesn't create one (row 6b);
