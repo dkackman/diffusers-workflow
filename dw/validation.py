@@ -343,7 +343,12 @@ ERROR_CHECKS = [
     ),
     # hold_audio on a pipeline with no H3 hold blocks, or holding something
     # that is not audio, costs a checkpoint load otherwise (dw/hold_audio.py)
-    Check("hold_audio", lambda c: hold_audio_errors(c.expanded, c.source_indices)),
+    Check(
+        "hold_audio",
+        lambda c: hold_audio_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
     # refine_strength with nothing to refine, no held soundtrack or a one-point
     # schedule fails after the checkpoint load just the same
     Check(
@@ -352,7 +357,10 @@ ERROR_CHECKS = [
     ),
     # A regional edit on a pipeline that is not H3, a mask with no source, or a
     # source with no refine_strength, with latents or on a chained step
-    Check("regional_edit", lambda c: mask_errors(c.expanded, c.source_indices)),
+    Check(
+        "regional_edit",
+        lambda c: mask_errors(c.expanded, c.source_indices, c.base_dir, probe=c.probe),
+    ),
     # guides on a pipeline that cannot take them, with references, malformed,
     # or a clip that is no video or runs past the render (dw/guides.py)
     Check(

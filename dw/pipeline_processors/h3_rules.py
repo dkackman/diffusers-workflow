@@ -42,7 +42,9 @@ def refine_problems(arguments, canvas=None):
     """Why this step's `refine_strength` and `refine_tiles` cannot run, as a
     list - empty when they can, or cannot be told yet. The one owner of the
     per-argument rules: the static check (dw/hold_audio.py) and the run-time
-    check before the call (`Pipeline._check_refine`) both ask it. A tile
+    check before the call (`Pipeline._check_refine`) both ask it. The sigma
+    is in (0, 1), or (0, 1] with a `source_video`: a regional edit at 1.0
+    regenerates its region from pure noise. A tile
     problem's message starts with `refine_tiles`. `canvas` is the (width,
     height) the static check read from the upscale step `latents` names, when
     it could; at run time the `latents` tensor gives it."""
@@ -59,10 +61,19 @@ def refine_problems(arguments, canvas=None):
         problems.append(
             f"refine_strength is a number in (0, 1), and {strength!r} is not a number"
         )
+    elif arguments.get(SOURCE_VIDEO_INPUT) is not None:
+        # A regional edit may start from pure noise: 1.0 regenerates the region
+        if not 0 < strength <= 1:
+            problems.append(
+                f"refine_strength is a sigma in (0, 1] with a source_video - 1.0 "
+                f"regenerates the masked region from noise, about 0.4 reworks it "
+                f"lightly - and {strength} is outside it"
+            )
     elif not 0 < strength < 1:
         problems.append(
             f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
-            f"upscaled take - and {strength} is outside it"
+            f"upscaled take, and 1.0 is allowed only with a source_video - and "
+            f"{strength} is outside it"
         )
     if arguments.get("latents") is None and arguments.get(SOURCE_VIDEO_INPUT) is None:
         problems.append(

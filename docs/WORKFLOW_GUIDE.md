@@ -2488,7 +2488,8 @@ scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluati
 sets where it starts, not how many steps run: a higher strength moves the picture further
 from the upscaled take, a lower one stays closer to it.
 
-Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive), a
+Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive;
+a [regional edit](#h3-regional-edit-with-source_video-and-a-mask) also takes 1.0), a
 refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
 
@@ -2501,7 +2502,9 @@ To change part of a take and keep the rest, pass a video as `source_video` on an
 `t2va`, `fl2va` or `ref2va` step. It is a path, `asset:`, `output:` or `previous_result:`
 reference to a video, and it stands in for the `latents` of a refine: the step VAE-encodes
 it over the generated rows and re-denoises from `refine_strength`, which is required and
-between 0 and 1 (exclusive). With no mask the whole source is refined.
+in (0, 1]: 1.0 regenerates the masked region from pure noise, about 0.4 reworks it lightly
+and keeps its layout. (Without a `source_video` the refine's range stays (0, 1).) With no
+mask the whole source is refined.
 
 ```json
 {
@@ -2509,7 +2512,7 @@ between 0 and 1 (exclusive). With no mask the whole source is refined.
     "mask_image": "asset:fox_mask.png",
     "mask_grow": 1,
     "refine_strength": 0.6,
-    "hold_audio": "asset:fox_dawn.wav",
+    "hold_audio": "asset:fox_dawn.mp4",
     "prompt": "the fox wears a red scarf, same light and motion"
 }
 ```
@@ -2518,7 +2521,9 @@ A `mask_video` (one frame per frame) or a `mask_image` (one mask for every frame
 what is regenerated. Pass one, not both. White regenerates and black is kept, binarized
 at luma 128. The mask is max-pooled onto the transformer's patch grid, 16 px times the
 patch size per cell, so any white pixel marks its whole cell, and `mask_grow` widens it by
-that many cells (a whole number, 0 or more, default 1). After every denoise step each
+that many cells (a whole number, 0 or more, default 1). In time the grain is the latent
+frame: about 4 pixel frames each (3.4 - every 17 frames encode to 5 latent frames), times
+the patch's time size, so a `mask_video` switching on or off mid-cell marks the whole cell. After every denoise step each
 other row is written back as the source noised to that step's sigma, with the refine's own
 noise, so at the end it is the source latent. The decode still round-trips it through the
 VAE, so kept pixels are near-identical to the source, not bit-identical. A higher
@@ -2526,17 +2531,23 @@ VAE, so kept pixels are near-identical to the source, not bit-identical. A highe
 
 The source and the mask must match the step's `width` x `height`, and a `source_video` or
 `mask_video` its `num_frames`. A step that leaves width, height or `num_frames` out renders
-the source's. An all-black mask is refused, as it would regenerate nothing.
+the source's. An all-black mask is refused, as it would regenerate nothing. Validation reads
+a source or mask that resolves already (a path, `asset:` or `output:`) and refuses a size,
+frame count or empty mask there, the way it reads guide videos; a `previous_result:` is
+checked at the call.
 
 `hold_audio` is still required with `refine_strength`, since the refine holds the
-soundtrack: an audio file (`.wav`, `.mp3`, `.flac`, `.ogg`) or an earlier step's
-audio-carrying result. An `.mp4` path is not accepted, so extract the track first.
+soundtrack. It is normally the `source_video` itself: a video path (`.mp4`, `.mov`, `.mkv`,
+`.webm`, `.avi`) is held by its own soundtrack, so the edit keeps the take's audio. A video
+with no audio stream is refused. An audio file (`.wav`, `.mp3`, `.flac`, `.ogg`) or an
+earlier step's audio-carrying result works too.
 
 Validation and the call both refuse:
 
 - `source_video` with `latents`, or on a chained step;
+- both mask kinds, `mask_video` and `mask_image`, on one step;
 - a mask with no `source_video`, or `mask_grow` with no mask;
-- `source_video` with no `refine_strength`;
+- `source_video` with no `refine_strength`, or one outside (0, 1];
 - `source_video` on a pipeline that is not H3 (`mask_image` there is left alone, since
   inpaint pipelines own that name);
 - any of it with `refine_tiles`, which does not combine with a regional edit.
