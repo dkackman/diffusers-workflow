@@ -78,3 +78,17 @@ lightness, contrast and detail measures
 ([#1031](https://github.com/dkackman/diffusers-workflow/issues/1031)), and the
 `script-to-video` skill its guidance on re-rolling a chained segment whose seam
 fails ([#1034](https://github.com/dkackman/diffusers-workflow/issues/1034)).
+
+### [r34vtraining/Longshot_Studio](https://github.com/r34vtraining/Longshot_Studio)
+
+A ComfyUI studio for making long MiniMax H3 films shot by shot, assessed in
+October 2026. It has no licence, so only concepts are taken. Its ideas are
+filed as dialogue/effects stem separation
+([#1091](https://github.com/dkackman/diffusers-workflow/issues/1091)), an H3
+face refine with the audio held
+([#1092](https://github.com/dkackman/diffusers-workflow/issues/1092)), cutaway
+and lead-in joins ([#1093](https://github.com/dkackman/diffusers-workflow/issues/1093)),
+rendering the odd shots of a long take first and bridging the gaps
+([#1094](https://github.com/dkackman/diffusers-workflow/issues/1094)), and
+finding phrase starts from the centre of the stereo mix
+([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
