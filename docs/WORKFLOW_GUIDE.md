@@ -2494,9 +2494,10 @@ refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
 
 To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
-tiles](#refining-above-768p-in-tiles).
+tiles](#refining-above-768p-in-tiles). To give the schedule's sigma points yourself rather
+than spacing them by `shift`, see [Explicit refine sigmas](#explicit-refine-sigmas).
 
-#### Explicit refine sigmas
+### Explicit refine sigmas
 
 A recipe published with its own schedule cannot be reached by spacing points with
 `shift`. `refine_sigmas` gives the schedule itself: the sigma points, from
