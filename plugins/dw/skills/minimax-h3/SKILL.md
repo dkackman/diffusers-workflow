@@ -150,6 +150,7 @@ the rules are MiniMax's:
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture, which imposes its framing on every shot (`references/per-character.md`).
 Before writing lines, read `references/dialogue.md`: how long a line fits a clip, and what not to name.
+A wanted look (clay, paper): `references/style.md`.
 
 ## Run and judge
 
@@ -191,6 +192,5 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
 
 ## Sources
 
-MiniMax-H3 model card and prompt guides, `h3-prompt-writing`, diffusers'
-MiniMax-H3 modular pipeline, `lightx2v/Minimax-h3-Turbo` LoRA notes; read
-2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+Model card, prompt guides, `h3-prompt-writing`, diffusers' pipeline,
+`lightx2v/Minimax-h3-Turbo` notes; read 2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.

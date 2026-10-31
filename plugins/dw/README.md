@@ -35,7 +35,8 @@ npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter
 
 Name the skill: the H3 repo also ships eight style packs
 (`brand-promo-video-generator` and the like) that `--skill '*'` would install
-alongside it.
+alongside it. When a request wants one of those looks, install that pack the
+same way, by name; the `minimax-h3` skill's `references/style.md` lists them.
 
 Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`
 holds to the catalog and to the diffusers module that enforces them. A
