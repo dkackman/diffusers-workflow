@@ -375,6 +375,14 @@ remaining deferred fix is recorded in
   (`audits/2026-10-h3-aiskills-probes.md`) and listed as probed-and-not-a-rule.
   Record, including what was deferred (P1 anime cadence, P4 POV) and dropped
   (P6, P7): `complete/h3-aiskills-probes-complete.md`.
+- **Chain following consecutive windows of a long source video** (#1061,
+  stages #1074-#1076), closed 2026-10-31 after its probe only. On lem, H3
+  ref2va followed a driving window with no cut in it, but a window holding
+  a source cut dropped the first shot and the carry broke the seam, so the
+  gate failed and the `match_video` chain key and `chain-follow-video`
+  template were not built. Record, with the design and what would reopen it
+  (a lighter H3 build, or #1045's guide path):
+  `complete/chain-follow-video-complete.md`.
 
 ## Declined
 
