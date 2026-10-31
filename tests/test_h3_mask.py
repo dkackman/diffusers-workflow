@@ -510,6 +510,65 @@ class TestSourceBlock:
         assert state.get(SOURCE_ROWS) is None
         assert state.get(KEEP_ROWS) is None
 
+    def run_block(self, monkeypatch, mask, strength):
+        """The block over a 3-latent-frame SIDE canvas with the VAE encode
+        stubbed, and the events it emitted."""
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.pipeline_processors import h3_mask_steps
+
+        monkeypatch.setattr(
+            h3_mask_steps.encoders,
+            "encode_vae_condition",
+            lambda *a: torch.zeros(1, 1, 3, LATENT_SIDE, LATENT_SIDE),
+        )
+        state = PipelineState()
+        state.set("latents", torch.randn(3 * 4 * 4, 4))
+        state.set("source_video", np.zeros((9, SIDE, SIDE, 3), dtype=np.uint8))
+        state.set(REGENERATE_MASK, mask)
+        state.set("mask_grow", 0)
+        state.set("refine_strength", strength)
+        for name, value in (("height", SIDE), ("width", SIDE), ("num_frames", 9)):
+            state.set(name, value)
+        state.set("num_latent_frames", 3)
+        state.set("latent_height", LATENT_SIDE)
+        state.set("latent_width", LATENT_SIDE)
+        components = SimpleNamespace(
+            vae=None,
+            pixel_mean=None,
+            pixel_std=None,
+            keyframe_encode_seed=0,
+            patch_size=PATCH,
+            _execution_device="cpu",
+        )
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            h3_mask_steps.DwH3SourceLatentsStep()(components, state)
+        finally:
+            deactivate_context(token)
+        return state, [e for e in events if e.get("event") == "log"]
+
+    def test_a_masked_edit_emits_its_cells_grow_and_strength(self, monkeypatch):
+        # #1077: a job's events show the regional edit ran and how hard
+        mask = binarized(pixel_mask(1, (0, 0, 0)))
+        state, logs = self.run_block(monkeypatch, mask, 0.9)
+
+        assert len(logs) == 1
+        log = logs[0]
+        assert log["regenerated_cells"] == 3 and log["kept_cells"] == 45
+        assert log["mask_grow"] == 0 and log["refine_strength"] == 0.9
+        assert "3 of 48 patch cells" in log["message"]
+        assert "refine_strength 0.9" in log["message"]
+        assert int((~state.get(KEEP_ROWS)).sum()) == 3
+
+    def test_an_unmasked_edit_says_it_re_denoises_the_whole_take(self, monkeypatch):
+        state, logs = self.run_block(monkeypatch, None, 0.5)
+
+        assert len(logs) == 1
+        assert logs[0]["regenerated_cells"] is None
+        assert "whole source_video at refine_strength 0.5" in logs[0]["message"]
+        assert state.get(KEEP_ROWS) is None
+
 
 # 5. Rule refusals
 
