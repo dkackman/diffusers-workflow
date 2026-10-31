@@ -511,7 +511,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 12_250 for the `minimax/face-repair` template (#1092, stage #1099,
 # 2026-10-31), measured at 12_201: one new entry, the catalog's only face
 # repair that holds an H3 take's soundtrack, with its cost block.
-COMPACT_BUDGET = 12_250
+# Then to 12_400 for the `ltx2/restore-colorize` template (#1064, stage #1080,
+# 2026-10-31), measured at 12_357: one new entry, the catalog's only
+# colourisation of existing footage, with its cost block.
+COMPACT_BUDGET = 12_400
 FILTERED_BUDGET = 1_500
 
 
