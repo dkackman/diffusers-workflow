@@ -333,6 +333,18 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "crop_size must be a multiple of this - the model's frame-size "
             "step (32 for LTX)."
         ),
+        "min_frames": (
+            "Refuse the clip when its padded crop count is below this - the "
+            "fewest frames the model the crops feed takes. No check when unset."
+        ),
+        "max_frames": (
+            "Refuse the clip when its padded crop count is above this - the "
+            "most frames the model the crops feed takes. No check when unset."
+        ),
+        "fps": (
+            "Refuse the clip unless its frame rate is this, within 0.01 - the "
+            "rate the model the crops feed generates at. No check when unset."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -345,8 +357,11 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "modulus": POSITIVE,
         "remainder": NON_NEGATIVE,
         "multiple": POSITIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "fps": POSITIVE,
     },
-    whole_numbers=("modulus", "remainder", "multiple"),
+    whole_numbers=("modulus", "remainder", "multiple", "min_frames", "max_frames"),
     static_check=face_track_errors,
     media_arguments=("clip",),
 )

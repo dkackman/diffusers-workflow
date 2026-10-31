@@ -79,7 +79,8 @@ def ingredients_grid_errors(arguments):
 # whose frame size and count move on a grid the workflow declares (modulus,
 # remainder and multiple; the defaults are LTX's 8n+1 and 32 pixels), the
 # padding is a multiple of the face's own size added on each side, and the gate
-# is a ramp from gate_full to gate_zero, so the two must be in that order.
+# is a ramp from gate_full to gate_zero, so the two must be in that order, as
+# must the min_frames/max_frames window the padded crop count must fall in.
 # Owned here so the static pass and the command's run-time refusal read one rule
 FACE_CROP_MODULUS = 8
 FACE_CROP_REMAINDER = 1
@@ -97,6 +98,8 @@ def face_track_problems(
     modulus=FACE_CROP_MODULUS,
     remainder=FACE_CROP_REMAINDER,
     multiple=FACE_CROP_MULTIPLE,
+    min_frames=None,
+    max_frames=None,
 ):
     """[(argument, message)] for each crop_face_track rule these values break.
 
@@ -175,6 +178,16 @@ def face_track_problems(
                 f"{min_confidence!r}",
             )
         )
+    low, high = as_number(min_frames), as_number(max_frames)
+    if low is not None and high is not None and low > high:
+        problems.append(
+            (
+                "max_frames",
+                f"crop_face_track needs 'max_frames' at or above 'min_frames' "
+                f"- the window the crop count must fall in - got min_frames "
+                f"{min_frames!r} and max_frames {max_frames!r}",
+            )
+        )
     return problems
 
 
@@ -231,6 +244,8 @@ def face_track_errors(arguments):
             "modulus",
             "remainder",
             "multiple",
+            "min_frames",
+            "max_frames",
         )
         if name in arguments
     }

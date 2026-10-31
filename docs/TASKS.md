@@ -1153,6 +1153,9 @@ face-detail pass that needs the face large and still:
 | `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
 | `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
 | `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
+| `min_frames` | No | Refuse the clip when its padded crop count is below this - the shortest clip the model the crops feed takes. A whole number, at least `1`. No check when unset |
+| `max_frames` | No | Refuse the clip when its padded crop count is above this - the longest the model takes. A whole number, at least `min_frames`. No check when unset |
+| `fps` | No | Refuse the clip unless its frame rate is this, within `0.01` (23.976 passes for `23.98`, not for `24`). Above `0`. No check when unset |
 | `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
@@ -1163,7 +1166,8 @@ A validate's `downloads_required` lists the detector file as a file entry when i
 the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
 32-pixel steps, so a workflow that names none gets the output it always did;
 the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
-explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+explicitly. A model on another grid names its own: MiniMax H3's is `modulus:
+17, remainder: 5, multiple: 32` (17n+5 frames, 32-pixel steps). A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
 and a `crop_size` that is not a multiple of `multiple` are refused at
 validation.
 
@@ -1190,8 +1194,21 @@ change it. It is 1 when face width over frame width is at or below `gate_full`,
 0 at or above `gate_zero`, linear between, and multiplied by the hold decay on
 frames the detector missed.
 
-It returns `{crops, track}`. `crops` is a video (no audio) at the clip's frame
-rate. `track` is a JSON record saved as its own `.json` file, readable by
+`min_frames`, `max_frames` and `fps` refuse a clip the model the crops feed
+cannot take, before the detector loads: the window is checked against the
+padded crop count, and the message names both the clip's frame count and the
+count it pads to (`the clip's 346 frames pad to 362 crops on the 17n+5 grid,
+above max_frames 345`). A clip that records no frame rate is refused when
+`fps` is set.
+
+It returns `{crops, track}`. `crops` is a video at the clip's frame rate. When
+the clip has a soundtrack, `crops` carries it padded to match: `pad_before`
+frames of silence, the clip's own sound, then `pad_after` frames of silence, so
+the track is exactly `crop_frames / fps` seconds long and a step holding the
+crops' audio (`hold_audio: previous_result:<step>.crops`) lines up with them
+frame for frame. A silent clip gives crops with no audio; a soundtrack on a
+clip with no frame rate to place it by is dropped, with a `crop_audio_dropped`
+warning. `track` is a JSON record saved as its own `.json` file, readable by
 `previous_result:<step>.track`:
 
 | Field | Description |
@@ -1209,8 +1226,10 @@ rate. `track` is a JSON record saved as its own `.json` file, readable by
 A clip with no face still succeeds: every strength is 0, the crops are the
 centre square, and a `no_face_found` warning is raised. `validate_workflow`
 refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
-`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
-and a `detector_file` that is not a `.onnx` name, before anything downloads.
+`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id,
+a `detector_file` that is not a `.onnx` name, a `min_frames`, `max_frames` or
+`fps` at or below 0, and a `max_frames` below `min_frames`, before anything
+downloads.
 
 ### paste_face_track
 
