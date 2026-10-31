@@ -1,6 +1,6 @@
 ---
 name: ltx-2.5
-description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, an alpha matte pulled from a clip, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
+description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, a black-and-white clip colourised, an alpha matte pulled from a clip, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
 ---
 
 # LTX-2.5 on a dw server
@@ -55,7 +55,9 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   at a time.
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
-  artefacts. Each inverts one defect and no other - neither upscales or
+  artefacts, `templates/ltx2/restore-colorize` for black-and-white or
+  washed-out footage (keeps the source's size and rate; prompt names the
+  colours). Each inverts one defect and no other - neither upscales or
   removes motion blur or grain - so name the defect and let the user
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`

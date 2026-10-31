@@ -767,6 +767,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/refine-in-place.json": {
         "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
     },
+    "ltx2/restore-colorize.json": {
+        "colorized": "e804709bcac668776c00b3ac58e13ae4024c67116c94e29c0a543005370277fb"
+    },
     "ltx2/restore-deblur.json": {
         "restored": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78"
     },

@@ -1,0 +1,10 @@
+{
+  "text": "Reference shows a woman in a long coat walking a small dog along a cobbled street lined with shop fronts and parked cars under overcast daylight, in black and white with no colour information. Edited shows the same scene with natural colors restored. COLORIZE a woman in a camel coat and a red scarf walking a small brown dog along a grey cobbled street lined with shop fronts with green and cream awnings and parked cars under overcast daylight. Subject identity, framing, motion, and background geometry are identical to the reference; only color information differs between reference and edited.",
+  "description": "The Colorization IC-LoRA's trained dual-panel form - replace both descriptions of the scene with your own clip's, keeping the structure, and name the colours you expect where they matter",
+  "intended_model": "ltx-2.5",
+  "tags": [
+    "ic-lora",
+    "restoration",
+    "v2v"
+  ]
+}

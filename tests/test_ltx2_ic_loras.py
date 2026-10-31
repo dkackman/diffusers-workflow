@@ -46,6 +46,15 @@ CARDS = {
         121,
         1.0,
     ),
+    "restore-colorize": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Colorization",
+        "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors",
+        1,
+        960,
+        544,
+        121,
+        1.0,
+    ),
     "restore-deblur": (
         "Lightricks/LTX-2.5-22b-IC-LoRA-Deblur",
         "ltx-2.5-22b-ic-lora-deblur-0.9.safetensors",
@@ -121,8 +130,8 @@ class TestEachTemplateMatchesItsCard:
 
         assert (variables["width"], variables["height"]) == (width, height)
         assert variables["num_frames"] == frames
-        if name == "alpha-matte":
-            # #1079: the matte is written at the source's rate; the model
+        if name in ("alpha-matte", "restore-colorize"):
+            # #1079, #1080: the output is written at the source's rate; the model
             # itself still runs at its trained 24 fps
             pipeline = conditioned_step(name)["pipeline"]
             assert variables["frame_rate"] == "source"
@@ -233,6 +242,7 @@ class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
         [
             ("restore-deblur", "DEBLUR"),
             ("restore-decompression", "ENHANCE QUALITY"),
+            ("restore-colorize", "COLORIZE"),
         ],
     )
     def test_the_default_prompt_is_in_the_trained_form(self, name, marker):
@@ -323,3 +333,40 @@ class TestTheAlphaMatteSaysAShotCutLeaks:
 
         assert "hard cut" in row
         assert "one shot" in row
+
+
+class TestTheColorizeTemplateIsDeblursShape:
+    """#1080: deblur's pipeline with the Colorization LoRA, between
+    alpha-matte's fit and restore, so it inherits deblur's VRAM estimate
+    and keeps the source's size and rate."""
+
+    def test_it_keeps_deblurs_pipeline_identity(self):
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step("restore-colorize")) == (
+            pipeline_identity(conditioned_step("restore-deblur"))
+        )
+
+    def test_the_reference_is_the_fitted_source(self):
+        (reference,) = conditioned_step("restore-colorize")["pipeline"]["arguments"][
+            "reference_conditions"
+        ]
+
+        assert reference["from_arguments"]["frames"]["location"] == (
+            "previous_result:fit.video"
+        )
+
+    def test_it_fits_by_letterbox_and_restores_at_the_frame_rate(self):
+        fit, colorized, final = definition("restore-colorize")["steps"]
+
+        assert fit["task"]["command"] == "fit_to_model"
+        assert fit["task"]["arguments"]["mode"] == "letterbox"
+        assert fit["task"]["arguments"]["downscale"] == 1
+        assert colorized["result"] == {
+            "content_type": "video/mp4",
+            "fps": 24.0,
+            "save": False,
+        }
+        assert final["task"]["command"] == "restore_to_source"
+        assert final["task"]["arguments"]["fps"] == "variable:frame_rate"
+        assert "fps" not in final["result"]

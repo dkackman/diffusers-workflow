@@ -73,6 +73,11 @@ def test_a_prompt_is_one_paragraph_of_caption_length(path):
 
 # The phrase each IC-LoRA card states as the form it was trained to read
 _IC_LORA_CONVENTION = {
+    "colorize_dual_panel.json": (
+        "Reference shows",
+        "COLORIZE",
+        "only color information differs",
+    ),
     "deblur_dual_panel.json": (
         "Reference shows",
         "DEBLUR",
