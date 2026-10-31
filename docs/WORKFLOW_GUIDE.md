@@ -2496,6 +2496,39 @@ refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
 tiles](#refining-above-768p-in-tiles).
 
+#### Explicit refine sigmas
+
+A recipe published with its own schedule cannot be reached by spacing points with
+`shift`. `refine_sigmas` gives the schedule itself: the sigma points, from
+`refine_strength` down to 0, used verbatim for both the video and audio schedules, with no
+shift applied. NVlabs' Open-H3-Regenerate-2K recipe starts from
+`(1 - 0.909375)·up + 0.909375·noise` and runs 3 Euler steps on four points:
+
+```json
+"arguments": {
+    "latents": "previous_result:up",
+    "hold_audio": "previous_result:base.audio",
+    "refine_strength": 0.909375,
+    "num_inference_steps": 4,
+    "refine_sigmas": [0.909375, 0.857143, 0.666667, 0]
+}
+```
+
+`refine_strength` still sets the re-noise, and the list replaces only the spacing. The
+step count is the number of points, so `num_inference_steps` is required beside the list
+and must equal its length: four points are 3 denoise evaluations. Validation, and the
+check before the call, refuse a `refine_sigmas` that:
+
+- is not a list of numbers, or has fewer than 2 points;
+- is not strictly decreasing;
+- does not start at `refine_strength` (within 1e-6);
+- does not end at exactly 0;
+- has a length other than `num_inference_steps`, or comes with no `num_inference_steps`;
+- comes with no `refine_strength`.
+
+A step without `refine_sigmas` runs the shift-spaced schedule as before. It works with
+`refine_tiles` too: every tile runs the same list.
+
 ### H3: regional edit with source_video and a mask
 
 To change part of a take and keep the rest, pass a video as `source_video` on an H3

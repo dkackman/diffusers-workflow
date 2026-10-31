@@ -27,6 +27,8 @@ H3, when it is not a number in (0, 1) - (0, 1] with a `source_video` - when the
 step passes no `latents` to refine
 or no `hold_audio` to keep its soundtrack, and when `num_inference_steps` is
 below 2 - the refine schedule is that many points, so one point is no step.
+An explicit `refine_sigmas` schedule is checked with it: a strictly decreasing
+list from `refine_strength` to 0 with one point per `num_inference_steps`.
 Those per-argument rules are `h3_rules.refine_problems`, which the run-time
 check calls too; only the H3 test is here.
 
@@ -46,6 +48,7 @@ from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
+    REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
     REGIONAL_EDIT_INPUTS,
@@ -170,36 +173,37 @@ def _upscaled_canvas(steps, latents):
     return None
 
 
+_REFINE_INPUTS = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
+
+
 def refine_strength_errors(workflow_definition, source_indices=None):
-    """Every `refine_strength` or `refine_tiles` argument refused before the
-    run, as [{path, message}] - walked the way `hold_audio_errors` walks. A
-    problem about `refine_tiles` is at its path; the rest are at
-    `refine_strength`'s."""
+    """Every `refine_strength`, `refine_sigmas` or `refine_tiles` argument
+    refused before the run, as [{path, message}] - walked the way
+    `hold_audio_errors` walks. A problem about `refine_sigmas` or
+    `refine_tiles` is at its path; the rest are at `refine_strength`'s."""
     errors = []
     steps = workflow_definition.get("steps")
     for _, _, pipeline, source, where in references.iter_steps(
         steps, source_indices, "pipeline"
     ):
         arguments = pipeline.get("arguments")
-        if not isinstance(arguments, dict) or (
-            arguments.get(REFINE_STRENGTH_INPUT) is None
-            and arguments.get(REFINE_TILES_INPUT) is None
+        if not isinstance(arguments, dict) or all(
+            arguments.get(name) is None for name in _REFINE_INPUTS
         ):
             continue
         paths = {
             name: render_path(("steps", source, "pipeline", "arguments", name))
-            for name in (REFINE_STRENGTH_INPUT, REFINE_TILES_INPUT)
+            for name in _REFINE_INPUTS
         }
         problems = []
-        for name in (REFINE_STRENGTH_INPUT, REFINE_TILES_INPUT):
+        for name in _REFINE_INPUTS:
             if arguments.get(name) is not None:
                 problems.append((name, not_h3(pipeline, name)))
         canvas = _upscaled_canvas(steps, arguments.get("latents"))
         for problem in refine_problems(arguments, canvas):
-            name = (
-                REFINE_TILES_INPUT
-                if problem.startswith(REFINE_TILES_INPUT)
-                else REFINE_STRENGTH_INPUT
+            name = next(
+                (n for n in _REFINE_INPUTS[1:] if problem.startswith(n)),
+                REFINE_STRENGTH_INPUT,
             )
             problems.append((name, problem))
         for name, problem in problems:

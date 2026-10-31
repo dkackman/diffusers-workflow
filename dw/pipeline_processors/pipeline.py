@@ -43,6 +43,7 @@ from .h3_rules import (
     HOLD_AUDIO_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
+    REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
     REGENERATE_MASK,
@@ -874,16 +875,18 @@ class Pipeline:
         call (dw/pipeline_processors/h3_hold.py).
 
         Raises:
-            ValueError: If this pipeline cannot refine, the strength or step count
-                is out of range, or the step passes no `latents` or `hold_audio`
+            ValueError: If this pipeline cannot refine, the strength, the
+                `refine_sigmas` schedule or the step count is out of range, or the
+                step passes no `latents` or `hold_audio`
         """
-        strength = arguments.get(REFINE_STRENGTH_INPUT)
-        if strength is None and arguments.get(REFINE_TILES_INPUT) is None:
+        given = [
+            name
+            for name in (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
+            if arguments.get(name) is not None
+        ]
+        if not given:
             return
-        where = (
-            f"Step '{self.name}': "
-            f"{REFINE_STRENGTH_INPUT if strength is not None else REFINE_TILES_INPUT}"
-        )
+        where = f"Step '{self.name}': {given[0]}"
         if not refines(self.pipeline):
             raise ValueError(
                 f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
