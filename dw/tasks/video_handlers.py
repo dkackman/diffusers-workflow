@@ -51,6 +51,7 @@ logger = logging.getLogger("dw")
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    media_arguments=("videos",),
 )
 def _handle_concat_videos(task, arguments, previous_pipelines):
     """Concatenate videos - and the audio generated with them - into one"""
@@ -70,6 +71,7 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
         "match_levels_dbfs": FINITE,
         "fps": POSITIVE,
     },
+    media_arguments=("videos",),
 )
 def _handle_dissolve_videos(task, arguments, previous_pipelines):
     """Join videos with cross-dissolves, fading the whole from and to a colour"""
@@ -235,7 +237,7 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
     whole_numbers=("num_frames", "overlap"),
     choices={"curve": JOIN_WINDOWS_CURVES},
     static_check=join_windows_errors,
-    media_arguments=("source",),
+    media_arguments=("source", "videos"),
 )
 def _handle_join_windows(task, arguments, previous_pipelines):
     """Blend processed overlapping windows back into one video the source's length"""

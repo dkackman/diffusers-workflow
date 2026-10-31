@@ -325,8 +325,9 @@ SecurityError
 - **Arbitrary file read through a media argument** — a location a workflow
   supplies is confined to the roots it may read (`dw/locations.py`)
 - **Script on the UI's origin through an output** — a step's
-  `result.content_type` may not be `text/html` or `text/xml` (compared
-  without case or parameters): validation refuses it at
+  `result.content_type` may not be an active document type - `text/html`,
+  `application/xhtml+xml`, `text/xml`, `application/xml` or `image/svg+xml`
+  (compared without case or parameters): validation refuses it at
   `steps[i].result.content_type` and the writer refuses it again
   (`dw/content_types.py`). A file of an active type that reaches `/outputs`
   or `/inputs` anyway is served with `Content-Security-Policy: sandbox`

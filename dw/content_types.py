@@ -16,13 +16,15 @@ permissive beyond the MIME-shape check: their writer dispatch is a generic
 prefix/suffix match (PIL's own format inference, a literal text or JSON
 write) with no narrower container to enforce a whitelist against.
 
-The one text/* exception is active content. `/outputs` serves a written
-file on the UI's own origin, without a token, so an .html or .xml output is
-a page whose script reads the API token the UI keeps in localStorage (#407).
-`text/html` and `text/xml` are the two active types the text writer can
-produce, so they are refused outright; the server also serves every active
-type it finds on disk under a `Content-Security-Policy: sandbox`, since a
-planted file never passes through here.
+The one exception is active content. `/outputs` serves a written file on
+the UI's own origin, without a token, so an .html, .xml or .svg output is a
+page whose script reads the API token the UI keeps in localStorage (#407).
+Every type in `ACTIVE_DOCUMENT_TYPES` is refused outright, whichever writer
+would take it - refusing only the two the text writer produces left
+`application/xml`, `application/xhtml+xml` and `image/svg+xml` stopped by
+nothing but a result-type mismatch (SE-F035). The same set is what the
+server serves under a `Content-Security-Policy: sandbox` when it finds one on
+disk, since a planted file never passes through here.
 """
 
 import logging
@@ -67,8 +69,18 @@ LOSSY_AUDIO_CONTENT_TYPES = {
 # The only container encode_video writes - it always encodes h264 video
 MUXED_VIDEO_CONTENT_TYPE = "video/mp4"
 
-# Result types a browser would run as a document on the UI origin
-REFUSED_ACTIVE_CONTENT_TYPES = frozenset({"text/html", "text/xml"})
+# Types a browser renders as a document, where script runs: refused as a
+# result type here, and served under a CSP sandbox by /outputs and /inputs
+# (dw/server/routes/files.py)
+ACTIVE_DOCUMENT_TYPES = frozenset(
+    {
+        "text/html",
+        "application/xhtml+xml",
+        "text/xml",
+        "application/xml",
+        "image/svg+xml",
+    }
+)
 
 
 def _active_content_fault(value):
@@ -76,7 +88,7 @@ def _active_content_fault(value):
     # the same document type
     if (
         isinstance(value, str)
-        and value.split(";", 1)[0].strip().lower() in REFUSED_ACTIVE_CONTENT_TYPES
+        and value.split(";", 1)[0].strip().lower() in ACTIVE_DOCUMENT_TYPES
     ):
         return (
             f"Invalid content_type: {value!r} - active content is not written: "
@@ -160,7 +172,7 @@ def refuse_active_content_type(value):
 
 
 __all__ = [
-    "REFUSED_ACTIVE_CONTENT_TYPES",
+    "ACTIVE_DOCUMENT_TYPES",
     "content_type_errors",
     "content_type_fault",
     "guess_extension",

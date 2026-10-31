@@ -940,8 +940,8 @@ network:
   (`text/html`, `application/xhtml+xml`, `text/xml`, `application/xml`,
   `image/svg+xml`) carries `Content-Security-Policy: sandbox`: it opens
   under an opaque origin with no script. Range and ETag answers are
-  unchanged. The engine does not write `text/html` or `text/xml` results
-  at all (below), so such a file is one planted on disk.
+  unchanged. The engine does not write a result of any of those types
+  (below), so such a file is one planted on disk.
 - Requests carrying a `Host` header that names neither a loopback address
   nor the configured `--host` are rejected (400). A wildcard bind
   (`--host 0.0.0.0` or `::`) skips this check - clients reach such a

@@ -3487,3 +3487,4 @@ Canny edge detection followed by ControlNet generation:
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face
+- [minimax/face-repair.json](../workflows/templates/minimax/face-repair.json) — The same on an H3 take, its soundtrack held so the mouth stays on the speech
