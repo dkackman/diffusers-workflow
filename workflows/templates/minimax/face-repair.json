@@ -1,0 +1,232 @@
+{
+    "id": "MiniMaxH3FaceRepair",
+    "description": "Gives a good H3 take's small, soft face more detail without losing its lip sync. 'crop' (crop_face_track) tracks the take's main face and cuts a 'crop_size' square around it on every frame, padded to H3's 17n+5 frame grid with reflected frames, and carries the take's own soundtrack padded with silence to match; 'refine' re-denoises those crops with MiniMax-H3 t2va from 'refine_strength' while its hold_audio holds that soundtrack, so the mouth is redrawn against the speech it says; 'pasted' (paste_face_track) feathers each refined crop back into the take at the track's box, colour-matched to it, and drops the padded frames. The take must be 24 fps and, padded, 124 to 345 frames (about 5.2 to 14.4 s): the crop step refuses anything else, naming the clip's frame count or rate, before H3 loads; a shorter take uses templates/ltx2/face-repair. How much each frame is repaired comes from the face's size: full strength while it is at most 'gate_full' of the frame's width, fading to none at 'gate_zero', so a large face comes back as the source. 'refine_strength' 0.6 (measured on two dialogue takes, #1092) keeps the person; 0.72 drifts identity and 0.8 distorts frames. Replace the default prompt with a description of the person (hair, clothing, lighting) to hold identity closer. A ref2va refine with the cast picture as <Picture 1> held identity slightly better at about 4x the denoise time; this template is t2va. The final picture keeps the take's frame count, frame rate and soundtrack; the crops and refined crops are saved to intermediate/.",
+    "summary": "An H3 take's small, soft face redrawn by H3 with its soundtrack held; lip sync kept.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 3.0
+        }
+    ],
+    "cost_drivers": [
+        "crop_size",
+        "num_inference_steps",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
+    ],
+    "variables": {
+        "source_video": "asset:take.mp4",
+        "prompt": "A detailed close-up of the same person's face: the same expression, the same head, eye and mouth movement in time with the speech, the same lighting and hair, a still camera.",
+        "refine_strength": 0.6,
+        "num_inference_steps": 5,
+        "crop_size": 512,
+        "padding": 1.5,
+        "gate_full": 0.2,
+        "gate_zero": 0.3,
+        "feather": 0.3,
+        "weights_dtype": "{int4}",
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "seed": 1092,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null
+    },
+    "variable_constraints": {
+        "crop_size": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "the crops are H3's frame size, and its pipeline refuses a width or height that is not a multiple of 32 only after the weights have loaded; the crop step declares H3's grid (modulus 17, remainder 5, multiple 32), so the crop count is padded to 17 * n + 5 frames"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "crop",
+            "task": {
+                "command": "crop_face_track",
+                "arguments": {
+                    "clip": "variable:source_video",
+                    "crop_size": "variable:crop_size",
+                    "padding": "variable:padding",
+                    "gate_full": "variable:gate_full",
+                    "gate_zero": "variable:gate_zero",
+                    "modulus": 17,
+                    "remainder": 5,
+                    "multiple": 32,
+                    "min_frames": 124,
+                    "max_frames": 345,
+                    "fps": 24
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "refine",
+            "release_pipeline": true,
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "t2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+                        "adapter_name": "turbo",
+                        "scale": 1.0
+                    }
+                ],
+                "scheduler": {
+                    "shift": 6.0
+                },
+                "audio_scheduler": {
+                    "shift": 3.0
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "source_video": "previous_result:crop.crops",
+                    "hold_audio": "previous_result:crop.crops",
+                    "refine_strength": "variable:refine_strength",
+                    "num_frames": null,
+                    "width": null,
+                    "height": null,
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "pasted",
+            "task": {
+                "command": "paste_face_track",
+                "arguments": {
+                    "clip": "variable:source_video",
+                    "repaired": "previous_result:refine",
+                    "track": "previous_result:crop.track",
+                    "feather": "variable:feather"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
