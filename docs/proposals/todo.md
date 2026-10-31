@@ -409,6 +409,16 @@ remaining deferred fix is recorded in
   pinned to it with `first-and-last-frame`. Record, including the deferred
   engine chain joins and their reopen trigger:
   `complete/script-to-video-joins-complete.md`.
+- **H3 face repair, `templates/minimax/face-repair`** (#1092, stages
+  #1097-#1099), shipped 2026-10-31. A GPU probe found H3 t2va at
+  `refine_strength` 0.6 keeps a small face's identity where LTX
+  `ltx2/face-repair` replaces it, with mouth sync as good. `crop_face_track`
+  now carries the clip's soundtrack on `crops`, silence-padded to the grid,
+  and takes optional `min_frames` / `max_frames` / `fps` refusals; the
+  template crops at 17/5/32 with a 0.2/0.3 gate and refines with the
+  crops' own audio held. Record, including what was deferred (ref2va,
+  tail-only padding, with their triggers):
+  `complete/h3-face-repair-complete.md`.
 
 ## Declined
 
