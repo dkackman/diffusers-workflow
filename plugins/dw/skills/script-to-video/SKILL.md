@@ -33,8 +33,13 @@ Fill in this shape before writing any prompt:
 - **Locations**: each place a shot happens, named once and reused.
 - **Per shot**: the above, plus `opening_state` (what is on screen, who
   stands where, what is held, at frame one) and `ending_state` (the same at
-  the last frame). A shot's `opening_state` is the previous shot's
-  `ending_state`, so the cut between them is written down rather than hoped for.
+  the last frame). A shot's `opening_state` is the `ending_state` of its
+  **source**, so the cut between them is written down rather than hoped for.
+- **Per shot, optional `join`**: `continue` (the default; its source is the
+  shot before), `cut` (opens fresh), `cutaway` (an insert: the shot after it
+  takes the shot before it as source) or `lead_in` (its last frame is the
+  next shot's first). Read `references/joins.md` before rendering a
+  `cutaway` or `lead_in`.
 
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent
@@ -86,6 +91,9 @@ cost before calling `run_workflow`. Only pass `acknowledged_cost` once a
 human (or an explicit pre-authorization) has signed off - this is a real
 gate, not a formality, and skipping it here is the one thing this skill
 must not do even when running unattended.
+
+Render in source order, not story order: a `lead_in`'s target first, and a
+re-roll quotes every shot taken off it (`references/joins.md`).
 
 Pass `note` on each `run_workflow` naming the shot and what the run tests,
 and `set_note` the take you keep: the note shows on every file it made.
