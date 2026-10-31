@@ -29,23 +29,20 @@ catch {
 
 # Check for supported Python version (3.12 - 3.14)
 $supportedPythonVersions = "3.14", "3.13", "3.12"
-if ($env:INSTALL_PYTHON_VERSION) {
-    $pythonVersion = $env:INSTALL_PYTHON_VERSION
-}
-else {
-    $pythonVersion = $null
-    foreach ($version in $supportedPythonVersions) {
-        try {
-            $pver = (python --version).split(" ")[1]
-            $result = $pver.StartsWith($version)
-        }
-        catch {
-            $result = $false
-        }
-        if ($result) {
-            $pythonVersion = $version
-            break
-        }
+# The script always runs plain `python`, so check that interpreter's version;
+# an explicit INSTALL_PYTHON_VERSION must also be one of the supported ones.
+$pythonVersion = $null
+foreach ($version in $supportedPythonVersions) {
+    try {
+        $pver = (python --version).split(" ")[1]
+        $result = $pver.StartsWith("$version.")
+    }
+    catch {
+        $result = $false
+    }
+    if ($result -and ((-not $env:INSTALL_PYTHON_VERSION) -or ($env:INSTALL_PYTHON_VERSION.StartsWith($version)))) {
+        $pythonVersion = $version
+        break
     }
 }
 

@@ -110,9 +110,9 @@ except ImportError as e:
 
 
 def _read_version():
-    # Single-sourced from pyproject.toml. Read as text rather than TOML:
-    # tomllib is 3.11+ and this project supports 3.10. In a wheel install
-    # there is no pyproject on disk - the package metadata carries it.
+    # Single-sourced from pyproject.toml. A regex on the text is enough for
+    # one line, without parsing the whole file. In a wheel install there is
+    # no pyproject on disk - the package metadata carries it.
     try:
         pyproject = os.path.join(os.path.dirname(__file__), "..", "pyproject.toml")
         with open(pyproject, encoding="utf-8") as f:
