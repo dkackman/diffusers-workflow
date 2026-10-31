@@ -424,11 +424,17 @@ one phase, so two polls otherwise come back identical: read `denoise_step`
 moving (slow but healthy) against a `denoise_step` that is a number and
 stays put while `seconds_since_event` climbs (nothing is happening). A null
 `denoise_step` under `generating` is neither - it is the lead-in the
-pipeline runs before the loop, encoding the prompt and every reference, with
-nothing emitted, so silence there is expected. Its length follows what it
-encodes: ~90 s on MiniMax H3 for a prompt with an image or audio reference,
-~10 min once a *video* reference is among them (measured: 629 s for one 5 s
-960x544 clip on an RTX 3090). `get_job_events` names the block it is in
+pipeline runs before the loop, encoding the prompt and every reference and
+then the first denoise pass, with nothing emitted, so silence there is
+expected. On MiniMax H3 the first pass dominates the lead-in, not the encode,
+and it varies by card. The reference encode (`vae_encoder`) is about 6 s for
+an image reference and about 50-53 s for a 5 s 960x544 video reference;
+reference tokens make the first pass slower. Measured on lem: an image
+reference's lead-in was 187 s (job `f90a041af26a`: encode 26 s, first pass
+161 s); the same image + video job took 508 s on cuda:1 (`f5aefcdd5e26`:
+`vae_encoder` 59 s, first pass 422 s) and 165 s on cuda:0 (`6961876f11d3`:
+`vae_encoder` 56 s, first pass 86 s). Plan for several minutes, up to ~10,
+with a video reference. `get_job_events` names the block it is in
 while that runs - a `log` line per top-level block of a modular pipeline
 (`MiniMaxAI/MiniMax-H3: vae_encoder`), which is the difference between
 silence and knowing it is encoding the reference. And once the counter is a number the gaps

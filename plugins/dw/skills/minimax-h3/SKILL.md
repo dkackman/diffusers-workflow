@@ -166,8 +166,10 @@ A wanted look (clay, paper): `references/style.md`.
    (`timeout_capped` says the server's cap cut it; call again while
    `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
    to its next step boundary. Silence is no hang: `denoise_step` is null
-   through the reference encode (~90 s; 629 s for a video reference on a
-   3090) and the block cache makes later steps uneven -
+   through the lead-in, the reference encode plus the first denoise pass
+   (the first pass dominates and varies by card: 165-508 s with a video
+   reference, jobs `6961876f11d3`/`f5aefcdd5e26`; the encode alone is ~6 s
+   for an image reference, ~50 s for a 5 s video) and the block cache makes later steps uneven -
    two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
