@@ -1,0 +1,27 @@
+{
+  "model_name": "Kijai/MiniMax-H3-experimental",
+  "weight_name": "loras/minimax_h3_open_regenerate_2k_refiner_rank_384_bf16.safetensors",
+  "revision": "f5c3b1d5a63e008a691fca1b6096fd57a5307536",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "t2va",
+    "fl2va"
+  ],
+  "description": "Kijai's refiner-only rank-384 extraction (5.9 GB, bf16) of NVlabs' Open-H3-Regenerate-2K (Efficient-Large-Model/Open-H3-Regenerate-2K): a high-sigma regenerate pass over an upscaled 768p draft. Linears only - NVlabs' sharp_curve_branches.safetensors (AdaLN branches on a timestep curve) is not a LoRA and is not loaded, nor is the merge's LMS half. Leave lora_alpha unset: the file's own alphas scale it (see the mixed-rank note in instantx-turbo-4step). Trained on the keyframe partition",
+  "use_when": "Probe only (#1065): on the refine step of the guide's H3LatentUpscaleRefine recipe, stacked with turbo-4step-keyframe, refine_strength 0.909375, num_inference_steps 4, shift about 2 (the recipe's exact sigmas need refine_sigmas, #1065 stage B)",
+  "scale": {
+    "default": 1.0
+  },
+  "stacks_with": [
+    "minimax-h3/turbo-4step-keyframe"
+  ],
+  "status": "trial",
+  "license": "minimax-h3-community",
+  "tags": [
+    "refine",
+    "upscale",
+    "second-pass"
+  ]
+}

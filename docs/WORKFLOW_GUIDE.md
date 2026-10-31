@@ -2577,8 +2577,8 @@ audio, once. Its `videos` carry H3's 24 fps, so the `pair_audio` below writes th
 that rate without being told. The job's events show one log line per tile and one decoding phase.
 
 It is slow. A 1920x1088 refine is roughly 4 tiles, each a 768p refine, plus a 1080p decode:
-about 25-30 minutes, against about 9.6 minutes for a native 768p take (an estimate, not
-measured). The validate projection prices the denoise at the tile's size and the decode at the
+about 12 minutes measured on an RTX 3090 for 124 frames (the recipe below, with its 544p
+base), against about 9.6 minutes for a native 768p take. The validate projection prices the denoise at the tile's size and the decode at the
 canvas's, so a tiled refine does not warn as if it denoised 1080p at once.
 
 ```json

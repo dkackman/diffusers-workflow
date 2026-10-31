@@ -281,8 +281,8 @@ Ordered by how much it would change what the repository does.
     768-pixel short edge (max 768×1344), dimensions must be multiples of 32,
     aspect ratios from 1:4 to 4:1, 32 kHz stereo output, 11 stable dialogue
     languages, Ref2VA limits (≤9 images, ≤3 videos, ≤3 audio, ≤12 total; audio
-    references can never be the only references), and that H3-Regenerate-2K
-    (2K output) is API-only and not open-sourced.
+    references can never be the only references). (This audit said H3-Regenerate-2K
+    was API-only; NVlabs has since published Open-H3-Regenerate-2K, see #1065.)
 
 11. **Step-count guidance**: ComfyUI documents 20 steps as the non-turbo default
     and ~25 for better motion quality. The repository's 20 matches the default
