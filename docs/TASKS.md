@@ -2132,12 +2132,12 @@ the list rendered. A transcript chunk `transcribe_audio` marked `suspect` `no_wo
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json` |
-| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them. `null` or `""` means none: the transcript's text is used |
+| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json`. Or an [`analyze_phrases`](#analyze_phrases) result (recognised by its `phrases` key), for a song Whisper can't time: each phrase is one line, and suspect filtering and word alignment don't apply. Without `lyrics` a phrase is a line with no lyric (shot `lyric: null`, kind vocal), and `segment_by` `line`, `stanza` (phrases a silence of at least `min_gap_seconds` apart are grouped) and `beat` all work. With `lyrics` of as many lines as phrases they map one to one, in order. With a different count a warning names both counts and the knob: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lyric lines (it bridges more pauses), lower it when fewer; the lines are then spread evenly from the first phrase's start to the last phrase's end, never paired silently. A long phrase split into pieces gives every piece its whole lyric |
+| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them (an `analyze_phrases` transcript: one line per phrase, see `transcript`). `null` or `""` means none: the transcript's text is used (a phrase result has none: `lyric` is `null`) |
 | `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
 | `segment_by` | No | `line` (default), `stanza` or `beat` |
 | `fps` | No | Frames per second the shots are counted in (default `24`) |
-| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
+| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else a phrase result's `duration_seconds`, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
 | `min_scene_s` | No | The shortest a shot may be (default `1.0`) |
 | `max_scene_s` | No | The longest a shot may be (default none) |
 | `vocal_tail_s` | No | Seconds a sung shot holds past its last word (default `0`) |
@@ -2207,7 +2207,7 @@ on) and `lyrics` with no sung lines.
 [music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
 chains `separate_stems`, `transcribe_audio` (of the vocal stem, so an instrumental intro is not folded into the first word), `analyze_beats` (of the full mix) and `plan_cuts`, passing H3's
 grid (`17`, `5`, `124`, `345`) and a `lead_s` variable (default `0.5`, 12
-frames at 24 fps). Its shots are what
+frames at 24 fps). When Whisper can't time the words (a non-English verse, a hallucinated transcript, wordless vocals), swap the `transcribe` step for an `analyze_phrases` step on `previous_result:stems.vocals`, keep `plan_cuts`' `transcript` on that step and pass `lyrics`, one line per sung phrase; the default chain is unchanged. Its shots are what
 [music-video.json](../workflows/templates/minimax/music-video.json) renders:
 the agent writes a prompt per shot, drops `lyric` and `kind`, and passes the
 list as `shots`.
