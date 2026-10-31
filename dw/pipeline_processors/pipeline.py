@@ -691,7 +691,7 @@ class Pipeline:
                 # the difference between a slow run and a hung one
                 stack.enter_context(reported_progress_bars(self.pipeline))
                 # The bar only covers the denoise loop; the blocks around it
-                # are where a reference encode's minutes go (#95)
+                # are where the lead-in's minutes go (#95)
                 stack.enter_context(
                     reported_blocks(self.pipeline, self.segment_label or self.name)
                 )
