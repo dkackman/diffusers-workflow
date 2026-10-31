@@ -401,6 +401,14 @@ remaining deferred fix is recorded in
   H3 refine schedule; the recipe's exact points measured the same as the
   shift-2 grid. Don's lower-strength arms (0.6, 0.7) are still owed.
   Record: `complete/h3-open-regenerate-2k-complete.md`.
+- **Cutaway and lead-in joins in `script-to-video`** (#1093, stage #1100),
+  shipped 2026-10-31 as skill text only. A shot list's `join` field
+  (`continue`, `cut`, `cutaway`, `lead_in`) and
+  `script-to-video/references/joins.md`: a cutaway's successor re-enters
+  from the shot before it, and a lead-in is rendered after its target and
+  pinned to it with `first-and-last-frame`. Record, including the deferred
+  engine chain joins and their reopen trigger:
+  `complete/script-to-video-joins-complete.md`.
 
 ## Declined
 
