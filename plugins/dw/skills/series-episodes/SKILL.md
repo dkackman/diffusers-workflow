@@ -112,9 +112,17 @@ composes into, not something to re-derive:
   before the cut; leaving it null only warns on a wide spread instead of
   fixing it. A shot whose voice-over the score buries is a different
   problem, not fixed by `match_levels` or `world_gain` (which lifts the
-  whole world track, action sound included) - see `minimax-h3`'s ducking
-  recipe: `gain_audio` regions on the score, one per voice-over shot,
-  applied before the score is passed in.
+  whole world track, action sound included). Either duck the score -
+  `minimax-h3`'s ducking recipe: `gain_audio` regions on the score, one per
+  voice-over shot, applied before the score is passed in - or give dialogue
+  its own gain. For that, in a saved copy of `assemble-and-score`, add a
+  `separate_stems` step on `world_faded`; `previous_result:<step>.vocals` is
+  the dialogue, and a `mix_audio` of its `drums`, `bass` and `other` is the
+  rest (room tone, foley, action sound). Then have `mixed` layer
+  `[soundtrack_resampled, dialogue, rest]`, one gain each. htdemucs keeps H3
+  speech intact this way (#1091). Separating an already-scored mix works
+  too, but its rest is the score plus the shots' foley, not a clean score:
+  keep the original score file to re-mix or replace it.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS peak ceiling, always
   enforced), but a shared peak is not a shared loudness. Pass one series
