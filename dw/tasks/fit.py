@@ -117,7 +117,9 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         height: The model's working height in pixels
         num_frames: The model's frame count, e.g. an 8n+1 LTX length
         mode: "letterbox" (scale to fit, centred on black), "stretch" (resize
-            to fill exactly) or "crop" (scale to fill, centre-crop)
+            to fill exactly) or "crop" (scale to fill, centre-crop; also the
+            way to reframe a clip to another aspect - see TASKS.md "Reframe
+            to another aspect")
         downscale: Divides `width` and `height` before fitting - 2 for a 2x
             model whose output size they are. Both must be divisible by it
 
