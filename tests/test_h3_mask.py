@@ -957,8 +957,25 @@ class TestStrengthOne:
             "hold_audio": "previous_result:base.audio",
             "num_inference_steps": 5,
         }
-        problems = refine_problems(arguments)
-        assert len(problems) == 1 and "source_video" in problems[0]
+        assert refine_problems(arguments) == [
+            "refine_strength is a sigma in (0, 1) - about 0.2 refines an "
+            "upscaled take - and 1.0 is outside it"
+        ]
+
+    @pytest.mark.parametrize("strength", [0, 1.5])
+    def test_a_latent_refine_keeps_its_range_message(self, strength):
+        """A refine without a source_video says what it said before the
+        regional edit: its range sentence is a pinned contract."""
+        arguments = {
+            "refine_strength": strength,
+            "latents": "previous_result:up",
+            "hold_audio": "previous_result:base.audio",
+            "num_inference_steps": 5,
+        }
+        assert refine_problems(arguments) == [
+            f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
+            f"upscaled take - and {strength} is outside it"
+        ]
 
     def test_above_one_is_refused_with_a_source_video(self):
         arguments = {

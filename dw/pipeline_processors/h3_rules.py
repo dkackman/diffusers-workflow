@@ -82,8 +82,7 @@ def refine_problems(arguments, canvas=None):
     elif not 0 < strength < 1:
         problems.append(
             f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
-            f"upscaled take, and 1.0 is allowed only with a source_video - and "
-            f"{strength} is outside it"
+            f"upscaled take - and {strength} is outside it"
         )
     if arguments.get("latents") is None and arguments.get(SOURCE_VIDEO_INPUT) is None:
         problems.append(
