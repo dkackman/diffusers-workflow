@@ -59,3 +59,29 @@ def test_export_to_video_keeps_fractional_rate(tmp_path):
     path = tmp_path / "out.mp4"
     export_to_video(list(_frames()), str(path), fps=30000 / 1001, macro_block_size=16)
     assert abs(float(_rate(path)) - 29.97) < 0.01
+
+
+def test_no_dw_module_calls_the_diffusers_encode_video_directly():
+    import re
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    pattern = re.compile(
+        r"diffusers\.utils(\.export_utils)?\s+import[^\n]*\bencode_video\b"
+    )
+    offenders = [
+        str(p.relative_to(root))
+        for folder in ("dw", "dw_mcp")
+        for p in (root / folder).rglob("*.py")
+        if p.name != "writers.py" and pattern.search(p.read_text())
+    ]
+    assert offenders == []
+
+
+def test_the_diffusers_hook_the_wrapper_swaps_still_exists():
+    import inspect
+
+    from diffusers.utils import export_utils
+
+    assert callable(export_utils._import_av)
+    assert 'add_stream("libx264"' in inspect.getsource(export_utils.encode_video)
