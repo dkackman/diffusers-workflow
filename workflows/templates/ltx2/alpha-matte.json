@@ -92,13 +92,16 @@
                             }
                         },
                         "vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         },
                         "audio_vae": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         },
                         "vocoder": {
-                            "device": "cuda"
+                            "device": "cuda",
+                            "residency": "on_demand"
                         }
                     },
                     "vae": {
