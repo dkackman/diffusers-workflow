@@ -152,7 +152,7 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 SKILL_TASKS = {
     "minimax-music3": ["attribute_voices"],
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
-    "script-to-video": ["concat_videos"],
+    "script-to-video": ["concat_videos", "get_first_frame", "get_last_frame"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
 }
 
@@ -167,7 +167,9 @@ def test_every_task_a_skill_names_is_in_list_tasks(skill, task):
 
     path = os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md")
     assert f"`{task}`" in skill_text(path)
-    assert task in list_tasks()["commands"]
+    tasks = list_tasks()
+    # get_first_frame and its kin are listed as video processors, not commands
+    assert task in tasks["commands"] + tasks["video_processors"]
 
 
 H3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3", "SKILL.md")
@@ -843,6 +845,49 @@ class TestFlux3KleinSkill:
         text = flux3_text()
         assert text.index("get_server_info") < text.index("list_workflows")
         assert text.index("get_server_info") < text.index("templates/flux3/")
+
+
+SCRIPT_SKILL = os.path.join(PLUGIN_DIR, "skills", "script-to-video", "SKILL.md")
+SCRIPT_JOINS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "joins.md")
+
+
+class TestScriptToVideoJoins:
+    """The cutaway and lead-in joins (#1093): composed from separate runs,
+    with the order the lead-in needs stated, since nothing enforces it."""
+
+    def test_the_shot_list_names_every_join_and_links_the_recipes(self):
+        body = skill_body(SCRIPT_SKILL)
+        for join in ("`continue`", "`cut`", "`cutaway`", "`lead_in`"):
+            assert join in body
+        assert "`ending_state` of its\n  **source**" in body
+        assert "`references/joins.md`" in body
+
+    def test_the_recipes_name_both_joins_and_render_the_target_first(self):
+        text = open(SCRIPT_JOINS, encoding="utf-8").read()
+        assert "## Cutaway" in text and "## Lead-in" in text
+        assert "Render the target first" in text
+        assert "Re-rolling C invalidates B" in text
+        # the cutaway's return continues from A, the lead-in pins C's opening
+        assert "`get_last_frame` of `output:<A>`" in text
+        assert "`get_first_frame` of `output:<C>`" in text
+
+    def test_the_frame_step_is_a_real_task_step(self, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        workflow = json.loads(
+            _fenced_block_after(
+                open(SCRIPT_JOINS, encoding="utf-8").read(),
+                "## Taking a frame off a finished shot",
+            )
+        )
+        step = workflow["steps"][0]
+        assert step["task"]["command"] == "get_last_frame"
+        step["task"]["arguments"]["video"] = "variable:video"
+        workflow["variables"] = {"video": "shot.mp4"}
+        (tmp_path / "shot.mp4").write_bytes(b"")
+        path = tmp_path / "shot-frame.json"
+        path.write_text(json.dumps(workflow), encoding="utf-8")
+        workflow_from_file(str(path), str(tmp_path)).validate()
 
 
 SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")
