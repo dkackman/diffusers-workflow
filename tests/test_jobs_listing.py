@@ -131,7 +131,9 @@ def test_unknown_workspace_is_not_found_not_an_empty_listing(server, tmp_path):
 
         assert response.status_code == 404
         assert "No such workspace: qa-typo" in response.json()["detail"]
-        assert client.get("/api/jobs", params={"workspace": "default"}).status_code == 200
+        assert (
+            client.get("/api/jobs", params={"workspace": "default"}).status_code == 200
+        )
 
 
 def mcp_client(body):
