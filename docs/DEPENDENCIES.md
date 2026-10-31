@@ -16,7 +16,7 @@ source ./activate
 .\venv\scripts\activate
 ```
 
-The install scripts handle everything: Python version detection (3.10-3.14), virtual environment creation, PyTorch, diffusers, and all dependencies.
+The install scripts handle everything: Python version detection (3.12-3.14), virtual environment creation, PyTorch, diffusers, and all dependencies.
 
 ### Manual Installation
 
