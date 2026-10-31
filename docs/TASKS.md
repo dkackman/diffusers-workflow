@@ -529,7 +529,7 @@ add grain last so it is not itself sharpened:
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
-| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit`, `fps` (omitted: the input's rate; `"source"`: the source's; or a number) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -1095,8 +1095,10 @@ it goes straight to a pipeline's `video` or a reference condition's `frames`;
 saved, it is written as an mp4 at that rate. The `fit`
 record holds `mode`, `source_width`, `source_height`, `source_frames`,
 `model_width`, `model_height`, `model_frames`, `content_box` (where the source
-sits in the model frame) and `source_box` (the part of the source kept - all
-of it unless `mode` is `crop`), each box `{x, y, w, h}`.
+sits in the model frame), `source_box` (the part of the source kept - all
+of it unless `mode` is `crop`), each box `{x, y, w, h}`, and `source_fps`
+(the source's frame rate, `null` when it carries none). A record written
+before `source_fps` existed still restores.
 
 `restore_to_source` takes the pipeline's output and that record; it has no
 `scale` argument. The scale is the output's size over the fitted size and must
@@ -1107,6 +1109,17 @@ dropping the held ones (an output shorter than that is returned as it is).
 the source's pixel density times the scale: 640x480 fitted into 512x288
 restores to 640x360. A saved video keeps its exact size; only an odd side
 grows by one pixel, since the encoder needs even sides.
+
+`fps` sets the restored clip's frame rate; it never adds or drops a frame.
+Omitted, the clip keeps the rate it came in at - the pipeline's, which for a
+model that runs at a fixed rate is not the source's. `"source"` takes the
+record's `source_fps`, falling back to the input's rate when the record has
+none. A positive number sets that rate. Anything else is refused, at
+validation for a literal. A model that runs at 24 fps on an 8 fps clip
+returns one frame per source frame, so `"fps": "source"` writes it back at 8
+and it stays frame-aligned with the source in time as well as in count
+(`templates/ltx2/alpha-matte`, whose `frame_rate` variable defaults to
+`"source"` and passes through to this argument).
 
 Neither task carries a soundtrack. Pair the source's with `pair_audio` after
 the restore.

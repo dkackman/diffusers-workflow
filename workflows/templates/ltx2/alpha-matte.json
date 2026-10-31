@@ -1,6 +1,6 @@
 {
     "id": "LTX2AlphaMatte",
-    "description": "Pulls a soft per-frame alpha matte from the user's clip with the Alpha-Gen in-context LoRA - no green screen, mask or prompt; hair, smoke, motion blur and glass come back as partial values, not a hard cutout. The output is a grey-scale h264 MP4 at the source's own size and frame-aligned with it: white is foreground, black background. dw does not composite it: use it as the source's alpha (a luma matte) in an editor. The model picks the foreground itself and the prompt does not steer it, so the prompt is fixed empty and there is no prompt variable. A first step fits the source to 'width'/'height' and 'num_frames' by letterboxing (the black padding reads as background) and a last step crops the padding back off, so any aspect ratio comes back at its own size; a longer source is cut to its opening 'num_frames' frames, a shorter one held on its last frame and trimmed back. 'num_frames' is 8n+1 from 9 to 145 and refused above: past 145 the card says RGB content leaks into the matte. Defaults 960x544 at 121 frames, 24 fps - set 'frame_rate' to the source's. The card's ceiling is 1920x1088, which is not a 24 GB size. The LoRA strength is the card's fixed 1.0. A 0.9 preview weight, run here under uint4 SDNQ.",
+    "description": "Pulls a soft per-frame alpha matte from the user's clip with the Alpha-Gen in-context LoRA - no green screen, mask or prompt; hair, smoke, motion blur and glass come back as partial values, not a hard cutout. The output is a grey-scale h264 MP4 at the source's own size and frame-aligned with it: white is foreground, black background. dw does not composite it: use it as the source's alpha (a luma matte) in an editor. The model picks the foreground itself and the prompt does not steer it, so the prompt is fixed empty and there is no prompt variable. A first step fits the source to 'width'/'height' and 'num_frames' by letterboxing (the black padding reads as background) and a last step crops the padding back off, so any aspect ratio comes back at its own size; a longer source is cut to its opening 'num_frames' frames, a shorter one held on its last frame and trimmed back. 'num_frames' is 8n+1 from 9 to 145 and refused above: past 145 the card says RGB content leaks into the matte. The matte has one frame per source frame and is written at the source's own frame rate (the model itself runs at its 24 fps); 'frame_rate' overrides that rate, never the frame count. Defaults 960x544 at 121 frames. The card's ceiling is 1920x1088, which is not a 24 GB size. The LoRA strength is the card's fixed 1.0. A 0.9 preview weight, run here under uint4 SDNQ.",
     "summary": "Soft per-frame alpha matte of your clip: grey MP4, white = foreground, at the source's size. No prompt.",
     "traits": [
         "needs-input-media"
@@ -25,7 +25,7 @@
         "width": 960,
         "height": 544,
         "num_frames": 121,
-        "frame_rate": 24.0,
+        "frame_rate": "source",
         "seed": 42
     },
     "variable_constraints": {
@@ -164,7 +164,7 @@
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_frames": "variable:num_frames",
-                    "frame_rate": "variable:frame_rate",
+                    "frame_rate": 24.0,
                     "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
                     "guidance_scale": 1.0,
                     "audio_guidance_scale": 1.0,
@@ -199,7 +199,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": "variable:frame_rate",
+                "fps": 24.0,
                 "save": false
             }
         },
@@ -209,12 +209,12 @@
                 "command": "restore_to_source",
                 "arguments": {
                     "video": "previous_result:matte",
-                    "fit": "previous_result:fit.fit"
+                    "fit": "previous_result:fit.fit",
+                    "fps": "variable:frame_rate"
                 }
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": "variable:frame_rate",
                 "subfolder": "final"
             }
         }

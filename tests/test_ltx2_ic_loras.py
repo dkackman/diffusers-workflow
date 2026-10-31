@@ -121,7 +121,14 @@ class TestEachTemplateMatchesItsCard:
 
         assert (variables["width"], variables["height"]) == (width, height)
         assert variables["num_frames"] == frames
-        assert variables["frame_rate"] == 24.0
+        if name == "alpha-matte":
+            # #1079: the matte is written at the source's rate; the model
+            # itself still runs at its trained 24 fps
+            pipeline = conditioned_step(name)["pipeline"]
+            assert variables["frame_rate"] == "source"
+            assert pipeline["arguments"]["frame_rate"] == 24.0
+        else:
+            assert variables["frame_rate"] == 24.0
 
     def test_it_conditions_through_the_in_context_pipeline(self, name):
         pipeline = conditioned_step(name)["pipeline"]

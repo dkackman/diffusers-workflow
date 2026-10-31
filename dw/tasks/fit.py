@@ -34,9 +34,13 @@ import torch.nn.functional as F
 
 from ..media_types import AudioVideo, FittedVideo, JsonRecord
 from ..task_domains import (
+    SOURCE_FPS,
+    as_number,
     check_arguments,
     fit_downscale_problem,
     fit_mode_problem,
+    real_number,
+    restore_fps_problem,
     whole_number,
 )
 from .video_utils import frames_of, frames_as_array, load_audio_video
@@ -130,7 +134,8 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
         source_width/height/frames, model_width/height/frames, content_box
         (where the source sits in the model frame) and source_box (the part
         of the source kept; all of it unless mode is "crop"), each box
-        {x, y, w, h}}
+        {x, y, w, h}, and source_fps (the source's frame rate, null when it
+        carries none)}
     """
     command = "fit_to_model"
     width = whole_number(width, "width", command, required=True)
@@ -193,6 +198,8 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
             "model_frames": num_frames,
             "content_box": content_box,
             "source_box": source_box,
+            # restore_to_source's fps: "source" reads it back (#1079)
+            "source_fps": float(fps) if fps else None,
         }
     )
     logger.info(
@@ -244,10 +251,16 @@ def _read_fit(fit):
         raise refuse(
             f"its '{box_name}' {box} runs outside the {bound_w}x{bound_h} frame"
         )
+    # Absent from a record saved before #1079, which still restores
+    source_fps = fit.get("source_fps")
+    if source_fps is not None:
+        number = as_number(source_fps)
+        if isinstance(source_fps, str) or number is None or number <= 0:
+            raise refuse(f"its 'source_fps' is {source_fps!r}, not a rate above zero")
     return fit
 
 
-def restore_to_source(video, fit):
+def restore_to_source(video, fit, fps=None):
     """Task command: put a model's output back at its source's size and length.
 
     The scale is the model output's size over the fitted size, and must be
@@ -260,21 +273,39 @@ def restore_to_source(video, fit):
     are trimmed to the source's count, removing fit_to_model's held frames;
     an output shorter than that is returned as it is.
 
+    `fps` sets the rate the restored video carries. Omitted, it is the input
+    video's. "source" is the rate the fit record says the source carried
+    (`source_fps`), for a fixed-edit route whose output has to line up frame
+    for frame with its source (#1079); a source that carried none, or a
+    record saved without it, falls back to the input video's. A number is
+    that rate. No frames are added or dropped for it.
+
     Args:
         video: The model's output for the fitted video - an earlier step's
             video, or an `asset:`/`output:` reference
         fit: The record fit_to_model returned - previous_result:<step>.fit,
             or its saved .json
+        fps: The restored video's frame rate - omitted for the input video's,
+            "source" for the source's, or a number above zero
 
     Returns:
-        The restored video, float [0, 1], at the input video's fps and with
-        no soundtrack - pair the source's with pair_audio
+        The restored video, float [0, 1], at that fps and with no
+        soundtrack - pair the source's with pair_audio
     """
     command = "restore_to_source"
+    problem = restore_fps_problem(fps)
+    if problem is not None:
+        raise ValueError(problem)
     fit = _read_fit(fit)
     if isinstance(video, str):
         video = load_audio_video(video)
-    fps = getattr(video, "fps", None)
+    carried = getattr(video, "fps", None)
+    if fps is None:
+        fps = carried
+    elif fps == SOURCE_FPS:
+        fps = fit.get("source_fps") or carried
+    else:
+        fps = real_number(fps, "fps", command)
     frames = _float_frames(video, command)
     count, video_height, video_width = frames.shape[:3]
 
@@ -312,6 +343,6 @@ def restore_to_source(video, fit):
 
     logger.info(
         f"restore_to_source: {video_width}x{video_height}x{count} -> "
-        f"{out_w}x{out_h}x{len(restored)} ({mode}, {scale:g}x)"
+        f"{out_w}x{out_h}x{len(restored)} ({mode}, {scale:g}x, {fps} fps)"
     )
     return AudioVideo(restored.astype(numpy.float32), None, None, fps=fps)
