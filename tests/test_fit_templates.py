@@ -148,22 +148,26 @@ def eight_fps_clip(tmp_path, monkeypatch):
     return library
 
 
-class TestTheAlphaMatteKeepsTheSourcesRate:
-    """#1079: the model runs at its 24 fps, but the matte is written at the
-    source's own rate unless 'frame_rate' says otherwise. The real path:
-    the template expanded against an 8 fps asset, `fit` through the task
-    dispatch, the matte step's 24 fps output standing in for the pipeline,
-    and `final` run and saved through its own result definition."""
+@pytest.mark.parametrize(
+    "template,model_step",
+    [("alpha-matte", "matte"), ("restore-colorize", "colorized")],
+)
+class TestTheModelPassKeepsTheSourcesRate:
+    """#1079, #1080: the model runs at its 24 fps, but the output is written
+    at the source's own rate unless 'frame_rate' says otherwise. The real
+    path: the template expanded against an 8 fps asset, `fit` through the
+    task dispatch, the model step's 24 fps output standing in for the
+    pipeline, and `final` run and saved through its own result definition."""
 
     # A small working size keeps the stand-in matte cheap
     SMALL = {"width": 256, "height": 192, "num_frames": 25}
 
-    def written(self, tmp_path, **arguments):
+    def written(self, template, model_step, tmp_path, **arguments):
         from dw.media import video_shape
         from dw.media_types import AudioVideo
 
         workflow = workflow_from_file(
-            os.path.join(TEMPLATES, "alpha-matte.json"), str(tmp_path / "out")
+            os.path.join(TEMPLATES, f"{template}.json"), str(tmp_path / "out")
         )
         steps = workflow.expanded_definition(arguments=dict(self.SMALL, **arguments))
         steps = steps["steps"]
@@ -171,25 +175,27 @@ class TestTheAlphaMatteKeepsTheSourcesRate:
         steps = {step["name"]: step for step in steps}
         _, fit = run_fit(steps)
 
-        matte = Result(steps["matte"]["result"])
-        matte.add_result(
+        model = Result(steps[model_step]["result"])
+        model.add_result(
             AudioVideo(numpy.zeros((25, 192, 256, 3), numpy.float32), None, None, 24)
         )
         final = steps["final"]
         (task_arguments,) = get_iterations(
-            final["task"]["arguments"], {"fit": fit, "matte": matte}
+            final["task"]["arguments"], {"fit": fit, model_step: model}
         )
         output = Task(final["task"], "cpu").run(task_arguments)
         result = Result(final["result"])
         result.add_result(output)
         saved = tmp_path / "saved"
         saved.mkdir()
-        result.save(str(saved), "alpha-final.0")
+        result.save(str(saved), f"{template}-final.0")
         (name,) = [n for n in os.listdir(saved) if n.endswith(".mp4")]
         return video_shape(str(saved / name))
 
-    def test_the_default_writes_the_sources_rate(self, eight_fps_clip, tmp_path):
-        shape = self.written(tmp_path)
+    def test_the_default_writes_the_sources_rate(
+        self, template, model_step, eight_fps_clip, tmp_path
+    ):
+        shape = self.written(template, model_step, tmp_path)
 
         assert shape["fps"] == pytest.approx(8.0)
         assert (shape["width"], shape["height"], shape["frame_count"]) == (
@@ -199,9 +205,9 @@ class TestTheAlphaMatteKeepsTheSourcesRate:
         )
 
     def test_frame_rate_overrides_the_rate_not_the_frames(
-        self, eight_fps_clip, tmp_path
+        self, template, model_step, eight_fps_clip, tmp_path
     ):
-        shape = self.written(tmp_path, frame_rate=24)
+        shape = self.written(template, model_step, tmp_path, frame_rate=24)
 
         assert shape["fps"] == pytest.approx(24.0)
         assert shape["frame_count"] == SRC_FRAMES
