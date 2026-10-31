@@ -13,6 +13,7 @@ without one.
 """
 
 import json
+import re
 
 import pytest
 from fastapi.testclient import TestClient
@@ -99,14 +100,15 @@ def _document_is_inert(response):
 
 
 class TestActiveOutputs:
-    """A workflow - which an MCP agent may author - could write an .html or
-    .xml output, and /outputs needs no token and shares the UI's origin.
-    Validation and the writer refuse those two result types (dw/
+    """A workflow - which an MCP agent may author - could write an .html,
+    .xml or .svg output, and /outputs needs no token and shares the UI's
+    origin. Validation and the writer refuse every active result type (dw/
     content_types.py); a planted file still reaches /outputs, so it is
     served sandboxed."""
 
     @pytest.mark.parametrize(
-        "content_type", ["text/html", "text/xml", "Text/HTML; charset=utf-8"]
+        "content_type",
+        [*ACTIVE_TYPES, "Text/HTML; charset=utf-8", " Image/SVG+XML"],
     )
     def test_validation_refuses_it_at_its_path(self, monkeypatch, content_type):
         from dw.workflow import Workflow
@@ -123,7 +125,7 @@ class TestActiveOutputs:
         monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
         assert Workflow(_page(content_type), "", "").validation_errors() == []
 
-    @pytest.mark.parametrize("content_type", ["text/html", "text/xml"])
+    @pytest.mark.parametrize("content_type", ACTIVE_TYPES)
     def test_the_writer_refuses_it_without_validation(
         self, tmp_path, monkeypatch, content_type
     ):
@@ -133,11 +135,23 @@ class TestActiveOutputs:
 
         monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
         workflow = Workflow(_page(content_type), str(tmp_path / "out"), "")
-        with pytest.raises(InvalidInputError, match=content_type):
+        with pytest.raises(InvalidInputError, match=re.escape(content_type)):
             workflow.run({})
         assert not [
-            p for p in (tmp_path / "out").rglob("*") if p.suffix in (".html", ".xml")
+            p
+            for p in (tmp_path / "out").rglob("*")
+            if p.suffix in (".html", ".xhtml", ".xml", ".svg")
         ]
+
+    def test_validation_and_serving_name_the_same_types(self):
+        """One set decides both what is refused as a result and what /outputs
+        sandboxes - three of the five got through validation while the two
+        lists were kept apart (SE-F035)."""
+        from dw.content_types import ACTIVE_DOCUMENT_TYPES
+        from dw.server import http_security
+
+        assert ACTIVE_DOCUMENT_TYPES == frozenset(ACTIVE_TYPES)
+        assert http_security.ACTIVE_DOCUMENT_TYPES is ACTIVE_DOCUMENT_TYPES
 
     def test_the_api_refuses_to_queue_it(self, client):
         response = client.post("/api/jobs", json={"workflow": _page("text/html")})

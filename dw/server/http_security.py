@@ -13,16 +13,9 @@ from fastapi.responses import JSONResponse
 from starlette.routing import Match, Route
 
 # Types a browser renders as a document, where script runs: /outputs and
-# /inputs serve these under a CSP sandbox (_sandbox_active_content)
-ACTIVE_DOCUMENT_TYPES = frozenset(
-    {
-        "text/html",
-        "application/xhtml+xml",
-        "text/xml",
-        "application/xml",
-        "image/svg+xml",
-    }
-)
+# /inputs serve these under a CSP sandbox (_sandbox_active_content). Owned by
+# the engine, which refuses the same set as a result type
+from ..content_types import ACTIVE_DOCUMENT_TYPES  # noqa: F401
 
 
 def query_token_ok(fn):

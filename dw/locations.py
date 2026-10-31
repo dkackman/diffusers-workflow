@@ -70,8 +70,9 @@ MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 # dw/tasks/registry.py) and this is a view of them. Each gets the same
 # validate-time refusal as a media key, rather than only the loader's one at
 # run time (#630) - join_windows' `source`, the finishing commands' `media`
-# and apply_lut's `lut` (#635, SE-F044), and the face-track and fit commands'
-# `clip`, `repaired`, `track` and `fit` (#773, SE-F045)
+# and apply_lut's `lut` (#635, SE-F044), the face-track and fit commands'
+# `clip`, `repaired`, `track` and `fit` (#773, SE-F045), and the joining
+# commands' `videos` list (SE-F045, GHSA-75fh-g499-53cf)
 TASK_MEDIA_ARGUMENTS = RegistryTable("media_arguments")
 
 # Of those, the arguments read from a local file only: no loader fetches

@@ -867,6 +867,62 @@ class TestFaceTrackAndFitArguments:
         assert location_errors(definition, base_dir=workflow_dir) == []
 
 
+class TestVideosArgument:
+    """The joining commands' `videos` list - a plural no media key matches -
+    is refused at validation, entry by entry, rather than only by the loader
+    once the job is queued (SE-F045)."""
+
+    COMMANDS = ["join_windows", "concat_videos", "dissolve_videos"]
+
+    @staticmethod
+    def _step(command, videos):
+        return {
+            "steps": [
+                {
+                    "name": "probe",
+                    "task": {"command": command, "arguments": {"videos": videos}},
+                }
+            ]
+        }
+
+    @pytest.mark.parametrize("command", COMMANDS)
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "/etc/hostname",
+            "../../../../etc/hostname",
+            "http://127.0.0.1:8765/x.mp4",
+            "file:///etc/hostname",
+        ],
+    )
+    def test_an_unreadable_entry_is_an_error_at_its_index(
+        self, untrusted, workflow_dir, command, value
+    ):
+        definition = self._step(command, ["asset:a.mp4", value])
+
+        errors = location_errors(definition, base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == [
+            "steps[0].task.arguments.videos[1]"
+        ]
+        assert "'videos'" in errors[0]["message"]
+
+    @pytest.mark.parametrize("command", COMMANDS)
+    def test_a_scalar_is_checked_too(self, untrusted, workflow_dir, command):
+        errors = location_errors(
+            self._step(command, "/etc/hostname"), base_dir=workflow_dir
+        )
+
+        assert [error["path"] for error in errors] == ["steps[0].task.arguments.videos"]
+
+    @pytest.mark.parametrize("command", COMMANDS)
+    def test_references_are_left_alone(self, untrusted, workflow_dir, command):
+        definition = self._step(
+            command, ["asset:a.mp4", "output:wf/run/b.mp4", "previous_result:c"]
+        )
+        assert location_errors(definition, base_dir=workflow_dir) == []
+
+
 class TestOwnOutputHint:
     """#951: a bare manifest file name is refused with `output:` as the fix."""
 
