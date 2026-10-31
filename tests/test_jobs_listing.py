@@ -121,6 +121,19 @@ def test_unknown_status_is_a_bad_request(server):
         assert "finished" in response.json()["detail"]
 
 
+def test_unknown_workspace_is_not_found_not_an_empty_listing(server, tmp_path):
+    from dw.workspace import Workspace
+
+    with server(success_script) as client:
+        (tmp_path / "ws").mkdir()
+        client.app.state.workspace_root = Workspace(str(tmp_path / "ws"), "flag")
+        response = client.get("/api/jobs", params={"workspace": "qa-typo"})
+
+        assert response.status_code == 404
+        assert "No such workspace: qa-typo" in response.json()["detail"]
+        assert client.get("/api/jobs", params={"workspace": "default"}).status_code == 200
+
+
 def mcp_client(body):
     seen = {}
 
