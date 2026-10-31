@@ -71,6 +71,7 @@ def test_a_table_read_first_holds_the_self_registering_commands():
         "from dw.task_domains import TASK_ARGUMENT_DOMAINS, TASK_STATIC_CHECKS\n"
         "assert 'analyze_beats' in TASK_STATIC_CHECKS\n"
         "assert 'plan_cuts' in TASK_STATIC_CHECKS\n"
+        "assert 'analyze_phrases' in TASK_STATIC_CHECKS\n"
         "assert 'trim_video' in TASK_ARGUMENT_DOMAINS\n"
     )
     subprocess.run([sys.executable, "-c", script], check=True)

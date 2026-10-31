@@ -4,7 +4,7 @@ A domain (dw/task_domains.py) is one number against one range. What lives here
 is everything a single range cannot say: crop_face_track's crop size on the
 video model's frame grid, gate_zero above gate_full; analyze_beats' tempo range
 and anchors that are one kind and in time order; plan_cuts' transcript shape
-and render grid; apply_lut's one-of-two source and its palette; check_script's
+and render grid; analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
 `lines` and `shots`; ingredients_grid's choices and image count. Each family's
 `*_problems` function is the rule, and both sides call it - its `*_errors`
 static check (registered as the command's `static_check`, run by
@@ -542,6 +542,33 @@ def cuts_errors(arguments):
             if not is_ref(DEFERRED, arguments.get(name)):
                 literal[name] = arguments.get(name)
     return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
+
+
+def phrases_problems(centre=None):
+    """[(argument, message)] for each analyze_phrases rule these values break
+    past a domain: `centre` given as anything but true or false. A string
+    "false" would read as on; it is refused rather than guessed at."""
+    if centre is None or isinstance(centre, bool):
+        return []
+    return [
+        (
+            "centre",
+            "analyze_phrases needs 'centre' as true or false - true weights a "
+            "stereo file to its centre, false uses the band energy of the "
+            f"downmix - not {centre!r}",
+        )
+    ]
+
+
+def phrases_errors(arguments):
+    """[(argument, message)] for the analyze_phrases rules a literal workflow
+    can break before it runs (`phrases_problems`). Its numeric ranges - a
+    non-negative gap, a positive phrase length, a floor at or under 0 dBFS -
+    are the registration's domains."""
+    centre = arguments.get("centre")
+    if is_ref(DEFERRED, centre):
+        return []
+    return phrases_problems(centre=centre)
 
 
 # apply_lut's palette: 2..16 colours, each #rrggbb (#603 stage D)
