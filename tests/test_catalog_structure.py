@@ -71,6 +71,11 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "identity-referenced"],
     ),
+    # #1078: the take it edits is input media, and its soundtrack is held
+    "workflows/templates/minimax/regional-edit.json": (
+        "shot",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/minimax/dialogue-short.json": (
         "sequence",
         ["has-audio", "identity-referenced"],
@@ -500,7 +505,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 11_850 for the `alpha-matte` template (#1064, stage #1079,
 # 2026-10-31), measured at 11_788: one new entry, the catalog's only matte
 # route, with its cost block.
-COMPACT_BUDGET = 11_850
+# Then to 12_050 for the `minimax/regional-edit` template (#1062, stage #1078,
+# 2026-10-31), measured at 11_983: one new entry, the catalog's only regional
+# edit of a take, with its cost block.
+COMPACT_BUDGET = 12_050
 FILTERED_BUDGET = 1_500
 
 
