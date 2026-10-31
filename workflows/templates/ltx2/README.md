@@ -56,17 +56,19 @@ Read them in this order and each introduces one new idea on top of the last.
 
 ## Restoring footage you did not generate
 
-Both of these (and `upscale-clip` above) read a clip the workflow did not make, with the source attached
+These (and `upscale-clip` above) read a clip the workflow did not make, with the source attached
 as an in-context reference for the whole denoise - so identity, framing and
-background geometry are the source's and only the defect changes. A different
+background geometry are the source's and only the defect changes (or, for
+`alpha-matte`, the source is read and a matte drawn from it). A different
 trade from `two-stage`, which invents a sharper version of a scene it
-generated. Both are 0.9 preview weights trained at 960x544x121 @ 24fps;
-generating far above that bucket weakens the effect.
+generated. Deblur and decompression are 0.9 preview weights trained at
+960x544x121 @ 24fps; generating far above that bucket weakens the effect.
 
 | Example | What it introduces |
 | ------- | ------------------ |
 | [restore-deblur.json](restore-deblur.json) | Spatial defocus only - not motion blur, not noise, not low resolution. Lower `lora_scale` toward 0.8 if it over-sharpens into haloing (#152) |
 | [restore-decompression.json](restore-decompression.json) | Macroblocking, chroma bleed, ringing and banding from a low bit-rate source. Not a deblur and not an upscale (#152) |
+| [alpha-matte.json](alpha-matte.json) | A soft per-frame alpha matte of the source - grey h264, white = foreground, at the source's size - for compositing in an editor. No prompt: the Alpha-Gen card's model picks the foreground itself. `num_frames` caps at 145, past which RGB leaks into the matte; the card's 1920x1088 ceiling is not a 24 GB size (#1064) |
 | [restore-long.json](restore-long.json) | `restore-deblur` over a source longer than one bucket: `window_video` slices it, a `for_each` restores each window, `join_windows` cross-fades them back to the source's length. `windows` is `ceil(source_frames / (num_frames - overlap))` entries, checked by `validate_workflow` (#601) |
 
 ## Going long

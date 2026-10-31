@@ -497,7 +497,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 11_650 for the `remove-object` and `segment-and-remove` templates
 # (#956, stage #974, 2026-10-22), measured at 11_592: two new entries, the
 # catalog's only prompt-free removal route, each with a cost block.
-COMPACT_BUDGET = 11_650
+# Then to 11_850 for the `alpha-matte` template (#1064, stage #1079,
+# 2026-10-31), measured at 11_788: one new entry, the catalog's only matte
+# route, with its cost block.
+COMPACT_BUDGET = 11_850
 FILTERED_BUDGET = 1_500
 
 

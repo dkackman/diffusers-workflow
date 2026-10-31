@@ -12,6 +12,12 @@
     "default": 1.0
   },
   "status": "trial",
+  "evidence": [
+    {
+      "issue": 1064,
+      "note": "Not shipped as a template (#1064): the night look is steered by the prompt under the card's guided (dev/full) route, which dw's distilled IC route does not run, and the reference must be re-encoded to 24 fps first, which fit_to_model does not do. Reopen when dw has a guided IC route plus fps resampling in fit_to_model, or a field report asks for it"
+    }
+  ],
   "license": "other",
   "tags": [
     "relight",

@@ -28,6 +28,15 @@ TEMPLATES = os.path.join(REPO_ROOT, "workflows", "templates", "ltx2")
 # repo -> (weight file, reference downscale factor, trained width, height,
 #          trained frames, lora strength)
 CARDS = {
+    "alpha-matte": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen",
+        "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors",
+        1,
+        960,
+        544,
+        121,
+        1.0,
+    ),
     "reference-sheet": (
         "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
         "ltx-2.5-22b-ic-lora-ingredients-0.9.safetensors",
@@ -91,8 +100,12 @@ class TestEachTemplateMatchesItsCard:
         *_, strength = CARDS[name]
         (lora,) = conditioned_step(name)["pipeline"]["loras"]
         variables = definition(name)["variables"]
+        # Alpha-Gen's card fixes the strength, so its template writes it inline
+        scale = lora["scale"]
+        if isinstance(scale, str):
+            scale = variables[scale.removeprefix("variable:")]
 
-        assert variables[lora["scale"].removeprefix("variable:")] == strength
+        assert scale == strength
 
     def test_the_reference_is_encoded_at_the_output_resolution(self, name):
         """The conditioning LoRAs state downscale factor 1; the spatial
