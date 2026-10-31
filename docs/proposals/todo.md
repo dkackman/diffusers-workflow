@@ -419,6 +419,15 @@ remaining deferred fix is recorded in
   crops' own audio held. Record, including what was deferred (ref2va,
   tail-only padding, with their triggers):
   `complete/h3-face-repair-complete.md`.
+- **Dialogue/rest stems from htdemucs, in `series-episodes`** (#1091,
+  stage #1096), shipped 2026-10-31. An A/B on three H3 dialogue shots over a
+  Music 3 score (`audits/2026-11-dialogue-stems.md`) found `separate_stems`'
+  `vocals` within 0.1 dB of the dry shot; Don judged it good enough by ear,
+  so no new separator was built. The skill's *match_levels* bullet gives
+  dialogue its own gain: `vocals` as dialogue, `mix_audio` of the other three
+  stems as the rest, a three-track `mixed`, then `balanced`. Record,
+  including the deferred `separate_dialogue` task and its reopen trigger:
+  `complete/dialogue-stems-complete.md`.
 
 ## Declined
 

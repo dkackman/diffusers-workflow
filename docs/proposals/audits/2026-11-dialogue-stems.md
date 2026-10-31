@@ -252,5 +252,7 @@ The mixes the stems came from are each run's `intermediate/mix-0.0.wav`.
 
 ## Verdict
 
-Pending Don's listening. A `series-episodes` paragraph is written only if the
-verdict is "good enough" (plan v2, stage A).
+**Good enough** (Don, by ear, 2026-10-31, on the mix, `vocals` and rest of
+button, tag and deflect). htdemucs stands as the dialogue/rest splitter; the
+recipe is in the `series-episodes` skill's *match_levels* bullet, and no
+dedicated separator was built (`../complete/dialogue-stems-complete.md`).
