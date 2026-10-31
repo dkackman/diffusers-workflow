@@ -236,6 +236,9 @@ def list_jobs(
     complete one. The default is still every matching job, oldest first -
     what the web UI polls."""
     manager = request.app.state.job_manager
+    if workspace:
+        # A name that was never a workspace is a typo, not "no jobs here"
+        workspace_for(request.app.state, workspace)
     statuses = [part.strip() for part in status.split(",")] if status else None
     statuses = [part for part in statuses if part] if statuses else None
     if statuses:
