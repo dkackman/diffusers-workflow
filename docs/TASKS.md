@@ -2329,6 +2329,19 @@ The model is fixed (`htdemucs`, run in fp32), its weights download on first
 use, and it needs the `demucs` package. On MPS a failed separation falls back
 to the CPU and warns (`separation_cpu_fallback`).
 
+**Dialogue and the rest.** The same split takes a dialogue shot apart from a
+score mixed under it: `vocals` is the dialogue and `drums` + `bass` + `other`,
+summed with `mix_audio`, is the rest. Measured on H3 shots under a Music 3
+score, the `vocals` stem matched the dry shot within 0.1 dB rms, and the
+score's leak into it sat about 30 dB under the bed
+([record](proposals/audits/2026-11-dialogue-stems.md)). The rest is not a
+clean score, though: htdemucs puts a shot's own SFX and foley in `drums` and
+`other`, so they come out with the music. Keep the score file when the goal is
+to replace the music. Transcribing the `vocals` stem also gives the line where
+transcribing the dry shot can loop on a hallucination; a speechless shot gives
+a near-silent `vocals` stem and an invented transcript, so judge "no dialogue"
+by the stem's level. Single-speaker dialogue doesn't raise `stacked_vocals`.
+
 **Stacked vocals.** A chorus is often recorded as layered stereo doubles - every
 Music 3 chorus is - and htdemucs returns all of them in the one `vocals` stem.
 When the stem's left and right channels sing different lines over a sung span,
@@ -2441,9 +2454,10 @@ picking better-separated reference spans is the fix, not reading past it.
 
 Both models are fixed - there is no model-name argument - and both run in
 fp32 (their STFT front ends are fp32-only in practice, and both are small
-enough that it costs nothing). Weights download on first use - htdemucs from
-Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
-and are cached between calls like any other model. On MPS a `separate: true`
+enough that it costs nothing). Weights download on first use - htdemucs
+through demucs' own downloader (from `dl.fbaipublicfiles.com` into the torch
+hub cache, outside the Hugging Face cache), ECAPA from speechbrain - and are
+cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
 
