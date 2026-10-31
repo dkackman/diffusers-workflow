@@ -161,7 +161,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
         ),
         "mode": (
             "letterbox (scale to fit, centred on black), stretch (resize to "
-            "fill exactly) or crop (scale to fill, centre-crop)."
+            "fill exactly) or crop (scale to fill, centre-crop). crop is also "
+            "how to reframe a clip to another aspect (16:9 to 9:16) - see "
+            'TASKS.md "Reframe to another aspect".'
         ),
         "downscale": (
             "Fit into width/downscale x height/downscale instead, default 1 - "

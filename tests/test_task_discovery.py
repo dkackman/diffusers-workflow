@@ -63,6 +63,14 @@ class TestDescribeTask:
         assert by_name["mode"]["choices"] == ["letterbox", "stretch", "crop"]
         assert by_name["mode"]["default"] == "letterbox"
 
+    def test_fit_to_model_mode_names_crop_as_the_reframe(self):
+        # #1085: the served mode text, not the fit.py docstring, is what
+        # get_task shows, so the reframe pointer must live there.
+        description = describe_task("fit_to_model")
+        mode = {p["name"]: p for p in description["parameters"]}["mode"]
+        assert "reframe a clip to another aspect" in mode["description"]
+        assert "Reframe to another aspect" in mode["description"]
+
     def test_restore_to_source_lists_video_and_fit(self):
         names = self.names(describe_task("restore_to_source"))
         assert "video" in names
