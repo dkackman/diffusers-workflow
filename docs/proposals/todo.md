@@ -383,6 +383,16 @@ remaining deferred fix is recorded in
   template were not built. Record, with the design and what would reopen it
   (a lighter H3 build, or #1045's guide path):
   `complete/chain-follow-video-complete.md`.
+- **H3 regional edit** (#1062, stages #1077-#1078), shipped 2026-10-31. An
+  H3 step takes a `source_video` and a `mask_image` or `mask_video`, with
+  `mask_grow`. Two dw blocks (a source encode, and a mask blend inside the
+  denoise loop) regenerate the masked patch cells and keep the rest of the
+  take and its soundtrack. Strength bands are measured: 0.9 replaces an
+  object, 0.95 reworks clothing, and 1.0 is a fresh generation. Ships the
+  `templates/minimax/regional-edit` template and a `minimax-h3` skill
+  branch. Record, including what was deferred (audio intervals, masked
+  tiles, chains, upstream `denoise_mask`):
+  `complete/h3-regional-edit-complete.md`.
 
 ## Declined
 
