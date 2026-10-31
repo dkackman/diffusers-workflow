@@ -64,7 +64,7 @@ def refine_problems(arguments, canvas=None):
             f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
             f"upscaled take - and {strength} is outside it"
         )
-    if arguments.get("latents") is None:
+    if arguments.get("latents") is None and arguments.get(SOURCE_VIDEO_INPUT) is None:
         problems.append(
             "refine_strength re-denoises the 'latents' it is passed - pass the "
             "upscaled latents, e.g. 'previous_result:up'"
@@ -101,7 +101,15 @@ H3_FPS = 24
 
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
-TILE_CONFLICTS = ("image", "last_image", "references", "guides")
+TILE_CONFLICTS = (
+    "image",
+    "last_image",
+    "references",
+    "guides",
+    "source_video",
+    "mask_video",
+    "mask_image",
+)
 
 
 def _is_int(value):
@@ -436,3 +444,120 @@ def guide_end_problem(frame, length, num_frames):
             f"{frame + length}, past the end of the {num_frames}-frame render"
         )
     return None
+
+
+# Regional edit (#1062): re-denoise a `source_video` from `refine_strength`,
+# holding every row outside a mask to the source at each step's sigma
+# (dw/pipeline_processors/h3_mask.py)
+SOURCE_VIDEO_INPUT = "source_video"
+MASK_VIDEO_INPUT = "mask_video"
+MASK_IMAGE_INPUT = "mask_image"
+MASK_GROW_INPUT = "mask_grow"
+MASK_INPUTS = (MASK_VIDEO_INPUT, MASK_IMAGE_INPUT)
+REGIONAL_EDIT_INPUTS = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, MASK_GROW_INPUT)
+# Patch cells a mask is widened by past what it covers, so the edit's seam
+# lands in regenerated rows rather than against a kept one
+MASK_GROW_DEFAULT = 1
+# A mask pixel at or above this reads as white - regenerate (remove_object's)
+MASK_THRESHOLD = 128
+# The mask as the source block takes it: (frames, height, width) bool, True to
+# regenerate - what Pipeline._with_mask turns either mask argument into
+REGENERATE_MASK = "dw_regenerate_mask"
+SOURCE_BLOCK = "dw_source_latents"
+SOURCE_BEFORE = HOLD_BEFORE
+BLEND_BLOCK = "dw_mask_blend"
+# The loop sub-block the blend follows, inside the core sequence's `denoise`
+BLEND_AFTER = "update"
+SOURCE_ROWS = "dw_source_rows"
+KEEP_ROWS = "dw_keep_rows"
+# The refine block's re-noise of the generated rows, packed - the noise the
+# blend re-noises the kept rows with, so they ride the same trajectory
+REFINE_ROW_NOISE = "dw_refine_row_noise"
+
+
+def is_h3_step(pipeline):
+    """Whether a step's pipeline is known to be H3 before the load - its
+    `from_pretrained` `workflow` is one of H3's three."""
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    return isinstance(workflow, str) and workflow in H3_WORKFLOWS
+
+
+def edits_region(arguments, h3):
+    """Whether a step's arguments ask for a regional edit. `mask_image` and
+    `mask_video` are diffusers inpaint arguments too, so on a pipeline not
+    known to be H3 (`h3` false) only `source_video` does."""
+    if _given(arguments, SOURCE_VIDEO_INPUT):
+        return True
+    return h3 and any(_given(arguments, name) for name in REGIONAL_EDIT_INPUTS)
+
+
+def _given(arguments, name):
+    return arguments.get(name) is not None
+
+
+def mask_problems(arguments, chained=False):
+    """Why this step's regional edit - `source_video`, `mask_video` or
+    `mask_image`, `mask_grow` - cannot run, as a list; empty when it can or
+    cannot be told yet. The one owner of the argument rules: the static check
+    (dw/hold_audio.py `mask_errors`) and the run-time check before the call
+    (`Pipeline._with_mask`) both ask it. What needs the media itself - its size
+    and frame count against the canvas, an empty mask - is `media_problems`
+    and `Pipeline._with_mask`. `chained` is whether the step is a chain."""
+    masks = [name for name in MASK_INPUTS if _given(arguments, name)]
+    source = _given(arguments, SOURCE_VIDEO_INPUT)
+    grow = arguments.get(MASK_GROW_INPUT)
+    if not masks and not source and grow is None:
+        return []
+    problems = []
+    if len(masks) > 1:
+        problems.append(
+            "pass mask_video or mask_image, not both - mask_image holds one mask "
+            "for every frame"
+        )
+    if masks and not source:
+        problems.append(
+            f"{masks[0]} marks what to regenerate in a 'source_video' - pass the "
+            f"video to edit"
+        )
+    if grow is not None and not masks:
+        problems.append(
+            "mask_grow widens a mask_video or mask_image, and this step passes neither"
+        )
+    elif grow is not None and not _deferred(grow) and (not _is_int(grow) or grow < 0):
+        problems.append(
+            f"mask_grow is a whole number of patch cells, 0 or more, not {grow!r}"
+        )
+    if source and arguments.get(REFINE_STRENGTH_INPUT) is None:
+        problems.append(
+            "source_video is re-denoised from 'refine_strength' - pass one, near "
+            "1.0 to replace what the mask covers, lower to keep its layout"
+        )
+    if source and _given(arguments, "latents"):
+        problems.append("source_video stands in for 'latents' - pass one or the other")
+    if source and chained:
+        problems.append(
+            "a regional edit re-denoises one source_video, and a chained step "
+            "renders several segments - use an unchained step"
+        )
+    return problems
+
+
+def media_problems(name, shape, width, height, num_frames=None):
+    """Why a `source_video` or mask of `shape` - (frames, height, width) -
+    does not fit a `width` x `height` canvas, as a list. `num_frames` is the
+    step's frame count, when it is known; a `mask_image` (one frame) fits any."""
+    problems = []
+    if (width, height) != (shape[2], shape[1]):
+        problems.append(
+            f"{name} is {shape[2]}x{shape[1]}, and the step renders "
+            f"{width}x{height} - they must match"
+        )
+    if num_frames is not None and name != MASK_IMAGE_INPUT and shape[0] != num_frames:
+        problems.append(
+            f"{name} has {shape[0]} frames, and the step renders num_frames="
+            f"{num_frames} - they must match"
+        )
+    return problems

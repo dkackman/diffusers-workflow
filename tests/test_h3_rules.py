@@ -50,7 +50,7 @@ def test_h3_rules_imports_neither_torch_nor_diffusers():
     assert _imported_heavy_modules() == ""
 
 
-@pytest.mark.parametrize("module", ["h3_hold", "h3_guides"])
+@pytest.mark.parametrize("module", ["h3_hold", "h3_guides", "h3_mask"])
 def test_the_block_owners_import_no_diffusers(module):
     # Their blocks are h3_hold_steps and h3_guide_steps, which import diffusers
     # when they load: validation imports h3_guides, so those wait for a block

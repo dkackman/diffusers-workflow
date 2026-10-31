@@ -48,6 +48,7 @@ from .h3_rules import (
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
     REFINE_NOISE,
+    REFINE_ROW_NOISE,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
 )
@@ -345,6 +346,8 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
             OutputParam("timesteps", type_hint=torch.Tensor),
             OutputParam("audio_timesteps", type_hint=torch.Tensor),
             OutputParam("row_timestep_plan", type_hint=list),
+            # The packed re-noise, for a regional edit's kept rows (h3_mask.py)
+            OutputParam(REFINE_ROW_NOISE, type_hint=torch.Tensor),
         ]
 
     @torch.no_grad()
@@ -424,6 +427,7 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                 components.scheduler.scale_noise(clean, 1 - strength, noise),
             ]
         )
+        setattr(block_state, REFINE_ROW_NOISE, noise)
 
         logger.info(
             f"Refining from sigma {strength} over {len(block_state.timesteps)} steps"
