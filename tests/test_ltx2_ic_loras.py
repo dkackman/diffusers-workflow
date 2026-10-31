@@ -302,3 +302,24 @@ class TestTheAlphaMatteKeepsItsDecodersOffTheCard:
         assert pipeline_identity(conditioned_step("alpha-matte")) == (
             pipeline_identity(conditioned_step("restore-deblur"))
         )
+
+
+class TestTheAlphaMatteSaysAShotCutLeaks:
+    """#1079 (plan v8, Q9 (a)): at the 145-frame cap the matte leaked source
+    texture on the frame just after a hard cut, so the description and the
+    skill row tell the caller to matte one shot at a time."""
+
+    def test_the_description_says_it(self):
+        with open(os.path.join(TEMPLATES, "alpha-matte.json")) as f:
+            description = json.load(f)["description"]
+
+        assert "hard cut" in description
+        assert "one shot at a time" in description
+
+    def test_the_skill_row_says_it(self):
+        path = os.path.join(REPO_ROOT, "plugins", "dw", "skills", "ltx-2.5", "SKILL.md")
+        with open(path) as f:
+            row = f.read().split("templates/ltx2/alpha-matte")[1].split("\n- ")[0]
+
+        assert "hard cut" in row
+        assert "one shot" in row

@@ -51,6 +51,8 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   rate (`frame_rate` overrides the rate, never the frame count), for the
   user's editor to composite. No prompt: the model picks the foreground and
   a prompt doesn't steer it. `num_frames` caps at 145 (RGB leaks past it).
+  A hard cut leaks source texture into the frames after it: matte one shot
+  at a time.
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
   artefacts. Each inverts one defect and no other - neither upscales or
