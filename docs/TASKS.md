@@ -2043,6 +2043,63 @@ out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past
 the song's end, or a `beat_index` past the detected count, at run start.
 It returns JSON, so `result` may only be `application/json`.
 
+### analyze_phrases
+
+Find when a song's sung phrases start and stop, from voiced energy alone - no
+Whisper, no model download, seconds of runtime. Where Whisper cannot hear the
+words (a non-English verse, a hallucinated transcript, wordless vocals) this
+still says when the lines are sung. Feed it the vocal stem where there is one;
+the result is JSON and nothing is built:
+
+```json
+{
+    "name": "phrases",
+    "task": {
+        "command": "analyze_phrases",
+        "arguments": {
+            "audio": "previous_result:stems.vocals"
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The song or its vocal stem: a path, `asset:`/`output:` reference of an audio or video file, a waveform, or an earlier step's generated audio (`previous_result:<separate_stems step>.vocals`) |
+| `min_gap_seconds` | No | A silence shorter than this between voiced runs is bridged into one phrase (default `0.35`). Raise it to merge phrases split by breaths, lower it to split lines sung close together. At least 0 |
+| `min_phrase_seconds` | No | A phrase shorter than this, after bridging, is dropped as a click or breath (default `0.3`). Above 0 |
+| `floor_db` | No | The level, in dBFS of a 20 ms frame, a frame must reach to count as voiced. Unset, it is the track's 95th-percentile frame less 35 dB, never below -60 dBFS (the floor `attribute_voices` uses). At or below 0 |
+| `centre` | No | `true` (the default) weights a stereo file to its centre, where a lead vocal is mixed; `false` uses the band energy of the downmix. A real boolean - `"false"` is refused |
+| `sample_rate` | With a waveform | Rate of a directly passed waveform (files carry their own) |
+
+Returns `{phrases: [{start, end}], duration_seconds, method, warnings}`, in
+seconds rounded to 0.01; the phrases ascend and do not overlap.
+
+- **`method: "centre"`** (stereo, `centre: true`): mid = (L+R)/2 and side =
+  (L-R)/2 are both bandpassed to 250-3500 Hz, and a 20 ms frame's power is
+  max(0, P_mid - P_side), smoothed over three frames. What is panned away from
+  the centre cancels, so a hard-panned guitar or noise bed does not read as
+  singing - and a vocal panned hard to one side does not either: use
+  `centre: false` for it.
+- **`method: "band"`**: the band energy of the downmix, for a mono file (which
+  also warns), for `centre: false`, and for a stereo file whose channels are
+  the same (it has no side to cancel, so no warning).
+
+A frame is voiced at or above the floor; gaps shorter than `min_gap_seconds`
+are bridged, then runs shorter than `min_phrase_seconds` are dropped.
+
+Warnings: no phrases found (a silent track, or one whose loudest frame is
+under -50 dBFS in the voice band - room tone, hiss - unless `floor_db` is
+given); and one phrase covering more than 90% of the track, which is usually
+a dense mix whose centred bass and kick fill the voice band: feed it
+`separate_stems`' `vocals` instead. `warnings` repeats what was emitted.
+
+Refused at `validate_workflow`: a missing `audio`, a negative
+`min_gap_seconds`, a `min_phrase_seconds` at or below 0, a `floor_db` above 0,
+and a `centre` that is not `true` or `false`; the run refuses the same.
+It returns JSON, so `result` may only be `application/json`.
+
 ### plan_cuts
 
 Plan a music video's cuts from a song's lyrics and beats. `transcribe_audio`

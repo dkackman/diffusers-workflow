@@ -203,3 +203,29 @@ class TestAnalyzeBeatsRegistration:
         assert info["implementation"] == "dw.tasks.beats.analyze_beats"
         assert info["returns"] == "json"
         assert "assessment" not in info
+
+
+class TestAnalyzePhrasesRegistration:
+    def test_analyze_phrases_is_registered_as_a_json_answer(self):
+        from dw.tasks.task import task_command_info
+
+        info = task_command_info("analyze_phrases")
+        assert info["implementation"] == "dw.tasks.phrases.analyze_phrases"
+        assert info["returns"] == "json"
+        assert "assessment" not in info
+
+    def test_its_arguments_are_described(self):
+        by_name = {p["name"]: p for p in describe_task("analyze_phrases")["parameters"]}
+        assert set(by_name) >= {
+            "audio",
+            "min_gap_seconds",
+            "min_phrase_seconds",
+            "floor_db",
+            "centre",
+        }
+        assert by_name["audio"]["required"]
+        assert by_name["min_gap_seconds"]["default"] == 0.35
+        assert by_name["min_phrase_seconds"]["default"] == 0.3
+        assert by_name["floor_db"]["default"] is None
+        assert by_name["centre"]["default"] is True
+        assert "bridged" in by_name["min_gap_seconds"]["description"]
