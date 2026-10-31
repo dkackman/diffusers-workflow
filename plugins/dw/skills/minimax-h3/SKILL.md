@@ -6,7 +6,6 @@ description: Use when a dw MCP server is connected and the user wants MiniMax H3
 # MiniMax H3 on a dw server
 
 H3 generates video and audio together. Every template fits a 24 GB card.
-This skill picks the template and arguments; prompt format is MiniMax's.
 
 ## Before anything
 
@@ -42,6 +41,7 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   section="H3: holding a clip with `guides`")`.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
+- **A good take with a soft small face**: `templates/minimax/face-repair`.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for

@@ -508,7 +508,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 12_050 for the `minimax/regional-edit` template (#1062, stage #1078,
 # 2026-10-31), measured at 11_983: one new entry, the catalog's only regional
 # edit of a take, with its cost block.
-COMPACT_BUDGET = 12_050
+# Then to 12_250 for the `minimax/face-repair` template (#1092, stage #1099,
+# 2026-10-31), measured at 12_171: one new entry, the catalog's only face
+# repair that holds an H3 take's soundtrack, with its cost block.
+COMPACT_BUDGET = 12_250
 FILTERED_BUDGET = 1_500
 
 
