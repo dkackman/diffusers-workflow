@@ -117,6 +117,12 @@ the hosted API accept 4. Output audio is 32 kHz stereo.
 | [first-and-last-frame.json](first-and-last-frame.json) | Pinning both ends - `image` and `last_image` - so the model interpolates between two fixed states |
 | [last-frame-only.json](last-frame-only.json) | Pinning the end alone - the model invents the approach to a picture you already have |
 
+## Editing a take
+
+| Example | What it introduces |
+| ------- | ------------------ |
+| [regional-edit.json](regional-edit.json) | Fixing one region of a good take: `source_video` is the take, a `mask_image` marks what to regenerate (white) and keep (black), `refine_strength` 0.9 replaces an object there, and `hold_audio` is the take itself, so the rest of the picture and the whole soundtrack stay the take's |
+
 ## Writing the prompt with a model
 
 | Example | What it introduces |

@@ -7,6 +7,7 @@ it, and the plugin's version has to be the engine's - an installed skill is
 matched to the server it was written against by that number.
 """
 
+import copy
 import glob
 import inspect
 import json
@@ -546,6 +547,72 @@ class TestMiniMaxH3Skill:
         text = skill_text(H3_SKILL)
         for frames in ceilings.values():
             assert str(frames) in text
+
+    def test_the_regional_edit_branch_is_the_template_s_and_the_guide_s(self):
+        """#1078: "fix one region of a good take" sends an agent to a template
+        whose edit step the engine's own checks pass, at the strength and grain
+        the guide measured."""
+        from dw.hold_audio import (
+            hold_audio_errors,
+            mask_errors,
+            refine_strength_errors,
+        )
+        from dw.pipeline_processors import h3_mask
+
+        text = skill_text(H3_SKILL)
+        assert "`templates/minimax/regional-edit`" in text
+        assert "`references/regional-edit.md`" in text
+        with open(
+            os.path.join(os.path.dirname(H3_SKILL), "references", "regional-edit.md")
+        ) as f:
+            reference = f.read()
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "regional-edit.json"
+        )
+        with open(path) as f:
+            template = json.load(f)
+        variables = template["variables"]
+        assert variables["refine_strength"] == 0.9
+        # 5: the 4-step turbo file plus the terminal zero, the bands' step count
+        assert variables["num_inference_steps"] == 5
+        (step,) = template["steps"]
+        pipeline = step["pipeline"]
+        assert pipeline["from_pretrained_arguments"]["workflow"] == "t2va"
+        arguments = pipeline["arguments"]
+        assert arguments["source_video"] == "variable:source_video"
+        assert arguments["mask_image"] == "variable:mask_image"
+        assert arguments["hold_audio"] == "variable:source_video"
+        assert arguments["refine_strength"] == "variable:refine_strength"
+
+        # The engine's static checks on the substituted step: the arguments
+        # rules pass (the placeholder assets are not on disk, so no probe)
+        substituted = copy.deepcopy(template)
+        for name, value in substituted["steps"][0]["pipeline"]["arguments"].items():
+            if isinstance(value, str) and value.startswith("variable:"):
+                substituted["steps"][0]["pipeline"]["arguments"][name] = variables[
+                    value.removeprefix("variable:")
+                ]
+        assert mask_errors(substituted) == []
+        assert refine_strength_errors(substituted) == []
+        assert hold_audio_errors(substituted) == []
+
+        # The bands and the grain are the guide's section, word for word
+        guide = open(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md")).read()
+        section = guide.split("#### Choosing refine_strength for a regional edit")[1]
+        section = section.split("\n#")[0]
+        assert "seed 1062, 5 turbo steps" in section and "seed 1062" in reference
+        assert "`video_shift` 6" in section and "`video_shift` 6" in reference
+        for strength in ("0.85 or less", "| 0.9 |", "| 0.95 |", "| 1.0 |"):
+            assert strength in section and strength in reference
+        assert (
+            "did not land below 1.0" in section
+            and "did not land below 1.0" in reference
+        )
+        # Both wrap their prose, so the grain is matched with the lines joined
+        assert "16 px times the patch size" in " ".join(guide.split())
+        assert "16 px times the patch size" in " ".join(reference.split())
+        assert "`16 * patch`" in inspect.getsource(h3_mask)
 
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")

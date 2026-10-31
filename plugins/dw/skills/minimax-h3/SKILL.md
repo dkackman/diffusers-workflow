@@ -14,7 +14,7 @@ This skill picks the template and arguments; prompt format is MiniMax's.
    run on mps) and the session's workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
    `list_workflows(shape="audio")`: the family's templates by name,
-   `summary`, `traits`, `cost`. Trust the listing over names below.
+   `summary`, `traits`, `cost`; it outranks names below.
 3. `get_workflow` on the one chosen: its variables and defaults.
 
 ## Which shape is the request
@@ -40,6 +40,8 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   copies the take, and a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
+- **Fix one region of a good take** (the rest and audio stay):
+  `templates/minimax/regional-edit`; first `references/regional-edit.md`.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
@@ -49,7 +51,7 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
-  past that, the cuts pattern.
+  past that, cuts.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
@@ -58,8 +60,7 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   The guide prefix is trimmed off the deliverable (`trim_frames` and the
   crossfade do not apply). `carry_audio` (default true, a chain-block setting)
   holds the previous tail's audio. Guide only here: the reference chains
-  (`chain-video-continuity`, `chain-matched-and-aligned`, `music-video`) are
-  ref2va, and guides stay off ref2va),
+  are ref2va, and guides stay off ref2va),
   `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
@@ -123,12 +124,12 @@ section).
   `match_audio` chains pass it, can sing shifted beats off the track; `music-video`
   holds each slice as well by default, and the chains' `hold_audio` variable adds a
   hold (`references/cuts.md`, #795, #808).
-- H3 is guidance-distilled: no `guidance_scale` or negative prompt.
+- Guidance-distilled: no `guidance_scale` or negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
   H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
-- Timestamps in the prompt span the generated length.
+- Prompt timestamps span the generated length.
 
 ## Prompts
 
@@ -154,7 +155,7 @@ A wanted look (clay, paper): `references/style.md`.
 
 ## Run and judge
 
-1. `validate_workflow` first - free, catches rejected arguments.
+1. `validate_workflow` first: free, catches rejected arguments.
 2. Quote `plan.estimate` from the validate answer (warm minutes; a first
    load or `downloads_required` is longer). When `basis` is `unknown`,
    say so and give the shape: a 124-frame turbo clip is a few minutes
@@ -166,7 +167,7 @@ A wanted look (clay, paper): `references/style.md`.
    (`timeout_capped` says the server's cap cut it; call again while
    `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
    to its next step boundary. Silence is no hang: `denoise_step` is null
-   in the lead-in (encode ~6 s img, ~50 s video; 1st pass
+   at first (encode ~6 s img, ~50 s video; 1st pass
    dominates: 165-508 s) and the block cache makes later steps uneven -
    two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
@@ -182,8 +183,8 @@ A wanted look (clay, paper): `references/style.md`.
    and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone:
    `find_loop_bed` the `output:` cut, then `slice_audio`->`loop_audio`->`mix_audio`
    its pick at its `gain`.
-   Then `get_gallery_metadata` for duration/audio presence and hand the
-   user the gallery `url` (`list_gallery`). `get_output_image` is for image
+   Then `get_gallery_metadata` for duration/audio and hand the
+   user the gallery `url`. `get_output_image` is for image
    steps only.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
