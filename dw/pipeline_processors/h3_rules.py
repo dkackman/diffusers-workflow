@@ -76,8 +76,8 @@ def refine_problems(arguments, canvas=None):
         if not 0 < strength <= 1:
             problems.append(
                 f"refine_strength is a sigma in (0, 1] with a source_video - 1.0 "
-                f"regenerates the masked region from noise, about 0.4 reworks it "
-                f"lightly - and {strength} is outside it"
+                f"regenerates the masked region from noise, about 0.9 replaces an "
+                f"object in it - and {strength} is outside it"
             )
     elif not 0 < strength < 1:
         problems.append(

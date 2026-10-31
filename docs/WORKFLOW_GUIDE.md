@@ -2535,8 +2535,9 @@ To change part of a take and keep the rest, pass a video as `source_video` on an
 `t2va`, `fl2va` or `ref2va` step. It is a path, `asset:`, `output:` or `previous_result:`
 reference to a video, and it stands in for the `latents` of a refine: the step VAE-encodes
 it over the generated rows and re-denoises from `refine_strength`, which is required and
-in (0, 1]: 1.0 regenerates the masked region from pure noise, about 0.4 reworks it lightly
-and keeps its layout. (Without a `source_video` the refine's range stays (0, 1).) With no
+in (0, 1]: 1.0 regenerates the masked region from pure noise, and about 0.9 replaces an
+object in it (see [Choosing refine_strength for a regional
+edit](#choosing-refine_strength-for-a-regional-edit)). (Without a `source_video` the refine's range stays (0, 1).) With no
 mask the whole source is refined.
 
 ```json
@@ -2544,9 +2545,9 @@ mask the whole source is refined.
     "source_video": "asset:fox_dawn.mp4",
     "mask_image": "asset:fox_mask.png",
     "mask_grow": 1,
-    "refine_strength": 0.6,
+    "refine_strength": 0.9,
     "hold_audio": "asset:fox_dawn.mp4",
-    "prompt": "the fox wears a red scarf, same light and motion"
+    "prompt": "the fox holds a pine cone in its mouth, same light and motion"
 }
 ```
 
@@ -2561,6 +2562,34 @@ other row is written back as the source noised to that step's sigma, with the re
 noise, so at the end it is the source latent. The decode still round-trips it through the
 VAE, so kept pixels are near-identical to the source, not bit-identical. A higher
 `refine_strength` replaces what the mask covers, a lower one keeps its layout.
+
+#### Choosing refine_strength for a regional edit
+
+The useful range sits high. Measured on one take (a 960x544, 124-frame H3 shot of a woman
+holding a cup, the mask over the middle of the frame around her and the cup, `mask_grow` 1), seed 1062, 5 turbo steps,
+`video_shift` 6, with a prompt asking for a bright red raincoat:
+
+| `refine_strength` | Inside the mask | Inside-mask SSIM vs the source |
+|---|---|---|
+| 0.85 or less | A light rework: re-detailed, the source's objects and colours stay | 0.86 at 0.8, 0.83 at 0.85 |
+| 0.9 | A held object is replaced (the cup became a domed sundae cup); the same person, pose and clothing | 0.78 |
+| 0.95 | Clothing is reworked too (a hooded navy jacket) and the object replaced; face, hair and pose mostly hold | 0.65 |
+| 1.0 | A fresh generation: the prompt lands in full, but a different person and composition | 0.44 |
+
+Outside the mask held at every strength (SSIM about 0.98 on a crop outside it). So:
+0.9 to replace an object, 0.95 to rework clothing, 0.85 or less for a light rework. A large
+recolour of a big region, such as a dark top to a bright red coat, did not land below 1.0,
+and 1.0 gives up the region's identity: that is a fresh generation, not a regional edit.
+
+Why the numbers sit high: `refine_strength` is the starting sigma σ₀ on the **shifted**
+grid, the same as for any refine (and `refine_tiles`). The scheduler's shift maps the
+unshifted position u to σ = shift·u / (1 + (shift − 1)·u), so the start point on the
+unshifted schedule is u = s / (shift − (shift − 1)·s). At `video_shift` 6 that is
+0.8 → 0.40, 0.85 → 0.49, 0.9 → 0.60 and 0.95 → 0.76: a strength of 0.8 re-noises less than
+its number suggests. The bands above hold for those conditions only. Another
+`video_shift` or step count moves them, the way the formula says: a lower shift brings u
+closer to s, so the same change comes at a lower strength. A [`refine_sigmas`](#explicit-refine-sigmas)
+list is run as given, with no shift, so its points are the schedule itself.
 
 The source and the mask must match the step's `width` x `height`, and a `source_video` or
 `mask_video` its `num_frames`. A step that leaves width, height or `num_frames` out renders
