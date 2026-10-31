@@ -30,11 +30,27 @@ enters that long before the cut), each next where the last ended; then
 ## Planning a music video's cuts
 
 Plan, read, prompt, render. Run `templates/minimax/music-video-cuts`
-on the song with its `lyrics` (it chains `transcribe_audio`, `analyze_beats`
-and the `plan_cuts` task, on H3's grid with a `lead_s` run-up, default 0.5 s);
+on the song with its `lyrics` (it chains `separate_stems`, `transcribe_audio` of the
+vocal stem, `analyze_beats` of the full mix and the `plan_cuts` task, on H3's grid with a `lead_s` run-up, default 0.5 s);
 read the plan's `shots` (`lyric`, `kind`, `start_frame`, `num_frames`,
 `lead_frames`, `cut_frames`) and quote its `render_frames` for the cost: it is
-what renders, more than the song's length. Write one prompt per shot, a vocal
+what renders, more than the song's length. When Whisper can't time the words (a non-English verse, a hallucinated
+transcript, wordless vocals), replace the `transcribe` step with an
+`analyze_phrases` step on `previous_result:stems.vocals` (sung phrase timing
+from voiced energy, no Whisper), keep `plan_cuts`' `transcript` on that step
+and pass `lyrics`, one line per sung phrase; the default chain is unchanged.
+`plan_cuts` recognises the result by its `phrases` key. Without `lyrics` each
+phrase is a line with `lyric: null` (kind vocal), and `segment_by` `line`,
+`stanza` (a silence of at least `min_gap_seconds` between phrases) and `beat`
+all work. With as many lyric lines as phrases they map one to one, in order.
+With a different count it warns with both counts and spreads the lines evenly
+from the first phrase's start to the last's end, never pairing silently: raise
+`analyze_phrases`' `min_gap_seconds` when there are more phrases than lines,
+lower it when fewer. Suspect filtering and word alignment don't apply; a long
+phrase split into pieces gives every piece its whole lyric. The song length
+falls back to the phrase result's `duration_seconds`.
+
+Write one prompt per shot, a vocal
 shot to its `lyric`, an instrumental one to the mood. Render with
 `music-video`: each entry is the plan's shot with `prompt` added and `lyric`
 and `kind` dropped (unread, they only warn). Each shot renders `num_frames`

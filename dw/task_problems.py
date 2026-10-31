@@ -397,6 +397,14 @@ def transcript_problem(transcript):
             "result's content_type application/json"
         )
     if isinstance(transcript, dict):
+        if "phrases" in transcript and "chunks" not in transcript:
+            # analyze_phrases' result: timing only, no text (#1095)
+            if not isinstance(transcript["phrases"], list):
+                return (
+                    "plan_cuts's 'transcript' has a 'phrases' key that is not a "
+                    "list - pass analyze_phrases' result as it is"
+                )
+            return None
         chunks = transcript.get("chunks")
         if not isinstance(chunks, list):
             return (

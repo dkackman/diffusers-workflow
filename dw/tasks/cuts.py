@@ -383,21 +383,98 @@ def _transcript_lines(chunks, stanza_gap):
     return lines
 
 
+def _is_phrases(transcript):
+    """Whether this is analyze_phrases' result (#1095): timing with no text,
+    told from a transcript by its 'phrases' key."""
+    return (
+        isinstance(transcript, dict)
+        and "phrases" in transcript
+        and "chunks" not in transcript
+    )
+
+
+def _phrases(transcript):
+    """[{start, end, text}] in seconds, ascending - an analyze_phrases
+    result's phrases, each with no text. A phrase is never suspect."""
+    problem = transcript_problem(transcript)
+    if problem:
+        raise ValueError(problem)
+    parsed = []
+    for index, phrase in enumerate(transcript["phrases"]):
+        if not isinstance(phrase, dict):
+            raise ValueError(
+                f"{COMMAND}: phrase {index} is not a {{start, end}} object"
+            )
+        start = _number(phrase.get("start"), f"phrases[{index}].start", required=True)
+        end = _number(phrase.get("end"), f"phrases[{index}].end", required=True)
+        parsed.append({"start": start, "end": max(end, start), "text": ""})
+    parsed.sort(key=lambda phrase: phrase["start"])
+    return parsed
+
+
+def _phrase_lines(phrases, lyrics, duration, stanza_gap, warnings):
+    """[{start, end, text, stanza, tokens}] from analyze_phrases' phrases.
+    Without lyrics a line per phrase, with no text, and a silence of at least
+    stanza_gap starts a stanza. With lyrics whose lines are as many as the
+    phrases, line n is phrase n; otherwise the counts are warned about, with
+    the analyze_phrases knob to turn, and the lines spread evenly from the
+    first phrase to the last - never paired. A phrase has no word times, so
+    a split piece of one keeps its whole lyric."""
+    if lyrics is None:
+        lines, stanza = [], 0
+        for phrase in phrases:
+            if lines and phrase["start"] - lines[-1]["end"] >= stanza_gap:
+                stanza += 1
+            lines.append(dict(phrase, stanza=stanza, tokens=None))
+        return lines
+    if len(lyrics) == len(phrases):
+        return [
+            dict(phrase, text=text, stanza=stanza, tokens=None)
+            for phrase, (text, stanza) in zip(phrases, lyrics)
+        ]
+    if len(phrases) > len(lyrics):
+        knob = "raise analyze_phrases' 'min_gap_seconds' to bridge more pauses"
+    else:
+        knob = "lower analyze_phrases' 'min_gap_seconds' to split at shorter pauses"
+    low = phrases[0]["start"] if phrases else 0.0
+    high = phrases[-1]["end"] if phrases else duration
+    warnings.append(
+        f"{COMMAND}: the lyrics have {len(lyrics)} line(s) and analyze_phrases "
+        f"found {len(phrases)} phrase(s) - the lines are spread evenly over "
+        f"{low:.2f}-{high:.2f} s, not paired with the phrases; {knob}, so the "
+        "counts match"
+    )
+    step = (high - low) / len(lyrics)
+    return [
+        {
+            "start": low + index * step,
+            "end": low + (index + 1) * step,
+            "text": text,
+            "stanza": stanza,
+            "tokens": None,
+        }
+        for index, (text, stanza) in enumerate(lyrics)
+    ]
+
+
 def _units(lines, segment_by):
     """The vocal spans scenes are cut around: a line each, or a stanza."""
     units = []
     for line in lines:
         if segment_by == "stanza" and units and units[-1]["stanza"] == line["stanza"]:
             units[-1]["end"] = max(units[-1]["end"], line["end"])
-            units[-1]["lyrics"].append(line["text"])
-            units[-1]["tokens"].append(line.get("tokens"))
+            if line["text"]:
+                units[-1]["lyrics"].append(line["text"])
+                units[-1]["tokens"].append(line.get("tokens"))
         else:
+            # A phrase with no lyric is sung, with no line to carry
+            sung = [line["text"]] if line["text"] else []
             units.append(
                 {
                     "start": line["start"],
                     "end": line["end"],
-                    "lyrics": [line["text"]],
-                    "tokens": [line.get("tokens")],
+                    "lyrics": sung,
+                    "tokens": [line.get("tokens")] if sung else [],
                     "stanza": line["stanza"],
                 }
             )
@@ -480,6 +557,8 @@ def _scenes_by_beats(lines, beats, duration, args):
             continue
         scenes.append(_scene(start, end, "instrumental", []))
     for line in lines:
+        if not line["text"]:
+            continue
         for scene in scenes:
             if scene["start"] <= line["start"] < scene["end"] or (
                 scene is scenes[-1] and line["start"] >= scene["end"]
@@ -833,11 +912,17 @@ def _parsed_arguments(transcript, beats, segment_by, **raw):
 
 def _song_length(args, transcript, beats, beats_duration, warnings):
     """(duration, chunks) - the song's length in seconds and the
-    transcript's chunks. duration_s says how long, else the analyze_beats
-    result; failing both the transcript's last end does, and is warned
-    about."""
+    transcript's chunks (or analyze_phrases' phrases). duration_s says how
+    long, else the analyze_beats result, else the phrases' duration_seconds;
+    failing those the transcript's last end does, and is warned about."""
     duration = args.duration_s or beats_duration
-    chunks = _chunks(transcript, duration)
+    if _is_phrases(transcript):
+        chunks = _phrases(transcript)
+        duration = duration or _number(
+            transcript.get("duration_seconds"), "transcript.duration_seconds"
+        )
+    else:
+        chunks = _chunks(transcript, duration)
     if duration is None:
         # Only the transcript says how long: to the last word it kept (a
         # hallucination over the fade-out is left out), if that word has an end
@@ -948,7 +1033,15 @@ def plan_cuts(
             {text, chunks} dict of {start, end, text} chunks in seconds. A
             null 'end' runs to the next chunk's start, or the song's end. A
             chunk marked `suspect` no_words, repetition or silent is left
-            out of the lines; every suspect run is warned about
+            out of the lines; every suspect run is warned about. Or
+            analyze_phrases' result, {phrases: [{start, end}],
+            duration_seconds}, told by its 'phrases' key (#1095): timing
+            with no text. Without lyrics each phrase is a line with no
+            lyric; with lyrics as many lines as phrases, line n is phrase n,
+            and otherwise the counts are warned about (naming which way to
+            move analyze_phrases' min_gap_seconds) and the lines spread
+            evenly from the first phrase to the last. A phrase is never
+            suspect, and a split piece of one keeps its whole lyric
         lyrics: The song's own lyrics - one line per line, a blank line or a
             lone section tag ("[Chorus]") between stanzas - or a list of
             lines. The shots carry these lines verbatim and in order; the
@@ -1024,10 +1117,29 @@ def plan_cuts(
     warnings = []
     duration, chunks = _song_length(args, transcript, beats, beats_duration, warnings)
     beat_times = [beat for beat in beat_times if 0.0 < beat < duration]
-    warnings.extend(_suspect_warnings(chunks))
-    chunks = [chunk for chunk in chunks if chunk.get("suspect") not in SUSPECT_LEFT_OUT]
+    phrases = _is_phrases(transcript)
+    if not phrases:
+        # Phrases have no text, so none is ever suspect (#1095)
+        warnings.extend(_suspect_warnings(chunks))
+        chunks = [c for c in chunks if c.get("suspect") not in SUSPECT_LEFT_OUT]
+    given_lyrics = lyrics is not None and not (
+        isinstance(lyrics, str) and not lyrics.strip()
+    )
 
-    if lyrics is not None and not (isinstance(lyrics, str) and not lyrics.strip()):
+    if phrases:
+        lines = _phrase_lines(
+            chunks,
+            _lyric_lines(lyrics) if given_lyrics else None,
+            duration,
+            args.min_gap_seconds,
+            warnings,
+        )
+        if not lines:
+            warnings.append(
+                f"{COMMAND}: analyze_phrases found no sung phrases - the song is "
+                "planned as instrumental"
+            )
+    elif given_lyrics:
         lines = _align_lyrics(
             _lyric_lines(lyrics), chunks, duration, warnings, max(args.min_scene_s, 0.5)
         )

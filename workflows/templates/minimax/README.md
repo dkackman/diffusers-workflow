@@ -184,6 +184,26 @@ same clip as an audio reference in each shot, as
 | [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit, cut to the length of the edit by `fit: "video"` so the soundtrack follows the list rather than a constant. An entry is `name`, `prompt`, `start_frame`, `num_frames` (on H3's `17n + 5` grid, 124 to 345, never snapped), `lead_frames` and `cut_frames`: the shot renders `num_frames` from the song sliced `lead_frames` early, and a `trim` step (`trim_video`) keeps `cut_frames` after the lead, so the video is the sum of the `cut_frames`. `song` defaults to the song written; `asset:...` uses an existing one |
 | [music-video-cuts.json](music-video-cuts.json) | Plans a music video's cuts without generating anything: `transcribe_audio` times the song's lines, `analyze_beats` finds its beats, and `plan_cuts` aligns the song's own `lyrics` to them and answers a `shots` list of `start_frame`, `num_frames`, `lead_frames`, `cut_frames`, lyric and kind (on H3's grid, with a `lead_s` run-up, default 0.5 s) and `render_frames` to quote the cost from. Write a prompt per shot, drop `lyric` and `kind`, and render the list with `music-video.json` |
 
+**music-video-cuts without Whisper.** When Whisper can't time the words (a non-English verse, a hallucinated transcript, wordless vocals or a vocalise), replace the `transcribe` step with an `analyze_phrases` step on the vocal stem, which times sung phrases from voiced energy alone. `plan` keeps `"transcript": "previous_result:transcribe"`; pass `lyrics` with one line per sung phrase (left null, each shot has `lyric: null`):
+
+```json
+{
+    "name": "transcribe",
+    "task": {
+        "command": "analyze_phrases",
+        "arguments": {
+            "audio": "previous_result:stems.vocals"
+        }
+    },
+    "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate"
+    }
+}
+```
+
+Lyric lines map onto phrases one to one when the counts match. When they differ, `plan_cuts` warns with both counts and spreads the lines evenly across the phrases: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lines, lower it when fewer. The template's default chain is unchanged (Whisper first).
+
 ## Field notes from a 24-shot musical
 
 A 24-shot Ref2VA short with a Music3 song surfaced six prompting habits, each
