@@ -2495,6 +2495,52 @@ refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
 tiles](#refining-above-768p-in-tiles).
 
+### H3: regional edit with source_video and a mask
+
+To change part of a take and keep the rest, pass a video as `source_video` on an H3
+`t2va`, `fl2va` or `ref2va` step. It is a path, `asset:`, `output:` or `previous_result:`
+reference to a video, and it stands in for the `latents` of a refine: the step VAE-encodes
+it over the generated rows and re-denoises from `refine_strength`, which is required and
+between 0 and 1 (exclusive). With no mask the whole source is refined.
+
+```json
+{
+    "source_video": "asset:fox_dawn.mp4",
+    "mask_image": "asset:fox_mask.png",
+    "mask_grow": 1,
+    "refine_strength": 0.6,
+    "hold_audio": "asset:fox_dawn.wav",
+    "prompt": "the fox wears a red scarf, same light and motion"
+}
+```
+
+A `mask_video` (one frame per frame) or a `mask_image` (one mask for every frame) limits
+what is regenerated. Pass one, not both. White regenerates and black is kept, binarized
+at luma 128. The mask is max-pooled onto the transformer's patch grid, 16 px times the
+patch size per cell, so any white pixel marks its whole cell, and `mask_grow` widens it by
+that many cells (a whole number, 0 or more, default 1). After every denoise step each
+other row is written back as the source noised to that step's sigma, with the refine's own
+noise, so at the end it is the source latent. The decode still round-trips it through the
+VAE, so kept pixels are near-identical to the source, not bit-identical. A higher
+`refine_strength` replaces what the mask covers, a lower one keeps its layout.
+
+The source and the mask must match the step's `width` x `height`, and a `source_video` or
+`mask_video` its `num_frames`. A step that leaves width, height or `num_frames` out renders
+the source's. An all-black mask is refused, as it would regenerate nothing.
+
+`hold_audio` is still required with `refine_strength`, since the refine holds the
+soundtrack: an audio file (`.wav`, `.mp3`, `.flac`, `.ogg`) or an earlier step's
+audio-carrying result. An `.mp4` path is not accepted, so extract the track first.
+
+Validation and the call both refuse:
+
+- `source_video` with `latents`, or on a chained step;
+- a mask with no `source_video`, or `mask_grow` with no mask;
+- `source_video` with no `refine_strength`;
+- `source_video` on a pipeline that is not H3 (`mask_image` there is left alone, since
+  inpaint pipelines own that name);
+- any of it with `refine_tiles`, which does not combine with a regional edit.
+
 ### Refining above 768p in tiles
 
 H3's refine runs at 1344x768 at most, and `upscale_h3_latents` now reaches 1920x1088 (or
