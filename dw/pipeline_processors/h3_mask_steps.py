@@ -5,8 +5,6 @@ This module imports diffusers when it loads, so nothing imports it at module
 level - `h3_mask.blocks()` imports it on first use (#790).
 """
 
-import logging
-
 import numpy as np
 import torch
 from diffusers.models import AutoencoderKLMiniMaxH3
@@ -21,6 +19,8 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
     OutputParam,
 )
 
+from ..events import emit_log
+
 from .h3_mask import keep_rows
 from .h3_rules import (
     KEEP_ROWS,
@@ -34,7 +34,20 @@ from .h3_rules import (
     media_problems,
 )
 
-logger = logging.getLogger("dw")
+
+def edit_summary(keep, grow, strength):
+    """The log line naming what a `source_video` edit regenerates and how
+    hard - `keep` is the per-row bool the mask maps to, None for no mask."""
+    if keep is None:
+        return (
+            f"Regional edit: no mask, re-denoising the whole source_video at "
+            f"refine_strength {strength}"
+        )
+    kept = int(keep.sum())
+    return (
+        f"Regional edit: regenerating {keep.shape[0] - kept} of {keep.shape[0]} "
+        f"patch cells ({kept} kept), mask_grow {grow}, refine_strength {strength}"
+    )
 
 
 def fit_source_frames(frames, num_frames):
@@ -86,6 +99,11 @@ class DwH3SourceLatentsStep(ModularPipelineBlocks):
                 type_hint=int,
                 default=MASK_GROW_DEFAULT,
                 description="Patch cells the mask is widened by.",
+            ),
+            InputParam(
+                name=REFINE_STRENGTH_INPUT,
+                default=None,
+                description="Read here only to name it in the regional edit's log line.",
             ),
             InputParam(name="latents", type_hint=torch.Tensor, required=True),
             InputParam(name="num_condition_video_rows", type_hint=int, default=0),
@@ -143,26 +161,34 @@ class DwH3SourceLatentsStep(ModularPipelineBlocks):
         setattr(block_state, SOURCE_ROWS, rows.clone())
 
         mask = getattr(block_state, REGENERATE_MASK)
+        grow = getattr(block_state, MASK_GROW_INPUT)
+        grow = MASK_GROW_DEFAULT if grow is None else grow
         keep = None
         if mask is not None:
-            grow = getattr(block_state, MASK_GROW_INPUT)
             keep = keep_rows(
                 mask,
                 block_state.num_latent_frames,
                 block_state.latent_height,
                 block_state.latent_width,
                 components.patch_size,
-                MASK_GROW_DEFAULT if grow is None else grow,
+                grow,
             )
             if keep.shape[0] != rows.shape[0]:
                 raise ValueError(
                     f"the mask maps to {keep.shape[0]} rows, and the step "
                     f"generates {rows.shape[0]}"
                 )
-            logger.info(
-                f"Regional edit: regenerating {int((~keep).sum())} of "
-                f"{keep.shape[0]} video rows"
-            )
+        # An event, not just the log, so a job's events say a regional edit
+        # ran, over how much of the take, and how hard (#1077)
+        strength = getattr(block_state, REFINE_STRENGTH_INPUT)
+        emit_log(
+            edit_summary(keep, grow, strength),
+            regenerated_cells=None if keep is None else int((~keep).sum()),
+            kept_cells=None if keep is None else int(keep.sum()),
+            mask_grow=grow,
+            refine_strength=strength,
+        )
+        if keep is not None:
             keep = torch.from_numpy(keep).to(latents.device)
         setattr(block_state, KEEP_ROWS, keep)
         self.set_block_state(state, block_state)
