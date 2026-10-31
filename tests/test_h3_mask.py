@@ -88,6 +88,17 @@ class TestBinarized:
         frame[0, 0, 0] = (0, 0, 0, 255)
         assert not binarized(frame).any()
 
+    def test_a_mask_image_binarizes_as_its_frame_does(self):
+        from PIL import Image
+
+        frame = np.zeros((1, 2, 8, 3), dtype=np.uint8)
+        frame[0, :, :4] = (255, 255, 255)
+        frame[0, :, 4] = (128, 128, 128)
+        frame[0, :, 5] = (0, 255, 0)
+        image = Image.fromarray(frame[0])
+        assert binarized(image).tolist() == binarized(frame).tolist()
+        assert binarized(image)[0, 0].tolist() == [True] * 6 + [False] * 2
+
     def test_a_2d_frame_stack_thresholds_directly(self):
         frames = np.array([[[0, 127, 128, 255]]], dtype=np.uint8)
         assert binarized(frames).tolist() == [[[False, False, True, True]]]
@@ -159,13 +170,13 @@ class TestRegenerateCells:
 
     def test_pool_counts_a_boundary_pixel_toward_both_cells(self):
         # 5 pixels into 2 cells: cell 0 covers [0, 3), cell 1 covers [2, 5)
-        mask = np.zeros(5, dtype=bool)
-        mask[2] = True
-        assert _pool(mask, 2, 0).tolist() == [True, True]
+        mask = np.zeros((1, 1, 5), dtype=bool)
+        mask[0, 0, 2] = True
+        assert _pool(mask, (1, 1, 2)).tolist() == [[[True, True]]]
 
     def test_pool_to_more_cells_than_pixels_still_covers_each(self):
-        mask = np.array([True, False])
-        assert _pool(mask, 4, 0).tolist() == [True, True, False, False]
+        mask = np.array([[[True, False]]])
+        assert _pool(mask, (1, 1, 4)).tolist() == [[[True, True, False, False]]]
 
     def test_dilate_is_clipped_and_diagonal(self):
         grid = np.zeros((3, 3), dtype=bool)

@@ -846,9 +846,7 @@ class Pipeline:
             value = arguments.pop(name)
             try:
                 if name == MASK_IMAGE_INPUT:
-                    import numpy as np
-
-                    mask = binarized(np.asarray(value.convert("RGB"))[None])
+                    mask = binarized(value)
                 else:
                     mask = binarized(guide_frames_array(value))
             except (AttributeError, ValueError) as e:
