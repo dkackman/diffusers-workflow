@@ -2306,11 +2306,59 @@ class TestAnAdapterIsADownloadToo:
         monkeypatch.setattr(
             dw.plan_downloads, "repo_download_incomplete", lambda *a, **k: False
         )
+        # The adapter names a file, so it is checked file by file
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_cached_file",
+            lambda repo, *a, **k: "cached" if repo in present else None,
+        )
         return [
             entry["repo"]
             for entry in dw.plan_downloads.downloads_required(
                 self.definition(), None, None, None, False
             )
+        ]
+
+    def test_a_single_file_adapter_is_sized_as_the_file_not_the_repo(self, monkeypatch):
+        """#1088: priced as its whole repo (104.7 GB for a 5.9 GB file)."""
+        import dw.plan_downloads
+
+        monkeypatch.setattr(dw.plan_downloads, "scan_models", lambda *a: {})
+        monkeypatch.setattr(dw.plan_downloads, "_cached_file", lambda *a: None)
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_model_info",
+            lambda name: (104.7, False, None),
+        )
+        monkeypatch.setattr(
+            dw.plan_downloads,
+            "_file_info",
+            lambda repo, filename, revision: (5.9, None),
+        )
+        definition = self.definition()
+        definition["steps"][0]["pipeline"]["loras"][0]["subfolder"] = "loras"
+        entries = dw.plan_downloads.downloads_required(
+            definition, None, None, None, True
+        )
+        adapter = [e for e in entries if "IC-LoRA" in e["repo"]]
+        assert [(e["gb"], e["filename"]) for e in adapter] == [
+            (5.9, "loras/ic-lora.safetensors")
+        ]
+
+    def test_an_adapter_without_a_weight_name_is_still_the_whole_repo(
+        self, monkeypatch
+    ):
+        import dw.plan_downloads
+
+        monkeypatch.setattr(dw.plan_downloads, "scan_models", lambda *a: {})
+        definition = self.definition()
+        del definition["steps"][0]["pipeline"]["loras"][0]["weight_name"]
+        entries = dw.plan_downloads.downloads_required(
+            definition, None, None, None, False
+        )
+        assert [(e["repo"], "filename" in e) for e in entries] == [
+            ("Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients", False),
+            ("Lightricks/LTX-2.5-Diffusers", False),
         ]
 
     def test_the_adapter_is_named_when_it_is_absent(self, monkeypatch):
@@ -2332,8 +2380,8 @@ class TestAnAdapterIsADownloadToo:
 
     def test_both_are_named_on_an_empty_cache(self, monkeypatch):
         assert self.repos([], monkeypatch) == [
-            "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
             "Lightricks/LTX-2.5-Diffusers",
+            "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
         ]
 
 
