@@ -222,7 +222,8 @@ def validate_media_path(
             )
 
     if require_exists and not os.path.exists(resolved):
-        raise InvalidInputError(f"Path does not exist: {resolved}")
+        # Named as written: the resolved path is the server's own layout
+        raise InvalidInputError(f"Path does not exist: '{location}'")
     return resolved
 
 

@@ -106,6 +106,15 @@ class TestMediaPathContainment:
             os.path.join(workflow_dir, "subject.png")
         )
 
+    def test_a_missing_relative_path_does_not_name_the_directory(
+        self, untrusted, workflow_dir
+    ):
+        # The error reaches the client: it names the location as written,
+        # not where the server resolved it (GHSA-w9qv-2pg5-j79m's sibling)
+        with pytest.raises(InvalidInputError, match="missing.png") as raised:
+            validate_media_path("missing.png", workflow_dir)
+        assert os.path.realpath(workflow_dir) not in str(raised.value)
+
     def test_trust_lifts_containment(self, trusted, workflow_dir):
         with tempfile.TemporaryDirectory() as elsewhere:
             outside = _image(os.path.join(elsewhere, "scratch.png"))
