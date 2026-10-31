@@ -15,6 +15,9 @@ model's output back at the source's own size and length: the scale is
 whatever the model did to the fitted frame (2x for the upscalers), inferred
 from the output's size, so no `scale` argument is needed.
 
+`mode: "crop"` also reframes a clip to another aspect (16:9 to 9:16); see
+"Reframe to another aspect" in docs/TASKS.md.
+
 Neither task touches a soundtrack. The fitted video has none (its length is
 the model's), and the restored one has none either - a template pairs the
 source's track with `pair_audio` after the restore.
@@ -98,7 +101,9 @@ def fit_to_model(video, width, height, num_frames, mode="letterbox", downscale=1
     frame count set to exactly `num_frames`: a longer source is cut to its
     first `num_frames` frames, a shorter one holds its last frame. Hand the
     `fit` record to restore_to_source with the model's output to get the
-    source's own size and length back.
+    source's own size and length back. To reframe a clip to another aspect
+    (16:9 to 9:16), use `mode: "crop"`; see "Reframe to another aspect" in
+    docs/TASKS.md.
 
     `downscale` fits into `width`/downscale x `height`/downscale instead, so
     a template can keep `width`/`height` as a 2x model's output size and

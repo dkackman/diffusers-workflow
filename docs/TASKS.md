@@ -1049,6 +1049,38 @@ and exactly `num_frames`, the pipeline runs on the fitted video, and
 ]
 ```
 
+#### Reframe to another aspect
+
+To turn a 16:9 clip into 9:16, 4:5 or 1:1 there are two ways today:
+
+- **Crop.** `fit_to_model` with `mode: "crop"` and the target `width`/`height`
+  scales each frame to fill and centre-crops it. It works at full resolution
+  with no model, and it loses the sides. `num_frames` is required: set it to
+  the clip's own length to keep every frame. `restore_to_source` is the wrong
+  follow-up for a reframe, because it undoes the fit.
+
+  ```json
+  {
+      "name": "reframe",
+      "task": {
+          "command": "fit_to_model",
+          "arguments": {
+              "video": "asset:clip.mp4",
+              "width": 432,
+              "height": 768,
+              "num_frames": 121,
+              "mode": "crop"
+          }
+      }
+  }
+  ```
+
+- **Re-render natively.** A generated clip is usually better re-made at the
+  portrait size. Any H3 template takes any 32-multiple `width`/`height` (for
+  example 544x960), and that keeps the audio.
+
+Generative outpaint of video (filling the new sides) is not supported; see #1066.
+
 `mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
 (resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
 count is exact: a longer source is cut to its first `num_frames` frames and a
