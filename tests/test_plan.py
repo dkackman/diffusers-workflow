@@ -2361,6 +2361,27 @@ class TestAnAdapterIsADownloadToo:
             ("Lightricks/LTX-2.5-Diffusers", False),
         ]
 
+    def test_an_adapter_file_climbing_out_is_priced_as_the_repo(self, monkeypatch):
+        """file_entries refuses a name that is not plain and relative, so the
+        cache lookup never joins it onto the disk; the repo stands for it."""
+        import dw.plan_downloads
+
+        monkeypatch.setattr(dw.plan_downloads, "scan_models", lambda *a: {})
+        looked_up = []
+        monkeypatch.setattr(
+            dw.plan_downloads, "_cached_file", lambda *a: looked_up.append(a)
+        )
+        definition = self.definition()
+        definition["steps"][0]["pipeline"]["loras"][0]["subfolder"] = ".."
+        entries = dw.plan_downloads.downloads_required(
+            definition, None, None, None, False
+        )
+        assert [(e["repo"], "filename" in e) for e in entries] == [
+            ("Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients", False),
+            ("Lightricks/LTX-2.5-Diffusers", False),
+        ]
+        assert looked_up == []
+
     def test_the_adapter_is_named_when_it_is_absent(self, monkeypatch):
         assert self.repos(["Lightricks/LTX-2.5-Diffusers"], monkeypatch) == [
             "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients"

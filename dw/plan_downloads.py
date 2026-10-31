@@ -139,7 +139,8 @@ def _collect_sources(tree, names, variants, urls, files=None):
     A `loras` entry that names its `weight_name` loads that one file, so with
     `files` given it is keyed there as `(repo, [subfolder/]weight_name, None)`
     and sized as the file, not as the repo it sits in (#1088). A weight name
-    still holding a reference is no file yet: the repo stands for it.
+    still holding a reference is no file yet, and a name `file_entries`
+    refuses is none either: the repo stands for it.
     """
     if isinstance(tree, dict):
         for lora in tree.get(LORAS_KEY) or []:
@@ -147,6 +148,7 @@ def _collect_sources(tree, names, variants, urls, files=None):
             if not isinstance(name, str):
                 continue
             weight = lora.get(WEIGHT_NAME_KEY)
+            entries = []
             if (
                 files is not None
                 and isinstance(weight, str)
@@ -155,10 +157,14 @@ def _collect_sources(tree, names, variants, urls, files=None):
                 subfolder = lora.get(SUBFOLDER_KEY)
                 if isinstance(subfolder, str) and subfolder:
                     weight = f"{subfolder.strip('/')}/{weight}"
-                key = (name, weight, None)
+                from .tasks.weights import file_entries
+
+                entries = file_entries(name, weight, None)
+            for entry in entries:
+                key = (entry["repo"], entry["filename"], entry["revision"])
                 if key not in files:
                     files.append(key)
-            elif name not in names:
+            if not entries and name not in names:
                 names.append(name)
         source = tree.get(FROM_PRETRAINED_KEY)
         if isinstance(source, dict):
