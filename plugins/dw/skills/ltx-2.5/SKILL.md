@@ -1,6 +1,6 @@
 ---
 name: ltx-2.5
-description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
+description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, an alpha matte pulled from a clip, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
 ---
 
 # LTX-2.5 on a dw server
@@ -46,6 +46,10 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   - one composite image, a clean panel per character, prop and location, no
   text, bigger panels for what matters. What isn't on the sheet won't
   appear. `reference_frames` must stay at or above 121.
+- **A matte of the user's clip**: `templates/ltx2/alpha-matte` - a soft
+  grey per-frame alpha, white = foreground, at the source's size, for the
+  user's editor to composite. No prompt: the model picks the foreground and
+  a prompt doesn't steer it. `num_frames` caps at 145 (RGB leaks past it).
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
   artefacts. Each inverts one defect and no other - neither upscales or
@@ -126,9 +130,8 @@ caption spec, verbatim from the pipeline, which the caption must follow.
 1. `validate_workflow` first - free, and catches bad arguments.
 2. Quote `plan.estimate` from the validate answer (wall clock, loading
    included) and name any `downloads_required` - an IC-LoRA template pulls a
-   gated weight the box may not have. Only `text-to-video`, `two-stage`,
-   `refine-clip` and `refine-in-place` (~1.5 min, RTX 3090) carry a `cost`;
-   for the rest give the shape - a 121-frame clip at 960x544 is under two
+   gated weight the box may not have. A template whose catalog entry has
+   no `cost` prices from the shape - a 121-frame clip at 960x544 is under two
    minutes cold on a 24 GB card, a minute loading; extend and chain
    multiply by their passes.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` set to the

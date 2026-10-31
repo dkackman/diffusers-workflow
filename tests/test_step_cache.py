@@ -727,6 +727,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "lora.json": {
         "txt2img": "04031c5e01597b46f9ceb50f717e036013d5f6e6a497ae3aaef585f7121bcf4e"
     },
+    "ltx2/alpha-matte.json": {
+        "matte": "1ee2f5927bde21fca0096fe39db8632238b1031e483d3a780695290b10b713cd"
+    },
     "ltx2/chained-segments.json": {
         "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
     },

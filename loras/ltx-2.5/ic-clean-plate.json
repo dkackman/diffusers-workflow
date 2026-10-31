@@ -12,6 +12,12 @@
     "default": 1.0
   },
   "status": "trial",
+  "evidence": [
+    {
+      "issue": 1064,
+      "note": "Not shipped as a template (#1064): the card is for the dev/full guided route - it describes the empty scene through a prompt with a negative prompt, which dw's distilled IC route runs at guidance 1.0 and ignores, and trains at 25 fps with an audio track on the reference. Reopen when dw has a guided (dev/full) IC route, or a field report needs subject removal across a whole clip"
+    }
+  ],
   "license": "other",
   "tags": [
     "remove",
