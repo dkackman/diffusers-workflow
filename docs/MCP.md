@@ -430,11 +430,12 @@ expected. On MiniMax H3 the first pass dominates the lead-in, not the encode,
 and it varies by card. The reference encode (`vae_encoder`) is about 6 s for
 an image reference and about 50-53 s for a 5 s 960x544 video reference;
 reference tokens make the first pass slower. Measured on lem: an image
-reference's lead-in was 187 s (job `f90a041af26a`: encode 26 s, first pass
-161 s); the same image + video job took 508 s on cuda:1 (`f5aefcdd5e26`:
-`vae_encoder` 59 s, first pass 422 s) and 165 s on cuda:0 (`6961876f11d3`:
-`vae_encoder` 56 s, first pass 86 s). Plan for several minutes, up to ~10,
-with a video reference. `get_job_events` names the block it is in
+reference's lead-in was 187 s (job `f90a041af26a`: `timing.encode_s` 26 s,
+first pass 161 s; of the encode, `vae_encoder` was 6 s); the same image +
+video job took 508 s on cuda:1 (`f5aefcdd5e26`: `encode_s` 86 s, first pass
+422 s; `vae_encoder` 59 s) and 165 s on cuda:0 (`6961876f11d3`: `encode_s`
+79 s, first pass 86 s; `vae_encoder` 56 s). Plan for several minutes, up to
+~8.5 min measured (508 s, `f5aefcdd5e26`), with a video reference. `get_job_events` names the block it is in
 while that runs - a `log` line per top-level block of a modular pipeline
 (`MiniMaxAI/MiniMax-H3: vae_encoder`), which is the difference between
 silence and knowing it is encoding the reference. And once the counter is a number the gaps

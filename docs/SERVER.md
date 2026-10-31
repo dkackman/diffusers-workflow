@@ -327,10 +327,13 @@ to learn where a long render is:
 
 A null `denoise_step` under `generating` is the pipeline's lead-in - encoding
 the prompt and every reference - which emits nothing and runs well over a
-minute on a large video model. How long it runs follows what it has to
-encode: on MiniMax H3, ~90 s for a prompt with an image or audio reference,
-but ~10 min once a *video* reference is among them - a measured run encoding
-one 5 s 960x544 clip on an RTX 3090 sat silent from 94 s to 723 s. The keys
+minute on a large video model. It is the encode plus the first denoise
+pass, and on MiniMax H3 the first pass dominates and varies by card. The
+reference encode (`vae_encoder`) is about 6 s for an image reference and
+about 50-53 s for a 5 s 960x544 video reference. Measured on lem: 187 s for
+an image reference (job `f90a041af26a`), and 508 s on cuda:1
+(`f5aefcdd5e26`, first pass 422 s) against 165 s on cuda:0
+(`6961876f11d3`, first pass 86 s) for the same image + video job. The keys
 are always present so that lead-in can be told from a loop that has stopped
 advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
 number, or in any phase other than `generating`.

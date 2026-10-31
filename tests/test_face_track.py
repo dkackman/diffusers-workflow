@@ -808,3 +808,212 @@ def test_paste_command_is_registered():
     from dw.tasks.task import _COMMAND_REGISTRY
 
     assert "paste_face_track" in _COMMAND_REGISTRY
+
+
+SR = 48000
+
+
+def tone(frames, fps=24, sample_rate=SR, channels=2):
+    """A (channels, samples) track of `frames` frames, never zero."""
+    samples = round(frames * sample_rate / fps)
+    t = np.arange(samples, dtype=np.float32)
+    return np.stack([0.5 + 0.1 * np.sin(t / (7 + c)) for c in range(channels)])
+
+
+def tiny_clip(frames, fps=24, audio=None, sample_rate=None):
+    """A clip of `frames` small blank frames - for refusals, which never
+    look at the pixels."""
+    still = Image.new("RGB", (8, 8))
+    return AudioVideo([still] * frames, audio, sample_rate, fps=fps)
+
+
+@pytest.fixture
+def no_detector(monkeypatch):
+    def fail(*a, **k):
+        pytest.fail("the detector loaded before the clip was refused")
+
+    monkeypatch.setattr(ft, "_detector", fail)
+
+
+class TestPaddedAudio:
+    def test_200_frames_on_17_5_is_209_frames_of_sound(self):
+        before, after = ft.padding_to_grid(200, 17, 5)
+        assert before + 200 + after == 209
+        out = ft.padded_audio(tone(200), SR, 24, 200, before, after)
+        assert out.shape == (2, 209 * SR // 24)
+
+    def test_the_head_is_pad_before_frames_of_silence(self):
+        before, after = ft.padding_to_grid(200, 17, 5)
+        source = tone(200)
+        out = ft.padded_audio(source, SR, 24, 200, before, after)
+        head = before * SR // 24
+        assert not out[:, :head].any()
+        assert np.array_equal(out[:, head : head + source.shape[1]], source)
+        assert not out[:, head + source.shape[1] :].any()
+
+    def test_a_fractional_rate_still_sums_to_the_padded_length(self):
+        fps = 24000 / 1001
+        out = ft.padded_audio(tone(10, fps=fps), SR, fps, 10, 3, 4)
+        assert out.shape[1] == round(17 * SR / fps)
+
+    def test_a_long_track_is_cut_and_a_short_one_padded_to_the_clip(self):
+        long = ft.padded_audio(tone(30), SR, 24, 20, 2, 3)
+        short = ft.padded_audio(tone(10), SR, 24, 20, 2, 3)
+        assert long.shape == short.shape == (2, 25 * SR // 24)
+        assert not long[:, 22 * SR // 24 :].any()
+        assert not short[:, 12 * SR // 24 :].any()
+
+    def test_mono_samples_first_is_read_as_one_channel(self):
+        out = ft.padded_audio(tone(4, channels=1)[0], SR, 24, 4, 1, 0)
+        assert out.shape == (1, 5 * SR // 24)
+
+
+class TestCropSoundtrack:
+    def test_the_crops_carry_the_padded_track(self, stub_detector):
+        frames = [make_frame((100, 80, 16))] * 10
+        clip = AudioVideo([Image.fromarray(a) for a in frames], tone(10), SR, fps=24)
+        result = ft.crop_face_track(clip, crop_size=64)
+        crops, track = result["crops"], result["track"]
+        assert len(crops.frames) == track["crop_frames"] == 17
+        assert crops.sample_rate == SR
+        assert crops.fps == 24
+        assert crops.audio.shape[1] == 17 * SR // 24
+        head = track["pad_before"] * SR // 24
+        assert not crops.audio[:, :head].any()
+        assert crops.audio[:, head].all()
+
+    def test_a_silent_clip_gives_silent_crops(self, stub_detector, warnings_seen):
+        result = ft.crop_face_track(clip_of([make_frame((100, 80, 16))] * 5))
+        assert result["crops"].audio is None
+        assert result["crops"].sample_rate is None
+        assert warnings_seen == []
+
+    def test_a_silent_clip_on_the_h3_grid_gives_silent_crops(self, stub_detector):
+        result = ft.crop_face_track(
+            clip_of([make_frame((100, 80, 16))] * 5), modulus=17, remainder=5
+        )
+        assert len(result["crops"].frames) == 5
+        assert result["crops"].audio is None
+
+    def test_a_track_with_no_rate_to_place_it_is_dropped_with_a_warning(
+        self, stub_detector, warnings_seen
+    ):
+        frames = [Image.fromarray(make_frame((100, 80, 16)))] * 3
+        clip = AudioVideo(frames, tone(3), SR, fps=None)
+        result = ft.crop_face_track(clip, crop_size=64)
+        assert result["crops"].audio is None
+        assert [d["kind"] for _, d in warnings_seen] == ["crop_audio_dropped"]
+
+
+class TestWindowAndRate:
+    def test_too_many_crops_name_the_bound_and_the_count(self, no_detector):
+        with pytest.raises(ValueError) as refused:
+            ft.crop_face_track(tiny_clip(200), modulus=17, remainder=5, max_frames=124)
+        message = str(refused.value)
+        assert "200 frames" in message and "209 crops" in message
+        assert "max_frames 124" in message
+
+    def test_padding_past_the_top_is_refused(self, no_detector):
+        with pytest.raises(ValueError, match="346 frames pad to 362 crops"):
+            ft.crop_face_track(tiny_clip(346), modulus=17, remainder=5, max_frames=345)
+
+    def test_padding_short_of_the_bottom_is_refused(self, no_detector):
+        with pytest.raises(ValueError, match="96 frames pad to 107 crops.*min_frames"):
+            ft.crop_face_track(tiny_clip(96), modulus=17, remainder=5, min_frames=124)
+
+    @pytest.mark.parametrize("frames", [124, 345])
+    def test_the_window_bounds_are_accepted(self, stub_detector, frames):
+        result = ft.crop_face_track(
+            tiny_clip(frames),
+            crop_size=64,
+            modulus=17,
+            remainder=5,
+            min_frames=124,
+            max_frames=345,
+        )
+        assert len(result["crops"].frames) == frames
+
+    @pytest.mark.parametrize("clip_fps,fps", [(30, 24), (24000 / 1001, 24)])
+    def test_a_clip_at_another_rate_is_refused(self, no_detector, clip_fps, fps):
+        with pytest.raises(ValueError) as refused:
+            ft.crop_face_track(tiny_clip(5, fps=clip_fps), fps=fps)
+        message = str(refused.value)
+        assert f"{ft._rate_text(clip_fps)} fps" in message
+        assert "needs a clip at 24 fps" in message
+
+    def test_a_rate_within_the_tolerance_is_accepted(self, stub_detector):
+        result = ft.crop_face_track(
+            tiny_clip(5, fps=24000 / 1001), crop_size=64, fps=23.98
+        )
+        assert len(result["crops"].frames) == 9
+
+    def test_no_fps_means_no_rate_check(self, stub_detector):
+        result = ft.crop_face_track(tiny_clip(5, fps=30), crop_size=64)
+        assert result["crops"].fps == 30
+
+    def test_a_clip_with_no_rate_is_refused_when_one_is_asked(self, no_detector):
+        with pytest.raises(ValueError, match="carries no frame rate"):
+            ft.crop_face_track(tiny_clip(5, fps=None), fps=24)
+
+    @pytest.mark.parametrize(
+        "arguments,name",
+        [
+            ({"min_frames": 0}, "min_frames"),
+            ({"max_frames": -5}, "max_frames"),
+            ({"fps": 0}, "fps"),
+            ({"min_frames": 200, "max_frames": 100}, "max_frames"),
+        ],
+    )
+    def test_bad_window_or_rate_is_refused_at_run_time(
+        self, no_detector, arguments, name
+    ):
+        with pytest.raises(ValueError, match=name):
+            ft.crop_face_track(tiny_clip(5), **arguments)
+
+    @pytest.mark.parametrize(
+        "arguments,name",
+        [
+            ({"min_frames": 0}, "min_frames"),
+            ({"min_frames": -1}, "min_frames"),
+            ({"max_frames": 0}, "max_frames"),
+            ({"max_frames": 12.5}, "max_frames"),
+            ({"fps": 0}, "fps"),
+            ({"fps": -24}, "fps"),
+            ({"min_frames": 200, "max_frames": 100}, "max_frames"),
+        ],
+    )
+    def test_bad_window_or_rate_is_an_error_at_validate(self, arguments, name):
+        errors = task_argument_errors(workflow({"clip": "v.mp4", **arguments}))
+        path = f"steps[0].task.arguments.{name}"
+        assert [e for e in errors if e["path"] == path], errors
+
+    def test_a_good_window_and_rate_validate_clean(self):
+        args = {"clip": "v.mp4", "min_frames": 124, "max_frames": 345, "fps": 24}
+        assert task_argument_errors(workflow(args)) == []
+        deferred = {"clip": "v.mp4", "min_frames": "variable:a", "max_frames": 100}
+        assert task_argument_errors(workflow(deferred)) == []
+
+    def test_the_task_describes_the_window_and_rate(self):
+        from dw.introspection import describe_task
+
+        found = {p["name"]: p for p in describe_task("crop_face_track")["parameters"]}
+        for name in ("min_frames", "max_frames", "fps"):
+            assert found[name]["default"] is None
+            assert found[name]["description"]
+
+
+def test_the_ltx_template_crop_step_passes_no_window_or_rate():
+    path = os.path.join(
+        os.path.dirname(__file__),
+        "..",
+        "workflows",
+        "templates",
+        "ltx2",
+        "face-repair.json",
+    )
+    with open(path) as f:
+        steps = json.load(f)["steps"]
+    crop = next(
+        s for s in steps if s.get("task", {}).get("command") == "crop_face_track"
+    )
+    assert not {"min_frames", "max_frames", "fps"} & set(crop["task"]["arguments"])

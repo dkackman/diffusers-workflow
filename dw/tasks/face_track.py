@@ -24,6 +24,12 @@ should change it. A face already large in the frame has the pixels it needs,
 so strength falls from 1 at `gate_full` (face width over frame width) to 0 at
 `gate_zero`.
 
+The crops are padded, by reflection, to the frame grid of the model they feed
+(`modulus` * n + `remainder`), and a clip with a soundtrack hands it on under
+them, with the same padding laid in as silence, so a step holding the crops'
+audio lines up with them frame for frame. `min_frames`, `max_frames` and `fps`
+refuse a clip the model cannot take before the detector loads.
+
 `paste_face_track` is the other half: given the clip, the crops after a
 face-detail pass, and the track, it puts each repaired crop back over its
 square with a feathered round mask scaled by that frame's strength, so the
@@ -35,6 +41,7 @@ import logging
 import numpy as np
 from PIL import Image
 
+from ..dsp import as_channels_samples
 from ..events import emit_log, emit_warning
 from ..media_types import AudioVideo, JsonRecord
 from ..shots import carried_shots
@@ -46,6 +53,7 @@ from ..task_problems import (
     face_track_problems,
     paste_feather_problems,
 )
+from ..task_domains import check_arguments
 from ..variable_constraints import aligned
 from .video_utils import frames_as_pil_list, load_audio_video
 from .weights import argument_or_default, file_entries
@@ -77,6 +85,10 @@ THUMBNAIL_SIZE = (32, 18)
 CUT_MIN_CHANGE = 0.06
 CUT_SPIKE = 4.0
 CUT_WINDOW = 8  # frames each side whose differences form that median
+
+# How far a clip's frame rate may sit from a requested `fps`: 23.976 passes
+# for 23.98 but not for 24
+FPS_TOLERANCE = 0.01
 
 
 def _iou(a, b):
@@ -346,6 +358,76 @@ def pad_frames(crops, before, after):
     return [crops[i] for i in indices]
 
 
+def padded_audio(audio, sample_rate, fps, frames, before, after):
+    """The source track laid under the padded crops: `before` frames of
+    silence, the source's own `frames` frames of sound (cut or silence-padded
+    to that length), then `after` frames of silence - so sample 0 of the
+    result is crop 0 and a hold of it lines up with the crops frame for frame.
+
+    Every boundary is rounded from frame times, so the track is exactly
+    `(before + frames + after) / fps` long and its head is exactly `before`
+    frames.
+    """
+    waveform = as_channels_samples(audio)
+    per_frame = float(sample_rate) / float(fps)
+    head = int(round(before * per_frame))
+    body = int(round((before + frames) * per_frame)) - head
+    total = int(round((before + frames + after) * per_frame))
+    out = np.zeros((waveform.shape[0], total), dtype=np.float32)
+    kept = min(body, waveform.shape[1])
+    out[:, head : head + kept] = waveform[:, :kept]
+    return out
+
+
+def _rate_text(rate):
+    """A frame rate as a person writes it: 30, 23.976."""
+    return f"{float(rate):.3f}".rstrip("0").rstrip(".")
+
+
+def window_problems(frames, crop_frames, grid, min_frames, max_frames):
+    """Messages for a padded crop count outside [min_frames, max_frames]."""
+    problems = []
+    for name, bound, outside, side in (
+        ("min_frames", min_frames, lambda b: crop_frames < b, "below"),
+        ("max_frames", max_frames, lambda b: crop_frames > b, "above"),
+    ):
+        if bound is not None and outside(bound):
+            problems.append(
+                f"crop_face_track: the clip's {frames} frames pad to "
+                f"{crop_frames} crops on the {grid} grid, {side} {name} "
+                f"{int(bound)} - the model the crops feed takes "
+                f"{_window_text(min_frames, max_frames)}"
+            )
+    return problems
+
+
+def _window_text(min_frames, max_frames):
+    if min_frames is not None and max_frames is not None:
+        return f"{int(min_frames)} to {int(max_frames)} frames"
+    if min_frames is not None:
+        return f"at least {int(min_frames)} frames"
+    return f"at most {int(max_frames)} frames"
+
+
+def rate_problem(clip_fps, fps):
+    """The message for a clip not at `fps` (within FPS_TOLERANCE), or None."""
+    if fps is None:
+        return None
+    if clip_fps is None:
+        return (
+            f"crop_face_track needs a clip at {_rate_text(fps)} fps, and this "
+            f"one carries no frame rate - pass a video file, or a step's "
+            f"video that records its rate"
+        )
+    if abs(float(clip_fps) - float(fps)) > FPS_TOLERANCE:
+        return (
+            f"crop_face_track needs a clip at {_rate_text(fps)} fps, and this "
+            f"one is {_rate_text(clip_fps)} fps - re-render or convert it to "
+            f"that rate first, or drop the 'fps' argument"
+        )
+    return None
+
+
 def detector_source(arguments):
     """The (repo, file, revision) a crop_face_track step loads YuNet from -
     `detector_repo` and `detector_file` over the defaults, the default repo
@@ -414,6 +496,9 @@ def crop_face_track(
     modulus=FACE_CROP_MODULUS,
     remainder=FACE_CROP_REMAINDER,
     multiple=FACE_CROP_MULTIPLE,
+    min_frames=None,
+    max_frames=None,
+    fps=None,
     detector_repo=DEFAULT_DETECTOR_REPO,
     detector_file=DEFAULT_DETECTOR_FILE,
     device=None,
@@ -437,12 +522,19 @@ def crop_face_track(
             to modulus - 1
         multiple: crop_size must be a multiple of this, the model's frame-size
             step (32 for LTX)
+        min_frames: Refuse the clip when its padded crop count is below this
+            (unset: no check)
+        max_frames: Refuse the clip when its padded crop count is above this
+            (unset: no check)
+        fps: Refuse the clip unless its frame rate is this, within
+            FPS_TOLERANCE (unset: no check)
         detector_repo: Hugging Face repo holding the YuNet weights
         detector_file: The .onnx file in that repo
         device: Where detection runs; CUDA only when OpenCV was built with it
     Returns:
         {"crops": AudioVideo of crop_size squares, padded to modulus * n + remainder
-         frames (8n+1 by default),
+         frames (8n+1 by default), carrying the clip's soundtrack padded with
+         silence to match (no audio for a silent clip),
          "track": the record of every frame's box, crop and strength}
     """
     problems = face_track_problems(
@@ -454,20 +546,46 @@ def crop_face_track(
         modulus=modulus,
         remainder=remainder,
         multiple=multiple,
+        min_frames=min_frames,
+        max_frames=max_frames,
     )
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
+    check_arguments(
+        "crop_face_track",
+        **{
+            name: value
+            for name, value in (
+                ("min_frames", min_frames),
+                ("max_frames", max_frames),
+                ("fps", fps),
+            )
+            if value is not None
+        },
+    )
     crop_size = int(crop_size)
     modulus, remainder = int(modulus), int(remainder)
-
-    detector = _detector(detector_repo, detector_file, min_confidence, device)
 
     if isinstance(clip, str):
         clip = load_audio_video(clip)
     frames = frames_as_pil_list(clip)
     if not frames:
         raise ValueError("crop_face_track needs a clip with at least one frame")
-    fps = getattr(clip, "fps", None)
+    clip_fps = getattr(clip, "fps", None)
+
+    # The window and the rate are the clip's to meet before the detector loads
+    before, after = padding_to_grid(len(frames), modulus, remainder)
+    crop_frames = before + len(frames) + after
+    refusals = window_problems(
+        len(frames), crop_frames, f"{modulus}n+{remainder}", min_frames, max_frames
+    )
+    rate = rate_problem(clip_fps, fps)
+    if rate is not None:
+        refusals.append(rate)
+    if refusals:
+        raise ValueError("; ".join(refusals))
+
+    detector = _detector(detector_repo, detector_file, min_confidence, device)
     rgb = [np.asarray(frame.convert("RGB")) for frame in frames]
     height, width = rgb[0].shape[:2]
 
@@ -498,8 +616,10 @@ def crop_face_track(
         entry["crop"] = square
         crops.append(_cut(rgb[index], square, crop_size))
 
-    before, after = padding_to_grid(len(crops), modulus, remainder)
     crops = pad_frames(crops, before, after)
+    track_audio, sample_rate = crop_soundtrack(
+        clip, clip_fps, len(frames), before, after
+    )
 
     record = JsonRecord(
         {
@@ -507,7 +627,7 @@ def crop_face_track(
                 "width": width,
                 "height": height,
                 "frames": len(frames),
-                "fps": fps,
+                "fps": clip_fps,
             },
             "crop_size": crop_size,
             "padding": padding,
@@ -540,8 +660,35 @@ def crop_face_track(
         f"crop_face_track: face in {tracked} of {len(frames)} frames, "
         f"{len(resets)} reset(s), {len(crops)} crops of {crop_size}px "
         f"({before} before, {after} after for {modulus}n+{remainder})"
+        + (", with the clip's soundtrack" if track_audio is not None else "")
     )
-    return {"crops": AudioVideo(crops, None, None, fps=fps), "track": record}
+    return {
+        "crops": AudioVideo(crops, track_audio, sample_rate, fps=clip_fps),
+        "track": record,
+    }
+
+
+def crop_soundtrack(clip, clip_fps, frames, before, after):
+    """(audio, sample_rate) for the crops: the clip's track padded to them, or
+    (None, None) for a silent clip. A track without a frame rate or sample
+    rate to place it by is dropped, with a warning."""
+    audio = getattr(clip, "audio", None)
+    if audio is None:
+        return None, None
+    sample_rate = getattr(clip, "sample_rate", None)
+    if not sample_rate or not clip_fps:
+        emit_warning(
+            "crop_face_track: the clip's soundtrack is dropped from the crops - "
+            "the clip carries no "
+            + ("frame rate" if not clip_fps else "sample rate")
+            + " to line it up with the padded crops by",
+            kind="crop_audio_dropped",
+            command="crop_face_track",
+        )
+        return None, None
+    return padded_audio(
+        audio, sample_rate, clip_fps, frames, before, after
+    ), sample_rate
 
 
 def feather_mask(side, feather):

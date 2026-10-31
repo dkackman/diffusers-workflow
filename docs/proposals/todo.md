@@ -383,6 +383,32 @@ remaining deferred fix is recorded in
   template were not built. Record, with the design and what would reopen it
   (a lighter H3 build, or #1045's guide path):
   `complete/chain-follow-video-complete.md`.
+- **H3 regional edit** (#1062, stages #1077-#1078), shipped 2026-10-31. An
+  H3 step takes a `source_video` and a `mask_image` or `mask_video`, with
+  `mask_grow`. Two dw blocks (a source encode, and a mask blend inside the
+  denoise loop) regenerate the masked patch cells and keep the rest of the
+  take and its soundtrack. Strength bands are measured: 0.9 replaces an
+  object, 0.95 reworks clothing, and 1.0 is a fresh generation. Ships the
+  `templates/minimax/regional-edit` template and a `minimax-h3` skill
+  branch. Record, including what was deferred (audio intervals, masked
+  tiles, chains, upstream `denoise_mask`):
+  `complete/h3-regional-edit-complete.md`.
+- **H3 Open-Regenerate-2K refiner** (#1065, stages #1081-#1082), shipped
+  2026-10-31. A `trial` catalog entry for Kijai's rank-384 extraction of
+  NVlabs' regenerate refiner: it loads and fits a full-frame 1920x1088
+  refine on 24 GB, and is far sharper, but at strength 0.909 it redraws
+  identity (18.6 dB vs #1049 (d)'s 26.4). Adds `refine_sigmas`, an explicit
+  H3 refine schedule; the recipe's exact points measured the same as the
+  shift-2 grid. Don's lower-strength arms (0.6, 0.7) are still owed.
+  Record: `complete/h3-open-regenerate-2k-complete.md`.
+- **Cutaway and lead-in joins in `script-to-video`** (#1093, stage #1100),
+  shipped 2026-10-31 as skill text only. A shot list's `join` field
+  (`continue`, `cut`, `cutaway`, `lead_in`) and
+  `script-to-video/references/joins.md`: a cutaway's successor re-enters
+  from the shot before it, and a lead-in is rendered after its target and
+  pinned to it with `first-and-last-frame`. Record, including the deferred
+  engine chain joins and their reopen trigger:
+  `complete/script-to-video-joins-complete.md`.
 
 ## Declined
 

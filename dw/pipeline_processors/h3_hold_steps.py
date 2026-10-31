@@ -49,6 +49,7 @@ from .h3_rules import (
     HOLD_AUDIO_INPUT,
     REFINE_NOISE,
     REFINE_ROW_NOISE,
+    REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
 )
@@ -84,6 +85,23 @@ def refine_sigmas(strength, num_points, shift):
     start = strength / (shift - (shift - 1) * strength)
     sigmas = shifted_sigma_grid(num_points, shift, start)
     sigmas[0], sigmas[-1] = strength, 0.0
+    return sigmas.float()
+
+
+def explicit_sigmas(points, strength):
+    """A caller's own `refine_sigmas` schedule as the float32 tensor
+    `set_timesteps(sigmas=...)` takes, used verbatim - no shift is applied.
+    Its first point is pinned to `strength` and its last to 0, the values
+    `h3_rules.refine_problems` already held them to within SIGMA_TOLERANCE,
+    so the re-noise and the schedule start from the same sigma.
+
+    Raises:
+        ValueError: If `points` has fewer than 2 points
+    """
+    sigmas = torch.tensor([float(point) for point in points], dtype=torch.float64)
+    if sigmas.numel() < 2:
+        raise ValueError(f"refine_sigmas needs at least 2 points, got {sigmas.numel()}")
+    sigmas[0], sigmas[-1] = float(strength), 0.0
     return sigmas.float()
 
 
@@ -295,9 +313,9 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
     def description(self):
         return (
             "dw: with `refine_strength`, re-denoises the passed `latents` from that sigma - replaces both "
-            "schedules with `num_inference_steps` shift-spaced points from it down to 0 and re-noises the "
-            "generated video rows to it. Needs every audio row held (`hold_audio`). Does nothing without "
-            "`refine_strength`."
+            "schedules with `num_inference_steps` shift-spaced points from it down to 0, or with "
+            "`refine_sigmas` when passed, and re-noises the generated video rows to it. Needs every audio "
+            "row held (`hold_audio`). Does nothing without `refine_strength`."
         )
 
     @property
@@ -311,6 +329,16 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                     "The sigma in (0, 1) to re-denoise a passed `latents` from - an upscaled take refined at "
                     "about 0.2 - or in (0, 1] for a `source_video` regional edit, where 1.0 regenerates the "
                     "masked region from noise. Runs num_inference_steps - 1 evaluations."
+                ),
+            ),
+            InputParam(
+                name=REFINE_SIGMAS_INPUT,
+                type_hint=list,
+                default=None,
+                description=(
+                    "An explicit refine schedule in place of the shift-spaced one: strictly decreasing sigma "
+                    "points from `refine_strength` down to 0, one per `num_inference_steps`, used verbatim "
+                    "for the video and audio schedules. Needs `refine_strength`."
                 ),
             ),
             InputParam(
@@ -372,9 +400,13 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
             )
 
         device = components._execution_device
-        sigmas = refine_sigmas(
-            strength, block_state.num_inference_steps, components.scheduler.shift
-        )
+        explicit = getattr(block_state, REFINE_SIGMAS_INPUT, None)
+        if explicit is not None:
+            sigmas = explicit_sigmas(explicit, strength)
+        else:
+            sigmas = refine_sigmas(
+                strength, block_state.num_inference_steps, components.scheduler.shift
+            )
         # Verbatim: set_timesteps(sigmas=...) applies no shift. The audio
         # schedule only has to match the video's for the loop's audio step,
         # which steps no row when every one is held
@@ -435,6 +467,7 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
 
         logger.info(
             f"Refining from sigma {strength} over {len(block_state.timesteps)} steps"
+            + (f" on refine_sigmas {list(explicit)}" if explicit is not None else "")
         )
         self.set_block_state(state, block_state)
         return components, state

@@ -20,7 +20,8 @@ Three blocks go into each of H3's three core-denoise sequences (`t2va`, `fl2va`,
 - `DwH3RefineScheduleStep`, before `denoise` - after `set_timesteps`, whose
   schedule it replaces when `refine_strength` is passed: σ₀ = `refine_strength`,
   then `num_inference_steps` points down to 0 spaced by the scheduler's shift
-  (`refine_sigmas`), so `num_inference_steps - 1` evaluations. It re-noises the
+  (`refine_sigmas`), so `num_inference_steps - 1` evaluations - or, with a
+  `refine_sigmas` argument, that list verbatim (`explicit_sigmas`). It re-noises the
   generated video rows of a passed `latents` to σ₀. Every audio row has to be a
   held one (`hold_audio`): the audio scheduler gets the same list only so the
   loop's audio step finds its timesteps, and steps no row;

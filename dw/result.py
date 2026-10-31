@@ -7,7 +7,6 @@ import logging
 from diffusers.utils import (
     export_to_video,
     export_to_gif,
-    encode_video,
     is_av_available,
 )
 from collections.abc import Mapping
@@ -31,6 +30,7 @@ from .media_types import (
 )
 from .output_extraction import get_artifact_list
 from .writers import (
+    encode_video,
     _artifact_size,
     _file_size_mb,
     as_audio_track,

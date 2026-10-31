@@ -21,6 +21,7 @@ from dw.pipeline_processors.h3_hold import (
 from dw.pipeline_processors.h3_rules import (
     HOLD_BLOCK,
     REFINE_BLOCK,
+    REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     refine_problems,
 )
@@ -35,6 +36,7 @@ from diffusers.modular_pipelines.minimax_h3.before_denoise import (  # noqa: E40
 from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
 from diffusers.utils.torch_utils import randn_tensor  # noqa: E402
 from dw.pipeline_processors.h3_hold_steps import (  # noqa: E402
+    explicit_sigmas,
     refine_sigmas,
     shifted_sigma_grid,
 )
@@ -841,3 +843,227 @@ class TestFullFrameStatic:
 
     def test_an_unknown_canvas_is_not_checked(self):
         assert errors_for(step_with()) == []
+
+
+# 12. refine_sigmas - an explicit schedule (#1082)
+
+# The regenerate recipe: H3's stock 4-step grid from 0.909375
+RECIPE = [0.909375, 0.857143, 0.666667, 0]
+RECIPE_STRENGTH = 0.909375
+
+
+def explicit(**overrides):
+    arguments = {
+        "refine_strength": RECIPE_STRENGTH,
+        "num_inference_steps": len(RECIPE),
+        "refine_sigmas": list(RECIPE),
+    }
+    arguments.update(overrides)
+    return arguments
+
+
+BROKEN = [
+    pytest.param({"refine_sigmas": [0.909375]}, "at least 2 points", id="one-point"),
+    pytest.param(
+        {"refine_sigmas": [0.909375, 0.857143, 0.857143, 0]},
+        "strictly decreasing",
+        id="repeated-point",
+    ),
+    pytest.param(
+        {"refine_sigmas": [0.909375, 0.666667, 0.857143, 0]},
+        "strictly decreasing",
+        id="rising",
+    ),
+    pytest.param(
+        {"refine_sigmas": [0.9, 0.857143, 0.666667, 0]},
+        "starts at refine_strength",
+        id="off-strength",
+    ),
+    pytest.param(
+        {"refine_sigmas": [0.909375, 0.857143, 0.666667, 0.01]},
+        "ends at 0",
+        id="not-to-zero",
+    ),
+    pytest.param(
+        {"num_inference_steps": 5}, "set num_inference_steps to 4", id="count"
+    ),
+    pytest.param(
+        {"num_inference_steps": None}, "sets no num_inference_steps", id="no-steps"
+    ),
+    pytest.param(
+        {"refine_sigmas": "0.9,0.5,0"}, "not a list of numbers", id="not-a-list"
+    ),
+    pytest.param(
+        {"refine_sigmas": [0.909375, "half", 0]},
+        "not a list of numbers",
+        id="not-numbers",
+    ),
+    pytest.param(
+        {"refine_sigmas": [0.909375, True, 0]},
+        "not a list of numbers",
+        id="a-bool",
+    ),
+]
+
+
+class TestSigmaListStatic:
+    def test_the_regenerate_recipe_is_clean(self):
+        assert errors_for(step_with(**explicit())) == []
+
+    @pytest.mark.parametrize("overrides, fragment", BROKEN)
+    def test_a_broken_rule_is_refused_at_the_sigmas_path(self, overrides, fragment):
+        errors = errors_for(step_with(**explicit(**overrides)))
+        assert errors, overrides
+        assert all(e["path"].endswith("arguments.refine_sigmas") for e in errors)
+        assert any(fragment in e["message"] for e in errors), errors
+
+    def test_the_first_point_may_differ_within_the_tolerance(self):
+        sigmas = [RECIPE_STRENGTH + 5e-7, 0.857143, 0.666667, 0]
+        assert errors_for(step_with(**explicit(refine_sigmas=sigmas))) == []
+
+    def test_an_integer_zero_and_a_float_zero_both_end_it(self):
+        for zero in (0, 0.0):
+            sigmas = [0.909375, 0.5, zero]
+            assert (
+                errors_for(
+                    step_with(**explicit(refine_sigmas=sigmas, num_inference_steps=3))
+                )
+                == []
+            )
+
+    def test_sigmas_without_a_strength_are_refused(self):
+        errors = errors_for(step_with(**explicit(refine_strength=None)))
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("arguments.refine_sigmas")
+        assert errors[0]["message"].startswith(
+            "refine_sigmas schedules a refine_strength pass"
+        )
+
+    def test_a_deferred_list_is_not_checked(self):
+        step = step_with(**explicit(refine_sigmas="variable:sigmas"))
+        assert errors_for(step) == []
+
+    def test_sigmas_with_tiles_are_clean(self):
+        assert errors_for(tiled(**explicit())) == []
+
+    def test_sigmas_on_a_non_h3_step_are_refused(self):
+        step = step_with(**explicit())
+        step["pipeline"]["configuration"]["component_type"] = "StableDiffusionPipeline"
+        errors = errors_for(step)
+        assert any(e["path"].endswith("arguments.refine_sigmas") for e in errors)
+
+    def test_the_strength_rules_still_hold_beside_sigmas(self):
+        errors = errors_for(step_with(**explicit(hold_audio=None)))
+        assert any(
+            e["path"].endswith("refine_strength") and "hold_audio" in e["message"]
+            for e in errors
+        )
+
+    def test_no_sigmas_keeps_the_old_rules(self):
+        assert refine_problems(valid()) == []
+
+
+class TestSigmaListRuntime:
+    def test_the_regenerate_recipe_passes(self, refining):
+        assert Pipeline._check_refine(refining, runtime_arguments(**explicit())) is None
+
+    @pytest.mark.parametrize("overrides, fragment", BROKEN)
+    def test_a_broken_rule_raises(self, refining, overrides, fragment):
+        with pytest.raises(ValueError, match="refine_sigmas") as raised:
+            Pipeline._check_refine(refining, runtime_arguments(**explicit(**overrides)))
+        assert str(raised.value).startswith("Step 'video': ")
+
+    def test_sigmas_without_a_strength_raise(self, refining):
+        with pytest.raises(ValueError, match="refine_sigmas schedules"):
+            Pipeline._check_refine(
+                refining, runtime_arguments(**explicit(refine_strength=None))
+            )
+
+    def test_a_non_h3_pipeline_names_refine_sigmas(self):
+        with pytest.raises(ValueError, match="refine_sigmas is a MiniMax-H3"):
+            Pipeline._check_refine(
+                ns(object()), runtime_arguments(**explicit(refine_strength=None))
+            )
+
+
+class TestSigmaListOneOwner:
+    @pytest.mark.parametrize("overrides, fragment", BROKEN)
+    def test_the_runtime_message_is_the_owners(self, refining, overrides, fragment):
+        arguments = runtime_arguments(**explicit(**overrides))
+        problems = refine_problems(arguments)
+        assert any(fragment in problem for problem in problems)
+        with pytest.raises(ValueError) as raised:
+            Pipeline._check_refine(refining, arguments)
+        assert str(raised.value) == f"Step 'video': {problems[0]}"
+
+    @pytest.mark.parametrize("overrides, fragment", BROKEN)
+    def test_the_static_messages_are_the_owners(self, overrides, fragment):
+        arguments = valid(**explicit(**overrides))
+        statics = [e["message"] for e in errors_for(h3_step(**arguments))]
+        assert statics == refine_problems(arguments)
+
+
+def explicit_state(sigmas=RECIPE, strength=RECIPE_STRENGTH, seed=4, **kwargs):
+    state = make_state(steps=len(sigmas), strength=strength, seed=seed, **kwargs)
+    state.set(REFINE_SIGMAS_INPUT, list(sigmas))
+    return state
+
+
+class TestSigmaListSchedule:
+    def test_explicit_sigmas_are_the_list_verbatim(self):
+        assert explicit_sigmas(RECIPE, RECIPE_STRENGTH).tolist() == pytest.approx(
+            RECIPE
+        )
+
+    def test_the_ends_are_pinned_to_strength_and_zero(self):
+        sigmas = explicit_sigmas([0.9093755, 0.5, 0.0], 0.909375)
+        assert sigmas[0].item() == pytest.approx(0.909375, abs=1e-7)
+        assert sigmas[-1].item() == 0.0
+
+    def test_fewer_than_two_points_raise(self):
+        with pytest.raises(ValueError, match="at least 2 points"):
+            explicit_sigmas([0.9], 0.9)
+
+    @pytest.mark.parametrize("shift", [1.0, 6.0])
+    def test_the_block_runs_the_list_unshifted(self, shift):
+        comps = components(shift)
+        state = run(comps, explicit_state())
+        for scheduler in (comps.scheduler, comps.audio_scheduler):
+            assert scheduler.sigmas.tolist() == pytest.approx(RECIPE, abs=1e-6)
+        assert len(state.get("timesteps")) == len(RECIPE) - 1
+        assert torch.equal(state.get("timesteps"), state.get("audio_timesteps"))
+
+    def test_the_plan_is_rebuilt_one_entry_per_denoise_step(self):
+        state = run(components(), explicit_state())
+        assert len(state.get("row_timestep_plan")) == len(RECIPE) - 1
+
+    def test_the_renoise_is_at_the_strength(self):
+        comps = components()
+        state = make_state(steps=4, strength=RECIPE_STRENGTH, seed=4)
+        clean = state.get("latents").clone()
+        state.set(REFINE_SIGMAS_INPUT, list(RECIPE))
+        run(comps, state)
+        noise = randn_tensor(
+            clean.shape,
+            generator=torch.Generator().manual_seed(4),
+            device=torch.device("cpu"),
+            dtype=clean.dtype,
+        )
+        expected = (1 - RECIPE_STRENGTH) * clean + RECIPE_STRENGTH * noise
+        assert torch.allclose(state.get("latents"), expected, atol=1e-5)
+
+    def test_a_shorter_list_is_not_the_shift_grid(self):
+        comps = components()
+        sigmas = [0.5, 0.25, 0]
+        run(comps, explicit_state(sigmas=sigmas, strength=0.5))
+        assert comps.scheduler.sigmas.tolist() == pytest.approx(sigmas, abs=1e-6)
+        assert comps.scheduler.sigmas.tolist() != pytest.approx(
+            refine_sigmas(0.5, 3, 6.0).tolist(), abs=1e-6
+        )
+
+    def test_without_the_list_the_shift_grid_runs(self):
+        comps = components()
+        run(comps, make_state(steps=5, strength=0.2))
+        assert comps.scheduler.sigmas.tolist() == pytest.approx(
+            refine_sigmas(0.2, 5, 6.0).tolist(), abs=1e-6
+        )

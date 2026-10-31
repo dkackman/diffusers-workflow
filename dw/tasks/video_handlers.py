@@ -24,6 +24,7 @@ from ..task_domains import (
     POSITIVE,
     fit_to_model_errors,
     join_windows_errors,
+    restore_to_source_errors,
     window_video_errors,
 )
 from ..task_problems import (
@@ -196,7 +197,8 @@ def _handle_fit_to_model(task, arguments, previous_pipelines):
     implementation="dw.tasks.fit.restore_to_source",
     summary=(
         "Put a model's output for a fit_to_model video back at the source's "
-        "size (times the model's scale, inferred) and frame count."
+        "size (times the model's scale, inferred) and frame count, and with "
+        'fps: "source" at its frame rate.'
     ),
     parameter_descriptions={
         "video": (
@@ -208,8 +210,17 @@ def _handle_fit_to_model(task, arguments, previous_pipelines):
             "its saved .json. A crop fit restores only the part it kept, at "
             "the source's pixel density."
         ),
+        "fps": (
+            "The restored video's frame rate. Omitted, the input video's. "
+            '"source" is the rate the source had when it was fitted (the fit '
+            "record's source_fps), for a fixed edit whose output has to line "
+            "up frame for frame with its source; a source with no rate, or a "
+            "record saved without one, falls back to the input video's. A "
+            "number above zero is that rate. No frames are added or dropped."
+        ),
     },
     media_arguments=("fit",),
+    static_check=restore_to_source_errors,
 )
 def _handle_restore_to_source(task, arguments, previous_pipelines):
     """Put a fitted video back at its source's size and length"""
@@ -324,6 +335,18 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "crop_size must be a multiple of this - the model's frame-size "
             "step (32 for LTX)."
         ),
+        "min_frames": (
+            "Refuse the clip when its padded crop count is below this - the "
+            "fewest frames the model the crops feed takes. No check when unset."
+        ),
+        "max_frames": (
+            "Refuse the clip when its padded crop count is above this - the "
+            "most frames the model the crops feed takes. No check when unset."
+        ),
+        "fps": (
+            "Refuse the clip unless its frame rate is this, within 0.01 - the "
+            "rate the model the crops feed generates at. No check when unset."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -336,8 +359,11 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "modulus": POSITIVE,
         "remainder": NON_NEGATIVE,
         "multiple": POSITIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "fps": POSITIVE,
     },
-    whole_numbers=("modulus", "remainder", "multiple"),
+    whole_numbers=("modulus", "remainder", "multiple", "min_frames", "max_frames"),
     static_check=face_track_errors,
     media_arguments=("clip",),
 )

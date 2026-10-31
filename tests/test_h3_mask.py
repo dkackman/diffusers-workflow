@@ -957,8 +957,25 @@ class TestStrengthOne:
             "hold_audio": "previous_result:base.audio",
             "num_inference_steps": 5,
         }
-        problems = refine_problems(arguments)
-        assert len(problems) == 1 and "source_video" in problems[0]
+        assert refine_problems(arguments) == [
+            "refine_strength is a sigma in (0, 1) - about 0.2 refines an "
+            "upscaled take - and 1.0 is outside it"
+        ]
+
+    @pytest.mark.parametrize("strength", [0, 1.5])
+    def test_a_latent_refine_keeps_its_range_message(self, strength):
+        """A refine without a source_video says what it said before the
+        regional edit: its range sentence is a pinned contract."""
+        arguments = {
+            "refine_strength": strength,
+            "latents": "previous_result:up",
+            "hold_audio": "previous_result:base.audio",
+            "num_inference_steps": 5,
+        }
+        assert refine_problems(arguments) == [
+            f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
+            f"upscaled take - and {strength} is outside it"
+        ]
 
     def test_above_one_is_refused_with_a_source_video(self):
         arguments = {
@@ -989,6 +1006,56 @@ class TestStrengthOne:
         from dw.hold_audio import refine_strength_errors
 
         assert refine_strength_errors({"steps": [step]}) == []
+
+
+class TestStringStrength:
+    """#1077 bounce: a string `refine_strength` is refused where it reaches
+    the rule. A caller's argument to a variable is first converted to the
+    type of the variable's default (dw/variables.py `set_variables`), so
+    "0.8" to a variable declared 0.9 is the number 0.8, as a command-line
+    `refine_strength=0.8` must be. Only a variable declared null keeps it a
+    string."""
+
+    def realized(self, default, value):
+        from dw.variables import replace_variables, set_variables
+
+        variables = {"refine_strength": default}
+        set_variables({"refine_strength": value}, variables)
+        step = h3_step(
+            **args(refine_strength="variable:refine_strength"),
+            hold_audio="asset:clip.mp4",
+            num_inference_steps=5,
+        )
+        return replace_variables(step, variables)
+
+    def errors(self, step):
+        from dw.hold_audio import refine_strength_errors
+
+        return refine_strength_errors({"steps": [step]})
+
+    def test_a_literal_string_is_refused_at_its_path(self):
+        step = h3_step(
+            **args(refine_strength="0.8"),
+            hold_audio="asset:clip.mp4",
+            num_inference_steps=5,
+        )
+        errors = self.errors(step)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("refine_strength")
+        assert "'0.8' is not a number" in errors[0]["message"]
+
+    def test_a_string_to_a_number_variable_is_the_number(self):
+        step = self.realized(0.9, "0.8")
+        assert step["pipeline"]["arguments"]["refine_strength"] == 0.8
+        assert self.errors(step) == []
+
+    def test_a_string_to_a_null_variable_is_refused(self):
+        errors = self.errors(self.realized(None, "0.8"))
+        assert len(errors) == 1 and "'0.8' is not a number" in errors[0]["message"]
+
+    def test_a_non_numeric_string_to_a_number_variable_is_refused(self):
+        with pytest.raises(ValueError, match="refine_strength"):
+            self.realized(0.9, "high")
 
 
 # The call: Pipeline._with_mask

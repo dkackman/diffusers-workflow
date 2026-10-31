@@ -675,6 +675,33 @@ def fit_to_model_errors(arguments):
     return errors
 
 
+# restore_to_source's `fps` value for "the rate the source carried", read
+# from the fit record's `source_fps` (#1079)
+SOURCE_FPS = "source"
+
+
+def restore_fps_problem(fps):
+    """The refusal sentence for a restore_to_source `fps` that is neither
+    "source" nor a positive number, or None. Omitted (None) and a reference
+    still to resolve are not this check's to refuse."""
+    if fps is None or fps == SOURCE_FPS or is_ref(DEFERRED, fps):
+        return None
+    if _is_literal_text(fps) and not _is_non_finite_text(fps):
+        return (
+            f"restore_to_source needs 'fps' as {SOURCE_FPS!r} or a number "
+            f"({_DOMAIN_TEXT[POSITIVE]}), got {fps!r}"
+        )
+    return domain_error("restore_to_source", "fps", fps, POSITIVE)
+
+
+def restore_to_source_errors(arguments):
+    """[(argument, message)] for the restore_to_source rule a literal
+    workflow can break before it runs: an `fps` that is neither "source" nor
+    a positive number."""
+    problem = restore_fps_problem(arguments.get("fps"))
+    return [] if problem is None else [("fps", problem.rstrip("."))]
+
+
 def dissolve_shortfalls(frame_counts, dissolve_frames):
     """One sentence per video too short for its share of the overlaps.
 

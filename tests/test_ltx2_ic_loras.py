@@ -121,7 +121,14 @@ class TestEachTemplateMatchesItsCard:
 
         assert (variables["width"], variables["height"]) == (width, height)
         assert variables["num_frames"] == frames
-        assert variables["frame_rate"] == 24.0
+        if name == "alpha-matte":
+            # #1079: the matte is written at the source's rate; the model
+            # itself still runs at its trained 24 fps
+            pipeline = conditioned_step(name)["pipeline"]
+            assert variables["frame_rate"] == "source"
+            assert pipeline["arguments"]["frame_rate"] == 24.0
+        else:
+            assert variables["frame_rate"] == 24.0
 
     def test_it_conditions_through_the_in_context_pipeline(self, name):
         pipeline = conditioned_step(name)["pipeline"]
@@ -270,3 +277,49 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
 
         assert not workflow["variables"]["prompt"].startswith("prompt:")
         assert "Replace the default prompt" in workflow["description"]
+
+
+class TestTheAlphaMatteKeepsItsDecodersOffTheCard:
+    """#1079 (plan v6, Q8 (a)): the 145-frame cap ran out of memory on a warm
+    24 GB card. The VAE is only used to encode the reference and decode the
+    matte, and the matte never reads the audio, so all three rest in system
+    memory and visit the card only for their own calls."""
+
+    @pytest.mark.parametrize("component", ["vae", "audio_vae", "vocoder"])
+    def test_it_is_on_demand(self, component):
+        components = conditioned_step("alpha-matte")["pipeline"]["configuration"][
+            "components"
+        ]
+
+        assert components[component] == {"device": "cuda", "residency": "on_demand"}
+
+    def test_it_keeps_deblurs_pipeline_identity(self):
+        """The placement is not part of the (pipeline, model, workflow)
+        identity the VRAM estimate is matched on, so the matte still
+        inherits restore-deblur's estimate."""
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step("alpha-matte")) == (
+            pipeline_identity(conditioned_step("restore-deblur"))
+        )
+
+
+class TestTheAlphaMatteSaysAShotCutLeaks:
+    """#1079 (plan v8, Q9 (a)): at the 145-frame cap the matte leaked source
+    texture on the frame just after a hard cut, so the description and the
+    skill row tell the caller to matte one shot at a time."""
+
+    def test_the_description_says_it(self):
+        with open(os.path.join(TEMPLATES, "alpha-matte.json")) as f:
+            description = json.load(f)["description"]
+
+        assert "hard cut" in description
+        assert "one shot at a time" in description
+
+    def test_the_skill_row_says_it(self):
+        path = os.path.join(REPO_ROOT, "plugins", "dw", "skills", "ltx-2.5", "SKILL.md")
+        with open(path) as f:
+            row = f.read().split("templates/ltx2/alpha-matte")[1].split("\n- ")[0]
+
+        assert "hard cut" in row
+        assert "one shot" in row

@@ -529,7 +529,7 @@ add grain last so it is not itself sharpened:
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
-| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit`, `fps` (omitted: the input's rate; `"source"`: the source's; or a number) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -1095,8 +1095,10 @@ it goes straight to a pipeline's `video` or a reference condition's `frames`;
 saved, it is written as an mp4 at that rate. The `fit`
 record holds `mode`, `source_width`, `source_height`, `source_frames`,
 `model_width`, `model_height`, `model_frames`, `content_box` (where the source
-sits in the model frame) and `source_box` (the part of the source kept - all
-of it unless `mode` is `crop`), each box `{x, y, w, h}`.
+sits in the model frame), `source_box` (the part of the source kept - all
+of it unless `mode` is `crop`), each box `{x, y, w, h}`, and `source_fps`
+(the source's frame rate, `null` when it carries none). A record written
+before `source_fps` existed still restores.
 
 `restore_to_source` takes the pipeline's output and that record; it has no
 `scale` argument. The scale is the output's size over the fitted size and must
@@ -1107,6 +1109,17 @@ dropping the held ones (an output shorter than that is returned as it is).
 the source's pixel density times the scale: 640x480 fitted into 512x288
 restores to 640x360. A saved video keeps its exact size; only an odd side
 grows by one pixel, since the encoder needs even sides.
+
+`fps` sets the restored clip's frame rate; it never adds or drops a frame.
+Omitted, the clip keeps the rate it came in at - the pipeline's, which for a
+model that runs at a fixed rate is not the source's. `"source"` takes the
+record's `source_fps`, falling back to the input's rate when the record has
+none. A positive number sets that rate. Anything else is refused, at
+validation for a literal. A model that runs at 24 fps on an 8 fps clip
+returns one frame per source frame, so `"fps": "source"` writes it back at 8
+and it stays frame-aligned with the source in time as well as in count
+(`templates/ltx2/alpha-matte`, whose `frame_rate` variable defaults to
+`"source"` and passes through to this argument).
 
 Neither task carries a soundtrack. Pair the source's with `pair_audio` after
 the restore.
@@ -1140,6 +1153,9 @@ face-detail pass that needs the face large and still:
 | `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
 | `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
 | `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
+| `min_frames` | No | Refuse the clip when its padded crop count is below this - the shortest clip the model the crops feed takes. A whole number, at least `1`. No check when unset |
+| `max_frames` | No | Refuse the clip when its padded crop count is above this - the longest the model takes. A whole number, at least `min_frames`. No check when unset |
+| `fps` | No | Refuse the clip unless its frame rate is this, within `0.01` (23.976 passes for `23.98`, not for `24`). Above `0`. No check when unset |
 | `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
@@ -1150,7 +1166,8 @@ A validate's `downloads_required` lists the detector file as a file entry when i
 the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
 32-pixel steps, so a workflow that names none gets the output it always did;
 the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
-explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+explicitly. A model on another grid names its own: MiniMax H3's is `modulus:
+17, remainder: 5, multiple: 32` (17n+5 frames, 32-pixel steps). A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
 and a `crop_size` that is not a multiple of `multiple` are refused at
 validation.
 
@@ -1177,8 +1194,21 @@ change it. It is 1 when face width over frame width is at or below `gate_full`,
 0 at or above `gate_zero`, linear between, and multiplied by the hold decay on
 frames the detector missed.
 
-It returns `{crops, track}`. `crops` is a video (no audio) at the clip's frame
-rate. `track` is a JSON record saved as its own `.json` file, readable by
+`min_frames`, `max_frames` and `fps` refuse a clip the model the crops feed
+cannot take, before the detector loads: the window is checked against the
+padded crop count, and the message names both the clip's frame count and the
+count it pads to (`the clip's 346 frames pad to 362 crops on the 17n+5 grid,
+above max_frames 345`). A clip that records no frame rate is refused when
+`fps` is set.
+
+It returns `{crops, track}`. `crops` is a video at the clip's frame rate. When
+the clip has a soundtrack, `crops` carries it padded to match: `pad_before`
+frames of silence, the clip's own sound, then `pad_after` frames of silence, so
+the track is exactly `crop_frames / fps` seconds long and a step holding the
+crops' audio (`hold_audio: previous_result:<step>.crops`) lines up with them
+frame for frame. A silent clip gives crops with no audio; a soundtrack on a
+clip with no frame rate to place it by is dropped, with a `crop_audio_dropped`
+warning. `track` is a JSON record saved as its own `.json` file, readable by
 `previous_result:<step>.track`:
 
 | Field | Description |
@@ -1196,8 +1226,10 @@ rate. `track` is a JSON record saved as its own `.json` file, readable by
 A clip with no face still succeeds: every strength is 0, the crops are the
 centre square, and a `no_face_found` warning is raised. `validate_workflow`
 refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
-`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
-and a `detector_file` that is not a `.onnx` name, before anything downloads.
+`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id,
+a `detector_file` that is not a `.onnx` name, a `min_frames`, `max_frames` or
+`fps` at or below 0, and a `max_frames` below `min_frames`, before anything
+downloads.
 
 ### paste_face_track
 
@@ -2316,6 +2348,19 @@ The model is fixed (`htdemucs`, run in fp32), its weights download on first
 use, and it needs the `demucs` package. On MPS a failed separation falls back
 to the CPU and warns (`separation_cpu_fallback`).
 
+**Dialogue and the rest.** The same split takes a dialogue shot apart from a
+score mixed under it: `vocals` is the dialogue and `drums` + `bass` + `other`,
+summed with `mix_audio`, is the rest. Measured on H3 shots under a Music 3
+score, the `vocals` stem matched the dry shot within 0.1 dB rms, and the
+score's leak into it sat about 30 dB under the bed
+([record](proposals/audits/2026-11-dialogue-stems.md)). The rest is not a
+clean score, though: htdemucs puts a shot's own SFX and foley in `drums` and
+`other`, so they come out with the music. Keep the score file when the goal is
+to replace the music. Transcribing the `vocals` stem also gives the line where
+transcribing the dry shot can loop on a hallucination; a speechless shot gives
+a near-silent `vocals` stem and an invented transcript, so judge "no dialogue"
+by the stem's level. Single-speaker dialogue doesn't raise `stacked_vocals`.
+
 **Stacked vocals.** A chorus is often recorded as layered stereo doubles - every
 Music 3 chorus is - and htdemucs returns all of them in the one `vocals` stem.
 When the stem's left and right channels sing different lines over a sung span,
@@ -2428,9 +2473,10 @@ picking better-separated reference spans is the fix, not reading past it.
 
 Both models are fixed - there is no model-name argument - and both run in
 fp32 (their STFT front ends are fp32-only in practice, and both are small
-enough that it costs nothing). Weights download on first use - htdemucs from
-Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
-and are cached between calls like any other model. On MPS a `separate: true`
+enough that it costs nothing). Weights download on first use - htdemucs
+through demucs' own downloader (from `dl.fbaipublicfiles.com` into the torch
+hub cache, outside the Hugging Face cache), ECAPA from speechbrain - and are
+cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
 
@@ -3441,3 +3487,4 @@ Canny edge detection followed by ControlNet generation:
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face
+- [minimax/face-repair.json](../workflows/templates/minimax/face-repair.json) — The same on an H3 take, its soundtrack held so the mouth stays on the speech

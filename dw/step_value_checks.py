@@ -37,12 +37,9 @@ from .task_domains import (
 # one frame-rate variable rather than a literal duplicated between the step
 # that generates and the step that writes (#363). This owns the resolved-value
 # check: once substitution has run, `result.fps` has to be a real, positive
-# frame rate, and it must be a whole number - `encode_video` (dw/result.py,
-# the writer used whenever a step's result carries audio) hands the value
-# straight to PyAV as `rate=int(fps)`, so a fractional rate like 23.976 would
-# be silently floored to 23 rather than written as asked. A frame_rate
-# variable declared as a float (24.0) still passes, since it carries no
-# fractional part; only a genuine fraction is refused.
+# frame rate. A fractional rate (23.976, 29.97) is allowed: `dw.writers`
+# writes it as the exact rational (24000/1001, 30000/1001) on both video
+# writers; it used to be refused because `encode_video` floored it to 23 (#1109).
 #
 # Containment doesn't apply here - there's no path to join - so unlike
 # subfolder_errors this only ever checks value shape.
@@ -77,11 +74,6 @@ def fps_errors(workflow_definition, source_indices=None):
             message = f"Invalid fps: {value!r} - fps is a number of frames per second"
         elif value <= 0:
             message = f"Invalid fps: {value!r} - fps must be greater than zero"
-        elif float(value) != int(value):
-            message = (
-                f"Invalid fps: {value!r} - fps must be a whole number; the video "
-                f"writer truncates a fractional rate rather than honoring it"
-            )
         if message is not None:
             errors.append(
                 {

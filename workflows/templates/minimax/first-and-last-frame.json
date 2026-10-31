@@ -2,6 +2,14 @@
     "id": "MiniMaxH3FL2VA",
     "description": "Conditioning on both ends of the clip at once. The 'fl2va' workflow is given an 'image' and a 'last_image', pinning the first and final frames so the model interpolates the motion between two fixed states rather than inventing an ending. Pointing both at the same picture is what makes a clip that returns to where it started, the building block for a seamless loop.",
     "summary": "H3 video with audio between two supplied stills pinned as first and last frames; the same still at both ends loops.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.0
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",

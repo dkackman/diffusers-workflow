@@ -32,12 +32,10 @@ class TestFpsErrors:
         definition = {"steps": [_step("a", {"fps": 24.0})]}
         assert fps_errors(definition) == []
 
-    def test_a_fractional_fps_is_reported_at_its_path(self):
+    def test_a_fractional_fps_is_fine(self):
+        # written as the exact rational (#1109)
         definition = {"steps": [_step("a", {"fps": 23.976})]}
-        errors = fps_errors(definition)
-        assert len(errors) == 1
-        assert errors[0]["path"] == "steps[0].result.fps"
-        assert "whole number" in errors[0]["message"]
+        assert fps_errors(definition) == []
 
     def test_a_non_positive_fps_is_reported(self):
         definition = {"steps": [_step("a", {"fps": 0})]}
@@ -110,9 +108,6 @@ class TestValidationErrorsIntegration:
     def test_a_bad_resolved_fps_is_refused_at_validate_time(self, tmp_path):
         definition = {
             "id": "fps_test",
-            # float-typed, like the ltx2 templates' own frame_rate default -
-            # an integer-typed variable would itself truncate 23.976 to 23
-            # before fps_errors ever saw a fractional value
             "variables": {"frame_rate": 24.0},
             "steps": [
                 {
@@ -126,7 +121,7 @@ class TestValidationErrorsIntegration:
             ],
         }
         workflow = self._workflow(definition, tmp_path)
-        errors = workflow.validation_errors(arguments={"frame_rate": 23.976})
+        errors = workflow.validation_errors(arguments={"frame_rate": 0})
         assert [e["path"] for e in errors] == ["steps[0].result.fps"]
 
     def test_an_item_driven_fps_is_checked_per_member(self, tmp_path):
