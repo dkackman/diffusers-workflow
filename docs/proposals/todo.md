@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **The remaining LTX-2.5 IC-LoRAs: `ltx2/alpha-matte` and
+  `ltx2/restore-colorize`** (#1064, stages #1079-#1080), shipped
+  2026-11-01. A grey soft-matte MP4 at the source's size and frame rate
+  (Alpha-Gen), and black-and-white colourising with a caller-written,
+  clip-matched prompt (Colorization), plus `source_fps` on the fit record
+  and `fps` on `restore_to_source`. Clean-Plate and Day-To-Night are
+  recorded in their registry entries as not onboarded. Record, including
+  what was deferred (alpha output, cut detection, auto-captioning, the
+  colourised clip's soundtrack): `complete/ltx2-ic-loras-complete.md`.
 - **H3 quality ramp: draft -> final tiers** (#862, stage #882), shipped
   2026-10-15. A `## Ramp` section in the `minimax-h3` skill's
   `references/quality-and-speed.md`, not a new skill: TV L1 -> L7, cinema
