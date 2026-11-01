@@ -31,7 +31,8 @@ file. This task does the comparison and reports where to look:
    shot no line names is meant to be silent (`speech_in_silent_shot`), and a
    line's last word is checked against the end of its shot as well as the
    end of the file (`line_clipped_at_end`). With no shots known those are
-   listed under `rules_skipped` with the reason, never reported clean.
+   listed under `rules_skipped` with the reason, never reported clean (an
+   unheard line's clip: `_unheard_line_clips`, #1115).
 
 It decides nothing. Like the probes, its findings are places to look and are
 built with `assessment_rules.finding()`; unlike them it is not
@@ -68,13 +69,16 @@ from .audio_utils import waveform_and_rate
 from .script_take import (
     GUARD_FLOOR_DBFS,
     GUARD_WINDOW_SECONDS,
+    audible_runs,
+    clamp_to_shot,
+    heard_shot,
     round_seconds,
     guard_words,
     level_for_transcription,
     overlapping_shot,
     per_shot_chunks,
-    shot_at,
     shot_spans,
+    shots_entry,
     word_level,
 )
 
@@ -348,19 +352,6 @@ def _no_shot_reason(shots_source, spans, parsed_lines):
     return None
 
 
-def _shots_entry(spans):
-    if spans is None:
-        return None
-    return [
-        {
-            "name": span["name"],
-            "start": round_seconds(span["start"]),
-            "end": round_seconds(span["end"]),
-        }
-        for span in spans
-    ]
-
-
 def check(
     parsed_lines,
     chunks,
@@ -422,13 +413,16 @@ def check(
         similarity_threshold,
     )
     findings.extend(found)
+    found, unchecked = _unheard_line_clips(mono, sample_rate, lines, findings, spans)
+    findings.extend(found)
+    rules_skipped.extend(unchecked)
     findings.sort(key=lambda found: found["at"].get("seconds") or 0.0)
     return {
         "findings": findings,
         "lines": lines,
         "discarded": discarded,
         "unmatched": [_heard_entry(heard[j]) for j, _ in unassigned],
-        "shots": _shots_entry(spans),
+        "shots": shots_entry(spans),
         "shots_source": shots_source,
         "rules_applied": rules_applied,
         "rules_skipped": rules_skipped,
@@ -492,6 +486,7 @@ def _line_pass(
             mismatch=mismatch,
             similarity_threshold=similarity_threshold,
         )
+        clamp_to_shot(entry, span)
         lines.append(entry)
         findings.extend(found)
         if not own:
@@ -541,6 +536,46 @@ def _line_pass(
             )
         )
     return lines, claimed, findings
+
+
+def _unheard_line_clips(mono, sample_rate, lines, findings, spans):
+    """line_clipped_at_end for a line nothing was heard for (#1115): it has no
+    last word, so the speech_not_transcribed blocks credited to it stand in -
+    one running to its shot's voiced end is a shot stopping mid-speech. An
+    unheard line no block of reaches its shot's end is listed in
+    `rules_skipped` with its index, never reported clean. Returns (findings,
+    skipped)."""
+    by_name = {span["name"]: span for span in spans or ()}
+    found, skipped = [], []
+    for index, entry in enumerate(lines):
+        span = by_name.get(entry["shot"])
+        if entry["start"] is not None:
+            continue
+        key = (index, span and span["name"])
+        ends = [
+            f["at"]
+            for f in findings
+            if span
+            and f["rule"] == SPEECH_NOT_TRANSCRIBED["name"]
+            and (f["at"].get("line"), f["at"].get("shot")) == key
+            and abs(f["at"]["end"] - span["end"]) <= CLIP_TAIL_SECONDS
+        ]
+        for at in ends:
+            tail = [(span["name"], span["end"])]
+            clipped = _clipped_tail(
+                mono, sample_rate, at["end"], tail, (at["seconds"], at["end"])
+            )
+            if clipped is not None:
+                at = {"line": index, "seconds": at["end"], "shot": span["name"]}
+                found.append(finding(CLIPPED_AT_END, round_seconds(clipped[1], 2), at))
+                break
+        if not ends:
+            reason = "nothing heard for the line reaches its shot's end, so where"
+            reason += " the line ends is unknown - check the shot on its own"
+            skipped.append(
+                {"rule": CLIPPED_AT_END["name"], "line": index, "reason": reason}
+            )
+    return found, skipped
 
 
 def _line_entry(
@@ -639,13 +674,6 @@ def _loop_findings(chunks, script_words):
     return found
 
 
-def _heard_shot(spans, word):
-    """The shot a heard word's midpoint falls in, None when no shots are known."""
-    if spans is None:
-        return None
-    return shot_at(spans, (word["start"] + word["end"]) / 2)
-
-
 def _silent_take(heard, discarded, spans, shots_source):
     """check's result for `lines: []`: any speech at all is the finding, and
     the line and shot rules have nothing to compare against."""
@@ -655,7 +683,7 @@ def _silent_take(heard, discarded, spans, shots_source):
             finding(
                 SPEECH_WHERE_SILENT,
                 len(heard),
-                _at(None, heard[0], shot=_heard_shot(spans, heard[0])),
+                _at(None, heard[0], shot=heard_shot(spans, heard[0])),
             )
         )
     return {
@@ -663,7 +691,7 @@ def _silent_take(heard, discarded, spans, shots_source):
         "lines": [],
         "discarded": discarded,
         "unmatched": [_heard_entry(word) for word in heard],
-        "shots": _shots_entry(spans),
+        "shots": shots_entry(spans),
         "shots_source": shots_source,
         "rules_applied": list(SILENT_RULES),
         "rules_skipped": [
@@ -744,37 +772,6 @@ def _between_lines_findings(
     return [f for f in found if f is not None]
 
 
-def _audible_runs(mono, sample_rate, start, end):
-    """The audible blocks of the stretch [start, end] (#967, #1115): each run
-    of windows above UNHEARD_FLOOR_DBFS, runs a sub-floor gap shorter than
-    UNHEARD_MIN_SECONDS apart joined, and only those lasting UNHEARD_MIN_SECONDS
-    kept. Sub-floor time is never counted or placed in a block, and a quiet
-    stretch of UNHEARD_MIN_SECONDS or more splits the stretch in two. A block
-    edge at the stretch's own (margin-trimmed) edge stays that edge."""
-    inner_start, inner_end = (
-        start + UNHEARD_MARGIN_SECONDS,
-        end - UNHEARD_MARGIN_SECONDS,
-    )
-    runs = []
-    cursor = inner_start
-    while cursor < inner_end:
-        stop = min(cursor + GUARD_WINDOW_SECONDS, inner_end)
-        level = word_level(mono, sample_rate, cursor, stop)
-        if level is not None and level > UNHEARD_FLOOR_DBFS:
-            if runs and cursor - runs[-1][1] < UNHEARD_MIN_SECONDS:
-                runs[-1][1] = stop
-            else:
-                runs.append([cursor, stop])
-        cursor = stop
-    found = []
-    for first, last in runs:
-        first = start if first <= inner_start else first
-        last = end if last >= inner_end else last
-        if last - first >= UNHEARD_MIN_SECONDS:
-            found.append((first, last))
-    return found
-
-
 def _audible_findings(
     mono, sample_rate, index, start, end, shot, spans=None, parsed_lines=()
 ):
@@ -783,7 +780,15 @@ def _audible_findings(
     shot, null when none does - not to the stretch's own line by default."""
     found = []
     pieces = []
-    for lo, hi in _audible_runs(mono, sample_rate, start, end):
+    for lo, hi in audible_runs(
+        mono,
+        sample_rate,
+        start,
+        end,
+        UNHEARD_FLOOR_DBFS,
+        UNHEARD_MIN_SECONDS,
+        UNHEARD_MARGIN_SECONDS,
+    ):
         # A block crossing a shot seam is one finding per shot (#1115), so the
         # shot that holds the untranscribed speech is named even if the other
         # holds more of the block.
@@ -857,7 +862,7 @@ def _unassigned_tags(heard, unassigned, parsed_lines, expected, spans):
                     finding(
                         TAG_SPOKEN,
                         word["word"],
-                        _at(index, word, shot=_heard_shot(spans, word)),
+                        _at(index, word, shot=heard_shot(spans, word)),
                     )
                 )
                 break
@@ -875,7 +880,7 @@ def _silent_shot_findings(spans, parsed_lines, heard, claimed):
         inside = [
             word
             for j, word in enumerate(heard)
-            if _heard_shot(spans, word) == span["name"]
+            if heard_shot(spans, word) == span["name"]
             and claimed.get(j) in (None, span["name"])
         ]
         if inside:
@@ -905,7 +910,7 @@ def _unscripted_findings(
         inside = [
             heard[j]
             for j, _ in unassigned
-            if _heard_shot(spans, heard[j]) == span["name"]
+            if heard_shot(spans, heard[j]) == span["name"]
         ]
         if not inside:
             continue
@@ -996,8 +1001,9 @@ def check_script(
         A JSON document: 'findings' (line_mismatch, tag_spoken,
         line_clipped_at_end, speech_not_transcribed, speech_where_silent, speech_in_silent_shot,
         unscripted_speech),
-        'lines' (expected, heard, similarity, start, end, shot), 'shots'
-        (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
+        'lines' (expected, heard, similarity, start, end, shot; start and
+        end kept inside the line's shot, the ASR's own times then in
+        asr_start / asr_end), 'shots' (name, start, end in seconds, or null), 'shots_source', 'discarded' (guarded words with their
         level and reason), 'unmatched' (heard words aligned to no line), 'transcript',
         'model_name', 'rules_applied', 'rules_skipped' and the 'thresholds'
         used.
