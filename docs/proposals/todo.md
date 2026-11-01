@@ -453,6 +453,16 @@ remaining deferred fix is recorded in
   Landed as a "Probed, not a rule" entry in `minimax-h3/references/cuts.md`;
   no template. Record, including the re-probe protocol and the template's
   reopen trigger: `complete/h3-odd-then-bridge-complete.md`.
+- **Refuse a literal cross-entry reference inside one `for_each` group**
+  (#1101, stage #1111), shipped 2026-10-31. Don ruled to refuse it rather
+  than pin it. A member `G@k` reading `G@j` (j ≠ k) with a literal
+  `previous_result:`/`from_previous_result` reference is now a validation
+  error that names both members and points at separate runs plus `output:`.
+  It applies on every path, and the UI gives the same verdict. A different
+  group over the same list stays legal, and #813's video-into-image advice
+  is skipped for a refused reference. The guide no longer promises the form.
+  Record, including the deferred in-list cutaway:
+  `complete/for-each-cross-entry-complete.md`.
 
 ## Declined
 
