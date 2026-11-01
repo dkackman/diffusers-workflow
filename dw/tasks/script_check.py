@@ -411,6 +411,7 @@ def check(
         unassigned,
         claimed,
         similarity_threshold,
+        duration,
     )
     findings.extend(found)
     found, unchecked = _unheard_line_clips(mono, sample_rate, lines, findings, spans)
@@ -626,6 +627,7 @@ def _shot_rules(
     unassigned,
     claimed,
     similarity_threshold,
+    duration=0.0,
 ):
     """The shot rules (`SHOT_RULES`) when the shots are known and a line
     names one (`_no_shot_reason`), else their skip entries. Returns
@@ -648,6 +650,27 @@ def _shot_rules(
         )
     else:
         rules_skipped.extend({"rule": rule, "reason": no_shot} for rule in SHOT_RULES)
+        named = list(
+            dict.fromkeys(line["shot"] for line in parsed_lines if line["shot"])
+        )
+        if shots_source == "none" and len(named) <= 1 and duration > 0:
+            # A lone take (#1117): no shots known means the file is one shot,
+            # so a repeated or ad-libbed line is still unscripted speech.
+            implicit = [
+                {"name": named[0] if named else None, "start": 0.0, "end": duration}
+            ]
+            rules_skipped.pop()  # unscripted_speech: run on the implicit shot
+            rules_applied.append("unscripted_speech")
+            findings.extend(
+                _unscripted_findings(
+                    implicit,
+                    parsed_lines,
+                    expected,
+                    heard,
+                    unassigned,
+                    similarity_threshold,
+                )
+            )
     return rules_applied, rules_skipped, findings
 
 
