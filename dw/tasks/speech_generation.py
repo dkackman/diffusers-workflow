@@ -27,7 +27,13 @@ from ..dsp import as_channels_samples
 from ..media_types import AudioTrack
 from ..dsp import resample_waveform
 from .audio_utils import load_audio
-from ..trust import require_trusted_generate_arguments
+from ..security import UntrustedWorkflowError
+from ..trust import (
+    GENERATE_REMOTE_CODE_ARGUMENTS,
+    REMOTE_CODE_ARGUMENTS,
+    require_trusted_generate_arguments,
+    workflows_are_trusted,
+)
 from . import audio8_tts_model as audio8
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, file_entries, repo_entries
@@ -168,6 +174,36 @@ def _generation_settings(value, name):
         )
     require_trusted_generate_arguments(value, f"speech_generation ({name})")
     return value
+
+
+# The Hub-code switches as top-level task arguments. generate_speech reads
+# none of them there, and a kwargs task drops what it does not read, so one
+# would otherwise pass silently - looking as if it took effect (#1121 bounce)
+_TOP_LEVEL_REMOTE_CODE_ARGUMENTS = tuple(
+    dict.fromkeys(REMOTE_CODE_ARGUMENTS + GENERATE_REMOTE_CODE_ARGUMENTS)
+)
+
+
+def _refuse_top_level_remote_code(kwargs):
+    """Refuse trust_remote_code / custom_pipeline / custom_generate given as
+    step arguments, for every model, before anything loads: the trust gate's
+    refusal for an untrusted workflow, and a plain error for a trusted one
+    (the task still would not use it)."""
+    given = [name for name in _TOP_LEVEL_REMOTE_CODE_ARGUMENTS if kwargs.get(name)]
+    if not given:
+        return
+    names = " or ".join(map(repr, given))
+    if not workflows_are_trusted():
+        raise UntrustedWorkflowError(
+            f"Refusing to run speech_generation: its arguments set {names}, "
+            "which downloads and executes Python from a Hub repository, so it "
+            "needs trusted workflows - see docs/SECURITY.md. generate_speech "
+            "loads no Hub code from its arguments in any case; drop it"
+        )
+    raise ValueError(
+        f"generate_speech takes no {names} argument - it loads no Hub code "
+        "from its arguments, so the setting would have no effect. Drop it"
+    )
 
 
 def _audio8_dtype(device):
@@ -429,6 +465,11 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
         ValueError: If the model reports no sample rate for what it generated,
             or if text/messages are both given or neither is, or for any of
             the Audio8 refusals above - each raised before a model loads.
+        UntrustedWorkflowError: If an untrusted workflow sets
+            trust_remote_code, custom_pipeline or custom_generate as a step
+            argument (a trusted one gets a ValueError: the task never reads
+            them there), or Hub-code settings in forward_params or
+            generate_kwargs.
     """
     messages = kwargs.get("messages", None)
     if (text is None) == (messages is None):
@@ -440,6 +481,7 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
     if messages is not None:
         _check_messages(messages)
     text_inputs = messages if messages is not None else text
+    _refuse_top_level_remote_code(kwargs)
     # Both reach model.generate() for a generative model, where
     # custom_generate / trust_remote_code download and run Hub code: refused
     # for an untrusted workflow before anything loads, as text_generation does
