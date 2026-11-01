@@ -1,4 +1,4 @@
-"""The vendored Synchformer visual encoder (dw/tasks/mmaudio_sync_model.py)."""
+"""The vendored Synchformer visual encoder (dw/vendored/mmaudio_sync_model.py)."""
 
 import re
 from pathlib import Path
@@ -6,9 +6,10 @@ from pathlib import Path
 import pytest
 import torch
 
-from dw.tasks import mmaudio_sync_model as sm
+from dw.vendored import mmaudio_sync_model as sm
 
 MODULE_PATH = Path(sm.__file__)
+DW = MODULE_PATH.parents[1]  # dw/, with the port under dw/vendored/
 TINY = sm.SyncConfig(
     image_size=32,
     patch_size=16,
@@ -183,7 +184,12 @@ def test_weights_are_pinned():
 
 def test_module_is_imported_only_by_the_sound_effects_task():
     # stage D (#1133): generate_sound_effects is its one consumer
-    for path in MODULE_PATH.parents[1].rglob("*.py"):
-        if path not in (MODULE_PATH, MODULE_PATH.parent / "sound_effects.py"):
+    own = {
+        MODULE_PATH,
+        DW / "tasks" / "sound_effects.py",
+        DW / "vendored" / "__init__.py",
+    }
+    for path in DW.rglob("*.py"):
+        if path not in own:
             text = path.read_text(encoding="utf-8")
             assert "mmaudio_sync_model" not in text, path

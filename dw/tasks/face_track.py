@@ -486,6 +486,40 @@ def _detector(repo, filename, min_confidence, device):
     return detect
 
 
+def _tracked_crops(detector, rgb, shots, settings):
+    """(track, resets, crops): every frame's detections tracked into one face
+    (reset at each recorded shot start, else at each content cut), and the
+    square cut around it. `settings` is (min_confidence, gate_full, gate_zero,
+    padding, crop_size)."""
+    min_confidence, gate_full, gate_zero, padding, crop_size = settings
+    height, width = rgb[0].shape[:2]
+    starts = shot_starts(shots)
+    if starts:
+        resets_at = {frame: ("shot", name) for frame, name in starts.items()}
+    else:
+        resets_at = {frame: ("cut", detail) for frame, detail in content_cuts(rgb)}
+
+    detections = [
+        [d for d in detect_tiled(detector, frame) if d[4] >= min_confidence]
+        for frame in rgb
+    ]
+    track, resets = track_faces(detections, width, resets_at, gate_full, gate_zero)
+
+    # A frame without a box borrows the nearest one, at strength 0, so the
+    # crop does not jump to the frame centre and back across a short miss
+    boxes = [entry["box"] for entry in track]
+    known = [i for i, b in enumerate(boxes) if b is not None]
+    crops = []
+    for index, entry in enumerate(track):
+        box = entry["box"]
+        if box is None and known:
+            box = boxes[min(known, key=lambda k: abs(k - index))]
+        square = crop_square(box, padding, width, height)
+        entry["crop"] = square
+        crops.append(_cut(rgb[index], square, crop_size))
+    return track, resets, crops
+
+
 def crop_face_track(
     clip,
     crop_size=512,
@@ -588,40 +622,19 @@ def crop_face_track(
     detector = _detector(detector_repo, detector_file, min_confidence, device)
     rgb = [np.asarray(frame.convert("RGB")) for frame in frames]
     height, width = rgb[0].shape[:2]
-
-    shots = getattr(clip, "shots", None)
-    starts = shot_starts(shots)
-    if starts:
-        resets_at = {frame: ("shot", name) for frame, name in starts.items()}
-    else:
-        resets_at = {frame: ("cut", detail) for frame, detail in content_cuts(rgb)}
-
-    detections = [
-        [d for d in detect_tiled(detector, frame) if d[4] >= min_confidence]
-        for frame in rgb
-    ]
-    track, resets = track_faces(detections, width, resets_at, gate_full, gate_zero)
+    track, resets, crops = _tracked_crops(
+        detector,
+        rgb,
+        getattr(clip, "shots", None),
+        (min_confidence, gate_full, gate_zero, padding, crop_size),
+    )
     face_found = any(entry["box"] is not None for entry in track)
-
-    # A frame without a box borrows the nearest one, at strength 0, so the
-    # crop does not jump to the frame centre and back across a short miss
-    boxes = [entry["box"] for entry in track]
-    known = [i for i, b in enumerate(boxes) if b is not None]
-    crops = []
-    for index, entry in enumerate(track):
-        box = entry["box"]
-        if box is None and known:
-            box = boxes[min(known, key=lambda k: abs(k - index))]
-        square = crop_square(box, padding, width, height)
-        entry["crop"] = square
-        crops.append(_cut(rgb[index], square, crop_size))
-
     crops = pad_frames(crops, before, after)
     track_audio, sample_rate = crop_soundtrack(
         clip, clip_fps, len(frames), before, after
     )
 
-    record = JsonRecord(
+    record = _track_record(
         {
             "source": {
                 "width": width,
@@ -641,31 +654,42 @@ def crop_face_track(
             "face_found": face_found,
             "frames": track,
             "resets": resets,
-        }
-    )
-    if not face_found:
-        record["message"] = (
-            f"No face was found in {len(frames)} frames (min_confidence "
-            f"{min_confidence}); every strength is 0 and each crop is the "
-            f"centre square of the frame"
-        )
-        emit_warning(
-            f"crop_face_track: {record['message']}",
-            kind="no_face_found",
-            command="crop_face_track",
-            frames=len(frames),
-        )
-    tracked = sum(entry["state"] == "tracked" for entry in track)
-    emit_log(
-        f"crop_face_track: face in {tracked} of {len(frames)} frames, "
-        f"{len(resets)} reset(s), {len(crops)} crops of {crop_size}px "
-        f"({before} before, {after} after for {modulus}n+{remainder})"
-        + (", with the clip's soundtrack" if track_audio is not None else "")
+        },
+        f"{modulus}n+{remainder}",
+        track_audio is not None,
     )
     return {
         "crops": AudioVideo(crops, track_audio, sample_rate, fps=clip_fps),
         "track": record,
     }
+
+
+def _track_record(fields, grid, with_soundtrack):
+    """The `track` record from its fields, with the no-face warning and the
+    run's log line said once."""
+    record = JsonRecord(fields)
+    track, frames = fields["frames"], fields["source"]["frames"]
+    if not fields["face_found"]:
+        record["message"] = (
+            f"No face was found in {frames} frames (min_confidence "
+            f"{fields['min_confidence']}); every strength is 0 and each crop is "
+            f"the centre square of the frame"
+        )
+        emit_warning(
+            f"crop_face_track: {record['message']}",
+            kind="no_face_found",
+            command="crop_face_track",
+            frames=frames,
+        )
+    tracked = sum(entry["state"] == "tracked" for entry in track)
+    emit_log(
+        f"crop_face_track: face in {tracked} of {frames} frames, "
+        f"{len(fields['resets'])} reset(s), {fields['crop_frames']} crops of "
+        f"{fields['crop_size']}px ({fields['pad_before']} before, "
+        f"{fields['pad_after']} after for {grid})"
+        + (", with the clip's soundtrack" if with_soundtrack else "")
+    )
+    return record
 
 
 def crop_soundtrack(clip, clip_fps, frames, before, after):

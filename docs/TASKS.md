@@ -3206,7 +3206,7 @@ The result needs no `sample_rate`. A generated track carries the rate its model 
 
 ### Cloning a voice (Audio8-TTS)
 
-`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/tasks/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
+`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/vendored/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
 
 Give `reference_audio` and `reference_text` together and it speaks `text` in the reference's voice; leave both out and it speaks in its default voice. The language follows `text` - there is no `language` argument. Every refusal fires before the model loads:
 
@@ -3267,13 +3267,13 @@ A speech model is worth releasing before a video model loads — set `release_mo
 | `video` | One of `video`/`prompt` | The clip the effects follow (typically an `asset:` or `previous_result:` reference) |
 | `prompt` | One of `video`/`prompt` | What should be heard |
 | `negative_prompt` | No | What to steer away from, such as `music, speech` |
-| `duration` | No | Seconds. Defaults to the clip's length, or 8 s text-only; at most 20 s and never longer than the clip |
+| `duration` | No | Seconds. Defaults to the clip's length, or 8 s text-only; at least 0.64 s (16 sync frames at 25 fps), at most 20 s and never longer than the clip |
 | `steps` | No | Sampler steps (default: 25) |
 | `guidance_scale` | No | Classifier-free guidance (default: 4.5) |
 
 Video-only is the weaker mode: give a `prompt` that names the on-screen sound sources as well. The model was trained around 8 s, so a `duration` outside 4-12 s adds a warning to the result, as does noise-like output (spectral flatness of 0.3 or more with a centroid of 8 kHz or more).
 
-Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
+Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` under 0.64 s, over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
 
 The output runs 7-25 dB hot. Route it through `match_levels` before mixing it with dialogue or music.
 

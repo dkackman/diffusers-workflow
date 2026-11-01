@@ -559,7 +559,7 @@ class TestMiniMaxH3Skill:
             mask_errors,
             refine_strength_errors,
         )
-        from dw.pipeline_processors import h3_mask
+        from dw.pipeline_processors import h3_mask_cells
 
         text = skill_text(H3_SKILL)
         assert "`templates/minimax/regional-edit`" in text
@@ -614,7 +614,7 @@ class TestMiniMaxH3Skill:
         # Both wrap their prose, so the grain is matched with the lines joined
         assert "16 px times the patch size" in " ".join(guide.split())
         assert "16 px times the patch size" in " ".join(reference.split())
-        assert "`16 * patch`" in inspect.getsource(h3_mask)
+        assert "`16 * patch`" in inspect.getsource(h3_mask_cells)
 
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")

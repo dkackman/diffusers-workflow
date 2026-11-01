@@ -6,7 +6,8 @@ that rose against the committed baseline is a regression. Run with --write
 to record a baseline and --check to compare against one.
 
 Counting rules, fixed so any commit measures the same way:
-- Sources are dw/ and dw_mcp/, minus EXCLUDED (vendored community pipelines).
+- Sources are dw/ and dw_mcp/, minus EXCLUDED (vendored community pipelines
+  and the upstream model ports in dw/vendored/).
 - Module size is a band: modules_over_size_ceiling counts modules above
   SIZE_CEILING (1,100 lines, ratcheted); a module above SIZE_WARNING (1,000)
   and at or under the ceiling is printed as a `warning:` line on every run,
@@ -61,8 +62,16 @@ REFERENCE_PREFIXES = frozenset(
 )
 # Modules allowed to spell a reference prefix: the one owner (Phase 2a)
 PREFIX_OWNERS = frozenset({"dw/references.py"})
-# .claude: agent worktrees live under .claude/worktrees, each a full checkout
-EXCLUDED = ("community_pipelines", "node_modules", "venv", ".git", ".claude")
+# .claude: agent worktrees live under .claude/worktrees, each a full checkout.
+# vendored: dw/vendored/, upstream model ports kept at their source's shape
+EXCLUDED = (
+    "community_pipelines",
+    "vendored",
+    "node_modules",
+    "venv",
+    ".git",
+    ".claude",
+)
 PACKAGES = ("dw", "dw_mcp")
 REFERENCES_MODULE = "dw/references.py"
 FALLBACK_REFERENCE_NAMES = frozenset(

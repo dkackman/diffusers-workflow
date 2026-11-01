@@ -135,7 +135,7 @@ class TestSpeechGeneration:
     def test_audio8_lists_its_pinned_files_and_the_codec(self):
         # #1121: a vendored model fetched file by file at one revision, so
         # the plan names each file - codec.pth among them - not the repo
-        from dw.tasks import audio8_tts_model as a8
+        from dw.vendored import audio8_tts_model as a8
 
         hook = required_weights_hook("generate_speech")
         entries = hook({"model_name": a8.REPO_ID})
@@ -196,14 +196,8 @@ class TestSoundEffects:
         import huggingface_hub
         import torch
 
-        from dw.tasks import (
-            mmaudio_clip,
-            mmaudio_decoder,
-            mmaudio_model,
-            mmaudio_sync_model,
-            model_cache,
-            sound_effects,
-        )
+        from dw.tasks import mmaudio_decoder, model_cache, sound_effects
+        from dw.vendored import mmaudio_clip, mmaudio_model, mmaudio_sync_model
 
         downloads = []
 
@@ -453,7 +447,7 @@ class TestLoaderAgreesWithDeclaration:
         assert [key[1] for key in keys] == declared("generate_speech", arguments)
 
     def test_generate_speech_loads_the_audio8_repo_it_declares(self, monkeypatch):
-        from dw.tasks import audio8_tts_model as a8
+        from dw.vendored import audio8_tts_model as a8
         from dw.tasks import speech_generation
 
         keys = recording_cache(monkeypatch, speech_generation)

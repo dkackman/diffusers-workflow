@@ -903,6 +903,18 @@ BROKEN = [
         "not a list of numbers",
         id="a-bool",
     ),
+    pytest.param(
+        {"refine_sigmas": [0.909375, float("nan"), 0]},
+        "finite",
+        id="nan",
+    ),
+    pytest.param(
+        # Distinct as float64, equal as the scheduler's float32: refused here,
+        # not after the load
+        {"refine_sigmas": [0.909375, 0.5, 0.5 - 1e-9, 0], "num_inference_steps": 4},
+        "float32",
+        id="float32-collapse",
+    ),
 ]
 
 

@@ -11,7 +11,7 @@ import numpy as np
 import pytest
 import torch
 
-from dw.tasks import audio8_tts_model as a8
+from dw.vendored import audio8_tts_model as a8
 
 MODULE_PATH = Path(a8.__file__)
 

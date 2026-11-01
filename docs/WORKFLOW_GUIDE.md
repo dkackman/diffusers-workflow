@@ -2612,6 +2612,12 @@ Validation and the call both refuse:
 - `source_video` with no `refine_strength`, or one outside (0, 1];
 - `source_video` on a pipeline that is not H3 (`mask_image` there is left alone, since
   inpaint pipelines own that name);
+- a `source_video` whose frame count (and so the step's `num_frames`, inferred or
+  given) is off the `17n + 5` grid: the pipeline would snap the count up and pad the
+  source, and the mask would drift in time - trim or pad the clip to the grid first
+  (the message names both neighbours). An inferred `width` and `height` still have to
+  meet the family's canvas rules (multiples of 32), which the template's variables
+  carry and an inferred size does not check;
 - any of it with `refine_tiles`, which does not combine with a regional edit.
 
 ### Refining above 768p in tiles

@@ -55,6 +55,15 @@ class TestRefusals:
         with pytest.raises(ValueError, match="'duration'"):
             generate_sound_effects(prompt="rain", duration=21)
 
+    def test_a_duration_under_the_sync_window(self, no_load):
+        # Under 16 frames at 25 fps the sync sequence is empty and the network
+        # failed after every model had loaded; refused first instead
+        with pytest.raises(ValueError, match="under the 0.64 s"):
+            generate_sound_effects(prompt="click", duration=0.5)
+
+    def test_the_shortest_duration_is_taken(self):
+        assert sound_effects._check_duration(0.64, None) == 0.64
+
     def test_a_duration_longer_than_the_clip(self, no_load, two_second_clip):
         with pytest.raises(ValueError, match="'duration'"):
             generate_sound_effects(video=two_second_clip, duration=3)
@@ -130,7 +139,7 @@ class TestWarnings:
 
 class TestRunWithStubs:
     def test_text_only_run(self, monkeypatch):
-        from dw.tasks import mmaudio_clip, mmaudio_model
+        from dw.vendored import mmaudio_clip, mmaudio_model
 
         class Net:
             clip_seq_len = 64
@@ -195,7 +204,7 @@ class TestClipLengthDefault:
     (#1133 bounce, C-F620: a 2.083 s clip came back as 2.0 s of sound)."""
 
     def test_frames_cover_the_whole_fractional_clip(self, fractional_clip):
-        from dw.tasks.mmaudio_model import SequenceConfig
+        from dw.vendored.mmaudio_model import SequenceConfig
 
         seconds = sound_effects._clip_seconds(fractional_clip)
         assert seconds == pytest.approx(50 / 24)
@@ -221,8 +230,8 @@ class TestClipLengthDefault:
         assert covered == pytest.approx(min(14 / 8, 50 / 25))
 
     def test_the_run_returns_the_clip_length(self, monkeypatch, fractional_clip):
-        from dw.tasks import mmaudio_clip, mmaudio_model, mmaudio_sync_model
-        from dw.tasks.mmaudio_model import SequenceConfig
+        from dw.vendored import mmaudio_clip, mmaudio_model, mmaudio_sync_model
+        from dw.vendored.mmaudio_model import SequenceConfig
 
         class Net:
             device = torch.device("cpu")
@@ -328,13 +337,8 @@ class TestLoadEvents:
         import huggingface_hub
 
         from dw import events as dw_events
-        from dw.tasks import (
-            mmaudio_clip,
-            mmaudio_decoder,
-            mmaudio_model,
-            mmaudio_sync_model,
-            model_cache,
-        )
+        from dw.tasks import mmaudio_decoder, model_cache
+        from dw.vendored import mmaudio_clip, mmaudio_model, mmaudio_sync_model
 
         monkeypatch.setattr(
             huggingface_hub,
@@ -363,7 +367,8 @@ class TestLoadEvents:
         dw_events.deactivate_context(token)
 
     def revisions(self):
-        from dw.tasks import mmaudio_clip, mmaudio_decoder, mmaudio_model
+        from dw.tasks import mmaudio_decoder
+        from dw.vendored import mmaudio_clip, mmaudio_model
 
         return {
             mmaudio_model.REPO_ID: mmaudio_model.REVISION,

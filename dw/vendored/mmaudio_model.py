@@ -6,7 +6,7 @@ Vendored from https://github.com/hkchengrex/MMAudio at commit
 974010a026c731054592d8f777218bd9d85a6c24 (mmaudio/model/networks.py,
 transformer_layers.py, low_level.py, embeddings.py, sequence_config.py,
 flow_matching.py and mmaudio/ext/rotary_embeddings.py, merged into this one
-file). Its DFN5B CLIP conditioning is dw/tasks/mmaudio_clip.py. The weights
+file). Its DFN5B CLIP conditioning is dw/vendored/mmaudio_clip.py. The weights
 are hkchengrex/MMAudio's weights/mmaudio_large_44k_v2.pth (REPO_ID /
 REVISION below), under their own licence, stricter than this code's:
 CC-BY-NC 4.0, non-commercial use only.

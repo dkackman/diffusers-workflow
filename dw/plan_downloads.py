@@ -144,28 +144,7 @@ def _collect_sources(tree, names, variants, urls, files=None):
     """
     if isinstance(tree, dict):
         for lora in tree.get(LORAS_KEY) or []:
-            name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
-            if not isinstance(name, str):
-                continue
-            weight = lora.get(WEIGHT_NAME_KEY)
-            entries = []
-            if (
-                files is not None
-                and isinstance(weight, str)
-                and not references.is_ref(references.DEFERRED, weight)
-            ):
-                subfolder = lora.get(SUBFOLDER_KEY)
-                if isinstance(subfolder, str) and subfolder:
-                    weight = f"{subfolder.strip('/')}/{weight}"
-                from .tasks.weights import file_entries
-
-                entries = file_entries(name, weight, None)
-            for entry in entries:
-                key = (entry["repo"], entry["filename"], entry["revision"])
-                if key not in files:
-                    files.append(key)
-            if not entries and name not in names:
-                names.append(name)
+            _collect_lora_source(lora, names, files)
         source = tree.get(FROM_PRETRAINED_KEY)
         if isinstance(source, dict):
             name = source.get(MODEL_NAME_KEY)
@@ -183,6 +162,33 @@ def _collect_sources(tree, names, variants, urls, files=None):
     elif isinstance(tree, list):
         for value in tree:
             _collect_sources(value, names, variants, urls, files)
+
+
+def _collect_lora_source(lora, names, files):
+    """One `loras` entry into `files` (its single weight file, when it names
+    one and `files` is collected) or `names` (its whole repo otherwise)."""
+    name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
+    if not isinstance(name, str):
+        return
+    weight = lora.get(WEIGHT_NAME_KEY)
+    entries = []
+    if (
+        files is not None
+        and isinstance(weight, str)
+        and not references.is_ref(references.DEFERRED, weight)
+    ):
+        subfolder = lora.get(SUBFOLDER_KEY)
+        if isinstance(subfolder, str) and subfolder:
+            weight = f"{subfolder.strip('/')}/{weight}"
+        from .tasks.weights import file_entries
+
+        entries = file_entries(name, weight, None)
+    for entry in entries:
+        key = (entry["repo"], entry["filename"], entry["revision"])
+        if key not in files:
+            files.append(key)
+    if not entries and name not in names:
+        names.append(name)
 
 
 def _collect_component_overrides(arguments, names):

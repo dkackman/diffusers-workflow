@@ -31,6 +31,7 @@ License (research only) - ATTRIBUTIONS.md.
 """
 
 import logging
+import contextlib
 import os
 import tempfile
 
@@ -63,6 +64,10 @@ SYNC_FPS = 25
 SYNC_SIZE = 224
 # Synchformer reads 16-frame segments: the shortest clip it can encode
 MIN_SYNC_FRAMES = 16
+# The shortest sound this task makes: the Synchformer's 16 frames at 25 fps.
+# Under it the sync sequence is empty and the network fails after every model
+# has loaded, so a 'duration' below it is refused before anything loads
+MIN_DURATION = MIN_SYNC_FRAMES / SYNC_FPS
 # A bare frame list carries no rate; an AudioVideo or a file does
 ASSUMED_FPS = 24
 
@@ -83,15 +88,15 @@ def required_weights(arguments=None):
     MMAudio network and Synchformer, K6's audio_vae/ and vocoder/ config and
     safetensors, and DFN5B's open_clip weights and tokenizer. Never MMAudio's
     own v1-44.pth VAE or bigvgan_generator.pt: the decoder is K6's copy."""
-    from .mmaudio_clip import (
+    from ..vendored.mmaudio_clip import (
         CLIP_REPO_ID,
         CLIP_REVISION,
         CLIP_TOKENIZER_FILE,
         CLIP_WEIGHTS_FILE,
     )
     from .mmaudio_decoder import K6_REPO_ID, K6_REVISION
-    from .mmaudio_model import NETWORK_FILE, REPO_ID, REVISION
-    from .mmaudio_sync_model import SYNC_FILE
+    from ..vendored.mmaudio_model import NETWORK_FILE, REPO_ID, REVISION
+    from ..vendored.mmaudio_sync_model import SYNC_FILE
 
     entries = []
     for filename in (NETWORK_FILE, SYNC_FILE):
@@ -136,14 +141,21 @@ def _text(name, value):
 
 
 def _check_duration(duration, clip_seconds):
-    """The duration the run uses: the given one, refused over MAX_DURATION
-    or past the clip's end, else the clip's length (capped), else 8 s."""
+    """The duration the run uses: the given one, refused under MIN_DURATION,
+    over MAX_DURATION or past the clip's end, else the clip's length (capped),
+    else 8 s."""
     if duration is None:
         if clip_seconds is None:
             return TEXT_ONLY_DURATION
         return min(clip_seconds, MAX_DURATION)
     duration = float(real_number(duration, "duration", COMMAND))
     check_arguments(COMMAND, duration=duration)
+    if duration < MIN_DURATION:
+        raise ValueError(
+            f"{COMMAND}: 'duration' {duration:g} s is under the {MIN_DURATION:.2f} s "
+            f"this task generates at least ({MIN_SYNC_FRAMES} frames at {SYNC_FPS} "
+            "fps for the sync encoder); ask for more"
+        )
     if duration > MAX_DURATION:
         raise ValueError(
             f"{COMMAND}: 'duration' {duration:g} s is over the {MAX_DURATION:g} s "
@@ -185,7 +197,13 @@ def _video_file(video):
 
     handle, path = tempfile.mkstemp(suffix=".mp4", prefix="dw-sfx-")
     os.close(handle)
-    export_to_video(_frames_for_export_to_video(frames), path, fps=fps)
+    try:
+        export_to_video(_frames_for_export_to_video(frames), path, fps=fps)
+    except BaseException:
+        # The caller's cleanup starts only once this returns
+        with contextlib.suppress(OSError):
+            os.unlink(path)
+        raise
     return path, True
 
 
@@ -211,7 +229,7 @@ def _frame_tensors(path, duration):
     trim, which left a muxed cut ending in silence). Only when the clip ran
     short of frames does it fall back to the shorter span they cover."""
     from ..media import sample_frames
-    from .mmaudio_clip import ClipConfig
+    from ..vendored.mmaudio_clip import ClipConfig
 
     clip = sample_frames(path, CLIP_FPS, duration, ClipConfig().image_size)
     sync = sample_frames(path, SYNC_FPS, duration, SYNC_SIZE, crop=True)
@@ -297,7 +315,8 @@ def _load_models(device, dtype):
     under (command, repo, file, revision, device, dtype) and announced by
     `_cached`."""
     from ..events import emit_phase
-    from . import mmaudio_clip, mmaudio_decoder, mmaudio_model, mmaudio_sync_model
+    from . import mmaudio_decoder
+    from ..vendored import mmaudio_clip, mmaudio_model, mmaudio_sync_model
 
     repo, rev = mmaudio_model.REPO_ID, mmaudio_model.REVISION
     where = (str(device), str(dtype))
@@ -455,9 +474,9 @@ def generate_sound_effects(
 def _generate(
     frames, prompt, negative_prompt, duration, steps, guidance_scale, device, seed
 ):
-    from .mmaudio_clip import tokenize
-    from .mmaudio_model import sample_latent
-    from .mmaudio_sync_model import encode_sync_frames
+    from ..vendored.mmaudio_clip import tokenize
+    from ..vendored.mmaudio_model import sample_latent
+    from ..vendored.mmaudio_sync_model import encode_sync_frames
 
     dtype = _dtype(device)
     net, (clip, tokenizer), sync, decoder = _load_models(device, dtype)

@@ -37,7 +37,7 @@ def exact_frame_rate(fps):
     # The NTSC family (24000/1001, 30000/1001, 60000/1001): a rounded 29.97
     # is within a hair of one, and 2997/100 would drift against its audio
     numerator = round(fps * 1001)
-    if numerator % 1000 == 0 and abs(numerator / 1001 - fps) < 0.005:
+    if numerator > 0 and numerator % 1000 == 0 and abs(numerator / 1001 - fps) < 0.005:
         return Fraction(numerator, 1001)
     rate = Fraction(fps).limit_denominator(1001)
     return rate if rate > 0 else Fraction(fps)

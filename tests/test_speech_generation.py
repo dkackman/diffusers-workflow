@@ -472,7 +472,7 @@ from pathlib import Path  # noqa: E402
 
 import pytest  # noqa: E402
 
-from dw.tasks import audio8_tts_model as a8  # noqa: E402
+from dw.vendored import audio8_tts_model as a8  # noqa: E402
 from dw.tasks import speech_generation as sg  # noqa: E402
 from dw.tasks.model_cache import clear_model_cache  # noqa: E402
 from tests.test_audio8_tts_model import TINY, legacy_codec_state  # noqa: E402

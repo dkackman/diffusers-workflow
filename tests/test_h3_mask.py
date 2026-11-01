@@ -13,12 +13,11 @@ import pytest
 from dw.hold_audio import mask_errors
 from dw.pipeline_processors import h3_mask
 from dw.pipeline_processors.h3_hold import core_denoise_sequences
-from dw.pipeline_processors.h3_mask import (
+from dw.pipeline_processors.h3_mask import edits_regions, insert_mask_blocks
+from dw.pipeline_processors.h3_mask_cells import (
     _dilate,
     _pool,
     binarized,
-    edits_regions,
-    insert_mask_blocks,
     keep_rows,
     regenerate_cells,
 )
@@ -523,11 +522,11 @@ class TestSourceBlock:
         )
         state = PipelineState()
         state.set("latents", torch.randn(3 * 4 * 4, 4))
-        state.set("source_video", np.zeros((9, SIDE, SIDE, 3), dtype=np.uint8))
+        state.set("source_video", np.zeros((22, SIDE, SIDE, 3), dtype=np.uint8))
         state.set(REGENERATE_MASK, mask)
         state.set("mask_grow", 0)
         state.set("refine_strength", strength)
-        for name, value in (("height", SIDE), ("width", SIDE), ("num_frames", 9)):
+        for name, value in (("height", SIDE), ("width", SIDE), ("num_frames", 22)):
             state.set(name, value)
         state.set("num_latent_frames", 3)
         state.set("latent_height", LATENT_SIDE)
@@ -661,18 +660,31 @@ class TestOtherRules:
         assert "96x64" in problems[0] and "128x128" in problems[0]
 
     def test_a_frame_mismatch_is_reported(self):
-        problems = media_problems("mask_video", (5, 128, 128), 128, 128, 9)
+        problems = media_problems("mask_video", (5, 128, 128), 128, 128, 22)
         assert len(problems) == 1
-        assert "5 frames" in problems[0] and "num_frames=9" in problems[0]
+        assert "5 frames" in problems[0] and "num_frames=22" in problems[0]
 
     def test_a_match_is_clean(self):
-        assert media_problems("source_video", (9, 128, 128), 128, 128, 9) == []
+        assert media_problems("source_video", (22, 128, 128), 128, 128, 22) == []
+
+    def test_a_source_off_the_render_grid_is_refused(self):
+        # 125 frames match num_frames, but H3 renders 141 and pads the source,
+        # so the mask drifts in time: refused with both grid neighbours named
+        problems = media_problems("source_video", (125, 128, 128), 128, 128, 125)
+        assert len(problems) == 1
+        assert "17n + 5" in problems[0]
+        assert "render 141" in problems[0] and "124 frames" in problems[0]
+
+    def test_a_mask_video_off_the_grid_is_the_frame_mismatch_only(self):
+        # The mask is held to the source's count; the grid is the source's rule
+        problems = media_problems("mask_video", (125, 128, 128), 128, 128, 125)
+        assert problems == []
 
     def test_a_mask_image_ignores_frames(self):
-        assert media_problems("mask_image", (1, 128, 128), 128, 128, 9) == []
+        assert media_problems("mask_image", (1, 128, 128), 128, 128, 22) == []
 
     def test_a_mask_image_still_checks_size(self):
-        assert len(media_problems("mask_image", (1, 64, 64), 128, 128, 9)) == 1
+        assert len(media_problems("mask_image", (1, 64, 64), 128, 128, 22)) == 1
 
     def test_no_frame_count_skips_the_frame_check(self):
         assert media_problems("source_video", (3, 128, 128), 128, 128) == []
@@ -795,7 +807,7 @@ class TestStaticEdit:
 # 5c. Validation reads the files: size, frame count and an empty mask (#1077)
 
 
-def write_video(path, frames=9, size=(64, 48), value=0, sample_rate=None):
+def write_video(path, frames=22, size=(64, 48), value=0, sample_rate=None):
     """A real h264 mp4 of `frames` flat frames at `value`, `size` (w, h), with a
     soundtrack when `sample_rate` is given."""
     import av
@@ -852,8 +864,19 @@ class TestStaticMedia:
         assert errors[0]["path"].endswith("source_video")
         assert "64x48" in errors[0]["message"] and "128x48" in errors[0]["message"]
 
-    def test_a_source_frame_mismatch_is_refused(self, tmp_path):
+    def test_a_source_off_the_grid_is_refused_before_the_run(self, tmp_path):
+        # 9 frames: validate used to pass it (canvas = source) and the pipeline
+        # then rendered 22 over a padded source
         source = write_video(tmp_path / "src.mp4", frames=9)
+        errors = probed_errors(tmp_path, source_video=source)
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("source_video")
+        assert (
+            "17n + 5" in errors[0]["message"] and "pad it to 22" in errors[0]["message"]
+        )
+
+    def test_a_source_frame_mismatch_is_refused(self, tmp_path):
+        source = write_video(tmp_path / "src.mp4", frames=22)
         errors = probed_errors(tmp_path, source_video=source, num_frames=17)
         assert len(errors) == 1
         assert "num_frames=17" in errors[0]["message"]
@@ -888,7 +911,7 @@ class TestStaticMedia:
         assert probed_errors(tmp_path, source_video=source, mask_video=mask) == []
 
     def test_a_mask_video_frame_mismatch_is_refused(self, tmp_path):
-        source = write_video(tmp_path / "src.mp4", frames=9)
+        source = write_video(tmp_path / "src.mp4", frames=22)
         mask = write_video(tmp_path / "m.mp4", frames=5, value=255)
         errors = probed_errors(tmp_path, source_video=source, mask_video=mask)
         assert len(errors) == 1
@@ -927,7 +950,7 @@ class TestStaticMedia:
             hold_audio=source,
             width=64,
             height=48,
-            num_frames=9,
+            num_frames=22,
         )
         workflow = workflow_from_definition(
             definition, str(tmp_path), base_dir=str(tmp_path)

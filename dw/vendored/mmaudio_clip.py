@@ -1,5 +1,5 @@
 """
-DFN5B CLIP conditioning for MMAudio (dw/tasks/mmaudio_model.py), v1.
+DFN5B CLIP conditioning for MMAudio (dw/vendored/mmaudio_model.py), v1.
 
 Ported from https://github.com/hkchengrex/MMAudio at commit
 974010a026c731054592d8f777218bd9d85a6c24: the CLIP parts of
