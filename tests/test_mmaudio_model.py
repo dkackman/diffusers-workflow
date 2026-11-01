@@ -530,9 +530,9 @@ def test_weights_are_pinned():
     assert mc.CLIP_REVISION == "01b771ed0d1395ca5ffdd279897d665ebe00dfd2"
 
 
-def test_modules_are_not_imported_by_dw():
-    # stage B is inert: nothing in dw imports either module
-    own = {MODULE_PATH, CLIP_MODULE_PATH}
+def test_modules_are_imported_only_by_the_sound_effects_task():
+    # stage D (#1133): generate_sound_effects is their one consumer
+    own = {MODULE_PATH, CLIP_MODULE_PATH, MODULE_PATH.parent / "sound_effects.py"}
     for path in MODULE_PATH.parents[1].rglob("*.py"):
         if path not in own:
             text = path.read_text(encoding="utf-8")

@@ -1,0 +1,49 @@
+{
+  "id": "VideoToSoundEffects",
+  "description": "Generates sound effects for a clip with MMAudio (large 44.1 kHz v2) and muxes them under it, replacing the clip's own sound. 'video' is the clip: an 'asset:' or 'output:' ref. 'prompt' names the on-screen sound sources - what should be heard ('footsteps on wet gravel, a car door slams, distant traffic'); leave it empty only to let the picture alone drive the effects, which is the weaker mode, so a prompt is recommended. 'duration' defaults to the clip's whole length, at most 20 s; the model was trained around 8 s and warns outside 4-12 s. Outputs two files: the effects stem (a 44.1 kHz mono wav) and the clip muxed with it. The effects run 7-25 dB hot: before mixing the stem with dialogue or music, route it through match_levels. Licences: the MMAudio weights (network, Synchformer, VAE tensors) are CC-BY-NC 4.0, non-commercial; the DFN5B CLIP encoder is under the Apple Machine Learning Research Model License, research only - Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement.",
+  "summary": "Sound effects for a clip (MMAudio), muxed under it; name the on-screen sound sources in prompt.",
+  "shape": "audio",
+  "variables": {
+    "video": "asset:clip.mp4",
+    "prompt": "footsteps on gravel, a door closing, wind in the trees",
+    "negative_prompt": "music, speech",
+    "duration": null,
+    "steps": 25,
+    "guidance_scale": 4.5
+  },
+  "steps": [
+    {
+      "name": "effects",
+      "task": {
+        "command": "generate_sound_effects",
+        "arguments": {
+          "video": "variable:video",
+          "prompt": "variable:prompt",
+          "negative_prompt": "variable:negative_prompt",
+          "duration": "variable:duration",
+          "steps": "variable:steps",
+          "guidance_scale": "variable:guidance_scale"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "mux",
+      "task": {
+        "command": "pair_audio",
+        "arguments": {
+          "video": "variable:video",
+          "audio": "previous_result:effects",
+          "fit": "video"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "subfolder": "final"
+      }
+    }
+  ]
+}
