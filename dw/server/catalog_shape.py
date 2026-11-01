@@ -46,6 +46,7 @@ GENERATIVE_TASKS = frozenset(
         "image_to_text",
         "diffusion_upscale",
         "interpolate_frames",
+        "generate_sound_effects",
     }
 )
 SUMMARY_LIMIT = 120

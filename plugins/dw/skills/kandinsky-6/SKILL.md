@@ -64,6 +64,8 @@ read the `workflows` guide's authoring section first.
   and keep the result's `fps` on the same variable.
 - The soundtrack is mono at 44.1 kHz, duplicated to stereo in the mp4.
   `sample_audio` false gives a silent clip and skips the audio decode.
+- To replace a shot's own sound with generated effects, run `video-to-sound-effects`
+  on the clip (MMAudio runs 7-25 dB hot: `match_levels` before mixing), then `pair_audio`.
 
 ## Prompts
 

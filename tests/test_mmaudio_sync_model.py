@@ -181,8 +181,9 @@ def test_weights_are_pinned():
     assert sm.SYNC_FILE == "ext_weights/synchformer_state_dict.pth"
 
 
-def test_module_is_not_imported_by_dw():
+def test_module_is_imported_only_by_the_sound_effects_task():
+    # stage D (#1133): generate_sound_effects is its one consumer
     for path in MODULE_PATH.parents[1].rglob("*.py"):
-        if path != MODULE_PATH:
+        if path not in (MODULE_PATH, MODULE_PATH.parent / "sound_effects.py"):
             text = path.read_text(encoding="utf-8")
             assert "mmaudio_sync_model" not in text, path

@@ -117,6 +117,7 @@ LoRAs: `list_loras` first.
 - Audio is generated in the first pass and nothing refines it, so carry the
   audio latents (two-stage) or pair the track back (`pair_audio`, as the
   `-clip` upscales do) on a frames-only step.
+- To swap a shot's sound, `video-to-sound-effects`, then `match_levels`.
 
 ## Prompts
 

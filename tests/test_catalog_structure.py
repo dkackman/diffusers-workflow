@@ -299,6 +299,10 @@ QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
 # sub-workflow's argument, a step argument, a chain field or a result field.
 # One line per entry saying what the name actually is.
 LEGITIMATE_MENTIONS = {
+    # pair_audio's fit value 'video', not a variable
+    "workflows/templates/assemble-and-score.json": {"video"},
+    # the name of the sub-workflow step that makes the clip
+    "workflows/templates/best-of-n-to-video.json": {"video"},
     # attribute_voices' argument, fed the transcript rather than passed
     "workflows/templates/attribute-lines.json": {"lines"},
     # the argument the composed image-to-video workflow receives
@@ -317,8 +321,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
-    # pair_audio's 'fit' argument, and the per-entry 'num_frames' of a shot
-    "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
+    # pair_audio's 'fit' argument and its value 'video', and the per-entry
+    # 'num_frames' of a shot
+    "workflows/templates/minimax/music-video.json": {"fit", "num_frames", "video"},
     # fields of the plan's entries, which music-video's shots then take
     "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
@@ -535,7 +540,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 12_480 for the `voice-clone` template (#1112, stage #1121,
 # 2026-11-01), measured at 12_436: one new entry, the catalog's only voice
 # clone from a reference clip and its transcript, with no cost block yet.
-COMPACT_BUDGET = 12_480
+# Then to 12_650 for `video-to-sound-effects` and `text-to-sound-effect`
+# (#1124, stage #1133, 2026-11-01), measured at 12_609: two new entries, the
+# catalog's only sound-effect generation (MMAudio), with no cost block yet.
+COMPACT_BUDGET = 12_650
 FILTERED_BUDGET = 1_500
 
 

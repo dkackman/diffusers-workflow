@@ -130,6 +130,8 @@ composes into, not something to re-derive:
   mostly in `vocals`, not the rest. Separating an already-scored mix works
   too, but its rest is the score plus the shots' foley, not a clean score:
   keep the original score file to re-mix or replace it.
+- **sound effects**: `video-to-sound-effects` (or `text-to-sound-effect`) makes
+  effects for the `rest` bed; MMAudio runs 7-25 dB hot, so `match_levels` them first.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS peak ceiling, always
   enforced), but a shared peak is not a shared loudness. Pass one series
