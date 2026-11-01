@@ -878,6 +878,26 @@ class TestSpeechRemoteGenerateCodeUntrusted:
         with pytest.raises(ValueError, match=f"{where} must be an object"):
             speech_generation.generate_speech("hello", device="cpu", **{where: "x"})
 
+    @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
+    def test_refused_before_audio8_loads(self, untrusted, no_network, monkeypatch, where):
+        """The Audio8 branch (#1121) sits behind the same gate: a workflow
+        naming the vendored model is refused 'trust_remote_code' before any
+        file is fetched, not handed to the branch's own key allowlist."""
+        from dw.tasks import speech_generation
+
+        loader = MagicMock()
+        monkeypatch.setattr(speech_generation, "_load_audio8", loader)
+        monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
+        with pytest.raises(UntrustedWorkflowError, match="'trust_remote_code'.*trusted"):
+            speech_generation.generate_speech(
+                "hello",
+                device="cpu",
+                model_name=speech_generation.audio8.REPO_ID,
+                **{where: {"trust_remote_code": True}},
+            )
+        loader.assert_not_called()
+        assert list(no_network) == []
+
 
 def _probe_recorder(info):
     """A `probe=` callable that records every path it is asked about.

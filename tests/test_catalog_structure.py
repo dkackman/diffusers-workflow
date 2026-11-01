@@ -117,6 +117,7 @@ EXPECTED_SHAPES = {
         ["composes-workflows", "image-conditioned"],
     ),
     "workflows/templates/generate-speech.json": ("audio", ["has-audio"]),
+    "workflows/templates/voice-clone.json": ("audio", ["has-audio", "needs-input-media"]),
     "workflows/templates/assemble-and-score.json": ("sequence", ["needs-input-media"]),
     "workflows/templates/image-processors.json": ("utility", []),
 }
@@ -528,7 +529,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Re-measured at 12_344 after `ltx2/restore-colorize`'s description gained its
 # low-rate/portrait colour limit (#1064, stage #1114, 2026-10-31): its summary
 # did not change, so the budget stands.
-COMPACT_BUDGET = 12_400
+# Then to 12_480 for the `voice-clone` template (#1112, stage #1121,
+# 2026-11-01), measured at 12_436: one new entry, the catalog's only voice
+# clone from a reference clip and its transcript, with no cost block yet.
+COMPACT_BUDGET = 12_480
 FILTERED_BUDGET = 1_500
 
 

@@ -132,6 +132,20 @@ class TestSpeechGeneration:
             {"model_name": "/models/tts", "speaker_embedding": "me.wav"},
         ) == ["speechbrain/spkrec-xvect-voxceleb"]
 
+    def test_audio8_lists_its_pinned_files_and_the_codec(self):
+        # #1121: a vendored model fetched file by file at one revision, so
+        # the plan names each file - codec.pth among them - not the repo
+        from dw.tasks import audio8_tts_model as a8
+
+        hook = required_weights_hook("generate_speech")
+        entries = hook({"model_name": a8.REPO_ID})
+        assert entries == [
+            {"repo": a8.REPO_ID, "filename": f, "revision": a8.REVISION}
+            for f in a8.MODEL_FILES
+        ]
+        assert "codec.pth" in [entry["filename"] for entry in entries]
+        assert a8.REVISION == "1e857568bfd4f02931aca3988ee773a44d2d26d3"
+
 
 class TestVoiceAttribution:
     def test_is_only_the_speaker_embedder(self):
@@ -337,6 +351,20 @@ class TestLoaderAgreesWithDeclaration:
             speech_generation.generate_speech("hello", **arguments)
 
         assert [key[1] for key in keys] == declared("generate_speech", arguments)
+
+    def test_generate_speech_loads_the_audio8_repo_it_declares(self, monkeypatch):
+        from dw.tasks import audio8_tts_model as a8
+        from dw.tasks import speech_generation
+
+        keys = recording_cache(monkeypatch, speech_generation)
+        with pytest.raises(Reached):
+            speech_generation.generate_speech("hello", model_name=a8.REPO_ID)
+
+        assert [key[1] for key in keys] == sorted(
+            set(declared("generate_speech", {"model_name": a8.REPO_ID}))
+        )
+        assert keys[0][0] == "speech_generation"
+        assert keys[0][-1] == a8.REVISION
 
     @pytest.mark.parametrize(
         "arguments",
