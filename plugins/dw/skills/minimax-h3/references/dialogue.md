@@ -74,6 +74,8 @@ rule and none is worth prompt words yet:
     `templates/minimax/voice-timbre-reference` as shipped, two Bark source
     clips and two seeds each, `check-script` heard only the new `<d>` line
     and no source word (`2026-10-h3-aiskills-probes.md` row P2, #1059).
+    `templates/voice-clone` (Audio8-TTS, #1121) is another source for that
+    reference: it speaks a new line in a real speaker's cloned voice, with consent.
 - Not settled:
   - whether `<breath>` adds a beat: it may lengthen a pause H3 already takes
     at a sentence break, but it doesn't create one (row 6b);

@@ -117,7 +117,10 @@ EXPECTED_SHAPES = {
         ["composes-workflows", "image-conditioned"],
     ),
     "workflows/templates/generate-speech.json": ("audio", ["has-audio"]),
-    "workflows/templates/voice-clone.json": ("audio", ["has-audio", "needs-input-media"]),
+    "workflows/templates/voice-clone.json": (
+        "audio",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/assemble-and-score.json": ("sequence", ["needs-input-media"]),
     "workflows/templates/image-processors.json": ("utility", []),
 }

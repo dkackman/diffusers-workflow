@@ -879,7 +879,9 @@ class TestSpeechRemoteGenerateCodeUntrusted:
             speech_generation.generate_speech("hello", device="cpu", **{where: "x"})
 
     @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
-    def test_refused_before_audio8_loads(self, untrusted, no_network, monkeypatch, where):
+    def test_refused_before_audio8_loads(
+        self, untrusted, no_network, monkeypatch, where
+    ):
         """The Audio8 branch (#1121) sits behind the same gate: a workflow
         naming the vendored model is refused 'trust_remote_code' before any
         file is fetched, not handed to the branch's own key allowlist."""
@@ -888,7 +890,9 @@ class TestSpeechRemoteGenerateCodeUntrusted:
         loader = MagicMock()
         monkeypatch.setattr(speech_generation, "_load_audio8", loader)
         monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
-        with pytest.raises(UntrustedWorkflowError, match="'trust_remote_code'.*trusted"):
+        with pytest.raises(
+            UntrustedWorkflowError, match="'trust_remote_code'.*trusted"
+        ):
             speech_generation.generate_speech(
                 "hello",
                 device="cpu",

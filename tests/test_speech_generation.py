@@ -485,7 +485,7 @@ def write_wav(path, seconds, rate=22050):
         handle.setnchannels(1)
         handle.setsampwidth(2)
         handle.setframerate(rate)
-        tone = (numpy.sin(numpy.linspace(0, 400 * seconds, int(rate * seconds))) * 8000)
+        tone = numpy.sin(numpy.linspace(0, 400 * seconds, int(rate * seconds))) * 8000
         handle.writeframes(tone.astype("<i2").tobytes())
     return str(path)
 
@@ -532,17 +532,23 @@ class TestAudio8Refusals:
             )
 
     def test_reference_audio_needs_reference_text(self, never_loads):
-        with pytest.raises(ValueError, match="'reference_audio' needs 'reference_text'"):
+        with pytest.raises(
+            ValueError, match="'reference_audio' needs 'reference_text'"
+        ):
             generate_speech("hello", model_name=AUDIO8, reference_audio="voice.wav")
 
     def test_an_empty_reference_text_counts_as_missing(self, never_loads):
-        with pytest.raises(ValueError, match="'reference_audio' needs 'reference_text'"):
+        with pytest.raises(
+            ValueError, match="'reference_audio' needs 'reference_text'"
+        ):
             generate_speech(
                 "hello", model_name=AUDIO8, reference_audio="v.wav", reference_text=""
             )
 
     def test_reference_text_needs_reference_audio(self, never_loads):
-        with pytest.raises(ValueError, match="'reference_text' needs 'reference_audio'"):
+        with pytest.raises(
+            ValueError, match="'reference_text' needs 'reference_audio'"
+        ):
             generate_speech("hello", model_name=AUDIO8, reference_text="hi there")
 
     def test_a_reference_over_twenty_seconds_is_refused(self, never_loads, tmp_path):
@@ -570,7 +576,9 @@ class TestAudio8Refusals:
 
     @pytest.mark.parametrize("where", ["generate_kwargs", "forward_params"])
     def test_an_unknown_generation_setting_is_refused_by_name(self, never_loads, where):
-        with pytest.raises(ValueError, match=r"generation setting\(s\) \['speaker_id'\]"):
+        with pytest.raises(
+            ValueError, match=r"generation setting\(s\) \['speaker_id'\]"
+        ):
             generate_speech("hello", model_name=AUDIO8, **{where: {"speaker_id": 1}})
 
     def test_audio8_needs_text(self, never_loads):
@@ -633,7 +641,9 @@ class TestAudio8Dispatch:
 
     def test_a_caller_max_new_tokens_wins(self, fake_model):
         model, _, _ = fake_model
-        generate_speech("hello", model_name=AUDIO8, forward_params={"max_new_tokens": 9})
+        generate_speech(
+            "hello", model_name=AUDIO8, forward_params={"max_new_tokens": 9}
+        )
         assert model.generate.call_args.kwargs["max_new_tokens"] == 9
 
     def test_an_unfinished_line_is_refused_not_truncated(self, fake_model):

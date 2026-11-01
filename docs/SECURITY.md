@@ -136,6 +136,17 @@ generative model (Bark, VibeVoice). Each must be an object, and
 `custom_generate` / `trust_remote_code` in either are refused untrusted, before
 the model loads (released versions through 0.14.0 passed them through).
 
+`speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
+`dw/tasks/audio8_tts_model.py`) runs no code from its repo: the model is
+vendored, so there is no `trust_remote_code` load. Its five files are fetched
+with `hf_hub_download` at one pinned 40-hex revision, never a branch, and the
+weights are safetensors. The audio codec, `codec.pth`, is a pickle checkpoint;
+it is read with `torch.load(weights_only=True)`, which refuses any object that
+isn't a tensor or a plain container, and only at that pinned revision. Its
+`generate_kwargs` / `forward_params` pass the same trust gate as above, then an
+allowlist (`temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`):
+any other key is refused by name before the model loads.
+
 `text_generation`'s `system_prompt` may be read from a Hub repo file
 (`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
 without credentials (`token=False`) whether it serves the file publicly at the
