@@ -67,7 +67,9 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   the source first and restore after: output exactly 2x the source (2x the kept region under crop) at its
   length, any aspect ratio letterboxed and cut back (`fit`), a short source
   held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
-  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). A small,
+  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). All three
+  write at the source's frame rate (`frame_rate` overrides the rate, never
+  the frame count). A small,
   smeared face in a wide shot, the rest left alone:
   `templates/ltx2/face-repair` (`strength` 0-4, default 2; describe the
   person in `prompt` to hold identity at 3-4). A near face comes back

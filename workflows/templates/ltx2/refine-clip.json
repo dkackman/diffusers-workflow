@@ -1,6 +1,6 @@
 {
     "id": "LTX2RefineClip",
-    "description": "Refines a clip from the asset library at exactly twice its size through LTX-2.5's stage-two path, starting from the clip's own latents rather than a reference: the latent upsampler VAE-encodes the source, doubles the latents, and 'refine' renoises them at 0.909375 and runs the three stage-two distilled sigmas - two-stage's refine pass, fed a clip dw did not make. Composition and motion are the source's; fine texture is regenerated at that noise level, so it is not a faithful resize. 'width'/'height' are the working size the source is fitted to (each divisible by 32), and 'num_frames' (8 * n + 1) its working length; the model renders at twice that, and a last step restores the result to twice the source's size at the source's own length - so the output is exactly 2x the source whatever its size (under crop, 2x the kept region, since crop cuts the edges off for good). A different aspect ratio is handled by 'fit': letterbox (default) pads it and the padding is cut back off, stretch resizes it, crop cuts it to fill. A source shorter than 'num_frames' is held on its last frame and trimmed back after; a longer one is cut to its opening 'num_frames' frames. Defaults work at 512x288, 121 frames, 24 fps - set 'frame_rate' to the source's (get_gallery_metadata('asset:...') reads it). Replace the default prompt with a description of the source's subject, setting, motion and lighting. The soundtrack is the source's own, not generated: its track is read and normalized to -3 dBFS as the first step, so a source with no soundtrack is refused there, before any pipeline loads, and the refined picture (saved to intermediate/) is paired with it, cut to the output length, in final/. Versus upscale-clip: that template re-renders with the source as an IC-LoRA reference (invented detail, gated LoRA download); this one keeps the source's own latents, needs no LoRA and denoises three sigmas rather than eight.",
+    "description": "Refines a clip from the asset library at exactly twice its size through LTX-2.5's stage-two path, starting from the clip's own latents rather than a reference: the latent upsampler VAE-encodes the source, doubles the latents, and 'refine' renoises them at 0.909375 and runs the three stage-two distilled sigmas - two-stage's refine pass, fed a clip dw did not make. Composition and motion are the source's; fine texture is regenerated at that noise level, so it is not a faithful resize. 'width'/'height' are the working size the source is fitted to (each divisible by 32), and 'num_frames' (8 * n + 1) its working length; the model renders at twice that, and a last step restores the result to twice the source's size at the source's own length - so the output is exactly 2x the source whatever its size (under crop, 2x the kept region, since crop cuts the edges off for good). A different aspect ratio is handled by 'fit': letterbox (default) pads it and the padding is cut back off, stretch resizes it, crop cuts it to fill. A source shorter than 'num_frames' is held on its last frame and trimmed back after; a longer one is cut to its opening 'num_frames' frames. Defaults work at 512x288, 121 frames; the model runs at its 24 fps, and the output is written at the source's frame rate, one frame per source frame - 'frame_rate' overrides that rate, never the frame count. Replace the default prompt with a description of the source's subject, setting, motion and lighting. The soundtrack is the source's own, not generated: its track is read and normalized to -3 dBFS as the first step, so a source with no soundtrack is refused there, before any pipeline loads, and the refined picture (saved to intermediate/) is paired with it, cut to the output length, in final/. Versus upscale-clip: that template re-renders with the source as an IC-LoRA reference (invented detail, gated LoRA download); this one keeps the source's own latents, needs no LoRA and denoises three sigmas rather than eight.",
     "summary": "2x latent refine of your own clip, any aspect or length, soundtrack kept. width/height = the working size.",
     "cost": [
         {
@@ -30,7 +30,7 @@
         "width": 512,
         "height": 288,
         "num_frames": 121,
-        "frame_rate": 24.0,
+        "frame_rate": "source",
         "fit": "letterbox",
         "seed": 42
     },
@@ -126,8 +126,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "save": false,
-                "fps": "variable:frame_rate"
+                "save": false
             }
         },
         {
@@ -235,7 +234,7 @@
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_frames": "variable:num_frames",
-                    "frame_rate": "variable:frame_rate",
+                    "frame_rate": 24.0,
                     "guidance_scale": 1.0,
                     "audio_guidance_scale": 1.0,
                     "stg_scale": 0.0,
@@ -247,7 +246,7 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": "variable:frame_rate",
+                "fps": 24.0,
                 "subfolder": "intermediate"
             }
         },
@@ -257,13 +256,13 @@
                 "command": "restore_to_source",
                 "arguments": {
                     "video": "previous_result:refine",
-                    "fit": "previous_result:fit.fit"
+                    "fit": "previous_result:fit.fit",
+                    "fps": "variable:frame_rate"
                 }
             },
             "result": {
                 "content_type": "video/mp4",
-                "save": false,
-                "fps": "variable:frame_rate"
+                "save": false
             }
         },
         {
@@ -278,7 +277,6 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": "variable:frame_rate",
                 "subfolder": "final"
             }
         }
