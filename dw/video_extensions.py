@@ -150,6 +150,11 @@ def video_into_image_errors(workflow_definition, source_indices=None):
                 name = references.ref_name(references.PREVIOUS_RESULT, value)
                 if name not in video_steps:
                     continue
+                # Another entry of the member's own list: refused outright by
+                # cross_entry_reference_errors (#1101), whose fix is the one
+                # that applies - no still can be taken inside one list
+                if references.cross_entry_key(name, step.get("name")) is not None:
+                    continue
                 errors.append(
                     {
                         "path": render_path(

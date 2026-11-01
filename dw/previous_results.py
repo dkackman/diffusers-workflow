@@ -393,6 +393,10 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
             if any(reference_resolves_to(reference, name) for name in seen):
                 continue
+            # A sibling entry later in the list is cross_entry_reference_errors'
+            # to report, with the fix that applies (#1101)
+            if references.cross_entry_key(reference, name) is not None:
+                continue
             location = render_path(("steps", source) + path)
             errors.append(
                 {
@@ -405,6 +409,53 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
             )
         if isinstance(name, str):
             seen.append(name)
+    return errors
+
+
+def cross_entry_reference_errors(workflow_definition, source_indices=None):
+    """Every for_each member that reads another entry of its own list (#1101).
+
+    `expand_for_each` rewrites a bare reference to the member's own group
+    (`shot` inside `shot@b`) to the same key, but a literal
+    `previous_result:shot@a` inside `shot@b` - spliced in through `item:` or
+    written out - passed validation and made the list's order part of its
+    meaning (#509, #813). Entries of one list can't read each other: the only
+    member-to-member read is same-key pairing (`refine@a` reading `shot@a`).
+    Another group over the same list reading another key (`trim@b` reading
+    `shot@a`) is a read from outside the group - every `shot@*` has run
+    before any `trim@*` - and stays legal, as do steps after the group and
+    `gather:`.
+
+    Both spellings, the 'previous_result:' prefix and 'from_previous_result',
+    with or without a '.property'. Membership is read off the member names
+    (`references.cross_entry_key`), so nothing else from the expansion is
+    needed beyond the source indices the paths use.
+    """
+    errors = []
+    for _, step, _, source, _ in references.iter_steps(
+        workflow_definition.get("steps"), source_indices
+    ):
+        name = step.get("name")
+        if not isinstance(name, str):
+            continue
+        found = {}
+        _collect_reference_paths(step, (), found)
+        for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
+            key = references.cross_entry_key(reference, name)
+            if key is None:
+                continue
+            errors.append(
+                {
+                    "path": render_path(("steps", source) + path),
+                    "message": (
+                        f"previous_result '{reference}' in member '{name}' reads "
+                        f"another entry ('{key}') of the same for_each list. "
+                        f"Entries of one list can't read each other. Generate "
+                        f"'{key}' in its own run and pass its file to this one "
+                        f"as an output: reference (guide: for_each)."
+                    ),
+                }
+            )
     return errors
 
 

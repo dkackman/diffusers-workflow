@@ -47,7 +47,10 @@ from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
 from .locations import location_errors
 from .media import probe_metadata
-from .previous_results import previous_result_reference_errors
+from .previous_results import (
+    cross_entry_reference_errors,
+    previous_result_reference_errors,
+)
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors
@@ -318,6 +321,11 @@ ERROR_CHECKS = [
     Check(
         "previous_result_references",
         lambda c: previous_result_reference_errors(c.expanded, c.source_indices),
+    ),
+    # A for_each member reading another entry of its own list (#1101)
+    Check(
+        "cross_entry_references",
+        lambda c: cross_entry_reference_errors(c.expanded, c.source_indices),
     ),
     Check("subfolders", lambda c: subfolder_errors(c.expanded, c.source_indices)),
     Check("fps", lambda c: fps_errors(c.expanded, c.source_indices)),

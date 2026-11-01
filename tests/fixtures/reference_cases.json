@@ -547,5 +547,82 @@
     "flagged": [
       "variable:nope"
     ]
+  },
+  {
+    "name": "cross_entry_same_group",
+    "workflow": {
+      "id": "cross_entry_same_group",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name",
+                "previous_result:g@open"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        }
+      ],
+      "variables": {
+        "shots": [
+          {
+            "name": "open"
+          },
+          {
+            "name": "close"
+          }
+        ]
+      }
+    },
+    "flagged": [
+      "reads another entry ('open') of the same for_each list"
+    ]
+  },
+  {
+    "name": "other_group_other_key",
+    "workflow": {
+      "id": "other_group_other_key",
+      "steps": [
+        {
+          "name": "g",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "item:name"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        },
+        {
+          "name": "h",
+          "task": {
+            "command": "compose_text",
+            "arguments": {
+              "parts": [
+                "previous_result:g@open"
+              ]
+            }
+          },
+          "for_each": "variable:shots"
+        }
+      ],
+      "variables": {
+        "shots": [
+          {
+            "name": "open"
+          },
+          {
+            "name": "close"
+          }
+        ]
+      }
+    },
+    "flagged": []
   }
 ]
