@@ -1161,3 +1161,47 @@ def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
     judge = text[text.index("## Run and judge") :]
     assert "`seams=true`" in judge
     assert "`at`" in judge
+
+
+STORY_FORGE_FINDINGS = "docs/proposals/audits/2026-11-story-forge-lessons.md"
+
+
+class TestStoryForgeLessons:
+    """Story-forge's production lessons (#1123): only what held on dw's
+    pipeline lands as a rule. The probes ruled lessons 1-4 and 6 not
+    reproduced, so no skill states them; lesson 5 lands unmeasured, worded
+    as guidance and citing the findings doc."""
+
+    def test_the_findings_doc_rules_what_landed(self):
+        text = open(
+            os.path.join(REPO_ROOT, STORY_FORGE_FINDINGS), encoding="utf-8"
+        ).read()
+        assert "## Lesson 5" in text and "(not probed)" in text
+        assert "## What landed" in text
+
+    @pytest.mark.parametrize(
+        "path", [SCRIPT_SKILL, SERIES_SKILL], ids=["script-to-video", "series-episodes"]
+    )
+    def test_lesson_5_is_framing_guidance_citing_the_findings(self, path):
+        body = " ".join(skill_body(path).split())
+        assert "not a measured rule" in body
+        assert "frame a recurring character large" in body
+        assert "keep a wide master too" in body
+        assert STORY_FORGE_FINDINGS in body
+
+    def test_lesson_5_sits_in_the_casting_steps(self):
+        script = skill_body(SCRIPT_SKILL)
+        step3 = script[script.index("## 3.") : script.index("## 4.")]
+        assert "frame a recurring character large" in " ".join(step3.split())
+        series = skill_body(SERIES_SKILL)
+        step0 = series[series.index("## 0.") : series.index("## 1-5.")]
+        assert "frame a recurring character large" in " ".join(step0.split())
+
+    def test_no_rule_lands_for_a_lesson_not_reproduced(self):
+        ltx_dir = os.path.dirname(LTX_SKILL)
+        assert not os.path.exists(os.path.join(ltx_dir, "references", "staging.md"))
+        for path in (LTX_SKILL, H3_SKILL, FLUX3_SKILL, SCRIPT_SKILL, SERIES_SKILL):
+            text = skill_text(path).lower()
+            assert "locked-off on a tripod" not in text  # L2's remedy wording
+            assert "all-caps" not in text and "all caps" not in text  # L4
+            assert "just before contact" not in text  # L3

@@ -43,7 +43,7 @@ any legible text.
 | L1 | LTX-2.5 renders haze over after 2–3.5 s; keep clips short (89 frames). | **not reproduced (on our pipeline at this N)** | 0 of 10 (6 t2v at 241, 2 i2v at 241, 2 i2v at 401) | 8 of 8 at 89 frames, but there was nothing to remove |
 | L2 | i2v invents camera moves unless the prompt pins the camera; "camera remains static" alone is not enough, add "locked-off on a tripod, no pan, no zoom". | **not reproduced (on our pipeline at this N)** | 0 of 6 clear moves; 2 of 6 ambiguous (S3, see below) | 6 of 6 "static", 6 of 6 "locked-off" show no move |
 | L3 | Bodies in contact (hugs, handshakes, a hand on a shoulder) fuse or grow limbs; stage the moment just before contact. | **not reproduced (on our pipeline at this N)** | LTX 2 of 6 (both handshakes, mild); H3 0 of 2 (1 brief ambiguous) | 6 of 6 clean, but 0 of 6 followed the restaging: every remedy render went on into contact |
-| L4 | An ALL-CAPS word in an image prompt renders as written text; write it in lowercase. | **not reproduced (on our pipeline at this N)** | 0 of 6 (z-image only; Klein not run) | 6 of 6, but there was nothing to remove |
+| L4 | An ALL-CAPS word in an image prompt renders as written text; write it in lowercase. | **not reproduced (on our pipeline at this N)** | 0 of 6 z-image, 0 of 6 Klein | 12 of 12, but there was nothing to remove |
 | L6 | Impacts (a strike, a slam) break physics; show the effort, not the impact. | **not reproduced (on our pipeline at this N)** | 1 of 4 (axe seed 1); both door renders never showed the slam | 3 of 4 clean, 1 ambiguous (door seed 2 closes softly) |
 
 L1's two questions:
@@ -184,8 +184,14 @@ Prompts `probe-1123/l4-{proud,alone,hurry}-{caps,lower}`: a baker holding a
 tray of croissants, "PROUD"/"proud" of them; a man alone in the rain at night,
 "ALONE"/"alone"; a girl in a yellow raincoat running to a red door in a
 "HURRY"/"hurry". The caps and lowercase prompts differ only in that one word's
-case. Stills from `models/z-image` at its defaults (960x544), each judged on its whole image (`get_output_image`), which is the "frame inspected". Klein was not
-run (see Deviations).
+case. Each still is judged on its whole image (`get_output_image`), which is
+the "frame inspected". There are two families:
+- `models/z-image` at its defaults (960x544);
+- Klein (`black-forest-labs/flux-3-image-klein`, 1024x1024, 16 steps), run as
+  `templates/flux3/text-to-image` with one change, the text encoder's
+  placement (see Deviations).
+
+### z-image
 
 | Cell | Arm | Seed 1 | Seed 2 | Verdict | Observation |
 | --- | --- | --- | --- | --- | --- |
@@ -200,8 +206,27 @@ Tally: the caps word appears as legible text in 0 of 6 caps renders and 0 of
 6 lowercase ones, so the plan's "holds" test (at least half of the caps
 renders, none of the lowercase) fails. Not reproduced on z-image. The case of
 the word changed nearly nothing: each caps/lowercase pair at the same seed is
-close to the same picture. Whether Klein, the family the lesson was written
-against, behaves differently is untested here.
+close to the same picture.
+
+### Klein
+
+Stage B's second session ran these after Don's `spend` ruling on #1127. Each
+note reads `#1127 L4 cell klein-<word>-<caps|lower> seed <s>`.
+
+| Cell | Arm | Seed 1 | Seed 2 | Verdict | Observation |
+| --- | --- | --- | --- | --- | --- |
+| proud | naive (caps) | 747a40ecd26e | 8dc1157be57f | no text | Grinning baker holding a tray of croissants in a sunlit bakery. No lettering on the apron, tray, shelves or wall. |
+| proud | remedy (lower) | 37721ee6bee7 | 708bec1cc91a | no text | The same scene, with more croissants on the tray. No lettering. |
+| alone | naive (caps) | 887c4be1f269 | baac48e8fcc8 | no text | Man in a wet coat, head bowed, alone on a rainy crosswalk at night. Shop fascias are blurred. One small illegible sign at the left edge (seed 2), not "ALONE". |
+| alone | remedy (lower) | 408a20fe4a00 | 62422200260e | no text | The same scene. Fascias are illegible and "alone" appears nowhere. |
+| hurry | naive (caps) | 946866bee92e | 3faf33a3c088 | no text | Girl in a yellow raincoat and boots running up a cobbled lane to a red door. No lettering on the door, wall or coat. |
+| hurry | remedy (lower) | 898397bfb410 | 640ee4d1af35 | no text | The same scene against a brick wall. No lettering. |
+
+Tally: the caps word appears as legible text in 0 of 6 Klein caps renders
+and 0 of 6 lowercase ones, so the "holds" test fails on Klein as well. **L4
+is not reproduced on either family (on our pipeline at this N).** As on
+z-image, each caps/lowercase pair at the same seed is close to the same
+picture. On Klein, the case of the word changes nothing visible.
 
 ## Deviations from plan v2
 
@@ -211,8 +236,9 @@ against, behaves differently is untested here.
 - **The i2v 121-frame control is borrowed** from L2 s1-static (same still,
   static prompt, 121 frames) rather than run as a separate L1 cell; its note
   names the L2 cell.
-- **Stills from z-image, not Klein.** The Klein route needed a 40 GB model
-  download; `models/z-image` was already on lem.
+- **Stills from z-image first, Klein later.** The Klein route needed a
+  40 GB model download, and `models/z-image` was already on lem. The Klein
+  cells followed once Don ruled the download in (#1127).
 - **Asset names are flat** (`probe-1123-s1-bench.jpg`), not in a folder.
 - **The L1 prompts all say "the camera remains static"**, to keep camera
   motion out of the haze read.
@@ -227,10 +253,21 @@ Stage B (#1127):
 - **The H3 cell has no remedy arm**: one `hug` shot of 124 frames per seed,
   with the template's own drawn portraits. The shot prompt was written inline
   in the shots item; the same text is stored as `probe-1123/l3-h3-hug`.
-- **L4 rests on z-image only.** The Klein half (`templates/flux3/text-to-image`)
-  was not run: Klein is not on lem, and the download is 40.3 GB, a `spend`
-  decision this stage does not hold. The L4 verdict therefore says nothing
-  about Klein.
+- **The Klein L4 cells ran as an inline copy of
+  `templates/flux3/text-to-image`.** Model, size, steps, dtype and seed
+  handling are unchanged. The one difference is that the text encoder is
+  leaf-level group-offloaded (`"group_offload": {"offload_type":
+  "leaf_level"}`), not placed on `cuda`. As written, the template OOMs while
+  loading on an empty 24 GB 3090 against the current `main` (job
+  49459dc14c17), whatever its description says about "about 19 GB". The
+  modular pipeline also has no `offload: "model"` (job 5ec3b2dcb9f5). Neither
+  failed job counts as a probe. With the offload, the text encode takes about
+  8–12 min per still, against about 9 s of denoise.
+- **No old Klein snapshot to delete.** Don's ruling asked for the older,
+  unreferenced 31.8 GB snapshot to be removed. It turned out to be the
+  partial download of the same `main` revision, and the finished download
+  completed it in place, so there was nothing separate to remove. Disk free
+  on lem afterwards was about 262 GB.
 - **The remedy restagings were not followed by LTX** in L3 (0 of 6) and only
   partly in L6 (the door seed 2 closed). The tables record what rendered, not
   what was asked.
@@ -257,3 +294,19 @@ Stage B (#1127):
 - The clipping and quiet-audio warnings on L6 jobs are irrelevant: the probes
   judge the picture only. `dialogue-short` warns that `audio_bleed_ms` has no
   effect with one shot, which is expected.
+
+## Lesson 5: wide shots drift hardest on identity (not probed)
+
+Story-forge's lesson: a character small in a wide shot drifts most on
+identity, so frame recurring characters larger, or keep both a wide and a
+close master. Plan v2 lands it unmeasured, as framing guidance (Don's Q4,
+2026-11-01). Nothing here measures it on dw, so the skills word it as
+guidance, not as a rule.
+
+## What landed (#1123 stage C, #1128)
+
+Only lesson 5, as guidance: `script-to-video` step 3 and `series-episodes`
+step 0. Lessons 1, 2, 3, 4 and 6 are not reproduced above, so no skill
+states a rule for any of them: no `ltx-2.5/references/staging.md`, no H3
+staging note, no all-caps rule in `flux3-klein`, and no follow-up issue for
+the `image-to-video` 401-frame default (L1 did not hold at 401 frames).
