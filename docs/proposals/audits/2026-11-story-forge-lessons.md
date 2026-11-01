@@ -1,9 +1,10 @@
-# Story-forge lessons: record-only probes (#1123 stage A, #1126)
+# Story-forge lessons: record-only probes (#1123 stages A and B, #1126, #1127)
 
 Probe date: 2026-11-01. Server `lem` (2x RTX 3090), develop @ 2ca6ece8.
 Agent: claude-opus-5-5 (anthropic). Workspace `probe-1123`.
 No engine or skill file was changed. This document only records results.
-Stage B (#1123) adds the sections for lessons 3, 4 and 6.
+Stage B (#1127) added the sections for lessons 3, 4 and 6, probed the same
+day on develop @ f1020d8f by the same agent in the same workspace.
 
 Every render ran on the LTX-2.5 catalog templates as they stand on develop:
 `templates/ltx2/text-to-video` for t2v and `templates/ltx2/image-to-video` for
@@ -27,12 +28,23 @@ as loss of contrast, saturation or black level against the same render's 1 s
 frame. Camera motion was judged by registration of fixed background
 features (horizon, window frame, shelving, bench) across the inspected frames.
 
+Stage B (L3, L4, L6) judged the same way. L3 and L6 are LTX
+`templates/ltx2/text-to-video` at 121 frames, plus an H3
+`templates/minimax/dialogue-short` cell for L3. Contact was judged on frames at
+1, 2, 3, 4 s and f120 (f123 on H3's 124 frames), with hand crops where hands
+met. Impacts were judged at 1, 2, 3, 4 s and f120, plus 2.5, 3, 3.5 and 4.5 s
+around the strike. L4 is stills: each render's whole frame at 384 px, read for
+any legible text.
+
 ## Verdicts
 
 | # | Lesson | Verdict | Naive renders failing | Remedy renders clean |
 | --- | --- | --- | --- | --- |
 | L1 | LTX-2.5 renders haze over after 2–3.5 s; keep clips short (89 frames). | **not reproduced (on our pipeline at this N)** | 0 of 10 (6 t2v at 241, 2 i2v at 241, 2 i2v at 401) | 8 of 8 at 89 frames, but there was nothing to remove |
 | L2 | i2v invents camera moves unless the prompt pins the camera; "camera remains static" alone is not enough, add "locked-off on a tripod, no pan, no zoom". | **not reproduced (on our pipeline at this N)** | 0 of 6 clear moves; 2 of 6 ambiguous (S3, see below) | 6 of 6 "static", 6 of 6 "locked-off" show no move |
+| L3 | Bodies in contact (hugs, handshakes, a hand on a shoulder) fuse or grow limbs; stage the moment just before contact. | **not reproduced (on our pipeline at this N)** | LTX 2 of 6 (both handshakes, mild); H3 0 of 2 (1 brief ambiguous) | 6 of 6 clean, but 0 of 6 followed the restaging: every remedy render went on into contact |
+| L4 | An ALL-CAPS word in an image prompt renders as written text; write it in lowercase. | **not reproduced (on our pipeline at this N)** | 0 of 6 (z-image only; Klein not run) | 6 of 6, but there was nothing to remove |
+| L6 | Impacts (a strike, a slam) break physics; show the effort, not the impact. | **not reproduced (on our pipeline at this N)** | 1 of 4 (axe seed 1); both door renders never showed the slam | 3 of 4 clean, 1 ambiguous (door seed 2 closes softly) |
 
 L1's two questions:
 - **(i) Does haze set in at a fixed time from the start?** No. No render, at
@@ -115,6 +127,82 @@ move, which is why s3-none is counted ambiguous and not as a failure. Even
 counting both as failures, the naive arm fails 2 of 6, under half, and the
 verdict stands.
 
+## L3: bodies in contact
+
+Prompts `probe-1123/l3-{hug,handshake,shoulder}` (naive: the contact shown)
+and `probe-1123/l3-{hug,handshake,shoulder}-before` (remedy: the same two
+people staged in the moment just before contact). All say "the camera remains
+static". LTX t2v, 121 frames.
+
+| Cell | Arm | Seed 1 | Seed 2 | Frame times inspected | Verdict | Observation |
+| --- | --- | --- | --- | --- | --- | --- |
+| hug | naive | 2c8e2fd11a64 | a0bf15587a17 | 1, 2, 3, 4 s, f120; hand crop at 1, 3 s | clean | Clean hugs. Hands on backs are plausible, five fingers, no fusion. |
+| hug-before | remedy | 2b5294666c7b | 8b1b00b412b0 | 1, 2, 3, 4 s, f120 | clean, restaging not followed | Both go on into a full hug by 4 s and hold it to f120. Clean, but in contact. |
+| handshake | naive | 1e54ba7c709e | 33537ba0f0b5 | 1, 2, 3, 4 s, f120; hand crop at 1, 3 s | **fail (mild)** | Seed 1: the clasp at 3 s is a smeared, fused blob with no finger separation. Seed 2: fused or fanned fingers (an apparent extra) at first contact at 1 s, a plausible clasp by 3 s. Motion blur may contribute to both. |
+| handshake-before | remedy | 35efb75713d0 | 030338233ca5 | 1, 2, 3, 4 s, f120; hand crop at 3 s, f120 (seed 1) | clean, restaging not followed | Both shake hands by about 2–3 s and hold to f120. Seed 1's clasp is plausible in the crop. |
+| shoulder | naive | 486626742b05 | b50872edf631 | 1, 2, 3, 4 s, f120 | clean | Workshop, an old man and a girl. The hand settles on the shoulder by 3 s; an exchange of looks by f120. |
+| shoulder-before | remedy | 66934ce13ed3 | 376441d1abca | 1, 2, 3, 4 s, f120 | clean, restaging not followed | Both rest the hand on the shoulder by 3 s. |
+
+H3 cell, `templates/minimax/dialogue-short` with one shot (`hug`, 124
+frames), the template's own drawn portraits, and the hug prompt stored as
+`probe-1123/l3-h3-hug`. Naive arm only.
+
+| Cell | Arm | Seed 1 | Seed 2 | Frame times inspected | Verdict | Observation |
+| --- | --- | --- | --- | --- | --- | --- |
+| h3-hug | naive | a793f12f9d8c | 134084669ce8 | 1, 2, 3, 4, 5 s; hug crop at 3, 5 s (seed 1), 2, 4 s (seed 2) | clean (seed 2 ambiguous at 2 s) | A station platform: the two step together and embrace by 2–3 s and hold to the end. Seed 1: hands on backs clean, rings and watch intact. Seed 2: at 2 s, as the arms close, four hands show at once with one motion-blurred over his shoulder, which is hard to assign to an arm. By 4 s it resolves into a clean embrace. Counted ambiguous, not a failure. |
+
+Tally: the naive arm fails 2 of 6 on LTX (both handshakes, mild) and 0 of 2
+on H3. That is under half, so the lesson is not reproduced. The remedy
+cannot be credited either way: LTX did not follow "just before contact" in
+any of 6 renders, and every remedy clip reached the contact it was staged to
+avoid, cleanly. On this pipeline, if contact is to be avoided, the prompt
+has to do more than stage the moment before it.
+
+## L6: impacts
+
+Prompts `probe-1123/l6-{axe,door}` (naive: the strike or slam) and
+`probe-1123/l6-{axe,door}-effort` (remedy: the effort before the impact, for
+example the axe raised overhead, or her gripping a door that stands wide open,
+"shot holds before the door moves"). LTX t2v, 121 frames, "the camera remains
+static".
+
+| Cell | Arm | Seed 1 | Seed 2 | Frame times inspected | Verdict | Observation |
+| --- | --- | --- | --- | --- | --- | --- |
+| axe | naive | 6be90fe35d6b | 176f482ff752 | 1, 2, 3, 4 s, f120; crop at 2.5, 3, 3.5, 4.5 s | **fail (seed 1)** | Seed 1: a clean strike at 3 s and a half flying off right at 3.5 s, but by 4.5 s a whole log is back on the block with the axe in it, and pieces lie on the ground. The log re-forms or duplicates. Seed 2: the impact at 3 s is motion blur; by 4 s the block is empty with pieces on the ground. Plausible. |
+| axe-effort | remedy | 90e028d7e9a4 | 1088ba878fa5 | 1, 3 s, f120 | clean | Axe raised overhead to f120, no strike, no artifacts. In seed 2 the axe head comes to rest on the top of the log at the end. |
+| door | naive | 004112bab9e8 | 8d9afda0c95e | 1, 2, 3, 4 s, f120 | impact not depicted | The slam is never rendered. Seed 1: she presses on an already-closed door, with a reframe between 1 and 2 s. Seed 2: the door is near-shut at 1 s and she reaches for the handle at 3 s. No pass-through and no morph. The coat rack and picture are in the prompt, so they are not inventions. |
+| door-effort | remedy | b658f4bd3d82 | f87c4fe72657 | 1, 3 s, f120 | seed 1 clean, seed 2 ambiguous | Seed 1: she holds the open door, with the street visible through it, to f120. Seed 2: the door is open at 1 s, but closed or near-closed by f120 with her gripping it. It moved against the prompt, but with no artifact. |
+
+Tally: the naive arm fails 1 of 4 (axe seed 1), under half, so the lesson is
+not reproduced. The door renders are not counted as failures: LTX never
+showed the slam at all, so there was no impact to break. The remedy arm is
+clean in 3 or 4 of 4.
+
+## L4: ALL-CAPS words render as text
+
+Prompts `probe-1123/l4-{proud,alone,hurry}-{caps,lower}`: a baker holding a
+tray of croissants, "PROUD"/"proud" of them; a man alone in the rain at night,
+"ALONE"/"alone"; a girl in a yellow raincoat running to a red door in a
+"HURRY"/"hurry". The caps and lowercase prompts differ only in that one word's
+case. Stills from `models/z-image` at its defaults (960x544). Klein was not
+run (see Deviations).
+
+| Cell | Arm | Seed 1 | Seed 2 | Verdict | Observation |
+| --- | --- | --- | --- | --- | --- |
+| proud | naive (caps) | b8f4028b4aca (run 20261101-162016-d3bd254a) | effa9b4d219c (20261101-162040-2ce53f0c) | no text | Baker smiling over a tray of croissants. No lettering anywhere: no sign, apron print or tray label. |
+| proud | remedy (lower) | run 20261101-162055-a3f9299d | run 20261101-162104-4e593ae9 | no text | Near-identical compositions to the caps renders, seed for seed. |
+| alone | naive (caps) | run 20261101-162112-831cc4c7 | run 20261101-162126-4574d07c | no text | Hooded man on a wet street at night. Shop fronts and signs stay blurred and illegible; "ALONE" appears nowhere. |
+| alone | remedy (lower) | run 20261101-162126-39518976 | run 20261101-162140-82c30056 | no text | Near-identical to the caps renders, seed for seed. |
+| hurry | naive (caps) | run 20261101-162147-4e6336c8 | run 20261101-162155-50cd07ed | no text | Girl running to a red door. No lettering on the door, wall or coat. |
+| hurry | remedy (lower) | f47fcbf043b0 (run 20261101-162207-258573e2) | 855955966ac3 (20261101-162209-dc42ad71) | no text | Near-identical to the caps renders, seed for seed. |
+
+Tally: the caps word appears as legible text in 0 of 6 caps renders and 0 of
+6 lowercase ones, so the plan's "holds" test (at least half of the caps
+renders, none of the lowercase) fails. Not reproduced on z-image. The case of
+the word changed nearly nothing: each caps/lowercase pair at the same seed is
+close to the same picture. Whether Klein, the family the lesson was written
+against, behaves differently is untested here.
+
 ## Deviations from plan v2
 
 - **More L1 renders than the plan's minimum.** Each t2v prompt ran at 241
@@ -133,6 +221,26 @@ verdict stands.
   160 px. The 401-frame renders added a 12 s frame.
 - **Judged by eye**, since `assess_output` has no image or motion probe.
 
+Stage B (#1127):
+- **More L3 LTX renders than the plan's 8**: three contact cells (hug,
+  handshake, hand on shoulder), each in both arms × 2 seeds, 12 in all.
+- **The H3 cell has no remedy arm**: one `hug` shot of 124 frames per seed,
+  with the template's own drawn portraits. The shot prompt was written inline
+  in the shots item; the same text is stored as `probe-1123/l3-h3-hug`.
+- **L4 rests on z-image only.** The Klein half (`templates/flux3/text-to-image`)
+  was not run: Klein is not on lem, and the download is 40.3 GB, a `spend`
+  decision this stage does not hold. The L4 verdict therefore says nothing
+  about Klein.
+- **The remedy restagings were not followed by LTX** in L3 (0 of 6) and only
+  partly in L6 (the door seed 2 closed). The tables record what rendered, not
+  what was asked.
+- **The L6 door impact was never depicted** in either naive render, so that
+  cell tests nothing about impact physics.
+- **Fewer frames on some remedy cells** (1, 3 s, f120 on L6 remedies); hand
+  and impact crops on the cells where contact or a strike happened.
+- **Every L3 and L6 prompt says "the camera remains static"**, to keep camera
+  motion out of the read.
+
 ## Infrastructure notes (not lesson findings)
 
 - The first denoise pass of a job on a cold worker takes about 50–64 s and
@@ -140,3 +248,12 @@ verdict stands.
 - A 401-frame i2v job spent about 330 s in decode and save.
 - The quiet-audio warnings on these jobs are irrelevant to L1 and L2: the
   probes judge the picture only.
+- Stage B: the first two LTX decodes on a fresh worker took 93 s and 125 s
+  (the warm-decode warning); later decodes took about 2 s, and warm LTX
+  121-frame jobs about 35–50 s each.
+- The first z-image job loaded in 17.4 s; warm z-image jobs ran about 14 s.
+- An H3 single-shot `dialogue-short` job ran about 6–9 min on one 3090; the
+  first denoise pass on a cold H3 load took 206 s, against about 30 s warm.
+- The clipping and quiet-audio warnings on L6 jobs are irrelevant: the probes
+  judge the picture only. `dialogue-short` warns that `audio_bleed_ms` has no
+  effect with one shot, which is expected.
