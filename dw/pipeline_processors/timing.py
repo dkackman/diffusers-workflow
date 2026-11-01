@@ -152,6 +152,9 @@ class StepTimer:
     def _warn_on_slow_first_pass(self, segment):
         """Say so once when a cached pipeline's first pass dwarfs the steady one.
 
+        The cause is unknown (#1119: it fired on an equal-shape second entry, and
+        #924's rerun did not reproduce it), so the message states none.
+
         The pipeline is loaded, so the minutes are not a load. A later entry
         that runs the cached pipeline at a larger shape (more frames) pays a
         one-off warm-up on its first pass - re-allocation, offload buffers,
@@ -172,9 +175,10 @@ class StepTimer:
         emit_warning(
             f"First denoise pass took {first:.0f}s against {steady:.0f}s for "
             "the passes after it, with the pipeline already loaded: a one-off "
-            "warm-up (typically a cached pipeline meeting a larger shape than "
-            "it last ran, such as more frames). Later passes run at the "
-            "steady rate.",
+            "warm-up whose cause is not identified. It has followed a larger "
+            "shape (more frames) and also an entry of the same shape, so "
+            "reordering entries by size is not a known remedy. Later passes "
+            "run at the steady rate.",
             kind="first_pass_slow",
             first_pass_s=round(first, 1),
             pass_s=round(steady, 1),
