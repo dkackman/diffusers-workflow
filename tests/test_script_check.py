@@ -42,7 +42,20 @@ RATE = 16000
 
 def voiced(seconds, amplitude=0.1):
     t = numpy.arange(int(round(seconds * RATE)), dtype=numpy.float32) / RATE
-    return (amplitude * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+    # Noise keeps it from repeating to the sample, as a voice never does
+    noise = numpy.random.default_rng(7).standard_normal(t.size) * 0.3
+    return (amplitude * (numpy.sin(2 * numpy.pi * 220 * t) + noise)).astype(
+        numpy.float32
+    )
+
+
+def looped_bed(seconds, period=0.75, amplitude=0.1):
+    """A short noise burst repeated sample for sample: loop_audio of a room tone."""
+    cycle = numpy.random.default_rng(3).standard_normal(int(period * RATE))
+    reps = int(numpy.ceil(seconds / period))
+    return (amplitude * numpy.tile(cycle, reps)[: int(seconds * RATE)]).astype(
+        numpy.float32
+    )
 
 
 def silent(seconds):
@@ -783,6 +796,13 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         answer = shot_run(self.LINES, chunks, mono=voiced(4.0))
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertEqual(found["at"]["seconds"], 0.5)
+
+    def test_a_looped_bed_in_the_gap_is_not(self):
+        # loop_audio of a room tone under the cut: same samples every period (#1118)
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        mono = numpy.concatenate([voiced(0.9), looped_bed(3.1), voiced(1.0)])
+        answer = shot_run(self.LINES, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
     def test_a_quiet_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)

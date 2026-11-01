@@ -44,6 +44,8 @@ Every threshold is a constant below, named in docs/TASKS.md.
 import difflib
 import logging
 import math
+
+import numpy
 from types import SimpleNamespace
 
 from .. import dsp
@@ -110,6 +112,14 @@ CLIP_TAIL_BELOW_WORD_DB = 15.0
 UNHEARD_MIN_SECONDS = 1.0
 UNHEARD_MARGIN_SECONDS = 0.25
 UNHEARD_FLOOR_DBFS = -40.0
+# A block whose samples repeat themselves - one stretch of it matching the
+# same stretch BED_MIN_PERIOD_SECONDS or more later at BED_CORRELATION or
+# better, over at least BED_MIN_OVERLAP_SECONDS - is a looped bed (loop_audio
+# of a room tone), not speech: the same sound does not recur to the sample
+# in a voice (#1118)
+BED_MIN_PERIOD_SECONDS = 0.3
+BED_MIN_OVERLAP_SECONDS = 0.5
+BED_CORRELATION = 0.98
 # REPEAT_RUN_MIN and REPEAT_MAX_PERIOD, the repetition-loop guard, live in
 # dw/script_lines.py beside the detector, which transcribe_audio shares
 
@@ -122,6 +132,7 @@ THRESHOLDS = {
     "unheard_min_seconds": UNHEARD_MIN_SECONDS,
     "unheard_margin_seconds": UNHEARD_MARGIN_SECONDS,
     "unheard_floor_dbfs": UNHEARD_FLOOR_DBFS,
+    "bed_correlation": BED_CORRELATION,
     "repeat_run_min": REPEAT_RUN_MIN,
     "repeat_max_period": REPEAT_MAX_PERIOD,
 }
@@ -843,10 +854,38 @@ def _audible_findings(
     return [f for f in found if f is not None]
 
 
+def is_looped_bed(mono, sample_rate, start, end):
+    """True when [start, end] repeats itself sample for sample at some lag of
+    BED_MIN_PERIOD_SECONDS or more, leaving BED_MIN_OVERLAP_SECONDS to compare
+    (#1118): a looped room-tone or score bed, which a voice never does."""
+    first, last = int(round(start * sample_rate)), int(round(end * sample_rate))
+    block = numpy.asarray(mono[max(0, first) : last], dtype=numpy.float64)
+    block = block - block.mean() if block.size else block
+    shortest = int(BED_MIN_PERIOD_SECONDS * sample_rate)
+    overlap = int(BED_MIN_OVERLAP_SECONDS * sample_rate)
+    longest = block.size - overlap
+    if longest < shortest:
+        return False
+    size = 1 << int(block.size * 2 - 1).bit_length()
+    spectrum = numpy.fft.rfft(block, size)
+    auto = numpy.fft.irfft(spectrum * numpy.conj(spectrum), size)
+    # Prefix energies give each lag's two overlapping stretches' energy
+    energy = numpy.concatenate([[0.0], numpy.cumsum(block * block)])
+    for lag in range(shortest, longest + 1):
+        head = energy[block.size - lag]
+        tail = energy[block.size] - energy[lag]
+        denominator = math.sqrt(head * tail)
+        if denominator > 0 and auto[lag] / denominator >= BED_CORRELATION:
+            return True
+    return False
+
+
 def _untranscribed(mono, sample_rate, index, start, end, shot):
     lo, hi = start + UNHEARD_MARGIN_SECONDS, end - UNHEARD_MARGIN_SECONDS
     level = word_level(mono, sample_rate, lo, hi)
     if level is None or level <= UNHEARD_FLOOR_DBFS:
+        return None
+    if is_looped_bed(mono, sample_rate, start, end):
         return None
     at = _at(index, seconds=start, shot=shot)
     at["end"] = round_seconds(end)
