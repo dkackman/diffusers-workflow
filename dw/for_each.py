@@ -77,6 +77,27 @@ def group_of(name):
     return name.split(MEMBER_SEPARATOR)[0] if is_member_name(name) else name
 
 
+def cross_entry_key(reference, step_name):
+    """The key of the sibling entry a member's previous-result reference
+    reads, or None (#1101).
+
+    `reference` is a literal previous-result name (no prefix, any
+    `.property` kept); `step_name` is the step holding it. A sibling is a
+    member of the same group (`group_of`) under a different key
+    (`member_keys`): `shot@a` or `shot@a.frames` read from `shot@b`. Entries
+    of one list can't read each other, so validation refuses that. The same
+    key, another group (`trim@b` reading `shot@a`) or a step outside every
+    group is None."""
+    if not isinstance(reference, str) or not is_member_name(step_name):
+        return None
+    if not is_member_name(reference) or group_of(reference) != group_of(step_name):
+        return None
+    own, read = references.member_keys(step_name), references.member_keys(reference)
+    if not own or not read or own[0] == read[0]:
+        return None
+    return read[0]
+
+
 def expand_for_each(definition, source_indices=None):
     """The definition with every 'for_each' step replaced by its members.
 

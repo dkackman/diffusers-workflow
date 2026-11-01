@@ -131,29 +131,6 @@ def member_keys(name):
     return keys
 
 
-def cross_entry_key(reference, step_name):
-    """The key of the sibling entry a member's previous-result reference
-    reads, or None (#1101).
-
-    `reference` is a literal previous-result name (no prefix, any
-    `.property` kept); `step_name` is the step holding it. A sibling is a
-    member of the same group under a different key: `shot@a` or
-    `shot@a.frames` read from `shot@b`. Entries of one list can't read each
-    other, so validation refuses that. The same key, another group (`trim@b`
-    reading `shot@a`) or a step outside every group is None."""
-    if not isinstance(step_name, str) or not isinstance(reference, str):
-        return None
-    if MEMBER_SEPARATOR not in step_name or MEMBER_SEPARATOR not in reference:
-        return None
-    group = step_name.split(MEMBER_SEPARATOR)[0]
-    if reference.split(MEMBER_SEPARATOR)[0] != group:
-        return None
-    own, read = member_keys(step_name), member_keys(reference)
-    if not own or not read or own[0] == read[0]:
-        return None
-    return read[0]
-
-
 def member_suffix(name):
     """The `" in member '<name>'"` a message ends with when its step is a
     for_each member, else "".
