@@ -184,17 +184,17 @@ Prompts `probe-1123/l4-{proud,alone,hurry}-{caps,lower}`: a baker holding a
 tray of croissants, "PROUD"/"proud" of them; a man alone in the rain at night,
 "ALONE"/"alone"; a girl in a yellow raincoat running to a red door in a
 "HURRY"/"hurry". The caps and lowercase prompts differ only in that one word's
-case. Stills from `models/z-image` at its defaults (960x544). Klein was not
+case. Stills from `models/z-image` at its defaults (960x544), each judged on its whole image (`get_output_image`), which is the "frame inspected". Klein was not
 run (see Deviations).
 
 | Cell | Arm | Seed 1 | Seed 2 | Verdict | Observation |
 | --- | --- | --- | --- | --- | --- |
-| proud | naive (caps) | b8f4028b4aca (run 20261101-162016-d3bd254a) | effa9b4d219c (20261101-162040-2ce53f0c) | no text | Baker smiling over a tray of croissants. No lettering anywhere: no sign, apron print or tray label. |
-| proud | remedy (lower) | run 20261101-162055-a3f9299d | run 20261101-162104-4e593ae9 | no text | Near-identical compositions to the caps renders, seed for seed. |
-| alone | naive (caps) | run 20261101-162112-831cc4c7 | run 20261101-162126-4574d07c | no text | Hooded man on a wet street at night. Shop fronts and signs stay blurred and illegible; "ALONE" appears nowhere. |
-| alone | remedy (lower) | run 20261101-162126-39518976 | run 20261101-162140-82c30056 | no text | Near-identical to the caps renders, seed for seed. |
-| hurry | naive (caps) | run 20261101-162147-4e6336c8 | run 20261101-162155-50cd07ed | no text | Girl running to a red door. No lettering on the door, wall or coat. |
-| hurry | remedy (lower) | f47fcbf043b0 (run 20261101-162207-258573e2) | 855955966ac3 (20261101-162209-dc42ad71) | no text | Near-identical to the caps renders, seed for seed. |
+| proud | naive (caps) | b8f4028b4aca | effa9b4d219c | no text | Baker smiling over a tray of croissants. No lettering anywhere: no sign, apron print or tray label. |
+| proud | remedy (lower) | d4987b9329bc | 556194c9ed5b | no text | Near-identical compositions to the caps renders, seed for seed. |
+| alone | naive (caps) | 06f277c06d19 | 64431b97bb07 | no text | Hooded man on a wet street at night. Shop fronts and signs stay blurred and illegible; "ALONE" appears nowhere. |
+| alone | remedy (lower) | 2ecb218715f6 | e62c2c0baa8d | no text | Near-identical to the caps renders, seed for seed. |
+| hurry | naive (caps) | 57fcba14cfcd | 137cc3206146 | no text | Girl running to a red door. No lettering on the door, wall or coat. |
+| hurry | remedy (lower) | f47fcbf043b0 | 855955966ac3 | no text | Near-identical to the caps renders, seed for seed. |
 
 Tally: the caps word appears as legible text in 0 of 6 caps renders and 0 of
 6 lowercase ones, so the plan's "holds" test (at least half of the caps
