@@ -586,7 +586,10 @@ def _run_separator_stems(waveform, sample_rate, device, dtype):
     # returned stems up to 17 dB louder than the mix, and different on every
     # run (#1130). Such a clip is separated as it is, once, which is exact
     # and repeatable.
-    segment = float(getattr(model, "segment", 0) or 0)
+    # (a BagOfModels has no `segment`; its `max_allowed_segment` is the one)
+    segment = float(getattr(model, "max_allowed_segment", 0) or 0)
+    if segment == float("inf"):
+        segment = 0.0
     shifts = 0 if mix.shape[-1] < segment * rate else 1
     with torch.no_grad():
         stems = apply_model(

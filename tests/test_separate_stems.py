@@ -82,7 +82,8 @@ class TestSeparateStems(unittest.TestCase):
         numpy.testing.assert_allclose(stems["vocals"].audio, source * 0.4, atol=1e-4)
 
     def test_clip_shorter_than_the_segment_is_not_shift_averaged(self):
-        # #1130: htdemucs' random-shift averaging blew up short clips
+        # #1130: random-shift averaging blew up short clips. The real model
+        # is a BagOfModels: max_allowed_segment, no `segment` attribute.
         seen = []
 
         def spy(model, mixture, device=None, split=True, shifts=1):
@@ -91,7 +92,7 @@ class TestSeparateStems(unittest.TestCase):
 
         with (
             patch.dict(sys.modules, fake_demucs(spy)),
-            patch.object(FakeModel, "segment", 7.8, create=True),
+            patch.object(FakeModel, "max_allowed_segment", 7.8, create=True),
         ):
             separate_stems(AudioTrack(mix(1.0), RATE), device="cpu")
             separate_stems(AudioTrack(mix(9.0), RATE), device="cpu")
