@@ -525,6 +525,9 @@ def test_no_stale_entry_in_the_allowlist():
 # Re-measured at 12_344 after `ltx2/restore-deblur` and `restore-decompression`
 # took restore-colorize's fit shape (#1090, stage #1108, 2026-10-31): both
 # summaries got shorter, so the budget stands.
+# Re-measured at 12_344 after `ltx2/restore-colorize`'s description gained its
+# low-rate/portrait colour limit (#1064, stage #1114, 2026-10-31): its summary
+# did not change, so the budget stands.
 COMPACT_BUDGET = 12_400
 FILTERED_BUDGET = 1_500
 
