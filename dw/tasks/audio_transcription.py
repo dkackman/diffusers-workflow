@@ -96,7 +96,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
                 A chunk that is probably invented carries a `suspect` reason
-                ("no_words", "repetition", "silent" or "long"), marked and
+                ("no_words", "repetition", "stock_phrase", "silent" or "long"), marked and
                 never dropped (#822).
 
     Returns:
@@ -180,6 +180,29 @@ LONG_WORD_SECONDS = 2.0
 NEAR_SILENT_CLIP_DBFS = -40.0
 
 
+# Whisper's stock outro lines, learned from YouTube captions: what it writes
+# over music or a fade at any level (#1136). A chunk is marked only when its
+# whole text is one of these, so a longer line that merely contains the words
+# is left alone
+_STOCK_PHRASES = frozenset(
+    " ".join(normalize_words(phrase))
+    for phrase in (
+        "Thank you for watching",
+        "Thank you very much for watching",
+        "Thanks for watching",
+        "Thank you so much for watching",
+        "Thank you for watching this video",
+        "Thanks for watching this video",
+        "Please subscribe",
+        "Please subscribe to my channel",
+        "Subscribe to my channel",
+        "Don't forget to subscribe",
+        "See you in the next video",
+        "See you next time",
+    )
+)
+
+
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
 
@@ -195,6 +218,9 @@ def _mark_suspect(chunks, mono, long_word):
     "silent" also holds for every chunk when the whole clip's mean level is at
     or below `NEAR_SILENT_CLIP_DBFS` - a voiceless vocals stem with residual
     music, which Whisper fills with "Thank you for watching" (#1135).
+    "stock_phrase": the whole text is one of Whisper's stock outro lines
+    ('Thank you for watching'), which it writes over music at any level
+    (#1136); tried after "silent", which wins for a quiet clip.
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
     since a segment is a line and runs long by nature).
     """
@@ -216,6 +242,8 @@ def _mark_suspect(chunks, mono, long_word):
             )
             if near_silent or level is None or level <= DEAD_AIR_FLOOR_DBFS:
                 reason = "silent"
+            elif " ".join(normalize_words(chunk["text"])) in _STOCK_PHRASES:
+                reason = "stock_phrase"
             elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
                 reason = "long"
             else:

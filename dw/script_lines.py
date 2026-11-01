@@ -118,7 +118,7 @@ def looped_texts_firsts(texts):
 # transcribe_audio's `suspect` reasons whose chunk plan_cuts leaves out of the
 # sung lines: no word, a repetition loop, no voice under it. A "long" word is
 # real lyric, only mistimed, so it stays
-SUSPECT_LEFT_OUT = ("no_words", "repetition", "silent")
+SUSPECT_LEFT_OUT = ("no_words", "repetition", "stock_phrase", "silent")
 
 
 def suspect_runs(chunks):
