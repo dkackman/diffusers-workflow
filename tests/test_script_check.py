@@ -880,6 +880,24 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         self.assertGreaterEqual(second["at"]["seconds"], 8.0)
         self.assertLess(sum(f["value"] for f in found), 8.0)
 
+    def test_a_block_crossing_a_shot_seam_is_credited_to_both_shots(self):
+        # #1115: sound 3-8 s, seam at 5: the larger half is in B, but the
+        # first half in A must be reported against A, not swallowed
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([silent(3.0), voiced(5.0), silent(3.0)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = rules(answer, "speech_not_transcribed")
+        self.assertEqual({f["at"]["shot"] for f in found}, {"A", "B"})
+
     def test_under_a_second_of_audible_sound_in_a_long_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)
         mono = numpy.concatenate([voiced(1.5), silent(3.5), voiced(1.0)])

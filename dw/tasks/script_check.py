@@ -782,7 +782,27 @@ def _audible_findings(
     attributed to the shot holding most of it - and to the line naming that
     shot, null when none does - not to the stretch's own line by default."""
     found = []
+    pieces = []
     for lo, hi in _audible_runs(mono, sample_rate, start, end):
+        # A block crossing a shot seam is one finding per shot (#1115), so the
+        # shot that holds the untranscribed speech is named even if the other
+        # holds more of the block.
+        cuts = [lo]
+        if spans is not None:
+            cuts += sorted(
+                {s["start"] for s in spans if lo < s["start"] < hi}
+                | {s["end"] for s in spans if lo < s["end"] < hi}
+            )
+        cuts.append(hi)
+        parts = [
+            (a, b)
+            for a, b in zip(cuts, cuts[1:])
+            if b - a >= UNHEARD_MIN_SECONDS + 2 * UNHEARD_MARGIN_SECONDS
+        ]
+        # Split only when each side is substantial; else one finding, placed
+        # by majority as before (#964)
+        pieces.extend(parts if len(parts) > 1 else [(lo, hi)])
+    for lo, hi in pieces:
         where_line, where_shot = index, shot
         holder = None if spans is None else overlapping_shot(spans, lo, hi)
         if holder is not None and holder != shot:
