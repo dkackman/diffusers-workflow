@@ -203,6 +203,26 @@ _STOCK_PHRASES = frozenset(
 )
 
 
+def _stock_sentence_indices(chunks):
+    """Indices of word chunks whose whole sentence is a stock phrase (#1136).
+
+    In word mode a chunk is one word, so the phrase only shows across a run:
+    the words are split into sentences at a word ending in . ! or ?, and every
+    word of a sentence that is exactly a stock phrase is returned.
+    """
+    found = set()
+    sentence = []
+    for index, chunk in enumerate(chunks):
+        sentence.append(index)
+        text = chunk["text"]
+        if index == len(chunks) - 1 or text.rstrip().endswith((".", "!", "?")):
+            words = [w for i in sentence for w in normalize_words(chunks[i]["text"])]
+            if " ".join(words) in _STOCK_PHRASES:
+                found.update(sentence)
+            sentence = []
+    return found
+
+
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
 
@@ -220,13 +240,16 @@ def _mark_suspect(chunks, mono, long_word):
     music, which Whisper fills with "Thank you for watching" (#1135).
     "stock_phrase": the whole text is one of Whisper's stock outro lines
     ('Thank you for watching'), which it writes over music at any level
-    (#1136); tried after "silent", which wins for a quiet clip.
+    (#1136); tried after "silent", which wins for a quiet clip. In word mode
+    every word of a sentence that is exactly such a line carries it, and it
+    wins over "long".
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
     since a segment is a line and runs long by nature).
     """
     looped = looped_texts([chunk["text"] for chunk in chunks])
     clip_level = dbfs(rms(mono))
     near_silent = clip_level is None or clip_level <= NEAR_SILENT_CLIP_DBFS
+    stock_words = _stock_sentence_indices(chunks) if long_word else set()
     marked = []
     for index, chunk in enumerate(chunks):
         if not chunk["text"]:
@@ -242,7 +265,10 @@ def _mark_suspect(chunks, mono, long_word):
             )
             if near_silent or level is None or level <= DEAD_AIR_FLOOR_DBFS:
                 reason = "silent"
-            elif " ".join(normalize_words(chunk["text"])) in _STOCK_PHRASES:
+            elif (
+                index in stock_words
+                or " ".join(normalize_words(chunk["text"])) in _STOCK_PHRASES
+            ):
                 reason = "stock_phrase"
             elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
                 reason = "long"
