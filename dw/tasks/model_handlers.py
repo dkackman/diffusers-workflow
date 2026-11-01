@@ -420,7 +420,11 @@ def _handle_speech_generation(task, arguments, previous_pipelines):
         "Apple Machine Learning Research Model License (research only) - "
         "Apple Machine Learning Research Model is licensed under the Apple "
         "Machine Learning Research Model License Agreement. Its output runs "
-        "7-25 dB hot: route it through match_levels before mixing."
+        "7-25 dB hot: route it through match_levels before mixing. A result "
+        "that measures noise-like (spectral flatness >= 0.3 and centroid >= "
+        "8 kHz, usually hiss) gets a warning naming both values; the run "
+        "still succeeds. Events name each model's repo and pinned revision "
+        "as it downloads and loads."
     ),
     parameter_descriptions={
         "video": (
