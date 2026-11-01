@@ -3167,6 +3167,7 @@ Speak a line of text with a local text-to-speech model. A validate's `downloads_
 | Bark | `suno/bark-small` (the command's default) | Distinct speakers by `voice_preset` |
 | MMS / VITS | `facebook/mms-tts-eng`, and `mms-tts-<code>` per language (the template's default) | One voice, a quarter Bark's size; a multi-speaker VITS takes `speaker_id` in `forward_params` |
 | SpeechT5 | `microsoft/speecht5_tts` | The voice of a reference clip, given as `speaker_embedding` |
+| Audio8-TTS | `Edge0/Audio8-TTS-Realistic-0.6b` | A cloned voice from `reference_audio` + `reference_text`, or its default voice; 44.1 kHz mono, many languages from one checkpoint |
 
 The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
 
@@ -3190,6 +3191,8 @@ The result is a waveform carrying the rate its model generated at, so it compose
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
 | `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
 | `speaker_embedding` | No | A reference audio file (typically an `asset:` reference) whose voice a SpeechT5 model should speak in. Reduced to an x-vector with speechbrain's `spkrec-xvect-voxceleb` and injected into `forward_params` as `speaker_embeddings`. A model that isn't SpeechT5 refuses it the same way a single-voice model refuses `voice_preset` |
+| `reference_audio` | No | Audio8-TTS only: a clip of the voice to clone (typically an `asset:` reference), up to 20 s; 5-10 s of clean speech is plenty. Needs `reference_text` |
+| `reference_text` | No | Audio8-TTS only: the words spoken in `reference_audio`, verbatim. Needs `reference_audio` |
 | `forward_params` | No | Passed to the model's forward/generate call |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
 
@@ -3198,6 +3201,23 @@ The command's own default is Bark because its voice presets give distinct speake
 `speaker_embedding` is the same kind of preprocessing argument for a SpeechT5 model (`microsoft/speecht5_tts`), which conditions its voice on an x-vector rather than a preset name. A VITS model's speaker is different again — a plain `speaker_id` int, passed through `forward_params` unchanged, since it was never a preprocessing argument and needs no argument of its own here.
 
 The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
+
+### Cloning a voice (Audio8-TTS)
+
+`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/tasks/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
+
+Give `reference_audio` and `reference_text` together and it speaks `text` in the reference's voice; leave both out and it speaks in its default voice. The language follows `text` - there is no `language` argument. Every refusal fires before the model loads:
+
+- `reference_audio` without `reference_text` (an empty one counts as missing), or the reverse;
+- either one on any other model;
+- `speaker_embedding`, `voice_preset` or `messages` on Audio8;
+- a reference longer than 20 s;
+- text that, with the reference, won't fit the model's 2,048-position context. It is refused, never truncated: split the line;
+- a `generate_kwargs` / `forward_params` key outside `temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`. `max_new_tokens` defaults to the room left in the context.
+
+The fit check is an estimate from the text's length; a line that passes it but still runs out of room before the model finishes is refused after generation rather than returned cut off. The workflow's `seed` fixes the take: the same seed, text and reference give the same audio.
+
+[`voice-clone.json`](../workflows/templates/voice-clone.json) is the template. **Clone only a voice you have the speaker's consent to use.**
 
 ### Generating a voice to condition on
 
@@ -3219,6 +3239,7 @@ A speech model is worth releasing before a video model loads — set `release_mo
 **Examples:**
 
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
+- [voice-clone.json](../workflows/templates/voice-clone.json) — Speak a line in the voice of a reference clip (Audio8-TTS)
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
 
 ## Speech Transcription

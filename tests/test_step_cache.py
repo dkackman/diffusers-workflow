@@ -914,6 +914,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "transcribe-audio.json": {},
     "upscale-diffusion.json": {},
     "upscale-spandrel.json": {},
+    "voice-clone.json": {},
 }
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parents[1] / "workflows" / "templates"
