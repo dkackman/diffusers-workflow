@@ -391,6 +391,47 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(result["chunks"][0]["suspect"], "stock_phrase")
 
     @patch.object(audio_transcription, "hf_pipeline")
+    def test_word_mode_stock_outro_marks_every_word(self, mock_pipeline):
+        # #1136: a word chunk is one word; the sentence is the phrase
+        waveform, rate = self._voiced(seconds=5.0)
+        words = ["Thank", "you", "very", "much", "for", "watching."]
+        self._mock_pipe(
+            mock_pipeline,
+            " ".join(words),
+            chunks=[
+                {"text": f" {w}", "timestamp": (i * 0.8, i * 0.8 + 0.8)}
+                for i, w in enumerate(words)
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertEqual(
+            [c.get("suspect") for c in result["chunks"]], ["stock_phrase"] * 6
+        )
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_word_mode_line_containing_stock_phrase_is_not_marked(self, mock_pipeline):
+        waveform, rate = self._voiced(seconds=5.0)
+        words = ["He", "said", "thank", "you", "for", "watching", "me."]
+        self._mock_pipe(
+            mock_pipeline,
+            " ".join(words),
+            chunks=[
+                {"text": f" {w}", "timestamp": (i * 0.8, i * 0.8 + 0.8)}
+                for i, w in enumerate(words)
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertTrue(all("suspect" not in c for c in result["chunks"]))
+
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_line_containing_a_stock_phrase_is_not_marked(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=5.0)
         self._mock_pipe(
