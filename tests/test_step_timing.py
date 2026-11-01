@@ -635,3 +635,39 @@ def test_no_warning_for_a_normal_first_pass_or_a_fresh_load(
     clock, timer = new_timer()
     _passes(clock, timer, cached, first, steady)
     assert warnings == []
+
+
+def _decode(clock, timer, cached, decode_s):
+    timer.load_cached(cached)
+    marked(
+        clock,
+        timer,
+        (0.0, "call_started"),
+        (1.0, "denoise_started"),
+        (2.0, "pass_ended"),
+        (2.0 + decode_s, "call_ended"),
+    )
+
+
+def test_a_cached_pipeline_with_a_minutes_long_decode_warns(monkeypatch):
+    """#1116: a 255 s decode on a loaded pipeline is said, not silent."""
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _decode(clock, timer, True, 254.8)
+    assert len(warnings) == 1
+    assert warnings[0]["kind"] == "decode_slow"
+    assert warnings[0]["decode_s"] == 254.8
+
+
+@pytest.mark.parametrize("cached, decode_s", [(True, 19.0), (False, 254.8)])
+def test_a_normal_or_uncached_decode_does_not_warn(monkeypatch, cached, decode_s):
+    warnings = []
+    monkeypatch.setattr(
+        timing_module, "emit_warning", lambda message, **data: warnings.append(data)
+    )
+    clock, timer = new_timer()
+    _decode(clock, timer, cached, decode_s)
+    assert warnings == []
