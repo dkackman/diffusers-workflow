@@ -294,3 +294,19 @@ Stage B (#1127):
 - The clipping and quiet-audio warnings on L6 jobs are irrelevant: the probes
   judge the picture only. `dialogue-short` warns that `audio_bleed_ms` has no
   effect with one shot, which is expected.
+
+## Lesson 5: wide shots drift hardest on identity (not probed)
+
+Story-forge's lesson: a character small in a wide shot drifts most on
+identity, so frame recurring characters larger, or keep both a wide and a
+close master. Plan v2 lands it unmeasured, as framing guidance (Don's Q4,
+2026-11-01). Nothing here measures it on dw, so the skills word it as
+guidance, not as a rule.
+
+## What landed (#1123 stage C, #1128)
+
+Only lesson 5, as guidance: `script-to-video` step 3 and `series-episodes`
+step 0. Lessons 1, 2, 3, 4 and 6 are not reproduced above, so no skill
+states a rule for any of them: no `ltx-2.5/references/staging.md`, no H3
+staging note, no all-caps rule in `flux3-klein`, and no follow-up issue for
+the `image-to-video` 401-frame default (L1 did not hold at 401 frames).

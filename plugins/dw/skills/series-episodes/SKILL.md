@@ -57,6 +57,9 @@ generates cleanly, and the drift only shows up when two episodes are
 watched back to back. There is no engine check for "the same character
 looks the same" across separate runs; the fixed-asset reference is the only
 guard, so it has to be a deliberate, first step rather than an implicit one.
+As guidance, not a measured rule (`script-to-video` step 3;
+`docs/proposals/audits/2026-11-story-forge-lessons.md`): frame a recurring
+character large, and if the piece needs wides, keep a wide master too.
 
 Save each portrait prompt with `save_prompt` under one folder for the series
 and reference it as `prompt:<series>/<character>` from every episode.

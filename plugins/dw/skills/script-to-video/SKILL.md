@@ -60,6 +60,11 @@ let the family template draw its own portrait. This is the step that goes
 missing silently - nothing validates "the same character looks the same"
 across separately generated shots, so it has to be deliberate.
 
+Framing guidance, not a measured rule (story-forge's lesson 5, unprobed
+on dw: `docs/proposals/audits/2026-11-story-forge-lessons.md`): a face
+small in a wide shot drifts most, so frame a recurring character large,
+and if the piece needs wides, keep a wide master too.
+
 Large `run_workflow` arguments: `save_prompt(name, {"text": ...})` each shot prompt under a
 script-prefixed name (the library is shared across workspaces) and pass
 `prompt:<script>/<shot>` references in the list; they resolve in nested
