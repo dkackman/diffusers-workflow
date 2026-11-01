@@ -21,7 +21,7 @@
     {
       "job": "b70c30a5e8e4",
       "issue": 1064,
-      "note": "templates/ltx2/restore-colorize on lem (RTX 3090, uint4 SDNQ) at 960x544x121: natural colour on a greyscale street clip, subject, framing and motion kept, 121 frames at the source's 24 fps; a portrait 384x544x97 run (c01a0fc6df48) came back at source size with no band or colour from the letterbox padding; 2.5 min including a cold load"
+      "note": "templates/ltx2/restore-colorize on lem (RTX 3090, uint4 SDNQ) at 960x544x121: natural colour on a greyscale street clip that the stored default prompt happens to describe, subject, framing and motion kept, 121 frames at the source's 24 fps; the colour holds only with a prompt matched to the clip - on an office-interview fixture the default and two generic prompts left it grey (1521f00bcf5a, 69e6bb12d56b, PSNR 36.7 dB to the source) and a prompt describing that clip and naming its colours coloured it (f80056a98e62, 49 frames, PSNR 30.2 dB); a portrait 384x544x97 run (c01a0fc6df48) came back at source size with no band or colour from the letterbox padding; 2.5 min including a cold load"
     }
   ],
   "license": "other",
