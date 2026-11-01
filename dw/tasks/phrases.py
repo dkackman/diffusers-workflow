@@ -47,7 +47,8 @@ ALL_CENTRE_DB = -60.0
 # room tone or hiss that a relative floor would still call voiced. A given
 # `floor_db` is the caller's own floor, and skips this
 NEAR_SILENT_DBFS = -50.0
-# One phrase covering more than this share of the track is a dense mix, fused
+# One phrase covering more than this share of the track is fused: a dense mix,
+# or legato or reverberant singing on a stem (#1095 field case)
 ONE_PHRASE_SHARE = 0.9
 # Seconds as reported
 TIME_PLACES = 2
@@ -139,7 +140,8 @@ def analyze_phrases(
         audio: The song or its vocal stem - a file, a generated audio result
             (`previous_result:<separate_stems step>.vocals`), or a video
             carrying a soundtrack. A vocal stem gives the cleanest phrases;
-            a dense mix can fuse into one
+            a dense mix can fuse into one, and so can legato or
+            reverberant singing (raise floor_db)
         min_gap_seconds: A silence shorter than this between two voiced runs
             is bridged, so they are one phrase. Raise it to merge phrases
             split by breaths, lower it to split lines sung close together
@@ -147,7 +149,10 @@ def analyze_phrases(
             dropped as a click or breath
         floor_db: The level, in dBFS of a 20 ms frame, a frame must reach to
             count as voiced. Unset, it is the track's 95th-percentile frame
-            less 35 dB, never below -60 dBFS
+            less 35 dB, never below -60 dBFS. Raise it (less negative, e.g.
+            -30) when legato or reverberant lines fuse into one phrase, then
+            check the phrases by ear: a raised floor can split on wrong
+            boundaries
         centre: Weight a stereo file to its centre, where a lead vocal is
             mixed, cancelling what is panned to the sides. False uses the
             band energy of the downmix
@@ -243,9 +248,12 @@ def analyze_phrases(
     ):
         warnings.append(
             f"{COMMAND}: one phrase covers more than {ONE_PHRASE_SHARE:.0%} of "
-            "the track - probably a dense mix whose instruments fill the voice "
-            "band. Feed it the vocal stem (separate_stems, then "
-            "previous_result:<step>.vocals)"
+            "the track. On a mix, its instruments probably fill the voice band: "
+            "feed it the vocal stem (separate_stems, then "
+            "previous_result:<step>.vocals). On a vocal stem already, legato or "
+            "reverberant singing never drops below the floor between lines: "
+            "raise 'floor_db' (less negative, e.g. -30) and check the phrases "
+            "by ear"
         )
 
     for message in warnings:

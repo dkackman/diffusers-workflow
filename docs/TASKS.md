@@ -2072,7 +2072,7 @@ the result is JSON and nothing is built:
 | `audio` | Yes | The song or its vocal stem: a path, `asset:`/`output:` reference of an audio or video file, a waveform, or an earlier step's generated audio (`previous_result:<separate_stems step>.vocals`) |
 | `min_gap_seconds` | No | A silence shorter than this between voiced runs is bridged into one phrase (default `0.35`). Raise it to merge phrases split by breaths, lower it to split lines sung close together. At least 0 |
 | `min_phrase_seconds` | No | A phrase shorter than this, after bridging, is dropped as a click or breath (default `0.3`). Above 0 |
-| `floor_db` | No | The level, in dBFS of a 20 ms frame, a frame must reach to count as voiced. Unset, it is the track's 95th-percentile frame less 35 dB, never below -60 dBFS (the floor `attribute_voices` uses). At or below 0 |
+| `floor_db` | No | The level, in dBFS of a 20 ms frame, a frame must reach to count as voiced. Unset, it is the track's 95th-percentile frame less 35 dB, never below -60 dBFS (the floor `attribute_voices` uses). It is the knob for a fused legato or reverberant verse: when the voice never drops below the relative floor between lines, raising it (less negative, e.g. `-30`) splits them where `min_gap_seconds` can't - then check the phrases by ear before trusting a one-to-one pairing: a raised floor can make the counts match on wrong boundaries. At or below 0 |
 | `centre` | No | `true` (the default) weights a stereo file to its centre, where a lead vocal is mixed; `false` uses the band energy of the downmix. A real boolean - `"false"` is refused |
 | `sample_rate` | With a waveform | Rate of a directly passed waveform (files carry their own) |
 
@@ -2094,9 +2094,11 @@ are bridged, then runs shorter than `min_phrase_seconds` are dropped.
 
 Warnings: no phrases found (a silent track, or one whose loudest frame is
 under -50 dBFS in the voice band - room tone, hiss - unless `floor_db` is
-given); and one phrase covering more than 90% of the track, which is usually
-a dense mix whose centred bass and kick fill the voice band: feed it
-`separate_stems`' `vocals` instead. `warnings` repeats what was emitted.
+given); and one phrase covering more than 90% of the track. The task can't tell
+a stem from a mix, so it names both remedies: on a mix whose centred bass and
+kick fill the voice band, feed it `separate_stems`' `vocals` instead; on a
+vocal stem already (legato or reverberant singing), raise `floor_db` and check
+the phrases by ear. `warnings` repeats what was emitted.
 
 Refused at `validate_workflow`: a missing `audio`, a negative
 `min_gap_seconds`, a `min_phrase_seconds` at or below 0, a `floor_db` above 0,
@@ -2135,7 +2137,7 @@ the list rendered. A transcript chunk `transcribe_audio` marked `suspect` `no_wo
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json`. Or an [`analyze_phrases`](#analyze_phrases) result (recognised by its `phrases` key), for a song Whisper can't time: each phrase is one line, and suspect filtering and word alignment don't apply. Without `lyrics` a phrase is a line with no lyric (shot `lyric: null`, kind vocal), and `segment_by` `line`, `stanza` (phrases a silence of at least `min_gap_seconds` apart are grouped) and `beat` all work. With `lyrics` of as many lines as phrases they map one to one, in order. With a different count a warning names both counts and the knob: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lyric lines (it bridges more pauses), lower it when fewer; the lines are then spread evenly from the first phrase's start to the last phrase's end, never paired silently. A long phrase split into pieces gives every piece its whole lyric |
+| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json`. Or an [`analyze_phrases`](#analyze_phrases) result (recognised by its `phrases` key), for a song Whisper can't time: each phrase is one line, and suspect filtering and word alignment don't apply. Without `lyrics` a phrase is a line with no lyric (shot `lyric: null`, kind vocal), and `segment_by` `line`, `stanza` (phrases a silence of at least `min_gap_seconds` apart are grouped) and `beat` all work. With `lyrics` of as many lines as phrases they map one to one, in order; a warning names any line whose phrase is under 1/4 or over 4x the median phrase length, since its boundaries may be wrong (the pairing stands - check it by ear). With a different count a warning names both counts and the knob: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lyric lines (it bridges more pauses), lower it when fewer, or, for fused legato or reverberant lines, raise its `floor_db` (e.g. `-30`) and check the phrases by ear before trusting the pairing; the lines are then spread evenly from the first phrase's start to the last phrase's end, never paired silently. A long phrase split into pieces gives every piece its whole lyric |
 | `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them (an `analyze_phrases` transcript: one line per phrase, see `transcript`). `null` or `""` means none: the transcript's text is used (a phrase result has none: `lyric` is `null`) |
 | `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
 | `segment_by` | No | `line` (default), `stanza` or `beat` |

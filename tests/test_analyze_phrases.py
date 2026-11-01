@@ -102,7 +102,11 @@ class TestBand:
         wave = noise()
         result = run(numpy.stack([wave, wave]))
         assert len(result["phrases"]) == 1
-        assert any("stems" in w and "90%" in w for w in result["warnings"])
+        (warning,) = [w for w in result["warnings"] if "90%" in w]
+        # Both remedies (#1095 v3): a mix wants the vocal stem, a stem
+        # whose legato lines fuse wants a raised floor_db, checked by ear
+        assert "separate_stems" in warning and ".vocals" in warning
+        assert "'floor_db'" in warning and "by ear" in warning
 
 
 class TestSilence:

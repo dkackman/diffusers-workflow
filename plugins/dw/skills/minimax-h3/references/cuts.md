@@ -46,7 +46,12 @@ all work. With as many lyric lines as phrases they map one to one, in order.
 With a different count it warns with both counts and spreads the lines evenly
 from the first phrase's start to the last's end, never pairing silently: raise
 `analyze_phrases`' `min_gap_seconds` when there are more phrases than lines,
-lower it when fewer. Suspect filtering and word alignment don't apply; a long
+lower it when fewer. A legato or reverberant verse (a choir) can fuse its lines
+into one phrase no `min_gap_seconds` splits: `floor_db` is the knob there
+(less negative, e.g. `-30`), but listen to the phrases before trusting a
+one-to-one pairing - a raised floor can match the counts on wrong boundaries,
+and `plan_cuts` warns when a paired phrase is under 1/4 or over 4x the median
+length. Suspect filtering and word alignment don't apply; a long
 phrase split into pieces gives every piece its whole lyric. The song length
 falls back to the phrase result's `duration_seconds`.
 

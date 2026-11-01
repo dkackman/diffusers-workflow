@@ -428,14 +428,22 @@ def _phrase_lines(phrases, lyrics, duration, stanza_gap, warnings):
             lines.append(dict(phrase, stanza=stanza, tokens=None))
         return lines
     if len(lyrics) == len(phrases):
-        return [
+        paired = [
             dict(phrase, text=text, stanza=stanza, tokens=None)
             for phrase, (text, stanza) in zip(phrases, lyrics)
         ]
+        _disproportion_warning(paired, warnings)
+        return paired
     if len(phrases) > len(lyrics):
         knob = "raise analyze_phrases' 'min_gap_seconds' to bridge more pauses"
     else:
-        knob = "lower analyze_phrases' 'min_gap_seconds' to split at shorter pauses"
+        knob = (
+            "lower analyze_phrases' 'min_gap_seconds' to split at shorter "
+            "pauses, or, for legato or reverberant singing whose lines fuse, "
+            "raise its 'floor_db' (less negative, e.g. -30) - then check the "
+            "phrases by ear before trusting a one-to-one pairing, since a "
+            "raised floor can match the counts on wrong boundaries"
+        )
     low = phrases[0]["start"] if phrases else 0.0
     high = phrases[-1]["end"] if phrases else duration
     warnings.append(
@@ -455,6 +463,45 @@ def _phrase_lines(phrases, lyrics, duration, stanza_gap, warnings):
         }
         for index, (text, stanza) in enumerate(lyrics)
     ]
+
+
+# A paired phrase this far from the median phrase length is likely a bad
+# boundary (#1095): on a fused legato verse, a raised floor_db can split a
+# breath off as a "phrase" and leave another line spanning two.
+DISPROPORTION = 4.0
+
+
+def _disproportion_warning(paired, warnings):
+    """Warn when a lyric line is paired one to one with a phrase under a
+    quarter, or over four times, the median phrase duration. The pairing
+    stands; the warning is advice to check the boundaries by ear."""
+    lengths = sorted(line["end"] - line["start"] for line in paired)
+    if len(lengths) < 2:
+        return
+    middle = len(lengths) // 2
+    median = (
+        lengths[middle]
+        if len(lengths) % 2
+        else (lengths[middle - 1] + lengths[middle]) / 2
+    )
+    if median <= 0:
+        return
+    odd = [
+        f"line {index + 1} ({line['text']!r}, {line['end'] - line['start']:.2f} s)"
+        for index, line in enumerate(paired)
+        if not median / DISPROPORTION
+        <= line["end"] - line["start"]
+        <= median * DISPROPORTION
+    ]
+    if odd:
+        warnings.append(
+            f"{COMMAND}: the lyric lines are paired one to one with "
+            f"analyze_phrases' phrases, but {', '.join(odd)} "
+            f"{'sits' if len(odd) == 1 else 'sit'} on a phrase "
+            f"under 1/{DISPROPORTION:g} or over {DISPROPORTION:g}x the median "
+            f"phrase ({median:.2f} s) - the phrase boundaries may be wrong; "
+            "check them by ear"
+        )
 
 
 def _units(lines, segment_by):
@@ -1038,10 +1085,12 @@ def plan_cuts(
             duration_seconds}, told by its 'phrases' key (#1095): timing
             with no text. Without lyrics each phrase is a line with no
             lyric; with lyrics as many lines as phrases, line n is phrase n,
-            and otherwise the counts are warned about (naming which way to
-            move analyze_phrases' min_gap_seconds) and the lines spread
-            evenly from the first phrase to the last. A phrase is never
-            suspect, and a split piece of one keeps its whole lyric
+            warned about when a phrase is under 1/4 or over 4x the median
+            (check it by ear), and otherwise the counts are warned about
+            (naming which way to move analyze_phrases' min_gap_seconds, and
+            with fewer phrases its floor_db) and the lines spread evenly
+            from the first phrase to the last. A phrase is never suspect,
+            and a split piece of one keeps its whole lyric
         lyrics: The song's own lyrics - one line per line, a blank line or a
             lone section tag ("[Chorus]") between stanzas - or a list of
             lines. The shots carry these lines verbatim and in order; the

@@ -202,7 +202,7 @@ same clip as an audio reference in each shot, as
 }
 ```
 
-Lyric lines map onto phrases one to one when the counts match. When they differ, `plan_cuts` warns with both counts and spreads the lines evenly across the phrases: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lines, lower it when fewer. The template's default chain is unchanged (Whisper first).
+Lyric lines map onto phrases one to one when the counts match. When they differ, `plan_cuts` warns with both counts and spreads the lines evenly across the phrases: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lines, lower it when fewer. A legato or reverberant verse can fuse its lines into one phrase that no `min_gap_seconds` splits; there `floor_db` is the knob (less negative, e.g. `-30`), but check the phrases by ear before trusting a one-to-one pairing: a raised floor can make the counts match on wrong boundaries. With matched counts, `plan_cuts` also warns when a paired phrase is under 1/4 or over 4x the median length. The template's default chain is unchanged (Whisper first).
 
 ## Field notes from a 24-shot musical
 
