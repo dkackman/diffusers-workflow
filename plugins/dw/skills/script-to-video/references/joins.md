@@ -78,6 +78,9 @@ B's last frame is C's first frame. **Render the target first**: C before B.
 
 Keep a lead-in short (the 124-frame floor or near it): the interpolation
 between two pinned frames drifts mid-shot over a long B.
+Bridging every other shot of a continuous take this way was probed and
+is not a rule: `dw:minimax-h3`'s `references/cuts.md`, *Probed, not a rule:
+odd shots, then bridges*.
 
 ## Render order and re-rolls
 
