@@ -33,6 +33,7 @@ import difflib
 import logging
 import math
 import re
+import statistics
 
 from ..script_lines import SUSPECT_LEFT_OUT, suspect_runs
 from ..variable_constraints import aligned, aligned_down
@@ -475,15 +476,10 @@ def _disproportion_warning(paired, warnings):
     """Warn when a lyric line is paired one to one with a phrase under a
     quarter, or over four times, the median phrase duration. The pairing
     stands; the warning is advice to check the boundaries by ear."""
-    lengths = sorted(line["end"] - line["start"] for line in paired)
+    lengths = [line["end"] - line["start"] for line in paired]
     if len(lengths) < 2:
         return
-    middle = len(lengths) // 2
-    median = (
-        lengths[middle]
-        if len(lengths) % 2
-        else (lengths[middle - 1] + lengths[middle]) / 2
-    )
+    median = statistics.median(lengths)
     if median <= 0:
         return
     odd = [
