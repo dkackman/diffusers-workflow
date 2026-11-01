@@ -902,6 +902,68 @@ class TestSpeechRemoteGenerateCodeUntrusted:
         loader.assert_not_called()
         assert list(no_network) == []
 
+    @pytest.mark.parametrize(
+        "model", [None, "suno/bark-small", "Edge0/Audio8-TTS-Realistic-0.6b"]
+    )
+    @pytest.mark.parametrize(
+        "setting",
+        [
+            pytest.param({"trust_remote_code": True}, id="trust_remote_code"),
+            pytest.param(
+                {"custom_pipeline": "lpw_stable_diffusion"}, id="custom_pipeline"
+            ),
+            pytest.param({"custom_generate": "attacker/repo"}, id="custom_generate"),
+        ],
+    )
+    def test_a_top_level_remote_code_argument_is_refused(
+        self, untrusted, no_network, monkeypatch, model, setting
+    ):
+        """#1121 bounce: a Hub-code switch given as a step argument, not
+        inside forward_params/generate_kwargs, was dropped silently and the
+        step ran. It is refused for every model before anything loads."""
+        from dw.tasks import speech_generation
+
+        loader = MagicMock()
+        monkeypatch.setattr(speech_generation, "_load_audio8", loader)
+        monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
+        key = next(iter(setting))
+        extra = {"model_name": model} if model else {}
+        with pytest.raises(UntrustedWorkflowError, match=f"'{key}'.*trusted"):
+            speech_generation.generate_speech("hello", device="cpu", **extra, **setting)
+        loader.assert_not_called()
+        assert list(no_network) == []
+
+    def test_a_top_level_remote_code_argument_is_refused_when_trusted(
+        self, monkeypatch
+    ):
+        """Trusted, it is still refused: the task never reads it there, so
+        letting it pass would look as if it took effect."""
+        from dw import trust
+        from dw.tasks import speech_generation
+
+        loader = MagicMock()
+        monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
+        monkeypatch.setattr(trust, "workflows_are_trusted", lambda: True)
+        monkeypatch.setattr(speech_generation, "workflows_are_trusted", lambda: True)
+        with pytest.raises(ValueError, match="takes no 'trust_remote_code'"):
+            speech_generation.generate_speech(
+                "hello", device="cpu", trust_remote_code=True
+            )
+        loader.assert_not_called()
+
+    def test_a_false_trust_remote_code_is_not_refused(self, untrusted, monkeypatch):
+        from dw.tasks import speech_generation
+
+        pipe = MagicMock(
+            return_value={"audio": __import__("numpy").zeros(8), "sampling_rate": 16000}
+        )
+        monkeypatch.setattr(
+            speech_generation, "hf_pipeline", MagicMock(return_value=pipe)
+        )
+        speech_generation.generate_speech(
+            "hello", device="cpu", trust_remote_code=False
+        )
+
 
 def _probe_recorder(info):
     """A `probe=` callable that records every path it is asked about.

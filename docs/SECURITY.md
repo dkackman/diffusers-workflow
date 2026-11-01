@@ -135,6 +135,11 @@ both its `generate_kwargs` and its `forward_params` to `generate()` for a
 generative model (Bark, VibeVoice). Each must be an object, and
 `custom_generate` / `trust_remote_code` in either are refused untrusted, before
 the model loads (released versions through 0.14.0 passed them through).
+`trust_remote_code`, `custom_pipeline` or `custom_generate` given as a step
+argument of their own, outside those two objects, is refused too, for every
+model: untrusted by the trust gate, trusted as an argument the task doesn't
+take. The task never read them there, but it used to drop them silently, so a
+step setting one ran as if it had taken effect.
 
 `speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
 `dw/tasks/audio8_tts_model.py`) runs no code from its repo: the model is
