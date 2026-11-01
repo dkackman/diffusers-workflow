@@ -890,6 +890,70 @@ class TestScriptToVideoJoins:
         workflow_from_file(str(path), str(tmp_path)).validate()
 
 
+SCRIPT_BEATS = os.path.join(
+    os.path.dirname(SCRIPT_SKILL), "references", "beat-review.md"
+)
+# What SKILL.md keeps free under SKILL_SIZE_LIMIT after the beat review moved
+# to a reference (#1125): an addition that eats it belongs in `references/`.
+SCRIPT_SKILL_MARGIN = 1024
+
+
+class TestScriptToVideoBeatReview:
+    """Beat authoring and the beat review (#1122 stage A): a beat a frame can
+    prove, judged blind on a majority of frames, one reason per rejection."""
+
+    def test_the_shot_sheet_names_beat_and_must_not(self):
+        body = skill_body(SCRIPT_SKILL)
+        assert "`beat`" in body and "`must_not`" in body
+        assert body.index("`ending_state`") < body.index("`beat`")
+        assert body.index("`beat`") < body.index("## 3.")
+
+    def test_run_and_judge_keeps_its_tools_and_points_to_the_review(self):
+        body = skill_body(SCRIPT_SKILL)
+        judge = body[body.index("## Run and judge") : body.index("## 6.")]
+        assert "get_output_frames" in judge
+        assert "`references/beat-review.md`" in judge
+        assert "adds no new mechanism" in body
+
+    def test_the_review_names_its_rules(self):
+        text = open(SCRIPT_BEATS, encoding="utf-8").read()
+        assert "**majority**" in text
+        for reason in (
+            "`beat_not_shown`",
+            "`must_not_present`",
+            "`identity_drift`",
+            "`text_in_frame`",
+            "`reference_leak`",
+        ):
+            assert reason in text
+        for banned in (
+            "Motion over time",
+            "Intent",
+            "Off-screen facts",
+            "Emotion words",
+        ):
+            assert f"**{banned}**" in text
+        assert "**3 evenly spaced**" in text and "**5 only when" in text
+        assert text.index("Describe blind, before the verdict") < text.index(
+            "A verdict per frame"
+        )
+        assert "three-attempt budget" in text
+        assert "Do not render while an\nedit-list shot has no beat" in text
+        assert "## Audit the auditor" in text and "workspace note" in text
+
+    def test_series_episodes_points_to_the_review(self):
+        body = skill_body(SERIES_SKILL)
+        assert "`script-to-video/references/beat-review.md`" in body
+        assert "beat_not_shown" not in body  # a pointer, not a restatement
+
+    def test_script_to_video_keeps_headroom_under_the_cap(self):
+        size = len(skill_body(SCRIPT_SKILL).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT - SCRIPT_SKILL_MARGIN, (
+            f"{SCRIPT_SKILL} is {size} bytes, within {SCRIPT_SKILL_MARGIN} of "
+            f"the {SKILL_SIZE_LIMIT}-byte cap: move detail to references/"
+        )
+
+
 SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")
 SERIES_LOOK = os.path.join(os.path.dirname(SERIES_SKILL), "references", "look.md")
 
