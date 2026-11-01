@@ -56,7 +56,8 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
   artefacts, `templates/ltx2/restore-colorize` for black-and-white or
-  washed-out footage (keeps the source's size and rate, no soundtrack). It
+  washed-out footage. All three come back at the source's size and frame
+  rate (`frame_rate` overrides the rate), with no soundtrack. Colorize
   colours only what the prompt names: look at a source frame
   (`get_output_frames`) and write both prompt panels for that clip, naming
   its colours - the default is an example and leaves an unlike clip grey. Each inverts one defect and no other - neither upscales or

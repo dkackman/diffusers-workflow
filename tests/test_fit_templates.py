@@ -145,6 +145,8 @@ class TestTheFittedVideoReachesThePipeline:
         ("upscale-clip", "fit", "upscaled", "restore"),
         ("refine-clip", "fit", "refine", "restore"),
         ("refine-in-place", "fitted", "refine", "restored"),
+        ("restore-deblur", "fit", "restored", "final"),
+        ("restore-decompression", "fit", "restored", "final"),
     ],
 )
 def test_the_output_is_written_at_the_sources_frame_rate(name, fit, pipeline, restore):
@@ -181,17 +183,28 @@ def eight_fps_clip(tmp_path, monkeypatch):
 
 @pytest.mark.parametrize(
     "template,model_step",
-    [("alpha-matte", "matte"), ("restore-colorize", "colorized")],
+    [
+        ("alpha-matte", "matte"),
+        ("restore-colorize", "colorized"),
+        ("restore-deblur", "restored"),
+        ("restore-decompression", "restored"),
+    ],
 )
 class TestTheModelPassKeepsTheSourcesRate:
-    """#1079, #1080: the model runs at its 24 fps, but the output is written
+    """#1079, #1080, #1108: the model runs at its 24 fps, but the output is written
     at the source's own rate unless 'frame_rate' says otherwise. The real
     path: the template expanded against an 8 fps asset, `fit` through the
     task dispatch, the model step's 24 fps output standing in for the
     pipeline, and `final` run and saved through its own result definition."""
 
-    # A small working size keeps the stand-in matte cheap
-    SMALL = {"width": 256, "height": 192, "num_frames": 25}
+    # A small working size keeps the stand-in matte cheap; the fixture's
+    # asset is named, since deblur and decompression default to other names
+    SMALL = {
+        "width": 256,
+        "height": 192,
+        "num_frames": 25,
+        "source_video": "asset:clip.mp4",
+    }
 
     def written(self, template, model_step, tmp_path, **arguments):
         from dw.media import video_shape
@@ -372,3 +385,16 @@ class TestTheFitShapedRoutesKeepTheSourcesRate:
 
         assert errors
         assert any("fps" in str(error) for error in errors), errors
+
+
+@pytest.mark.parametrize("template", ["restore-deblur", "restore-decompression"])
+@pytest.mark.parametrize("bad", ["fast", 0])
+def test_a_bad_restore_frame_rate_is_refused_at_validate(template, bad, tmp_path):
+    """#1108: 'frame_rate' reaches restore_to_source's `fps`, whose static
+    check refuses anything but "source" or a positive number."""
+    workflow = workflow_from_file(
+        os.path.join(TEMPLATES, f"{template}.json"), str(tmp_path / "out")
+    )
+    errors = workflow.validation_errors(arguments={"frame_rate": bad})
+
+    assert any("fps" in str(error) for error in errors), errors

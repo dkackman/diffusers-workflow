@@ -1,7 +1,10 @@
 {
     "id": "LTX2Deblur",
-    "description": "Restores sharpness to out-of-focus footage by regenerating it in focus, with the blurry clip attached as an in-context reference for the whole denoise - so the subject, the framing and the background geometry are the ones that were shot and only the focus changes. A different trade from re-rendering: 'two-stage' invents a sharper version of a scene it generated, this one reads a scene it did not. The LoRA is a 0.9 preview weight trained on spatial defocus only - motion blur, noise, compression artefacts and low resolution are not what it inverts, and 'restore-decompression' is the sibling for the third of those. Trained at 960x544, 121 frames, 24 fps, which is what the defaults are; generating far above that bucket weakens the effect, so raise the size only with a measurement in hand. 'lora_scale' is 1.0 because the weights ship pre-scaled - lower it toward 0.8 if the result over-sharpens into haloing or ringing. The prompt follows the trained dual-panel convention ('Reference shows ... DEBLUR ... only focus and sharpness differ'), because the reference does most of the work and the prompt is what anchors the scene and the intent.",
-    "summary": "Sharpens out-of-focus footage by regenerating it in focus, the blurry clip attached as an in-context reference.",
+    "description": "Restores sharpness to out-of-focus footage by regenerating it in focus, with the blurry clip attached as an in-context reference for the whole denoise - so the subject, the framing and the background geometry are the ones that were shot and only the focus changes. A different trade from re-rendering: 'two-stage' invents a sharper version of a scene it generated, this one reads a scene it did not. The LoRA is a 0.9 preview weight trained on spatial defocus only - motion blur, noise, compression artefacts and low resolution are not what it inverts, and 'restore-decompression' is the sibling for the third of those. A first step fits the source to 'width'/'height' and 'num_frames' by letterboxing and a last step crops the padding back off, so it comes back at the source's size and frame rate; 'frame_rate' overrides the rate, never the frame count (the model itself runs at its 24 fps). A longer source is cut to its opening 'num_frames' frames, a shorter one held on its last frame and trimmed back. The output has no soundtrack. Trained at 960x544, 121 frames, which is what the defaults are; generating far above that bucket weakens the effect, so raise the size only with a measurement in hand. 'lora_scale' is 1.0 because the weights ship pre-scaled - lower it toward 0.8 if the result over-sharpens into haloing or ringing. The prompt follows the trained dual-panel convention ('Reference shows ... DEBLUR ... only focus and sharpness differ'), because the reference does most of the work and the prompt is what anchors the scene and the intent.",
+    "summary": "Sharpens out-of-focus footage by regenerating it in focus, keeping the source's size and frame rate.",
+    "traits": [
+        "needs-input-media"
+    ],
     "cost": [
         {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 3.4}
     ],
@@ -25,7 +28,7 @@
         "width": 960,
         "height": 544,
         "num_frames": 121,
-        "frame_rate": 24.0,
+        "frame_rate": "source",
         "lora_scale": 1.0,
         "seed": 42
     },
@@ -49,6 +52,24 @@
     },
     "seed": "variable:seed",
     "steps": [
+        {
+            "name": "fit",
+            "task": {
+                "command": "fit_to_model",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "letterbox",
+                    "downscale": 1
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false
+            }
+        },
         {
             "name": "restored",
             "pipeline": {
@@ -147,7 +168,7 @@
                     "width": "variable:width",
                     "height": "variable:height",
                     "num_frames": "variable:num_frames",
-                    "frame_rate": "variable:frame_rate",
+                    "frame_rate": 24.0,
                     "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
                     "guidance_scale": 1.0,
                     "audio_guidance_scale": 1.0,
@@ -162,7 +183,7 @@
                             "from_arguments": {
                                 "frames": {
                                     "media_type": "video",
-                                    "location": "variable:source_video"
+                                    "location": "previous_result:fit.video"
                                 },
                                 "strength": 1.0
                             }
@@ -182,7 +203,22 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": "variable:frame_rate",
+                "fps": 24.0,
+                "save": false
+            }
+        },
+        {
+            "name": "final",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:restored",
+                    "fit": "previous_result:fit.fit",
+                    "fps": "variable:frame_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
                 "subfolder": "final"
             }
         }
