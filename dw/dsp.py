@@ -378,6 +378,24 @@ def spectral_flatness(waveform, sample_rate=None, native_sample_rate=None):
     return float(numpy.mean(geometric_mean / arithmetic_mean))
 
 
+def spectral_centroid(waveform, sample_rate):
+    """The magnitude-weighted mean frequency (Hz) of the rfft spectrum of a
+    (channels, samples) waveform, averaged across channels - low for bass-heavy
+    or tonal material, high for hiss. 0.0 for an all-zero signal.
+
+    MMAudio's noise warning pairs it with spectral flatness: warn when flatness
+    is at least 0.3 and the centroid at least 8 kHz (thresholds not held here).
+    """
+    spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
+    freqs = numpy.fft.rfftfreq(numpy.shape(waveform)[1], 1.0 / sample_rate)
+    total = spectrum.sum(axis=1)
+    weighted = (spectrum * freqs).sum(axis=1)
+    centroids = numpy.divide(
+        weighted, total, out=numpy.zeros_like(total), where=total > 0
+    )
+    return float(numpy.mean(centroids))
+
+
 def harmonicity(waveform, sample_rate):
     """Normalized autocorrelation peak within a plausible pitch range,
     averaged across channels - near 1 for a strongly periodic signal (voiced

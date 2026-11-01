@@ -14,6 +14,7 @@ import scipy.signal
 from dw.dsp import (
     SILENCE_DBFS,
     TRUE_PEAK_OVERSAMPLE,
+    spectral_centroid,
     true_peak_dbfs,
     true_peak_envelope,
 )
@@ -69,3 +70,28 @@ def test_resample_waveform_length_is_exact_716():
     for n, src, dst in [(330667, 32000, 44100), (123457, 24000, 44100)]:
         out = resample_waveform(numpy.zeros((2, n), dtype="float32"), src, dst)
         assert out.shape[1] == int(round(n * dst / src))
+
+
+def test_spectral_centroid_of_a_sine_is_its_frequency():
+    time = numpy.arange(44100) / 44100
+    sine = numpy.sin(2 * math.pi * 1000.0 * time)[None, :]
+
+    assert spectral_centroid(sine, 44100) == pytest.approx(1000.0, rel=0.01)
+
+
+def test_spectral_centroid_of_white_noise_is_a_quarter_of_the_rate():
+    noise = numpy.random.default_rng(3).standard_normal((1, 44100))
+
+    assert spectral_centroid(noise, 44100) == pytest.approx(11025.0, rel=0.03)
+
+
+def test_spectral_centroid_averages_channels():
+    time = numpy.arange(44100) / 44100
+    both = numpy.stack([numpy.sin(2 * math.pi * f * time) for f in (1000.0, 3000.0)])
+
+    assert spectral_centroid(both, 44100) == pytest.approx(2000.0, rel=0.01)
+
+
+def test_spectral_centroid_of_silence_is_zero(recwarn):
+    assert spectral_centroid(numpy.zeros((2, 4410)), 44100) == 0.0
+    assert not recwarn.list

@@ -31,7 +31,7 @@ LOG_TAIL_LINES = 30
 
 # Used only if pyproject.toml can't be read/parsed at runtime (e.g. running
 # from an installed wheel without the source tree alongside it).
-FALLBACK_RELEASE_FLOOR = "0.40.0"
+FALLBACK_RELEASE_FLOOR = "0.42.0"
 
 # dw/server/updater.py -> dw/server -> dw -> repo root
 _PYPROJECT_PATH = Path(__file__).resolve().parents[2] / "pyproject.toml"
