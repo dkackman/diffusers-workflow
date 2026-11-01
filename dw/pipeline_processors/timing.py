@@ -155,12 +155,11 @@ class StepTimer:
         The cause is unknown (#1119: it fired on an equal-shape second entry, and
         #924's rerun did not reproduce it), so the message states none.
 
-        The pipeline is loaded, so the minutes are not a load. A later entry
-        that runs the cached pipeline at a larger shape (more frames) pays a
-        one-off warm-up on its first pass - re-allocation, offload buffers,
-        kernels meeting a new shape - and without a word the consumer sees only
-        a `phase_stall` (#924). Judged at the second pass interval, when a
-        steady pass is known."""
+        The pipeline is loaded, so the minutes are not a load. The stall has
+        followed a later entry at a larger shape (#924) and one at the same
+        shape (#1119), and the exact rerun of each ran at the steady rate.
+        Without a word the consumer sees only a `phase_stall`. Judged at the
+        second pass interval, when a steady pass is known."""
         passes = segment.pass_ends
         if (
             len(passes) != 3
