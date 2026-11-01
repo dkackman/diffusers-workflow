@@ -16,6 +16,7 @@ Each file keeps its upstream licence notice in its header.
 |---|---|---|
 | [dw/tasks/rife_model.py](../dw/tasks/rife_model.py) | The RIFE interpolation network from [hzwer/Practical-RIFE](https://github.com/hzwer/Practical-RIFE) | MIT, Copyright (c) Megvii Inc. |
 | [dw/tasks/h3_latent_upscaler_model.py](../dw/tasks/h3_latent_upscaler_model.py) | The MiniMax H3 3D-convolution latent upscaler from [LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler) | MIT, Copyright (c) LBH-123-AI |
+| [dw/tasks/audio8_tts_model.py](../dw/tasks/audio8_tts_model.py) | The Audio8-TTS (ArkTTS) dual-AR speech model, codec and processor from [Edge0/Audio8-TTS-Realistic-0.6b](https://huggingface.co/Edge0/Audio8-TTS-Realistic-0.6b/tree/1e857568bfd4f02931aca3988ee773a44d2d26d3), ported (upstream NOTICE kept in the file header) | Apache-2.0 |
 | [dw/community_pipelines/pipeline_flux_rf_inversion.py](../dw/community_pipelines/pipeline_flux_rf_inversion.py) | The diffusers community RF-Inversion pipeline, after [RF Inversion](https://rf-inversion.github.io/) by Litu Rout, Yujia Chen, Nataniel Ruiz, Constantine Caramanis, Sanjay Shakkottai and Wen-Sheng Chu | Apache-2.0, Copyright 2024 Black Forest Labs and The HuggingFace Team |
 | [dw/prompt_weighting.py](../dw/prompt_weighting.py) | Based on [sd_embed](https://github.com/xhinker/sd_embed) by Andrew Zhu | Apache-2.0 |
 
