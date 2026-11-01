@@ -516,6 +516,9 @@ def test_no_stale_entry_in_the_allowlist():
 # colourisation of existing footage, with its cost block. Re-measured at
 # 12_357 after its description grew (plan v10): the compact view carries the
 # summary, not the description, so the budget stands.
+# Re-measured at 12_357 after `ltx2/face-repair` and `ltx2/restore-long` took
+# the source's frame rate (#1090, stage #1106, 2026-10-31): their summaries
+# did not change, so the budget stands.
 COMPACT_BUDGET = 12_400
 FILTERED_BUDGET = 1_500
 

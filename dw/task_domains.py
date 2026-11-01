@@ -595,7 +595,7 @@ def join_windows_errors(arguments):
     return (
         choice_errors("join_windows", arguments)
         + window_video_errors(arguments, "join_windows")
-        + source_fps_errors(arguments, "join_windows")
+        + source_fps_problems(arguments, "join_windows")
     )
 
 
@@ -698,7 +698,7 @@ def source_fps_problem(fps, command="restore_to_source"):
     return domain_error(command, "fps", fps, POSITIVE)
 
 
-def source_fps_errors(arguments, command):
+def source_fps_problems(arguments, command):
     """[(argument, message)] for the rule a literal `fps` breaks before the
     run: neither "source" nor a positive number."""
     problem = source_fps_problem(arguments.get("fps"), command)
@@ -709,7 +709,7 @@ def restore_to_source_errors(arguments):
     """[(argument, message)] for the restore_to_source rule a literal
     workflow can break before it runs: an `fps` that is neither "source" nor
     a positive number."""
-    return source_fps_errors(arguments, "restore_to_source")
+    return source_fps_problems(arguments, "restore_to_source")
 
 
 def dissolve_shortfalls(frame_counts, dissolve_frames):

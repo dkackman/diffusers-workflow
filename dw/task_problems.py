@@ -25,7 +25,7 @@ import re
 
 from .references import DEFERRED, GATHER, is_ref
 from .script_lines import parse_lines, parse_shots, shot_names_error
-from .task_domains import as_number, choice_errors, source_fps_errors
+from .task_domains import as_number, choice_errors, source_fps_problems
 
 # ingredients_grid's literal choices, read by its registration and by
 # ingredients_grid_errors below, and its default image cap
@@ -210,7 +210,7 @@ def paste_face_track_errors(arguments):
     """[(argument, message)] for the paste_face_track rules a literal
     workflow can break before it runs: a feather past 1, and an `fps` that
     is neither "source" nor a positive number."""
-    problems = source_fps_errors(arguments, "paste_face_track")
+    problems = source_fps_problems(arguments, "paste_face_track")
     feather = arguments.get("feather")
     if is_ref(DEFERRED, feather):
         return problems
