@@ -36,7 +36,7 @@ dependencies = [
     # Diffusers and the HuggingFace ecosystem. The floor is the newest
     # PyPI release; the newest pipelines may need git HEAD on top, which
     # install.sh layers on (and the web UI's Models page can install)
-    "diffusers>=0.40.0",
+    "diffusers>=0.42.0",
     # The floor is past 5.17.0, whose TextToAudioPipeline.preprocess called
     # BatchEncoding.to(dtype=...) and broke every generate_speech call (#169,
     # #232); later releases only cast a BatchFeature, so the exclusion that

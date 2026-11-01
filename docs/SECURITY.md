@@ -158,6 +158,20 @@ isn't a tensor or a plain container, and only at that pinned revision. Its
 allowlist (`temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`):
 any other key is refused by name before the model loads.
 
+MMAudio (`dw/tasks/mmaudio_model.py`, `dw/tasks/mmaudio_sync_model.py`,
+`dw/tasks/mmaudio_decoder.py`) runs no code from its repo either: the network
+and the Synchformer visual encoder are vendored at upstream commit
+`974010a0`. Their two checkpoints, `hkchengrex/MMAudio`'s
+`weights/mmaudio_large_44k_v2.pth` and `ext_weights/synchformer_state_dict.pth`,
+are pickles, pinned to one 40-hex revision; each is read with
+`torch.load(weights_only=True)` and loaded strictly, so any object that isn't a
+tensor or a plain container is refused and an unexpected key fails the load.
+The decoder's VAE and vocoder are Kandinsky 6's safetensors at a pinned full
+sha, built from their `config.json` read as JSON (only the class's own
+constructor arguments are taken), with no pickle and no `trust_remote_code`.
+The modules take local paths and never fetch: tests pin that none of them
+calls the Hub or writes a checkpoint.
+
 `text_generation`'s `system_prompt` may be read from a Hub repo file
 (`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
 without credentials (`token=False`) whether it serves the file publicly at the

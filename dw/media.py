@@ -13,7 +13,8 @@ open" something a test can count and a patch can intercept:
   cannot play) or for a track too long to send whole (#193);
 - decodes that answer arrays and rates, never a step type: `decode_soundtrack`,
   `decode_audio_video`, `decode_rgb_frames`, `read_frames`,
-  `read_frame_range`, `count_video_frames`, `read_thumbnails_and_track`.
+  `read_frame_range`, `count_video_frames`, `read_thumbnails_and_track`,
+  `sample_frames` (a clip at a model's frame rate and size).
 
 PyAV only: this runs in the server process, where a request must not pull in
 torch or materialise frames.
@@ -468,6 +469,46 @@ def read_frames(path, indexes, fit=None):
         if missing:
             raise ValueError(f"could not decode frame(s) {missing} of {path}")
     return found
+
+
+def sample_frames(path, fps, duration, size, crop=False):
+    """A clip sampled at `fps` for `duration` seconds, as a numpy array.
+
+    Frame k (of int(fps * duration), as upstream MMAudio truncates) is source
+    frame round(k / fps * source_fps); indexes past the clip's last frame are
+    dropped, so a short clip returns fewer frames, and an up-rate repeats
+    some. Each frame is fitted as it decodes, so none is held at source size.
+
+    `crop=False` is MMAudio's CLIP input (8 fps): bicubic to size x size,
+    uint8 (N, size, size, 3). `crop=True` is its Synchformer input (25 fps,
+    224): bicubic to a short side of `size`, centre crop (torchvision's
+    CenterCrop rounding), float32 (N, size, size, 3) in [-1, 1] (mean 0.5,
+    std 0.5). After mmaudio/eval_utils.py `load_video` at commit 974010a0.
+    """
+    if fps <= 0 or duration <= 0 or size <= 0:
+        raise ValueError("fps, duration and size must be positive")
+    shape = video_shape(path)  # raises for a file with no video stream
+    if not shape["fps"]:
+        raise ValueError(f"{path} declares no frame rate")
+    indexes = [round(k / fps * shape["fps"]) for k in range(int(fps * duration))]
+    indexes = [i for i in indexes if i < shape["frame_count"]]
+
+    def fit(image, _index):
+        if crop:
+            scale = size / min(image.size)
+            width, height = (max(size, round(side * scale)) for side in image.size)
+            image = image.resize((width, height), Image.BICUBIC)
+            left, top = (int(round((side - size) / 2.0)) for side in (width, height))
+            return image.crop((left, top, left + size, top + size))
+        return image.resize((size, size), Image.BICUBIC)
+
+    found = read_frames(path, indexes, fit=fit) if indexes else {}
+    frames = (
+        numpy.stack([numpy.asarray(found[i]) for i in indexes])
+        if indexes
+        else (numpy.zeros((0, size, size, 3), numpy.uint8))
+    )
+    return frames.astype(numpy.float32) / 127.5 - 1 if crop else frames
 
 
 def _seek_needed(target, position, fps):
