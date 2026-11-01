@@ -43,6 +43,11 @@ _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
 # worth a warning (#924)
 _SLOW_FIRST_PASS_EXTRA_S = 30.0
 
+# A decode this long on a pipeline served from cache is worth a warning (#1116):
+# the same decode ran in ~19 s on a first entry, and 100-255 s on a later entry
+# of a different frame count with nothing in the job saying why
+_SLOW_DECODE_S = 60.0
+
 
 def _synced_clock():
     """The monotonic clock, read after the device has finished its queued work.
@@ -180,6 +185,32 @@ class StepTimer:
         segment = self._current_segment()
         if segment is not None:
             segment.ended = self._clock()
+            self._warn_on_slow_decode(segment)
+
+    def _warn_on_slow_decode(self, segment):
+        """Say so once per call when a cached pipeline's decode runs for minutes.
+
+        The decode is the tail of the call, after the last denoise pass. On a
+        pipeline already loaded, a decode this long is not weights loading: it
+        is a one-off cost of meeting a new shape (a different frame count gives
+        the video decoder a chunk shape it has not run: kernel selection,
+        allocator re-growth) or a memory-pressure slow path. Without a word the
+        consumer sees only `phase_stall` notices (#1116)."""
+        if self._load_cached is not True:
+            return
+        decode = segment.spans()[3]
+        if decode is None or decode < _SLOW_DECODE_S:
+            return
+        emit_warning(
+            f"Decode took {decode:.0f}s with the pipeline already loaded. That "
+            "is far past a steady decode and is not proportional to frame "
+            "count: a one-off cost of a cached pipeline meeting a shape it has "
+            "not run (a different number of frames), or memory pressure on the "
+            "decode device.",
+            kind="decode_slow",
+            decode_s=round(decode, 1),
+            step=self.step,
+        )
 
     def cache_counted(self, stats):
         """One call's step-cache counts (report_cache_stats, below). A chain's calls sum
