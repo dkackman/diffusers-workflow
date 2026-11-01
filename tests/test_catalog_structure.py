@@ -522,6 +522,9 @@ def test_no_stale_entry_in_the_allowlist():
 # Re-measured at 12_357 after `ltx2/upscale-clip`, `refine-clip` and
 # `refine-in-place` took the source's frame rate (#1090, stage #1107,
 # 2026-10-31): their summaries did not change, so the budget stands.
+# Re-measured at 12_344 after `ltx2/restore-deblur` and `restore-decompression`
+# took restore-colorize's fit shape (#1090, stage #1108, 2026-10-31): both
+# summaries got shorter, so the budget stands.
 COMPACT_BUDGET = 12_400
 FILTERED_BUDGET = 1_500
 
