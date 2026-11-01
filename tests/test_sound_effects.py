@@ -179,6 +179,102 @@ class TestRunWithStubs:
         assert seen["text_features"] is not None
 
 
+@pytest.fixture
+def fractional_clip(tmp_path):
+    """50 frames at 24 fps: 2.0833 s, the tester's qa-fit fixture's shape."""
+    from diffusers.utils import export_to_video
+
+    frames = [Image.new("RGB", (64, 64), (i * 5 % 256, 0, 0)) for i in range(50)]
+    path = tmp_path / "fractional.mp4"
+    export_to_video(frames, str(path), fps=24)
+    return str(path)
+
+
+class TestClipLengthDefault:
+    """A clip's length is the default duration to the sample, fraction and all
+    (#1133 bounce, C-F620: a 2.083 s clip came back as 2.0 s of sound)."""
+
+    def test_frames_cover_the_whole_fractional_clip(self, fractional_clip):
+        from dw.tasks.mmaudio_model import SequenceConfig
+
+        seconds = sound_effects._clip_seconds(fractional_clip)
+        assert seconds == pytest.approx(50 / 24)
+        clip, sync, covered = sound_effects._frame_tensors(fractional_clip, seconds)
+        assert covered == seconds
+        seq = SequenceConfig(duration=covered)
+        assert clip.shape[1] == seq.clip_seq_len
+        # Synchformer's 16-frame segments 8 apart, 8 tokens each.
+        assert ((sync.shape[1] - 16) // 8 + 1) * 8 == seq.sync_seq_len
+
+    def test_a_clip_short_of_frames_falls_back_to_what_they_cover(
+        self, monkeypatch, fractional_clip
+    ):
+        from dw import media
+
+        real = media.sample_frames
+
+        def short(path, fps, duration, size, crop=False):
+            return real(path, fps, duration, size, crop=crop)[:-2]
+
+        monkeypatch.setattr(media, "sample_frames", short)
+        _, _, covered = sound_effects._frame_tensors(fractional_clip, 50 / 24)
+        assert covered == pytest.approx(min(14 / 8, 50 / 25))
+
+    def test_the_run_returns_the_clip_length(self, monkeypatch, fractional_clip):
+        from dw.tasks import mmaudio_clip, mmaudio_model, mmaudio_sync_model
+        from dw.tasks.mmaudio_model import SequenceConfig
+
+        class Net:
+            device = torch.device("cpu")
+
+            def set_duration(self, duration):
+                seq = SequenceConfig(duration=duration)
+                self.clip_seq_len = seq.clip_seq_len
+                self.sync_seq_len = seq.sync_seq_len
+                return seq
+
+        class Clip:
+            def encode_frames(self, frames):
+                return torch.zeros(1, frames.shape[1], 4)
+
+            def encode_text(self, tokens):
+                return torch.zeros(1, 77, 4)
+
+        class Sync(torch.nn.Module):
+            def __init__(self):
+                super().__init__()
+                self.weight = torch.nn.Parameter(torch.zeros(1))
+
+        class Decoder:
+            sample_rate = 44100
+
+            def decode(self, latent):
+                return torch.full((1, 1, 44100 * 3), 0.1)
+
+        monkeypatch.setattr(
+            sound_effects,
+            "_load_models",
+            lambda device, dtype: (Net(), (Clip(), "tok"), Sync(), Decoder()),
+        )
+        monkeypatch.setattr(mmaudio_clip, "tokenize", lambda tok, texts: texts)
+        monkeypatch.setattr(
+            mmaudio_sync_model,
+            "encode_sync_frames",
+            lambda model, frames: torch.zeros(
+                1, ((frames.shape[1] - 16) // 8 + 1) * 8, 4
+            ),
+        )
+        monkeypatch.setattr(
+            mmaudio_model, "sample_latent", lambda net, **kw: torch.zeros(1, 10, 40)
+        )
+
+        result = generate_sound_effects(
+            video=fractional_clip, prompt="a box sliding", seed=1
+        )
+
+        assert result.audio.shape == (1, round(50 / 24 * 44100))
+
+
 def load_template(name):
     with open(os.path.join(ROOT, "workflows", "templates", name)) as handle:
         return json.load(handle)
