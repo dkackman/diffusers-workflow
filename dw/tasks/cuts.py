@@ -436,13 +436,13 @@ def _phrase_lines(phrases, lyrics, duration, stanza_gap, warnings):
         _disproportion_warning(paired, warnings)
         return paired
     if len(phrases) > len(lyrics):
-        knob = "raise analyze_phrases' 'min_gap_seconds' to bridge more pauses"
+        knob = "raise analyze_phrases' 'min_gap_seconds' to bridge more pauses, so the counts match"
     else:
         knob = (
             "lower analyze_phrases' 'min_gap_seconds' to split at shorter "
             "pauses, or, for legato or reverberant singing whose lines fuse, "
-            "raise its 'floor_db' (less negative, e.g. -30) - then check the "
-            "phrases by ear before trusting a one-to-one pairing, since a "
+            "raise its 'floor_db' (less negative, e.g. -30), so the counts match - then "
+            "check the phrases by ear before trusting a one-to-one pairing, since a "
             "raised floor can match the counts on wrong boundaries"
         )
     low = phrases[0]["start"] if phrases else 0.0
@@ -450,8 +450,7 @@ def _phrase_lines(phrases, lyrics, duration, stanza_gap, warnings):
     warnings.append(
         f"{COMMAND}: the lyrics have {len(lyrics)} line(s) and analyze_phrases "
         f"found {len(phrases)} phrase(s) - the lines are spread evenly over "
-        f"{low:.2f}-{high:.2f} s, not paired with the phrases; {knob}, so the "
-        "counts match"
+        f"{low:.2f}-{high:.2f} s, not paired with the phrases; {knob}"
     )
     step = (high - low) / len(lyrics)
     return [
