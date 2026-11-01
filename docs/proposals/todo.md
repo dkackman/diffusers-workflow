@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **One-for-one templates follow the source's frame rate** (#1090,
+  stages #1106-#1108), shipped 2026-11-01. `face-repair`, `restore-long`,
+  `upscale-clip`, `refine-clip`, `refine-in-place`, `restore-deblur` and
+  `restore-decompression` default `frame_rate` to `"source"` (the output
+  rate; the model still runs at 24). `paste_face_track` gains `fps` and
+  `join_windows`' `fps` accepts `"source"`. Deblur and decompression now
+  return the source's size, silent. Record, including what was deferred
+  (retiming, `extend-clip`, the restores' soundtrack):
+  `complete/source-fps-one-for-one-complete.md`.
 - **The remaining LTX-2.5 IC-LoRAs: `ltx2/alpha-matte` and
   `ltx2/restore-colorize`** (#1064, stages #1079-#1080), shipped
   2026-11-01. A grey soft-matte MP4 at the source's size and frame rate
