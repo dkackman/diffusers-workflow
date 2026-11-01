@@ -23,7 +23,7 @@ from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, repo_entries
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
-from ..dsp import loudest_window_dbfs, resample_waveform
+from ..dsp import dbfs, loudest_window_dbfs, resample_waveform, rms
 from ..script_lines import looped_texts, normalize_words
 from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
@@ -172,6 +172,13 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
 # instrumental folded into the word, or an invented one (#822)
 LONG_WORD_SECONDS = 2.0
 
+# A clip whose whole-clip mean level is at or below this is near-silent (the
+# audio_qc `NEAR_SILENT_WARN_DBFS` line): speech with its pauses averages far
+# above it, so any text Whisper returns is marked `suspect: "silent"`. This
+# catches a voiceless stem's music bleed, which peaks well over the dead-air
+# floor (#1135)
+NEAR_SILENT_CLIP_DBFS = -40.0
+
 
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
@@ -185,10 +192,15 @@ def _mark_suspect(chunks, mono, long_word):
     script_check guards with (`DEAD_AIR_FLOOR_DBFS`, measured by
     `dsp.loudest_window_dbfs`) - Whisper invents text over silence, a
     fade-out's end credits included.
+    "silent" also holds for every chunk when the whole clip's mean level is at
+    or below `NEAR_SILENT_CLIP_DBFS` - a voiceless vocals stem with residual
+    music, which Whisper fills with "Thank you for watching" (#1135).
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
     since a segment is a line and runs long by nature).
     """
     looped = looped_texts([chunk["text"] for chunk in chunks])
+    clip_level = dbfs(rms(mono))
+    near_silent = clip_level is None or clip_level <= NEAR_SILENT_CLIP_DBFS
     marked = []
     for index, chunk in enumerate(chunks):
         if not chunk["text"]:
@@ -202,7 +214,7 @@ def _mark_suspect(chunks, mono, long_word):
             level = loudest_window_dbfs(
                 mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"], DEAD_AIR_WINDOW
             )
-            if level is None or level <= DEAD_AIR_FLOOR_DBFS:
+            if near_silent or level is None or level <= DEAD_AIR_FLOOR_DBFS:
                 reason = "silent"
             elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
                 reason = "long"

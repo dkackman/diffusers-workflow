@@ -352,6 +352,27 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(credits["text"], "credits")
 
     @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_near_silent_clip_with_bleed_is_marked_silent(self, mock_pipeline):
+        # #1135: a voiceless vocals stem - music bleed peaking at -27 dBFS,
+        # mean about -46 - and Whisper's stock "Thank you for watching"
+        waveform, rate = self._voiced(seconds=5.0)
+        waveform = waveform * 0.0
+        waveform[0, 1000:1800] = 0.045  # a short -27 dBFS burst, mean far lower
+        self._mock_pipe(
+            mock_pipeline,
+            "Thank you very much for watching.",
+            chunks=[
+                {"text": " Thank you very much for watching.", "timestamp": (0.0, 5.0)}
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"][0]["suspect"], "silent")
+
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_voiced_word_over_two_seconds_is_marked_long(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=6.0)
         self._mock_pipe(
