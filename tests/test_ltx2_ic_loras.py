@@ -130,9 +130,9 @@ class TestEachTemplateMatchesItsCard:
 
         assert (variables["width"], variables["height"]) == (width, height)
         assert variables["num_frames"] == frames
-        if name in ("alpha-matte", "restore-colorize"):
-            # #1079, #1080: the output is written at the source's rate; the model
-            # itself still runs at its trained 24 fps
+        if name in ("alpha-matte", "restore-colorize", "upscale-clip"):
+            # #1079, #1080, #1107: the output is written at the source's rate;
+            # the model itself still runs at its trained 24 fps
             pipeline = conditioned_step(name)["pipeline"]
             assert variables["frame_rate"] == "source"
             assert pipeline["arguments"]["frame_rate"] == 24.0
@@ -271,7 +271,12 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
         assert restore["task"]["arguments"] == {
             "video": "previous_result:upscaled",
             "fit": "previous_result:fit.fit",
+            "fps": "variable:frame_rate",
         }
+        # #1107: written at the rate restore carries, never a declared one
+        assert "fps" not in restore["result"]
+        assert "fps" not in paired["result"]
+        assert upscaled["result"]["fps"] == 24.0
         assert paired["task"]["command"] == "pair_audio"
         assert paired["task"]["arguments"] == {
             "video": "previous_result:restore",
