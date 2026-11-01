@@ -47,10 +47,11 @@ remaining deferred fix is recorded in
   (retiming, `extend-clip`, the restores' soundtrack):
   `complete/source-fps-one-for-one-complete.md`.
 - **The remaining LTX-2.5 IC-LoRAs: `ltx2/alpha-matte` and
-  `ltx2/restore-colorize`** (#1064, stages #1079-#1080), shipped
+  `ltx2/restore-colorize`** (#1064, stages #1079-#1080, #1114), shipped
   2026-11-01. A grey soft-matte MP4 at the source's size and frame rate
   (Alpha-Gen), and black-and-white colourising with a caller-written,
-  clip-matched prompt (Colorization), plus `source_fps` on the fit record
+  clip-matched prompt (Colorization; reliable on 24 fps 16:9, a low-rate or
+  portrait source may stay grey, documented), plus `source_fps` on the fit record
   and `fps` on `restore_to_source`. Clean-Plate and Day-To-Night are
   recorded in their registry entries as not onboarded. Record, including
   what was deferred (alpha output, cut detection, auto-captioning, the
