@@ -17,8 +17,20 @@ Each file keeps its upstream licence notice in its header.
 | [dw/tasks/rife_model.py](../dw/tasks/rife_model.py) | The RIFE interpolation network from [hzwer/Practical-RIFE](https://github.com/hzwer/Practical-RIFE) | MIT, Copyright (c) Megvii Inc. |
 | [dw/tasks/h3_latent_upscaler_model.py](../dw/tasks/h3_latent_upscaler_model.py) | The MiniMax H3 3D-convolution latent upscaler from [LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler](https://github.com/LBH-123-AI/Comfyui_Minimax_h3_latent_Upscaler) | MIT, Copyright (c) LBH-123-AI |
 | [dw/tasks/audio8_tts_model.py](../dw/tasks/audio8_tts_model.py) | The Audio8-TTS (ArkTTS) dual-AR speech model, codec and processor from [Edge0/Audio8-TTS-Realistic-0.6b](https://huggingface.co/Edge0/Audio8-TTS-Realistic-0.6b/tree/1e857568bfd4f02931aca3988ee773a44d2d26d3), ported (upstream NOTICE kept in the file header) | Apache-2.0 |
+| [dw/tasks/mmaudio_model.py](../dw/tasks/mmaudio_model.py), [dw/tasks/mmaudio_clip.py](../dw/tasks/mmaudio_clip.py) | The MMAudio flow-matching network, its sequence lengths and classifier-free guidance, and the CLIP conditioning from [hkchengrex/MMAudio](https://github.com/hkchengrex/MMAudio/tree/974010a026c731054592d8f777218bd9d85a6c24), ported (the sampler is dw's own Euler loop, and the DFN5B towers are transformers' CLIP models filled by a key map) | MIT, Copyright (c) 2024 Sony Research Inc. |
 | [dw/community_pipelines/pipeline_flux_rf_inversion.py](../dw/community_pipelines/pipeline_flux_rf_inversion.py) | The diffusers community RF-Inversion pipeline, after [RF Inversion](https://rf-inversion.github.io/) by Litu Rout, Yujia Chen, Nataniel Ruiz, Constantine Caramanis, Sanjay Shakkottai and Wen-Sheng Chu | Apache-2.0, Copyright 2024 Black Forest Labs and The HuggingFace Team |
 | [dw/prompt_weighting.py](../dw/prompt_weighting.py) | Based on [sd_embed](https://github.com/xhinker/sd_embed) by Andrew Zhu | Apache-2.0 |
+
+## Model weights with their own terms
+
+Most weights are named only by their catalog entry. These are listed here as
+well, because their terms are narrower than this repository's licence and
+apply to anything generated with them.
+
+| Weights | Used by | Licence |
+|---|---|---|
+| [hkchengrex/MMAudio](https://huggingface.co/hkchengrex/MMAudio) (`weights/mmaudio_large_44k_v2.pth` and its `ext_weights/`) | [dw/tasks/mmaudio_model.py](../dw/tasks/mmaudio_model.py) | [CC-BY-NC 4.0](https://creativecommons.org/licenses/by-nc/4.0/): non-commercial use only |
+| [apple/DFN5B-CLIP-ViT-H-14-384](https://huggingface.co/apple/DFN5B-CLIP-ViT-H-14-384) | MMAudio's CLIP conditioning, [dw/tasks/mmaudio_clip.py](../dw/tasks/mmaudio_clip.py) | [Apple Machine Learning Research Model License](https://huggingface.co/apple/DFN5B-CLIP-ViT-H-14-384/blob/main/LICENSE): research purposes only. Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement. dw maps the weights into transformers' layout in memory at load time and never writes or ships converted tensors. |
 
 ## Ideas reimplemented here
 
