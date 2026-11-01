@@ -471,6 +471,14 @@ remaining deferred fix is recorded in
   is skipped for a refused reference. The guide no longer promises the form.
   Record, including the deferred in-list cutaway:
   `complete/for-each-cross-entry-complete.md`.
+- **Audio8-TTS voice cloning in `generate_speech`** (#1112, stages #1120,
+  #1121), shipped 2026-11-01, after a listening gate Don judged clearly
+  better than SpeechT5 + `speaker_embedding` and Bark. A vendored,
+  transformers-5 port (no Hub code) with weights and `codec.pth` pinned at
+  one revision (`weights_only=True`); `reference_audio` + `reference_text`
+  clone a voice in English, Russian and more, with a 20 s reference cap and
+  a context-fit refusal. Template `voice-clone`. Record, including the
+  known edges: `complete/audio8-voice-clone-complete.md`.
 
 ## Declined
 
