@@ -80,6 +80,30 @@ def tearDownModule():
 
 
 class TestValidationErrors(unittest.TestCase):
+    def test_an_audio_track_reference_is_a_clip_measured_by_its_length(self):
+        # #1134: previous_result: of an audio step resolves to an AudioTrack
+        from dw.media_types import AudioTrack
+        from dw.tasks.voice_attribution import _clip_duration, parse_voices
+
+        clips = {}
+        track = AudioTrack(numpy.zeros((1, 24000 * 5), dtype=numpy.float32), 24000)
+        parsed = parse_voices(
+            {"a": [{"start_seconds": 0, "duration_seconds": 4}], "b": track},
+            10.0,
+            3.0,
+            lambda reference: _clip_duration(reference, clips),
+        )
+        self.assertIs(parsed["b"], track)
+        self.assertIn(id(track), clips)
+        short = AudioTrack(numpy.zeros((1, 24000), dtype=numpy.float32), 24000)
+        with self.assertRaisesRegex(ValueError, "voice 'b' has 1.00 s"):
+            parse_voices(
+                {"a": [{"start_seconds": 0, "duration_seconds": 4}], "b": short},
+                10.0,
+                3.0,
+                lambda reference: _clip_duration(reference, clips),
+            )
+
     def test_fewer_than_two_voices_is_an_error(self):
         with self.assertRaisesRegex(ValueError, "at least 2 voices"):
             attribute_voices(
