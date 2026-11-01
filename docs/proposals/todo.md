@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Phrase timing without Whisper** (#1095, stages #1104-#1105), shipped
+  2026-11-01. A new JSON task, `analyze_phrases`, times sung phrases from
+  centre-weighted voice-band energy with no model. `plan_cuts` takes its
+  result in place of a transcript, maps `lyrics` one to one when the counts
+  match, and otherwise warns, names the knob (`min_gap_seconds`,
+  `floor_db`) and spreads the lines evenly. The music-video template documents
+  the `transcribe` → `analyze_phrases` swap. Record, including the dropped
+  local-level floor and the deferred duration-aligned mapping:
+  `complete/analyze-phrases-complete.md`.
 - **Beat authoring and the beat review in the story skills** (#1122, stage
   #1125), shipped 2026-11-01. `script-to-video`'s shot sheet gains `beat`
   and `must_not`; a new `references/beat-review.md` holds the beat-writing
