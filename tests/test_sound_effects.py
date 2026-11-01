@@ -214,6 +214,93 @@ class TestCatalog:
         assert "CC-BY-NC 4.0" in summary
         assert LICENCE in summary
 
+    def test_the_command_summary_documents_the_noise_warning(self):
+        from dw.tasks.task import task_command_info
+
+        summary = task_command_info("generate_sound_effects")["summary"]
+        assert "noise-like" in summary
+        assert "flatness >= 0.3" in summary
+        assert "8 kHz" in summary
+
+
+class TestLoadEvents:
+    """A cold load names each model's repo and pinned revision on the run's
+    events; a warm one says the models are cached (#1133 bounce)."""
+
+    @pytest.fixture
+    def events(self, monkeypatch):
+        import huggingface_hub
+
+        from dw import events as dw_events
+        from dw.tasks import (
+            mmaudio_clip,
+            mmaudio_decoder,
+            mmaudio_model,
+            mmaudio_sync_model,
+            model_cache,
+        )
+
+        monkeypatch.setattr(
+            huggingface_hub,
+            "hf_hub_download",
+            lambda repo_id=None, filename=None, revision=None, **_: (
+                f"/fake/{repo_id}/{filename}"
+            ),
+        )
+        monkeypatch.setattr(mmaudio_model, "load_network", lambda *a, **k: "net")
+        monkeypatch.setattr(mmaudio_clip, "load_clip", lambda *a, **k: "clip")
+        monkeypatch.setattr(mmaudio_clip, "load_clip_tokenizer", lambda *a: "tok")
+        monkeypatch.setattr(
+            mmaudio_sync_model, "load_synchformer", lambda *a, **k: "sync"
+        )
+        monkeypatch.setattr(mmaudio_decoder, "load_decoder", lambda *a, **k: "dec")
+        monkeypatch.setattr(model_cache, "_cache", {})
+
+        seen = []
+
+        class Recorder(dw_events.RunContext):
+            def emit(self, event_type, **data):
+                seen.append((event_type, data))
+
+        token = dw_events.activate_context(Recorder())
+        yield seen
+        dw_events.deactivate_context(token)
+
+    def revisions(self):
+        from dw.tasks import mmaudio_clip, mmaudio_decoder, mmaudio_model
+
+        return {
+            mmaudio_model.REPO_ID: mmaudio_model.REVISION,
+            mmaudio_clip.CLIP_REPO_ID: mmaudio_clip.CLIP_REVISION,
+            mmaudio_decoder.K6_REPO_ID: mmaudio_decoder.K6_REVISION,
+        }
+
+    def test_a_cold_load_names_every_repo_and_revision(self, events):
+        sound_effects._load_models("cpu", torch.float32)
+
+        logs = [data for kind, data in events if kind == "log"]
+        assert len(logs) == 4
+        assert {log["repo_id"]: log["revision"] for log in logs} == self.revisions()
+        assert all(log["cached"] is False for log in logs)
+        for log in logs:
+            assert log["repo_id"] in log["message"]
+            assert log["revision"] in log["message"]
+
+        phases = [data for kind, data in events if kind == "phase"]
+        assert [p["phase"] for p in phases] == ["loading"] * 4 + ["task"]
+        for phase in phases[:4]:
+            assert any(repo in phase["detail"] for repo in self.revisions())
+
+    def test_a_warm_load_logs_cache_hits_without_a_phase(self, events):
+        sound_effects._load_models("cpu", torch.float32)
+        events.clear()
+
+        sound_effects._load_models("cpu", torch.float32)
+
+        assert [kind for kind, _ in events] == ["log"] * 4
+        assert all(data["cached"] is True for _, data in events)
+        assert {d["repo_id"]: d["revision"] for _, d in events} == self.revisions()
+
 
 class TestRegistration:
     def test_it_consumes_the_device_and_declares_its_weights(self):

@@ -21,7 +21,9 @@ silently), no `video` and no `prompt`, and a `duration` over 20 s or
 longer than the clip. Two notes go on the result through
 `dw.events.emit_warning`: a duration outside the 4-12 s the model was
 trained around, and an output that measures noise-like (spectral flatness
->= 0.3 and centroid >= 8 kHz).
+>= 0.3 and centroid >= 8 kHz). Each model's load is announced with its
+repo and pinned revision (`_cached`): a `loading` phase, a `log` event, and
+the download watched for progress; a cache hit is a `log` event.
 
 Licences: the MMAudio weights (network, Synchformer, VAE tensors) are
 CC-BY-NC 4.0; DFN5B is under the Apple Machine Learning Research Model
@@ -235,11 +237,58 @@ def _download(repo, filename, revision):
     return hf_hub_download(repo_id=repo, filename=filename, revision=revision)
 
 
+def _cached(key, source, factory):
+    """One model through `cached_model`, announced on the run's events.
+
+    A cold load is this task's long silence (about 10 GB on first use), so it
+    says what it fetches, as a pipeline step's load does: a `loading` phase
+    naming the model, repo and revision, a `log` event carrying them as
+    fields, and the hub download watched (`dw.download_watch`) so arriving
+    bytes read as progress. A cache hit says so in a `log` event.
+
+    Args:
+        key: The `cached_model` key
+        source: (label, repo, revision)
+        factory: The zero-argument load
+
+    Returns:
+        (model, whether it was loaded now)
+    """
+    from .. import download_watch
+    from ..events import emit_log, emit_phase
+    from .model_cache import cached_model
+
+    label, repo, revision = source
+    fields = dict(command=COMMAND, model=label, repo_id=repo, revision=revision)
+    loaded = []
+
+    def load():
+        loaded.append(True)
+        emit_phase("loading", detail=f"{label} ({repo} @ {revision[:12]})")
+        emit_log(
+            f"{COMMAND}: loading {label} from {repo} @ {revision}",
+            cached=False,
+            **fields,
+        )
+        with download_watch.watch(repo):
+            return factory()
+
+    model = cached_model(key, load)
+    if not loaded:
+        emit_log(
+            f"{COMMAND}: {label} already loaded ({repo} @ {revision})",
+            cached=True,
+            **fields,
+        )
+    return model, bool(loaded)
+
+
 def _load_models(device, dtype):
     """The network, CLIP + tokenizer, Synchformer and decoder, each cached
-    under (command, repo, file, revision, device, dtype)."""
+    under (command, repo, file, revision, device, dtype) and announced by
+    `_cached`."""
+    from ..events import emit_phase
     from . import mmaudio_clip, mmaudio_decoder, mmaudio_model, mmaudio_sync_model
-    from .model_cache import cached_model
 
     repo, rev = mmaudio_model.REPO_ID, mmaudio_model.REVISION
     where = (str(device), str(dtype))
@@ -274,16 +323,32 @@ def _load_models(device, dtype):
         logger.info(f"Loading MMAudio VAE + vocoder (K6) to {device}")
         return mmaudio_decoder.load_decoder(vae_folder, vocoder_folder, device=device)
 
-    return (
-        cached_model((COMMAND, repo, mmaudio_model.NETWORK_FILE, rev, *where), network),
-        cached_model(
-            (COMMAND, clip_repo, mmaudio_clip.CLIP_WEIGHTS_FILE, clip_rev, *where), clip
+    loads = [
+        _cached(
+            (COMMAND, repo, mmaudio_model.NETWORK_FILE, rev, *where),
+            ("MMAudio network", repo, rev),
+            network,
         ),
-        cached_model((COMMAND, repo, mmaudio_sync_model.SYNC_FILE, rev, *where), sync),
-        cached_model(
-            (COMMAND, k6_repo, "audio_vae+vocoder", k6_rev, str(device)), decoder
+        _cached(
+            (COMMAND, clip_repo, mmaudio_clip.CLIP_WEIGHTS_FILE, clip_rev, *where),
+            ("DFN5B CLIP", clip_repo, clip_rev),
+            clip,
         ),
-    )
+        _cached(
+            (COMMAND, repo, mmaudio_sync_model.SYNC_FILE, rev, *where),
+            ("Synchformer", repo, rev),
+            sync,
+        ),
+        _cached(
+            (COMMAND, k6_repo, "audio_vae+vocoder", k6_rev, str(device)),
+            ("MMAudio VAE + vocoder", k6_repo, k6_rev),
+            decoder,
+        ),
+    ]
+    if any(loaded for _, loaded in loads):
+        # Back from the loads' `loading` phase to the task's own
+        emit_phase("task", detail=COMMAND)
+    return tuple(model for model, _ in loads)
 
 
 # --------------------------------------------------------------- warnings
