@@ -1,7 +1,7 @@
 {
   "id": "TextToSoundEffect",
   "description": "Generates a sound effect from a text prompt alone with MMAudio (large 44.1 kHz v2) and saves it as a 44.1 kHz mono wav. 'prompt' says what should be heard ('a heavy wooden door creaks open, then slams'); 'duration' is 8 s by default, at most 20 s, and the model was trained around 8 s, so it warns outside 4-12 s. The effect runs 7-25 dB hot: route it through match_levels before mixing it with dialogue or music. For effects that follow a clip's picture, use the video-to-sound-effects template. Licences: the MMAudio weights (network, Synchformer, VAE tensors) are CC-BY-NC 4.0, non-commercial; the DFN5B CLIP encoder is under the Apple Machine Learning Research Model License, research only - Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement.",
-  "summary": "A sound effect from a text prompt (MMAudio), as a 44.1 kHz mono wav.",
+  "summary": "A sound effect from a text prompt (MMAudio).",
   "variables": {
     "prompt": "a heavy wooden door creaks open, then slams shut",
     "negative_prompt": "music, speech",

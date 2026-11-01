@@ -911,9 +911,11 @@ TEMPLATE_PIPELINE_KEYS = {
     "text-to-image.json": {
         "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"
     },
+    "text-to-sound-effect.json": {},
     "transcribe-audio.json": {},
     "upscale-diffusion.json": {},
     "upscale-spandrel.json": {},
+    "video-to-sound-effects.json": {},
     "voice-clone.json": {},
 }
 

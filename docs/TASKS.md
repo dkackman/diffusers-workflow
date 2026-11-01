@@ -3244,6 +3244,46 @@ A speech model is worth releasing before a video model loads — set `release_mo
 - [voice-clone.json](../workflows/templates/voice-clone.json) — Speak a line in the voice of a reference clip (Audio8-TTS)
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
 
+## Sound Effects Generation
+
+`generate_sound_effects` makes sound effects with MMAudio (large 44.1 kHz v2) from a video clip, a text prompt, or both, as a 44.1 kHz mono track. A validate's `downloads_required` lists the pinned weights: `hkchengrex/MMAudio` (the network `weights/mmaudio_large_44k_v2.pth` and Synchformer `ext_weights/synchformer_state_dict.pth`), the `audio_vae/` and `vocoder/` config and safetensors of `kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers`, and the weights and tokenizer of `apple/DFN5B-CLIP-ViT-H-14-384`. MMAudio's own `v1-44.pth` and `bigvgan_generator.pt` are never downloaded.
+
+```json
+{
+    "task": {
+        "command": "generate_sound_effects",
+        "arguments": {
+            "video": "asset:shot.mp4",
+            "prompt": "footsteps on gravel, a door creaking",
+            "negative_prompt": "music, speech"
+        }
+    },
+    "result": { "content_type": "audio/wav" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | One of `video`/`prompt` | The clip the effects follow (typically an `asset:` or `previous_result:` reference) |
+| `prompt` | One of `video`/`prompt` | What should be heard |
+| `negative_prompt` | No | What to steer away from, such as `music, speech` |
+| `duration` | No | Seconds. Defaults to the clip's length, or 8 s text-only; at most 20 s and never longer than the clip |
+| `steps` | No | Sampler steps (default: 25) |
+| `guidance_scale` | No | Classifier-free guidance (default: 4.5) |
+
+Video-only is the weaker mode: give a `prompt` that names the on-screen sound sources as well. The model was trained around 8 s, so a `duration` outside 4-12 s adds a warning to the result, as does noise-like output (spectral flatness of 0.3 or more with a centroid of 8 kHz or more).
+
+Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
+
+The output runs 7-25 dB hot. Route it through `match_levels` before mixing it with dialogue or music.
+
+**Licences.** The MMAudio weights (network, Synchformer and the VAE tensors) are CC-BY-NC 4.0: non-commercial use only. The DFN5B CLIP encoder is under the Apple Machine Learning Research Model License: research purposes only. Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
+**Examples:**
+
+- [video-to-sound-effects.json](../workflows/templates/video-to-sound-effects.json) — Effects that follow a clip's picture
+- [text-to-sound-effect.json](../workflows/templates/text-to-sound-effect.json) — An effect from a text prompt alone
+
 ## Speech Transcription
 
 A validate's `downloads_required` lists `openai/whisper-base`; `model_name` overrides it. `check_script` uses the same model.
