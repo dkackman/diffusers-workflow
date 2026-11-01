@@ -29,7 +29,6 @@ License (research only) - ATTRIBUTIONS.md.
 """
 
 import logging
-import math
 import os
 import tempfile
 
@@ -38,6 +37,8 @@ import torch
 
 from .. import get_device_type
 from ..media_types import AudioTrack
+from ..task_domains import check_arguments, real_number, whole_number
+from ..trust import refuse_unused_task_remote_code
 from .weights import file_entries
 
 logger = logging.getLogger("dw")
@@ -113,30 +114,6 @@ def _decoder_files():
 # ---------------------------------------------------------------- refusals
 
 
-def _refuse_remote_code(kwargs):
-    """trust_remote_code / custom_pipeline / custom_generate as a step
-    argument: the trust gate's refusal when workflows are untrusted, and a
-    plain error otherwise - this task loads no Hub code either way."""
-    from ..security import UntrustedWorkflowError
-    from ..trust import TASK_REMOTE_CODE_ARGUMENTS, workflows_are_trusted
-
-    given = [name for name in TASK_REMOTE_CODE_ARGUMENTS if kwargs.get(name)]
-    if not given:
-        return
-    names = " or ".join(map(repr, given))
-    if not workflows_are_trusted():
-        raise UntrustedWorkflowError(
-            f"Refusing to run {COMMAND}: its arguments set {names}, which "
-            "downloads and executes Python from a Hub repository, so it needs "
-            "trusted workflows - see docs/SECURITY.md. generate_sound_effects "
-            "loads no Hub code from its arguments in any case; drop it"
-        )
-    raise ValueError(
-        f"{COMMAND} takes no {names} argument - it loads no Hub code from its "
-        "arguments, so the setting would have no effect. Drop it"
-    )
-
-
 def _refuse_unknown(kwargs):
     from ..trust import TASK_REMOTE_CODE_ARGUMENTS
 
@@ -146,16 +123,6 @@ def _refuse_unknown(kwargs):
             f"{COMMAND} takes no {', '.join(map(repr, unknown))} argument - it "
             f"takes {', '.join(sorted(ARGUMENTS))}"
         )
-
-
-def _number(name, value, whole=False):
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{COMMAND}: '{name}' must be a number, got {value!r}")
-    if not math.isfinite(value) or value <= 0:
-        raise ValueError(f"{COMMAND}: '{name}' must be positive, got {value!r}")
-    if whole and int(value) != value:
-        raise ValueError(f"{COMMAND}: '{name}' must be a whole number, got {value!r}")
-    return int(value) if whole else float(value)
 
 
 def _text(name, value):
@@ -173,7 +140,8 @@ def _check_duration(duration, clip_seconds):
         if clip_seconds is None:
             return TEXT_ONLY_DURATION
         return min(clip_seconds, MAX_DURATION)
-    duration = _number("duration", duration)
+    duration = float(real_number(duration, "duration", COMMAND))
+    check_arguments(COMMAND, duration=duration)
     if duration > MAX_DURATION:
         raise ValueError(
             f"{COMMAND}: 'duration' {duration:g} s is over the {MAX_DURATION:g} s "
@@ -380,12 +348,15 @@ def generate_sound_effects(
         device: Where to run
         seed: The step/workflow seed, for a reproducible take
     """
-    _refuse_remote_code(kwargs)
+    refuse_unused_task_remote_code(COMMAND, kwargs)
     _refuse_unknown(kwargs)
     prompt = _text("prompt", prompt)
     negative_prompt = _text("negative_prompt", negative_prompt)
-    steps = _number("steps", steps, whole=True)
-    guidance_scale = float(_number("guidance_scale", guidance_scale))
+    steps = whole_number(steps, "steps", COMMAND, required=True)
+    guidance_scale = float(
+        real_number(guidance_scale, "guidance_scale", COMMAND, required=True)
+    )
+    check_arguments(COMMAND, steps=steps, guidance_scale=guidance_scale)
     if video is None and prompt is None:
         raise ValueError(
             f"{COMMAND} needs 'video' or 'prompt' (or both): there is nothing "

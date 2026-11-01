@@ -544,3 +544,28 @@ class TestTheCatalogResolvesUntrusted:
                 # Not installed here, or not a type at all - test_examples
                 # owns whether a name resolves; this owns whether it is refused
                 pass
+
+
+class TestRefuseUnusedTaskRemoteCode:
+    """dw.trust.refuse_unused_task_remote_code: the one helper the kwargs
+    tasks that load no Hub code share (#1133 arch review)."""
+
+    def test_untrusted_gets_the_gate_refusal(self, monkeypatch):
+        from dw.trust import TRUST_WORKFLOWS_ENV_VAR, refuse_unused_task_remote_code
+
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+        with pytest.raises(UntrustedWorkflowError, match="generate_x"):
+            refuse_unused_task_remote_code("generate_x", {"custom_pipeline": "p"})
+
+    def test_trusted_gets_a_plain_error_naming_the_argument(self, monkeypatch):
+        from dw.trust import TRUST_WORKFLOWS_ENV_VAR, refuse_unused_task_remote_code
+
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "1")
+        with pytest.raises(ValueError, match="'trust_remote_code'") as caught:
+            refuse_unused_task_remote_code("generate_x", {"trust_remote_code": True})
+        assert not isinstance(caught.value, UntrustedWorkflowError)
+
+    def test_nothing_set_passes(self):
+        from dw.trust import refuse_unused_task_remote_code
+
+        refuse_unused_task_remote_code("generate_x", {"trust_remote_code": False})
