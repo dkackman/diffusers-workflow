@@ -1032,7 +1032,7 @@ def plan_cuts(
         transcript: transcribe_audio's result with 'timestamps' set - a
             {text, chunks} dict of {start, end, text} chunks in seconds. A
             null 'end' runs to the next chunk's start, or the song's end. A
-            chunk marked `suspect` no_words, repetition or silent is left
+            chunk marked `suspect` no_words, repetition, stock_phrase or silent is left
             out of the lines; every suspect run is warned about. Or
             analyze_phrases' result, {phrases: [{start, end}],
             duration_seconds}, told by its 'phrases' key (#1095): timing
