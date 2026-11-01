@@ -202,6 +202,7 @@ ERROR_ORDER = [
     "chain_prompts",
     "guide_chain",
     "task_signatures",
+    "task_remote_code",
     "component_types",
     "component_names",
     "constraints",

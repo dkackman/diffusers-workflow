@@ -1176,3 +1176,98 @@ class TestValidateTimeProbesStayInsideTheRoots:
         )
         assert warnings
         assert calls == [str(outside / "clip.mp4")]
+
+
+class TestTaskRemoteCodeArguments:
+    """GHSA-hhfj-p9xj-xjmr: a Hub-code switch in a task step's arguments -
+    top level, or nested in forward_params/generate_kwargs - validated clean
+    and was refused (or dropped) only at run. It is refused at validate,
+    naming the key, wherever in the arguments it sits, and Task.run refuses
+    it for every command, not only generate_speech."""
+
+    KEYS = [
+        pytest.param("trust_remote_code", True, id="trust_remote_code"),
+        pytest.param("custom_pipeline", "lpw_stable_diffusion", id="custom_pipeline"),
+        pytest.param("custom_generate", "attacker/repo", id="custom_generate"),
+    ]
+
+    @staticmethod
+    def _workflow(arguments, command="generate_speech"):
+        from dw.workflow import Workflow
+
+        return Workflow(
+            {
+                "id": "remote-code",
+                "steps": [
+                    {
+                        "name": "speak",
+                        "task": {"command": command, "arguments": arguments},
+                        "result": {"content_type": "audio/wav"},
+                    }
+                ],
+            },
+            "outputs",
+            None,
+        )
+
+    @pytest.mark.parametrize("key, value", KEYS)
+    @pytest.mark.parametrize(
+        "nest, path",
+        [
+            (lambda kv: kv, "steps[0].task.arguments.{key}"),
+            (
+                lambda kv: {"forward_params": kv},
+                "steps[0].task.arguments.forward_params.{key}",
+            ),
+            (
+                lambda kv: {"generate_kwargs": {"inner": [kv]}},
+                "steps[0].task.arguments.generate_kwargs.inner[0].{key}",
+            ),
+        ],
+        ids=["top_level", "forward_params", "nested_list"],
+    )
+    def test_validate_refuses_it_wherever_it_sits(
+        self, untrusted, key, value, nest, path
+    ):
+        arguments = {"text": "A short line.", **nest({key: value})}
+        errors = self._workflow(arguments).validation_errors()
+        refused = [e for e in errors if "needs trusted workflows" in e["message"]]
+        assert [e["path"] for e in refused] == [path.format(key=key)]
+        assert f"'{key}'" in refused[0]["message"]
+
+    def test_validate_lets_a_false_value_through(self, untrusted):
+        errors = self._workflow(
+            {"text": "A short line.", "trust_remote_code": False}
+        ).validation_errors()
+        assert not [e for e in errors if "trusted workflows" in e["message"]]
+
+    def test_validate_lets_it_through_when_trusted(self, trusted):
+        from dw.trust import task_remote_code_errors
+
+        definition = self._workflow(
+            {"text": "A short line.", "trust_remote_code": True}
+        ).workflow_definition
+        assert task_remote_code_errors(definition) == []
+
+    @pytest.mark.parametrize("key, value", KEYS)
+    def test_task_run_refuses_it_for_any_command(
+        self, untrusted, monkeypatch, key, value
+    ):
+        from dw.tasks import task as task_module
+        from dw.tasks.task import Task
+
+        handler = MagicMock()
+        monkeypatch.setitem(task_module._COMMAND_REGISTRY, "grade", handler)
+        step = Task({"command": "grade", "arguments": {}}, "cpu")
+        with pytest.raises(UntrustedWorkflowError, match=f"'{key}'.*trusted"):
+            step.run({"media": "x", "options": {key: value}})
+        handler.assert_not_called()
+
+    def test_task_run_lets_it_through_when_trusted(self, trusted, monkeypatch):
+        from dw.tasks import task as task_module
+        from dw.tasks.task import Task
+
+        handler = MagicMock(return_value="ran")
+        monkeypatch.setitem(task_module._COMMAND_REGISTRY, "grade", handler)
+        step = Task({"command": "grade", "arguments": {}}, "cpu")
+        assert step.run({"trust_remote_code": True}) == "ran"

@@ -67,6 +67,7 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
+from .trust import task_remote_code_errors
 from .type_references import (
     component_name_errors,
     component_type_errors,
@@ -490,6 +491,13 @@ ERROR_CHECKS = [
         lambda c: guide_chain_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
+    # A task argument that runs Hub code, anywhere in the step - the run
+    # refuses it too (Task.run), but before it queues costs nothing
+    # (GHSA-hhfj-p9xj-xjmr)
+    Check(
+        "task_remote_code",
+        lambda c: task_remote_code_errors(c.expanded, c.source_indices),
+    ),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)
     Check(

@@ -29,8 +29,7 @@ from ..dsp import resample_waveform
 from .audio_utils import load_audio
 from ..security import UntrustedWorkflowError
 from ..trust import (
-    GENERATE_REMOTE_CODE_ARGUMENTS,
-    REMOTE_CODE_ARGUMENTS,
+    TASK_REMOTE_CODE_ARGUMENTS,
     require_trusted_generate_arguments,
     workflows_are_trusted,
 )
@@ -176,20 +175,14 @@ def _generation_settings(value, name):
     return value
 
 
-# The Hub-code switches as top-level task arguments. generate_speech reads
-# none of them there, and a kwargs task drops what it does not read, so one
-# would otherwise pass silently - looking as if it took effect (#1121 bounce)
-_TOP_LEVEL_REMOTE_CODE_ARGUMENTS = tuple(
-    dict.fromkeys(REMOTE_CODE_ARGUMENTS + GENERATE_REMOTE_CODE_ARGUMENTS)
-)
-
-
 def _refuse_top_level_remote_code(kwargs):
     """Refuse trust_remote_code / custom_pipeline / custom_generate given as
     step arguments, for every model, before anything loads: the trust gate's
     refusal for an untrusted workflow, and a plain error for a trusted one
-    (the task still would not use it)."""
-    given = [name for name in _TOP_LEVEL_REMOTE_CODE_ARGUMENTS if kwargs.get(name)]
+    (the task still would not use it). generate_speech reads none of them
+    there, and a kwargs task drops what it does not read, so one would
+    otherwise pass silently - looking as if it took effect (#1121 bounce)."""
+    given = [name for name in TASK_REMOTE_CODE_ARGUMENTS if kwargs.get(name)]
     if not given:
         return
     names = " or ".join(map(repr, given))

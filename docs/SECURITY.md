@@ -141,6 +141,12 @@ model: untrusted by the trust gate, trusted as an argument the task doesn't
 take. The task never read them there, but it used to drop them silently, so a
 step setting one ran as if it had taken effect.
 
+Untrusted, every task step is checked the same way at validate:
+`trust_remote_code`, `custom_pipeline` or `custom_generate` set anywhere in its
+`arguments`, top level or nested, is an error naming the key and its path, so
+the run is refused before it queues. `Task.run` repeats the check for every
+command before its handler runs (GHSA-hhfj-p9xj-xjmr).
+
 `speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
 `dw/tasks/audio8_tts_model.py`) runs no code from its repo: the model is
 vendored, so there is no `trust_remote_code` load. Its five files are fetched

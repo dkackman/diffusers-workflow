@@ -308,3 +308,80 @@ def require_trusted_generate_arguments(arguments, what: str) -> None:
                 f"needs trusted workflows - see docs/SECURITY.md. Pass "
                 f"--trust-workflows if you trust this workflow's source."
             )
+
+
+# Every argument name above, wherever in a task step's arguments it sits. A
+# task hands only the arguments it names to a load or a generate() call, so a
+# top-level `trust_remote_code` on generate_speech was dropped rather than
+# obeyed - but it validated clean, as did the nested forms the task refused
+# only at run (GHSA-hhfj-p9xj-xjmr). Refused at validate and in Task.run for
+# every command, so no task can grow a path that forwards one ungated
+TASK_REMOTE_CODE_ARGUMENTS = tuple(
+    dict.fromkeys(REMOTE_CODE_ARGUMENTS + GENERATE_REMOTE_CODE_ARGUMENTS)
+)
+
+
+def remote_code_arguments(value, path=()):
+    """Every (path, key) under `value` - a task's arguments, walked through
+    nested objects and lists - where a TASK_REMOTE_CODE_ARGUMENTS key is set.
+    `path` ends with the key itself."""
+    found = []
+    if isinstance(value, dict):
+        for key, item in value.items():
+            if key in TASK_REMOTE_CODE_ARGUMENTS and item:
+                found.append((path + (key,), key))
+            else:
+                found.extend(remote_code_arguments(item, path + (key,)))
+    elif isinstance(value, list):
+        for index, item in enumerate(value):
+            found.extend(remote_code_arguments(item, path + (index,)))
+    return found
+
+
+def _remote_code_task_message(command, path, key):
+    where = ".".join(str(part) for part in path)
+    return (
+        f"Refusing to run task '{command}': its arguments set '{key}' (at "
+        f"'{where}'), which downloads and executes Python from a Hub "
+        f"repository, so it needs trusted workflows - see docs/SECURITY.md. "
+        f"Pass --trust-workflows if you trust this workflow's source"
+    )
+
+
+def require_trusted_task_arguments(command, arguments) -> None:
+    """Refuse a task step whose arguments set a TASK_REMOTE_CODE_ARGUMENTS key
+    anywhere, unless the workflow is trusted.
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and any such key is set
+    """
+    if workflows_are_trusted():
+        return
+    found = remote_code_arguments(arguments)
+    if found:
+        path, key = found[0]
+        raise UntrustedWorkflowError(_remote_code_task_message(command, path, key))
+
+
+def task_remote_code_errors(workflow_definition, source_indices=None):
+    """require_trusted_task_arguments as a validate pass, over the
+    substituted, expanded definition: every remote-code key in a task step's
+    arguments, as [{path, message}], so the run is refused before it queues."""
+    from .references import iter_steps, render_path
+
+    if workflows_are_trusted():
+        return []
+    errors = []
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        command = task.get("command")
+        for path, key in remote_code_arguments(task.get("arguments"), ("arguments",)):
+            errors.append(
+                {
+                    "path": render_path(("steps", source, "task") + path),
+                    "message": f"{_remote_code_task_message(command, path[1:], key)}"
+                    f"{where}.",
+                }
+            )
+    return errors
