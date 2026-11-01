@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Beat authoring and the beat review in the story skills** (#1122, stage
+  #1125), shipped 2026-11-01. `script-to-video`'s shot sheet gains `beat`
+  and `must_not`; a new `references/beat-review.md` holds the beat-writing
+  rules and the review (3 frames, blind describe, majority verdict, one
+  reason from five, a correction into the rerun); `series-episodes` points
+  to it. Plugin-only. Record, including the deferred `beat_gate` task and
+  what brings it back: `complete/beat-review-complete.md`.
 - **One-for-one templates follow the source's frame rate** (#1090,
   stages #1106-#1108), shipped 2026-11-01. `face-repair`, `restore-long`,
   `upscale-clip`, `refine-clip`, `refine-in-place`, `restore-deblur` and
