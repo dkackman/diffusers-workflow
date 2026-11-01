@@ -416,6 +416,33 @@ def harmonicity(waveform, sample_rate):
     return max(scores) if scores else 0.0
 
 
+def repeat_correlation(mono, sample_rate, min_lag_seconds, min_overlap_seconds):
+    """The best overlap-normalized self-correlation of a block with itself at
+    any lag of min_lag_seconds or more that leaves min_overlap_seconds to
+    compare, 0.0 when the block is too short or silent. 1.0 means the block
+    repeats sample for sample, as a looped bed does (#1118)."""
+    block = numpy.asarray(mono, dtype=numpy.float64)
+    if block.size == 0:
+        return 0.0
+    block = block - block.mean()
+    shortest = int(min_lag_seconds * sample_rate)
+    longest = block.size - int(min_overlap_seconds * sample_rate)
+    if longest < shortest or shortest < 1:
+        return 0.0
+    full = scipy.signal.correlate(block, block, mode="full", method="fft")
+    auto = full[block.size - 1 :]
+    # Prefix energies give each lag's two overlapping stretches' energy
+    energy = numpy.concatenate([[0.0], numpy.cumsum(block * block)])
+    lags = numpy.arange(shortest, longest + 1)
+    denominator = numpy.sqrt(
+        energy[block.size - lags] * (energy[block.size] - energy[lags])
+    )
+    valid = denominator > 0
+    if not valid.any():
+        return 0.0
+    return float(numpy.max(auto[lags][valid] / denominator[valid]))
+
+
 def spectral_balance(waveform, sample_rate):
     """A rough low/mid/high energy reading in dBFS, from one FFT of the
     channel-averaged track - not a spectrogram, just enough to say whether

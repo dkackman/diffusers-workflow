@@ -44,8 +44,6 @@ Every threshold is a constant below, named in docs/TASKS.md.
 import difflib
 import logging
 import math
-
-import numpy
 from types import SimpleNamespace
 
 from .. import dsp
@@ -855,29 +853,17 @@ def _audible_findings(
 
 
 def is_looped_bed(mono, sample_rate, start, end):
-    """True when [start, end] repeats itself sample for sample at some lag of
-    BED_MIN_PERIOD_SECONDS or more, leaving BED_MIN_OVERLAP_SECONDS to compare
-    (#1118): a looped room-tone or score bed, which a voice never does."""
+    """True when [start, end] repeats itself sample for sample (#1118): a
+    looped room-tone or score bed, which a voice never does. The measurement
+    is `dsp.repeat_correlation`; this is the decision."""
     first, last = int(round(start * sample_rate)), int(round(end * sample_rate))
-    block = numpy.asarray(mono[max(0, first) : last], dtype=numpy.float64)
-    block = block - block.mean() if block.size else block
-    shortest = int(BED_MIN_PERIOD_SECONDS * sample_rate)
-    overlap = int(BED_MIN_OVERLAP_SECONDS * sample_rate)
-    longest = block.size - overlap
-    if longest < shortest:
-        return False
-    size = 1 << int(block.size * 2 - 1).bit_length()
-    spectrum = numpy.fft.rfft(block, size)
-    auto = numpy.fft.irfft(spectrum * numpy.conj(spectrum), size)
-    # Prefix energies give each lag's two overlapping stretches' energy
-    energy = numpy.concatenate([[0.0], numpy.cumsum(block * block)])
-    for lag in range(shortest, longest + 1):
-        head = energy[block.size - lag]
-        tail = energy[block.size] - energy[lag]
-        denominator = math.sqrt(head * tail)
-        if denominator > 0 and auto[lag] / denominator >= BED_CORRELATION:
-            return True
-    return False
+    block = mono[max(0, first) : last]
+    return (
+        dsp.repeat_correlation(
+            block, sample_rate, BED_MIN_PERIOD_SECONDS, BED_MIN_OVERLAP_SECONDS
+        )
+        >= BED_CORRELATION
+    )
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):
