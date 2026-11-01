@@ -202,8 +202,14 @@ def _clip_seconds(path):
 
 def _frame_tensors(path, duration):
     """The clip's CLIP frames (1, T, 3, 384, 384) in [0, 1] and Synchformer
-    frames (1, T, 3, 224, 224) in [-1, 1], and the duration both cover
-    (upstream trims to the shorter of the two)."""
+    frames (1, T, 3, 224, 224) in [-1, 1], and the duration the run uses.
+
+    That is `duration` itself whenever both samplings came back full: the
+    sequence lengths for `duration` (SequenceConfig) are exactly the
+    int(fps * duration) frames sample_frames returns, so a 2.083 s clip makes
+    2.083 s of sound, not the 2.0 s its whole CLIP frames span (upstream's
+    trim, which left a muxed cut ending in silence). Only when the clip ran
+    short of frames does it fall back to the shorter span they cover."""
     from ..media import sample_frames
     from .mmaudio_clip import ClipConfig
 
@@ -214,7 +220,10 @@ def _frame_tensors(path, duration):
             f"{COMMAND}: the clip in 'video' is too short - it needs at least "
             f"{MIN_SYNC_FRAMES / SYNC_FPS:.2f} s of frames"
         )
-    covered = min(len(clip) / CLIP_FPS, len(sync) / SYNC_FPS, duration)
+    if len(clip) == int(CLIP_FPS * duration) and len(sync) == int(SYNC_FPS * duration):
+        covered = duration
+    else:
+        covered = min(len(clip) / CLIP_FPS, len(sync) / SYNC_FPS, duration)
     clip_t = torch.from_numpy(numpy.ascontiguousarray(clip)).float().div(255.0)
     sync_t = torch.from_numpy(numpy.ascontiguousarray(sync)).float()
     return (
