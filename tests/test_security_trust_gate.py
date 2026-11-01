@@ -944,7 +944,6 @@ class TestSpeechRemoteGenerateCodeUntrusted:
         loader = MagicMock()
         monkeypatch.setattr(speech_generation, "hf_pipeline", loader)
         monkeypatch.setattr(trust, "workflows_are_trusted", lambda: True)
-        monkeypatch.setattr(speech_generation, "workflows_are_trusted", lambda: True)
         with pytest.raises(ValueError, match="takes no 'trust_remote_code'"):
             speech_generation.generate_speech(
                 "hello", device="cpu", trust_remote_code=True

@@ -363,6 +363,26 @@ def require_trusted_task_arguments(command, arguments) -> None:
         raise UntrustedWorkflowError(_remote_code_task_message(command, path, key))
 
 
+def refuse_unused_task_remote_code(command, arguments) -> None:
+    """For a kwargs task that loads no Hub code from its arguments: the trust
+    gate's refusal when untrusted, and a plain ValueError when trusted for a
+    top-level TASK_REMOTE_CODE_ARGUMENTS key it would otherwise drop
+    silently - looking as if it took effect (#1121, #1133).
+
+    Raises:
+        UntrustedWorkflowError: If untrusted and any such key is set
+        ValueError: If trusted and such a key is set at the top level
+    """
+    require_trusted_task_arguments(command, arguments)
+    given = [name for name in TASK_REMOTE_CODE_ARGUMENTS if arguments.get(name)]
+    if given:
+        names = " or ".join(map(repr, given))
+        raise ValueError(
+            f"{command} takes no {names} argument - it loads no Hub code from "
+            "its arguments, so the setting would have no effect. Drop it"
+        )
+
+
 def task_remote_code_errors(workflow_definition, source_indices=None):
     """require_trusted_task_arguments as a validate pass, over the
     substituted, expanded definition: every remote-code key in a task step's
