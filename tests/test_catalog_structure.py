@@ -513,7 +513,9 @@ def test_no_stale_entry_in_the_allowlist():
 # repair that holds an H3 take's soundtrack, with its cost block.
 # Then to 12_400 for the `ltx2/restore-colorize` template (#1064, stage #1080,
 # 2026-10-31), measured at 12_357: one new entry, the catalog's only
-# colourisation of existing footage, with its cost block.
+# colourisation of existing footage, with its cost block. Re-measured at
+# 12_357 after its description grew (plan v10): the compact view carries the
+# summary, not the description, so the budget stands.
 COMPACT_BUDGET = 12_400
 FILTERED_BUDGET = 1_500
 

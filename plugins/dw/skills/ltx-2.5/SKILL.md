@@ -56,8 +56,10 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
   artefacts, `templates/ltx2/restore-colorize` for black-and-white or
-  washed-out footage (keeps the source's size and rate; prompt names the
-  colours). Each inverts one defect and no other - neither upscales or
+  washed-out footage (keeps the source's size and rate, no soundtrack). It
+  colours only what the prompt names: look at a source frame
+  (`get_output_frames`) and write both prompt panels for that clip, naming
+  its colours - the default is an example and leaves an unlike clip grey. Each inverts one defect and no other - neither upscales or
   removes motion blur or grain - so name the defect and let the user
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
