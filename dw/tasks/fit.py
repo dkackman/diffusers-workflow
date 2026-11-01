@@ -40,7 +40,7 @@ from ..task_domains import (
     fit_downscale_problem,
     fit_mode_problem,
     real_number,
-    restore_fps_problem,
+    source_fps_problem,
     whole_number,
 )
 from .video_utils import frames_of, frames_as_array, load_audio_video
@@ -293,7 +293,7 @@ def restore_to_source(video, fit, fps=None):
         soundtrack - pair the source's with pair_audio
     """
     command = "restore_to_source"
-    problem = restore_fps_problem(fps)
+    problem = source_fps_problem(fps)
     if problem is not None:
         raise ValueError(problem)
     fit = _read_fit(fit)

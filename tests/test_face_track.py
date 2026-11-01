@@ -690,6 +690,28 @@ class TestPasteFaceTrack:
         assert max(x.mean() for x in d) < 0.1
         assert max(x.max() for x in d) <= 32
 
+    @pytest.mark.parametrize(
+        "fps, expected",
+        [(None, 8), ("source", 8), (12, 12), ("12", 12), (12.5, 12.5)],
+    )
+    def test_the_output_rate_is_the_clips_unless_fps_sets_one(
+        self, stub_detector, fps, expected
+    ):
+        """#1106: omitted or "source" keeps the 8 fps clip's rate; a number
+        sets it. The frame count never changes."""
+        arrays = self.frames()
+        clip, crops, track = tracked(arrays, fps=8)
+        kwargs = {} if fps is None else {"fps": fps}
+        out = ft.paste_face_track(clip, crops, track, **kwargs)
+        assert out.fps == expected
+        assert len(out.frames) == len(arrays)
+
+    @pytest.mark.parametrize("fps", [0, -1, "x"])
+    def test_a_bad_fps_is_refused_at_run_time(self, stub_detector, fps):
+        clip, crops, track = tracked(self.frames(), fps=8)
+        with pytest.raises(ValueError, match="fps"):
+            ft.paste_face_track(clip, crops, track, fps=fps)
+
     def test_strength_zero_is_an_exact_passthrough(self, stub_detector):
         arrays = self.frames()
         clip, crops, track = tracked(arrays)
@@ -776,7 +798,7 @@ class TestPasteFaceTrack:
 
 class TestPasteValidation:
     @staticmethod
-    def paste_workflow(feather):
+    def paste_workflow(feather, **extra):
         return {
             "id": "x",
             "steps": [
@@ -789,6 +811,7 @@ class TestPasteValidation:
                             "repaired": "r.mp4",
                             "track": "t.json",
                             "feather": feather,
+                            **extra,
                         },
                     },
                 }
@@ -802,6 +825,22 @@ class TestPasteValidation:
 
     def test_good_feather_is_accepted(self):
         assert task_argument_errors(self.paste_workflow(0.3)) == []
+
+    @pytest.mark.parametrize("fps", [0, -2, "x", True])
+    def test_a_bad_fps_is_refused(self, fps):
+        errors = task_argument_errors(self.paste_workflow(0.3, fps=fps))
+        assert [e["path"] for e in errors] == ["steps[0].task.arguments.fps"]
+
+    @pytest.mark.parametrize("fps", ["source", 12, "12", 23.976, "variable:rate"])
+    def test_source_a_number_or_a_deferred_fps_is_accepted(self, fps):
+        assert task_argument_errors(self.paste_workflow(0.3, fps=fps)) == []
+
+    def test_the_task_describes_fps(self):
+        from dw.introspection import describe_task
+
+        found = {p["name"]: p for p in describe_task("paste_face_track")["parameters"]}
+        assert found["fps"]["default"] is None
+        assert "source" in found["fps"]["description"]
 
 
 def test_paste_command_is_registered():
@@ -1017,3 +1056,31 @@ def test_the_ltx_template_crop_step_passes_no_window_or_rate():
         s for s in steps if s.get("task", {}).get("command") == "crop_face_track"
     )
     assert not {"min_frames", "max_frames", "fps"} & set(crop["task"]["arguments"])
+
+
+def _template_steps(name):
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "workflows", "templates", "ltx2", name
+    )
+    with open(path) as f:
+        workflow = json.load(f)
+    return workflow, {s["name"]: s for s in workflow["steps"]}
+
+
+@pytest.mark.parametrize(
+    "name, model, carrier, rateless",
+    [
+        ("face-repair.json", "refine", "pasted", ["crop", "pasted"]),
+        ("restore-long.json", "restore", "join", ["window", "join"]),
+    ],
+)
+def test_the_ltx_template_writes_at_the_source_rate(name, model, carrier, rateless):
+    """#1106: the model runs at a literal 24 fps; the step that writes the
+    output carries frame_rate, which defaults to the source's own."""
+    workflow, steps = _template_steps(name)
+    assert workflow["variables"]["frame_rate"] == "source"
+    assert steps[model]["pipeline"]["arguments"]["frame_rate"] == 24.0
+    assert steps[model]["result"]["fps"] == 24.0
+    assert steps[carrier]["task"]["arguments"]["fps"] == "variable:frame_rate"
+    for step in rateless:
+        assert "fps" not in steps[step].get("result", {})

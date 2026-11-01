@@ -973,7 +973,7 @@ that step instead.
 | `num_frames` | Yes | Frames per window, as given to `window_video` |
 | `overlap` | Yes | Frames each window shares with the one before, as given to `window_video` |
 | `curve` | No | The blend's shape across a seam: `cosine` (the default, `(1 - cos πt) / 2`), `smoothstep` (`3t² - 2t³`) or `linear` (`t`) |
-| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to put its audio back |
+| `fps` | No | The joined video's frame rate: omitted or `"source"` for the rate the source's file was read at, or a number above zero for that rate. No frames are added or dropped; the source's audio is put back over the frames at this rate |
 
 The result has exactly the source's frame count, each source frame once:
 window 0's real frames, then each later window's first `overlap` frames
@@ -1002,7 +1002,8 @@ check is the task's (`dw/window_count_errors.py`), so any `join_windows`
 step gets it, and it applies the same `window_count_problem` the task does. It also refuses a window whose frame count is not `num_frames`
 (named by position) and windows of different sizes. An unknown `curve` and an
 `overlap` that is not below `num_frames` are refused by `validate_workflow`
-on literal values as well.
+on literal values as well, and so is an `fps` that is neither `"source"`
+nor a number above zero.
 
 The output's audio is the source's own track over exactly
 `frames_to_samples(source_frames)`, and none when the source has none; the
@@ -1257,6 +1258,7 @@ using the `track` record `crop_face_track` returned:
 | `track` | Yes | The `track` record `crop_face_track` returned (`previous_result:<step>.track`), or the path of its saved `.json`, such as an `output:` reference |
 | `feather` | No | Fraction of the paste's radius that fades out, `0` to `1`. Default `0.3` |
 | `color_match` | No | Shift each crop's mean colour onto the source's inside the mask before blending. Default `true` |
+| `fps` | No | The output's frame rate: omitted or `"source"` for the clip's own, or a number above zero for that rate. No frames are added or dropped |
 
 The pad frames are dropped: the crop at `pad_before + i` goes back on source
 frame `i`. Each crop is resized to the square it was cut from, then blended
@@ -1271,11 +1273,12 @@ through exactly. With `color_match`, the crop's mean colour is shifted onto the
 source's inside the mask, so a repair pass that drifted in tone does not show
 as a patch.
 
-It returns the source clip with its audio, frame rate and shots carried, the
-same frames one for one. It refuses a track whose frame count or frame size
+It returns the source clip with its audio and shots carried, the same frames
+one for one, at the clip's frame rate unless `fps` sets another. It refuses a track whose frame count or frame size
 does not match the clip, a `repaired` with fewer frames than the track's
 `crop_frames`, and a `track` that is not a `crop_face_track` record.
-`validate_workflow` refuses a `feather` past `1` before the job runs.
+`validate_workflow` refuses a `feather` past `1`, and an `fps` that is
+neither `"source"` nor a number above zero, before the job runs.
 
 **Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — the repaired crops pasted back over the source, its soundtrack kept.
 
