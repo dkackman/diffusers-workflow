@@ -47,7 +47,7 @@ def fake_demucs(apply_model):
     }
 
 
-def quarter_split(model, mix, device=None, split=True):
+def quarter_split(model, mix, device=None, split=True, shifts=1):
     """Each stem is a distinct share of the (normalized) mix; they sum to it."""
     shares = torch.tensor([0.1, 0.2, 0.3, 0.4]).view(1, 4, 1, 1)
     return mix[:, None] * shares
@@ -81,10 +81,26 @@ class TestSeparateStems(unittest.TestCase):
         numpy.testing.assert_allclose(total, source, atol=1e-4)
         numpy.testing.assert_allclose(stems["vocals"].audio, source * 0.4, atol=1e-4)
 
+    def test_clip_shorter_than_the_segment_is_not_shift_averaged(self):
+        # #1130: htdemucs' random-shift averaging blew up short clips
+        seen = []
+
+        def spy(model, mixture, device=None, split=True, shifts=1):
+            seen.append(shifts)
+            return quarter_split(model, mixture)
+
+        with (
+            patch.dict(sys.modules, fake_demucs(spy)),
+            patch.object(FakeModel, "segment", 7.8, create=True),
+        ):
+            separate_stems(AudioTrack(mix(1.0), RATE), device="cpu")
+            separate_stems(AudioTrack(mix(9.0), RATE), device="cpu")
+        self.assertEqual(seen, [0, 1])
+
     def test_mps_failure_retries_on_cpu_with_a_warning(self):
         devices = []
 
-        def flaky(model, mixture, device=None, split=True):
+        def flaky(model, mixture, device=None, split=True, shifts=1):
             devices.append(device)
             if len(devices) == 1:
                 raise RuntimeError("boom")
@@ -106,7 +122,7 @@ class TestSeparateStems(unittest.TestCase):
         self.assertIn("audio", names)
 
 
-def vocals_only(model, mix, device=None, split=True):
+def vocals_only(model, mix, device=None, split=True, shifts=1):
     """The whole (normalized) mix comes back as the vocal stem."""
     shares = torch.tensor([0.0, 0.0, 0.0, 1.0]).view(1, 4, 1, 1)
     return mix[:, None] * shares

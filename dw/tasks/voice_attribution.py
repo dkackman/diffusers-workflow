@@ -581,9 +581,20 @@ def _run_separator_stems(waveform, sample_rate, device, dtype):
     reference = mix.mean(0)
     mean, std = reference.mean(), reference.std()
     std = std if float(std) > 0 else torch.tensor(1.0)
+    # apply_model's default random-shift averaging (shifts=1) pads and
+    # re-aligns the mix; on a clip shorter than the model's own segment that
+    # returned stems up to 17 dB louder than the mix, and different on every
+    # run (#1130). Such a clip is separated as it is, once, which is exact
+    # and repeatable.
+    segment = float(getattr(model, "segment", 0) or 0)
+    shifts = 0 if mix.shape[-1] < segment * rate else 1
     with torch.no_grad():
         stems = apply_model(
-            model, ((mix - mean) / std)[None], device=device, split=True
+            model,
+            ((mix - mean) / std)[None],
+            device=device,
+            split=True,
+            shifts=shifts,
         )[0]
     return {
         name: (stems[index] * std + mean).float().cpu().numpy()
