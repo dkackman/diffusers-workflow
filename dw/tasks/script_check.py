@@ -423,6 +423,7 @@ def check(
         duration,
     )
     findings.extend(found)
+    rules_skipped.extend(_uncovered_speech(spans, heard, duration))
     found, unchecked = _unheard_line_clips(mono, sample_rate, lines, findings, spans)
     findings.extend(found)
     rules_skipped.extend(unchecked)
@@ -681,6 +682,34 @@ def _shot_rules(
                 )
             )
     return rules_applied, rules_skipped, findings
+
+
+def _uncovered_speech(spans, heard, duration):
+    """A `shot_coverage` skip entry (#1129) naming each stretch of the take
+    outside every supplied shot where words were heard: no shot rule looks
+    there, so a clean result must not read as checked."""
+    if not spans:
+        return []
+    gaps, cursor = [], 0.0
+    for span in sorted(spans, key=lambda s: s["start"]):
+        if span["start"] > cursor:
+            gaps.append((cursor, span["start"]))
+        cursor = max(cursor, span["end"])
+    if duration > cursor:
+        gaps.append((cursor, duration))
+    named = []
+    for start, end in gaps:
+        if any(start <= (w["start"] + w["end"]) / 2 < end for w in heard):
+            named.append(f"{round_seconds(start)}-{round_seconds(end)} s")
+    if not named:
+        return []
+    return [
+        {
+            "rule": "shot_coverage",
+            "reason": "speech was heard outside the supplied shot map and "
+            "not checked against any shot: " + ", ".join(named),
+        }
+    ]
 
 
 def _loop_findings(chunks, script_words):
@@ -1044,6 +1073,8 @@ def check_script(
             start_sample, num_samples}]) - default: the take's own (an earlier
             step's video), else the run manifest or keep_output sidecar
             beside its file. A line naming a shot the map lacks is refused.
+            Speech outside every shot of a partial map is not checked by
+            the shot rules; 'rules_skipped' names those spans (shot_coverage).
 
     Returns:
         A JSON document: 'findings' (line_mismatch, tag_spoken,

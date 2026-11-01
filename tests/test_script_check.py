@@ -695,6 +695,33 @@ class TestShotPlacement(unittest.TestCase):
         self.assertEqual(found[0]["at"]["shot"], "B")
 
 
+class TestUncoveredSpeech(unittest.TestCase):
+    def test_speech_before_a_partial_map_is_named_as_unchecked(self):
+        chunks = words("ladle soup grudges", 0.0) + words("alpha bravo", 5.0)
+        spans = [{"name": "A", "start": 4.0, "end": 8.0}]
+        answer = run(
+            [{"text": "alpha bravo", "shot": "A"}],
+            chunks,
+            spans=spans,
+            shots_source="explicit",
+        )
+        (skip,) = [s for s in answer["rules_skipped"] if s["rule"] == "shot_coverage"]
+        self.assertIn("0.0-4.0 s", skip["reason"])
+
+    def test_full_coverage_has_no_entry(self):
+        chunks = words("alpha bravo", 5.0)
+        spans = [{"name": "A", "start": 4.0, "end": 8.0}]
+        answer = run(
+            [{"text": "alpha bravo", "shot": "A"}],
+            chunks,
+            spans=spans,
+            shots_source="explicit",
+        )
+        self.assertFalse(
+            [s for s in answer["rules_skipped"] if s["rule"] == "shot_coverage"]
+        )
+
+
 class TestUnscriptedSpeech(unittest.TestCase):
     def test_a_line_spoken_twice_in_its_shot_is_a_finding(self):
         chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
