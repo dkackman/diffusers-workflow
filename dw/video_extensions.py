@@ -29,7 +29,7 @@ fully static shape is checked; tasks take a video per frame and are left alone.
 
 from . import references
 from .argument_media import is_media_reference
-from .for_each import render_path
+from .for_each import cross_entry_key, render_path
 from .security import ALLOWED_IMAGE_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
 
 
@@ -153,7 +153,7 @@ def video_into_image_errors(workflow_definition, source_indices=None):
                 # Another entry of the member's own list: refused outright by
                 # cross_entry_reference_errors (#1101), whose fix is the one
                 # that applies - no still can be taken inside one list
-                if references.cross_entry_key(name, step.get("name")) is not None:
+                if cross_entry_key(name, step.get("name")) is not None:
                     continue
                 errors.append(
                     {

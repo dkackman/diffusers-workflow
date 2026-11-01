@@ -6,7 +6,7 @@ from . import references
 from .arguments import (
     build_objects,
 )
-from .for_each import render_path
+from .for_each import cross_entry_key, render_path
 from .step_cache import reference_resolves_to
 
 logger = logging.getLogger("dw")
@@ -395,7 +395,7 @@ def previous_result_reference_errors(workflow_definition, source_indices=None):
                 continue
             # A sibling entry later in the list is cross_entry_reference_errors'
             # to report, with the fix that applies (#1101)
-            if references.cross_entry_key(reference, name) is not None:
+            if cross_entry_key(reference, name) is not None:
                 continue
             location = render_path(("steps", source) + path)
             errors.append(
@@ -428,7 +428,7 @@ def cross_entry_reference_errors(workflow_definition, source_indices=None):
 
     Both spellings, the 'previous_result:' prefix and 'from_previous_result',
     with or without a '.property'. Membership is read off the member names
-    (`references.cross_entry_key`), so nothing else from the expansion is
+    (`for_each.cross_entry_key`), so nothing else from the expansion is
     needed beyond the source indices the paths use.
     """
     errors = []
@@ -441,7 +441,7 @@ def cross_entry_reference_errors(workflow_definition, source_indices=None):
         found = {}
         _collect_reference_paths(step, (), found)
         for path, reference in sorted(found.items(), key=lambda item: str(item[0])):
-            key = references.cross_entry_key(reference, name)
+            key = cross_entry_key(reference, name)
             if key is None:
                 continue
             errors.append(
