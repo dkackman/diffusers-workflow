@@ -60,7 +60,10 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   rate (`frame_rate` overrides the rate), with no soundtrack. Colorize
   colours only what the prompt names: look at a source frame
   (`get_output_frames`) and write both prompt panels for that clip, naming
-  its colours - the default is an example and leaves an unlike clip grey. Each inverts one defect and no other - neither upscales or
+  its colours - the default is an example and leaves an unlike clip grey.
+  Reliable on 24 fps 16:9; a low-rate or portrait source may stay grey even
+  so: check a frame of the result; if it is grey, this route doesn't take
+  that source. Each inverts one defect and no other - neither upscales or
   removes motion blur or grain - so name the defect and let the user
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
