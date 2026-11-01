@@ -5,7 +5,9 @@ Written by model `claude-opus-5-5` via provider `anthropic` (close-out,
 by Don on 2026-10-31 ("approve with defaults"). It was built as two stages:
 #1079 (stage A, Alpha-Gen) and #1080 (stage B, Colorization). Stage A was
 verified 2026-10-31 on develop @ 6b1dcfcb, stage B 2026-11-01 on develop
-@ fc0a40d9, both on lem over MCP.
+@ fc0a40d9, both on lem over MCP. The feature's final check then bounced on
+M-F293 (below); plans v11-v12 added a text-only fix-forward stage, #1114
+(stage C), verified 2026-11-01 on develop @ 96dbdd91.
 
 ## The report
 
@@ -128,6 +130,36 @@ Verified with clip-matched prompts: the black-and-white office fixture at
 overrides it with near-identical frames (41.0 dB, SSIM 0.982); a 384x544
 portrait comes back at its own size with no letterbox band or edge bleed.
 
+### Stage C (#1114): `restore-colorize`'s colour limit, documented (fix-forward)
+
+Commit: `3a3b3a1d` (merged `f3fdb6cf`).
+
+**Why.** The feature's final check bounced on M-F293: with a clip-matched
+prompt, `restore-colorize` coloured the 24 fps 16:9 fixture (`718e232f76b0`)
+but left the same subject grey at 8 fps, 97 frames (`763968953985`, and
+`3579d7d376b2` with `frame_rate: 24`) and as a 384x544 portrait
+(`cf3ad9b05f4f`), with only a faint blue lanyard. Rate, size, frame count
+and no-band all held. No template change was known to fix it, so this was a
+plan gap, not a build miss. The likely suspects are the 8 fps motion per
+frame (the LoRA is trained at 24) and the portrait's letterbox padding
+(about 60% of the reference is black); the cause was not screened. Don
+ruled Q12 (a): document the limit and close, no GPU screen (Q12 (b)) and no
+withdrawal (Q12 (c)).
+
+- Template description: "Colour is reliable on a 24 fps 16:9 source; a
+  low-frame-rate or portrait source may stay grey even with a matched
+  prompt, so check a frame of the result." `COMPACT_BUDGET` re-measured.
+- `ltx-2.5` skill row: the same limit, plus "check a frame of the result;
+  if it is grey, this route doesn't take that source".
+- `ic-colorization` evidence note: the B8/BP result with the three grey
+  jobs, and `718e232f76b0` for contrast.
+- No engine, step or variable change; the output still follows the
+  source's frame rate (Q7).
+
+Verified by M-F294 (M-F293 with colour as a record: all three arms grey,
+every rate/geometry/no-band point held; jobs `5fb3d6a80467`,
+`7c885d73df4a`, `23b79bb81090`) and M-F295 (the wording, free).
+
 ### Records for the two not onboarded
 
 `ic-clean-plate` and `ic-day-to-night` stay `trial`, `workflow: null`, each
@@ -152,6 +184,10 @@ with an `evidence` item `{issue: 1064, note}`:
 - **Clean-Plate, Day-To-Night, SDR-To-HDR:** recorded above / out of scope.
 - **Moving other templates to the source's rate:** Don's Q7 audit, filed
   separately as #1090.
+- **Why `restore-colorize` stays grey on a low-rate or portrait source**
+  (Q12 (b)): documented, not explained. A field report that hits it starts
+  from Q12 (b)'s bounded screen (8 fps motion, letterbox padding, length)
+  as a feature of its own.
 
 ## Cost and bounces
 
@@ -170,6 +206,9 @@ estimated stage B's first build at about $3.5.
   three fixtures with the default prompt (finding 7). Re-planned (v9/v10)
   to put the per-clip prompt on the caller. One verify session in between
   did not run (incomplete MCP surface) and is not counted.
+- **Stage C (#1114): 0 bounces, 1 build.** Estimated at about $0.5.
+- **Feature final check: 1 bounce** (M-F293, the B8/BP colour limit),
+  answered by stage C.
 - A licence gate on the Colorization LoRA parked stage B once until Don
   accepted it on Hugging Face (2026-10-31).
 
