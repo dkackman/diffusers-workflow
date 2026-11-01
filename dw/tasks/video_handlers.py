@@ -233,7 +233,15 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
 @register_command(
     "join_windows",
     implementation="dw.tasks.windows.join_windows",
-    domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
+    parameter_descriptions={
+        "fps": (
+            'The joined video\'s frame rate. Omitted or "source", the rate '
+            "the source's file was read at; a number above zero is that rate. "
+            "No frames are added or dropped, and the source's audio is put "
+            "back over the frames at this rate."
+        ),
+    },
+    domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE},
     whole_numbers=("num_frames", "overlap"),
     choices={"curve": JOIN_WINDOWS_CURVES},
     static_check=join_windows_errors,
@@ -385,8 +393,8 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     parameter_descriptions={
         "clip": (
             "The source video crop_face_track tracked - a file path, an "
-            "asset:/output: reference, or an earlier step's video. Its audio, "
-            "frame rate and shots are kept."
+            "asset:/output: reference, or an earlier step's video. Its audio "
+            "and shots are kept, and its frame rate unless 'fps' sets one."
         ),
         "repaired": (
             "The crops after a face-detail pass, still padded to the count "
@@ -400,6 +408,11 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
         "color_match": (
             "Match each crop's mean colour to the source inside the mask "
             "before blending."
+        ),
+        "fps": (
+            'The repaired video\'s frame rate. Omitted or "source", the '
+            "clip's own; a number above zero is that rate. No frames are "
+            "added or dropped."
         ),
     },
     domains={"feather": NON_NEGATIVE},

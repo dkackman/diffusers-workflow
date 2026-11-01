@@ -53,7 +53,7 @@ from ..task_problems import (
     face_track_problems,
     paste_feather_problems,
 )
-from ..task_domains import check_arguments
+from ..task_domains import SOURCE_FPS, check_arguments, real_number, source_fps_problem
 from ..variable_constraints import aligned
 from .video_utils import frames_as_pil_list, load_audio_video
 from .weights import argument_or_default, file_entries
@@ -768,19 +768,22 @@ def _read_track(track):
     return track
 
 
-def paste_face_track(clip, repaired, track, feather=0.3, color_match=True):
+def paste_face_track(clip, repaired, track, feather=0.3, color_match=True, fps=None):
     """Task command: put repaired face crops back into the clip they came from.
 
     Args:
         clip: The source video crop_face_track read - frames, an AudioVideo,
-            or the path or URL of a video file. Its audio, frame rate and
-            shots come through unchanged
+            or the path or URL of a video file. Its audio and shots come
+            through unchanged, and its frame rate unless `fps` sets one
         repaired: The crops after a face-detail pass, still padded to the
             padded count crop_face_track produced; any frame size
         track: The `track` record crop_face_track returned, or its .json file
         feather: Fraction of the paste's radius that fades out, 0 to 1
         color_match: Match each crop's mean colour to the source's inside the
             mask before blending
+        fps: The output's frame rate - omitted or "source" for the clip's
+            own, or a number above zero for that rate (#1090). No frames are
+            added or dropped for it
     Returns:
         An AudioVideo: the source frames with the face pasted back where the
         strength is above 0, and the source frame itself where it is 0
@@ -789,6 +792,12 @@ def paste_face_track(clip, repaired, track, feather=0.3, color_match=True):
     if problems:
         raise ValueError("; ".join(message for _, message in problems))
     feather = float(feather)
+    problem = source_fps_problem(fps, "paste_face_track")
+    if problem is not None:
+        raise ValueError(problem)
+    if fps == SOURCE_FPS:
+        fps = None
+    fps = real_number(fps, "fps", "paste_face_track")
     track = _read_track(track)
 
     if isinstance(clip, str):
@@ -855,6 +864,6 @@ def paste_face_track(clip, repaired, track, feather=0.3, color_match=True):
         out,
         getattr(clip, "audio", None),
         getattr(clip, "sample_rate", None),
-        fps=getattr(clip, "fps", None),
+        fps=fps or getattr(clip, "fps", None),
         shots=carried_shots(clip),
     )

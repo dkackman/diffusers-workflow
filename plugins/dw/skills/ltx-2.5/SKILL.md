@@ -71,13 +71,15 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   smeared face in a wide shot, the rest left alone:
   `templates/ltx2/face-repair` (`strength` 0-4, default 2; describe the
   person in `prompt` to hold identity at 3-4). A near face comes back
-  untouched. Footage
+  untouched; the source's soundtrack, size and frame rate are kept
+  (`frame_rate` overrides the rate, never the frame count). Footage
   longer than `num_frames`: `templates/ltx2/restore-long` restores it window
   by window. Its `windows` list needs `ceil(source_frames / (num_frames -
   overlap))` entries, `index` 0 up - read `source_frames` from
   `get_gallery_metadata`, keep `num_frames` 121 and `overlap` 16 (105 new
   frames per window), and let `validate_workflow` name any entry to add or
-  drop. At most 32 windows.
+  drop. At most 32 windows. Written at the source's frame rate with its
+  soundtrack (`frame_rate` overrides the rate, never the frame count).
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead

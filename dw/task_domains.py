@@ -588,11 +588,14 @@ def window_video_errors(arguments, command="window_video"):
 
 def join_windows_errors(arguments):
     """[(argument, message)] for the join_windows rules a literal workflow
-    can break before it runs: an unknown `curve`, and the overlap rule it
-    shares with window_video. The window count needs the source's frame
-    count, which the run measures."""
-    return choice_errors("join_windows", arguments) + window_video_errors(
-        arguments, "join_windows"
+    can break before it runs: an unknown `curve`, the overlap rule it shares
+    with window_video, and an `fps` that is neither "source" nor a positive
+    number. The window count needs the source's frame count, which the run
+    measures."""
+    return (
+        choice_errors("join_windows", arguments)
+        + window_video_errors(arguments, "join_windows")
+        + source_fps_errors(arguments, "join_windows")
     )
 
 
@@ -675,31 +678,38 @@ def fit_to_model_errors(arguments):
     return errors
 
 
-# restore_to_source's `fps` value for "the rate the source carried", read
-# from the fit record's `source_fps` (#1079)
+# The `fps` value for "the rate the source carried" - restore_to_source's,
+# read from the fit record's `source_fps` (#1079), and paste_face_track's
+# and join_windows', read from the source clip itself (#1090)
 SOURCE_FPS = "source"
 
 
-def restore_fps_problem(fps):
-    """The refusal sentence for a restore_to_source `fps` that is neither
-    "source" nor a positive number, or None. Omitted (None) and a reference
-    still to resolve are not this check's to refuse."""
+def source_fps_problem(fps, command="restore_to_source"):
+    """The refusal sentence for a `command` `fps` that is neither "source"
+    nor a positive number, or None. Omitted (None) and a reference still to
+    resolve are not this check's to refuse."""
     if fps is None or fps == SOURCE_FPS or is_ref(DEFERRED, fps):
         return None
     if _is_literal_text(fps) and not _is_non_finite_text(fps):
         return (
-            f"restore_to_source needs 'fps' as {SOURCE_FPS!r} or a number "
+            f"{command} needs 'fps' as {SOURCE_FPS!r} or a number "
             f"({_DOMAIN_TEXT[POSITIVE]}), got {fps!r}"
         )
-    return domain_error("restore_to_source", "fps", fps, POSITIVE)
+    return domain_error(command, "fps", fps, POSITIVE)
+
+
+def source_fps_errors(arguments, command):
+    """[(argument, message)] for the rule a literal `fps` breaks before the
+    run: neither "source" nor a positive number."""
+    problem = source_fps_problem(arguments.get("fps"), command)
+    return [] if problem is None else [("fps", problem.rstrip("."))]
 
 
 def restore_to_source_errors(arguments):
     """[(argument, message)] for the restore_to_source rule a literal
     workflow can break before it runs: an `fps` that is neither "source" nor
     a positive number."""
-    problem = restore_fps_problem(arguments.get("fps"))
-    return [] if problem is None else [("fps", problem.rstrip("."))]
+    return source_fps_errors(arguments, "restore_to_source")
 
 
 def dissolve_shortfalls(frame_counts, dissolve_frames):
