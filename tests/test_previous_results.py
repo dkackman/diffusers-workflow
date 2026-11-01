@@ -3,6 +3,8 @@ Unit tests for previous_results module
 Tests cartesian product generation and result reference handling
 """
 
+import tempfile
+
 import pytest
 from dw.previous_results import (
     StepResults,
@@ -11,6 +13,7 @@ from dw.previous_results import (
     find_previous_result_refs,
     previous_result_reference_errors,
 )
+from dw.workflow import workflow_from_definition
 from dw.workflow_run import release_unreferenced_results
 from dw.result import Result
 from PIL import Image
@@ -634,3 +637,163 @@ class TestStaticReferenceChecking:
 
     def test_a_definition_with_no_steps_is_not_an_error(self):
         assert previous_result_reference_errors({"id": "test"}) == []
+
+
+class TestCrossEntryReferences:
+    """#1101: entries of one for_each list can't read each other. A literal
+    `shot@a` inside `shot@b` is refused at validation; same-key pairing,
+    reads from outside the group and `gather:` stay legal. Every case goes
+    through the real validate path."""
+
+    CROSS = "of the same for_each list"
+
+    def errors(self, steps, shots=None):
+        definition = {
+            "id": "cross_entry",
+            "variables": {
+                "shots": shots
+                if shots is not None
+                else [{"name": "a", "text": "one"}, {"name": "b", "text": "two"}]
+            },
+            "steps": steps,
+        }
+        return workflow_from_definition(
+            definition, tempfile.mkdtemp()
+        ).validation_errors()
+
+    def group(self, name, parts, over="variable:shots"):
+        return {
+            "name": name,
+            "for_each": over,
+            "task": {"command": "compose_text", "arguments": {"parts": parts}},
+        }
+
+    def cross(self, errors):
+        return [e for e in errors if self.CROSS in e["message"]]
+
+    def test_the_prefix_spelled_in_an_entry_is_refused(self):
+        shots = [
+            {"name": "a", "text": "one"},
+            {"name": "b", "text": "previous_result:shot@a"},
+        ]
+        errors = self.errors([self.group("shot", ["item:text"])], shots)
+        cross = self.cross(errors)
+        assert len(cross) == 1, errors
+        assert cross[0]["path"] == "steps[0].task.arguments.parts[0]"
+        message = cross[0]["message"]
+        assert "'shot@a'" in message and "member 'shot@b'" in message
+        assert "reads another entry ('a')" in message
+        assert "output:" in message and "own run" in message
+        # One error, not also "names no earlier step"
+        assert len(errors) == 1, errors
+
+    def test_from_previous_result_in_a_spliced_entry_is_refused(self):
+        shots = [
+            {"name": "a", "ref": "x"},
+            {"name": "b", "ref": {"from_previous_result": "shot@a"}},
+        ]
+        errors = self.errors([self.group("shot", ["item:ref"])], shots)
+        cross = self.cross(errors)
+        assert len(cross) == 1, errors
+        assert "member 'shot@b'" in cross[0]["message"]
+        assert cross[0]["path"].endswith("from_previous_result")
+
+    def test_a_property_suffix_is_refused(self):
+        shots = [
+            {"name": "a", "text": "one"},
+            {"name": "b", "text": "previous_result:shot@a.frames"},
+        ]
+        cross = self.cross(self.errors([self.group("shot", ["item:text"])], shots))
+        assert len(cross) == 1
+        assert "reads another entry ('a')" in cross[0]["message"]
+
+    def test_index_keys_are_refused(self):
+        shots = [{"text": "one"}, {"text": "previous_result:shot@0"}]
+        cross = self.cross(self.errors([self.group("shot", ["item:text"])], shots))
+        assert len(cross) == 1
+        assert "member 'shot@1'" in cross[0]["message"]
+        assert "reads another entry ('0')" in cross[0]["message"]
+
+    def test_a_forward_sibling_gets_only_the_cross_entry_error(self):
+        shots = [
+            {"name": "a", "text": "previous_result:shot@b"},
+            {"name": "b", "text": "two"},
+        ]
+        errors = self.errors([self.group("shot", ["item:text"])], shots)
+        assert len(errors) == 1, errors
+        assert "reads another entry ('b')" in errors[0]["message"]
+
+    def test_same_key_bare_and_literal_is_legal(self):
+        shots = [
+            {"name": "a", "text": "one", "own": "previous_result:shot@a"},
+            {"name": "b", "text": "two", "own": "previous_result:shot@b"},
+        ]
+        assert (
+            self.errors(
+                [
+                    self.group("shot", ["item:text"]),
+                    self.group("trim", ["previous_result:shot"]),
+                    self.group("tail", ["item:own"]),
+                ],
+                shots,
+            )
+            == []
+        )
+
+    def test_a_later_ordinary_step_and_gather_are_legal(self):
+        assert (
+            self.errors(
+                [
+                    self.group("shot", ["item:text"]),
+                    {
+                        "name": "after",
+                        "task": {
+                            "command": "compose_text",
+                            "arguments": {"parts": ["previous_result:shot@a"]},
+                        },
+                    },
+                    {
+                        "name": "all",
+                        "task": {
+                            "command": "compose_text",
+                            "arguments": {"parts": "gather:shot"},
+                        },
+                    },
+                ]
+            )
+            == []
+        )
+
+    def test_another_group_over_the_same_list_reading_another_key_is_legal(self):
+        shots = [
+            {"name": "a", "text": "one", "other": "previous_result:shot@b"},
+            {"name": "b", "text": "two", "other": "previous_result:shot@a"},
+        ]
+        assert (
+            self.errors(
+                [
+                    self.group("shot", ["item:text"]),
+                    self.group("trim", ["item:other"]),
+                ],
+                shots,
+            )
+            == []
+        )
+
+    def test_a_group_over_a_different_list_is_legal(self):
+        definition_steps = [
+            self.group("shot", ["item:text"]),
+            self.group("trim", ["previous_result:shot@a"], over="variable:takes"),
+        ]
+        definition = {
+            "id": "cross_entry",
+            "variables": {
+                "shots": [{"name": "a", "text": "one"}, {"name": "b", "text": "2"}],
+                "takes": [{"name": "x"}, {"name": "y"}],
+            },
+            "steps": definition_steps,
+        }
+        assert (
+            workflow_from_definition(definition, tempfile.mkdtemp()).validation_errors()
+            == []
+        )

@@ -176,6 +176,7 @@ def test_validation_does_not_import_the_workflow_module():
 
 ERROR_ORDER = [
     "previous_result_references",
+    "cross_entry_references",
     "subfolders",
     "fps",
     "cache",

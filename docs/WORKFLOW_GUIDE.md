@@ -621,7 +621,9 @@ reference to another `for_each` step `slice` over the same `shots` list
 resolves to `slice@closeup`. That is how a shot reads the audio
 slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
-no zip and no loop index.
+no zip and no loop index. Same-key pairing is the only way one member reads another
+member of the same list's expansion: a member never reads a sibling entry of
+its own list (below).
 
 That auto-pairing is at the *step* level only, where `from_previous_result`
 (or `previous_result:`) sits directly in the `for_each` step's own
@@ -633,22 +635,19 @@ came from. Spell the member out: `{"reference_type": "…",
 fails the run with a precise error naming the members that do exist, but the
 guide says it here first.
 
-A member may reference an *earlier* member of its own list directly
-(`"image": "previous_result:shot@accuse"` inside `shot@deflect`), but it
-cannot interpose a derivation on that reference — "shot 2 starts where shot
-1 ended," a still pulled from shot 1's last frame with `get_last_frame`.
-There is no step between two members of the same `for_each` list: a step
-meant to derive that still (say, named `last`) would itself have to sit
-after `shot` in the file to read `shot@accuse`'s result, which makes it a
-step *after* the whole list, and referencing it from inside the list is a
-`previous_result:` naming no earlier step — refused at validate. Split the
-list at the dependency instead: run the members up to and including the one
-being derived from as their own `for_each` (or, for a single entry, an
-ordinary step), add an ordinary `get_last_frame` step after it reading
-`previous_result:shot@accuse`, and run the remaining members as a second
-`for_each` whose dependent entry takes that derived still — as a variable
-value or, over the API/MCP, folded into the entry itself — rather than a
-bare `previous_result:` reference to the video.
+Members of one list can't read each other. A literal reference to another
+entry of the member's own list (`"image": "previous_result:shot@accuse"`
+inside `shot@deflect`, spelled in the template or carried in an entry, with
+either spelling and with or without a `.property`) is refused at validate:
+it would make the list's order part of its meaning, and no derivation — "shot
+2 starts where shot 1 ended," a still pulled from shot 1's last frame with
+`get_last_frame` — can sit between two members of one list. When one entry
+depends on another, use separate runs: generate the one being derived from
+in its own run (with the derivation, such as a `get_last_frame` step, after
+it), then pass that run's file to the next run as an `output:` reference in
+the dependent entry. Another `for_each` step over the same list reading a
+different key (`trim@deflect` reading `shot@accuse`) stays legal: every member
+of `shot` has finished before `trim` starts.
 
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`
