@@ -446,6 +446,13 @@ remaining deferred fix is recorded in
   stems as the rest, a three-track `mixed`, then `balanced`. Record,
   including the deferred `separate_dialogue` task and its reopen trigger:
   `complete/dialogue-stems-complete.md`.
+- **Odd shots, then bridges, for long H3 takes** (#1094, stages #1102,
+  #1103), probed 2026-10-31. A/B on lem against a `last_segment` chain:
+  bridges held seams and take look far better, but an independent odd shot
+  duplicated the subject and the bridges carried it, so it **doesn't win**.
+  Landed as a "Probed, not a rule" entry in `minimax-h3/references/cuts.md`;
+  no template. Record, including the re-probe protocol and the template's
+  reopen trigger: `complete/h3-odd-then-bridge-complete.md`.
 
 ## Declined
 
