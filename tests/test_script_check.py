@@ -898,6 +898,83 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         found = rules(answer, "speech_not_transcribed")
         self.assertEqual({f["at"]["shot"] for f in found}, {"A", "B"})
 
+    # #1115, the ep318 cut: A's line dropped by the ASR, B's first word
+    # stretched back across the seam over it
+    EP318_SPANS = [
+        {"name": "A", "start": 0.0, "end": 5.167},
+        {"name": "B", "start": 5.167, "end": 11.042},
+    ]
+    EP318_LINES = [
+        {"text": "Pistachio in the colander.", "shot": "A"},
+        {"text": "The stapler did it.", "shot": "B"},
+    ]
+
+    def ep318(self):
+        chunks = [{"start": 0.88, "end": 9.82, "text": " The"}] + words(
+            "stapler did it.", 9.82, step=0.28, length=0.26
+        )
+        mono = numpy.concatenate(
+            [
+                silent(0.5),
+                voiced(1.0),
+                silent(1.5),
+                voiced(5.0),  # 3.0-8.0: A's speech runs over the seam at 5.167
+                silent(1.5),
+                voiced(1.0),
+                silent(0.542),
+            ]
+        )
+        return shot_run(self.EP318_LINES, chunks, mono=mono, spans=self.EP318_SPANS)
+
+    def test_a_line_timed_across_the_seam_is_kept_inside_its_shot(self):
+        line = self.ep318()["lines"][1]
+        self.assertEqual(line["shot"], "B")
+        self.assertGreaterEqual(line["start"], 5.167)
+        self.assertLessEqual(line["end"], 11.042)
+        # the ASR's own time is not hidden
+        self.assertEqual(line["asr_start"], 0.88)
+
+    def test_a_line_inside_its_shot_carries_no_asr_times(self):
+        chunks = words("alpha bravo", 0.5) + words("charlie delta", 6.0)
+        answer = shot_run(
+            [
+                {"text": "alpha bravo", "shot": "A"},
+                {"text": "charlie delta", "shot": "B"},
+            ],
+            chunks,
+            spans=self.EP318_SPANS,
+        )
+        for line in answer["lines"]:
+            self.assertNotIn("asr_start", line)
+            self.assertNotIn("asr_end", line)
+
+    def test_an_unheard_line_cut_off_by_its_shot_is_clipped(self):
+        # A's untranscribed speech runs to A's end and the tail is voiced
+        answer = self.ep318()
+        (clip,) = rules(answer, "line_clipped_at_end")
+        self.assertEqual(clip["at"]["line"], 0)
+        self.assertEqual(clip["at"]["shot"], "A")
+        self.assertEqual(clip["at"]["seconds"], 5.167)
+        self.assertEqual(
+            [s for s in skipped(answer, "line_clipped_at_end") if "line" in s], []
+        )
+
+    def test_an_unheard_line_with_nothing_to_check_is_listed_skipped(self):
+        chunks = words("charlie delta", 6.0)
+        mono = numpy.concatenate([silent(6.0), voiced(5.042)])
+        answer = shot_run(
+            [
+                {"text": "alpha bravo", "shot": "A"},
+                {"text": "charlie delta", "shot": "B"},
+            ],
+            chunks,
+            mono=mono,
+            spans=self.EP318_SPANS,
+        )
+        self.assertEqual(rules(answer, "line_clipped_at_end"), [])
+        (skip,) = skipped(answer, "line_clipped_at_end")
+        self.assertEqual(skip["line"], 0)
+
     def test_under_a_second_of_audible_sound_in_a_long_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)
         mono = numpy.concatenate([voiced(1.5), silent(3.5), voiced(1.0)])
