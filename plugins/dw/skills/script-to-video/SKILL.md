@@ -35,6 +35,10 @@ Fill in this shape before writing any prompt:
   stands where, what is held, at frame one) and `ending_state` (the same at
   the last frame). A shot's `opening_state` is the `ending_state` of its
   **source**, so the cut between them is written down rather than hoped for.
+- **Per shot, `beat`** (one visible state a single frame can show) and
+  **`must_not`** (a short list of physically or story-impossible things to
+  rule out: extra limbs, text in frame, the reference portrait itself).
+  `references/beat-review.md` has the rules for writing one.
 - **Per shot, optional `join`**: `continue` (the default; its source is the
   shot before), `cut` (opens fresh), `cutaway` (an insert: the shot after it
   takes the shot before it as source) or `lead_in` (its last frame is the
@@ -126,6 +130,8 @@ joined by `templates/assemble-and-score`). Never splice a re-rolled segment
 in with `concat_videos`: that join is recorded `hard_cut`, so
 `seam_frame_jump` stops checking it. A seam re-roll counts against the
 shot's budget below.
+Before the keep, run the beat review in `references/beat-review.md` on
+the shot's `get_output_frames` frames.
 Give each shot a budget of three failed attempts, then stop and ask the user
 rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the

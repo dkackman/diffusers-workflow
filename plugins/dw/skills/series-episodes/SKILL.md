@@ -165,6 +165,9 @@ template's own name - read off the run's manifest (`get_job`) rather than
 guessed. Or, if the shot should outlive its run directory the way the cast
 does, `keep_output` it and reference the resulting `asset:` instead.
 
+Before keeping each episode shot, run `dw:script-to-video`'s beat review
+(`script-to-video/references/beat-review.md`) on it.
+
 Beyond `minimax-h3`'s own judging checklist (a character that changes
 between shots, a portrait imposing its framing, a voice without affect):
 watch two episodes back to back and check the cast reads as the same
