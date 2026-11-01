@@ -52,7 +52,7 @@ def normalize_words(text):
 # repeats a word a few times; it does not loop. check_script discards such
 # words and transcribe_audio marks them `suspect: "repetition"` (#822)
 REPEAT_RUN_MIN = 6
-REPEAT_MAX_PERIOD = 4
+REPEAT_MAX_PERIOD = 6
 
 
 def repetition_runs(keys):

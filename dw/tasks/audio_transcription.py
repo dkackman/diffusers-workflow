@@ -203,6 +203,19 @@ _STOCK_PHRASES = frozenset(
 )
 
 
+def _repeats_earlier(chunks, index):
+    """True when an earlier chunk has this chunk's text over an overlapping span
+    - Whisper decoding one stretch of audio again (#1138)."""
+    chunk = chunks[index]
+    words = normalize_words(chunk["text"])
+    return any(
+        normalize_words(other["text"]) == words
+        and other["start"] < chunk["end"]
+        and chunk["start"] < other["end"]
+        for other in chunks[:index]
+    )
+
+
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
 
@@ -210,7 +223,9 @@ def _mark_suspect(chunks, mono, long_word):
     "no_words": the text has no word at all ('—', '♪', '...').
     "repetition": a word of a repetition loop ('I'm sorry, I'm sorry, ...'),
     found by `script_lines.looped_texts`, the detector check_script discards
-    loops with - Whisper's hallucination over music or a fade, however loud.
+    loops with - Whisper's hallucination over music or a fade, however loud;
+    also a chunk repeating an earlier chunk's text over an overlapping span
+    (the same stretch decoded again, #1138).
     "silent": the chunk's loudest window sits at or below the dead-air floor
     script_check guards with (`DEAD_AIR_FLOOR_DBFS`, measured by
     `dsp.loudest_window_dbfs`) - Whisper invents text over silence, a
@@ -234,7 +249,7 @@ def _mark_suspect(chunks, mono, long_word):
             continue
         if not normalize_words(chunk["text"]):
             reason = "no_words"
-        elif index in looped:
+        elif index in looped or _repeats_earlier(chunks, index):
             reason = "repetition"
         else:
             level = loudest_window_dbfs(
@@ -359,8 +374,8 @@ def _with_resumed_tail(pipe, samples, result, options):
     ends = _chunk_ends(raw_chunks)
     if ends and speech_end - max(ends) > _TAIL_GAP_SECONDS:
         emit_warning(
-            f"transcribe_audio: transcript ends at {max(ends):.1f} s but audible "
-            f"speech continues to {speech_end:.1f} s; the last line(s) may be "
+            f"transcribe_audio: transcript ends at {max(ends):.1f} s but audio "
+            f"activity continues to {speech_end:.1f} s; the last line(s) may be "
             "missing from the text"
         )
     return {**result, "text": " ".join(texts), "chunks": raw_chunks}

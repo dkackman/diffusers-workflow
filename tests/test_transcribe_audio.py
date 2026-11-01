@@ -391,6 +391,50 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(result["chunks"][0]["suspect"], "stock_phrase")
 
     @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_five_word_loop_and_its_duplicate_chunks_are_marked_repetition(
+        self, mock_pipeline
+    ):
+        # #1138: "I love you so much" x N, decoded again over the same span
+        waveform, rate = self._voiced(seconds=8.0)
+        loop = "I love you so much, " * 20 + "See you in the next video."
+        self._mock_pipe(
+            mock_pipeline,
+            loop,
+            chunks=[
+                {"text": loop, "timestamp": (0.0, 7.0)},
+                {"text": loop, "timestamp": (0.08, 7.08)},
+                {"text": "A different line.", "timestamp": (7.1, 7.9)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"][0]["suspect"], "repetition")
+        self.assertEqual(result["chunks"][1]["suspect"], "repetition")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_repeat_of_an_earlier_line_over_another_span_is_not_marked(
+        self, mock_pipeline
+    ):
+        waveform, rate = self._voiced(seconds=6.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "Hello there. Hello there.",
+            chunks=[
+                {"text": "Hello there.", "timestamp": (0.0, 2.0)},
+                {"text": "Hello there.", "timestamp": (3.0, 5.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertNotIn("suspect", result["chunks"][1])
+
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_line_containing_a_stock_phrase_is_not_marked(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=5.0)
         self._mock_pipe(
