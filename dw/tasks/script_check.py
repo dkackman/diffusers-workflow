@@ -516,7 +516,11 @@ def _line_pass(
         heard_end = max(heard_end or 0.0, end)
         tails = ([(shot, span["end"])] if span else []) + [(None, duration)]
         findings.extend(_clipped_findings(mono, sample_rate, tails, index, own, shot))
-        findings.extend(_untranscribed_findings(mono, sample_rate, index, own, shot))
+        findings.extend(
+            _untranscribed_findings(
+                mono, sample_rate, index, own, shot, spans, parsed_lines
+            )
+        )
         previous_end = end
 
     if heard_end is not None:
@@ -669,7 +673,9 @@ def _silent_take(heard, discarded, spans, shots_source):
     }
 
 
-def _untranscribed_findings(mono, sample_rate, index, own, shot):
+def _untranscribed_findings(
+    mono, sample_rate, index, own, shot, spans=None, parsed_lines=()
+):
     """speech_not_transcribed: audible sound in a gap the line's words leave
     - between two of them - or inside one word stretched over
     UNHEARD_MIN_SECONDS (#923). The gap before a line's first word is
@@ -678,19 +684,30 @@ def _untranscribed_findings(mono, sample_rate, index, own, shot):
     findings = []
     for start, end in intervals:
         if end - start >= UNHEARD_MIN_SECONDS:
-            findings.append(_untranscribed(mono, sample_rate, index, start, end, shot))
+            findings.extend(
+                _audible_findings(
+                    mono, sample_rate, index, start, end, shot, spans, parsed_lines
+                )
+            )
     for word in own:
         # A word is sound itself: only its interior past the margins is a gap
         if (
             word["end"] - word["start"]
             >= UNHEARD_MIN_SECONDS + 2 * UNHEARD_MARGIN_SECONDS
         ):
-            findings.append(
-                _untranscribed(
-                    mono, sample_rate, index, word["start"], word["end"], shot
+            findings.extend(
+                _audible_findings(
+                    mono,
+                    sample_rate,
+                    index,
+                    word["start"],
+                    word["end"],
+                    shot,
+                    spans,
+                    parsed_lines,
                 )
             )
-    return [found for found in findings if found is not None]
+    return findings
 
 
 def _between_lines_findings(
@@ -719,10 +736,53 @@ def _between_lines_findings(
     for lo, hi in stretches:
         if hi - lo < UNHEARD_MIN_SECONDS:
             continue
-        audible = _audible_extent(mono, sample_rate, lo, hi)
-        if audible is None:
-            continue
-        lo, hi = audible
+        found.extend(
+            _audible_findings(
+                mono, sample_rate, index, lo, hi, shot, spans, parsed_lines
+            )
+        )
+    return [f for f in found if f is not None]
+
+
+def _audible_runs(mono, sample_rate, start, end):
+    """The audible blocks of the stretch [start, end] (#967, #1115): each run
+    of windows above UNHEARD_FLOOR_DBFS, runs a sub-floor gap shorter than
+    UNHEARD_MIN_SECONDS apart joined, and only those lasting UNHEARD_MIN_SECONDS
+    kept. Sub-floor time is never counted or placed in a block, and a quiet
+    stretch of UNHEARD_MIN_SECONDS or more splits the stretch in two. A block
+    edge at the stretch's own (margin-trimmed) edge stays that edge."""
+    inner_start, inner_end = (
+        start + UNHEARD_MARGIN_SECONDS,
+        end - UNHEARD_MARGIN_SECONDS,
+    )
+    runs = []
+    cursor = inner_start
+    while cursor < inner_end:
+        stop = min(cursor + GUARD_WINDOW_SECONDS, inner_end)
+        level = word_level(mono, sample_rate, cursor, stop)
+        if level is not None and level > UNHEARD_FLOOR_DBFS:
+            if runs and cursor - runs[-1][1] < UNHEARD_MIN_SECONDS:
+                runs[-1][1] = stop
+            else:
+                runs.append([cursor, stop])
+        cursor = stop
+    found = []
+    for first, last in runs:
+        first = start if first <= inner_start else first
+        last = end if last >= inner_end else last
+        if last - first >= UNHEARD_MIN_SECONDS:
+            found.append((first, last))
+    return found
+
+
+def _audible_findings(
+    mono, sample_rate, index, start, end, shot, spans=None, parsed_lines=()
+):
+    """speech_not_transcribed for each audible block of [start, end], each
+    attributed to the shot holding most of it - and to the line naming that
+    shot, null when none does - not to the stretch's own line by default."""
+    found = []
+    for lo, hi in _audible_runs(mono, sample_rate, start, end):
         where_line, where_shot = index, shot
         holder = None if spans is None else overlapping_shot(spans, lo, hi)
         if holder is not None and holder != shot:
@@ -733,33 +793,6 @@ def _between_lines_findings(
             )
         found.append(_untranscribed(mono, sample_rate, where_line, lo, hi, where_shot))
     return [f for f in found if f is not None]
-
-
-def _audible_extent(mono, sample_rate, start, end):
-    """The span of the stretch [start, end] from its first to its last window
-    above UNHEARD_FLOOR_DBFS, or None when that is shorter than
-    UNHEARD_MIN_SECONDS (#967): sub-floor time at either edge is not "audible
-    sound", and must not size or place the finding. An edge that is itself
-    audible stays the stretch's own edge."""
-    inner_start, inner_end = (
-        start + UNHEARD_MARGIN_SECONDS,
-        end - UNHEARD_MARGIN_SECONDS,
-    )
-    first = last = None
-    cursor = inner_start
-    while cursor < inner_end:
-        stop = min(cursor + GUARD_WINDOW_SECONDS, inner_end)
-        level = word_level(mono, sample_rate, cursor, stop)
-        if level is not None and level > UNHEARD_FLOOR_DBFS:
-            if first is None:
-                first = cursor
-            last = stop
-        cursor = stop
-    if first is None:
-        return None
-    first = start if first <= inner_start else first
-    last = end if last >= inner_end else last
-    return (first, last) if last - first >= UNHEARD_MIN_SECONDS else None
 
 
 def _untranscribed(mono, sample_rate, index, start, end, shot):

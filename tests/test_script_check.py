@@ -855,6 +855,31 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         self.assertLess(found["at"]["end"], 2.5)
         self.assertLess(found["value"], 1.6)
 
+    def test_a_stretched_word_reports_each_audible_block_in_its_own_shot(self):
+        # #1115: one word timed 0.9-10.6 over two blocks of sound with 3 s of
+        # silence between: two findings, none counting the silence, each in
+        # the shot holding it - not one span credited to the word's shot
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([voiced(5.5), silent(3.0), voiced(2.5)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = rules(answer, "speech_not_transcribed")
+        self.assertEqual(len(found), 2)
+        first, second = found
+        self.assertEqual(first["at"]["shot"], "A")
+        self.assertLessEqual(first["at"]["end"], 5.6)
+        self.assertEqual(second["at"]["shot"], "B")
+        self.assertGreaterEqual(second["at"]["seconds"], 8.0)
+        self.assertLess(sum(f["value"] for f in found), 8.0)
+
     def test_under_a_second_of_audible_sound_in_a_long_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)
         mono = numpy.concatenate([voiced(1.5), silent(3.5), voiced(1.0)])
