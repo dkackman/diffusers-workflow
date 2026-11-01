@@ -131,6 +131,20 @@ contradict it, one continuous take, no cuts. The `ltx2/` stored prompts
 put beats in the prompt ("she pauses") or set a duration. On-screen text and
 chaotic physics are unreliable.
 
+**Voice**: the caption steers a speaker's pitch and apparent age and gender, not
+their delivery. Measured 2026-11-01 on mps (one image, seed and line, four voice
+descriptions, 121 frames): median F0 291 Hz for "squeaky little girl", 221 for
+"elderly woman", 136 for "deep booming old man" - an octave apart - but "a
+breathy whisper" came back fully voiced at 160 Hz, and "fast" and "slow" spoke
+over the same span: the clip length paces the line, not the words. Delivery
+adjectives alone ("buzzy", "cheerful") land as a generic voice. Write voices as
+pitch, age and gender; don't promise a whisper or a tempo (an accent is
+unmeasured: listen before claiming one); describe
+a voice you have not heard as asked for, not as delivered. When the voice must
+be exact or held across clips, speak the line with `templates/voice-clone`
+(Audio8-TTS, runs on mps) - that loses LTX's lip sync over the picture - or
+condition MiniMax H3 on the clip as its voice reference (`minimax-h3` skill).
+
 **Several shots**: one chronological paragraph, no shot list or sluglines. At
 each cut name the transition in prose ("a hard cut to"), re-establish scale,
 angle and lighting, reuse the same identifiers for recurring subjects, and
