@@ -23,7 +23,7 @@ from ..events import emit_warning
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, repo_entries
 from ..assessment_rules import DEAD_AIR_FLOOR_DBFS
-from ..dsp import loudest_window_dbfs, resample_waveform
+from ..dsp import dbfs, loudest_window_dbfs, resample_waveform, rms
 from ..script_lines import looped_texts, normalize_words
 from .assess import DEAD_AIR_WINDOW
 from .audio_utils import waveform_and_rate
@@ -96,7 +96,7 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
                 content_type must then be "application/json" rather than
                 "text/plain", since the return shape follows the argument.
                 A chunk that is probably invented carries a `suspect` reason
-                ("no_words", "repetition", "silent" or "long"), marked and
+                ("no_words", "repetition", "stock_phrase", "silent" or "long"), marked and
                 never dropped (#822).
 
     Returns:
@@ -172,6 +172,69 @@ def transcribe_audio(audio, device="cpu", sample_rate=None, **kwargs):
 # instrumental folded into the word, or an invented one (#822)
 LONG_WORD_SECONDS = 2.0
 
+# A clip whose whole-clip mean level is at or below this is near-silent (the
+# audio_qc `NEAR_SILENT_WARN_DBFS` line): speech with its pauses averages far
+# above it, so any text Whisper returns is marked `suspect: "silent"`. This
+# catches a voiceless stem's music bleed, which peaks well over the dead-air
+# floor (#1135)
+NEAR_SILENT_CLIP_DBFS = -40.0
+
+
+# Whisper's stock outro lines, learned from YouTube captions: what it writes
+# over music or a fade at any level (#1136). A chunk is marked only when its
+# whole text is one of these, so a longer line that merely contains the words
+# is left alone
+_STOCK_PHRASES = frozenset(
+    " ".join(normalize_words(phrase))
+    for phrase in (
+        "Thank you for watching",
+        "Thank you very much for watching",
+        "Thanks for watching",
+        "Thank you so much for watching",
+        "Thank you for watching this video",
+        "Thanks for watching this video",
+        "Please subscribe",
+        "Please subscribe to my channel",
+        "Subscribe to my channel",
+        "Don't forget to subscribe",
+        "See you in the next video",
+        "See you next time",
+    )
+)
+
+
+def _repeats_earlier(chunks, index):
+    """True when an earlier chunk has this chunk's text over an overlapping span
+    - Whisper decoding one stretch of audio again (#1138)."""
+    chunk = chunks[index]
+    words = normalize_words(chunk["text"])
+    return any(
+        normalize_words(other["text"]) == words
+        and other["start"] < chunk["end"]
+        and chunk["start"] < other["end"]
+        for other in chunks[:index]
+    )
+
+
+def _stock_sentence_indices(chunks):
+    """Indices of word chunks whose whole sentence is a stock phrase (#1136).
+
+    In word mode a chunk is one word, so the phrase only shows across a run:
+    the words are split into sentences at a word ending in . ! or ?, and every
+    word of a sentence that is exactly a stock phrase is returned.
+    """
+    found = set()
+    sentence = []
+    for index, chunk in enumerate(chunks):
+        sentence.append(index)
+        text = chunk["text"]
+        if index == len(chunks) - 1 or text.rstrip().endswith((".", "!", "?")):
+            words = [w for i in sentence for w in normalize_words(chunks[i]["text"])]
+            if " ".join(words) in _STOCK_PHRASES:
+                found.update(sentence)
+            sentence = []
+    return found
+
 
 def _mark_suspect(chunks, mono, long_word):
     """Chunks with `suspect` set on those that are probably not speech (#822).
@@ -180,15 +243,28 @@ def _mark_suspect(chunks, mono, long_word):
     "no_words": the text has no word at all ('—', '♪', '...').
     "repetition": a word of a repetition loop ('I'm sorry, I'm sorry, ...'),
     found by `script_lines.looped_texts`, the detector check_script discards
-    loops with - Whisper's hallucination over music or a fade, however loud.
+    loops with - Whisper's hallucination over music or a fade, however loud;
+    also a chunk repeating an earlier chunk's text over an overlapping span
+    (the same stretch decoded again, #1138).
     "silent": the chunk's loudest window sits at or below the dead-air floor
     script_check guards with (`DEAD_AIR_FLOOR_DBFS`, measured by
     `dsp.loudest_window_dbfs`) - Whisper invents text over silence, a
     fade-out's end credits included.
+    "silent" also holds for every chunk when the whole clip's mean level is at
+    or below `NEAR_SILENT_CLIP_DBFS` - a voiceless vocals stem with residual
+    music, which Whisper fills with "Thank you for watching" (#1135).
+    "stock_phrase": the whole text is one of Whisper's stock outro lines
+    ('Thank you for watching'), which it writes over music at any level
+    (#1136); tried after "silent", which wins for a quiet clip. In word mode
+    every word of a sentence that is exactly such a line carries it, and it
+    wins over "long".
     "long": a word lasting more than LONG_WORD_SECONDS (`long_word` only,
     since a segment is a line and runs long by nature).
     """
     looped = looped_texts([chunk["text"] for chunk in chunks])
+    clip_level = dbfs(rms(mono))
+    near_silent = clip_level is None or clip_level <= NEAR_SILENT_CLIP_DBFS
+    stock_words = _stock_sentence_indices(chunks) if long_word else set()
     marked = []
     for index, chunk in enumerate(chunks):
         if not chunk["text"]:
@@ -196,14 +272,19 @@ def _mark_suspect(chunks, mono, long_word):
             continue
         if not normalize_words(chunk["text"]):
             reason = "no_words"
-        elif index in looped:
+        elif index in looped or _repeats_earlier(chunks, index):
             reason = "repetition"
         else:
             level = loudest_window_dbfs(
                 mono, _ASR_SAMPLE_RATE, chunk["start"], chunk["end"], DEAD_AIR_WINDOW
             )
-            if level is None or level <= DEAD_AIR_FLOOR_DBFS:
+            if near_silent or level is None or level <= DEAD_AIR_FLOOR_DBFS:
                 reason = "silent"
+            elif (
+                index in stock_words
+                or " ".join(normalize_words(chunk["text"])) in _STOCK_PHRASES
+            ):
+                reason = "stock_phrase"
             elif long_word and chunk["end"] - chunk["start"] > LONG_WORD_SECONDS:
                 reason = "long"
             else:
@@ -319,8 +400,8 @@ def _with_resumed_tail(pipe, samples, result, options):
     ends = _chunk_ends(raw_chunks)
     if ends and speech_end - max(ends) > _TAIL_GAP_SECONDS:
         emit_warning(
-            f"transcribe_audio: transcript ends at {max(ends):.1f} s but audible "
-            f"speech continues to {speech_end:.1f} s; the last line(s) may be "
+            f"transcribe_audio: transcript ends at {max(ends):.1f} s but audio "
+            f"activity continues to {speech_end:.1f} s; the last line(s) may be "
             "missing from the text"
         )
     return {**result, "text": " ".join(texts), "chunks": raw_chunks}

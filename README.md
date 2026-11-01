@@ -10,7 +10,7 @@ two front ends on it: an **MCP server**, so Claude Code (or any MCP client)
 can author, run and inspect generations; and a **web UI** for doing the same
 by hand. A CLI sits underneath for when you want neither.
 
-**Python 3.10-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
+**Python 3.12-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="docs/img/ui-workflows-dark.png">
@@ -245,3 +245,4 @@ frame interpolation and more.
 - [Testing](docs/TESTING.md) — Running the test suite
 - [Releasing](docs/RELEASING.md) — Cutting a release from a version tag
 - [Agent Loop](docs/AGENT_LOOP.md) — What the automated implementer/tester ticket labels mean, for anyone joining an Issue
+- [Attributions](docs/ATTRIBUTIONS.md) — Code included from other projects, and the projects whose ideas dw reimplemented

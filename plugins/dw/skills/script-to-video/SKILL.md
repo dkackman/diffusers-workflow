@@ -33,8 +33,17 @@ Fill in this shape before writing any prompt:
 - **Locations**: each place a shot happens, named once and reused.
 - **Per shot**: the above, plus `opening_state` (what is on screen, who
   stands where, what is held, at frame one) and `ending_state` (the same at
-  the last frame). A shot's `opening_state` is the previous shot's
-  `ending_state`, so the cut between them is written down rather than hoped for.
+  the last frame). A shot's `opening_state` is the `ending_state` of its
+  **source**, so the cut between them is written down rather than hoped for.
+- **Per shot, `beat`** (one visible state a single frame can show) and
+  **`must_not`** (a short list of physically or story-impossible things to
+  rule out: extra limbs, text in frame, the reference portrait itself).
+  `references/beat-review.md` has the rules for writing one.
+- **Per shot, optional `join`**: `continue` (the default; its source is the
+  shot before), `cut` (opens fresh), `cutaway` (an insert: the shot after it
+  takes the shot before it as source) or `lead_in` (its last frame is the
+  next shot's first). Read `references/joins.md` before rendering a
+  `cutaway` or `lead_in`.
 
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent
@@ -50,6 +59,11 @@ script with one continuous scene and no recurring cast can skip this and
 let the family template draw its own portrait. This is the step that goes
 missing silently - nothing validates "the same character looks the same"
 across separately generated shots, so it has to be deliberate.
+
+Framing guidance, not a measured rule (story-forge's lesson 5, unprobed
+on dw: `docs/proposals/audits/2026-11-story-forge-lessons.md`): a face
+small in a wide shot drifts most, so frame a recurring character large,
+and if the piece needs wides, keep a wide master too.
 
 Large `run_workflow` arguments: `save_prompt(name, {"text": ...})` each shot prompt under a
 script-prefixed name (the library is shared across workspaces) and pass
@@ -87,6 +101,9 @@ human (or an explicit pre-authorization) has signed off - this is a real
 gate, not a formality, and skipping it here is the one thing this skill
 must not do even when running unattended.
 
+Render in source order, not story order: a `lead_in`'s target first, and a
+re-roll quotes every shot taken off it (`references/joins.md`).
+
 Pass `note` on each `run_workflow` naming the shot and what the run tests,
 and `set_note` the take you keep: the note shows on every file it made.
 
@@ -118,6 +135,8 @@ joined by `templates/assemble-and-score`). Never splice a re-rolled segment
 in with `concat_videos`: that join is recorded `hard_cut`, so
 `seam_frame_jump` stops checking it. A seam re-roll counts against the
 shot's budget below.
+Before the keep, run the beat review in `references/beat-review.md` on
+the shot's `get_output_frames` frames.
 Give each shot a budget of three failed attempts, then stop and ask the user
 rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the

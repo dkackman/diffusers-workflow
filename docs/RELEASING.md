@@ -7,6 +7,136 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.17.0
+
+<!-- Drafted from v0.16.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.17.0 --notes-file ... -->
+
+A release about fixing a good take instead of re-rolling it, and about
+sound that is not the model's own. MiniMax H3 edits one region of a take
+behind a mask, redraws a soft face and takes an explicit refine schedule;
+LTX-2.5 pulls an alpha matte and colourises black-and-white footage; a
+picture-synced sound-effects task (MMAudio) and a zero-shot voice clone
+(Audio8-TTS) join the catalog as vendored ports that run no Hub code; and
+every one-for-one video task now writes at its source's frame rate, exactly.
+
+**H3 regional edit, face repair and refine schedule** (#1062, #1077, #1078, #1082, #1087, #1092, #1098, #1099)
+
+- `templates/minimax/regional-edit`: an H3 step takes `source_video` and a
+  `mask_image` or `mask_video` (white regenerates) with `refine_strength`,
+  re-denoises the masked rows and writes every other row back to the source
+  at each step, soundtrack held. The guide's *H3: regional edit with
+  source_video and a mask* has the measured strength bands (0.9 replaces an
+  object, 0.6 redraws a face); the `minimax-h3` skill routes "fix one region
+  of a good take" to it (`references/regional-edit.md`). Validate and the call
+  refuse the same things: a mask with no source, a source on a chained step,
+  a size or frame-count mismatch, an all-black mask, a source whose frame
+  count is off the `17n + 5` grid (the pipeline would snap it up over a
+  padded source and the mask would drift).
+- `templates/minimax/face-repair`: `crop_face_track` cuts the face out on H3's
+  grid carrying the take's padded soundtrack, a t2va refine at 0.6 redraws it
+  with `hold_audio` so the mouth stays on the speech, and `paste_face_track`
+  puts it back at the source's frame rate. The crop refuses a window outside
+  124-345 frames or a rate other than 24 before H3 loads.
+- `refine_sigmas` on an H3 refine step gives the schedule as the sigma points
+  themselves (first = `refine_strength`, last = 0, strictly decreasing as
+  float32, finite, `num_inference_steps` = the point count), the guide's
+  *Explicit refine sigmas*. A full-frame refine whose `width`/`height`
+  disagree with the upscaled latents is refused at validate (#1087), and a
+  single-file LoRA is priced as its file, not its repo (#1088).
+- The `minimax-h3` skill gains the style pointer (`references/style.md`,
+  #1070), the AISkills and odd-then-bridge probes recorded as "probed, not a
+  rule" (#1072, #1103), the re-measured lead-in (#1089), and routes for the
+  past-768p latent refine and for replacing a shot's own sound.
+
+**Sound effects and voice cloning** (#1112, #1120, #1121, #1124, #1131-#1133, #1134)
+
+- `generate_sound_effects` (MMAudio, vendored at a pinned commit with its
+  Synchformer and DFN5B CLIP conditioning, decoder weights read from
+  Kandinsky 6's safetensors) makes picture-synced effects for a clip and/or
+  a prompt: `templates/video-to-sound-effects` and
+  `templates/text-to-sound-effect`. Duration is the clip's (0.64-20 s), the
+  model is trained around 8 s, noise-like output is warned about, and the
+  output runs 7-25 dB hot: `match_levels` before mixing. The weights are
+  CC-BY-NC and Apple research-only; `docs/ATTRIBUTIONS.md` lists them.
+- `generate_speech` with `model_name: Edge0/Audio8-TTS-Realistic-0.6b` clones
+  a voice from a short `reference_audio` (a path, an `asset:`, or an earlier
+  audio step's output) and its `reference_text`; `templates/voice-clone` runs
+  it. The model is a vendored port pinned to one revision; its Hub repo's
+  code never runs. `attribute_voices` takes an audio step's output as a voice
+  reference too (#1134).
+- The vendored ports live in `dw/vendored/`, outside the architecture ratchet
+  like `dw/community_pipelines/`.
+
+**LTX-2.5: alpha matte, colourisation, and the source's frame rate** (#1064, #1079, #1080, #1090, #1106-#1109, #1114)
+
+- `templates/ltx2/alpha-matte` (Alpha-Gen IC-LoRA) pulls a grey matte from a
+  clip, one shot at a time (a hard cut leaks), with the decoders kept off the
+  card; `templates/ltx2/restore-colorize` colourises black-and-white footage
+  from a prompt that describes the clip, with its colour limit on low-rate
+  and portrait sources documented.
+- Every one-for-one template (`upscale-clip`, `refine-clip`,
+  `refine-in-place`, `restore-deblur`, `restore-decompression`,
+  `restore-long`, `face-repair`, `alpha-matte`, `restore-colorize`) writes at
+  the source's frame rate (`frame_rate: "source"`), never relabelled to 24,
+  and a fractional rate (29.97, 23.976) is written as its exact rational
+  (#1109). `restore-deblur` and `restore-decompression` fit the clip to the
+  model, then restore to the source's size.
+
+**Cuts, phrases and the script check** (#1095, #1104, #1105, #1115-#1119, #1129, #1130, #1135-#1138)
+
+- `analyze_phrases` times sung phrases from centre-weighted voiced energy,
+  with no transcript, and `plan_cuts` takes its result: lyric lines pair with
+  phrases one to one when the counts match (a disproportionate pairing is
+  warned about) and are spread evenly when they do not, with the warning
+  naming which way to move `min_gap_seconds` or `floor_db`. The music-video
+  templates' README shows the Whisper-free chain.
+- `transcribe_audio` marks Whisper's hallucinations: chunks of a near-silent
+  clip (`silent`), its stock outro lines (`stock_phrase`), 5-6 word loops and
+  duplicate overlapping chunks (`repetition`); `plan_cuts` and `check_script`
+  leave suspect chunks out and say so.
+- `check_script`: an untranscribed block crossing a shot seam is credited to
+  each shot it covers (a shot too short to stand alone is folded into its
+  neighbour, never dropped); a line's timing stays inside its shot; a take
+  with no shots is one implicit shot for `unscripted_speech`; a looped
+  room-tone bed is not untranscribed speech; speech outside a partial shot
+  map is named in `rules_skipped`; an unheard line's clip is checked against
+  its shot's end.
+- `separate_stems` no longer shift-averages a clip shorter than the htdemucs
+  segment, which clipped the stems 9-17 dB hot (#1130).
+
+**Skills and composition** (#1093, #1100, #1122, #1125, #1123, #1126-#1128, #1091, #1096)
+
+- `script-to-video`: cutaway and lead-in joins (`references/joins.md`), beat
+  authoring and the beat review (`references/beat-review.md`), shared with
+  `series-episodes`; `series-episodes` gains the dialogue/rest stem recipe
+  via `separate_stems`, kept balanced for headroom.
+- The story-forge lessons that held on lem (framing, no invented camera, no
+  all-caps) landed as guidance in the `ltx-2.5` skill; the ones that did not
+  are recorded as probed.
+
+**Validation, server and security** (#1086, #1101, #1111, #1116, #1119, GHSA-hhfj-p9xj-xjmr, GHSA-75fh-g499-53cf, GHSA-9597-5qpq-55x6, GHSA-w9qv-2pg5-j79m, GHSA-75cg-7964-pjwx)
+
+- A task step's `trust_remote_code`, `custom_pipeline` or `custom_generate`
+  is refused at validate and again at `Task.run`, for every task; a `videos`
+  list and the active result types are gated at validate; a reference error
+  no longer names a server path.
+- `for_each` refuses a literal cross-entry reference inside one group;
+  `list_jobs` refuses a workspace that does not exist; a cached pipeline's
+  minutes-long decode and a slow first pass are warned about as measurements,
+  with no cause asserted.
+- Python 3.12 or newer is required (#1084); the install scripts and
+  classifiers say so.
+
+**Architecture**
+
+- `dw/media.py`, `dw/tasks/cuts.py`, `dw/tasks/script_check.py` and
+  `dw/pipeline_processors/pipeline.py` each hand a concern to a companion
+  module (`media_readers`, `cuts_lines`, `script_findings`,
+  `pipeline_outputs`), and the regional edit's mask arithmetic moves to
+  `h3_mask_cells` so the blocks never import their importer. The ratchet's
+  module count rises 226 -> 236 for these and the new tasks; every other
+  metric holds.
+
 ### 0.16.0
 
 <!-- Drafted from v0.15.0..develop (7a0884ee). Paste into the GitHub release body once the tag has published: gh release edit v0.16.0 --notes-file ... -->

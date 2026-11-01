@@ -727,6 +727,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "lora.json": {
         "txt2img": "04031c5e01597b46f9ceb50f717e036013d5f6e6a497ae3aaef585f7121bcf4e"
     },
+    "ltx2/alpha-matte.json": {
+        "matte": "5a04e525d8c8e42ca75d84515b9318c09cfd1f4e55b1dce8f5e7dcd4ae685357"
+    },
     "ltx2/chained-segments.json": {
         "chained_image_to_video": "3a36def4e09fe10832bc1821c7cb6fd82d9e050ba149e5b6e7afa6ec66f60f68"
     },
@@ -763,6 +766,9 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "ltx2/refine-in-place.json": {
         "refine": "4b54a53f5c05de50d0b3094addf68b2d843135fdc02518b0ab02fb7e225b2552"
+    },
+    "ltx2/restore-colorize.json": {
+        "colorized": "e804709bcac668776c00b3ac58e13ae4024c67116c94e29c0a543005370277fb"
     },
     "ltx2/restore-deblur.json": {
         "restored": "676c6d3535647dca49d39838de6cf5962c1c817eefb4c750f73be169fd60aa78"
@@ -844,6 +850,12 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/reference-to-video.json": {
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
+    "minimax/face-repair.json": {
+        "refine": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
+    },
+    "minimax/regional-edit.json": {
+        "edit": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77"
+    },
     "minimax/shots-batch.json": {
         "shot@shot_1": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
         "shot@shot_2": "2a7fdf989a40500620fb03212502bbda8f52827f5fcd872b8fda182fab2fac77",
@@ -899,9 +911,12 @@ TEMPLATE_PIPELINE_KEYS = {
     "text-to-image.json": {
         "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"
     },
+    "text-to-sound-effect.json": {},
     "transcribe-audio.json": {},
     "upscale-diffusion.json": {},
     "upscale-spandrel.json": {},
+    "video-to-sound-effects.json": {},
+    "voice-clone.json": {},
 }
 
 TEMPLATES_DIR = pathlib.Path(__file__).resolve().parents[1] / "workflows" / "templates"

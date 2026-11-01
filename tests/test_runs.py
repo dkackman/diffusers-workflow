@@ -1249,3 +1249,24 @@ class TestRunVersions:
         assert swept
         assert os.path.isdir(run_dir)
         assert version == 1
+
+
+class TestOutputReferenceErrors:
+    # GHSA-75cg-7964-pjwx / GHSA-w9qv-2pg5-j79m: the error goes back to the
+    # client, so it names the reference, never the server's output root
+
+    def test_a_run_that_does_not_exist_does_not_name_the_root(self, tmp_path):
+        (tmp_path / "shot-frame").mkdir()
+        with pytest.raises(ValueError, match="not found") as raised:
+            resolve_output_reference(
+                "output:shot-frame/20991231-000000-nosuchrun/frame.png",
+                str(tmp_path),
+            )
+        assert str(tmp_path) not in str(raised.value)
+        assert "shot-frame/20991231-000000-nosuchrun/frame.png" in str(raised.value)
+
+    def test_a_name_that_is_not_a_file_does_not_name_the_root(self, tmp_path):
+        (tmp_path / "shot-frame" / "run").mkdir(parents=True)
+        with pytest.raises(ValueError, match="not found") as raised:
+            resolve_output_reference("output:shot-frame/run", str(tmp_path))
+        assert str(tmp_path) not in str(raised.value)

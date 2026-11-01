@@ -117,6 +117,13 @@ the hosted API accept 4. Output audio is 32 kHz stereo.
 | [first-and-last-frame.json](first-and-last-frame.json) | Pinning both ends - `image` and `last_image` - so the model interpolates between two fixed states |
 | [last-frame-only.json](last-frame-only.json) | Pinning the end alone - the model invents the approach to a picture you already have |
 
+## Editing a take
+
+| Example | What it introduces |
+| ------- | ------------------ |
+| [regional-edit.json](regional-edit.json) | Fixing one region of a good take: `source_video` is the take, a `mask_image` marks what to regenerate (white) and keep (black), `refine_strength` 0.9 replaces an object there, and `hold_audio` is the take itself, so the rest of the picture and the whole soundtrack stay the take's |
+| [face-repair.json](face-repair.json) | Repairing a good take's small, soft face: `crop_face_track` cuts the face out on H3's `17n + 5` grid (24 fps, 124 to 345 padded frames, refused before H3 loads), a t2va refine at `refine_strength` 0.6 redraws it with `hold_audio` holding the take's own soundtrack so the mouth stays on the speech, and `paste_face_track` puts it back. The gate is 0.2/0.3 of the frame width, for H3's smaller faces. A ref2va refine with the cast picture holds identity slightly better, at about 4x the denoise time |
+
 ## Writing the prompt with a model
 
 | Example | What it introduces |
@@ -176,6 +183,26 @@ same clip as an audio reference in each shot, as
 | [dialogue-short.json](dialogue-short.json) | A five-shot sitcom scene: Z-Image draws the cast, one `for_each` step over a `shots` list generates a shot per entry - its prompt, its references, its length - on one loaded model, and `concat_videos` gathers the episode |
 | [music-video.json](music-video.json) | A music video cut to a generated song, one `shots` list driving both `for_each` groups: `slice_audio` deals each entry its frame-exact piece, the shot lip-syncs to it, and `pair_audio` lays the unbroken track over the finished edit, cut to the length of the edit by `fit: "video"` so the soundtrack follows the list rather than a constant. An entry is `name`, `prompt`, `start_frame`, `num_frames` (on H3's `17n + 5` grid, 124 to 345, never snapped), `lead_frames` and `cut_frames`: the shot renders `num_frames` from the song sliced `lead_frames` early, and a `trim` step (`trim_video`) keeps `cut_frames` after the lead, so the video is the sum of the `cut_frames`. `song` defaults to the song written; `asset:...` uses an existing one |
 | [music-video-cuts.json](music-video-cuts.json) | Plans a music video's cuts without generating anything: `transcribe_audio` times the song's lines, `analyze_beats` finds its beats, and `plan_cuts` aligns the song's own `lyrics` to them and answers a `shots` list of `start_frame`, `num_frames`, `lead_frames`, `cut_frames`, lyric and kind (on H3's grid, with a `lead_s` run-up, default 0.5 s) and `render_frames` to quote the cost from. Write a prompt per shot, drop `lyric` and `kind`, and render the list with `music-video.json` |
+
+**music-video-cuts without Whisper.** When Whisper can't time the words (a non-English verse, a hallucinated transcript, wordless vocals or a vocalise), replace the `transcribe` step with an `analyze_phrases` step on the vocal stem, which times sung phrases from voiced energy alone. `plan` keeps `"transcript": "previous_result:transcribe"`; pass `lyrics` with one line per sung phrase (left null, each shot has `lyric: null`):
+
+```json
+{
+    "name": "transcribe",
+    "task": {
+        "command": "analyze_phrases",
+        "arguments": {
+            "audio": "previous_result:stems.vocals"
+        }
+    },
+    "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate"
+    }
+}
+```
+
+Lyric lines map onto phrases one to one when the counts match. When they differ, `plan_cuts` warns with both counts and spreads the lines evenly across the phrases: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lines, lower it when fewer. A legato or reverberant verse can fuse its lines into one phrase that no `min_gap_seconds` splits; there `floor_db` is the knob (less negative, e.g. `-30`), but check the phrases by ear before trusting a one-to-one pairing: a raised floor can make the counts match on wrong boundaries. With matched counts, `plan_cuts` also warns when a paired phrase is under 1/4 or over 4x the median length. The template's default chain is unchanged (Whisper first).
 
 ## Field notes from a 24-shot musical
 

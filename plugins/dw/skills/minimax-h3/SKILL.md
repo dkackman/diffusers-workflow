@@ -6,7 +6,6 @@ description: Use when a dw MCP server is connected and the user wants MiniMax H3
 # MiniMax H3 on a dw server
 
 H3 generates video and audio together. Every template fits a 24 GB card.
-This skill picks the template and arguments; prompt format is MiniMax's.
 
 ## Before anything
 
@@ -14,15 +13,15 @@ This skill picks the template and arguments; prompt format is MiniMax's.
    run on mps) and the session's workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
    `list_workflows(shape="audio")`: the family's templates by name,
-   `summary`, `traits`, `cost`. Trust the listing over names below.
-3. `get_workflow` on the one chosen: its variables and defaults.
+   `summary`, `traits`, `cost`; it outranks names below.
+3. `get_workflow` on the one chosen: variables and defaults.
 
 ## Which shape is the request
 
 - **One clip, up to 14.4 seconds, from text**: `templates/minimax/video-with-audio`
   (960x544, fast), or `templates/minimax/video-with-audio-768p` to render.
   From a one-line idea: `templates/minimax/enhance-prompt` writes it with the
-  built-in Context-IR enhancer first.
+  built-in enhancer first.
 - **Pinned to a picture**: first frame `templates/minimax/image-to-video`;
   first and last `templates/minimax/first-and-last-frame`; last only
   `templates/minimax/last-frame-only`; a one-line idea plus a picture
@@ -31,8 +30,8 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   `hold_audio` keeps the first frame's pixels and the mouth follows the track
   (#985; add the argument to `templates/minimax/image-to-video`'s fl2va step).
   Fallback: Ref2VA `[keyframe completion + audio reuse]`, `<Picture 1>` the
-  first frame, `<Audio 1>` the song, also held (#852). It keeps the framing,
-  not the pixels, at ~4.7x the denoise; a last frame costs 45% more and does not land.
+  first frame, `<Audio 1>` the song, also held. Framing, not pixels,
+  at ~4.7x the denoise; a last frame costs 45% more and does not land.
 - **Pinned to a clip** (hold earlier footage): a `guides` argument on
   `t2va`/`fl2va` - up to 4 clips, 3 on a guide chain, each at a
   `frame` that is a multiple of 17; the VRAM ceiling charges each
@@ -40,16 +39,19 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   copies the take, and a style prompt does not restyle it. `"audio": true`
   on a guide holds its soundtrack too. Rules and example: `get_guide("workflows",
   section="H3: holding a clip with `guides`")`.
+- **Fix one region of a good take** (the rest and audio stay):
+  `templates/minimax/regional-edit`; first `references/regional-edit.md`.
+- **A good take with a soft small face**: `templates/minimax/face-repair`.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
   framing and camera, at ~3.4x cost;
   `templates/minimax/generated-subject-reference` draws the subject with
-  Z-Image, references it in the same workflow;
+  Z-Image in the same workflow;
   `templates/minimax/voice-timbre-reference` fixes a voice from a Bark line.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
-  past that, the cuts pattern.
+  past that, cuts.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
@@ -58,15 +60,14 @@ This skill picks the template and arguments; prompt format is MiniMax's.
   The guide prefix is trimmed off the deliverable (`trim_frames` and the
   crossfade do not apply). `carry_audio` (default true, a chain-block setting)
   holds the previous tail's audio. Guide only here: the reference chains
-  (`chain-video-continuity`, `chain-matched-and-aligned`, `music-video`) are
-  ref2va, and guides stay off ref2va),
+  are ref2va, and guides stay off ref2va),
   `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
   sets the length), `templates/minimax/chain-matched-and-aligned`
   (per-segment prompts). Drift compounds per seam: reference the subject
-  picture each segment, prefer `last_segment` continuity, use the longest
-  segments memory allows.
+  picture each segment, prefer `last_segment`, use the longest segments
+  memory allows.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
@@ -80,9 +81,11 @@ This skill picks the template and arguments; prompt format is MiniMax's.
 - **Dialogue into a song**, not a concat: `slice_audio`, `join_into_song`,
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
-  step per `shots` entry, no concat. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
+  step per `shots` entry. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
 - **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3`
   skill - its `audio_duration` is a ceiling, not a length.
+- **Replace a shot's own sound**: `templates/video-to-sound-effects` (MMAudio,
+  7-25 dB hot: `match_levels` first), then `pair_audio`.
 
 If none fits, compose from `list_tasks` (the `workflows` guide's authoring
 section).
@@ -101,7 +104,8 @@ section).
   Never put an FL2VA LoRA on a reference template: `ref2va` holds
   `transformer_ref` alone, so anything handed there degrades output.
   `validate_workflow` refuses it, warns on a `weight_name` naming neither.
-- Smeary faces (int8 base) or draft -> final tiers: `references/quality-and-speed.md`.
+- Smeary faces (int8 base), draft -> final tiers, or sharper than 768p (tiled
+  1080p latent refine, `refine_sigmas`): `references/quality-and-speed.md`.
 - Backend: default `sparse` (dense off CUDA); same one at draft and final.
 - A crowd, two people in frame, or a three-reference shot: read
   `references/staging.md` before the prompt - who lip-syncs, where the
@@ -116,19 +120,19 @@ section).
   (~4 dB more high band): `lora_model_name: null`, `num_inference_steps: 12`,
   `video_shift: 12.0`, `audio_shift: 3.0`; int4 stays fine without it. Turbo stays the default otherwise (#984 B0).
 - Nothing carries between generations except a passed reference, a
-  held track or a `guides` clip: there is no latent memory. Identity rides
+  held track or a `guides` clip. Identity rides
   on a picture, voice timbre on an audio clip, motion/camera on a video
   tail, score across cuts under concat.
 - Lip sync to supplied audio: an audio reference alone, as the
-  `match_audio` chains pass it, can sing shifted beats off the track; `music-video`
+  `match_audio` chains pass it, can sing beats off the track; `music-video`
   holds each slice as well by default, and the chains' `hold_audio` variable adds a
   hold (`references/cuts.md`, #795, #808).
-- H3 is guidance-distilled: no `guidance_scale` or negative prompt.
+- Guidance-distilled: no `guidance_scale` or negative prompt.
 - Keep `release_pipeline` where the template puts it (frees Z-Image before
   H3 loads, H3 before a concat), or a warm worker may SIGKILL near the end.
 - Ref2VA limits: at most 9 images, 3 videos, 3 audio clips, 12 files; audio can
   never be the only reference. References are labelled in order.
-- Timestamps in the prompt span the generated length.
+- Prompt timestamps span the generated length.
 
 ## Prompts
 
@@ -149,11 +153,12 @@ the rules are MiniMax's:
 
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture, which imposes its framing on every shot (`references/per-character.md`).
-Before writing lines, read `references/dialogue.md`: how long a line fits a clip, and what not to name.
+Before writing lines, read `references/dialogue.md`: how long a line fits, and what not to name.
+A wanted look (clay, paper): `references/style.md`.
 
 ## Run and judge
 
-1. `validate_workflow` first - free, catches rejected arguments.
+1. `validate_workflow` first: free, catches rejected arguments.
 2. Quote `plan.estimate` from the validate answer (warm minutes; a first
    load or `downloads_required` is longer). When `basis` is `unknown`,
    say so and give the shape: a 124-frame turbo clip is a few minutes
@@ -165,25 +170,24 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
    (`timeout_capped` says the server's cap cut it; call again while
    `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
    to its next step boundary. Silence is no hang: `denoise_step` is null
-   through the reference encode (~90 s; 629 s for a video reference on a
-   3090) and the block cache makes later steps uneven -
+   at first (encode ~6 s img, ~50 s video; 1st pass
+   dominates: 165-508 s) and the block cache makes later steps uneven -
    two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
    it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
    `intermediate` the scratch.
 4. Judge: `get_output_frames(count=12)` for a clip's shape,
    `seams=true` (each later shot's start frame) for a cut's joins - a
-   character that changes between shots (reference the same portraits
-   everywhere), a portrait imposing its framing on every shot - `at` late in
+   character changing between shots (same portraits everywhere), a
+   portrait's framing imposed on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. It returns sound, not text; to confirm a
    take's lines, run `templates/check-script` with them as `lines` (markup
    and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone:
    `find_loop_bed` the `output:` cut, then `slice_audio`->`loop_audio`->`mix_audio`
    its pick at its `gain`.
-   Then `get_gallery_metadata` for duration/audio presence and hand the
-   user the gallery `url` (`list_gallery`). `get_output_image` is for image
-   steps only.
+   Then `get_gallery_metadata` for duration/audio and hand the
+   user the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch
    `open_url` into `exports/` (never a temp dir). `true` - hand `open_url`
@@ -191,6 +195,5 @@ Before writing lines, read `references/dialogue.md`: how long a line fits a clip
 
 ## Sources
 
-MiniMax-H3 model card and prompt guides, `h3-prompt-writing`, diffusers'
-MiniMax-H3 modular pipeline, `lightx2v/Minimax-h3-Turbo` LoRA notes; read
-2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.
+Model card, prompt guides, `h3-prompt-writing`, diffusers' pipeline, turbo
+LoRA notes; read 2026-09-07; audit `docs/proposals/audits/2026-09-07-minimax-h3-audit.md`.

@@ -15,7 +15,7 @@ Install once, from Claude Code:
 
 | Skill | Teaches |
 | ----- | ------- |
-| `minimax-h3` | MiniMax H3 video with audio: one take, a longer take by chain, a piece with cuts, identity and voice references, music; the frame and canvas rules; what a run costs. Prompts come from MiniMax's own `h3-prompt-writing` skill or the guides on the model card. |
+| `minimax-h3` | MiniMax H3 video with audio: one take, a fix to one region of a take, a longer take by chain, a piece with cuts, identity and voice references, music; the frame and canvas rules; what a run costs. Prompts come from MiniMax's own `h3-prompt-writing` skill or the guides on the model card. |
 | `minimax-music3` | MiniMax Music 3: a song, an instrumental, a score under a film, the soundtrack a music video is cut to; the ceiling semantics, the tag vocabulary, the caps and the 44.1 kHz output. Captions come from MiniMax's own `music-caption-rewriter` skill. |
 | `ltx-2.5` | LTX-2.5 video with a soundtrack: a single clip, first-frame and keyframe conditioning, the three-move two-stage flow, the IC-LoRA upscale, extend and chain; the distilled schedule and the frame and size rules. Prompts follow the trained-caption spec that ships inside diffusers. |
 | `kandinsky-6` | Kandinsky 6.0 video with a soundtrack: a five-second clip from text or from a picture on the 3B Lite-distill checkpoint; the distilled schedule, the size and frame rules the pipeline's own defaults get wrong, and why Apple Silicon is parked. Prompts follow Kandinsky Lab's own beautifier system prompts. |
@@ -35,7 +35,8 @@ npx skills add MiniMax-AI/MiniMax-Music3 --skill music-caption-rewriter
 
 Name the skill: the H3 repo also ships eight style packs
 (`brand-promo-video-generator` and the like) that `--skill '*'` would install
-alongside it.
+alongside it. When a request wants one of those looks, install that pack the
+same way, by name; the `minimax-h3` skill's `references/style.md` lists them.
 
 Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`
 holds to the catalog and to the diffusers module that enforces them. A

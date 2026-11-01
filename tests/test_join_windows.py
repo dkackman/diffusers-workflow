@@ -87,6 +87,24 @@ class TestRoundTrip:
 
         assert numpy.array_equal(frames_as_array(joined), frames_as_array(clip))
 
+    @pytest.mark.parametrize(
+        "fps, expected", [("source", 25.0), (30, 30.0), ("12", 12.0)]
+    )
+    def test_fps_source_keeps_the_sources_rate_and_a_number_sets_one(
+        self, fps, expected
+    ):
+        """#1106: "source" is the source file's own rate."""
+        clip = _ramp_clip(50, fps=25.0)
+        joined = join_windows(_cut(clip, 17, 4), clip, 17, 4, fps=fps)
+        assert joined.fps == expected
+        assert len(joined.frames) == 50
+
+    @pytest.mark.parametrize("fps", [0, "x"])
+    def test_a_bad_fps_is_refused_at_run_time(self, fps):
+        clip = _ramp_clip(50, fps=25.0)
+        with pytest.raises(ValueError, match="fps"):
+            join_windows(_cut(clip, 17, 4), clip, 17, 4, fps=fps)
+
     def test_the_output_keeps_the_sources_fps(self):
         clip = _ramp_clip(50, fps=25.0)
         joined = join_windows(_cut(clip, 17, 4), clip, 17, 4)
@@ -287,6 +305,14 @@ class TestValidate:
 
     def test_a_good_literal_step_has_no_errors(self):
         assert not _validate(self.GOOD)
+
+    @pytest.mark.parametrize("fps", ["source", 24, "23.976", "variable:rate"])
+    def test_source_a_number_or_a_deferred_fps_is_fine(self, fps):
+        assert _validate(self.GOOD | {"fps": fps}) == []
+
+    @pytest.mark.parametrize("fps", [0, -1, "x"])
+    def test_a_bad_fps_is_reported_on_fps(self, fps):
+        assert [name for name, _ in _validate(self.GOOD | {"fps": fps})] == ["fps"]
 
     def test_the_default_curve_is_fine(self):
         good = {k: v for k, v in self.GOOD.items() if k != "curve"}

@@ -246,6 +246,12 @@ def _voices_hold_reference(voices):
     return False
 
 
+def _is_track(reference):
+    """Whether a voice's reference is a generated audio step's output (an
+    AudioTrack, or anything carrying `.audio`) rather than a path or spans."""
+    return hasattr(reference, "audio") and hasattr(reference, "sample_rate")
+
+
 def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
     """The voices argument as {name: spans | clip path}, checked.
 
@@ -274,7 +280,7 @@ def parse_voices(voices, duration, min_reference_seconds, clip_duration=None):
                 f"{COMMAND}: voice name {name!r} is not allowed - letters, "
                 f"digits, '_' and '-', starting with a letter or '_' ({error})"
             ) from error
-        if isinstance(reference, str):
+        if isinstance(reference, str) or _is_track(reference):
             length = clip_duration(reference) if clip_duration else None
             parsed[name] = reference
         else:
@@ -581,9 +587,23 @@ def _run_separator_stems(waveform, sample_rate, device, dtype):
     reference = mix.mean(0)
     mean, std = reference.mean(), reference.std()
     std = std if float(std) > 0 else torch.tensor(1.0)
+    # apply_model's default random-shift averaging (shifts=1) pads and
+    # re-aligns the mix; on a clip shorter than the model's own segment that
+    # returned stems up to 17 dB louder than the mix, and different on every
+    # run (#1130). Such a clip is separated as it is, once, which is exact
+    # and repeatable.
+    # (a BagOfModels has no `segment`; its `max_allowed_segment` is the one)
+    segment = float(getattr(model, "max_allowed_segment", 0) or 0)
+    if segment == float("inf"):
+        segment = 0.0
+    shifts = 0 if mix.shape[-1] < segment * rate else 1
     with torch.no_grad():
         stems = apply_model(
-            model, ((mix - mean) / std)[None], device=device, split=True
+            model,
+            ((mix - mean) / std)[None],
+            device=device,
+            split=True,
+            shifts=shifts,
         )[0]
     return {
         name: (stems[index] * std + mean).float().cpu().numpy()
@@ -648,9 +668,13 @@ def embed(encoder, samples):
 
 
 def _clip_duration(path, clips):
-    """Load a reference clip into `clips` and answer its length in seconds."""
-    clip, rate = load_audio(path)
-    clips[path] = (clip, rate)
+    """Load a reference clip (a path, or an audio step's output) into `clips`
+    and answer its length in seconds."""
+    if isinstance(path, str):
+        clip, rate = load_audio(path)
+    else:
+        clip, rate = waveform_and_rate(path, None, COMMAND)
+    clips[path if isinstance(path, str) else id(path)] = (clip, rate)
     return clip.shape[1] / rate
 
 
@@ -664,9 +688,10 @@ def _embed_references(references, clips, song, encoder, separate, device, dtype)
     """One embedding per voice, from its clip or its spans of the song."""
     embeddings = {}
     for name, reference in references.items():
-        if isinstance(reference, str):
+        if isinstance(reference, str) or _is_track(reference):
+            key = reference if isinstance(reference, str) else id(reference)
             clip = _Voicing(
-                _stem(*clips[reference], separate, device, dtype),
+                _stem(*clips[key], separate, device, dtype),
                 _EMBEDDER_SAMPLE_RATE,
             )
             samples = clip.samples([(0.0, len(clip.waveform) / clip.sample_rate)])
@@ -803,8 +828,8 @@ def attribute_voices(
             earlier step's audio or video.
         voices: Each voice's name mapped to its reference: a list of
             {start_seconds, duration_seconds} (or {start, end}) spans into
-            'audio' itself, or a path/'asset:' of a separate clip of that
-            voice. At least 2 voices; names follow the variable-name pattern
+            'audio' itself, or a path/'asset:' (or a previous_result: audio step)
+            of a separate clip of that voice. At least 2 voices; names follow the variable-name pattern
             (letters, digits, '_', '-').
         lines: The spans to attribute, in seconds - a list of {start, end,
             text?} (transcribe_audio's chunk shape) or {start_seconds,

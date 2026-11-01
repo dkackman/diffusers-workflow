@@ -1080,7 +1080,8 @@ MiniMax H3 ([audit](audits/2026-09-07-minimax-h3-audit.md)):
 - Cut-verb and audio-continuity vocabularies (base guide §4.2, §4.4).
 - Step-count note: 20 default, ~25 for motion (ComfyUI).
 - Ref2VA input limits (≤9 images, ≤3 videos, ≤3 audio, ≤12) and that audio can never
-  be the only reference; H3-Regenerate-2K is API-only.
+  be the only reference. (H3-Regenerate-2K was API-only when this was written; NVlabs
+  has since published Open-H3-Regenerate-2K, see #1065.)
 - Music3 `audio_duration` cap: 9000 frames, six minutes.
 ```
 

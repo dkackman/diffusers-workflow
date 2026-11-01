@@ -352,6 +352,150 @@ class TestTranscribeAudio(unittest.TestCase):
         self.assertEqual(credits["text"], "credits")
 
     @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_near_silent_clip_with_bleed_is_marked_silent(self, mock_pipeline):
+        # #1135: a voiceless vocals stem - music bleed peaking at -27 dBFS,
+        # mean about -46 - and Whisper's stock "Thank you for watching"
+        waveform, rate = self._voiced(seconds=5.0)
+        waveform = waveform * 0.0
+        waveform[0, 1000:1800] = 0.045  # a short -27 dBFS burst, mean far lower
+        self._mock_pipe(
+            mock_pipeline,
+            "Thank you very much for watching.",
+            chunks=[
+                {"text": " Thank you very much for watching.", "timestamp": (0.0, 5.0)}
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"][0]["suspect"], "silent")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_stock_outro_over_a_loud_clip_is_marked_stock_phrase(self, mock_pipeline):
+        # #1136: music at a normal level, Whisper's stock outro
+        waveform, rate = self._voiced(seconds=5.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "Thank you very much for watching.",
+            chunks=[
+                {"text": " Thank you very much for watching.", "timestamp": (0.0, 5.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"][0]["suspect"], "stock_phrase")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_word_mode_stock_outro_marks_every_word(self, mock_pipeline):
+        # #1136: a word chunk is one word; the sentence is the phrase
+        waveform, rate = self._voiced(seconds=5.0)
+        words = ["Thank", "you", "very", "much", "for", "watching."]
+        self._mock_pipe(
+            mock_pipeline,
+            " ".join(words),
+            chunks=[
+                {"text": f" {w}", "timestamp": (i * 0.8, i * 0.8 + 0.8)}
+                for i, w in enumerate(words)
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertEqual(
+            [c.get("suspect") for c in result["chunks"]], ["stock_phrase"] * 6
+        )
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_word_mode_line_containing_stock_phrase_is_not_marked(self, mock_pipeline):
+        waveform, rate = self._voiced(seconds=5.0)
+        words = ["He", "said", "thank", "you", "for", "watching", "me."]
+        self._mock_pipe(
+            mock_pipeline,
+            " ".join(words),
+            chunks=[
+                {"text": f" {w}", "timestamp": (i * 0.8, i * 0.8 + 0.8)}
+                for i, w in enumerate(words)
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="word"
+        )
+
+        self.assertTrue(all("suspect" not in c for c in result["chunks"]))
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_five_word_loop_and_its_duplicate_chunks_are_marked_repetition(
+        self, mock_pipeline
+    ):
+        # #1138: "I love you so much" x N, decoded again over the same span
+        waveform, rate = self._voiced(seconds=8.0)
+        loop = "I love you so much, " * 20 + "See you in the next video."
+        self._mock_pipe(
+            mock_pipeline,
+            loop,
+            chunks=[
+                {"text": loop, "timestamp": (0.0, 7.0)},
+                {"text": loop, "timestamp": (0.08, 7.08)},
+                {"text": "A different line.", "timestamp": (7.1, 7.9)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertEqual(result["chunks"][0]["suspect"], "repetition")
+        self.assertEqual(result["chunks"][1]["suspect"], "repetition")
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_repeat_of_an_earlier_line_over_another_span_is_not_marked(
+        self, mock_pipeline
+    ):
+        waveform, rate = self._voiced(seconds=6.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "Hello there. Hello there.",
+            chunks=[
+                {"text": "Hello there.", "timestamp": (0.0, 2.0)},
+                {"text": "Hello there.", "timestamp": (3.0, 5.0)},
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertNotIn("suspect", result["chunks"][1])
+
+    @patch.object(audio_transcription, "hf_pipeline")
+    def test_a_line_containing_a_stock_phrase_is_not_marked(self, mock_pipeline):
+        waveform, rate = self._voiced(seconds=5.0)
+        self._mock_pipe(
+            mock_pipeline,
+            "He said thank you for watching me.",
+            chunks=[
+                {
+                    "text": " He said thank you for watching me.",
+                    "timestamp": (0.0, 5.0),
+                },
+            ],
+        )
+
+        result = transcribe_audio(
+            waveform, device="cpu", sample_rate=rate, timestamps="segment"
+        )
+
+        self.assertNotIn("suspect", result["chunks"][0])
+
+    @patch.object(audio_transcription, "hf_pipeline")
     def test_a_voiced_word_over_two_seconds_is_marked_long(self, mock_pipeline):
         waveform, rate = self._voiced(seconds=6.0)
         self._mock_pipe(

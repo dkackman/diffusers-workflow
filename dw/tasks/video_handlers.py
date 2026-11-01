@@ -24,6 +24,7 @@ from ..task_domains import (
     POSITIVE,
     fit_to_model_errors,
     join_windows_errors,
+    restore_to_source_errors,
     window_video_errors,
 )
 from ..task_problems import (
@@ -50,6 +51,7 @@ logger = logging.getLogger("dw")
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
     },
+    media_arguments=("videos",),
 )
 def _handle_concat_videos(task, arguments, previous_pipelines):
     """Concatenate videos - and the audio generated with them - into one"""
@@ -69,6 +71,7 @@ def _handle_concat_videos(task, arguments, previous_pipelines):
         "match_levels_dbfs": FINITE,
         "fps": POSITIVE,
     },
+    media_arguments=("videos",),
 )
 def _handle_dissolve_videos(task, arguments, previous_pipelines):
     """Join videos with cross-dissolves, fading the whole from and to a colour"""
@@ -161,7 +164,9 @@ def _handle_window_video(task, arguments, previous_pipelines):
         ),
         "mode": (
             "letterbox (scale to fit, centred on black), stretch (resize to "
-            "fill exactly) or crop (scale to fill, centre-crop)."
+            "fill exactly) or crop (scale to fill, centre-crop). crop is also "
+            "how to reframe a clip to another aspect (16:9 to 9:16) - see "
+            'TASKS.md "Reframe to another aspect".'
         ),
         "downscale": (
             "Fit into width/downscale x height/downscale instead, default 1 - "
@@ -192,7 +197,8 @@ def _handle_fit_to_model(task, arguments, previous_pipelines):
     implementation="dw.tasks.fit.restore_to_source",
     summary=(
         "Put a model's output for a fit_to_model video back at the source's "
-        "size (times the model's scale, inferred) and frame count."
+        "size (times the model's scale, inferred) and frame count, and with "
+        'fps: "source" at its frame rate.'
     ),
     parameter_descriptions={
         "video": (
@@ -204,8 +210,17 @@ def _handle_fit_to_model(task, arguments, previous_pipelines):
             "its saved .json. A crop fit restores only the part it kept, at "
             "the source's pixel density."
         ),
+        "fps": (
+            "The restored video's frame rate. Omitted, the input video's. "
+            '"source" is the rate the source had when it was fitted (the fit '
+            "record's source_fps), for a fixed edit whose output has to line "
+            "up frame for frame with its source; a source with no rate, or a "
+            "record saved without one, falls back to the input video's. A "
+            "number above zero is that rate. No frames are added or dropped."
+        ),
     },
     media_arguments=("fit",),
+    static_check=restore_to_source_errors,
 )
 def _handle_restore_to_source(task, arguments, previous_pipelines):
     """Put a fitted video back at its source's size and length"""
@@ -218,11 +233,19 @@ def _handle_restore_to_source(task, arguments, previous_pipelines):
 @register_command(
     "join_windows",
     implementation="dw.tasks.windows.join_windows",
-    domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE, "fps": POSITIVE},
+    parameter_descriptions={
+        "fps": (
+            'The joined video\'s frame rate. Omitted or "source", the rate '
+            "the source's file was read at; a number above zero is that rate. "
+            "No frames are added or dropped, and the source's audio is put "
+            "back over the frames at this rate."
+        ),
+    },
+    domains={"num_frames": POSITIVE, "overlap": NON_NEGATIVE},
     whole_numbers=("num_frames", "overlap"),
     choices={"curve": JOIN_WINDOWS_CURVES},
     static_check=join_windows_errors,
-    media_arguments=("source",),
+    media_arguments=("source", "videos"),
 )
 def _handle_join_windows(task, arguments, previous_pipelines):
     """Blend processed overlapping windows back into one video the source's length"""
@@ -320,6 +343,18 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
             "crop_size must be a multiple of this - the model's frame-size "
             "step (32 for LTX)."
         ),
+        "min_frames": (
+            "Refuse the clip when its padded crop count is below this - the "
+            "fewest frames the model the crops feed takes. No check when unset."
+        ),
+        "max_frames": (
+            "Refuse the clip when its padded crop count is above this - the "
+            "most frames the model the crops feed takes. No check when unset."
+        ),
+        "fps": (
+            "Refuse the clip unless its frame rate is this, within 0.01 - the "
+            "rate the model the crops feed generates at. No check when unset."
+        ),
         "detector_repo": "Hugging Face repo holding the YuNet face detector.",
         "detector_file": "The .onnx file in detector_repo.",
     },
@@ -332,8 +367,11 @@ def _handle_stabilize_video(task, arguments, previous_pipelines):
         "modulus": POSITIVE,
         "remainder": NON_NEGATIVE,
         "multiple": POSITIVE,
+        "min_frames": POSITIVE,
+        "max_frames": POSITIVE,
+        "fps": POSITIVE,
     },
-    whole_numbers=("modulus", "remainder", "multiple"),
+    whole_numbers=("modulus", "remainder", "multiple", "min_frames", "max_frames"),
     static_check=face_track_errors,
     media_arguments=("clip",),
 )
@@ -355,8 +393,8 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     parameter_descriptions={
         "clip": (
             "The source video crop_face_track tracked - a file path, an "
-            "asset:/output: reference, or an earlier step's video. Its audio, "
-            "frame rate and shots are kept."
+            "asset:/output: reference, or an earlier step's video. Its audio "
+            "and shots are kept, and its frame rate unless 'fps' sets one."
         ),
         "repaired": (
             "The crops after a face-detail pass, still padded to the count "
@@ -370,6 +408,11 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
         "color_match": (
             "Match each crop's mean colour to the source inside the mask "
             "before blending."
+        ),
+        "fps": (
+            'The repaired video\'s frame rate. Omitted or "source", the '
+            "clip's own; a number above zero is that rate. No frames are "
+            "added or dropped."
         ),
     },
     domains={"feather": NON_NEGATIVE},

@@ -63,6 +63,14 @@ class TestDescribeTask:
         assert by_name["mode"]["choices"] == ["letterbox", "stretch", "crop"]
         assert by_name["mode"]["default"] == "letterbox"
 
+    def test_fit_to_model_mode_names_crop_as_the_reframe(self):
+        # #1085: the served mode text, not the fit.py docstring, is what
+        # get_task shows, so the reframe pointer must live there.
+        description = describe_task("fit_to_model")
+        mode = {p["name"]: p for p in description["parameters"]}["mode"]
+        assert "reframe a clip to another aspect" in mode["description"]
+        assert "Reframe to another aspect" in mode["description"]
+
     def test_restore_to_source_lists_video_and_fit(self):
         names = self.names(describe_task("restore_to_source"))
         assert "video" in names
@@ -195,3 +203,29 @@ class TestAnalyzeBeatsRegistration:
         assert info["implementation"] == "dw.tasks.beats.analyze_beats"
         assert info["returns"] == "json"
         assert "assessment" not in info
+
+
+class TestAnalyzePhrasesRegistration:
+    def test_analyze_phrases_is_registered_as_a_json_answer(self):
+        from dw.tasks.task import task_command_info
+
+        info = task_command_info("analyze_phrases")
+        assert info["implementation"] == "dw.tasks.phrases.analyze_phrases"
+        assert info["returns"] == "json"
+        assert "assessment" not in info
+
+    def test_its_arguments_are_described(self):
+        by_name = {p["name"]: p for p in describe_task("analyze_phrases")["parameters"]}
+        assert set(by_name) >= {
+            "audio",
+            "min_gap_seconds",
+            "min_phrase_seconds",
+            "floor_db",
+            "centre",
+        }
+        assert by_name["audio"]["required"]
+        assert by_name["min_gap_seconds"]["default"] == 0.35
+        assert by_name["min_phrase_seconds"]["default"] == 0.3
+        assert by_name["floor_db"]["default"] is None
+        assert by_name["centre"]["default"] is True
+        assert "bridged" in by_name["min_gap_seconds"]["description"]

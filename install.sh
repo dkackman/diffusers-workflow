@@ -59,7 +59,7 @@ if $UBUNTU; then
 fi
 
 # You can specify preferred python version by exporting `INSTALL_PYTHON_VERSION`
-# e.g. `export INSTALL_PYTHON_VERSION=3.8`
+# e.g. `export INSTALL_PYTHON_VERSION=3.12`
 INSTALL_PYTHON_PATH=
 PYTHON_MAJOR_VER=
 PYTHON_MINOR_VER=
@@ -67,7 +67,7 @@ PYTHON_MINOR_VER=
 find_python() {
   set +e
   unset BEST_VERSION
-  for V in 314 3.14 313 3.13 312 3.12 311 3.11 310 3.10; do
+  for V in 314 3.14 313 3.13 312 3.12; do
     if command -v python$V >/dev/null; then
       if [ "$BEST_VERSION" = "" ]; then
         BEST_VERSION=$V
@@ -97,12 +97,13 @@ else
 fi
 
 if ! command -v "$INSTALL_PYTHON_PATH" >/dev/null; then
-  echo "${INSTALL_PYTHON_PATH} was not found"
+  echo "${INSTALL_PYTHON_PATH:-python3.12 to python3.14} was not found" >&2
+  echo "diffusers-workflow requires Python version >= 3.12 and <= 3.14 (3.10 and 3.11 are not supported)" >&2
   exit 1
 fi
 
-if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "10" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
-  echo "diffusers-workflow requires Python version >= 3.10 and <= 3.14" >&2
+if [ "$PYTHON_MAJOR_VER" -ne "3" ] || [ "$PYTHON_MINOR_VER" -lt "12" ] || [ "$PYTHON_MINOR_VER" -ge "15" ]; then
+  echo "diffusers-workflow requires Python version >= 3.12 and <= 3.14" >&2
   echo "Current Python version = $INSTALL_PYTHON_VERSION" >&2
   # If Arch, direct to Arch Wiki
   if type pacman >/dev/null 2>&1 && [ -f "/etc/arch-release" ]; then

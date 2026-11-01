@@ -372,15 +372,30 @@ interface ReferenceScope {
   earlier: EarlierStep[]
   variables: Set<string>
   prompts: Set<string> | null
-  /** The step holding the reference */
+  /** The step holding the reference, when it is a for_each group */
+  consumerGroup: string | undefined
   /** The entries the referencing step's own for_each iterates, if any */
   consumerEntries: unknown
 }
 
 const UNNAMED = 'no earlier step has that name'
 
+/** Why a for_each group's own member reference is refused, or null. A
+ * literal `<group>@<key>` inside the group is read by every other member,
+ * and entries of one list can't read each other (#1101) - the engine's
+ * cross_entry_reference_errors says the same. */
+function crossEntryRefusal(reference: string, scope: ReferenceScope) {
+  if (scope.consumerGroup === undefined) return null
+  const prefix = scope.consumerGroup + MEMBER_SEPARATOR
+  if (!reference.startsWith(prefix)) return null
+  const entry = reference.slice(prefix.length).split('.')[0]
+  return `reads another entry ('${entry}') of the same for_each list. Entries of one list can't read each other. Generate '${entry}' in its own run and pass its file to this one as an output: reference`
+}
+
 /** What is wrong with a reference to an earlier step's result, or null. */
 function resultRefusal(reference: string, scope: ReferenceScope) {
+  const crossEntry = crossEntryRefusal(reference, scope)
+  if (crossEntry !== null) return crossEntry
   const producer = resolveName(scope.earlier, reference)
   return producer === null
     ? UNNAMED
@@ -458,6 +473,10 @@ export function danglingReferenceDetails(
       earlier,
       variables,
       prompts,
+      consumerGroup:
+        FOR_EACH_KEY in step && typeof step.name === 'string'
+          ? step.name
+          : undefined,
       consumerEntries:
         FOR_EACH_KEY in step
           ? forEachEntries(workflow, step[FOR_EACH_KEY])

@@ -251,10 +251,12 @@ def resolve_output_reference(reference, root=None, before=None):
     name = validate_output_reference(name.strip())
     root = root or output_root()
 
+    # The errors below reach the client, so they name the reference and
+    # never the root: that is the server's own filesystem layout
     resolved = _resolve_segments(root, name.split("/"), reference, root, before)
     if resolved is None:
         raise ValueError(
-            f"Output '{name}' not found under {root} - no run of that workflow "
+            f"Output '{name}' not found - no run of that workflow "
             f"holds the file. A run that failed, or reused every step from the "
             f"cache, leaves only its manifest behind"
         )
@@ -265,7 +267,7 @@ def resolve_output_reference(reference, root=None, before=None):
 
     if not os.path.isfile(resolved):
         raise ValueError(
-            f"Output '{name}' not found under {root} - an 'output:' reference "
+            f"Output '{name}' not found - an 'output:' reference "
             f"names a file an earlier run wrote, like "
             f"'output:ltx2/Gyre/latest/Gyre-still.0-0.0.png'"
         )

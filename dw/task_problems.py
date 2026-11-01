@@ -4,7 +4,7 @@ A domain (dw/task_domains.py) is one number against one range. What lives here
 is everything a single range cannot say: crop_face_track's crop size on the
 video model's frame grid, gate_zero above gate_full; analyze_beats' tempo range
 and anchors that are one kind and in time order; plan_cuts' transcript shape
-and render grid; apply_lut's one-of-two source and its palette; check_script's
+and render grid; analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
 `lines` and `shots`; ingredients_grid's choices and image count. Each family's
 `*_problems` function is the rule, and both sides call it - its `*_errors`
 static check (registered as the command's `static_check`, run by
@@ -25,7 +25,7 @@ import re
 
 from .references import DEFERRED, GATHER, is_ref
 from .script_lines import parse_lines, parse_shots, shot_names_error
-from .task_domains import as_number, choice_errors
+from .task_domains import as_number, choice_errors, source_fps_problems
 
 # ingredients_grid's literal choices, read by its registration and by
 # ingredients_grid_errors below, and its default image cap
@@ -79,7 +79,8 @@ def ingredients_grid_errors(arguments):
 # whose frame size and count move on a grid the workflow declares (modulus,
 # remainder and multiple; the defaults are LTX's 8n+1 and 32 pixels), the
 # padding is a multiple of the face's own size added on each side, and the gate
-# is a ramp from gate_full to gate_zero, so the two must be in that order.
+# is a ramp from gate_full to gate_zero, so the two must be in that order, as
+# must the min_frames/max_frames window the padded crop count must fall in.
 # Owned here so the static pass and the command's run-time refusal read one rule
 FACE_CROP_MODULUS = 8
 FACE_CROP_REMAINDER = 1
@@ -97,6 +98,8 @@ def face_track_problems(
     modulus=FACE_CROP_MODULUS,
     remainder=FACE_CROP_REMAINDER,
     multiple=FACE_CROP_MULTIPLE,
+    min_frames=None,
+    max_frames=None,
 ):
     """[(argument, message)] for each crop_face_track rule these values break.
 
@@ -175,6 +178,16 @@ def face_track_problems(
                 f"{min_confidence!r}",
             )
         )
+    low, high = as_number(min_frames), as_number(max_frames)
+    if low is not None and high is not None and low > high:
+        problems.append(
+            (
+                "max_frames",
+                f"crop_face_track needs 'max_frames' at or above 'min_frames' "
+                f"- the window the crop count must fall in - got min_frames "
+                f"{min_frames!r} and max_frames {max_frames!r}",
+            )
+        )
     return problems
 
 
@@ -195,11 +208,13 @@ def paste_feather_problems(feather=None):
 
 def paste_face_track_errors(arguments):
     """[(argument, message)] for the paste_face_track rules a literal
-    workflow can break before it runs."""
+    workflow can break before it runs: a feather past 1, and an `fps` that
+    is neither "source" nor a positive number."""
+    problems = source_fps_problems(arguments, "paste_face_track")
     feather = arguments.get("feather")
     if is_ref(DEFERRED, feather):
-        return []
-    return paste_feather_problems(feather)
+        return problems
+    return paste_feather_problems(feather) + problems
 
 
 def check_face_detector_source(repo, filename):
@@ -231,6 +246,8 @@ def face_track_errors(arguments):
             "modulus",
             "remainder",
             "multiple",
+            "min_frames",
+            "max_frames",
         )
         if name in arguments
     }
@@ -382,6 +399,14 @@ def transcript_problem(transcript):
             "result's content_type application/json"
         )
     if isinstance(transcript, dict):
+        if "phrases" in transcript and "chunks" not in transcript:
+            # analyze_phrases' result: timing only, no text (#1095)
+            if not isinstance(transcript["phrases"], list):
+                return (
+                    "plan_cuts's 'transcript' has a 'phrases' key that is not a "
+                    "list - pass analyze_phrases' result as it is"
+                )
+            return None
         chunks = transcript.get("chunks")
         if not isinstance(chunks, list):
             return (
@@ -527,6 +552,33 @@ def cuts_errors(arguments):
             if not is_ref(DEFERRED, arguments.get(name)):
                 literal[name] = arguments.get(name)
     return choice_errors("plan_cuts", arguments) + cuts_problems(**literal)
+
+
+def phrases_problems(centre=None):
+    """[(argument, message)] for each analyze_phrases rule these values break
+    past a domain: `centre` given as anything but true or false. A string
+    "false" would read as on; it is refused rather than guessed at."""
+    if centre is None or isinstance(centre, bool):
+        return []
+    return [
+        (
+            "centre",
+            "analyze_phrases needs 'centre' as true or false - true weights a "
+            "stereo file to its centre, false uses the band energy of the "
+            f"downmix - not {centre!r}",
+        )
+    ]
+
+
+def phrases_errors(arguments):
+    """[(argument, message)] for the analyze_phrases rules a literal workflow
+    can break before it runs (`phrases_problems`). Its numeric ranges - a
+    non-negative gap, a positive phrase length, a floor at or under 0 dBFS -
+    are the registration's domains."""
+    centre = arguments.get("centre")
+    if is_ref(DEFERRED, centre):
+        return []
+    return phrases_problems(centre=centre)
 
 
 # apply_lut's palette: 2..16 colours, each #rrggbb (#603 stage D)

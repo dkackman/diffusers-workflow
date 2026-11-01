@@ -37,6 +37,59 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **MMAudio picture-synced sound effects** (#1124, stages #1131-#1133),
+  shipped 2026-11-01. It followed a listening gate in which Don heard a
+  clear win on replacing a shot's own sound, on silent clips and on
+  text-only effects. A new task, `generate_sound_effects`, is a vendored
+  port with no upstream dependencies: the flow network, the DFN5B CLIP key
+  map and Synchformer, with K6's safetensors as the decoder. Its weights
+  are pinned and CC-BY-NC 4.0 / Apple AMLR. Templates:
+  `video-to-sound-effects` and `text-to-sound-effect`. Record, including
+  the known edges: `complete/mmaudio-sound-effects-complete.md`.
+- **Story-forge's production lessons, checked on lem** (#1123, stages
+  #1126-#1128), closed 2026-11-01. A/B probes in `probe-1123` found none of
+  lessons 1, 2, 3, 4 or 6 (haze, invented camera moves, contact, all-caps
+  signage, impacts) reproduced on our diffusers pipeline at N = 2, so no
+  rule landed for them. Lesson 5 (wide shots drift on identity) landed as
+  unmeasured guidance in `script-to-video` and `series-episodes`. Lesson 7
+  was cut, and lesson 8 went to #1122. Findings:
+  `audits/2026-11-story-forge-lessons.md`. Record, including the Klein
+  template OOM found on the way: `complete/story-forge-lessons-complete.md`.
+- **Phrase timing without Whisper** (#1095, stages #1104-#1105), shipped
+  2026-11-01. A new JSON task, `analyze_phrases`, times sung phrases from
+  centre-weighted voice-band energy with no model. `plan_cuts` takes its
+  result in place of a transcript, maps `lyrics` one to one when the counts
+  match, and otherwise warns, names the knob (`min_gap_seconds`,
+  `floor_db`) and spreads the lines evenly. The music-video template documents
+  the `transcribe` → `analyze_phrases` swap. Record, including the dropped
+  local-level floor and the deferred duration-aligned mapping:
+  `complete/analyze-phrases-complete.md`.
+- **Beat authoring and the beat review in the story skills** (#1122, stage
+  #1125), shipped 2026-11-01. `script-to-video`'s shot sheet gains `beat`
+  and `must_not`; a new `references/beat-review.md` holds the beat-writing
+  rules and the review (3 frames, blind describe, majority verdict, one
+  reason from five, a correction into the rerun); `series-episodes` points
+  to it. Plugin-only. Record, including the deferred `beat_gate` task and
+  what brings it back: `complete/beat-review-complete.md`.
+- **One-for-one templates follow the source's frame rate** (#1090,
+  stages #1106-#1108), shipped 2026-11-01. `face-repair`, `restore-long`,
+  `upscale-clip`, `refine-clip`, `refine-in-place`, `restore-deblur` and
+  `restore-decompression` default `frame_rate` to `"source"` (the output
+  rate; the model still runs at 24). `paste_face_track` gains `fps` and
+  `join_windows`' `fps` accepts `"source"`. Deblur and decompression now
+  return the source's size, silent. Record, including what was deferred
+  (retiming, `extend-clip`, the restores' soundtrack):
+  `complete/source-fps-one-for-one-complete.md`.
+- **The remaining LTX-2.5 IC-LoRAs: `ltx2/alpha-matte` and
+  `ltx2/restore-colorize`** (#1064, stages #1079-#1080, #1114), shipped
+  2026-11-01. A grey soft-matte MP4 at the source's size and frame rate
+  (Alpha-Gen), and black-and-white colourising with a caller-written,
+  clip-matched prompt (Colorization; reliable on 24 fps 16:9, a low-rate or
+  portrait source may stay grey, documented), plus `source_fps` on the fit record
+  and `fps` on `restore_to_source`. Clean-Plate and Day-To-Night are
+  recorded in their registry entries as not onboarded. Record, including
+  what was deferred (alpha output, cut detection, auto-captioning, the
+  colourised clip's soundtrack): `complete/ltx2-ic-loras-complete.md`.
 - **H3 quality ramp: draft -> final tiers** (#862, stage #882), shipped
   2026-10-15. A `## Ramp` section in the `minimax-h3` skill's
   `references/quality-and-speed.md`, not a new skill: TV L1 -> L7, cinema
@@ -367,6 +420,92 @@ remaining deferred fix is recorded in
   copy during the one decode. Measures only, no rules. Record, including
   what was deferred (rules until #1033 measures real chains, take drift,
   apparent age): `complete/seam-look-measures-complete.md`.
+- **H3 AISkills claims: style-skills pointer and three probes** (#1059,
+  stages #1070-#1072), shipped 2026-10-30. `minimax-h3/references/style.md`
+  points a style-heavy request at MiniMax's eight style packs, by name. On
+  lem, P2 (timbre reference replays source words), P3 (style image pulls in
+  its person) and P5 (screen side holds handedness) were all refuted
+  (`audits/2026-10-h3-aiskills-probes.md`) and listed as probed-and-not-a-rule.
+  Record, including what was deferred (P1 anime cadence, P4 POV) and dropped
+  (P6, P7): `complete/h3-aiskills-probes-complete.md`.
+- **Chain following consecutive windows of a long source video** (#1061,
+  stages #1074-#1076), closed 2026-10-31 after its probe only. On lem, H3
+  ref2va followed a driving window with no cut in it, but a window holding
+  a source cut dropped the first shot and the carry broke the seam, so the
+  gate failed and the `match_video` chain key and `chain-follow-video`
+  template were not built. Record, with the design and what would reopen it
+  (a lighter H3 build, or #1045's guide path):
+  `complete/chain-follow-video-complete.md`.
+- **H3 regional edit** (#1062, stages #1077-#1078), shipped 2026-10-31. An
+  H3 step takes a `source_video` and a `mask_image` or `mask_video`, with
+  `mask_grow`. Two dw blocks (a source encode, and a mask blend inside the
+  denoise loop) regenerate the masked patch cells and keep the rest of the
+  take and its soundtrack. Strength bands are measured: 0.9 replaces an
+  object, 0.95 reworks clothing, and 1.0 is a fresh generation. Ships the
+  `templates/minimax/regional-edit` template and a `minimax-h3` skill
+  branch. Record, including what was deferred (audio intervals, masked
+  tiles, chains, upstream `denoise_mask`):
+  `complete/h3-regional-edit-complete.md`.
+- **H3 Open-Regenerate-2K refiner** (#1065, stages #1081-#1082), shipped
+  2026-10-31. A `trial` catalog entry for Kijai's rank-384 extraction of
+  NVlabs' regenerate refiner: it loads and fits a full-frame 1920x1088
+  refine on 24 GB, and is far sharper, but at strength 0.909 it redraws
+  identity (18.6 dB vs #1049 (d)'s 26.4). Adds `refine_sigmas`, an explicit
+  H3 refine schedule; the recipe's exact points measured the same as the
+  shift-2 grid. Don's lower-strength arms (0.6, 0.7) are still owed.
+  Record: `complete/h3-open-regenerate-2k-complete.md`.
+- **Cutaway and lead-in joins in `script-to-video`** (#1093, stage #1100),
+  shipped 2026-10-31 as skill text only. A shot list's `join` field
+  (`continue`, `cut`, `cutaway`, `lead_in`) and
+  `script-to-video/references/joins.md`: a cutaway's successor re-enters
+  from the shot before it, and a lead-in is rendered after its target and
+  pinned to it with `first-and-last-frame`. Record, including the deferred
+  engine chain joins and their reopen trigger:
+  `complete/script-to-video-joins-complete.md`.
+- **H3 face repair, `templates/minimax/face-repair`** (#1092, stages
+  #1097-#1099), shipped 2026-10-31. A GPU probe found H3 t2va at
+  `refine_strength` 0.6 keeps a small face's identity where LTX
+  `ltx2/face-repair` replaces it, with mouth sync as good. `crop_face_track`
+  now carries the clip's soundtrack on `crops`, silence-padded to the grid,
+  and takes optional `min_frames` / `max_frames` / `fps` refusals; the
+  template crops at 17/5/32 with a 0.2/0.3 gate and refines with the
+  crops' own audio held. Record, including what was deferred (ref2va,
+  tail-only padding, with their triggers):
+  `complete/h3-face-repair-complete.md`.
+- **Dialogue/rest stems from htdemucs, in `series-episodes`** (#1091,
+  stage #1096), shipped 2026-10-31. An A/B on three H3 dialogue shots over a
+  Music 3 score (`audits/2026-11-dialogue-stems.md`) found `separate_stems`'
+  `vocals` within 0.1 dB of the dry shot; Don judged it good enough by ear,
+  so no new separator was built. The skill's *match_levels* bullet gives
+  dialogue its own gain: `vocals` as dialogue, `mix_audio` of the other three
+  stems as the rest, a three-track `mixed`, then `balanced`. Record,
+  including the deferred `separate_dialogue` task and its reopen trigger:
+  `complete/dialogue-stems-complete.md`.
+- **Odd shots, then bridges, for long H3 takes** (#1094, stages #1102,
+  #1103), probed 2026-10-31. A/B on lem against a `last_segment` chain:
+  bridges held seams and take look far better, but an independent odd shot
+  duplicated the subject and the bridges carried it, so it **doesn't win**.
+  Landed as a "Probed, not a rule" entry in `minimax-h3/references/cuts.md`;
+  no template. Record, including the re-probe protocol and the template's
+  reopen trigger: `complete/h3-odd-then-bridge-complete.md`.
+- **Refuse a literal cross-entry reference inside one `for_each` group**
+  (#1101, stage #1111), shipped 2026-10-31. Don ruled to refuse it rather
+  than pin it. A member `G@k` reading `G@j` (j ≠ k) with a literal
+  `previous_result:`/`from_previous_result` reference is now a validation
+  error that names both members and points at separate runs plus `output:`.
+  It applies on every path, and the UI gives the same verdict. A different
+  group over the same list stays legal, and #813's video-into-image advice
+  is skipped for a refused reference. The guide no longer promises the form.
+  Record, including the deferred in-list cutaway:
+  `complete/for-each-cross-entry-complete.md`.
+- **Audio8-TTS voice cloning in `generate_speech`** (#1112, stages #1120,
+  #1121), shipped 2026-11-01, after a listening gate Don judged clearly
+  better than SpeechT5 + `speaker_embedding` and Bark. A vendored,
+  transformers-5 port (no Hub code) with weights and `codec.pth` pinned at
+  one revision (`weights_only=True`); `reference_audio` + `reference_text`
+  clone a voice in English, Russian and more, with a 20 s reference cap and
+  a context-fit refusal. Template `voice-clone`. Record, including the
+  known edges: `complete/audio8-voice-clone-complete.md`.
 
 ## Declined
 

@@ -1,0 +1,220 @@
+{
+    "id": "LTX2Colorize",
+    "description": "Restores natural colour to black-and-white or washed-out source footage with the Colorization in-context LoRA, the monochrome clip attached as a reference for the whole denoise - so the subject, the framing and the motion are the ones that were shot and only the colour changes. A first step fits the source to 'width'/'height' and 'num_frames' by letterboxing and a last step crops the padding back off, so any aspect ratio comes back at the source's own size; a longer source is cut to its opening 'num_frames' frames, a shorter one held on its last frame and trimmed back. The output has one frame per source frame and is written at the source's own frame rate (the model itself runs at its 24 fps); 'frame_rate' overrides that rate, never the frame count. Trained at 960x544, 121 frames, which is what the defaults are; generating far above that bucket weakens the effect. 'lora_scale' is 1.0 - lower it toward 0.8 if the colour oversaturates or bleeds across edges. The prompt follows the trained dual-panel convention ('Reference shows ... COLORIZE ... only color information differs') and must describe this clip and name its colours: the LoRA colours only what the prompt names, so the default - a worked example describing a street scene - leaves an unlike clip grey. Look at a frame of the source and write both panels for it. Colour is reliable on a 24 fps 16:9 source; a low-frame-rate or portrait source may stay grey even with a matched prompt, so check a frame of the result. A 0.9 preview weight, run here under uint4 SDNQ.",
+    "summary": "Colourises black-and-white or washed-out footage, keeping the source's size, frame rate and motion.",
+    "traits": [
+        "needs-input-media"
+    ],
+    "cost": [
+        {"device": "cuda", "name": "RTX 3090", "vram_gb": 24, "minutes": 2.5}
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "width",
+        "height"
+    ],
+    "variables": {
+        "transformer_weights_dtype": "{uint4}",
+        "text_encoder_weights_dtype": "{int8}",
+        "source_video": "asset:clip.mp4",
+        "prompt": "prompt:ltx2/colorize_dual_panel",
+        "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+        "width": 960,
+        "height": 544,
+        "num_frames": 121,
+        "frame_rate": "source",
+        "lora_scale": 1.0,
+        "seed": 42
+    },
+    "variable_constraints": {
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the pipeline load rather than after it"
+        },
+        "num_frames": {
+            "modulus": 8,
+            "remainder": 1,
+            "min_frames": 9,
+            "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "fit",
+            "task": {
+                "command": "fit_to_model",
+                "arguments": {
+                    "video": "variable:source_video",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "mode": "letterbox",
+                    "downscale": 1
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "save": false
+            }
+        },
+        {
+            "name": "colorized",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "LTX2InContextPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "components": {
+                        "transformer": {
+                            "device": "cuda"
+                        },
+                        "text_encoder": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "connectors": {
+                            "group_offload": {
+                                "offload_type": "leaf_level",
+                                "use_stream": true
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda"
+                        },
+                        "audio_vae": {
+                            "device": "cuda"
+                        },
+                        "vocoder": {
+                            "device": "cuda"
+                        }
+                    },
+                    "vae": {
+                        "enable_tiling": true
+                    }
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "Lightricks/LTX-2.5-Diffusers",
+                    "torch_dtype": "torch.bfloat16"
+                },
+                "transformer": {
+                    "configuration": {
+                        "component_type": "LTX2VideoTransformer3DModel",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:transformer_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cuda",
+                            "use_quantized_matmul": true,
+                            "dequantize_fp32": false
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "transformer",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "text_encoder": {
+                    "configuration": {
+                        "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+                        "preserve_device_placement": true
+                    },
+                    "quantization_config": {
+                        "configuration": {
+                            "config_type": "sdnq.SDNQConfig"
+                        },
+                        "arguments": {
+                            "weights_dtype": "variable:text_encoder_weights_dtype",
+                            "quantization_device": "cuda",
+                            "return_device": "cpu",
+                            "dequantize_fp32": false,
+                            "modules_to_not_convert": [
+                                "embed_vision",
+                                "embed_audio",
+                                "lm_head"
+                            ]
+                        }
+                    },
+                    "from_pretrained_arguments": {
+                        "model_name": "Lightricks/LTX-2.5-Diffusers",
+                        "subfolder": "text_encoder",
+                        "torch_dtype": "torch.bfloat16"
+                    }
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "negative_prompt": "variable:negative_prompt",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_frames": "variable:num_frames",
+                    "frame_rate": 24.0,
+                    "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+                    "guidance_scale": 1.0,
+                    "audio_guidance_scale": 1.0,
+                    "stg_scale": 0.0,
+                    "audio_stg_scale": 0.0,
+                    "modality_scale": 1.0,
+                    "audio_modality_scale": 1.0,
+                    "output_type": "{np}",
+                    "reference_conditions": [
+                        {
+                            "reference_type": "diffusers.pipelines.ltx2.pipeline_ltx2_ic_lora.LTX2ReferenceCondition",
+                            "from_arguments": {
+                                "frames": {
+                                    "media_type": "video",
+                                    "location": "previous_result:fit.video"
+                                },
+                                "strength": 1.0
+                            }
+                        }
+                    ],
+                    "reference_downscale_factor": 1,
+                    "conditioning_attention_strength": 1.0
+                },
+                "loras": [
+                    {
+                        "model_name": "Lightricks/LTX-2.5-22b-IC-LoRA-Colorization",
+                        "weight_name": "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors",
+                        "adapter_name": "ic_lora",
+                        "scale": "variable:lora_scale"
+                    }
+                ]
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24.0,
+                "save": false
+            }
+        },
+        {
+            "name": "final",
+            "task": {
+                "command": "restore_to_source",
+                "arguments": {
+                    "video": "previous_result:colorized",
+                    "fit": "previous_result:fit.fit",
+                    "fps": "variable:frame_rate"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

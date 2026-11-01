@@ -7,14 +7,16 @@ rule tables and findings stay on the other side of the seam. It holds:
 - the levelling the transcriber hears the take at (`level_for_transcription`,
   `per_shot_chunks`) - the level checks keep reading the original waveform;
 - the shot placement the probes' rule gives (`shot_spans` via
-  `assess.sample_span`, `overlapping_shot`, `shot_at`);
+  `assess.sample_span`, `overlapping_shot`, `shot_at`, `heard_shot`,
+  `clamp_to_shot`, `shots_entry`);
 - the guard (`guard_words`): a heard word at or below the dead-air floor
   (`GUARD_FLOOR_DBFS`, the probes' `DEAD_AIR_FLOOR_DBFS`), one repeating the
   previous chunk's exact span, or one inside a repetition loop
   (`script_lines.looped_texts_firsts`) is discarded, never raised as a
   finding. `word_level` is the measure the guard and the level checks share
   (`dsp.loudest_window_dbfs` over `GUARD_WINDOW_SECONDS`, the window
-  `shot_dead_air` measures in).
+  `shot_dead_air` measures in), and `audible_runs` the floor-gated blocks
+  of a stretch built from it.
 """
 
 from types import SimpleNamespace
@@ -101,10 +103,83 @@ def shot_at(spans, seconds):
     return None
 
 
+def heard_shot(spans, word):
+    """The shot a heard word's midpoint falls in, None when no shots are known."""
+    if spans is None:
+        return None
+    return shot_at(spans, (word["start"] + word["end"]) / 2)
+
+
+def shots_entry(spans):
+    if spans is None:
+        return None
+    return [
+        {
+            "name": span["name"],
+            "start": round_seconds(span["start"]),
+            "end": round_seconds(span["end"]),
+        }
+        for span in spans
+    ]
+
+
+def clamp_to_shot(entry, span):
+    """Keep a line's `start`/`end` inside its shot (#1115). Whisper drops a
+    passage on a longer input and the word alignment hands that time to a
+    neighbouring word, so the first word of the next shot's line can begin
+    seconds before the seam. The line belongs to `span`, so its timing is
+    reported inside it; the ASR's own times, when they differ, are kept as
+    `asr_start` / `asr_end`."""
+    if span is None or entry["start"] is None:
+        return
+    lo, hi = round_seconds(span["start"]), round_seconds(span["end"])
+    start, end = entry["start"], entry["end"]
+    clamped_start = min(max(start, lo), hi)
+    clamped_end = max(min(end, hi), clamped_start)
+    if clamped_start != start:
+        entry["asr_start"], entry["start"] = start, clamped_start
+    if clamped_end != end:
+        entry["asr_end"], entry["end"] = end, clamped_end
+
+
 def word_level(mono, sample_rate, start, end):
     """The loudest GUARD_WINDOW_SECONDS window's rms over [start, end], in
     dBFS, or None for silence (`dsp.loudest_window_dbfs`)."""
     return dsp.loudest_window_dbfs(mono, sample_rate, start, end, GUARD_WINDOW_SECONDS)
+
+
+def audible_runs(
+    mono, sample_rate, start, end, floor_dbfs, min_seconds, margin_seconds
+):
+    """The audible blocks of the stretch [start, end] (#967, #1115): each run
+    of GUARD_WINDOW_SECONDS windows above `floor_dbfs`, runs a sub-floor gap
+    shorter than `min_seconds` apart joined, and only those lasting
+    `min_seconds` kept, inside [start, end] trimmed by `margin_seconds`
+    (script_check's UNHEARD_* thresholds). Sub-floor time is never counted or placed in a block, and a quiet
+    stretch of min_seconds or more splits the stretch in two. A block
+    edge at the stretch's own (margin-trimmed) edge stays that edge."""
+    inner_start, inner_end = (
+        start + margin_seconds,
+        end - margin_seconds,
+    )
+    runs = []
+    cursor = inner_start
+    while cursor < inner_end:
+        stop = min(cursor + GUARD_WINDOW_SECONDS, inner_end)
+        level = word_level(mono, sample_rate, cursor, stop)
+        if level is not None and level > floor_dbfs:
+            if runs and cursor - runs[-1][1] < min_seconds:
+                runs[-1][1] = stop
+            else:
+                runs.append([cursor, stop])
+        cursor = stop
+    found = []
+    for first, last in runs:
+        first = start if first <= inner_start else first
+        last = end if last >= inner_end else last
+        if last - first >= min_seconds:
+            found.append((first, last))
+    return found
 
 
 def round_seconds(value, places=3):

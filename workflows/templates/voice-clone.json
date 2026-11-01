@@ -1,0 +1,29 @@
+{
+  "id": "VoiceClone",
+  "description": "Speaks a line in the voice of a short reference clip with Audio8-TTS and saves it as a 44.1 kHz mono wav. 'reference_audio' is the clip (an asset: reference, at most 20 s; 5-10 s of clean speech is plenty) and 'reference_text' is exactly what is said in it - both are required together. The line can be in another language than the clip: English and Russian are the model's strongest. Text and reference share a 2,048-position context, about 95 s of prompt, reference and speech together, so a line too long to fit is refused before anything runs rather than cut off; split it into shorter takes. The same 'seed' gives the same take. Consent: clone only a voice you have the right to use - your own, or one whose owner has agreed - and never to impersonate or deceive. As the model card asks, do not use it to make speech a person did not say pass as theirs.",
+  "variables": {
+    "text": "Somebody finished the pistachio and nobody is saying anything.",
+    "reference_audio": "asset:voice.wav",
+    "reference_text": "The words spoken in the reference clip, exactly as said.",
+    "seed": null
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "speak",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:text",
+          "model_name": "Edge0/Audio8-TTS-Realistic-0.6b",
+          "reference_audio": "variable:reference_audio",
+          "reference_text": "variable:reference_text"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

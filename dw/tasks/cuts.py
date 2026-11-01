@@ -29,35 +29,30 @@ It answers JSON - a dict, since a list result would become one artifact per
 shot - and builds nothing.
 """
 
-import difflib
 import logging
 import math
-import re
 
 from ..script_lines import SUSPECT_LEFT_OUT, suspect_runs
 from ..variable_constraints import aligned, aligned_down
 from .registry import register_command
-from ..task_domains import NON_NEGATIVE, POSITIVE, real_number, whole_number
+from ..task_domains import NON_NEGATIVE, POSITIVE, whole_number
 from ..task_problems import cuts_errors, transcript_problem
+from .cuts_lines import (  # noqa: F401 - some re-exported
+    align_lyrics,
+    as_number,
+    COMMAND,
+    is_phrases,
+    lines_of_lyrics,
+    lines_of_phrases,
+    lines_of_transcript,
+    phrase_list,
+)
 
 logger = logging.getLogger("dw")
 
-COMMAND = "plan_cuts"
 
 SEGMENT_BY = ("line", "stanza", "beat")
-# A lyric line that is only a section tag ("[Chorus]") is structure, not a
-# sung line: it breaks a stanza, as a blank line does
-SECTION_TAG = re.compile(r"^\s*\[[^\]]*\]\s*$")
-# Two words are the same word sung, misheard by at most this much
-WORD_SIMILARITY = 0.75
 TIME_PLACES = 4
-
-
-def _number(value, name, required=False):
-    """A float from a number or numeric string; None stays None unless
-    required."""
-    number = real_number(value, name, COMMAND, required=required)
-    return None if number is None else float(number)
 
 
 def _grid_up(frames, grid):
@@ -98,8 +93,8 @@ def _chunks(transcript, duration):
             start, end = (list(chunk["timestamp"]) + [None, None])[:2]
         else:
             end = chunk.get("end")
-        start = _number(start, f"transcript chunks[{index}].start", required=True)
-        end = _number(end, f"transcript chunks[{index}].end")
+        start = as_number(start, f"transcript chunks[{index}].start", required=True)
+        end = as_number(end, f"transcript chunks[{index}].end")
         row = {"start": start, "end": end, "text": str(chunk.get("text") or "").strip()}
         if chunk.get("suspect"):
             row["suspect"] = str(chunk["suspect"])
@@ -139,248 +134,21 @@ def _beats(beats):
     times = beats
     if isinstance(beats, dict):
         times = beats.get("beats") or []
-        bpm = _number(beats.get("bpm"), "beats.bpm")
-        duration = _number(beats.get("duration_seconds"), "beats.duration_seconds")
+        bpm = as_number(beats.get("bpm"), "beats.bpm")
+        duration = as_number(beats.get("duration_seconds"), "beats.duration_seconds")
     if not isinstance(times, (list, tuple)):
         raise ValueError(
             f"{COMMAND}'s 'beats' is an analyze_beats result or a list of "
             f"seconds, not {type(times).__name__}"
         )
-    times = sorted(_number(time, f"beats[{index}]") for index, time in enumerate(times))
+    times = sorted(
+        as_number(time, f"beats[{index}]") for index, time in enumerate(times)
+    )
     if bpm is None and len(times) >= 2:
         gaps = sorted(b - a for a, b in zip(times, times[1:]) if b > a)
         if gaps:
             bpm = 60.0 / gaps[len(gaps) // 2]
     return times, bpm, duration
-
-
-def _lyric_lines(lyrics):
-    """[(text, stanza index)] for the sung lines of the lyrics. A blank line
-    or a section tag on its own line starts a new stanza; neither is a line."""
-    if isinstance(lyrics, str):
-        rows = lyrics.splitlines()
-    elif isinstance(lyrics, (list, tuple)):
-        rows = []
-        for row in lyrics:
-            rows.extend(str(row).splitlines() or [""])
-    else:
-        raise ValueError(
-            f"{COMMAND}'s 'lyrics' is the song's text, one line per line, or a "
-            f"list of lines - not {type(lyrics).__name__}"
-        )
-    lines, stanza, broke = [], 0, False
-    for row in rows:
-        text = row.strip()
-        if not text or SECTION_TAG.match(text):
-            broke = bool(lines)
-            continue
-        if broke:
-            stanza += 1
-            broke = False
-        lines.append((text, stanza))
-    if not lines:
-        raise ValueError(f"{COMMAND}'s 'lyrics' has no sung lines")
-    return lines
-
-
-def _words(text):
-    """The text's words, lower-cased with punctuation dropped."""
-    return [word for word in re.findall(r"[\w']+", text.lower().replace("'", ""))]
-
-
-def _timed_words(chunks):
-    """[(word, start, end)] across the transcript: a chunk's span shared out
-    over its words by length, since a segment chunk carries no word times."""
-    timed = []
-    for chunk in chunks:
-        words = _words(chunk["text"])
-        if not words:
-            continue
-        span = chunk["end"] - chunk["start"]
-        total = sum(len(word) for word in words)
-        at = chunk["start"]
-        for word in words:
-            length = span * len(word) / total
-            timed.append((word, at, at + length))
-            at += length
-    return timed
-
-
-def _similar(a, b):
-    return a == b or difflib.SequenceMatcher(None, a, b).ratio() >= WORD_SIMILARITY
-
-
-def _align_words(lyric_words, heard_words):
-    """{lyric word index: heard word index} - the longest in-order run of
-    words the two share, a word matching one misheard by a little."""
-    n, m = len(lyric_words), len(heard_words)
-    # Longest common subsequence by similarity, filled from the end
-    table = [[0] * (m + 1) for _ in range(n + 1)]
-    same = {}
-    for i in range(n - 1, -1, -1):
-        row, below = table[i], table[i + 1]
-        for j in range(m - 1, -1, -1):
-            if _similar(lyric_words[i], heard_words[j]):
-                same[i, j] = True
-                row[j] = below[j + 1] + 1
-            else:
-                row[j] = max(below[j], row[j + 1])
-    pairs, i, j = {}, 0, 0
-    while i < n and j < m:
-        if same.get((i, j)) and table[i][j] == table[i + 1][j + 1] + 1:
-            pairs[i] = j
-            i += 1
-            j += 1
-        elif table[i + 1][j] >= table[i][j + 1]:
-            i += 1
-        else:
-            j += 1
-    return pairs
-
-
-def _heard_spans(lyric_lines, chunks):
-    """[[start, end] or None] per lyric line - the span of its words the
-    transcript heard, aligned word by word, or None when it heard none of
-    them, and [[start or None] per word of the line] (#805) - the time each
-    lyric word was heard at. A line's span runs no further than the next
-    heard line's start. The word-level alignment stays here, apart from
-    placing the unheard lines."""
-    heard = _timed_words(chunks)
-    lyric_words, owner = [], []
-    for index, (text, _) in enumerate(lyric_lines):
-        for word in _words(text):
-            lyric_words.append(word)
-            owner.append(index)
-    pairs = _align_words(lyric_words, [word for word, _, _ in heard])
-
-    timed = [None] * len(lyric_lines)
-    word_times = [[None] * len(_words(text)) for text, _ in lyric_lines]
-    first_word = {}
-    for lyric_index, line in enumerate(owner):
-        first_word.setdefault(line, lyric_index)
-    for lyric_index, heard_index in pairs.items():
-        line = owner[lyric_index]
-        _, start, end = heard[heard_index]
-        word_times[line][lyric_index - first_word[line]] = start
-        if timed[line] is None:
-            timed[line] = [start, end]
-        else:
-            timed[line][0] = min(timed[line][0], start)
-            timed[line][1] = max(timed[line][1], end)
-
-    known = [index for index, span in enumerate(timed) if span is not None]
-    for a, b in zip(known, known[1:]):
-        timed[a][1] = min(timed[a][1], timed[b][0])
-    return timed, word_times
-
-
-def _line_tokens(text, times, span):
-    """[(token, time)] - the line's whitespace-separated tokens, each with
-    the time its first word was heard at (#805). A line none of whose words
-    were heard is spread evenly over its span; a token that is no word, or
-    whose words were not heard, has time None."""
-    pieces = text.split()
-    counts = [len(_words(piece)) for piece in pieces]
-    if not any(time is not None for time in times):
-        total = sum(1 for count in counts if count)
-        tokens, seen = [], 0
-        for piece, count in zip(pieces, counts):
-            if count and span is not None:
-                at = span[0] + (span[1] - span[0]) * seen / total
-                seen += 1
-            else:
-                at = None
-            tokens.append((piece, at))
-        return tokens
-    tokens, used = [], 0
-    for piece, count in zip(pieces, counts):
-        heard = [t for t in times[used : used + count] if t is not None]
-        used += count
-        tokens.append((piece, heard[0] if heard else None))
-    return tokens
-
-
-def _align_lyrics(lyric_lines, chunks, duration, warnings, min_line_s):
-    """[{start, end, text, stanza}] - the lyrics' lines in their order, timed
-    from the transcript. A line none of whose words were heard is placed
-    between its neighbours, and warned about; when they touch it takes
-    min_line_s from them, so it is still a shot of its own."""
-    timed, word_times = _heard_spans(lyric_lines, chunks)
-    heard_times = [list(times) for times in word_times]
-    known = [index for index, span in enumerate(timed) if span is not None]
-    if not known:
-        warnings.append(
-            f"{COMMAND}: none of the lyrics' words were heard in the transcript "
-            "- the lines are spread evenly over the sung part of the song; "
-            "check the transcript is of this song"
-        )
-    vocal_start = chunks[0]["start"] if chunks else 0.0
-    vocal_end = chunks[-1]["end"] if chunks else duration
-    index = 0
-    while index < len(timed):
-        if timed[index] is not None:
-            index += 1
-            continue
-        run_end = index
-        while run_end < len(timed) and timed[run_end] is None:
-            run_end += 1
-        following = timed[run_end][0] if run_end < len(timed) else None
-        if index > 0:
-            low = timed[index - 1][1]
-        else:
-            low = vocal_start if following is None else min(vocal_start, following)
-        high = following if following is not None else max(vocal_end, low)
-        count = run_end - index
-        # The neighbours took the unheard line's time with its misheard words:
-        # give it back from each side, never more than half a neighbour
-        short = count * min_line_s - (high - low)
-        if short > 1e-9:
-            before = timed[index - 1] if index > 0 else None
-            after = timed[run_end] if run_end < len(timed) else None
-            spare_before = (before[1] - before[0]) / 2 if before else 0.0
-            spare_after = (after[1] - after[0]) / 2 if after else 0.0
-            take_before = min(spare_before, max(short / 2, short - spare_after))
-            take_after = min(spare_after, short - take_before)
-            low -= take_before
-            high += take_after
-            if before:
-                before[1] = low
-            if after:
-                after[0] = high
-        step = (high - low) / count
-        for offset in range(count):
-            timed[index + offset] = [low + offset * step, low + (offset + 1) * step]
-            if known:
-                warnings.append(
-                    f"{COMMAND}: lyric line {index + offset + 1} "
-                    f"({lyric_lines[index + offset][0]!r}) was not heard in the "
-                    f"transcript - placed between its neighbours, at "
-                    f"{timed[index + offset][0]:.2f}-{timed[index + offset][1]:.2f} s"
-                )
-        index = run_end
-    return [
-        {
-            "start": span[0],
-            "end": span[1],
-            "text": text,
-            "stanza": stanza,
-            "tokens": _line_tokens(text, times, span) if known else None,
-        }
-        for span, times, (text, stanza) in zip(timed, heard_times, lyric_lines)
-    ]
-
-
-def _transcript_lines(chunks, stanza_gap):
-    """[{start, end, text, stanza}] - a line per chunk; a silence of at least
-    stanza_gap starts a new stanza."""
-    lines, stanza = [], 0
-    for index, chunk in enumerate(chunks):
-        if not chunk["text"]:
-            continue
-        if lines and chunk["start"] - lines[-1]["end"] >= stanza_gap:
-            stanza += 1
-        lines.append(dict(chunk, stanza=stanza))
-    return lines
 
 
 def _units(lines, segment_by):
@@ -389,15 +157,18 @@ def _units(lines, segment_by):
     for line in lines:
         if segment_by == "stanza" and units and units[-1]["stanza"] == line["stanza"]:
             units[-1]["end"] = max(units[-1]["end"], line["end"])
-            units[-1]["lyrics"].append(line["text"])
-            units[-1]["tokens"].append(line.get("tokens"))
+            if line["text"]:
+                units[-1]["lyrics"].append(line["text"])
+                units[-1]["tokens"].append(line.get("tokens"))
         else:
+            # A phrase with no lyric is sung, with no line to carry
+            sung = [line["text"]] if line["text"] else []
             units.append(
                 {
                     "start": line["start"],
                     "end": line["end"],
-                    "lyrics": [line["text"]],
-                    "tokens": [line.get("tokens")],
+                    "lyrics": sung,
+                    "tokens": [line.get("tokens")] if sung else [],
                     "stanza": line["stanza"],
                 }
             )
@@ -480,6 +251,8 @@ def _scenes_by_beats(lines, beats, duration, args):
             continue
         scenes.append(_scene(start, end, "instrumental", []))
     for line in lines:
+        if not line["text"]:
+            continue
         for scene in scenes:
             if scene["start"] <= line["start"] < scene["end"] or (
                 scene is scenes[-1] and line["start"] >= scene["end"]
@@ -780,21 +553,21 @@ def _parsed_arguments(transcript, beats, segment_by, **raw):
     from ..task_problems import cuts_problems
 
     # An explicit 0 is a value (every silence counts); only an absent gap takes 2.0.
-    gap = _number(raw["min_gap_seconds"], "min_gap_seconds")
+    gap = as_number(raw["min_gap_seconds"], "min_gap_seconds")
     gap = 2.0 if gap is None else gap
     args = types.SimpleNamespace(
-        fps=_number(raw["fps"], "fps", required=True),
-        duration_s=_number(raw["duration_s"], "duration_s"),
-        min_scene_s=_number(raw["min_scene_s"], "min_scene_s") or 0.0,
-        max_scene_s=_number(raw["max_scene_s"], "max_scene_s"),
-        vocal_tail_s=_number(raw["vocal_tail_s"], "vocal_tail_s") or 0.0,
+        fps=as_number(raw["fps"], "fps", required=True),
+        duration_s=as_number(raw["duration_s"], "duration_s"),
+        min_scene_s=as_number(raw["min_scene_s"], "min_scene_s") or 0.0,
+        max_scene_s=as_number(raw["max_scene_s"], "max_scene_s"),
+        vocal_tail_s=as_number(raw["vocal_tail_s"], "vocal_tail_s") or 0.0,
         min_gap_seconds=gap,
         include_instrumental_gaps=bool(raw["include_instrumental_gaps"]),
         modulus=whole_number(raw["modulus"], "modulus", COMMAND),
         remainder=whole_number(raw["remainder"], "remainder", COMMAND),
         min_frames=whole_number(raw["min_frames"], "min_frames", COMMAND),
         max_frames=whole_number(raw["max_frames"], "max_frames", COMMAND),
-        lead_s=_number(raw["lead_s"], "lead_s"),
+        lead_s=as_number(raw["lead_s"], "lead_s"),
     )
     check_arguments(
         COMMAND,
@@ -833,11 +606,17 @@ def _parsed_arguments(transcript, beats, segment_by, **raw):
 
 def _song_length(args, transcript, beats, beats_duration, warnings):
     """(duration, chunks) - the song's length in seconds and the
-    transcript's chunks. duration_s says how long, else the analyze_beats
-    result; failing both the transcript's last end does, and is warned
-    about."""
+    transcript's chunks (or analyze_phrases' phrases). duration_s says how
+    long, else the analyze_beats result, else the phrases' duration_seconds;
+    failing those the transcript's last end does, and is warned about."""
     duration = args.duration_s or beats_duration
-    chunks = _chunks(transcript, duration)
+    if is_phrases(transcript):
+        chunks = phrase_list(transcript)
+        duration = duration or as_number(
+            transcript.get("duration_seconds"), "transcript.duration_seconds"
+        )
+    else:
+        chunks = _chunks(transcript, duration)
     if duration is None:
         # Only the transcript says how long: to the last word it kept (a
         # hallucination over the fade-out is left out), if that word has an end
@@ -922,6 +701,66 @@ def _shots(framed, grid, args, warnings):
     return shots
 
 
+def _planned_lines(chunks, lyrics, phrases, duration, args, warnings):
+    """The sung lines, timed and clamped to the song: phrase-paired lyrics,
+    lyrics aligned onto the transcript, or the transcript's own chunks (each
+    the branch `plan_cuts` documents). `lyrics` is None when none were given."""
+    if phrases:
+        lines = lines_of_phrases(
+            chunks,
+            lines_of_lyrics(lyrics) if lyrics is not None else None,
+            duration,
+            args.min_gap_seconds,
+            warnings,
+        )
+        if not lines:
+            warnings.append(
+                f"{COMMAND}: analyze_phrases found no sung phrases - the song is "
+                "planned as instrumental"
+            )
+    elif lyrics is not None:
+        lines = align_lyrics(
+            lines_of_lyrics(lyrics),
+            chunks,
+            duration,
+            warnings,
+            max(args.min_scene_s, 0.5),
+        )
+    else:
+        lines = lines_of_transcript(chunks, args.min_gap_seconds)
+        if not lines:
+            warnings.append(
+                f"{COMMAND}: the transcript has no sung lines - the song is "
+                "planned as instrumental"
+            )
+    for line in lines:
+        line["start"] = min(max(line["start"], 0.0), duration)
+        line["end"] = min(max(line["end"], line["start"]), duration)
+    return lines
+
+
+def _planned_shots(
+    lines, beat_times, duration, total_frames, args, segment_by, snap_to_beats, warnings
+):
+    """The shots from the timed lines: scenes by line, stanza or beat, split
+    over `max_scene_s`, snapped and merged, then framed and raised to the
+    render grid (each the step `plan_cuts` documents)."""
+    if segment_by == "beat":
+        scenes = _scenes_by_beats(lines, beat_times, duration, args)
+    else:
+        scenes = _scenes_by_units(_units(lines, segment_by), duration, args, warnings)
+    scenes = _split_long(scenes, beat_times, args.max_scene_s, warnings)
+    if snap_to_beats:
+        scenes = _snap(scenes, beat_times, warnings)
+    scenes = _merge_short(scenes, args.min_scene_s)
+
+    framed = _frames(scenes, args.fps, total_frames, warnings)
+    grid = _render_grid(args)
+    beat_frames = [int(round(beat * args.fps)) for beat in beat_times]
+    framed = _split_over_max(framed, grid, beat_frames, args.fps, warnings)
+    return _shots(framed, grid, args, warnings)
+
+
 def plan_cuts(
     transcript,
     lyrics=None,
@@ -947,8 +786,18 @@ def plan_cuts(
         transcript: transcribe_audio's result with 'timestamps' set - a
             {text, chunks} dict of {start, end, text} chunks in seconds. A
             null 'end' runs to the next chunk's start, or the song's end. A
-            chunk marked `suspect` no_words, repetition or silent is left
-            out of the lines; every suspect run is warned about
+            chunk marked `suspect` no_words, repetition, stock_phrase or silent is left
+            out of the lines; every suspect run is warned about. Or
+            analyze_phrases' result, {phrases: [{start, end}],
+            duration_seconds}, told by its 'phrases' key (#1095): timing
+            with no text. Without lyrics each phrase is a line with no
+            lyric; with lyrics as many lines as phrases, line n is phrase n,
+            warned about when a phrase is under 1/4 or over 4x the median
+            (check it by ear), and otherwise the counts are warned about
+            (naming which way to move analyze_phrases' min_gap_seconds, and
+            with fewer phrases its floor_db) and the lines spread evenly
+            from the first phrase to the last. A phrase is never suspect,
+            and a split piece of one keeps its whole lyric
         lyrics: The song's own lyrics - one line per line, a blank line or a
             lone section tag ("[Chorus]") between stanzas - or a list of
             lines. The shots carry these lines verbatim and in order; the
@@ -1024,39 +873,30 @@ def plan_cuts(
     warnings = []
     duration, chunks = _song_length(args, transcript, beats, beats_duration, warnings)
     beat_times = [beat for beat in beat_times if 0.0 < beat < duration]
-    warnings.extend(_suspect_warnings(chunks))
-    chunks = [chunk for chunk in chunks if chunk.get("suspect") not in SUSPECT_LEFT_OUT]
+    phrases = is_phrases(transcript)
+    if not phrases:
+        # Phrases have no text, so none is ever suspect (#1095)
+        warnings.extend(_suspect_warnings(chunks))
+        chunks = [c for c in chunks if c.get("suspect") not in SUSPECT_LEFT_OUT]
+    given_lyrics = lyrics is not None and not (
+        isinstance(lyrics, str) and not lyrics.strip()
+    )
 
-    if lyrics is not None and not (isinstance(lyrics, str) and not lyrics.strip()):
-        lines = _align_lyrics(
-            _lyric_lines(lyrics), chunks, duration, warnings, max(args.min_scene_s, 0.5)
-        )
-    else:
-        lines = _transcript_lines(chunks, args.min_gap_seconds)
-        if not lines:
-            warnings.append(
-                f"{COMMAND}: the transcript has no sung lines - the song is "
-                "planned as instrumental"
-            )
-    for line in lines:
-        line["start"] = min(max(line["start"], 0.0), duration)
-        line["end"] = min(max(line["end"], line["start"]), duration)
-
-    if segment_by == "beat":
-        scenes = _scenes_by_beats(lines, beat_times, duration, args)
-    else:
-        scenes = _scenes_by_units(_units(lines, segment_by), duration, args, warnings)
-    scenes = _split_long(scenes, beat_times, args.max_scene_s, warnings)
-    if snap_to_beats:
-        scenes = _snap(scenes, beat_times, warnings)
-    scenes = _merge_short(scenes, args.min_scene_s)
+    lines = _planned_lines(
+        chunks, lyrics if given_lyrics else None, phrases, duration, args, warnings
+    )
 
     total_frames = int(round(duration * args.fps))
-    framed = _frames(scenes, args.fps, total_frames, warnings)
-    grid = _render_grid(args)
-    beat_frames = [int(round(beat * args.fps)) for beat in beat_times]
-    framed = _split_over_max(framed, grid, beat_frames, args.fps, warnings)
-    shots = _shots(framed, grid, args, warnings)
+    shots = _planned_shots(
+        lines,
+        beat_times,
+        duration,
+        total_frames,
+        args,
+        segment_by,
+        snap_to_beats,
+        warnings,
+    )
 
     for message in warnings:
         emit_warning(message, kind="plan_cuts", command=COMMAND)

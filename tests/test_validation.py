@@ -176,6 +176,7 @@ def test_validation_does_not_import_the_workflow_module():
 
 ERROR_ORDER = [
     "previous_result_references",
+    "cross_entry_references",
     "subfolders",
     "fps",
     "cache",
@@ -183,6 +184,7 @@ ERROR_ORDER = [
     "video_extensions",
     "hold_audio",
     "refine_strength",
+    "regional_edit",
     "guides",
     "content_types",
     "scalar_results",
@@ -200,6 +202,7 @@ ERROR_ORDER = [
     "chain_prompts",
     "guide_chain",
     "task_signatures",
+    "task_remote_code",
     "component_types",
     "component_names",
     "constraints",

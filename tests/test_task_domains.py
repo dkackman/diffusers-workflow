@@ -206,6 +206,24 @@ class TestTheStaticPass:
             == []
         )
 
+    def test_analyze_phrases_declares_its_ranges(self):
+        from dw.task_domains import TASK_ARGUMENT_DOMAINS
+
+        assert dict(TASK_ARGUMENT_DOMAINS["analyze_phrases"]) == {
+            "min_gap_seconds": "non_negative",
+            "min_phrase_seconds": "positive",
+            "floor_db": "non_positive",
+            "sample_rate": "positive",
+        }
+        errors = errors_for(
+            "analyze_phrases",
+            {"audio": "a.wav", "min_gap_seconds": -1, "min_phrase_seconds": 0},
+        )
+        assert {e["path"].rsplit(".", 1)[-1] for e in errors} == {
+            "min_gap_seconds",
+            "min_phrase_seconds",
+        }
+
     def test_an_untouched_command_is_left_alone(self):
         assert errors_for("compose_text", {"parts": ["a"]}) == []
 

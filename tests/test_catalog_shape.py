@@ -71,6 +71,7 @@ def test_vocabularies_are_closed_and_stable():
             "image_to_text",
             "diffusion_upscale",
             "interpolate_frames",
+            "generate_sound_effects",
         }
     )
 
@@ -247,6 +248,38 @@ def test_text_only_is_text():
         "expand", "text_generation", {"prompt": "variable:prompt"}, "text/plain"
     )
     assert derive_catalog_metadata(definition(step))["shape"] == "text"
+
+
+def test_a_voice_clone_reference_is_input_media():
+    # #1121: the voice-clone template's reference clip is a variable the
+    # caller must fill, so the listing says it needs input media
+    step = task_step(
+        "speak",
+        "generate_speech",
+        {
+            "text": "variable:text",
+            "model_name": "Edge0/Audio8-TTS-Realistic-0.6b",
+            "reference_audio": "variable:reference_audio",
+            "reference_text": "variable:reference_text",
+        },
+        "audio/wav",
+    )
+    meta = derive_catalog_metadata(definition(step))
+    assert meta["shape"] == "audio"
+    assert "needs-input-media" in meta["traits"]
+
+
+def test_the_voice_clone_template_needs_input_media():
+    import json
+    import os
+
+    path = os.path.join(
+        os.path.dirname(__file__), "..", "workflows", "templates", "voice-clone.json"
+    )
+    with open(path, encoding="utf-8") as handle:
+        meta = derive_catalog_metadata(json.load(handle))
+    assert meta["shape"] == "audio"
+    assert "needs-input-media" in meta["traits"]
 
 
 def test_processing_tasks_alone_are_utility():

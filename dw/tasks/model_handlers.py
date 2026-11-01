@@ -404,3 +404,56 @@ def _handle_speech_generation(task, arguments, previous_pipelines):
         seed=task.seed_for(arguments),
         **arguments,
     )
+
+
+@register_command(
+    "generate_sound_effects",
+    implementation="dw.tasks.sound_effects.generate_sound_effects",
+    consumes_device=True,
+    required_weights="dw.tasks.sound_effects.required_weights",
+    summary=(
+        "Sound effects (MMAudio large 44.1 kHz v2) for a video clip, a text "
+        "prompt, or both, as a 44.1 kHz mono track; pair_audio muxes it back "
+        "under the clip. Video-only is the weaker mode: give a prompt naming "
+        "the on-screen sound sources. Licences: the MMAudio weights are "
+        "CC-BY-NC 4.0 (non-commercial); the DFN5B CLIP encoder is under the "
+        "Apple Machine Learning Research Model License (research only) - "
+        "Apple Machine Learning Research Model is licensed under the Apple "
+        "Machine Learning Research Model License Agreement. Its output runs "
+        "7-25 dB hot: route it through match_levels before mixing. A result "
+        "that measures noise-like (spectral flatness >= 0.3 and centroid >= "
+        "8 kHz, usually hiss) gets a warning naming both values; the run "
+        "still succeeds. Events name each model's repo and pinned revision "
+        "as it downloads and loads."
+    ),
+    parameter_descriptions={
+        "video": (
+            "The clip to score - asset:, output:, a path, or an earlier step's "
+            "video. Optional when 'prompt' is given."
+        ),
+        "prompt": (
+            "What should be heard - name the on-screen sound sources "
+            "('footsteps on gravel, a door slams'). Optional when 'video' is "
+            "given, but recommended: video-only is the weaker mode."
+        ),
+        "negative_prompt": "What should not be heard (e.g. 'music, speech').",
+        "duration": (
+            "Seconds of audio, at most 20 and at most the clip's length "
+            "(default: the clip's whole length, or 8 s text-only). The model "
+            "was trained around 8 s; outside 4-12 s a warning is noted."
+        ),
+        "steps": "Euler flow-matching steps (default 25).",
+        "guidance_scale": "Classifier-free guidance strength (default 4.5).",
+    },
+    domains={"duration": POSITIVE, "steps": POSITIVE, "guidance_scale": POSITIVE},
+    whole_numbers=("steps",),
+)
+def _handle_generate_sound_effects(task, arguments, previous_pipelines):
+    """MMAudio sound effects for a clip and/or a prompt"""
+    from .sound_effects import generate_sound_effects
+
+    return generate_sound_effects(
+        device=task.device_for(arguments),
+        seed=task.seed_for(arguments),
+        **arguments,
+    )

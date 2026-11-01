@@ -29,6 +29,7 @@ from .mag_calibration import (  # noqa: F401 - re-exported for pipeline.py
 )
 from .h3_guides import insert_guides
 from .h3_hold import core_denoise_sequences, insert_audio_hold
+from .h3_mask import insert_mask_blocks
 from .placement import (
     apply_on_demand_placement,
     create_components_manager,
@@ -718,6 +719,8 @@ def load_component(
             insert_audio_hold(component)
             # ...and `guides` on t2va and fl2va
             insert_guides(component)
+            # ...and `source_video` with a mask, a regional edit (h3_mask.py)
+            insert_mask_blocks(component)
             # ...and the decode-free graph a `refine_tiles` step runs per tile
             from .h3_tiles import attach_tile_blocks
 

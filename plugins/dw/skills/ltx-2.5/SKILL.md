@@ -1,6 +1,6 @@
 ---
 name: ltx-2.5
-description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
+description: Use when a dw MCP server is connected and the user wants LTX-2.5 video - a short clip with its own soundtrack, a clip from one picture or between two, a sharper full-size render, a 2x upscale of its own or the user's clip, a subject held across a clip from a reference sheet, a blurry or compressed clip restored, a black-and-white clip colourised, an alpha matte pulled from a clip, or a clip extended or chained longer. Picks the template, states schedule and size rules, quotes cost, and carries the trained caption spec the prompt must follow.
 ---
 
 # LTX-2.5 on a dw server
@@ -46,9 +46,24 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   - one composite image, a clean panel per character, prop and location, no
   text, bigger panels for what matters. What isn't on the sheet won't
   appear. `reference_frames` must stay at or above 121.
+- **A matte of the user's clip**: `templates/ltx2/alpha-matte` - a soft
+  grey per-frame alpha, white = foreground, at the source's size and frame
+  rate (`frame_rate` overrides the rate, never the frame count), for the
+  user's editor to composite. No prompt: the model picks the foreground and
+  a prompt doesn't steer it. `num_frames` caps at 145 (RGB leaks past it).
+  A hard cut leaks source texture into the frames after it: matte one shot
+  at a time.
 - **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
   spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
-  artefacts. Each inverts one defect and no other - neither upscales or
+  artefacts, `templates/ltx2/restore-colorize` for black-and-white or
+  washed-out footage. All three come back at the source's size and frame
+  rate (`frame_rate` overrides the rate), with no soundtrack. Colorize
+  colours only what the prompt names: look at a source frame
+  (`get_output_frames`) and write both prompt panels for that clip, naming
+  its colours - the default is an example and leaves an unlike clip grey.
+  Reliable on 24 fps 16:9; a low-rate or portrait source may stay grey even
+  so: check a frame of the result; if it is grey, this route doesn't take
+  that source. Each inverts one defect and no other - neither upscales or
   removes motion blur or grain - so name the defect and let the user
   correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
   (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
@@ -56,17 +71,21 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   the source first and restore after: output exactly 2x the source (2x the kept region under crop) at its
   length, any aspect ratio letterboxed and cut back (`fit`), a short source
   held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
-  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). A small,
+  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). All three
+  write at the source's frame rate (`frame_rate` overrides the rate, never
+  the frame count). A small,
   smeared face in a wide shot, the rest left alone:
   `templates/ltx2/face-repair` (`strength` 0-4, default 2; describe the
   person in `prompt` to hold identity at 3-4). A near face comes back
-  untouched. Footage
+  untouched; the source's soundtrack, size and frame rate are kept
+  (`frame_rate` overrides the rate, never the frame count). Footage
   longer than `num_frames`: `templates/ltx2/restore-long` restores it window
   by window. Its `windows` list needs `ceil(source_frames / (num_frames -
   overlap))` entries, `index` 0 up - read `source_frames` from
   `get_gallery_metadata`, keep `num_frames` 121 and `overlap` 16 (105 new
   frames per window), and let `validate_workflow` name any entry to add or
-  drop. At most 32 windows.
+  drop. At most 32 windows. Written at the source's frame rate with its
+  soundtrack (`frame_rate` overrides the rate, never the frame count).
 - **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
   on all of it, not one frame; `clip` extends an existing clip (`width`/
   `height` matched, shorter than `num_frames`; clip_frames unused) instead
@@ -98,6 +117,7 @@ LoRAs: `list_loras` first.
 - Audio is generated in the first pass and nothing refines it, so carry the
   audio latents (two-stage) or pair the track back (`pair_audio`, as the
   `-clip` upscales do) on a frames-only step.
+- To swap a shot's sound, `video-to-sound-effects`, then `match_levels`.
 
 ## Prompts
 
@@ -111,6 +131,20 @@ contradict it, one continuous take, no cuts. The `ltx2/` stored prompts
 (`list_prompts`) follow it. The duration predictor times the clip as written:
 put beats in the prompt ("she pauses") or set a duration. On-screen text and
 chaotic physics are unreliable.
+
+**Voice**: the caption steers a speaker's pitch and apparent age and gender, not
+their delivery. Measured 2026-11-01 on mps (one image, seed and line, four voice
+descriptions, 121 frames): median F0 291 Hz for "squeaky little girl", 221 for
+"elderly woman", 136 for "deep booming old man" - an octave apart - but "a
+breathy whisper" came back fully voiced at 160 Hz, and "fast" and "slow" spoke
+over the same span: the clip length paces the line, not the words. Delivery
+adjectives alone ("buzzy", "cheerful") land as a generic voice. Write voices as
+pitch, age and gender; don't promise a whisper or a tempo (an accent is
+unmeasured: listen before claiming one); describe
+a voice you have not heard as asked for, not as delivered. When the voice must
+be exact or held across clips, speak the line with `templates/voice-clone`
+(Audio8-TTS, runs on mps) - that loses LTX's lip sync over the picture - or
+condition MiniMax H3 on the clip as its voice reference (`minimax-h3` skill).
 
 **Several shots**: one chronological paragraph, no shot list or sluglines. At
 each cut name the transition in prose ("a hard cut to"), re-establish scale,
@@ -126,9 +160,8 @@ caption spec, verbatim from the pipeline, which the caption must follow.
 1. `validate_workflow` first - free, and catches bad arguments.
 2. Quote `plan.estimate` from the validate answer (wall clock, loading
    included) and name any `downloads_required` - an IC-LoRA template pulls a
-   gated weight the box may not have. Only `text-to-video`, `two-stage`,
-   `refine-clip` and `refine-in-place` (~1.5 min, RTX 3090) carry a `cost`;
-   for the rest give the shape - a 121-frame clip at 960x544 is under two
+   gated weight the box may not have. A template whose catalog entry has
+   no `cost` prices from the shape - a 121-frame clip at 960x544 is under two
    minutes cold on a 24 GB card, a minute loading; extend and chain
    multiply by their passes.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost` set to the

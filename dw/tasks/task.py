@@ -17,8 +17,10 @@ from .format_messages import (
 # the names the rest of dw and the tests read
 from .registry import _COMMAND_INFO, _COMMAND_REGISTRY, register_command  # noqa: F401
 from ..task_domains import FINITE, coerce_arguments
+from ..trust import require_trusted_task_arguments
 from . import beats  # noqa: F401 - registers analyze_beats
 from . import measure_sync  # noqa: F401 - registers measure_sync
+from . import phrases  # noqa: F401 - registers analyze_phrases
 from . import cuts  # noqa: F401 - registers plan_cuts
 from . import trim  # noqa: F401 - registers trim_video
 
@@ -310,6 +312,10 @@ class Task:
             # A task reports nothing of its own - a captioning model loading
             # and decoding is otherwise indistinguishable from a hang
             emit_phase("task", detail=self.command)
+
+            # Before any handler: one that drops a remote-code key today is
+            # one refactor away from forwarding it (GHSA-hhfj-p9xj-xjmr)
+            require_trusted_task_arguments(self.command, arguments)
 
             # Look up command in registry
             if self.command in _COMMAND_REGISTRY:

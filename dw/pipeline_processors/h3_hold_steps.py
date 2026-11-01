@@ -48,6 +48,8 @@ from .h3_rules import (
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
     REFINE_NOISE,
+    REFINE_ROW_NOISE,
+    REFINE_SIGMAS_INPUT,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
 )
@@ -66,12 +68,15 @@ def refine_sigmas(strength, num_points, shift):
     full grid, which `set_timesteps(sigmas=...)` does not apply itself.
 
     Raises:
-        ValueError: If `strength` is not in (0, 1) or `num_points` is below 2
+        ValueError: If `strength` is not in (0, 1] or `num_points` is below 2.
+            At 1 the schedule is the stock full grid - a regional edit that
+            regenerates its region from noise; which callers may pass 1 is
+            `h3_rules.refine_problems`'s rule
     """
     if isinstance(strength, bool) or not isinstance(strength, (int, float)):
         raise ValueError(f"refine_strength must be a number, got {strength!r}")
-    if not 0 < strength < 1:
-        raise ValueError(f"refine_strength must be in (0, 1), got {strength}")
+    if not 0 < strength <= 1:
+        raise ValueError(f"refine_strength must be in (0, 1], got {strength}")
     if num_points is None or num_points < 2:
         raise ValueError(
             f"refine_strength needs num_inference_steps of 2 or more, got {num_points}"
@@ -80,6 +85,23 @@ def refine_sigmas(strength, num_points, shift):
     start = strength / (shift - (shift - 1) * strength)
     sigmas = shifted_sigma_grid(num_points, shift, start)
     sigmas[0], sigmas[-1] = strength, 0.0
+    return sigmas.float()
+
+
+def explicit_sigmas(points, strength):
+    """A caller's own `refine_sigmas` schedule as the float32 tensor
+    `set_timesteps(sigmas=...)` takes, used verbatim - no shift is applied.
+    Its first point is pinned to `strength` and its last to 0, the values
+    `h3_rules.refine_problems` already held them to within SIGMA_TOLERANCE,
+    so the re-noise and the schedule start from the same sigma.
+
+    Raises:
+        ValueError: If `points` has fewer than 2 points
+    """
+    sigmas = torch.tensor([float(point) for point in points], dtype=torch.float64)
+    if sigmas.numel() < 2:
+        raise ValueError(f"refine_sigmas needs at least 2 points, got {sigmas.numel()}")
+    sigmas[0], sigmas[-1] = float(strength), 0.0
     return sigmas.float()
 
 
@@ -291,9 +313,9 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
     def description(self):
         return (
             "dw: with `refine_strength`, re-denoises the passed `latents` from that sigma - replaces both "
-            "schedules with `num_inference_steps` shift-spaced points from it down to 0 and re-noises the "
-            "generated video rows to it. Needs every audio row held (`hold_audio`). Does nothing without "
-            "`refine_strength`."
+            "schedules with `num_inference_steps` shift-spaced points from it down to 0, or with "
+            "`refine_sigmas` when passed, and re-noises the generated video rows to it. Needs every audio "
+            "row held (`hold_audio`). Does nothing without `refine_strength`."
         )
 
     @property
@@ -305,7 +327,18 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                 default=None,
                 description=(
                     "The sigma in (0, 1) to re-denoise a passed `latents` from - an upscaled take refined at "
-                    "about 0.2. Runs num_inference_steps - 1 evaluations."
+                    "about 0.2 - or in (0, 1] for a `source_video` regional edit, where 1.0 regenerates the "
+                    "masked region from noise. Runs num_inference_steps - 1 evaluations."
+                ),
+            ),
+            InputParam(
+                name=REFINE_SIGMAS_INPUT,
+                type_hint=list,
+                default=None,
+                description=(
+                    "An explicit refine schedule in place of the shift-spaced one: strictly decreasing sigma "
+                    "points from `refine_strength` down to 0, one per `num_inference_steps`, used verbatim "
+                    "for the video and audio schedules. Needs `refine_strength`."
                 ),
             ),
             InputParam(
@@ -345,6 +378,8 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
             OutputParam("timesteps", type_hint=torch.Tensor),
             OutputParam("audio_timesteps", type_hint=torch.Tensor),
             OutputParam("row_timestep_plan", type_hint=list),
+            # The packed re-noise, for a regional edit's kept rows (h3_mask.py)
+            OutputParam(REFINE_ROW_NOISE, type_hint=torch.Tensor),
         ]
 
     @torch.no_grad()
@@ -365,9 +400,13 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
             )
 
         device = components._execution_device
-        sigmas = refine_sigmas(
-            strength, block_state.num_inference_steps, components.scheduler.shift
-        )
+        explicit = getattr(block_state, REFINE_SIGMAS_INPUT, None)
+        if explicit is not None:
+            sigmas = explicit_sigmas(explicit, strength)
+        else:
+            sigmas = refine_sigmas(
+                strength, block_state.num_inference_steps, components.scheduler.shift
+            )
         # Verbatim: set_timesteps(sigmas=...) applies no shift. The audio
         # schedule only has to match the video's for the loop's audio step,
         # which steps no row when every one is held
@@ -424,9 +463,11 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
                 components.scheduler.scale_noise(clean, 1 - strength, noise),
             ]
         )
+        setattr(block_state, REFINE_ROW_NOISE, noise)
 
         logger.info(
             f"Refining from sigma {strength} over {len(block_state.timesteps)} steps"
+            + (f" on refine_sigmas {list(explicit)}" if explicit is not None else "")
         )
         self.set_block_state(state, block_state)
         return components, state

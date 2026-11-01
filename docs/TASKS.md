@@ -529,7 +529,7 @@ add grain last so it is not itself sharpened:
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
-| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
+| `restore_to_source` | Put a model's output back at its source's size and length, from the `fit` record | `fit`, `fps` (omitted: the input's rate; `"source"`: the source's; or a number) - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
 
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
@@ -973,7 +973,7 @@ that step instead.
 | `num_frames` | Yes | Frames per window, as given to `window_video` |
 | `overlap` | Yes | Frames each window shares with the one before, as given to `window_video` |
 | `curve` | No | The blend's shape across a seam: `cosine` (the default, `(1 - cos πt) / 2`), `smoothstep` (`3t² - 2t³`) or `linear` (`t`) |
-| `fps` | No | The source's frame rate. Defaults to the rate its file was read at; needed only to put its audio back |
+| `fps` | No | The joined video's frame rate: omitted or `"source"` for the rate the source's file was read at, or a number above zero for that rate. No frames are added or dropped; the source's audio is put back over the frames at this rate |
 
 The result has exactly the source's frame count, each source frame once:
 window 0's real frames, then each later window's first `overlap` frames
@@ -1002,7 +1002,8 @@ check is the task's (`dw/window_count_errors.py`), so any `join_windows`
 step gets it, and it applies the same `window_count_problem` the task does. It also refuses a window whose frame count is not `num_frames`
 (named by position) and windows of different sizes. An unknown `curve` and an
 `overlap` that is not below `num_frames` are refused by `validate_workflow`
-on literal values as well.
+on literal values as well, and so is an `fps` that is neither `"source"`
+nor a number above zero.
 
 The output's audio is the source's own track over exactly
 `frames_to_samples(source_frames)`, and none when the source has none; the
@@ -1049,6 +1050,38 @@ and exactly `num_frames`, the pipeline runs on the fitted video, and
 ]
 ```
 
+#### Reframe to another aspect
+
+To turn a 16:9 clip into 9:16, 4:5 or 1:1 there are two ways today:
+
+- **Crop.** `fit_to_model` with `mode: "crop"` and the target `width`/`height`
+  scales each frame to fill and centre-crops it. It works at full resolution
+  with no model, and it loses the sides. `num_frames` is required: set it to
+  the clip's own length to keep every frame. `restore_to_source` is the wrong
+  follow-up for a reframe, because it undoes the fit.
+
+  ```json
+  {
+      "name": "reframe",
+      "task": {
+          "command": "fit_to_model",
+          "arguments": {
+              "video": "asset:clip.mp4",
+              "width": 432,
+              "height": 768,
+              "num_frames": 121,
+              "mode": "crop"
+          }
+      }
+  }
+  ```
+
+- **Re-render natively.** A generated clip is usually better re-made at the
+  portrait size. Any H3 template takes any 32-multiple `width`/`height` (for
+  example 544x960), and that keeps the audio.
+
+Generative outpaint of video (filling the new sides) is not supported; see #1066.
+
 `mode` is `letterbox` (default: scale to fit, centred on black), `stretch`
 (resize to fill exactly) or `crop` (scale to fill, centre-crop). The frame
 count is exact: a longer source is cut to its first `num_frames` frames and a
@@ -1063,8 +1096,10 @@ it goes straight to a pipeline's `video` or a reference condition's `frames`;
 saved, it is written as an mp4 at that rate. The `fit`
 record holds `mode`, `source_width`, `source_height`, `source_frames`,
 `model_width`, `model_height`, `model_frames`, `content_box` (where the source
-sits in the model frame) and `source_box` (the part of the source kept - all
-of it unless `mode` is `crop`), each box `{x, y, w, h}`.
+sits in the model frame), `source_box` (the part of the source kept - all
+of it unless `mode` is `crop`), each box `{x, y, w, h}`, and `source_fps`
+(the source's frame rate, `null` when it carries none). A record written
+before `source_fps` existed still restores.
 
 `restore_to_source` takes the pipeline's output and that record; it has no
 `scale` argument. The scale is the output's size over the fitted size and must
@@ -1075,6 +1110,17 @@ dropping the held ones (an output shorter than that is returned as it is).
 the source's pixel density times the scale: 640x480 fitted into 512x288
 restores to 640x360. A saved video keeps its exact size; only an odd side
 grows by one pixel, since the encoder needs even sides.
+
+`fps` sets the restored clip's frame rate; it never adds or drops a frame.
+Omitted, the clip keeps the rate it came in at - the pipeline's, which for a
+model that runs at a fixed rate is not the source's. `"source"` takes the
+record's `source_fps`, falling back to the input's rate when the record has
+none. A positive number sets that rate. Anything else is refused, at
+validation for a literal. A model that runs at 24 fps on an 8 fps clip
+returns one frame per source frame, so `"fps": "source"` writes it back at 8
+and it stays frame-aligned with the source in time as well as in count
+(`templates/ltx2/alpha-matte`, whose `frame_rate` variable defaults to
+`"source"` and passes through to this argument).
 
 Neither task carries a soundtrack. Pair the source's with `pair_audio` after
 the restore.
@@ -1108,6 +1154,9 @@ face-detail pass that needs the face large and still:
 | `modulus` | No | The crop count is padded to `modulus * n + remainder` frames - the frame grid of the model the crops feed. At least `1`. Default `8` |
 | `remainder` | No | The padded count's remainder, `0` up to `modulus - 1`. Default `1` |
 | `multiple` | No | `crop_size` must be a multiple of this - the model's frame-size step. At least `1`. Default `32` |
+| `min_frames` | No | Refuse the clip when its padded crop count is below this - the shortest clip the model the crops feed takes. A whole number, at least `1`. No check when unset |
+| `max_frames` | No | Refuse the clip when its padded crop count is above this - the longest the model takes. A whole number, at least `min_frames`. No check when unset |
+| `fps` | No | Refuse the clip unless its frame rate is this, within `0.01` (23.976 passes for `23.98`, not for `24`). Above `0`. No check when unset |
 | `detector_repo` | No | Hub repo holding the YuNet weights. Default `opencv/face_detection_yunet`, read at a pinned revision; any other must be a Hub repo id |
 | `detector_file` | No | The detector file in that repo, a bare `.onnx` name. Default `face_detection_yunet_2023mar.onnx` |
 | `device` | No | Where detection runs |
@@ -1118,7 +1167,8 @@ A validate's `downloads_required` lists the detector file as a file entry when i
 the workflow's to declare. The defaults (8, 1, 32) are LTX's 8n+1 frames and
 32-pixel steps, so a workflow that names none gets the output it always did;
 the `face-repair` template passes `modulus: 8, remainder: 1, multiple: 32`
-explicitly. A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
+explicitly. A model on another grid names its own: MiniMax H3's is `modulus:
+17, remainder: 5, multiple: 32` (17n+5 frames, 32-pixel steps). A `modulus` below 1, a `remainder` below 0 or not below `modulus`,
 and a `crop_size` that is not a multiple of `multiple` are refused at
 validation.
 
@@ -1145,8 +1195,21 @@ change it. It is 1 when face width over frame width is at or below `gate_full`,
 0 at or above `gate_zero`, linear between, and multiplied by the hold decay on
 frames the detector missed.
 
-It returns `{crops, track}`. `crops` is a video (no audio) at the clip's frame
-rate. `track` is a JSON record saved as its own `.json` file, readable by
+`min_frames`, `max_frames` and `fps` refuse a clip the model the crops feed
+cannot take, before the detector loads: the window is checked against the
+padded crop count, and the message names both the clip's frame count and the
+count it pads to (`the clip's 346 frames pad to 362 crops on the 17n+5 grid,
+above max_frames 345`). A clip that records no frame rate is refused when
+`fps` is set.
+
+It returns `{crops, track}`. `crops` is a video at the clip's frame rate. When
+the clip has a soundtrack, `crops` carries it padded to match: `pad_before`
+frames of silence, the clip's own sound, then `pad_after` frames of silence, so
+the track is exactly `crop_frames / fps` seconds long and a step holding the
+crops' audio (`hold_audio: previous_result:<step>.crops`) lines up with them
+frame for frame. A silent clip gives crops with no audio; a soundtrack on a
+clip with no frame rate to place it by is dropped, with a `crop_audio_dropped`
+warning. `track` is a JSON record saved as its own `.json` file, readable by
 `previous_result:<step>.track`:
 
 | Field | Description |
@@ -1164,8 +1227,10 @@ rate. `track` is a JSON record saved as its own `.json` file, readable by
 A clip with no face still succeeds: every strength is 0, the crops are the
 centre square, and a `no_face_found` warning is raised. `validate_workflow`
 refuses a `crop_size` that is not a multiple of 32, a `gate_zero` at or below
-`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id
-and a `detector_file` that is not a `.onnx` name, before anything downloads.
+`gate_full`, a `padding` out of range, a `detector_repo` that is not a repo id,
+a `detector_file` that is not a `.onnx` name, a `min_frames`, `max_frames` or
+`fps` at or below 0, and a `max_frames` below `min_frames`, before anything
+downloads.
 
 ### paste_face_track
 
@@ -1193,6 +1258,7 @@ using the `track` record `crop_face_track` returned:
 | `track` | Yes | The `track` record `crop_face_track` returned (`previous_result:<step>.track`), or the path of its saved `.json`, such as an `output:` reference |
 | `feather` | No | Fraction of the paste's radius that fades out, `0` to `1`. Default `0.3` |
 | `color_match` | No | Shift each crop's mean colour onto the source's inside the mask before blending. Default `true` |
+| `fps` | No | The output's frame rate: omitted or `"source"` for the clip's own, or a number above zero for that rate. No frames are added or dropped |
 
 The pad frames are dropped: the crop at `pad_before + i` goes back on source
 frame `i`. Each crop is resized to the square it was cut from, then blended
@@ -1207,11 +1273,12 @@ through exactly. With `color_match`, the crop's mean colour is shifted onto the
 source's inside the mask, so a repair pass that drifted in tone does not show
 as a patch.
 
-It returns the source clip with its audio, frame rate and shots carried, the
-same frames one for one. It refuses a track whose frame count or frame size
+It returns the source clip with its audio and shots carried, the same frames
+one for one, at the clip's frame rate unless `fps` sets another. It refuses a track whose frame count or frame size
 does not match the clip, a `repaired` with fewer frames than the track's
 `crop_frames`, and a `track` that is not a `crop_face_track` record.
-`validate_workflow` refuses a `feather` past `1` before the job runs.
+`validate_workflow` refuses a `feather` past `1`, and an `fps` that is
+neither `"source"` nor a number above zero, before the job runs.
 
 **Example:** [face-repair.json](../workflows/templates/ltx2/face-repair.json) — the repaired crops pasted back over the source, its soundtrack kept.
 
@@ -1979,6 +2046,65 @@ out of order, a non-whole `beat_index`), at `validate_workflow`; an anchor past
 the song's end, or a `beat_index` past the detected count, at run start.
 It returns JSON, so `result` may only be `application/json`.
 
+### analyze_phrases
+
+Find when a song's sung phrases start and stop, from voiced energy alone - no
+Whisper, no model download, seconds of runtime. Where Whisper cannot hear the
+words (a non-English verse, a hallucinated transcript, wordless vocals) this
+still says when the lines are sung. Feed it the vocal stem where there is one;
+the result is JSON and nothing is built:
+
+```json
+{
+    "name": "phrases",
+    "task": {
+        "command": "analyze_phrases",
+        "arguments": {
+            "audio": "previous_result:stems.vocals"
+        }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The song or its vocal stem: a path, `asset:`/`output:` reference of an audio or video file, a waveform, or an earlier step's generated audio (`previous_result:<separate_stems step>.vocals`) |
+| `min_gap_seconds` | No | A silence shorter than this between voiced runs is bridged into one phrase (default `0.35`). Raise it to merge phrases split by breaths, lower it to split lines sung close together. At least 0 |
+| `min_phrase_seconds` | No | A phrase shorter than this, after bridging, is dropped as a click or breath (default `0.3`). Above 0 |
+| `floor_db` | No | The level, in dBFS of a 20 ms frame, a frame must reach to count as voiced. Unset, it is the track's 95th-percentile frame less 35 dB, never below -60 dBFS (the floor `attribute_voices` uses). It is the knob for a fused legato or reverberant verse: when the voice never drops below the relative floor between lines, raising it (less negative, e.g. `-30`) splits them where `min_gap_seconds` can't - then check the phrases by ear before trusting a one-to-one pairing: a raised floor can make the counts match on wrong boundaries. At or below 0 |
+| `centre` | No | `true` (the default) weights a stereo file to its centre, where a lead vocal is mixed; `false` uses the band energy of the downmix. A real boolean - `"false"` is refused |
+| `sample_rate` | With a waveform | Rate of a directly passed waveform (files carry their own) |
+
+Returns `{phrases: [{start, end}], duration_seconds, method, warnings}`, in
+seconds rounded to 0.01; the phrases ascend and do not overlap.
+
+- **`method: "centre"`** (stereo, `centre: true`): mid = (L+R)/2 and side =
+  (L-R)/2 are both bandpassed to 250-3500 Hz, and a 20 ms frame's power is
+  max(0, P_mid - P_side), smoothed over three frames. What is panned away from
+  the centre cancels, so a hard-panned guitar or noise bed does not read as
+  singing - and a vocal panned hard to one side does not either: use
+  `centre: false` for it.
+- **`method: "band"`**: the band energy of the downmix, for a mono file (which
+  also warns), for `centre: false`, and for a stereo file whose channels are
+  the same (it has no side to cancel, so no warning).
+
+A frame is voiced at or above the floor; gaps shorter than `min_gap_seconds`
+are bridged, then runs shorter than `min_phrase_seconds` are dropped.
+
+Warnings: no phrases found (a silent track, or one whose loudest frame is
+under -50 dBFS in the voice band - room tone, hiss - unless `floor_db` is
+given); and one phrase covering more than 90% of the track. The task can't tell
+a stem from a mix, so it names both remedies: on a mix whose centred bass and
+kick fill the voice band, feed it `separate_stems`' `vocals` instead; on a
+vocal stem already (legato or reverberant singing), raise `floor_db` and check
+the phrases by ear. `warnings` repeats what was emitted.
+
+Refused at `validate_workflow`: a missing `audio`, a negative
+`min_gap_seconds`, a `min_phrase_seconds` at or below 0, a `floor_db` above 0,
+and a `centre` that is not `true` or `false`; the run refuses the same.
+It returns JSON, so `result` may only be `application/json`.
+
 ### plan_cuts
 
 Plan a music video's cuts from a song's lyrics and beats. `transcribe_audio`
@@ -2011,12 +2137,12 @@ the list rendered. A transcript chunk `transcribe_audio` marked `suspect` `no_wo
 
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
-| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json` |
-| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them. `null` or `""` means none: the transcript's text is used |
+| `transcript` | Yes | `transcribe_audio`'s result with `timestamps` set (`"segment"` or `"word"`): a `{text, chunks}` dict of `{start, end, text}` chunks in seconds. A null `end` runs to the next chunk's start, or the song's end. Its `result` must be `application/json`. Or an [`analyze_phrases`](#analyze_phrases) result (recognised by its `phrases` key), for a song Whisper can't time: each phrase is one line, and suspect filtering and word alignment don't apply. Without `lyrics` a phrase is a line with no lyric (shot `lyric: null`, kind vocal), and `segment_by` `line`, `stanza` (phrases a silence of at least `min_gap_seconds` apart are grouped) and `beat` all work. With `lyrics` of as many lines as phrases they map one to one, in order; a warning names any line whose phrase is under 1/4 or over 4x the median phrase length, since its boundaries may be wrong (the pairing stands - check it by ear). With a different count a warning names both counts and the knob: raise `analyze_phrases`' `min_gap_seconds` when there are more phrases than lyric lines (it bridges more pauses), lower it when fewer, or, for fused legato or reverberant lines, raise its `floor_db` (e.g. `-30`) and check the phrases by ear before trusting the pairing; the lines are then spread evenly from the first phrase's start to the last phrase's end, never paired silently. A long phrase split into pieces gives every piece its whole lyric |
+| `lyrics` | No | The song's own lyrics, one line per line with a blank line or a lone section tag (`[Chorus]`) between stanzas, or a list of lines. The shots carry these lines verbatim and in order; the transcript only times them (an `analyze_phrases` transcript: one line per phrase, see `transcript`). `null` or `""` means none: the transcript's text is used (a phrase result has none: `lyric` is `null`) |
 | `beats` | For `segment_by: "beat"` | `analyze_beats`' result, or a list of beat times in seconds |
 | `segment_by` | No | `line` (default), `stanza` or `beat` |
 | `fps` | No | Frames per second the shots are counted in (default `24`) |
-| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
+| `duration_s` | No | The song's length; `analyze_beats`' `duration_seconds` when `beats` is that whole dict, else a phrase result's `duration_seconds`, else the transcript's last end (with a warning). `"beats": "previous_result:beats"` passes only the result's `beats` list - the engine takes the key an argument is named for - so name the length too: `"duration_s": "previous_result:beats.duration_seconds"` |
 | `min_scene_s` | No | The shortest a shot may be (default `1.0`) |
 | `max_scene_s` | No | The longest a shot may be (default none) |
 | `vocal_tail_s` | No | Seconds a sung shot holds past its last word (default `0`) |
@@ -2086,7 +2212,7 @@ on) and `lyrics` with no sung lines.
 [music-video-cuts.json](../workflows/templates/minimax/music-video-cuts.json)
 chains `separate_stems`, `transcribe_audio` (of the vocal stem, so an instrumental intro is not folded into the first word), `analyze_beats` (of the full mix) and `plan_cuts`, passing H3's
 grid (`17`, `5`, `124`, `345`) and a `lead_s` variable (default `0.5`, 12
-frames at 24 fps). Its shots are what
+frames at 24 fps). When Whisper can't time the words (a non-English verse, a hallucinated transcript, wordless vocals), swap the `transcribe` step for an `analyze_phrases` step on `previous_result:stems.vocals`, keep `plan_cuts`' `transcript` on that step and pass `lyrics`, one line per sung phrase; the default chain is unchanged. Its shots are what
 [music-video.json](../workflows/templates/minimax/music-video.json) renders:
 the agent writes a prompt per shot, drops `lyric` and `kind`, and passes the
 list as `shots`.
@@ -2284,6 +2410,19 @@ The model is fixed (`htdemucs`, run in fp32), its weights download on first
 use, and it needs the `demucs` package. On MPS a failed separation falls back
 to the CPU and warns (`separation_cpu_fallback`).
 
+**Dialogue and the rest.** The same split takes a dialogue shot apart from a
+score mixed under it: `vocals` is the dialogue and `drums` + `bass` + `other`,
+summed with `mix_audio`, is the rest. Measured on H3 shots under a Music 3
+score, the `vocals` stem matched the dry shot within 0.1 dB rms, and the
+score's leak into it sat about 30 dB under the bed
+([record](proposals/audits/2026-11-dialogue-stems.md)). The rest is not a
+clean score, though: htdemucs puts a shot's own SFX and foley in `drums` and
+`other`, so they come out with the music. Keep the score file when the goal is
+to replace the music. Transcribing the `vocals` stem also gives the line where
+transcribing the dry shot can loop on a hallucination; a speechless shot gives
+a near-silent `vocals` stem and an invented transcript, so judge "no dialogue"
+by the stem's level. Single-speaker dialogue doesn't raise `stacked_vocals`.
+
 **Stacked vocals.** A chorus is often recorded as layered stereo doubles - every
 Music 3 chorus is - and htdemucs returns all of them in the one `vocals` stem.
 When the stem's left and right channels sing different lines over a sung span,
@@ -2396,9 +2535,10 @@ picking better-separated reference spans is the fix, not reading past it.
 
 Both models are fixed - there is no model-name argument - and both run in
 fp32 (their STFT front ends are fp32-only in practice, and both are small
-enough that it costs nothing). Weights download on first use - htdemucs from
-Hugging Face (`adefossez/HTDemucs` via demucs 4.1), ECAPA from speechbrain -
-and are cached between calls like any other model. On MPS a `separate: true`
+enough that it costs nothing). Weights download on first use - htdemucs
+through demucs' own downloader (from `dl.fbaipublicfiles.com` into the torch
+hub cache, outside the Hugging Face cache), ECAPA from speechbrain - and are
+cached between calls like any other model. On MPS a `separate: true`
 run that fails in htdemucs falls back to the CPU and warns
 (`separation_cpu_fallback`) rather than failing the step.
 
@@ -3029,6 +3169,7 @@ Speak a line of text with a local text-to-speech model. A validate's `downloads_
 | Bark | `suno/bark-small` (the command's default) | Distinct speakers by `voice_preset` |
 | MMS / VITS | `facebook/mms-tts-eng`, and `mms-tts-<code>` per language (the template's default) | One voice, a quarter Bark's size; a multi-speaker VITS takes `speaker_id` in `forward_params` |
 | SpeechT5 | `microsoft/speecht5_tts` | The voice of a reference clip, given as `speaker_embedding` |
+| Audio8-TTS | `Edge0/Audio8-TTS-Realistic-0.6b` | A cloned voice from `reference_audio` + `reference_text`, or its default voice; 44.1 kHz mono, many languages from one checkpoint |
 
 The result is a waveform carrying the rate its model generated at, so it composes with [`slice_audio`](#slice_audio), [`fade_audio`](#fade_audio) and [`pair_audio`](#pair_audio) directly ([`concat_videos`](#concat_videos) and `dissolve_videos` join videos — pair the track onto a video first).
 
@@ -3052,6 +3193,8 @@ The result is a waveform carrying the rate its model generated at, so it compose
 | `model_name` | No | HuggingFace model ID (default: `suno/bark-small`) |
 | `voice_preset` | No | The speaker, for a model with presets — `v2/en_speaker_0` through `v2/en_speaker_9` for Bark. A model with no processor (a single-voice model such as `facebook/mms-tts-eng`) refuses a `voice_preset` with an error rather than ignoring it |
 | `speaker_embedding` | No | A reference audio file (typically an `asset:` reference) whose voice a SpeechT5 model should speak in. Reduced to an x-vector with speechbrain's `spkrec-xvect-voxceleb` and injected into `forward_params` as `speaker_embeddings`. A model that isn't SpeechT5 refuses it the same way a single-voice model refuses `voice_preset` |
+| `reference_audio` | No | Audio8-TTS only: a clip of the voice to clone (typically an `asset:` reference), up to 20 s; 5-10 s of clean speech is plenty. Needs `reference_text` |
+| `reference_text` | No | Audio8-TTS only: the words spoken in `reference_audio`, verbatim. Needs `reference_audio` |
 | `forward_params` | No | Passed to the model's forward/generate call |
 | `generate_kwargs` | No | Ad-hoc generation settings for a generative model — `temperature`, `do_sample` |
 
@@ -3060,6 +3203,23 @@ The command's own default is Bark because its voice presets give distinct speake
 `speaker_embedding` is the same kind of preprocessing argument for a SpeechT5 model (`microsoft/speecht5_tts`), which conditions its voice on an x-vector rather than a preset name. A VITS model's speaker is different again — a plain `speaker_id` int, passed through `forward_params` unchanged, since it was never a preprocessing argument and needs no argument of its own here.
 
 The result needs no `sample_rate`. A generated track carries the rate its model produced it at, and that beats the 44100 default; declaring one still wins over both, for a track whose rate was reported wrong. Every TTS model runs at a different rate, so a declared rate that does not match plays the speech at the wrong speed and pitch without ever failing.
+
+### Cloning a voice (Audio8-TTS)
+
+`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/vendored/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
+
+Give `reference_audio` and `reference_text` together and it speaks `text` in the reference's voice; leave both out and it speaks in its default voice. The language follows `text` - there is no `language` argument. Every refusal fires before the model loads:
+
+- `reference_audio` without `reference_text` (an empty one counts as missing), or the reverse;
+- either one on any other model;
+- `speaker_embedding`, `voice_preset` or `messages` on Audio8;
+- a reference longer than 20 s;
+- text that, with the reference, won't fit the model's 2,048-position context. It is refused, never truncated: split the line;
+- a `generate_kwargs` / `forward_params` key outside `temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`. `max_new_tokens` defaults to the room left in the context.
+
+The fit check is an estimate from the text's length; a line that passes it but still runs out of room before the model finishes is refused after generation rather than returned cut off. The workflow's `seed` fixes the take: the same seed, text and reference give the same audio.
+
+[`voice-clone.json`](../workflows/templates/voice-clone.json) is the template. **Clone only a voice you have the speaker's consent to use.**
 
 ### Generating a voice to condition on
 
@@ -3081,7 +3241,48 @@ A speech model is worth releasing before a video model loads — set `release_mo
 **Examples:**
 
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
+- [voice-clone.json](../workflows/templates/voice-clone.json) — Speak a line in the voice of a reference clip (Audio8-TTS)
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
+
+## Sound Effects Generation
+
+`generate_sound_effects` makes sound effects with MMAudio (large 44.1 kHz v2) from a video clip, a text prompt, or both, as a 44.1 kHz mono track. A validate's `downloads_required` lists the pinned weights: `hkchengrex/MMAudio` (the network `weights/mmaudio_large_44k_v2.pth` and Synchformer `ext_weights/synchformer_state_dict.pth`), the `audio_vae/` and `vocoder/` config and safetensors of `kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers`, and the weights and tokenizer of `apple/DFN5B-CLIP-ViT-H-14-384`. MMAudio's own `v1-44.pth` and `bigvgan_generator.pt` are never downloaded.
+
+```json
+{
+    "task": {
+        "command": "generate_sound_effects",
+        "arguments": {
+            "video": "asset:shot.mp4",
+            "prompt": "footsteps on gravel, a door creaking",
+            "negative_prompt": "music, speech"
+        }
+    },
+    "result": { "content_type": "audio/wav" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | One of `video`/`prompt` | The clip the effects follow (typically an `asset:` or `previous_result:` reference) |
+| `prompt` | One of `video`/`prompt` | What should be heard |
+| `negative_prompt` | No | What to steer away from, such as `music, speech` |
+| `duration` | No | Seconds. Defaults to the clip's length, or 8 s text-only; at least 0.64 s (16 sync frames at 25 fps), at most 20 s and never longer than the clip |
+| `steps` | No | Sampler steps (default: 25) |
+| `guidance_scale` | No | Classifier-free guidance (default: 4.5) |
+
+Video-only is the weaker mode: give a `prompt` that names the on-screen sound sources as well. The model was trained around 8 s, so a `duration` outside 4-12 s adds a warning to the result, as does noise-like output (spectral flatness of 0.3 or more with a centroid of 8 kHz or more).
+
+Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` under 0.64 s, over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
+
+The output runs 7-25 dB hot. Route it through `match_levels` before mixing it with dialogue or music.
+
+**Licences.** The MMAudio weights (network, Synchformer and the VAE tensors) are CC-BY-NC 4.0: non-commercial use only. The DFN5B CLIP encoder is under the Apple Machine Learning Research Model License: research purposes only. Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
+**Examples:**
+
+- [video-to-sound-effects.json](../workflows/templates/video-to-sound-effects.json) — Effects that follow a clip's picture
+- [text-to-sound-effect.json](../workflows/templates/text-to-sound-effect.json) — An effect from a text prompt alone
 
 ## Speech Transcription
 
@@ -3112,7 +3313,7 @@ Multi-channel audio is downmixed to mono and resampled to 16 kHz before transcri
 
 Set `timestamps` to `"segment"` or `"word"` to get chunk timings instead — a music video cut to the lyric, or a dialogue shot checked against its line, needs the times Whisper already produces past 30 s rather than the collapsed string. The result becomes `{"text": ..., "chunks": [{"start": ..., "end": ..., "text": ...}, ...]}`, so the step's `result.content_type` must be `"application/json"` rather than `"text/plain"`, and it's read with MCP's `get_output_text` (JSON results are text). A clip under 30 s asks Whisper for timestamps explicitly when `timestamps` is set — the 30 s long-form threshold is a separate, unrelated reason to ask. Every `start` and `end` is a number of seconds: a chunk the clip ends inside - a song cut mid-line, which Whisper leaves open-ended - ends at the clip's duration, so the transcript drops straight into [`attribute_voices`](#voice-attribution)' `lines`. `"word"` can give a zero-length chunk (`start` = `end`) on a short or clipped word; `attribute_voices` reads it as a line with no voice.
 
-A chunk that is probably not speech carries one more field, `suspect` (#822), and is never removed. The first reason that holds wins: `"no_words"` when its text has no word at all (`—`, `♪`, `...`); `"repetition"` when it holds a word of a repetition loop (`I'm sorry, I'm sorry, ...`), found by the same detector and `REPEAT_RUN_MIN`/`REPEAT_MAX_PERIOD` [`check_script`](#script-check) discards loops with, however loud; `"silent"` when its loudest window sits at or below the dead-air floor `check_script` discards words at (`GUARD_FLOOR_DBFS`) - Whisper invents text over silence, a fade-out's end credits included; and `"long"` when a `"word"` chunk lasts more than `LONG_WORD_SECONDS` (2 s), an instrumental folded into the word. A `"segment"` chunk is never `long`. A clean input does not prevent the marks: transcribe a song's vocal stem ([`separate_stems`](#stem-separation)) so an instrumental intro is not counted as speech, and the marks catch what Whisper still invents over the stem - its leakage can keep an intro above the floor, which is what `no_words` and `repetition` are for. [`plan_cuts`](#plan_cuts) leaves `no_words`, `repetition` and `silent` chunks out of the lines and warns once per run of marked chunks.
+A chunk that is probably not speech carries one more field, `suspect` (#822), and is never removed. The first reason that holds wins: `"no_words"` when its text has no word at all (`—`, `♪`, `...`); `"repetition"` when it holds a word of a repetition loop (`I'm sorry, I'm sorry, ...`), found by the same detector and `REPEAT_RUN_MIN`/`REPEAT_MAX_PERIOD` [`check_script`](#script-check) discards loops with, however loud, and also a chunk whose text and overlapping span repeat an earlier chunk's (Whisper's duplicate decodes of one loop, #1138); `"stock_phrase"` when its whole text is one of Whisper's stock outro lines ("Thank you for watching", "Please subscribe"), which it writes over music at any level (#1136); `"silent"` when its loudest window sits at or below the dead-air floor `check_script` discards words at (`GUARD_FLOOR_DBFS`) - Whisper invents text over silence, a fade-out's end credits included; `"silent"` also marks every chunk of a clip whose whole mean level is at or below `NEAR_SILENT_CLIP_DBFS` (-40 dBFS), such as a voiceless vocals stem with residual music (#1135); and `"long"` when a `"word"` chunk lasts more than `LONG_WORD_SECONDS` (2 s), an instrumental folded into the word. A `"segment"` chunk is never `long`. A clean input does not prevent the marks: transcribe a song's vocal stem ([`separate_stems`](#stem-separation)) so an instrumental intro is not counted as speech, and the marks catch what Whisper still invents over the stem - its leakage can keep an intro above the floor, which is what `no_words` and `repetition` are for. [`plan_cuts`](#plan_cuts) leaves `no_words`, `repetition`, `stock_phrase` and `silent` chunks out of the lines and warns once per run of marked chunks.
 
 To compare a take against the lines it was meant to speak, use [`check_script`](#script-check) rather than reading the transcript by eye.
 
@@ -3158,13 +3359,13 @@ Markup stripped from an expected line: `<d>[Language] ...</d>`, `<scenetrans>`, 
 | `line_mismatch` | A line's similarity is below `similarity`; a dropped line comes back with `heard: ""` | The line's similarity / `similarity` | `{line, seconds, word}` - the line's first heard word, or where it should have been |
 | `tag_spoken` | A word from the line's stripped markup was heard, and is not also a word of the line's dialogue | The word heard / none | `{line, seconds, word}` |
 | `transcript_loop` | A repetition loop (`REPEAT_RUN_MIN` periods of up to `REPEAT_MAX_PERIOD` words) made only of words the script holds - Whisper stuck on a line it heard, so speech after it can be missing from `heard` and lines read 0.0 without being wrong (#961). The loop's first occurrence is kept as heard when it has real duration and speech level; the rest is under `discarded`, one entry per loop (`count`, `start`..`end`). A line heard nowhere, at or after the loop, reads `heard: null`, `similarity: null`, `not_transcribed: "transcript_loop"` and raises no `line_mismatch`. When the shots are known the cut is then transcribed again one shot at a time and the findings and `lines` come from that pass (`transcription_pass: "per_shot"`, each line `pass: "per_shot"`, #963) | Chunks in the loop / `REPEAT_RUN_MIN` | `{line: null, seconds, end}` |
-| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word - #953) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one |
+| `line_clipped_at_end` | A line's last heard word ends inside the final `CLIP_TAIL_SECONDS` of its shot (when the line has one) or of the file, and that tail is still above `GUARD_FLOOR_DBFS` and within `CLIP_TAIL_BELOW_WORD_DB` of the last word's own loudest window (a quieter tail is a score bed or room tone, not the word - #953) | The tail's level in dBFS / `GUARD_FLOOR_DBFS` | `{line, seconds, word, shot}` - `shot` when the line has one. A line nothing was heard for has no last word: when a `speech_not_transcribed` block credited to it runs to its shot's end and that tail is voiced, it fires at the block's end with no `word` (#1115); otherwise the line is listed in `rules_skipped` with its `line` index |
 | `speech_where_silent` | `lines` is `[]` and words were heard above the floor and outside a repetition loop | Number of words heard / 0 | `{line: null, seconds, word}` - the first; `shot` when shots are known |
 | `speech_in_silent_shot` | Shots are known, at least one line names a shot, and words were heard above the floor and outside a repetition loop in a shot no line names. A word is in the shot its midpoint falls in; one a line in another shot matched (a word straddling the cut) is that line's, not counted | Number of words heard in the shot / 0 | `{line: null, seconds, word, shot}` - the shot's first counted word, `seconds` no earlier than the shot's start |
 | `unscripted_speech` | Shots are known and a line names the shot; words were heard inside it that align to no line (a line spoken twice, an ad-lib) | Number of unmatched words in the shot / 0 | `{line: null, seconds, end, word, shot, repeats_line}` - the first such word; `repeats_line` is true when those words repeat or contain one of the shot's lines |
-| `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (#960; the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
+| `speech_not_transcribed` | Between two words of one matched line, or between one line's last word and the next line's first (#960; the finding sits on the next line, and a gap holding heard-but-unmatched words is `unscripted_speech`'s), there is a gap of `UNHEARD_MIN_SECONDS` or more, or one of its words lasts `UNHEARD_MIN_SECONDS` + 2 `UNHEARD_MARGIN_SECONDS` or more, and the interior (trimmed by `UNHEARD_MARGIN_SECONDS` each side) holds a window above `UNHEARD_FLOOR_DBFS`: audible speech the ASR left out of its text, which the line's timing absorbed (#923). A block that repeats itself sample for sample (`BED_CORRELATION` 0.98 at a lag of 0.3 s or more, 0.5 s compared) is a looped bed from `loop_audio`, not speech, and is no finding (#1118) | The gap's length in seconds / `UNHEARD_FLOOR_DBFS` | `{line, seconds, end, shot}` - `shot` when the line has one |
 
-Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when no shots are known (`line_clipped_at_end` then looks at the file's end only), when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). A take checked alone, with no shot map (an `asset:` file with no manifest beside it), therefore never raises `unscripted_speech`, however many words are `unmatched`: read `unmatched` there, or pass `shots`. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.
+Every finding is severity `warn`; `at.shot` is set whenever the shot is known. A rule that does not apply to the call is listed in `rules_skipped` with its reason: `speech_in_silent_shot` and `unscripted_speech` are skipped when the shots carry neither a sample span nor a frame span the take's frame rate can place, or when no line names a shot (no shot is known to be meant silent). When no shots are known at all (no `shots`, none carried by the take, no manifest beside the file) and the lines name at most one shot, the whole file is checked as one implicit shot: `unscripted_speech` runs (a line spoken twice, an ad-lib) and `speech_in_silent_shot` is skipped; `line_clipped_at_end` looks at the file's end only. Lines naming two or more shots with none placed skip both. With shots known there is no minimum word count - one unmatched word inside a named shot fires it.
 
 The thresholds are module constants in `dw/tasks/script_check.py` (the guard's `GUARD_FLOOR_DBFS` and `GUARD_WINDOW_SECONDS` in its sibling `dw/tasks/script_take.py`, beside `guard_words`), deliberately not in `RULES` (`dw/assessment_rules.py`): every rule there must fire on a synthetic file that holds no script. The answer echoes them under `thresholds`.
 
@@ -3173,13 +3374,14 @@ The thresholds are module constants in `dw/tasks/script_check.py` (the guard's `
 | `DEFAULT_SIMILARITY` | 0.85 | A line below this similarity is a `line_mismatch` (the `similarity` argument overrides it) |
 | `GUARD_FLOOR_DBFS` | -65 dBFS (= `DEAD_AIR_FLOOR_DBFS`, `shot_dead_air`'s floor) | A heard word whose loudest window is at or below it is discarded as unheard; also the level a clipped tail must exceed |
 | `UNHEARD_MIN_SECONDS` / `UNHEARD_MARGIN_SECONDS` / `UNHEARD_FLOOR_DBFS` | 1.0 s / 0.25 s / -40 dBFS | A gap in a line's words or between two lines (or a stretched word) this long, with a window above the floor in its margin-trimmed interior, is a `speech_not_transcribed` |
+| `BED_CORRELATION` | 0.98 | An audible block matching itself this closely at a lag of 0.3 s or more is a looped bed, not untranscribed speech |
 | `GUARD_WINDOW_SECONDS` | 0.05 s (= `DEAD_AIR_WINDOW`, `shot_dead_air`'s window) | The window a heard word is measured in - its loudest one, so a span overhanging a pause does not average a real word away |
 | `CLIP_TAIL_SECONDS` | 0.25 s | The final stretch of the file a line's last word must end in to be `line_clipped_at_end` |
 | `CLIP_TAIL_BELOW_WORD_DB` | 15 dB | A tail more than this far under the last word's loudest window is not the word still sounding (a bed under a finished line), so not `line_clipped_at_end` |
 | `REPEAT_RUN_MIN` | 6 | Heard words repeating the same unit this many times over, back to back, are a repetition loop: every chunk holding one is discarded (`reason: "repetition"`), however loud |
-| `REPEAT_MAX_PERIOD` | 4 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
+| `REPEAT_MAX_PERIOD` | 6 words | The longest repeating unit a loop is looked for in - `pre pre pre` has period 1, `thank you thank you` period 2 |
 
-The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor`, `repeated_span` (a chunk repeating the previous one's exact span) or `repetition`, `count` - a repetition loop is one entry spanning its chunks), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
+The result: `findings`, `lines[]` (`expected`, `heard`, `similarity`, `start`, `end`, `shot`; with the shot known, `start` and `end` are kept inside it, and the ASR's own times, when they fall outside - a word stretched across the seam over speech Whisper dropped - are kept as `asr_start` / `asr_end`, #1115), `discarded[]` (`text`, `start`, `end`, `level_dbfs`, `reason` - `below_floor`, `repeated_span` (a chunk repeating the previous one's exact span) or `repetition`, `count` - a repetition loop is one entry spanning its chunks), `unmatched[]` (heard words aligned to no line), `transcript`, `model_name`, `rules_applied`, `rules_skipped[]` (`rule`, `reason`, and `line` for a per-line skip) and `thresholds`. A line's `shot` is the shot it names, else the shot its heard words overlap most (null when none is known). `shots` is the map as placed - `[{name, start, end}]` in seconds on the take, or null when none is known - and `shots_source` says where it came from: `argument`, `artifact`, `manifest` or `none`.
 
 How the alignment reads a take:
 
@@ -3409,3 +3611,4 @@ Canny edge detection followed by ControlNet generation:
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face
+- [minimax/face-repair.json](../workflows/templates/minimax/face-repair.json) — The same on an H3 take, its soundtrack held so the mouth stays on the speech

@@ -621,7 +621,9 @@ reference to another `for_each` step `slice` over the same `shots` list
 resolves to `slice@closeup`. That is how a shot reads the audio
 slice cut for it when slicing and generating are two steps. It is the one
 pairing the engine has; `for_each` runs over exactly one list, and there is
-no zip and no loop index.
+no zip and no loop index. Same-key pairing is the only way one member reads another
+member of the same list's expansion: a member never reads a sibling entry of
+its own list (below).
 
 That auto-pairing is at the *step* level only, where `from_previous_result`
 (or `previous_result:`) sits directly in the `for_each` step's own
@@ -633,22 +635,19 @@ came from. Spell the member out: `{"reference_type": "…",
 fails the run with a precise error naming the members that do exist, but the
 guide says it here first.
 
-A member may reference an *earlier* member of its own list directly
-(`"image": "previous_result:shot@accuse"` inside `shot@deflect`), but it
-cannot interpose a derivation on that reference — "shot 2 starts where shot
-1 ended," a still pulled from shot 1's last frame with `get_last_frame`.
-There is no step between two members of the same `for_each` list: a step
-meant to derive that still (say, named `last`) would itself have to sit
-after `shot` in the file to read `shot@accuse`'s result, which makes it a
-step *after* the whole list, and referencing it from inside the list is a
-`previous_result:` naming no earlier step — refused at validate. Split the
-list at the dependency instead: run the members up to and including the one
-being derived from as their own `for_each` (or, for a single entry, an
-ordinary step), add an ordinary `get_last_frame` step after it reading
-`previous_result:shot@accuse`, and run the remaining members as a second
-`for_each` whose dependent entry takes that derived still — as a variable
-value or, over the API/MCP, folded into the entry itself — rather than a
-bare `previous_result:` reference to the video.
+Members of one list can't read each other. A literal reference to another
+entry of the member's own list (`"image": "previous_result:shot@accuse"`
+inside `shot@deflect`, spelled in the template or carried in an entry, with
+either spelling and with or without a `.property`) is refused at validate:
+it would make the list's order part of its meaning, and no derivation — "shot
+2 starts where shot 1 ended," a still pulled from shot 1's last frame with
+`get_last_frame` — can sit between two members of one list. When one entry
+depends on another, use separate runs: generate the one being derived from
+in its own run (with the derivation, such as a `get_last_frame` step, after
+it), then pass that run's file to the next run as an `output:` reference in
+the dependent entry. Another `for_each` step over the same list reading a
+different key (`trim@deflect` reading `shot@accuse`) stays legal: every member
+of `shot` has finished before `trim` starts.
 
 Limits: a list has at most 32 entries, and an empty list is a validation
 error — the step would run nothing. Validation realizes a `constant:`
@@ -2488,12 +2487,138 @@ scheduler's `shift`, so a refine runs `num_inference_steps - 1` denoise evaluati
 sets where it starts, not how many steps run: a higher strength moves the picture further
 from the upscaled take, a lower one stays closer to it.
 
-Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive), a
+Validation refuses a `refine_strength` that is not a number between 0 and 1 (exclusive;
+a [regional edit](#h3-regional-edit-with-source_video-and-a-mask) also takes 1.0), a
 refine with no `latents` or no `hold_audio`, a step that is not H3, and a
 `num_inference_steps` below 2.
 
 To refine a canvas above 1344x768, such as a 1920x1088 plate, see [Refining above 768p in
-tiles](#refining-above-768p-in-tiles).
+tiles](#refining-above-768p-in-tiles). To give the schedule's sigma points yourself rather
+than spacing them by `shift`, see [Explicit refine sigmas](#explicit-refine-sigmas).
+
+### Explicit refine sigmas
+
+A recipe published with its own schedule cannot be reached by spacing points with
+`shift`. `refine_sigmas` gives the schedule itself: the sigma points, from
+`refine_strength` down to 0, used verbatim for both the video and audio schedules, with no
+shift applied. NVlabs' Open-H3-Regenerate-2K recipe starts from
+`(1 - 0.909375)·up + 0.909375·noise` and runs 3 Euler steps on four points:
+
+```json
+"arguments": {
+    "latents": "previous_result:up",
+    "hold_audio": "previous_result:base.audio",
+    "refine_strength": 0.909375,
+    "num_inference_steps": 4,
+    "refine_sigmas": [0.909375, 0.857143, 0.666667, 0]
+}
+```
+
+`refine_strength` still sets the re-noise, and the list replaces only the spacing. The
+step count is the number of points, so `num_inference_steps` is required beside the list
+and must equal its length: four points are 3 denoise evaluations. Validation, and the
+check before the call, refuse a `refine_sigmas` that:
+
+- is not a list of numbers, or has fewer than 2 points;
+- is not strictly decreasing;
+- does not start at `refine_strength` (within 1e-6);
+- does not end at exactly 0;
+- has a length other than `num_inference_steps`, or comes with no `num_inference_steps`;
+- comes with no `refine_strength`.
+
+A step without `refine_sigmas` runs the shift-spaced schedule as before. It works with
+`refine_tiles` too: every tile runs the same list.
+
+### H3: regional edit with source_video and a mask
+
+To change part of a take and keep the rest, pass a video as `source_video` on an H3
+`t2va`, `fl2va` or `ref2va` step. It is a path, `asset:`, `output:` or `previous_result:`
+reference to a video, and it stands in for the `latents` of a refine: the step VAE-encodes
+it over the generated rows and re-denoises from `refine_strength`, which is required and
+in (0, 1]: 1.0 regenerates the masked region from pure noise, and about 0.9 replaces an
+object in it (see [Choosing refine_strength for a regional
+edit](#choosing-refine_strength-for-a-regional-edit)). (Without a `source_video` the refine's range stays (0, 1).) With no
+mask the whole source is refined.
+
+```json
+{
+    "source_video": "asset:fox_dawn.mp4",
+    "mask_image": "asset:fox_mask.png",
+    "mask_grow": 1,
+    "refine_strength": 0.9,
+    "hold_audio": "asset:fox_dawn.mp4",
+    "prompt": "the fox holds a pine cone in its mouth, same light and motion"
+}
+```
+
+A `mask_video` (one frame per frame) or a `mask_image` (one mask for every frame) limits
+what is regenerated. Pass one, not both. White regenerates and black is kept, binarized
+at luma 128. The mask is max-pooled onto the transformer's patch grid, 16 px times the
+patch size per cell, so any white pixel marks its whole cell, and `mask_grow` widens it by
+that many cells (a whole number, 0 or more, default 1). In time the grain is the latent
+frame: about 4 pixel frames each (3.4 - every 17 frames encode to 5 latent frames), times
+the patch's time size, so a `mask_video` switching on or off mid-cell marks the whole cell. After every denoise step each
+other row is written back as the source noised to that step's sigma, with the refine's own
+noise, so at the end it is the source latent. The decode still round-trips it through the
+VAE, so kept pixels are near-identical to the source, not bit-identical. A higher
+`refine_strength` replaces what the mask covers, a lower one keeps its layout.
+
+#### Choosing refine_strength for a regional edit
+
+The useful range sits high. Measured on one take (a 960x544, 124-frame H3 shot of a woman
+holding a cup, the mask over the middle of the frame around her and the cup, `mask_grow` 1), seed 1062, 5 turbo steps,
+`video_shift` 6, with a prompt asking for a bright red raincoat:
+
+| `refine_strength` | Inside the mask | Inside-mask SSIM vs the source |
+|---|---|---|
+| 0.85 or less | A light rework: re-detailed, the source's objects and colours stay | 0.86 at 0.8, 0.83 at 0.85 |
+| 0.9 | A held object is replaced (the cup became a domed sundae cup); the same person, pose and clothing | 0.78 |
+| 0.95 | Clothing is reworked too (a hooded navy jacket) and the object replaced; face, hair and pose mostly hold | 0.65 |
+| 1.0 | A fresh generation: the prompt lands in full, but a different person and composition | 0.44 |
+
+Outside the mask held at every strength (SSIM about 0.98 on a crop outside it). So:
+0.9 to replace an object, 0.95 to rework clothing, 0.85 or less for a light rework. A large
+recolour of a big region, such as a dark top to a bright red coat, did not land below 1.0,
+and 1.0 gives up the region's identity: that is a fresh generation, not a regional edit.
+
+Why the numbers sit high: `refine_strength` is the starting sigma σ₀ on the **shifted**
+grid, the same as for any refine (and `refine_tiles`). The scheduler's shift maps the
+unshifted position u to σ = shift·u / (1 + (shift − 1)·u), so the start point on the
+unshifted schedule is u = s / (shift − (shift − 1)·s). At `video_shift` 6 that is
+0.8 → 0.40, 0.85 → 0.49, 0.9 → 0.60 and 0.95 → 0.76: a strength of 0.8 re-noises less than
+its number suggests. The bands above hold for those conditions only. Another
+`video_shift` or step count moves them, the way the formula says: a lower shift brings u
+closer to s, so the same change comes at a lower strength. A [`refine_sigmas`](#explicit-refine-sigmas)
+list is run as given, with no shift, so its points are the schedule itself.
+
+The source and the mask must match the step's `width` x `height`, and a `source_video` or
+`mask_video` its `num_frames`. A step that leaves width, height or `num_frames` out renders
+the source's. An all-black mask is refused, as it would regenerate nothing. Validation reads
+a source or mask that resolves already (a path, `asset:` or `output:`) and refuses a size,
+frame count or empty mask there, the way it reads guide videos; a `previous_result:` is
+checked at the call.
+
+`hold_audio` is still required with `refine_strength`, since the refine holds the
+soundtrack. It is normally the `source_video` itself: a video path (`.mp4`, `.mov`, `.mkv`,
+`.webm`, `.avi`) is held by its own soundtrack, so the edit keeps the take's audio. A video
+with no audio stream is refused. An audio file (`.wav`, `.mp3`, `.flac`, `.ogg`) or an
+earlier step's audio-carrying result works too.
+
+Validation and the call both refuse:
+
+- `source_video` with `latents`, or on a chained step;
+- both mask kinds, `mask_video` and `mask_image`, on one step;
+- a mask with no `source_video`, or `mask_grow` with no mask;
+- `source_video` with no `refine_strength`, or one outside (0, 1];
+- `source_video` on a pipeline that is not H3 (`mask_image` there is left alone, since
+  inpaint pipelines own that name);
+- a `source_video` whose frame count (and so the step's `num_frames`, inferred or
+  given) is off the `17n + 5` grid: the pipeline would snap the count up and pad the
+  source, and the mask would drift in time - trim or pad the clip to the grid first
+  (the message names both neighbours). An inferred `width` and `height` still have to
+  meet the family's canvas rules (multiples of 32), which the template's variables
+  carry and an inferred size does not check;
+- any of it with `refine_tiles`, which does not combine with a regional edit.
 
 ### Refining above 768p in tiles
 
@@ -2520,8 +2645,8 @@ audio, once. Its `videos` carry H3's 24 fps, so the `pair_audio` below writes th
 that rate without being told. The job's events show one log line per tile and one decoding phase.
 
 It is slow. A 1920x1088 refine is roughly 4 tiles, each a 768p refine, plus a 1080p decode:
-about 25-30 minutes, against about 9.6 minutes for a native 768p take (an estimate, not
-measured). The validate projection prices the denoise at the tile's size and the decode at the
+about 12 minutes measured on an RTX 3090 for 124 frames (the recipe below, with its 544p
+base), against about 9.6 minutes for a native 768p take. The validate projection prices the denoise at the tile's size and the decode at the
 canvas's, so a tiled refine does not warn as if it denoised 1080p at once.
 
 ```json

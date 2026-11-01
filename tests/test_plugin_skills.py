@@ -7,6 +7,7 @@ it, and the plugin's version has to be the engine's - an installed skill is
 matched to the server it was written against by that number.
 """
 
+import copy
 import glob
 import inspect
 import json
@@ -151,7 +152,7 @@ def test_every_catalog_name_a_skill_quotes_resolves(path):
 SKILL_TASKS = {
     "minimax-music3": ["attribute_voices"],
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
-    "script-to-video": ["concat_videos"],
+    "script-to-video": ["concat_videos", "get_first_frame", "get_last_frame"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
 }
 
@@ -166,7 +167,9 @@ def test_every_task_a_skill_names_is_in_list_tasks(skill, task):
 
     path = os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md")
     assert f"`{task}`" in skill_text(path)
-    assert task in list_tasks()["commands"]
+    tasks = list_tasks()
+    # get_first_frame and its kin are listed as video processors, not commands
+    assert task in tasks["commands"] + tasks["video_processors"]
 
 
 H3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-h3", "SKILL.md")
@@ -547,6 +550,72 @@ class TestMiniMaxH3Skill:
         for frames in ceilings.values():
             assert str(frames) in text
 
+    def test_the_regional_edit_branch_is_the_template_s_and_the_guide_s(self):
+        """#1078: "fix one region of a good take" sends an agent to a template
+        whose edit step the engine's own checks pass, at the strength and grain
+        the guide measured."""
+        from dw.hold_audio import (
+            hold_audio_errors,
+            mask_errors,
+            refine_strength_errors,
+        )
+        from dw.pipeline_processors import h3_mask_cells
+
+        text = skill_text(H3_SKILL)
+        assert "`templates/minimax/regional-edit`" in text
+        assert "`references/regional-edit.md`" in text
+        with open(
+            os.path.join(os.path.dirname(H3_SKILL), "references", "regional-edit.md")
+        ) as f:
+            reference = f.read()
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "regional-edit.json"
+        )
+        with open(path) as f:
+            template = json.load(f)
+        variables = template["variables"]
+        assert variables["refine_strength"] == 0.9
+        # 5: the 4-step turbo file plus the terminal zero, the bands' step count
+        assert variables["num_inference_steps"] == 5
+        (step,) = template["steps"]
+        pipeline = step["pipeline"]
+        assert pipeline["from_pretrained_arguments"]["workflow"] == "t2va"
+        arguments = pipeline["arguments"]
+        assert arguments["source_video"] == "variable:source_video"
+        assert arguments["mask_image"] == "variable:mask_image"
+        assert arguments["hold_audio"] == "variable:source_video"
+        assert arguments["refine_strength"] == "variable:refine_strength"
+
+        # The engine's static checks on the substituted step: the arguments
+        # rules pass (the placeholder assets are not on disk, so no probe)
+        substituted = copy.deepcopy(template)
+        for name, value in substituted["steps"][0]["pipeline"]["arguments"].items():
+            if isinstance(value, str) and value.startswith("variable:"):
+                substituted["steps"][0]["pipeline"]["arguments"][name] = variables[
+                    value.removeprefix("variable:")
+                ]
+        assert mask_errors(substituted) == []
+        assert refine_strength_errors(substituted) == []
+        assert hold_audio_errors(substituted) == []
+
+        # The bands and the grain are the guide's section, word for word
+        guide = open(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md")).read()
+        section = guide.split("#### Choosing refine_strength for a regional edit")[1]
+        section = section.split("\n#")[0]
+        assert "seed 1062, 5 turbo steps" in section and "seed 1062" in reference
+        assert "`video_shift` 6" in section and "`video_shift` 6" in reference
+        for strength in ("0.85 or less", "| 0.9 |", "| 0.95 |", "| 1.0 |"):
+            assert strength in section and strength in reference
+        assert (
+            "did not land below 1.0" in section
+            and "did not land below 1.0" in reference
+        )
+        # Both wrap their prose, so the grain is matched with the lines joined
+        assert "16 px times the patch size" in " ".join(guide.split())
+        assert "16 px times the patch size" in " ".join(reference.split())
+        assert "`16 * patch`" in inspect.getsource(h3_mask_cells)
+
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
 
@@ -778,6 +847,113 @@ class TestFlux3KleinSkill:
         assert text.index("get_server_info") < text.index("templates/flux3/")
 
 
+SCRIPT_SKILL = os.path.join(PLUGIN_DIR, "skills", "script-to-video", "SKILL.md")
+SCRIPT_JOINS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references", "joins.md")
+
+
+class TestScriptToVideoJoins:
+    """The cutaway and lead-in joins (#1093): composed from separate runs,
+    with the order the lead-in needs stated, since nothing enforces it."""
+
+    def test_the_shot_list_names_every_join_and_links_the_recipes(self):
+        body = skill_body(SCRIPT_SKILL)
+        for join in ("`continue`", "`cut`", "`cutaway`", "`lead_in`"):
+            assert join in body
+        assert "`ending_state` of its\n  **source**" in body
+        assert "`references/joins.md`" in body
+
+    def test_the_recipes_name_both_joins_and_render_the_target_first(self):
+        text = open(SCRIPT_JOINS, encoding="utf-8").read()
+        assert "## Cutaway" in text and "## Lead-in" in text
+        assert "Render the target first" in text
+        assert "Re-rolling C invalidates B" in text
+        # the cutaway's return continues from A, the lead-in pins C's opening
+        assert "`get_last_frame` of `output:<A>`" in text
+        assert "`get_first_frame` of `output:<C>`" in text
+
+    def test_the_frame_step_is_a_real_task_step(self, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        workflow = json.loads(
+            _fenced_block_after(
+                open(SCRIPT_JOINS, encoding="utf-8").read(),
+                "## Taking a frame off a finished shot",
+            )
+        )
+        step = workflow["steps"][0]
+        assert step["task"]["command"] == "get_last_frame"
+        step["task"]["arguments"]["video"] = "variable:video"
+        workflow["variables"] = {"video": "shot.mp4"}
+        (tmp_path / "shot.mp4").write_bytes(b"")
+        path = tmp_path / "shot-frame.json"
+        path.write_text(json.dumps(workflow), encoding="utf-8")
+        workflow_from_file(str(path), str(tmp_path)).validate()
+
+
+SCRIPT_BEATS = os.path.join(
+    os.path.dirname(SCRIPT_SKILL), "references", "beat-review.md"
+)
+# What SKILL.md keeps free under SKILL_SIZE_LIMIT after the beat review moved
+# to a reference (#1125): an addition that eats it belongs in `references/`.
+SCRIPT_SKILL_MARGIN = 1024
+
+
+class TestScriptToVideoBeatReview:
+    """Beat authoring and the beat review (#1122 stage A): a beat a frame can
+    prove, judged blind on a majority of frames, one reason per rejection."""
+
+    def test_the_shot_sheet_names_beat_and_must_not(self):
+        body = skill_body(SCRIPT_SKILL)
+        assert "`beat`" in body and "`must_not`" in body
+        assert body.index("`ending_state`") < body.index("`beat`")
+        assert body.index("`beat`") < body.index("## 3.")
+
+    def test_run_and_judge_keeps_its_tools_and_points_to_the_review(self):
+        body = skill_body(SCRIPT_SKILL)
+        judge = body[body.index("## Run and judge") : body.index("## 6.")]
+        assert "get_output_frames" in judge
+        assert "`references/beat-review.md`" in judge
+        assert "adds no new mechanism" in body
+
+    def test_the_review_names_its_rules(self):
+        text = open(SCRIPT_BEATS, encoding="utf-8").read()
+        assert "**majority**" in text
+        for reason in (
+            "`beat_not_shown`",
+            "`must_not_present`",
+            "`identity_drift`",
+            "`text_in_frame`",
+            "`reference_leak`",
+        ):
+            assert reason in text
+        for banned in (
+            "Motion over time",
+            "Intent",
+            "Off-screen facts",
+            "Emotion words",
+        ):
+            assert f"**{banned}**" in text
+        assert "**3 evenly spaced**" in text and "**5 only when" in text
+        assert text.index("Describe blind, before the verdict") < text.index(
+            "A verdict per frame"
+        )
+        assert "three-attempt budget" in text
+        assert "Do not render while an\nedit-list shot has no beat" in text
+        assert "## Audit the auditor" in text and "workspace note" in text
+
+    def test_series_episodes_points_to_the_review(self):
+        body = skill_body(SERIES_SKILL)
+        assert "`script-to-video/references/beat-review.md`" in body
+        assert "beat_not_shown" not in body  # a pointer, not a restatement
+
+    def test_script_to_video_keeps_headroom_under_the_cap(self):
+        size = len(skill_body(SCRIPT_SKILL).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT - SCRIPT_SKILL_MARGIN, (
+            f"{SCRIPT_SKILL} is {size} bytes, within {SCRIPT_SKILL_MARGIN} of "
+            f"the {SKILL_SIZE_LIMIT}-byte cap: move detail to references/"
+        )
+
+
 SERIES_SKILL = os.path.join(PLUGIN_DIR, "skills", "series-episodes", "SKILL.md")
 SERIES_LOOK = os.path.join(os.path.dirname(SERIES_SKILL), "references", "look.md")
 
@@ -985,3 +1161,47 @@ def test_a_video_skill_maps_its_failure_modes_to_the_tool_that_shows_them(path):
     judge = text[text.index("## Run and judge") :]
     assert "`seams=true`" in judge
     assert "`at`" in judge
+
+
+STORY_FORGE_FINDINGS = "docs/proposals/audits/2026-11-story-forge-lessons.md"
+
+
+class TestStoryForgeLessons:
+    """Story-forge's production lessons (#1123): only what held on dw's
+    pipeline lands as a rule. The probes ruled lessons 1-4 and 6 not
+    reproduced, so no skill states them; lesson 5 lands unmeasured, worded
+    as guidance and citing the findings doc."""
+
+    def test_the_findings_doc_rules_what_landed(self):
+        text = open(
+            os.path.join(REPO_ROOT, STORY_FORGE_FINDINGS), encoding="utf-8"
+        ).read()
+        assert "## Lesson 5" in text and "(not probed)" in text
+        assert "## What landed" in text
+
+    @pytest.mark.parametrize(
+        "path", [SCRIPT_SKILL, SERIES_SKILL], ids=["script-to-video", "series-episodes"]
+    )
+    def test_lesson_5_is_framing_guidance_citing_the_findings(self, path):
+        body = " ".join(skill_body(path).split())
+        assert "not a measured rule" in body
+        assert "frame a recurring character large" in body
+        assert "keep a wide master too" in body
+        assert STORY_FORGE_FINDINGS in body
+
+    def test_lesson_5_sits_in_the_casting_steps(self):
+        script = skill_body(SCRIPT_SKILL)
+        step3 = script[script.index("## 3.") : script.index("## 4.")]
+        assert "frame a recurring character large" in " ".join(step3.split())
+        series = skill_body(SERIES_SKILL)
+        step0 = series[series.index("## 0.") : series.index("## 1-5.")]
+        assert "frame a recurring character large" in " ".join(step0.split())
+
+    def test_no_rule_lands_for_a_lesson_not_reproduced(self):
+        ltx_dir = os.path.dirname(LTX_SKILL)
+        assert not os.path.exists(os.path.join(ltx_dir, "references", "staging.md"))
+        for path in (LTX_SKILL, H3_SKILL, FLUX3_SKILL, SCRIPT_SKILL, SERIES_SKILL):
+            text = skill_text(path).lower()
+            assert "locked-off on a tripod" not in text  # L2's remedy wording
+            assert "all-caps" not in text and "all caps" not in text  # L4
+            assert "just before contact" not in text  # L3

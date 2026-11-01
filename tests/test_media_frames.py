@@ -449,7 +449,7 @@ def test_a_seek_that_lands_past_its_target_recovers_from_the_top(tmp_path):
         proxies.append(Overshooting(real_open(*args, **kwargs)))
         return proxies[-1]
 
-    with mock.patch("dw.media.av.open", side_effect=opening):
+    with mock.patch("dw.media_readers.av.open", side_effect=opening):
         tiles = frames_at(str(tmp_path / "gop.mp4"), ["frame:35"])
 
     assert grey_of(tiles[0]["image"]) == pytest.approx((35 % 25) * 10, abs=6)

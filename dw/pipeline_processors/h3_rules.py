@@ -8,9 +8,12 @@ guide layout dw/pipeline_processors/h3_guides.py. tests/test_h3_rules.py pins
 that it imports neither.
 """
 
+import math
+from array import array
+
 from .. import references
 from ..adapter_compatibility import FROM_PRETRAINED_KEY, H3_WORKFLOWS, WORKFLOW_KEY
-from ..variable_constraints import aligned_down
+from ..variable_constraints import aligned, aligned_down
 
 MODULAR_PIPELINE = "ModularPipeline"
 
@@ -21,8 +24,12 @@ HELD_AUDIO_OUTPUT = "dw_held_audio"
 HELD_AUDIO_RATE_OUTPUT = "dw_held_audio_sampling_rate"
 HELD_LATENTS_OUTPUT = "dw_held_audio_latents"
 
-# The refine call argument
+# The refine call arguments: the sigma to start from, and an explicit schedule
+# from it down to 0 in place of the shift-spaced one (#1082)
 REFINE_STRENGTH_INPUT = "refine_strength"
+REFINE_SIGMAS_INPUT = "refine_sigmas"
+# How far a `refine_sigmas` first point may sit from `refine_strength`
+SIGMA_TOLERANCE = 1e-6
 
 # The block names dw inserts, and the diffusers block each goes in front of
 HOLD_BLOCK = "dw_hold_audio"
@@ -39,17 +46,25 @@ CORE_DENOISE_SEQUENCES = ("t2va", "fl2va", "ref2va")
 
 
 def refine_problems(arguments, canvas=None):
-    """Why this step's `refine_strength` and `refine_tiles` cannot run, as a
-    list - empty when they can, or cannot be told yet. The one owner of the
-    per-argument rules: the static check (dw/hold_audio.py) and the run-time
-    check before the call (`Pipeline._check_refine`) both ask it. A tile
-    problem's message starts with `refine_tiles`. `canvas` is the (width,
-    height) the static check read from the upscale step `latents` names, when
-    it could; at run time the `latents` tensor gives it."""
+    """Why this step's `refine_strength`, `refine_sigmas` and `refine_tiles`
+    cannot run, as a list - empty when they can, or cannot be told yet. The
+    one owner of the per-argument rules: the static check (dw/hold_audio.py)
+    and the run-time check before the call (`Pipeline._check_refine`) both ask
+    it. The sigma is in (0, 1), or (0, 1] with a `source_video`: a regional
+    edit at 1.0 regenerates its region from pure noise. A tile problem's
+    message starts with `refine_tiles`, a schedule problem's with
+    `refine_sigmas`. `canvas` is the (width, height) the static check read
+    from the upscale step `latents` names, when it could; at run time the
+    `latents` tensor gives it."""
     if arguments.get(REFINE_STRENGTH_INPUT) is None:
         return [
-            "refine_tiles tiles a refine_strength pass, and this step passes no "
-            "refine_strength - add one, about 0.2"
+            f"{name} {does} a refine_strength pass, and this step passes no "
+            f"refine_strength - add one, about 0.2"
+            for name, does in (
+                (REFINE_SIGMAS_INPUT, "schedules"),
+                (REFINE_TILES_INPUT, "tiles"),
+            )
+            if arguments.get(name) is not None
         ]
     problems = []
     strength = arguments[REFINE_STRENGTH_INPUT]
@@ -59,12 +74,20 @@ def refine_problems(arguments, canvas=None):
         problems.append(
             f"refine_strength is a number in (0, 1), and {strength!r} is not a number"
         )
+    elif arguments.get(SOURCE_VIDEO_INPUT) is not None:
+        # A regional edit may start from pure noise: 1.0 regenerates the region
+        if not 0 < strength <= 1:
+            problems.append(
+                f"refine_strength is a sigma in (0, 1] with a source_video - 1.0 "
+                f"regenerates the masked region from noise, about 0.9 replaces an "
+                f"object in it - and {strength} is outside it"
+            )
     elif not 0 < strength < 1:
         problems.append(
             f"refine_strength is a sigma in (0, 1) - about 0.2 refines an "
             f"upscaled take - and {strength} is outside it"
         )
-    if arguments.get("latents") is None:
+    if arguments.get("latents") is None and arguments.get(SOURCE_VIDEO_INPUT) is None:
         problems.append(
             "refine_strength re-denoises the 'latents' it is passed - pass the "
             "upscaled latents, e.g. 'previous_result:up'"
@@ -80,8 +103,96 @@ def refine_problems(arguments, canvas=None):
             f"refine_strength runs num_inference_steps - 1 denoise steps, so "
             f"num_inference_steps must be 2 or more, not {steps}"
         )
+    if arguments.get(REFINE_SIGMAS_INPUT) is not None:
+        problems.extend(_sigma_problems(arguments))
     if arguments.get(REFINE_TILES_INPUT) is not None:
         problems.extend(_tile_problems(arguments, canvas))
+    elif canvas is not None:
+        problems.extend(_full_frame_problems(arguments, canvas))
+    return problems
+
+
+def _number(value):
+    return isinstance(value, (int, float)) and not isinstance(value, bool)
+
+
+def _sigma_problems(arguments):
+    """Why this step's `refine_sigmas` cannot run - a list, empty when it can.
+    The list is the whole schedule, sigma points down to 0, standing in for
+    the shift-spaced one: at least 2 points, strictly decreasing, from
+    `refine_strength` (within SIGMA_TOLERANCE) to 0, one point per
+    `num_inference_steps` - which is required beside it and must agree."""
+    sigmas = arguments[REFINE_SIGMAS_INPUT]
+    if _deferred(sigmas):
+        return []
+    if not isinstance(sigmas, (list, tuple)) or not all(map(_number, sigmas)):
+        return [
+            f"refine_sigmas is a list of sigma points from refine_strength down "
+            f"to 0, and {sigmas!r} is not a list of numbers"
+        ]
+    problems = []
+    if not all(math.isfinite(s) for s in sigmas):
+        return [f"refine_sigmas must be finite numbers, and {list(sigmas)} is not"]
+    # The scheduler compares the points as float32: two that differ only past
+    # that precision collapse there and are refused after the load, so they
+    # are refused here first
+    as_stored = [float(array("f", [s])[0]) for s in sigmas]
+    if len(sigmas) < 2:
+        problems.append(
+            f"refine_sigmas needs at least 2 points, refine_strength and 0, and "
+            f"has {len(sigmas)}"
+        )
+    elif any(later >= earlier for earlier, later in zip(as_stored, as_stored[1:])):
+        problems.append(
+            f"refine_sigmas must be strictly decreasing (as float32, the "
+            f"scheduler's precision), and {list(sigmas)} is not"
+        )
+    strength = arguments[REFINE_STRENGTH_INPUT]
+    if sigmas and _number(strength) and abs(sigmas[0] - strength) > SIGMA_TOLERANCE:
+        problems.append(
+            f"refine_sigmas starts at refine_strength, {strength}, and its first "
+            f"point is {sigmas[0]}"
+        )
+    if sigmas and sigmas[-1] != 0:
+        problems.append(f"refine_sigmas ends at 0, and its last point is {sigmas[-1]}")
+    steps = arguments.get("num_inference_steps")
+    if steps is None:
+        problems.append(
+            f"refine_sigmas has {len(sigmas)} points, and this step sets no "
+            f"num_inference_steps - set it to {len(sigmas)}, one per point "
+            f"({len(sigmas) - 1} evaluations)"
+        )
+    elif _number(steps) and steps != len(sigmas):
+        problems.append(
+            f"refine_sigmas has {len(sigmas)} points, {len(sigmas) - 1} "
+            f"evaluations, and num_inference_steps {steps} runs {steps - 1} - "
+            f"set num_inference_steps to {len(sigmas)}"
+        )
+    return problems
+
+
+def _full_frame_problems(arguments, canvas):
+    """A full-frame refine's own width and height against the `latents` canvas
+    the static check read: an omitted size falls to the layout default
+    (TILE_LIMIT), and any size but the canvas's fails at the denoise."""
+    problems = []
+    for key, size, default in zip(("width", "height"), canvas, TILE_LIMIT):
+        value = arguments.get(key)
+        if value is None:
+            if size != default:
+                problems.append(
+                    f"refine_strength re-denoises the 'latents' canvas, "
+                    f"{canvas[0]}x{canvas[1]}, and this step sets no {key}, so its "
+                    f"layout falls to {TILE_LIMIT[0]}x{TILE_LIMIT[1]} - set width "
+                    f"{canvas[0]} and height {canvas[1]}"
+                )
+                break
+        elif _is_int(value) and value != size:
+            problems.append(
+                f"refine_strength re-denoises the 'latents' canvas, "
+                f"{canvas[0]}x{canvas[1]}, and the step's {key} {value} disagrees "
+                f"- set it to {size}"
+            )
     return problems
 
 
@@ -101,7 +212,15 @@ H3_FPS = 24
 
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
-TILE_CONFLICTS = ("image", "last_image", "references", "guides")
+TILE_CONFLICTS = (
+    "image",
+    "last_image",
+    "references",
+    "guides",
+    "source_video",
+    "mask_video",
+    "mask_image",
+)
 
 
 def _is_int(value):
@@ -436,3 +555,133 @@ def guide_end_problem(frame, length, num_frames):
             f"{frame + length}, past the end of the {num_frames}-frame render"
         )
     return None
+
+
+# Regional edit (#1062): re-denoise a `source_video` from `refine_strength`,
+# holding every row outside a mask to the source at each step's sigma
+# (dw/pipeline_processors/h3_mask.py)
+SOURCE_VIDEO_INPUT = "source_video"
+MASK_VIDEO_INPUT = "mask_video"
+MASK_IMAGE_INPUT = "mask_image"
+MASK_GROW_INPUT = "mask_grow"
+MASK_INPUTS = (MASK_VIDEO_INPUT, MASK_IMAGE_INPUT)
+REGIONAL_EDIT_INPUTS = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, MASK_GROW_INPUT)
+# Patch cells a mask is widened by past what it covers, so the edit's seam
+# lands in regenerated rows rather than against a kept one
+MASK_GROW_DEFAULT = 1
+# A mask pixel at or above this reads as white - regenerate (remove_object's)
+MASK_THRESHOLD = 128
+# The mask as the source block takes it: (frames, height, width) bool, True to
+# regenerate - what Pipeline._with_mask turns either mask argument into
+REGENERATE_MASK = "dw_regenerate_mask"
+SOURCE_BLOCK = "dw_source_latents"
+SOURCE_BEFORE = HOLD_BEFORE
+BLEND_BLOCK = "dw_mask_blend"
+# The loop sub-block the blend follows, inside the core sequence's `denoise`
+BLEND_AFTER = "update"
+SOURCE_ROWS = "dw_source_rows"
+KEEP_ROWS = "dw_keep_rows"
+# The refine block's re-noise of the generated rows, packed - the noise the
+# blend re-noises the kept rows with, so they ride the same trajectory
+REFINE_ROW_NOISE = "dw_refine_row_noise"
+
+
+def is_h3_step(pipeline):
+    """Whether a step's pipeline is known to be H3 before the load - its
+    `from_pretrained` `workflow` is one of H3's three."""
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    return isinstance(workflow, str) and workflow in H3_WORKFLOWS
+
+
+def edits_region(arguments, h3):
+    """Whether a step's arguments ask for a regional edit. `mask_image` and
+    `mask_video` are diffusers inpaint arguments too, so on a pipeline not
+    known to be H3 (`h3` false) only `source_video` does."""
+    if _given(arguments, SOURCE_VIDEO_INPUT):
+        return True
+    return h3 and any(_given(arguments, name) for name in REGIONAL_EDIT_INPUTS)
+
+
+def _given(arguments, name):
+    return arguments.get(name) is not None
+
+
+def mask_problems(arguments, chained=False):
+    """Why this step's regional edit - `source_video`, `mask_video` or
+    `mask_image`, `mask_grow` - cannot run, as a list; empty when it can or
+    cannot be told yet. The one owner of the argument rules: the static check
+    (dw/hold_audio.py `mask_errors`) and the run-time check before the call
+    (`Pipeline._with_mask`) both ask it. What needs the media itself - its size
+    and frame count against the canvas, an empty mask - is `media_problems`
+    and `Pipeline._with_mask`. `chained` is whether the step is a chain."""
+    masks = [name for name in MASK_INPUTS if _given(arguments, name)]
+    source = _given(arguments, SOURCE_VIDEO_INPUT)
+    grow = arguments.get(MASK_GROW_INPUT)
+    if not masks and not source and grow is None:
+        return []
+    problems = []
+    if len(masks) > 1:
+        problems.append(
+            "pass mask_video or mask_image, not both - mask_image holds one mask "
+            "for every frame"
+        )
+    if masks and not source:
+        problems.append(
+            f"{masks[0]} marks what to regenerate in a 'source_video' - pass the "
+            f"video to edit"
+        )
+    if grow is not None and not masks:
+        problems.append(
+            "mask_grow widens a mask_video or mask_image, and this step passes neither"
+        )
+    elif grow is not None and not _deferred(grow) and (not _is_int(grow) or grow < 0):
+        problems.append(
+            f"mask_grow is a whole number of patch cells, 0 or more, not {grow!r}"
+        )
+    if source and arguments.get(REFINE_STRENGTH_INPUT) is None:
+        problems.append(
+            "source_video is re-denoised from 'refine_strength' - pass one, near "
+            "1.0 to replace what the mask covers, lower to keep its layout"
+        )
+    if source and _given(arguments, "latents"):
+        problems.append("source_video stands in for 'latents' - pass one or the other")
+    if source and chained:
+        problems.append(
+            "a regional edit re-denoises one source_video, and a chained step "
+            "renders several segments - use an unchained step"
+        )
+    return problems
+
+
+def media_problems(name, shape, width, height, num_frames=None):
+    """Why a `source_video` or mask of `shape` - (frames, height, width) -
+    does not fit a `width` x `height` canvas, as a list. `num_frames` is the
+    step's frame count, when it is known; a `mask_image` (one frame) fits any."""
+    problems = []
+    if (width, height) != (shape[2], shape[1]):
+        problems.append(
+            f"{name} is {shape[2]}x{shape[1]}, and the step renders "
+            f"{width}x{height} - they must match"
+        )
+    if num_frames is not None and name != MASK_IMAGE_INPUT and shape[0] != num_frames:
+        problems.append(
+            f"{name} has {shape[0]} frames, and the step renders num_frames="
+            f"{num_frames} - they must match"
+        )
+    elif num_frames is not None and name == SOURCE_VIDEO_INPUT:
+        # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
+        # is padded to fit, so the mask drifts in time and the output is longer
+        # than the source: refused here, where the count can still be changed
+        on_grid = aligned(num_frames, RENDER_GRID)
+        if on_grid != num_frames:
+            below = aligned_down(num_frames, RENDER_GRID)
+            problems.append(
+                f"{name} has {shape[0]} frames, off the 17n + 5 grid the step "
+                f"renders on: the pipeline would render {on_grid} and pad the "
+                f"source, drifting the mask - trim the clip to {below} frames or "
+                f"pad it to {on_grid}"
+            )
+    return problems

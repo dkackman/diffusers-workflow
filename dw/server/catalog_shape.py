@@ -46,6 +46,7 @@ GENERATIVE_TASKS = frozenset(
         "image_to_text",
         "diffusion_upscale",
         "interpolate_frames",
+        "generate_sound_effects",
     }
 )
 SUMMARY_LIMIT = 120
@@ -56,7 +57,16 @@ _CHAIN_ARGUMENTS = frozenset(
     {"last_frame", "last_segment", "last_image", "match_audio"}
 )
 _MEDIA_ARGUMENTS = frozenset(
-    {"image", "video", "audio", "mask_image", "urls", "videos", "clip"}
+    {
+        "image",
+        "video",
+        "audio",
+        "mask_image",
+        "urls",
+        "videos",
+        "clip",
+        "reference_audio",
+    }
 )
 _CUT_TASKS = frozenset({"concat_videos", "dissolve_videos", "join_windows"})
 # Components that exist only to synthesise a waveform. A video pipeline

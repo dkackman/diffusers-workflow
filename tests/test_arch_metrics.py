@@ -353,3 +353,14 @@ def test_a_fragment_ending_in_a_word_that_merely_ends_like_a_prefix_is_not_count
         )
     )
     assert metrics["prefix_handling"] == 1
+
+
+def test_vendored_model_ports_are_not_counted(tmp_path):
+    # dw/vendored/ holds upstream model code at its source's shape, outside the
+    # module and function ceilings like dw/community_pipelines/
+    metrics = _load().measure(
+        _tree(tmp_path, {"dw/vendored/port.py": _long_function(200) + "\n" * 1000})
+    )
+    assert metrics["modules"] == 0
+    assert metrics["functions_over_150_lines"] == 0
+    assert metrics["modules_over_size_ceiling"] == 0

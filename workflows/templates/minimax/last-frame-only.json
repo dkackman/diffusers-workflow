@@ -2,6 +2,14 @@
     "id": "MiniMaxH3L2V",
     "description": "Conditioning on the end of the clip alone. The 'fl2va' workflow takes a 'last_image' without an 'image', which pins the final frame and leaves the model to invent everything that leads up to it - the reverse of a keyframe start, and the way to generate the approach to a picture you already have. The prompt uses the L2VA alignment line, which states which second of the target video the picture lands on.",
     "summary": "H3 video with audio that ends on a supplied still, inventing the approach to it.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 2.0
+        }
+    ],
     "cost_drivers": [
         "num_frames",
         "num_inference_steps",

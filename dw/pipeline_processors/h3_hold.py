@@ -20,7 +20,8 @@ Three blocks go into each of H3's three core-denoise sequences (`t2va`, `fl2va`,
 - `DwH3RefineScheduleStep`, before `denoise` - after `set_timesteps`, whose
   schedule it replaces when `refine_strength` is passed: σ₀ = `refine_strength`,
   then `num_inference_steps` points down to 0 spaced by the scheduler's shift
-  (`refine_sigmas`), so `num_inference_steps - 1` evaluations. It re-noises the
+  (`refine_sigmas`), so `num_inference_steps - 1` evaluations - or, with a
+  `refine_sigmas` argument, that list verbatim (`explicit_sigmas`). It re-noises the
   generated video rows of a passed `latents` to σ₀. Every audio row has to be a
   held one (`hold_audio`): the audio scheduler gets the same list only so the
   loop's audio step finds its timesteps, and steps no row;
@@ -188,7 +189,9 @@ def hold_audio_reference(value, base_dir=None):
     """A `hold_audio` argument as the MiniMaxH3AudioReference the hold block takes.
 
     Whatever an argument can hold audio as: a file path (an `asset:` or `output:`
-    reference arrives resolved to one), a step's artifact - an AudioTrack, an
+    reference arrives resolved to one) - an audio file, or a video whose
+    soundtrack is held, a regional edit's `source_video` the usual one - a
+    step's artifact - an AudioTrack, an
     AudioVideo, a bare waveform - or a reference already built. A path or URL goes
     through the location owner (dw/locations.py) before anything opens it, the
     run-time half of the check validation makes on the same argument.
@@ -199,7 +202,7 @@ def hold_audio_reference(value, base_dir=None):
             file's directory
 
     Raises:
-        ValueError: If the value is not audio
+        ValueError: If the value is not audio, or a video with no audio stream
         SecurityError: If the path or URL is outside what the workflow may read
     """
     from ..argument_media import local_media_file
@@ -207,9 +210,13 @@ def hold_audio_reference(value, base_dir=None):
     from ..locations import is_http_url, validate_media_path, validate_media_url
     from ..security import (
         ALLOWED_AUDIO_EXTENSIONS,
+        ALLOWED_VIDEO_EXTENSIONS,
         InvalidInputError,
         validate_file_extension,
     )
+
+    # A video is held by its own soundtrack
+    holdable = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
 
     from diffusers.modular_pipelines.minimax_h3.references import (
         MiniMaxH3AudioReference,
@@ -219,11 +226,12 @@ def hold_audio_reference(value, base_dir=None):
         return value
     if isinstance(value, str):
         try:
-            validate_file_extension(value, ALLOWED_AUDIO_EXTENSIONS)
+            validate_file_extension(value, holdable)
         except InvalidInputError as error:
             raise ValueError(
-                f"hold_audio holds a soundtrack, and '{value}' is not an audio file "
-                f"({', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))})"
+                f"hold_audio holds a soundtrack, and '{value}' is not an audio "
+                f"file ({', '.join(sorted(ALLOWED_AUDIO_EXTENSIONS))}) or a video "
+                f"whose track it takes ({', '.join(sorted(ALLOWED_VIDEO_EXTENSIONS))})"
             ) from error
         if is_http_url(value):
             # Checked again, hop by hop, by the fetch below
@@ -231,12 +239,18 @@ def hold_audio_reference(value, base_dir=None):
         else:
             location = validate_file_extension(
                 validate_media_path(value, base_dir, "hold_audio"),
-                ALLOWED_AUDIO_EXTENSIONS,
+                holdable,
             )
         # from_file given a URL downloads it with requests itself, outside
-        # the host policy; given a path it only decodes
+        # the host policy; given a path it only decodes - a video's soundtrack
         with local_media_file(location, "hold_audio") as path:
-            return MiniMaxH3AudioReference.from_file(path)
+            try:
+                return MiniMaxH3AudioReference.from_file(path)
+            except ValueError as error:
+                raise ValueError(
+                    f"hold_audio takes the soundtrack of '{value}', and it has none "
+                    f"to take: {error}"
+                ) from error
     try:
         return MiniMaxH3AudioReference(
             **media_arguments(MiniMaxH3AudioReference, value)

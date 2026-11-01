@@ -43,6 +43,11 @@ _active_timer = contextvars.ContextVar("dw_step_timer", default=None)
 # worth a warning (#924)
 _SLOW_FIRST_PASS_EXTRA_S = 30.0
 
+# A decode this long on a pipeline served from cache is worth a warning (#1116):
+# the same decode ran in ~19 s on a first entry, and 100-255 s on a later entry
+# of a different frame count with nothing in the job saying why
+_SLOW_DECODE_S = 60.0
+
 
 def _synced_clock():
     """The monotonic clock, read after the device has finished its queued work.
@@ -147,12 +152,14 @@ class StepTimer:
     def _warn_on_slow_first_pass(self, segment):
         """Say so once when a cached pipeline's first pass dwarfs the steady one.
 
-        The pipeline is loaded, so the minutes are not a load. A later entry
-        that runs the cached pipeline at a larger shape (more frames) pays a
-        one-off warm-up on its first pass - re-allocation, offload buffers,
-        kernels meeting a new shape - and without a word the consumer sees only
-        a `phase_stall` (#924). Judged at the second pass interval, when a
-        steady pass is known."""
+        The cause is unknown (#1119: it fired on an equal-shape second entry, and
+        #924's rerun did not reproduce it), so the message states none.
+
+        The pipeline is loaded, so the minutes are not a load. The stall has
+        followed a later entry at a larger shape (#924) and one at the same
+        shape (#1119), and the exact rerun of each ran at the steady rate.
+        Without a word the consumer sees only a `phase_stall`. Judged at the
+        second pass interval, when a steady pass is known."""
         passes = segment.pass_ends
         if (
             len(passes) != 3
@@ -167,9 +174,10 @@ class StepTimer:
         emit_warning(
             f"First denoise pass took {first:.0f}s against {steady:.0f}s for "
             "the passes after it, with the pipeline already loaded: a one-off "
-            "warm-up (typically a cached pipeline meeting a larger shape than "
-            "it last ran, such as more frames). Later passes run at the "
-            "steady rate.",
+            "warm-up whose cause is not identified. It has followed a larger "
+            "shape (more frames) and also an entry of the same shape, so "
+            "reordering entries by size is not a known remedy. Later passes "
+            "run at the steady rate.",
             kind="first_pass_slow",
             first_pass_s=round(first, 1),
             pass_s=round(steady, 1),
@@ -180,6 +188,33 @@ class StepTimer:
         segment = self._current_segment()
         if segment is not None:
             segment.ended = self._clock()
+            self._warn_on_slow_decode(segment)
+
+    def _warn_on_slow_decode(self, segment):
+        """Say so once per call when a cached pipeline's decode runs for minutes.
+
+        The decode is the tail of the call, after the last denoise pass. On a
+        pipeline already loaded, a decode this long is not weights loading;
+        what it is cannot be told from here (a shape the cached pipeline has
+        not run and memory pressure on the decode device are the usual causes),
+        so the warning states the measurement and names those as things to
+        check, never as the cause (#1116, the #1119 rule). Without a word the
+        consumer sees only `phase_stall` notices."""
+        if self._load_cached is not True:
+            return
+        decode = segment.spans()[3]
+        if decode is None or decode < _SLOW_DECODE_S:
+            return
+        emit_warning(
+            f"Decode took {decode:.0f}s with the pipeline already loaded, far "
+            "past a steady decode. The cause is not identified from here: a "
+            "shape this cached pipeline has not run before (a different number "
+            "of frames) and memory pressure on the decode device are the usual "
+            "ones to check.",
+            kind="decode_slow",
+            decode_s=round(decode, 1),
+            step=self.step,
+        )
 
     def cache_counted(self, stats):
         """One call's step-cache counts (report_cache_stats, below). A chain's calls sum

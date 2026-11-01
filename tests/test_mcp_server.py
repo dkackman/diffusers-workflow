@@ -1126,7 +1126,7 @@ async def test_wait_for_job_says_silence_is_not_a_hang():
 
 def test_the_h3_skill_carries_the_measured_lead_in():
     """The other half of that move: the numbers are not lost, they are in
-    the skill that loads when H3 is in play (#101)."""
+    the skill that loads when H3 is in play (#101; re-measured in #1089)."""
     import os
 
     path = os.path.join(
@@ -1140,7 +1140,8 @@ def test_the_h3_skill_carries_the_measured_lead_in():
     with open(path) as handle:
         text = handle.read()
 
-    assert "629 s" in text and "90 s" in text
+    assert "629 s" not in text
+    assert "165-508 s" in text and "~50 s video" in text
 
 
 @pytest.mark.asyncio

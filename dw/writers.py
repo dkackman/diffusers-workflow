@@ -11,6 +11,7 @@ import json
 import logging
 import os
 from collections.abc import Sequence
+from fractions import Fraction
 
 import numpy
 import soundfile
@@ -20,6 +21,76 @@ from .events import emit_warning
 from .security import MAX_DECODE_PIXELS, validate_output_path
 
 logger = logging.getLogger("dw")
+
+
+def exact_frame_rate(fps):
+    """`fps` as the exact rational a container stores.
+
+    A float read back from a 29.97 file (29.97002997...), or a typed 29.97,
+    snaps to 30000/1001; 23.976 to 24000/1001; a whole rate stays whole. Any
+    other fraction is the nearest one with a denominator up to 1001.
+    """
+    if isinstance(fps, Fraction):
+        return fps
+    if float(fps) == int(fps):
+        return Fraction(int(fps))
+    # The NTSC family (24000/1001, 30000/1001, 60000/1001): a rounded 29.97
+    # is within a hair of one, and 2997/100 would drift against its audio
+    numerator = round(fps * 1001)
+    if numerator > 0 and numerator % 1000 == 0 and abs(numerator / 1001 - fps) < 0.005:
+        return Fraction(numerator, 1001)
+    rate = Fraction(fps).limit_denominator(1001)
+    return rate if rate > 0 else Fraction(fps)
+
+
+class _ExactRateContainer:
+    """An output container whose video stream is opened at the exact rate -
+    diffusers' `encode_video` passes `rate=int(fps)`, which floors 29.97 to 29."""
+
+    def __init__(self, container, rate):
+        self._container = container
+        self._rate = rate
+
+    def add_stream(self, codec, rate=None, **kwargs):
+        if codec == "libx264" and rate is not None:
+            rate = self._rate
+        return self._container.add_stream(codec, rate=rate, **kwargs)
+
+    def __getattr__(self, name):
+        return getattr(self._container, name)
+
+
+class _ExactRateAv:
+    def __init__(self, av, rate):
+        self._av = av
+        self._rate = rate
+
+    def open(self, *args, **kwargs):
+        container = self._av.open(*args, **kwargs)
+        if kwargs.get("mode", args[1] if len(args) > 1 else "r") != "w":
+            return container
+        return _ExactRateContainer(container, self._rate)
+
+    def __getattr__(self, name):
+        return getattr(self._av, name)
+
+
+def encode_video(video, fps, *args, **kwargs):
+    """diffusers' `encode_video`, writing a fractional `fps` exactly.
+
+    The stream gets 30000/1001 for a 29.97 source rather than 29, so a
+    carried phone-clip rate keeps picture and audio in step. The audio path
+    is untouched: only the video stream's `rate` is replaced.
+    """
+    from diffusers.utils import export_utils
+
+    rate = exact_frame_rate(fps)
+    original = export_utils._import_av
+    export_utils._import_av = lambda: _ExactRateAv(original(), rate)
+    try:
+        return export_utils.encode_video(video, int(fps), *args, **kwargs)
+    finally:
+        export_utils._import_av = original
 
 
 def _artifact_size(artifact):

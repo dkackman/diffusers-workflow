@@ -27,32 +27,29 @@ catch {
     Exit 1
 }
 
-# Check for supported Python version (3.10 - 3.14)
-$supportedPythonVersions = "3.14", "3.13", "3.12", "3.11", "3.10"
-if ($env:INSTALL_PYTHON_VERSION) {
-    $pythonVersion = $env:INSTALL_PYTHON_VERSION
-}
-else {
-    $pythonVersion = $null
-    foreach ($version in $supportedPythonVersions) {
-        try {
-            $pver = (python --version).split(" ")[1]
-            $result = $pver.StartsWith($version)
-        }
-        catch {
-            $result = $false
-        }
-        if ($result) {
-            $pythonVersion = $version
-            break
-        }
+# Check for supported Python version (3.12 - 3.14)
+$supportedPythonVersions = "3.14", "3.13", "3.12"
+# The script always runs plain `python`, so check that interpreter's version;
+# an explicit INSTALL_PYTHON_VERSION must also be one of the supported ones.
+$pythonVersion = $null
+foreach ($version in $supportedPythonVersions) {
+    try {
+        $pver = (python --version).split(" ")[1]
+        $result = $pver.StartsWith("$version.")
+    }
+    catch {
+        $result = $false
+    }
+    if ($result -and ((-not $env:INSTALL_PYTHON_VERSION) -or ($env:INSTALL_PYTHON_VERSION.StartsWith($version)))) {
+        $pythonVersion = $version
+        break
     }
 }
 
 if (-not $pythonVersion) {
     $supportedPythonVersions = ($supportedPythonVersions | ForEach-Object { "Python $_" }) -join ", "
     Write-Error "No usable Python version found, supported versions are: $supportedPythonVersions"
-    Write-Output "diffusers-workflow requires Python version >= 3.10 and <= 3.14"
+    Write-Output "diffusers-workflow requires Python version >= 3.12 and <= 3.14"
     Exit 1
 }
 

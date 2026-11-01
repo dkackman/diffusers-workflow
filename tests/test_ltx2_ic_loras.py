@@ -28,12 +28,30 @@ TEMPLATES = os.path.join(REPO_ROOT, "workflows", "templates", "ltx2")
 # repo -> (weight file, reference downscale factor, trained width, height,
 #          trained frames, lora strength)
 CARDS = {
+    "alpha-matte": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Alpha-Gen",
+        "ltx-2.5-22b-ic-lora-alpha-gen-0.9.safetensors",
+        1,
+        960,
+        544,
+        121,
+        1.0,
+    ),
     "reference-sheet": (
         "Lightricks/LTX-2.5-22b-IC-LoRA-Ingredients",
         "ltx-2.5-22b-ic-lora-ingredients-0.9.safetensors",
         1,
         768,
         448,
+        121,
+        1.0,
+    ),
+    "restore-colorize": (
+        "Lightricks/LTX-2.5-22b-IC-LoRA-Colorization",
+        "ltx-2.5-22b-ic-lora-colorization-0.9.safetensors",
+        1,
+        960,
+        544,
         121,
         1.0,
     ),
@@ -91,8 +109,12 @@ class TestEachTemplateMatchesItsCard:
         *_, strength = CARDS[name]
         (lora,) = conditioned_step(name)["pipeline"]["loras"]
         variables = definition(name)["variables"]
+        # Alpha-Gen's card fixes the strength, so its template writes it inline
+        scale = lora["scale"]
+        if isinstance(scale, str):
+            scale = variables[scale.removeprefix("variable:")]
 
-        assert variables[lora["scale"].removeprefix("variable:")] == strength
+        assert scale == strength
 
     def test_the_reference_is_encoded_at_the_output_resolution(self, name):
         """The conditioning LoRAs state downscale factor 1; the spatial
@@ -108,7 +130,20 @@ class TestEachTemplateMatchesItsCard:
 
         assert (variables["width"], variables["height"]) == (width, height)
         assert variables["num_frames"] == frames
-        assert variables["frame_rate"] == 24.0
+        if name in (
+            "alpha-matte",
+            "restore-colorize",
+            "restore-deblur",
+            "restore-decompression",
+            "upscale-clip",
+        ):
+            # #1079, #1080, #1107, #1108: the output is written at the source's rate;
+            # the model itself still runs at its trained 24 fps
+            pipeline = conditioned_step(name)["pipeline"]
+            assert variables["frame_rate"] == "source"
+            assert pipeline["arguments"]["frame_rate"] == 24.0
+        else:
+            assert variables["frame_rate"] == 24.0
 
     def test_it_conditions_through_the_in_context_pipeline(self, name):
         pipeline = conditioned_step(name)["pipeline"]
@@ -172,14 +207,20 @@ class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
     on an earlier step's output instead."""
 
     @pytest.mark.parametrize("name", ["restore-deblur", "restore-decompression"])
-    def test_the_reference_is_the_callers_own_clip(self, name):
+    def test_the_reference_is_the_callers_own_clip_fitted(self, name):
+        """#1108: the caller's clip reaches the model through `fit`, so a
+        different aspect ratio is letterboxed rather than cropped by the
+        pipeline's own preprocess."""
         (reference,) = conditioned_step(name)["pipeline"]["arguments"][
             "reference_conditions"
         ]
         frames = reference["from_arguments"]["frames"]
+        fit = definition(name)["steps"][0]
 
         assert frames["media_type"] == "video"
-        assert frames["location"] == "variable:source_video"
+        assert frames["location"] == "previous_result:fit.video"
+        assert fit["name"] == "fit"
+        assert fit["task"]["arguments"]["video"] == "variable:source_video"
         assert definition(name)["variables"]["source_video"].startswith("asset:")
 
     def test_the_upscaler_references_the_callers_clip_fitted_to_half_size(self):
@@ -213,6 +254,7 @@ class TestTheTemplatesThatReadFootageTheyDidNotGenerate:
         [
             ("restore-deblur", "DEBLUR"),
             ("restore-decompression", "ENHANCE QUALITY"),
+            ("restore-colorize", "COLORIZE"),
         ],
     )
     def test_the_default_prompt_is_in_the_trained_form(self, name, marker):
@@ -241,7 +283,12 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
         assert restore["task"]["arguments"] == {
             "video": "previous_result:upscaled",
             "fit": "previous_result:fit.fit",
+            "fps": "variable:frame_rate",
         }
+        # #1107: written at the rate restore carries, never a declared one
+        assert "fps" not in restore["result"]
+        assert "fps" not in paired["result"]
+        assert upscaled["result"]["fps"] == 24.0
         assert paired["task"]["command"] == "pair_audio"
         assert paired["task"]["arguments"] == {
             "video": "previous_result:restore",
@@ -257,3 +304,147 @@ class TestTheUpscaledClipKeepsItsSourcesSoundtrack:
 
         assert not workflow["variables"]["prompt"].startswith("prompt:")
         assert "Replace the default prompt" in workflow["description"]
+
+
+class TestTheAlphaMatteKeepsItsDecodersOffTheCard:
+    """#1079 (plan v6, Q8 (a)): the 145-frame cap ran out of memory on a warm
+    24 GB card. The VAE is only used to encode the reference and decode the
+    matte, and the matte never reads the audio, so all three rest in system
+    memory and visit the card only for their own calls."""
+
+    @pytest.mark.parametrize("component", ["vae", "audio_vae", "vocoder"])
+    def test_it_is_on_demand(self, component):
+        components = conditioned_step("alpha-matte")["pipeline"]["configuration"][
+            "components"
+        ]
+
+        assert components[component] == {"device": "cuda", "residency": "on_demand"}
+
+    def test_it_keeps_deblurs_pipeline_identity(self):
+        """The placement is not part of the (pipeline, model, workflow)
+        identity the VRAM estimate is matched on, so the matte still
+        inherits restore-deblur's estimate."""
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step("alpha-matte")) == (
+            pipeline_identity(conditioned_step("restore-deblur"))
+        )
+
+
+class TestTheAlphaMatteSaysAShotCutLeaks:
+    """#1079 (plan v8, Q9 (a)): at the 145-frame cap the matte leaked source
+    texture on the frame just after a hard cut, so the description and the
+    skill row tell the caller to matte one shot at a time."""
+
+    def test_the_description_says_it(self):
+        with open(os.path.join(TEMPLATES, "alpha-matte.json")) as f:
+            description = json.load(f)["description"]
+
+        assert "hard cut" in description
+        assert "one shot at a time" in description
+
+    def test_the_skill_row_says_it(self):
+        path = os.path.join(REPO_ROOT, "plugins", "dw", "skills", "ltx-2.5", "SKILL.md")
+        with open(path) as f:
+            row = f.read().split("templates/ltx2/alpha-matte")[1].split("\n- ")[0]
+
+        assert "hard cut" in row
+        assert "one shot" in row
+
+
+class TestTheColorizeTemplateIsDeblursShape:
+    """#1080: deblur's pipeline with the Colorization LoRA, between
+    alpha-matte's fit and restore, so it inherits deblur's VRAM estimate
+    and keeps the source's size and rate."""
+
+    def test_it_keeps_deblurs_pipeline_identity(self):
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step("restore-colorize")) == (
+            pipeline_identity(conditioned_step("restore-deblur"))
+        )
+
+    def test_the_reference_is_the_fitted_source(self):
+        (reference,) = conditioned_step("restore-colorize")["pipeline"]["arguments"][
+            "reference_conditions"
+        ]
+
+        assert reference["from_arguments"]["frames"]["location"] == (
+            "previous_result:fit.video"
+        )
+
+    def test_it_fits_by_letterbox_and_restores_at_the_frame_rate(self):
+        fit, colorized, final = definition("restore-colorize")["steps"]
+
+        assert fit["task"]["command"] == "fit_to_model"
+        assert fit["task"]["arguments"]["mode"] == "letterbox"
+        assert fit["task"]["arguments"]["downscale"] == 1
+        assert colorized["result"] == {
+            "content_type": "video/mp4",
+            "fps": 24.0,
+            "save": False,
+        }
+        assert final["task"]["command"] == "restore_to_source"
+        assert final["task"]["arguments"]["fps"] == "variable:frame_rate"
+        assert "fps" not in final["result"]
+
+
+@pytest.mark.parametrize("name", ["restore-deblur", "restore-decompression"])
+class TestTheDeblurAndDecompressionTemplatesAreColorizesShape:
+    """#1108 (#1090 plan v1, stage C): fit -> the IC step held at 24 -> final,
+    as restore-colorize (#1080), so the output comes back at the source's size
+    and frame rate. `restore_to_source` drops audio, so the output is silent
+    and the declared traits say so."""
+
+    def test_the_steps_are_fit_restored_final(self, name):
+        fit, restored, final = definition(name)["steps"]
+
+        assert fit["task"] == {
+            "command": "fit_to_model",
+            "arguments": {
+                "video": "variable:source_video",
+                "width": "variable:width",
+                "height": "variable:height",
+                "num_frames": "variable:num_frames",
+                "mode": "letterbox",
+                "downscale": 1,
+            },
+        }
+        assert fit["result"]["save"] is False
+        assert restored["name"] == "restored"
+        assert restored["result"] == {
+            "content_type": "video/mp4",
+            "fps": 24.0,
+            "save": False,
+        }
+        assert final["task"] == {
+            "command": "restore_to_source",
+            "arguments": {
+                "video": "previous_result:restored",
+                "fit": "previous_result:fit.fit",
+                "fps": "variable:frame_rate",
+            },
+        }
+        assert "fps" not in final["result"]
+        assert final["result"]["subfolder"] == "final"
+
+    def test_it_keeps_colorizes_pipeline_identity(self, name):
+        from dw.vram_estimate import pipeline_identity
+
+        assert pipeline_identity(conditioned_step(name)) == (
+            pipeline_identity(conditioned_step("restore-colorize"))
+        )
+
+    def test_the_declared_traits_carry_no_audio(self, name):
+        assert definition(name)["traits"] == ["needs-input-media"]
+
+    def test_the_description_says_size_and_rate(self, name):
+        workflow = definition(name)
+
+        assert (
+            "comes back at the source's size and frame rate"
+            in (workflow["description"])
+        )
+        assert "'frame_rate' overrides the rate" in workflow["description"]
+        assert "no soundtrack" in workflow["description"]
+        assert "source's size and frame rate" in workflow["summary"]

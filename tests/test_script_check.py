@@ -42,7 +42,20 @@ RATE = 16000
 
 def voiced(seconds, amplitude=0.1):
     t = numpy.arange(int(round(seconds * RATE)), dtype=numpy.float32) / RATE
-    return (amplitude * numpy.sin(2 * numpy.pi * 220 * t)).astype(numpy.float32)
+    # Noise keeps it from repeating to the sample, as a voice never does
+    noise = numpy.random.default_rng(7).standard_normal(t.size) * 0.3
+    return (amplitude * (numpy.sin(2 * numpy.pi * 220 * t) + noise)).astype(
+        numpy.float32
+    )
+
+
+def looped_bed(seconds, period=0.75, amplitude=0.1):
+    """A short noise burst repeated sample for sample: loop_audio of a room tone."""
+    cycle = numpy.random.default_rng(3).standard_normal(int(period * RATE))
+    reps = int(numpy.ceil(seconds / period))
+    return (amplitude * numpy.tile(cycle, reps)[: int(seconds * RATE)]).astype(
+        numpy.float32
+    )
 
 
 def silent(seconds):
@@ -418,10 +431,12 @@ class TestCheckAlignment(unittest.TestCase):
         self.assertEqual(answer["findings"], [])
         self.assertEqual([x["similarity"] for x in answer["lines"]], [1.0] * 3)
         self.assertEqual(answer["unmatched"], [])
-        self.assertEqual(answer["rules_applied"], list(script_check.LINE_RULES))
+        self.assertEqual(
+            answer["rules_applied"], [*script_check.LINE_RULES, "unscripted_speech"]
+        )
         self.assertEqual(
             [s["rule"] for s in answer["rules_skipped"]],
-            ["speech_where_silent", "speech_in_silent_shot", "unscripted_speech"],
+            ["speech_where_silent", "speech_in_silent_shot"],
         )
         self.assertTrue(all(s["reason"] for s in answer["rules_skipped"]))
 
@@ -680,6 +695,33 @@ class TestShotPlacement(unittest.TestCase):
         self.assertEqual(found[0]["at"]["shot"], "B")
 
 
+class TestUncoveredSpeech(unittest.TestCase):
+    def test_speech_before_a_partial_map_is_named_as_unchecked(self):
+        chunks = words("ladle soup grudges", 0.0) + words("alpha bravo", 5.0)
+        spans = [{"name": "A", "start": 4.0, "end": 8.0}]
+        answer = run(
+            [{"text": "alpha bravo", "shot": "A"}],
+            chunks,
+            spans=spans,
+            shots_source="explicit",
+        )
+        (skip,) = [s for s in answer["rules_skipped"] if s["rule"] == "shot_coverage"]
+        self.assertIn("0.0-4.0 s", skip["reason"])
+
+    def test_full_coverage_has_no_entry(self):
+        chunks = words("alpha bravo", 5.0)
+        spans = [{"name": "A", "start": 4.0, "end": 8.0}]
+        answer = run(
+            [{"text": "alpha bravo", "shot": "A"}],
+            chunks,
+            spans=spans,
+            shots_source="explicit",
+        )
+        self.assertFalse(
+            [s for s in answer["rules_skipped"] if s["rule"] == "shot_coverage"]
+        )
+
+
 class TestUnscriptedSpeech(unittest.TestCase):
     def test_a_line_spoken_twice_in_its_shot_is_a_finding(self):
         chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
@@ -737,6 +779,22 @@ class TestUnscriptedSpeech(unittest.TestCase):
         (found,) = rules(answer, "unscripted_speech")
         self.assertFalse(found["at"]["repeats_line"])
 
+    def test_a_lone_take_without_shots_is_one_implicit_shot(self):
+        # #1117: no shots known, a line spoken twice is still a finding
+        chunks = words("alpha bravo charlie", 0.0) + words("alpha bravo charlie", 1.0)
+        answer = run(["alpha bravo charlie"], chunks)
+        (found,) = rules(answer, "unscripted_speech")
+        self.assertEqual(found["value"], 3)
+        self.assertTrue(found["at"]["repeats_line"])
+        self.assertIn("unscripted_speech", answer["rules_applied"])
+        self.assertEqual(
+            [s["rule"] for s in answer["rules_skipped"] if "shot" in s["rule"]],
+            ["speech_in_silent_shot"],
+        )
+        self.assertEqual(
+            rules(run(["alpha bravo"], words("alpha bravo")), "unscripted_speech"), []
+        )
+
     def test_clean_take_has_none(self):
         answer = shot_run([{"text": "alpha bravo", "shot": "A"}], words("alpha bravo"))
         self.assertEqual(rules(answer, "unscripted_speech"), [])
@@ -765,6 +823,13 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         answer = shot_run(self.LINES, chunks, mono=voiced(4.0))
         (found,) = rules(answer, "speech_not_transcribed")
         self.assertEqual(found["at"]["seconds"], 0.5)
+
+    def test_a_looped_bed_in_the_gap_is_not(self):
+        # loop_audio of a room tone under the cut: same samples every period (#1118)
+        chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
+        mono = numpy.concatenate([voiced(0.9), looped_bed(3.1), voiced(1.0)])
+        answer = shot_run(self.LINES, chunks, mono=mono)
+        self.assertEqual(rules(answer, "speech_not_transcribed"), [])
 
     def test_a_quiet_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 4.0)
@@ -854,6 +919,150 @@ class TestSpeechNotTranscribed(unittest.TestCase):
         self.assertAlmostEqual(found["at"]["seconds"], 0.9, places=2)
         self.assertLess(found["at"]["end"], 2.5)
         self.assertLess(found["value"], 1.6)
+
+    def test_a_stretched_word_reports_each_audible_block_in_its_own_shot(self):
+        # #1115: one word timed 0.9-10.6 over two blocks of sound with 3 s of
+        # silence between: two findings, none counting the silence, each in
+        # the shot holding it - not one span credited to the word's shot
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([voiced(5.5), silent(3.0), voiced(2.5)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = rules(answer, "speech_not_transcribed")
+        self.assertEqual(len(found), 2)
+        first, second = found
+        self.assertEqual(first["at"]["shot"], "A")
+        self.assertLessEqual(first["at"]["end"], 5.6)
+        self.assertEqual(second["at"]["shot"], "B")
+        self.assertGreaterEqual(second["at"]["seconds"], 8.0)
+        self.assertLess(sum(f["value"] for f in found), 8.0)
+
+    def test_a_block_crossing_a_shot_seam_is_credited_to_both_shots(self):
+        # #1115: sound 3-8 s, seam at 5: the larger half is in B, but the
+        # first half in A must be reported against A, not swallowed
+        spans = [
+            {"name": "A", "start": 0.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([silent(3.0), voiced(5.0), silent(3.0)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = rules(answer, "speech_not_transcribed")
+        self.assertEqual({f["at"]["shot"] for f in found}, {"A", "B"})
+
+    # #1115, the ep318 cut: A's line dropped by the ASR, B's first word
+    # stretched back across the seam over it
+    EP318_SPANS = [
+        {"name": "A", "start": 0.0, "end": 5.167},
+        {"name": "B", "start": 5.167, "end": 11.042},
+    ]
+    EP318_LINES = [
+        {"text": "Pistachio in the colander.", "shot": "A"},
+        {"text": "The stapler did it.", "shot": "B"},
+    ]
+
+    def ep318(self):
+        chunks = [{"start": 0.88, "end": 9.82, "text": " The"}] + words(
+            "stapler did it.", 9.82, step=0.28, length=0.26
+        )
+        mono = numpy.concatenate(
+            [
+                silent(0.5),
+                voiced(1.0),
+                silent(1.5),
+                voiced(5.0),  # 3.0-8.0: A's speech runs over the seam at 5.167
+                silent(1.5),
+                voiced(1.0),
+                silent(0.542),
+            ]
+        )
+        return shot_run(self.EP318_LINES, chunks, mono=mono, spans=self.EP318_SPANS)
+
+    def test_a_line_timed_across_the_seam_is_kept_inside_its_shot(self):
+        line = self.ep318()["lines"][1]
+        self.assertEqual(line["shot"], "B")
+        self.assertGreaterEqual(line["start"], 5.167)
+        self.assertLessEqual(line["end"], 11.042)
+        # the ASR's own time is not hidden
+        self.assertEqual(line["asr_start"], 0.88)
+
+    def test_a_line_inside_its_shot_carries_no_asr_times(self):
+        chunks = words("alpha bravo", 0.5) + words("charlie delta", 6.0)
+        answer = shot_run(
+            [
+                {"text": "alpha bravo", "shot": "A"},
+                {"text": "charlie delta", "shot": "B"},
+            ],
+            chunks,
+            spans=self.EP318_SPANS,
+        )
+        for line in answer["lines"]:
+            self.assertNotIn("asr_start", line)
+            self.assertNotIn("asr_end", line)
+
+    def test_an_unheard_line_cut_off_by_its_shot_is_clipped(self):
+        # A's untranscribed speech runs to A's end and the tail is voiced
+        answer = self.ep318()
+        (clip,) = rules(answer, "line_clipped_at_end")
+        self.assertEqual(clip["at"]["line"], 0)
+        self.assertEqual(clip["at"]["shot"], "A")
+        self.assertEqual(clip["at"]["seconds"], 5.167)
+        self.assertEqual(
+            [s for s in skipped(answer, "line_clipped_at_end") if "line" in s], []
+        )
+
+    def test_a_short_shot_covered_whole_by_a_block_is_not_dropped(self):
+        # #1115 follow-up: sound 1-10 s over A | M | B with M only 1.0 s wide,
+        # under the 1.5 s a piece needs on its own. It used to be filtered
+        # out of the split; folded into A instead, the whole span is reported
+        spans = [
+            {"name": "A", "start": 0.0, "end": 4.0},
+            {"name": "M", "start": 4.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([silent(1.0), voiced(9.0), silent(1.0)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = sorted(
+            rules(answer, "speech_not_transcribed"), key=lambda f: f["at"]["seconds"]
+        )
+        self.assertEqual([f["at"]["shot"] for f in found], ["A", "B"])
+        self.assertAlmostEqual(found[0]["at"]["end"], 5.0, places=1)
+        self.assertAlmostEqual(found[1]["at"]["seconds"], 5.0, places=1)
+
+    def test_an_unheard_line_with_nothing_to_check_is_listed_skipped(self):
+        chunks = words("charlie delta", 6.0)
+        mono = numpy.concatenate([silent(6.0), voiced(5.042)])
+        answer = shot_run(
+            [
+                {"text": "alpha bravo", "shot": "A"},
+                {"text": "charlie delta", "shot": "B"},
+            ],
+            chunks,
+            mono=mono,
+            spans=self.EP318_SPANS,
+        )
+        self.assertEqual(rules(answer, "line_clipped_at_end"), [])
+        (skip,) = skipped(answer, "line_clipped_at_end")
+        self.assertEqual(skip["line"], 0)
 
     def test_under_a_second_of_audible_sound_in_a_long_gap_is_not(self):
         chunks = words("alpha bravo", 0.0) + words("charlie delta", 5.0)

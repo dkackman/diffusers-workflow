@@ -135,6 +135,42 @@ both its `generate_kwargs` and its `forward_params` to `generate()` for a
 generative model (Bark, VibeVoice). Each must be an object, and
 `custom_generate` / `trust_remote_code` in either are refused untrusted, before
 the model loads (released versions through 0.14.0 passed them through).
+`trust_remote_code`, `custom_pipeline` or `custom_generate` given as a step
+argument of their own, outside those two objects, is refused too, for every
+model: untrusted by the trust gate, trusted as an argument the task doesn't
+take. The task never read them there, but it used to drop them silently, so a
+step setting one ran as if it had taken effect.
+
+Untrusted, every task step is checked the same way at validate:
+`trust_remote_code`, `custom_pipeline` or `custom_generate` set anywhere in its
+`arguments`, top level or nested, is an error naming the key and its path, so
+the run is refused before it queues. `Task.run` repeats the check for every
+command before its handler runs (GHSA-hhfj-p9xj-xjmr).
+
+`speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
+`dw/vendored/audio8_tts_model.py`) runs no code from its repo: the model is
+vendored, so there is no `trust_remote_code` load. Its five files are fetched
+with `hf_hub_download` at one pinned 40-hex revision, never a branch, and the
+weights are safetensors. The audio codec, `codec.pth`, is a pickle checkpoint;
+it is read with `torch.load(weights_only=True)`, which refuses any object that
+isn't a tensor or a plain container, and only at that pinned revision. Its
+`generate_kwargs` / `forward_params` pass the same trust gate as above, then an
+allowlist (`temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`):
+any other key is refused by name before the model loads.
+
+MMAudio (`dw/vendored/mmaudio_model.py`, `dw/vendored/mmaudio_sync_model.py`,
+`dw/tasks/mmaudio_decoder.py`) runs no code from its repo either: the network
+and the Synchformer visual encoder are vendored at upstream commit
+`974010a0`. Their two checkpoints, `hkchengrex/MMAudio`'s
+`weights/mmaudio_large_44k_v2.pth` and `ext_weights/synchformer_state_dict.pth`,
+are pickles, pinned to one 40-hex revision; each is read with
+`torch.load(weights_only=True)` and loaded strictly, so any object that isn't a
+tensor or a plain container is refused and an unexpected key fails the load.
+The decoder's VAE and vocoder are Kandinsky 6's safetensors at a pinned full
+sha, built from their `config.json` read as JSON (only the class's own
+constructor arguments are taken), with no pickle and no `trust_remote_code`.
+The modules take local paths and never fetch: tests pin that none of them
+calls the Hub or writes a checkpoint.
 
 `text_generation`'s `system_prompt` may be read from a Hub repo file
 (`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
@@ -325,8 +361,9 @@ SecurityError
 - **Arbitrary file read through a media argument** — a location a workflow
   supplies is confined to the roots it may read (`dw/locations.py`)
 - **Script on the UI's origin through an output** — a step's
-  `result.content_type` may not be `text/html` or `text/xml` (compared
-  without case or parameters): validation refuses it at
+  `result.content_type` may not be an active document type - `text/html`,
+  `application/xhtml+xml`, `text/xml`, `application/xml` or `image/svg+xml`
+  (compared without case or parameters): validation refuses it at
   `steps[i].result.content_type` and the writer refuses it again
   (`dw/content_types.py`). A file of an active type that reaches `/outputs`
   or `/inputs` anyway is served with `Content-Security-Policy: sandbox`

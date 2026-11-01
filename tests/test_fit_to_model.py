@@ -483,3 +483,121 @@ class TestRealPath:
             360,
             12,
         )
+
+
+def _validate_restore(arguments):
+    workflow = {
+        "steps": [
+            {
+                "name": "r",
+                "task": {
+                    "command": "restore_to_source",
+                    "arguments": dict(
+                        {"video": "variable:v", "fit": "variable:f"}, **arguments
+                    ),
+                },
+            }
+        ]
+    }
+    errors = task_argument_errors(workflow)
+    return [(error["path"].rsplit(".", 1)[-1], error["message"]) for error in errors]
+
+
+def model_output(fps=24, count=57):
+    """What a model hands back: the fitted size, at the model's own rate."""
+    return AudioVideo(
+        numpy.zeros((count, 288, 512, 3), numpy.float32), None, None, fps=fps
+    )
+
+
+class TestRestoreFrameRate:
+    """#1079: the record carries the source's rate, and `fps` chooses the
+    restored clip's rate - omitted, the input's; "source", the record's; a
+    number, that one. Frames are never added or dropped."""
+
+    def test_the_record_carries_the_source_rate(self):
+        assert fit(clip(fps=8))["fit"]["source_fps"] == 8.0
+
+    def test_a_source_without_a_rate_records_none(self):
+        images = [Image.new("RGB", (SRC_W, SRC_H)) for _ in range(5)]
+        record = fit(images, num_frames=9)["fit"]
+        assert "source_fps" in record and record["source_fps"] is None
+        json.dumps(record)
+
+    def test_source_carries_the_recorded_rate(self):
+        record = fit(clip(fps=8))["fit"]
+        restored = restore_to_source(model_output(24), record, fps="source")
+        assert restored.fps == 8.0
+        assert frames_of(restored).shape == (50, 480, 640, 3)
+
+    def test_omitted_carries_the_inputs_rate(self):
+        record = fit(clip(fps=8))["fit"]
+        assert restore_to_source(model_output(24), record).fps == 24
+
+    @pytest.mark.parametrize("fps", [12, 12.0, "12"])
+    def test_a_number_carries_that_rate(self, fps):
+        record = fit(clip(fps=8))["fit"]
+        restored = restore_to_source(model_output(24), record, fps=fps)
+        assert restored.fps == 12.0
+        assert frames_of(restored).shape[0] == 50
+
+    def test_an_old_record_without_the_field_restores(self):
+        record = dict(fit(clip(fps=8))["fit"])
+        del record["source_fps"]
+        assert restore_to_source(model_output(24), record).fps == 24
+        # "source" with nothing recorded falls back to the input's rate
+        assert restore_to_source(model_output(24), record, fps="source").fps == 24
+
+    def test_a_record_with_no_rate_falls_back_to_the_input(self):
+        record = dict(fit(clip(fps=8))["fit"], source_fps=None)
+        assert restore_to_source(model_output(24), record, fps="source").fps == 24
+
+    @pytest.mark.parametrize("bad", [0, -1, "sorce", "inf", "nan", True])
+    def test_a_bad_fps_is_refused_at_run_time(self, bad):
+        record = fit(clip(fps=8))["fit"]
+        with pytest.raises(ValueError, match="fps"):
+            restore_to_source(model_output(24), record, fps=bad)
+
+    @pytest.mark.parametrize("bad", ["8", 0, -8, True])
+    def test_a_bad_recorded_rate_is_refused(self, bad):
+        record = dict(fit(clip(fps=8))["fit"], source_fps=bad)
+        with pytest.raises(ValueError, match="source_fps"):
+            restore_to_source(model_output(24), record, fps="source")
+
+    @pytest.mark.parametrize("bad", [0, -1, "sorce", "inf"])
+    def test_a_bad_fps_is_refused_statically(self, bad):
+        errors = _validate_restore({"fps": bad})
+        assert [name for name, _ in errors] == ["fps"], errors
+
+    @pytest.mark.parametrize(
+        "fps", ["source", 12, 23.976, "variable:frame_rate", "previous_result:s.fps"]
+    )
+    def test_a_good_or_deferred_fps_is_silent(self, fps):
+        assert not _validate_restore({"fps": fps})
+
+    def test_no_fps_is_silent(self):
+        assert not _validate_restore({})
+
+    def test_an_eight_fps_source_is_saved_at_eight(self, tmp_path):
+        """The real path: both commands through the task dispatch, the
+        model's 24 fps output restored under "source", written and probed."""
+        from dw.media import video_shape
+        from dw.tasks.task import Task
+
+        fitted = Task({"command": "fit_to_model", "arguments": {}}, "cpu").run(
+            dict(video=clip(12, fps=8), width=512, height=288, num_frames=17)
+        )
+        restored = Task({"command": "restore_to_source", "arguments": {}}, "cpu").run(
+            dict(video=model_output(24, 17), fit=fitted["fit"], fps="source")
+        )
+        result = Result({"content_type": "video/mp4", "save": True})
+        result.add_result(restored)
+        result.save(str(tmp_path), "wf-restore.0")
+        (name,) = os.listdir(tmp_path)
+        shape = video_shape(str(tmp_path / name))
+        assert shape["fps"] == pytest.approx(8.0)
+        assert (shape["width"], shape["height"], shape["frame_count"]) == (
+            640,
+            480,
+            12,
+        )

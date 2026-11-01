@@ -57,6 +57,9 @@ generates cleanly, and the drift only shows up when two episodes are
 watched back to back. There is no engine check for "the same character
 looks the same" across separate runs; the fixed-asset reference is the only
 guard, so it has to be a deliberate, first step rather than an implicit one.
+As guidance, not a measured rule (`script-to-video` step 3;
+`docs/proposals/audits/2026-11-story-forge-lessons.md`): frame a recurring
+character large, and if the piece needs wides, keep a wide master too.
 
 Save each portrait prompt with `save_prompt` under one folder for the series
 and reference it as `prompt:<series>/<character>` from every episode.
@@ -112,9 +115,23 @@ composes into, not something to re-derive:
   before the cut; leaving it null only warns on a wide spread instead of
   fixing it. A shot whose voice-over the score buries is a different
   problem, not fixed by `match_levels` or `world_gain` (which lifts the
-  whole world track, action sound included) - see `minimax-h3`'s ducking
-  recipe: `gain_audio` regions on the score, one per voice-over shot,
-  applied before the score is passed in.
+  whole world track, action sound included). Either duck the score -
+  `minimax-h3`'s ducking recipe: `gain_audio` regions on the score, one per
+  voice-over shot, applied before the score is passed in - or give dialogue
+  its own gain. For that, in a saved copy of `assemble-and-score`, add a
+  `separate_stems` step on `world_faded`; `previous_result:<step>.vocals` is
+  the dialogue, and a `mix_audio` of its `drums`, `bass` and `other` is the
+  rest (room tone, foley, action sound). Then have `mixed` layer
+  `[soundtrack_resampled, dialogue, rest]`, one gain each, and keep
+  `balanced` after it: a dialogue gain above 1 on a stem peaking near full
+  scale sums past 0 dBFS, which `balanced` pulls back to -3. htdemucs keeps
+  H3 speech intact this way (#1091). A shot with little foley leaves a
+  near-silent rest, and a quiet unpitched bed (room tone, ambience) lands
+  mostly in `vocals`, not the rest. Separating an already-scored mix works
+  too, but its rest is the score plus the shots' foley, not a clean score:
+  keep the original score file to re-mix or replace it.
+- **sound effects**: `video-to-sound-effects` (or `text-to-sound-effect`) makes
+  effects for the `rest` bed; MMAudio runs 7-25 dB hot, so `match_levels` them first.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS peak ceiling, always
   enforced), but a shared peak is not a shared loudness. Pass one series
@@ -152,6 +169,9 @@ id>/intermediate/<workflow id>-shot@<name>.<index>-0.0.mp4` - not just the
 template's own name - read off the run's manifest (`get_job`) rather than
 guessed. Or, if the shot should outlive its run directory the way the cast
 does, `keep_output` it and reference the resulting `asset:` instead.
+
+Before keeping each episode shot, run `dw:script-to-video`'s beat review
+(`script-to-video/references/beat-review.md`) on it.
 
 Beyond `minimax-h3`'s own judging checklist (a character that changes
 between shots, a portrait imposing its framing, a voice without affect):

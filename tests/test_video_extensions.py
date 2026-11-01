@@ -128,6 +128,38 @@ class TestVideoIntoImage:
         }
 
     def test_a_member_fed_an_earlier_video_is_refused_before_the_run(self):
+        # Another group's member (`refine@b` reading `shot@a`) is a read from
+        # outside `shot`, legal under #1101, so #813's advice still applies
+        from dw.video_extensions import video_into_image_errors
+
+        expanded = {
+            "steps": [
+                {
+                    "name": "shot@a",
+                    "workflow": {"path": "t", "arguments": {"image": "asset:x.png"}},
+                    "result": {"content_type": "video/mp4"},
+                },
+                {
+                    "name": "refine@b",
+                    "workflow": {
+                        "path": "t",
+                        "arguments": {"image": "previous_result:shot@a"},
+                    },
+                    "result": {"content_type": "video/mp4"},
+                },
+            ]
+        }
+        errors = video_into_image_errors(expanded, [0, 1])
+        assert [e["path"] for e in errors] == ["steps[1].workflow.arguments.image"]
+        assert (
+            "shot@a" in errors[0]["message"]
+            and "get_last_frame" in errors[0]["message"]
+        )
+        assert "in member 'refine@b'" in errors[0]["message"]
+
+    def test_a_sibling_entry_is_left_to_the_cross_entry_check(self):
+        # #1101: `shot@b` reading `shot@a` is refused as a cross-entry read;
+        # #813's get_last_frame advice can't be followed inside one list
         from dw.video_extensions import video_into_image_errors
 
         expanded = {
@@ -147,13 +179,7 @@ class TestVideoIntoImage:
                 },
             ]
         }
-        errors = video_into_image_errors(expanded, [0, 0])
-        assert [e["path"] for e in errors] == ["steps[0].workflow.arguments.image"]
-        assert (
-            "shot@a" in errors[0]["message"]
-            and "get_last_frame" in errors[0]["message"]
-        )
-        assert "in member 'shot@b'" in errors[0]["message"]
+        assert video_into_image_errors(expanded, [0, 0]) == []
 
     def test_an_image_producer_is_fine(self):
         from dw.video_extensions import video_into_image_errors
@@ -175,12 +201,19 @@ class TestVideoIntoImage:
         assert video_into_image_errors(expanded) == []
 
     def test_the_real_validate_path_reports_it(self):
+        # #1101: a member chained to an earlier entry of its own list is
+        # refused as a cross-entry read - one error, not also #813's
         shots = [
             {"name": "a", "image": "asset:a.png"},
             {"name": "b", "image": "previous_result:shot@a"},
         ]
         workflow = workflow_from_definition(self._definition(shots), tempfile.mkdtemp())
         problems = workflow.validation_errors()
-        assert any("declares a video result" in p["message"] for p in problems), (
-            problems
-        )
+        messages = [p["message"] for p in problems]
+        assert any(
+            "reads another entry ('a') of the same for_each list" in m
+            and "in member 'shot@b'" in m
+            for m in messages
+        ), problems
+        assert not any("declares a video result" in m for m in messages), problems
+        assert not any("get_last_frame" in m for m in messages), problems

@@ -41,13 +41,16 @@ from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
 from .guides import guide_chain_errors, guides_errors
-from .hold_audio import hold_audio_errors, refine_strength_errors
+from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
 from .library import SubWorkflowNotFound
 from .locations import location_errors
 from .media import probe_metadata
-from .previous_results import previous_result_reference_errors
+from .previous_results import (
+    cross_entry_reference_errors,
+    previous_result_reference_errors,
+)
 from .reference_limits import reference_limit_errors
 from .reference_names import reference_name_errors
 from .scalar_result_validation import scalar_result_errors
@@ -64,6 +67,7 @@ from .step_value_checks import (
     select_errors,
 )
 from .task_domains import task_argument_errors
+from .trust import task_remote_code_errors
 from .type_references import (
     component_name_errors,
     component_type_errors,
@@ -319,6 +323,11 @@ ERROR_CHECKS = [
         "previous_result_references",
         lambda c: previous_result_reference_errors(c.expanded, c.source_indices),
     ),
+    # A for_each member reading another entry of its own list (#1101)
+    Check(
+        "cross_entry_references",
+        lambda c: cross_entry_reference_errors(c.expanded, c.source_indices),
+    ),
     Check("subfolders", lambda c: subfolder_errors(c.expanded, c.source_indices)),
     Check("fps", lambda c: fps_errors(c.expanded, c.source_indices)),
     # A `cache: "variable:cache"` the raw schema let through, holding an
@@ -343,12 +352,23 @@ ERROR_CHECKS = [
     ),
     # hold_audio on a pipeline with no H3 hold blocks, or holding something
     # that is not audio, costs a checkpoint load otherwise (dw/hold_audio.py)
-    Check("hold_audio", lambda c: hold_audio_errors(c.expanded, c.source_indices)),
+    Check(
+        "hold_audio",
+        lambda c: hold_audio_errors(
+            c.expanded, c.source_indices, c.base_dir, probe=c.probe
+        ),
+    ),
     # refine_strength with nothing to refine, no held soundtrack or a one-point
     # schedule fails after the checkpoint load just the same
     Check(
         "refine_strength",
         lambda c: refine_strength_errors(c.expanded, c.source_indices),
+    ),
+    # A regional edit on a pipeline that is not H3, a mask with no source, or a
+    # source with no refine_strength, with latents or on a chained step
+    Check(
+        "regional_edit",
+        lambda c: mask_errors(c.expanded, c.source_indices, c.base_dir, probe=c.probe),
     ),
     # guides on a pipeline that cannot take them, with references, malformed,
     # or a clip that is no video or runs past the render (dw/guides.py)
@@ -471,6 +491,13 @@ ERROR_CHECKS = [
         lambda c: guide_chain_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
+    # A task argument that runs Hub code, anywhere in the step - the run
+    # refuses it too (Task.run), but before it queues costs nothing
+    # (GHSA-hhfj-p9xj-xjmr)
+    Check(
+        "task_remote_code",
+        lambda c: task_remote_code_errors(c.expanded, c.source_indices),
+    ),
     # A component_type/scheduler_type/config_type that does not exist, or is
     # outside the trusted ecosystem (dw/type_references.py, #345)
     Check(

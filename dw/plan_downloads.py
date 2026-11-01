@@ -35,6 +35,8 @@ FROM_PRETRAINED_KEY = "from_pretrained_arguments"
 MODEL_NAME_KEY = "model_name"
 # An adapter names its repo directly, not through from_pretrained_arguments
 LORAS_KEY = "loras"
+WEIGHT_NAME_KEY = "weight_name"
+SUBFOLDER_KEY = "subfolder"
 SINGLE_FILE_KEY = "from_single_file"
 VARIANT_KEY = "variant"
 LOAD_COMPONENTS_KEY = "load_components"
@@ -63,7 +65,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     variants = {}
     urls = []
     files = []
-    _collect_sources(expanded, names, variants, urls)
+    _collect_sources(expanded, names, variants, urls, files)
     _collect_task_weights(expanded, names, files, urls)
     for path, _arguments in _sub_workflow_paths(expanded):
         raw = read_sub_workflow(path, base_dir, workflow_dir)
@@ -73,7 +75,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
             child = json.loads(raw)
         except ValueError:
             continue
-        _collect_sources(child, names, variants, urls)
+        _collect_sources(child, names, variants, urls, files)
         _collect_task_weights(child, names, files, urls)
     present = {repo.get("repo_id") for repo in scan_models(cache_dir).get("repos", [])}
     required = []
@@ -121,7 +123,7 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
     return required
 
 
-def _collect_sources(tree, names, variants, urls):
+def _collect_sources(tree, names, variants, urls, files=None):
     """Every from_pretrained source in a tree, first-seen order, deduplicated.
     `variants` collects each name's requested `variant` (first-seen), used to
     tell a repo that is merely missing its fp16 files from one that is fully
@@ -133,12 +135,16 @@ def _collect_sources(tree, names, variants, urls):
     every base weight but not the IC-LoRA answered `downloads_required:
     []` and then pulled it mid-run, which is the one question the field
     exists to answer (found verifying #151).
+
+    A `loras` entry that names its `weight_name` loads that one file, so with
+    `files` given it is keyed there as `(repo, [subfolder/]weight_name, None)`
+    and sized as the file, not as the repo it sits in (#1088). A weight name
+    still holding a reference is no file yet, and a name `file_entries`
+    refuses is none either: the repo stands for it.
     """
     if isinstance(tree, dict):
         for lora in tree.get(LORAS_KEY) or []:
-            name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
-            if isinstance(name, str) and name not in names:
-                names.append(name)
+            _collect_lora_source(lora, names, files)
         source = tree.get(FROM_PRETRAINED_KEY)
         if isinstance(source, dict):
             name = source.get(MODEL_NAME_KEY)
@@ -152,10 +158,37 @@ def _collect_sources(tree, names, variants, urls):
                 urls.append(single)
         _collect_component_overrides(tree.get(LOAD_COMPONENTS_KEY), names)
         for value in tree.values():
-            _collect_sources(value, names, variants, urls)
+            _collect_sources(value, names, variants, urls, files)
     elif isinstance(tree, list):
         for value in tree:
-            _collect_sources(value, names, variants, urls)
+            _collect_sources(value, names, variants, urls, files)
+
+
+def _collect_lora_source(lora, names, files):
+    """One `loras` entry into `files` (its single weight file, when it names
+    one and `files` is collected) or `names` (its whole repo otherwise)."""
+    name = lora.get(MODEL_NAME_KEY) if isinstance(lora, dict) else None
+    if not isinstance(name, str):
+        return
+    weight = lora.get(WEIGHT_NAME_KEY)
+    entries = []
+    if (
+        files is not None
+        and isinstance(weight, str)
+        and not references.is_ref(references.DEFERRED, weight)
+    ):
+        subfolder = lora.get(SUBFOLDER_KEY)
+        if isinstance(subfolder, str) and subfolder:
+            weight = f"{subfolder.strip('/')}/{weight}"
+        from .tasks.weights import file_entries
+
+        entries = file_entries(name, weight, None)
+    for entry in entries:
+        key = (entry["repo"], entry["filename"], entry["revision"])
+        if key not in files:
+            files.append(key)
+    if not entries and name not in names:
+        names.append(name)
 
 
 def _collect_component_overrides(arguments, names):

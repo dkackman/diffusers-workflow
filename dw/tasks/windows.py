@@ -55,11 +55,13 @@ from ..dsp import as_channels_samples, slice_samples
 from ..shots import remeasured_shots, shot_record
 from ..task_domains import (
     JOIN_WINDOWS_CURVES,
+    SOURCE_FPS,
     check_arguments,
     frames_to_samples,
     window_count,
     window_count_problem,
     real_number,
+    source_fps_problem,
     whole_number,
     window_overlap_problem,
 )
@@ -318,8 +320,10 @@ def join_windows(videos, source, num_frames, overlap, curve="cosine", fps=None):
             window_video
         curve: The blend's shape across a seam - "cosine"
             `(1 - cos(pi t)) / 2`, "smoothstep" `3t^2 - 2t^3`, or "linear" `t`
-        fps: Frame rate of the source. Defaults to the rate its file was read
-            at; needed only to put its audio back
+        fps: The joined video's frame rate - omitted or "source" for the
+            rate the source's file was read at, or a number above zero for
+            that rate. No frames are added or dropped for it; the source's
+            audio is put back over the frames at this rate
 
     Returns:
         One AudioVideo of exactly the source's frame count, at the windows'
@@ -332,14 +336,17 @@ def join_windows(videos, source, num_frames, overlap, curve="cosine", fps=None):
     """
     num_frames = whole_number(num_frames, "num_frames", "join_windows")
     overlap = whole_number(overlap, "overlap", "join_windows")
-    fps = real_number(fps, "fps", "join_windows")
+    problem = source_fps_problem(fps, "join_windows")
+    if problem is not None:
+        raise ValueError(problem)
+    fps = None if fps == SOURCE_FPS else real_number(fps, "fps", "join_windows")
     for name, value in (("num_frames", num_frames), ("overlap", overlap)):
         if not isinstance(value, numbers.Integral) or isinstance(value, bool):
             raise ValueError(
                 f"join_windows needs '{name}' as a whole number, got {value!r}"
             )
     num_frames, overlap = int(num_frames), int(overlap)
-    check_arguments("join_windows", num_frames=num_frames, overlap=overlap, fps=fps)
+    check_arguments("join_windows", num_frames=num_frames, overlap=overlap)
     if curve not in JOIN_WINDOWS_CURVES:
         raise ValueError(
             f"join_windows needs 'curve' as one of {list(JOIN_WINDOWS_CURVES)}, "

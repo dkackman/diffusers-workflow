@@ -71,6 +71,11 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "identity-referenced"],
     ),
+    # #1078: the take it edits is input media, and its soundtrack is held
+    "workflows/templates/minimax/regional-edit.json": (
+        "shot",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/minimax/dialogue-short.json": (
         "sequence",
         ["has-audio", "identity-referenced"],
@@ -112,6 +117,10 @@ EXPECTED_SHAPES = {
         ["composes-workflows", "image-conditioned"],
     ),
     "workflows/templates/generate-speech.json": ("audio", ["has-audio"]),
+    "workflows/templates/voice-clone.json": (
+        "audio",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/assemble-and-score.json": ("sequence", ["needs-input-media"]),
     "workflows/templates/image-processors.json": ("utility", []),
 }
@@ -290,6 +299,10 @@ QUOTED = re.compile(r"'([a-z_][a-z0-9_]*)'")
 # sub-workflow's argument, a step argument, a chain field or a result field.
 # One line per entry saying what the name actually is.
 LEGITIMATE_MENTIONS = {
+    # pair_audio's fit value 'video', not a variable
+    "workflows/templates/assemble-and-score.json": {"video"},
+    # the name of the sub-workflow step that makes the clip
+    "workflows/templates/best-of-n-to-video.json": {"video"},
     # attribute_voices' argument, fed the transcript rather than passed
     "workflows/templates/attribute-lines.json": {"lines"},
     # the argument the composed image-to-video workflow receives
@@ -308,8 +321,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
-    # pair_audio's 'fit' argument, and the per-entry 'num_frames' of a shot
-    "workflows/templates/minimax/music-video.json": {"fit", "num_frames"},
+    # pair_audio's 'fit' argument and its value 'video', and the per-entry
+    # 'num_frames' of a shot
+    "workflows/templates/minimax/music-video.json": {"fit", "num_frames", "video"},
     # fields of the plan's entries, which music-video's shots then take
     "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
@@ -497,7 +511,39 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 11_650 for the `remove-object` and `segment-and-remove` templates
 # (#956, stage #974, 2026-10-22), measured at 11_592: two new entries, the
 # catalog's only prompt-free removal route, each with a cost block.
-COMPACT_BUDGET = 11_650
+# Then to 11_850 for the `alpha-matte` template (#1064, stage #1079,
+# 2026-10-31), measured at 11_788: one new entry, the catalog's only matte
+# route, with its cost block.
+# Then to 12_050 for the `minimax/regional-edit` template (#1062, stage #1078,
+# 2026-10-31), measured at 11_983: one new entry, the catalog's only regional
+# edit of a take, with its cost block.
+# Then to 12_250 for the `minimax/face-repair` template (#1092, stage #1099,
+# 2026-10-31), measured at 12_201: one new entry, the catalog's only face
+# repair that holds an H3 take's soundtrack, with its cost block.
+# Then to 12_400 for the `ltx2/restore-colorize` template (#1064, stage #1080,
+# 2026-10-31), measured at 12_357: one new entry, the catalog's only
+# colourisation of existing footage, with its cost block. Re-measured at
+# 12_357 after its description grew (plan v10): the compact view carries the
+# summary, not the description, so the budget stands.
+# Re-measured at 12_357 after `ltx2/face-repair` and `ltx2/restore-long` took
+# the source's frame rate (#1090, stage #1106, 2026-10-31): their summaries
+# did not change, so the budget stands.
+# Re-measured at 12_357 after `ltx2/upscale-clip`, `refine-clip` and
+# `refine-in-place` took the source's frame rate (#1090, stage #1107,
+# 2026-10-31): their summaries did not change, so the budget stands.
+# Re-measured at 12_344 after `ltx2/restore-deblur` and `restore-decompression`
+# took restore-colorize's fit shape (#1090, stage #1108, 2026-10-31): both
+# summaries got shorter, so the budget stands.
+# Re-measured at 12_344 after `ltx2/restore-colorize`'s description gained its
+# low-rate/portrait colour limit (#1064, stage #1114, 2026-10-31): its summary
+# did not change, so the budget stands.
+# Then to 12_480 for the `voice-clone` template (#1112, stage #1121,
+# 2026-11-01), measured at 12_436: one new entry, the catalog's only voice
+# clone from a reference clip and its transcript, with no cost block yet.
+# Then to 12_650 for `video-to-sound-effects` and `text-to-sound-effect`
+# (#1124, stage #1133, 2026-11-01), measured at 12_609: two new entries, the
+# catalog's only sound-effect generation (MMAudio), with no cost block yet.
+COMPACT_BUDGET = 12_650
 FILTERED_BUDGET = 1_500
 
 

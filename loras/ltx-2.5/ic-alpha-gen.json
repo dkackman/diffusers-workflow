@@ -11,7 +11,14 @@
   "scale": {
     "default": 1.0
   },
-  "status": "trial",
+  "status": "proven",
+  "evidence": [
+    {
+      "job": "7219cf6b4cf5",
+      "issue": 1079,
+      "note": "templates/ltx2/alpha-matte on lem (RTX 3090, uint4 SDNQ) at 960x544x121: a clean white walking figure, background black, birds and debris as soft partial values; 3.9 min including a cold load"
+    }
+  ],
   "license": "other",
   "tags": [
     "matte",

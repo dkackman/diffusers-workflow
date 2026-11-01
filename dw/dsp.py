@@ -378,6 +378,24 @@ def spectral_flatness(waveform, sample_rate=None, native_sample_rate=None):
     return float(numpy.mean(geometric_mean / arithmetic_mean))
 
 
+def spectral_centroid(waveform, sample_rate):
+    """The magnitude-weighted mean frequency (Hz) of the rfft spectrum of a
+    (channels, samples) waveform, averaged across channels - low for bass-heavy
+    or tonal material, high for hiss. 0.0 for an all-zero signal.
+
+    MMAudio's noise warning pairs it with spectral flatness: warn when flatness
+    is at least 0.3 and the centroid at least 8 kHz (thresholds not held here).
+    """
+    spectrum = numpy.abs(numpy.fft.rfft(waveform, axis=1))
+    freqs = numpy.fft.rfftfreq(numpy.shape(waveform)[1], 1.0 / sample_rate)
+    total = spectrum.sum(axis=1)
+    weighted = (spectrum * freqs).sum(axis=1)
+    centroids = numpy.divide(
+        weighted, total, out=numpy.zeros_like(total), where=total > 0
+    )
+    return float(numpy.mean(centroids))
+
+
 def harmonicity(waveform, sample_rate):
     """Normalized autocorrelation peak within a plausible pitch range,
     averaged across channels - near 1 for a strongly periodic signal (voiced
@@ -414,6 +432,33 @@ def harmonicity(waveform, sample_rate):
             continue
         scores.append(float(numpy.max(window) / energy))
     return max(scores) if scores else 0.0
+
+
+def repeat_correlation(mono, sample_rate, min_lag_seconds, min_overlap_seconds):
+    """The best overlap-normalized self-correlation of a block with itself at
+    any lag of min_lag_seconds or more that leaves min_overlap_seconds to
+    compare, 0.0 when the block is too short or silent. 1.0 means the block
+    repeats sample for sample, as a looped bed does (#1118)."""
+    block = numpy.asarray(mono, dtype=numpy.float64)
+    if block.size == 0:
+        return 0.0
+    block = block - block.mean()
+    shortest = int(min_lag_seconds * sample_rate)
+    longest = block.size - int(min_overlap_seconds * sample_rate)
+    if longest < shortest or shortest < 1:
+        return 0.0
+    full = scipy.signal.correlate(block, block, mode="full", method="fft")
+    auto = full[block.size - 1 :]
+    # Prefix energies give each lag's two overlapping stretches' energy
+    energy = numpy.concatenate([[0.0], numpy.cumsum(block * block)])
+    lags = numpy.arange(shortest, longest + 1)
+    denominator = numpy.sqrt(
+        energy[block.size - lags] * (energy[block.size] - energy[lags])
+    )
+    valid = denominator > 0
+    if not valid.any():
+        return 0.0
+    return float(numpy.max(auto[lags][valid] / denominator[valid]))
 
 
 def spectral_balance(waveform, sample_rate):
