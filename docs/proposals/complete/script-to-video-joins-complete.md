@@ -29,8 +29,8 @@ continues from the insert or starts cold.
 - **`for_each` can't say it either.** There is no relative indexing, and
   groups expand whole, so no per-entry frame grab can sit between entries.
   A literal `from_previous_result: "shot@<key>"` cross-entry reference
-  slips through today but no test pins it. It was filed as #1101
-  (`owner:don`) rather than relied on.
+  slipped through then, with no test pinning it. It was filed as #1101,
+  and validation now refuses it (`complete/for-each-cross-entry-complete.md`).
 - **Separate runs can say it.** `get_first_frame` / `get_last_frame` read
   `output:` files. The renderers both joins need already exist:
   `templates/minimax/image-to-video`, `first-and-last-frame`,
@@ -134,8 +134,8 @@ runs.
   segments) are parked undecided: they touch the same loop.
 - **A non-adjacent continuity probe.** The A→C match is judged by eye, and
   the engine route would add one.
-- **The `shot@<key>` cross-entry reference**: #1101, Don's call to pin or
-  refuse it.
+- **The `shot@<key>` cross-entry reference**: #1101. Don ruled to refuse
+  it, and it shipped 2026-10-31 (`complete/for-each-cross-entry-complete.md`).
 - **Related improvements:** #1032 (sharpest-of-N last frame) would improve a
   cutaway's re-entry frame. #1067 (colour-match a region to its source)
   could match C's colour to A's tail.
