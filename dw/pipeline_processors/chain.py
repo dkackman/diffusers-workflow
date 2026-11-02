@@ -52,15 +52,20 @@ from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
+from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
 from .h3_hold import hold_audio_reference
 from .h3_rules import (
+    ANCHOR_NONE,
+    ANCHOR_SEGMENT_1,
     CHAIN_CONTINUITY_MODES,
     GUIDES_INPUT,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     HOLD_AUDIO_INPUT,
+    LATENT_ANCHOR_INPUT,
+    chain_anchor_problem,
     guide_chain_problems,
 )
 
@@ -428,6 +433,8 @@ def run_chain(pipeline, chain_definition, arguments):
     continuity = CONTINUITY_MODES[config.continuity](config)
     if config.continuity == GUIDE_CONTINUITY:
         _check_guide_chain(pipeline, arguments, chain_definition, config)
+    if config.anchor == ANCHOR_SEGMENT_1:
+        _check_anchor_chain(pipeline)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -438,6 +445,10 @@ def run_chain(pipeline, chain_definition, arguments):
     audio = None  # joined generated audio, (channels, samples) float32
     audio_rate = None
     carry = None
+    # Segment 1's decoded frames, the latent anchor of every later segment
+    # under `anchor: "segment_1"` (#1166) - the same frame objects the output
+    # holds, so keeping them costs no copy on an unspilled chain
+    anchor_frames = None
     # One shot per segment, measured as the picture and track grow (#378);
     # the frames are counted rather than read off `frames`, which a spilled
     # chain never fills
@@ -447,7 +458,7 @@ def run_chain(pipeline, chain_definition, arguments):
     try:
         for segment in config.plan:
             segment_arguments = _segment_arguments(
-                arguments, config, segment, continuity, carry
+                arguments, config, segment, continuity, carry, anchor_frames
             )
 
             logger.info(
@@ -463,6 +474,8 @@ def run_chain(pipeline, chain_definition, arguments):
 
             carry = continuity.extract(artifact)
             segment_frames = frames_as_pil_list(artifact)
+            if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
+                anchor_frames = segment_frames
             segment_audio, segment_rate = _generated_audio(artifact)
             # A segment's own generated audio can run a codec-padding sliver
             # short of the frames it was asked for - the same gap #197 fixed for
@@ -558,9 +571,13 @@ def _spilled_frames(config, spill):
     )
 
 
-def _segment_arguments(arguments, config, segment, continuity, carry):
+def _segment_arguments(
+    arguments, config, segment, continuity, carry, anchor_frames=None
+):
     """One segment's arguments: the step's, with this segment's prompt, its
-    slice of a match_audio track, and the previous segment's carry."""
+    slice of a match_audio track, the previous segment's carry, and - under
+    `anchor: "segment_1"`, on every segment after the first - segment 1's
+    frames as its `latent_anchor`."""
     segment_arguments = dict(arguments)
 
     if config.prompts:
@@ -579,6 +596,8 @@ def _segment_arguments(arguments, config, segment, continuity, carry):
 
     if segment.index > 0:
         continuity.inject(segment_arguments, carry, config.segment_argument)
+        if anchor_frames is not None:
+            segment_arguments[LATENT_ANCHOR_INPUT] = anchor_frames
     return segment_arguments
 
 
@@ -599,6 +618,16 @@ def _record_seam(shot, segment, config, applied):
             else "none (no head material)"
         )
     )
+
+
+def _check_anchor_chain(pipeline):
+    """Refuse an `anchor: "segment_1"` chain whose loaded pipeline has no
+    latent anchor step - not MiniMax-H3 t2va/fl2va - before segment 1 renders."""
+    loaded = getattr(pipeline, "pipeline", None)
+    if loaded is not None:
+        refusal = anchor_refusal(loaded)
+        if refusal:
+            raise ValueError(f"Chain anchor 'segment_1': {refusal}")
 
 
 def _check_guide_chain(pipeline, arguments, chain_definition, config):
@@ -657,6 +686,12 @@ class ChainConfig:
             raise ValueError(
                 f"Unknown chain continuity '{self.continuity}' - expected one of {known}"
             )
+
+        # Segment 1 as every later segment's latent statistics anchor (#1166)
+        problem = chain_anchor_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

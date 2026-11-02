@@ -32,12 +32,14 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
+from .h3_anchor import anchor_refusal, prepared_anchor
 from .h3_guides import guide_frames_array, guides_refusal, prepared_guide
 from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_mask import binarized, edits_regions
 from .h3_rules import (
     GUIDES_INPUT,
     GUIDE_LIMIT,
+    LATENT_ANCHOR_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
@@ -662,6 +664,7 @@ class Pipeline:
         arguments = self._with_mask(arguments)
         arguments = self._with_held_audio(arguments)
         arguments = self._with_guides(arguments)
+        arguments = self._with_latent_anchor(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -799,6 +802,26 @@ class Pipeline:
             for index, guide in enumerate(guides)
         ]
         arguments[GUIDES_INPUT] = prepared
+        return arguments
+
+    def _with_latent_anchor(self, arguments):
+        """`latent_anchor` as the H3 anchor step takes it - uint8 frames cut to
+        a whole-latent length (dw/pipeline_processors/h3_anchor.py). None is no
+        anchor.
+
+        Raises:
+            ValueError: If this pipeline has no anchor step (not MiniMax-H3
+                t2va/fl2va), or the value is not frames of a video
+        """
+        value = arguments.get(LATENT_ANCHOR_INPUT)
+        if value is None:
+            return arguments
+        where = f"Step '{self.name}': {LATENT_ANCHOR_INPUT}"
+        refusal = anchor_refusal(self.pipeline)
+        if refusal:
+            raise ValueError(f"{where}: {refusal}")
+        arguments = dict(arguments)
+        arguments[LATENT_ANCHOR_INPUT] = prepared_anchor(where, value, self.base_dir)
         return arguments
 
     def _with_mask(self, arguments):

@@ -210,6 +210,9 @@ LATENT_SCALE = 16
 H3_FPS = 24
 
 
+# The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
+LATENT_ANCHOR_INPUT = "latent_anchor"
+
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
 TILE_CONFLICTS = (
@@ -220,6 +223,7 @@ TILE_CONFLICTS = (
     "source_video",
     "mask_video",
     "mask_image",
+    LATENT_ANCHOR_INPUT,
 )
 
 
@@ -510,6 +514,49 @@ GUIDE_CHAIN_RULE = (
 # (`CONTINUITY_MODES`, zipped strictly against these). Kept here so validation
 # (dw/guides.py) reads the same names without importing chain.py
 CHAIN_CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
+
+# The latent statistics anchor (#1166): `latent_anchor` is video frames whose
+# per-channel latent mean/std the generated video latent is rescaled to, after
+# `after_denoise` and before decode, by the ANCHOR_BLOCK step
+# (dw/pipeline_processors/h3_anchor.py). A chain's `anchor: "segment_1"` sets it
+# on every segment after the first to segment 1's decoded frames.
+ANCHOR_BLOCK = "dw_latent_anchor"
+ANCHOR_AFTER = "after_denoise"
+ANCHOR_NONE = "none"
+ANCHOR_SEGMENT_1 = "segment_1"
+CHAIN_ANCHOR_MODES = (ANCHOR_NONE, ANCHOR_SEGMENT_1)
+# The continuities whose segments are fresh t2va/fl2va generations the anchor
+# block runs in; `last_segment` carries a ref2va reference, which has no block
+ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
+
+
+def chain_anchor_problem(chain):
+    """The reason a chain block's `anchor` is refused for its own settings, or
+    None: an unknown value (naming the values), or `segment_1` with a continuity
+    other than guide or last_frame. Unresolved references are left to the run;
+    whether the step is H3 is the caller's to ask (`not_h3`)."""
+    anchor = chain.get("anchor", ANCHOR_NONE)
+    if isinstance(anchor, str) and references.is_ref(references.UNRESOLVED, anchor):
+        return None
+    if anchor not in CHAIN_ANCHOR_MODES:
+        return (
+            f"unknown chain anchor {anchor!r} - expected one of "
+            f"{', '.join(CHAIN_ANCHOR_MODES)}"
+        )
+    if anchor == ANCHOR_NONE:
+        return None
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity not in ANCHOR_CONTINUITIES:
+        return (
+            f"anchor 'segment_1' needs continuity "
+            f"{' or '.join(repr(c) for c in ANCHOR_CONTINUITIES)} - its segments "
+            f"are MiniMax-H3 t2va/fl2va generations; got {continuity!r}"
+        )
+    return None
 
 
 def guide_chain_problems(chain):
