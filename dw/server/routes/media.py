@@ -250,7 +250,7 @@ def gallery_metadata(
         "run_id": run_id,
         "version": version,
         "media": media,
-        "findings": level_findings(media),
+        "findings": level_findings(media, (media or {}).get("shots")),
         "role": role,
         "inputs": inputs,
         **notes,

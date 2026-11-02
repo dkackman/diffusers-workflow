@@ -436,6 +436,10 @@ def check_written_media(
         output_path,
         info=probed_info,
         source_already_quiet=(
-            source_mean_dbfs is not None and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
+            getattr(artifact, "silent_by_design", False) is True
+            or (
+                source_mean_dbfs is not None
+                and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
+            )
         ),
     )
