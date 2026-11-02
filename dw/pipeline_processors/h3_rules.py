@@ -412,9 +412,14 @@ def tile_plan(width, height, tile_width, tile_height, overlap):
     ]
 
 
-def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
+def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
-    arguments - or None when it can or cannot be told before the load."""
+    arguments - or None when it can or cannot be told before the load.
+    `taken_by` is the H3 workflows the message names as taking it: an
+    argument ref2va refuses (guides, latent_anchor) passes t2va/fl2va only,
+    so the refusal does not send the author to a workflow that refuses it
+    too. It only words the message - an H3 workflow outside it is left to
+    the caller's own rule, which says why."""
     configuration = pipeline.get("configuration")
     component_type = (
         configuration.get("component_type") if isinstance(configuration, dict) else None
@@ -425,7 +430,7 @@ def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
     )
     holds = (
         f"{argument} is a MiniMax-H3 argument, taken by its "
-        f"{', '.join(sorted(H3_WORKFLOWS))} workflows"
+        f"{', '.join(sorted(taken_by))} workflows"
     )
     if (
         isinstance(component_type, str)

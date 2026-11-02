@@ -36,6 +36,7 @@ other than guide or last_frame, or carried into `references`
 from . import references
 from .adapter_compatibility import (
     FROM_PRETRAINED_KEY,
+    KEYFRAME_WORKFLOWS,
     REFERENCE_WORKFLOWS,
     WORKFLOW_KEY,
 )
@@ -113,7 +114,8 @@ def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
     argument, a guide chain, a `latent_anchor` argument and a chain's
     `anchor: "segment_1"` - every H3 t2va/fl2va-only input. A pipeline or
     workflow that is not literal is left to the run."""
-    h3_problem = not_h3(pipeline, argument)
+    # Named as taken by t2va/fl2va only: ref2va refuses it below
+    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
     if h3_problem:
         return h3_problem
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)

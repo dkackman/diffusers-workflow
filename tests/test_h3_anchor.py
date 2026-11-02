@@ -190,6 +190,34 @@ class TestAnchorErrors:
         assert error["path"] == "steps[0].pipeline.chain.anchor"
         assert "none, segment_1" in error["message"]
 
+    @pytest.mark.parametrize("anchor", [1, "", True, None, ["segment_1"]])
+    def test_any_other_value_names_the_values(self, anchor):
+        # The schema leaves the anchor's type to this rule, so a non-string is
+        # refused with the values named rather than as a JSON type error (#1173)
+        from dw.schema import load_schema, validate_data_all
+
+        step = definition(chain={"segments": 2, "anchor": anchor})
+        assert validate_data_all({"id": "a", **step}, load_schema("workflow")) == []
+        (error,) = anchor_errors(step)
+        assert error["path"] == "steps[0].pipeline.chain.anchor"
+        assert "expected one of none, segment_1" in error["message"]
+
+    @pytest.mark.parametrize("anchor", [1, ""])
+    def test_config_refuses_a_non_string_naming_the_values(self, anchor):
+        with pytest.raises(ValueError, match="none, segment_1"):
+            ChainConfig({"segments": 2, "anchor": anchor}, {})
+
+    @pytest.mark.parametrize(
+        "chain, arguments",
+        [({"segments": 2, "anchor": "segment_1"}, {}), (None, {"latent_anchor": "c"})],
+    )
+    def test_off_h3_names_only_the_workflows_that_take_it(self, chain, arguments):
+        # ref2va refuses the anchor, so the refusal must not send the author there
+        step = definition(chain=chain, pipeline_class="WanPipeline", **arguments)
+        (error,) = anchor_errors(step)
+        assert "taken by its fl2va, t2va workflows" in error["message"]
+        assert "ref2va" not in error["message"]
+
     def test_segment_1_with_another_continuity(self):
         chain = {"segments": 2, "anchor": "segment_1", "continuity": "last_segment"}
         (error,) = anchor_errors(definition(chain=chain))
