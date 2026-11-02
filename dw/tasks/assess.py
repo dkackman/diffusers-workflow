@@ -966,6 +966,9 @@ def seams_answer(media, records, source):
                 "seams": sorted(blended),
             }
         )
+        if len(blended) == len(seams):
+            # Measured nowhere: not "applied" (#394 contract, #1179)
+            answer["rules_applied"].remove("seam_hole")
     return answer
 
 
