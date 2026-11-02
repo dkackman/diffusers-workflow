@@ -2405,10 +2405,13 @@ and `opencv/face_detection_yunet`, which `validate_workflow` lists under
 | `threshold` | Median cosine similarity below which a shot raises `face_drift`, from -1 to 1. Default 0.363, OpenCV's published SFace threshold |
 | `samples_per_shot` | Frames read per shot, evenly spaced, 1 to 64. Default 8 |
 
-Each shot is a `measurements[]` entry: `shot`, `frames_sampled`,
-`faces_found` (sampled frames with a face), `similarity_median` and
+Each shot is a `measurements[]` entry: `shot`, `index` (its place in the
+shot list), `start_frame`, `num_frames`, `start` and `end` (seconds; null
+when the clip has no fps), `frames_sampled`, `faces_found` (sampled frames with a face), `similarity_median` and
 `similarity_min` - over those frames, the best cosine match among the faces
-in each frame. Both are null when no sampled frame had a face. Findings:
+in each frame. Both are null when no sampled frame had a face. Each
+finding's `at` carries the shot's `shot`, `index`, `start_frame`,
+`num_frames`, `start` and `end`, so two shots with one name stay apart. Findings:
 `face_drift` (warn) when the median is below `threshold`, and `no_face`
 (info) for a shot where no sampled frame had a face. Like the probes, they
 are places to look, not verdicts: a turned head or a mask also lowers the
