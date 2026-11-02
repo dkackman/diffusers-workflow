@@ -1,5 +1,7 @@
 import { afterEach, beforeEach, expect, it, vi } from 'vitest'
 
+// Workspaces the server gained after the page loaded - a test pushes to it
+const created = vi.hoisted((): string[] => [])
 const listWorkspaces = vi.hoisted(() =>
   vi.fn(() =>
     Promise.resolve({
@@ -22,6 +24,14 @@ const listWorkspaces = vi.hoisted(() =>
           outputs: '/ws/studio/outputs',
           prompts: null,
         },
+        ...created.map((name) => ({
+          name,
+          default: false,
+          workflows: `/ws/${name}/workflows`,
+          assets: null,
+          outputs: `/ws/${name}/outputs`,
+          prompts: null,
+        })),
       ],
     }),
   ),
@@ -33,6 +43,7 @@ vi.mock('./toast', () => ({ notify: { error: errorToast, success: vi.fn() } }))
 beforeEach(() => {
   listWorkspaces.mockClear()
   errorToast.mockClear()
+  created.length = 0
   localStorage.clear()
   location.hash = ''
 })
@@ -135,8 +146,27 @@ it('a missing workspace entered after the listing landed still redirects', async
   expect(errorToast).not.toHaveBeenCalled()
   location.hash = '#/ws/typo/gallery'
   window.dispatchEvent(new HashChangeEvent('hashchange'))
+  // Refetched once before it is called missing - see the next test
+  await loadWorkspaces()
   expect(location.hash).toBe('#/ws/default/overview')
   expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
+})
+
+it('a workspace created after the listing landed is refetched, not called missing', async () => {
+  location.hash = '#/ws/studio/gallery'
+  await import('./router.svelte')
+  const { loadWorkspaces, workspace } = await import('./workspace.svelte')
+  await loadWorkspaces()
+  // Created elsewhere (an agent's create_workspace) after this page loaded -
+  // the running chip's job link then corrects the URL into it
+  created.push('fresh')
+  location.hash = '#/ws/fresh/jobs/abc'
+  window.dispatchEvent(new HashChangeEvent('hashchange'))
+  await loadWorkspaces()
+  expect(workspace.names).toContain('fresh')
+  expect(location.hash).toBe('#/ws/fresh/jobs/abc')
+  expect(workspace.current).toBe('fresh')
+  expect(errorToast).not.toHaveBeenCalled()
 })
 
 it('a failed listing does not read as every other workspace being gone', async () => {
