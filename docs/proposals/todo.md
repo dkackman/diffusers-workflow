@@ -37,6 +37,17 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 guide-chain drift counters** (#1166, stages #1173-#1175), shipped
+  2026-11-02. Two off-by-default H3 options: `latent_anchor` with
+  `chain.anchor: "segment_1"`, a pre-decode per-channel latent statistics
+  match to segment 1, and `guide_noise`, a cosine-tapered paired-encode noise
+  on video guides. A 10-segment, two-scene probe on lem found the anchor
+  (with or without guide noise) best on a static scene and worst on a
+  moving-camera arc, and guide noise alone the only arm that didn't hurt the
+  arc. No template or skill sets either until Don's taste verdict (Q6);
+  `latent_anchor_strength` is the named follow-up. The in-loop ramp and the
+  keystone/capstone were cut: `complete/h3-guide-chain-drift-complete.md`.
+
 - **Texture-band drift measurement on `compare_outputs`** (#1152, stage
   #1160), shipped 2026-11-02. `compare_outputs(texture_bands=true)` reports
   RMS energy in the fine 2-8, mid 8-32 and coarse 32-128 px bands (luma, R−G,
