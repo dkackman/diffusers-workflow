@@ -469,6 +469,10 @@ def run_chain(pipeline, chain_definition, arguments):
             # The denoise counter restarts for every segment - without this the
             # bar rewinds to zero with nothing saying why
             pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
+            # Names the anchor in the job log when this segment carries one
+            pipeline.latent_anchor_source = (
+                "segment 1" if segment.index > 0 and anchor_frames is not None else None
+            )
             output = pipeline._run_once(segment_arguments)
             artifact = _single_artifact(output)
 
@@ -536,6 +540,7 @@ def run_chain(pipeline, chain_definition, arguments):
         # The label belongs to the run that set it - on a raise or a cancel
         # as much as on the way out
         pipeline.segment_label = None
+        pipeline.latent_anchor_source = None
 
     if spill is not None:
         frames = _spilled_frames(config, spill)
