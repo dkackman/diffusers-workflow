@@ -1101,10 +1101,25 @@ class TestRemoveBlocks:
         from collections import OrderedDict
         from types import SimpleNamespace
 
+        import copy
+
         blocks = SimpleNamespace(
             sub_blocks=OrderedDict(prompt_upsampler="u", text_encoder="t", denoise="d")
         )
-        return SimpleNamespace(blocks=blocks)
+
+        class Pipeline:
+            def __init__(self):
+                self._blocks = blocks
+
+            # like diffusers: the public property returns a deepcopy
+            @property
+            def blocks(self):
+                return copy.deepcopy(self._blocks)
+
+            def __call__(self):
+                return list(self._blocks.sub_blocks)
+
+        return Pipeline()
 
     def test_the_named_block_is_popped(self):
         pipeline = self.pipeline()
@@ -1112,7 +1127,8 @@ class TestRemoveBlocks:
             {"remove_blocks": ["prompt_upsampler"]}, pipeline
         )
         assert removed == ["prompt_upsampler"]
-        assert list(pipeline.blocks.sub_blocks) == ["text_encoder", "denoise"]
+        # what the pipeline actually executes, not a copy of it
+        assert pipeline() == ["text_encoder", "denoise"]
 
     def test_an_unknown_name_is_refused_and_nothing_is_popped(self):
         pipeline = self.pipeline()
@@ -1120,12 +1136,12 @@ class TestRemoveBlocks:
             remove_pipeline_blocks(
                 {"remove_blocks": ["prompt_upsampler", "prompt_upsamplr"]}, pipeline
             )
-        assert "prompt_upsampler" in pipeline.blocks.sub_blocks
+        assert "prompt_upsampler" in pipeline()
 
     def test_a_pipeline_without_the_setting_is_unchanged(self):
         pipeline = self.pipeline()
         assert remove_pipeline_blocks({}, pipeline) == []
-        assert len(pipeline.blocks.sub_blocks) == 3
+        assert len(pipeline()) == 3
 
     def test_a_pipeline_with_no_block_graph_is_an_error(self):
         with pytest.raises(ValueError, match="only supported on modular pipelines"):

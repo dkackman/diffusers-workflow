@@ -616,7 +616,9 @@ def remove_pipeline_blocks(configuration, component):
     if not names:
         return []
 
-    sub_blocks = getattr(getattr(component, "blocks", None), "sub_blocks", None)
+    # `_blocks`, not the public `blocks`: that property hands back a deepcopy, so a pop
+    # on it succeeds and the pipeline still runs the block (#1168)
+    sub_blocks = getattr(getattr(component, "_blocks", None), "sub_blocks", None)
     if sub_blocks is None or not has_method(sub_blocks, "pop"):
         raise ValueError(
             f"'remove_blocks' is only supported on modular pipelines, "
