@@ -64,6 +64,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   sets the length), `templates/minimax/chain-matched-and-aligned`
   (per-segment prompts). Before composing a chain, read `references/chains.md`:
   what a guide seam trims and carries, and how to hold drift down.
+  To compare two takes' texture on a static region, use
+  `compare_outputs(texture_bands=true)` (workflows guide, *Comparing outputs*,
+  *Texture bands*).
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`

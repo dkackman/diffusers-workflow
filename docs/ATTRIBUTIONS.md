@@ -109,3 +109,10 @@ rendering the odd shots of a long take first and bridging the gaps
 ([#1094](https://github.com/dkackman/diffusers-workflow/issues/1094)), and
 finding phrase starts from the centre of the stereo mix
 ([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
+
+### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
+
+A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
+inspired the texture-band measurement on `compare_outputs`
+(`texture_bands`, [dw/texture_bands.py](../dw/texture_bands.py)): RMS energy by
+wavelength band, to see whether a change in a chain adds or removes texture.

@@ -1117,7 +1117,9 @@ story wanted is the cut working, and a level step into a quieter scene can
 be the scene. Tell the person what you confirmed, not what the probe
 reported.
 
-**Comparing outputs.** `compare_outputs(names)` (`POST /api/gallery/compare`)
+### Comparing outputs
+
+`compare_outputs(names)` (`POST /api/gallery/compare`)
 lays 2-8 outputs (variations, reruns, the same shot with and without a speed
 setting) in one grid, a row per output and a column per moment, every output
 read at the same frame number, and measures each against a `baseline` (default
@@ -1134,7 +1136,32 @@ cache, attention backend or quantization) but the shot is the same; about 19 dB
 means it was re-staged (the composition changed). Look at the grid before
 trusting a number.
 
-**Remediation.** A *recut* reruns only the join over the shots the run
+**Texture bands.** `compare_outputs(names, texture_bands=true)` adds, per output,
+the RMS energy of the picture's texture by wavelength over the measured region:
+`fine` (2-8 px), `mid` (8-32 px) and `coarse` (32-128 px), in three channels,
+`luma`, `chroma_rg` (R-G) and `chroma_bg` (B-G), on a 0-255 scale. A
+least-squares plane (a lighting gradient) is removed, the region is windowed,
+and the energy is summed over rings of the 2D spectrum. A band longer than the
+box's short side is null. Each non-baseline cell also carries `texture_ratio`
+(output over baseline, null where the baseline band is 0). With bands, one name
+is allowed: it is the baseline, so there are no ratios; use several `at`
+moments and read the numbers across. A `crop` must be one shared box of at
+least 16 px a side; no crop is the full frame.
+- `fine` suggests grain, edge crispness and encoder texture. `mid` suggests
+  blotches, stripes and coarsening. `coarse` suggests large patches and shading.
+- It is a measurement, not a score. `mid` rising can be real detail. Every band
+  falling can be blur or over-smoothing, which the eye often reads as "cleaner".
+- It means something only on a box with static framing and lighting. Pick a
+  static region with `crop`; on moving content the numbers say nothing.
+- Everything is measured after encode, and dw chains write only MP4, so there
+  are no pre-encode frames. Encoder texture sits mostly in `fine`.
+- To A/B, branch from one clean first segment, keep the seeds, prompts and
+  references, change one variable at a time, and compare the same moments in
+  the same box.
+
+### Remediation
+
+A *recut* reruns only the join over the shots the run
 already made: each entry in `videos` is `output:` + the run's
 `intermediate/` shot file. That is cheap, and generates nothing new. A
 *regenerate* is a new run, so quote its `plan.estimate` first.

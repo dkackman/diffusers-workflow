@@ -644,8 +644,9 @@ The editor's forms come from these; they are just as usable from scripts:
   `asset:` references, one row each), `at` (1-8 moments, seconds or `"frame:N"`;
   default 4 evenly spaced frames of the shortest video), `crop` (`[x, y, w, h]`: the
   region shown and measured; or one box per name, shown only), `baseline` (default
-  the first name), `max_dimension` (default 384, longest side of each cell) and
-  `max_total_bytes`. Moments resolve to one frame index against the baseline (the
+  the first name), `max_dimension` (default 384, longest side of each cell),
+  `texture_bands` (default false: add per-output texture energy by wavelength band,
+  below) and `max_total_bytes`. Moments resolve to one frame index against the baseline (the
   first video if the baseline is a still) and every output is read at that frame
   number; a frame past an output's end is a blank cell. A still among videos repeats
   in every column; all stills give one column and `at` is ignored with a note. A crop
@@ -663,7 +664,16 @@ The editor's forms come from these; they are just as usable from scripts:
   `identical` when equal and SSIM is on luma (11x11 Gaussian window, sigma 1.5). An
   output whose size differs from the baseline gets null metrics and the `reason`
   `size differs from baseline: WxH vs WxH`, never a resize; a cell past an end says
-  `past end (N frames)`. Errors: 400 bad request, out-of-bounds crop, every moment
+  `past end (N frames)`. With `texture_bands`, the reply adds a `texture_bands` header
+  (`fine` "2-8 px", `mid` "8-32 px", `coarse` "32-128 px") and a `texture` list, one
+  entry per output: `name`, `row`, `baseline` and `cells`, each with `texture`
+  (`luma`, `chroma_rg`, `chroma_bg`, each `{fine, mid, coarse}`, RMS on a 0-255 scale
+  after a least-squares plane is removed), `texture_ratio` (non-baseline only: output
+  over baseline, null where the baseline band is 0) and `reason`. Each non-baseline
+  `metrics[].cells[]` entry carries `texture` and `texture_ratio` too. A band longer
+  than the box's short side is null. One name is allowed with bands (it is the
+  baseline: no ratios). `crop` must be one shared box (a per-name list is a 400:
+  "texture bands need one shared box") of at least 16 px a side. Errors: 400 bad request, out-of-bounds crop, every moment
   past every end, or not an image or video; 404 unknown name; 413 over the decode
   pixel limit; 422 undecodable file
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a

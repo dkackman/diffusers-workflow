@@ -887,6 +887,81 @@ def test_compare_outputs_posts_the_budget_and_omits_what_is_unset():
     assert "crop" not in sent[1]
 
 
+BANDS = {"fine": 1.5, "mid": 0.5, "coarse": None}
+TEXTURE = {"luma": BANDS, "chroma_rg": BANDS, "chroma_bg": BANDS}
+TEXTURE_BODY = {
+    **COMPARE_BODY,
+    "texture_bands": {"fine": "2-8 px", "mid": "8-32 px", "coarse": "32-128 px"},
+    "texture": [
+        {
+            "name": "a.mp4",
+            "row": 0,
+            "baseline": True,
+            "cells": [{"texture": TEXTURE, "reason": None}],
+        },
+        {
+            "name": "b.mp4",
+            "row": 1,
+            "baseline": False,
+            "cells": [{"texture": TEXTURE, "texture_ratio": TEXTURE, "reason": None}],
+        },
+    ],
+}
+
+
+def test_compare_outputs_sends_texture_bands_only_when_true():
+    sent = []
+
+    def handler(request):
+        sent.append(json.loads(request.content))
+        return httpx.Response(200, json=COMPARE_BODY)
+
+    client = DwClient(transport=httpx.MockTransport(handler))
+
+    media.compare_outputs(client, ["a.mp4", "b.mp4"], texture_bands=False)
+    media.compare_outputs(client, ["a.mp4"], texture_bands=True)
+
+    assert "texture_bands" not in sent[0]
+    assert sent[1]["texture_bands"] is True
+
+
+def test_compare_summary_prints_the_bands_lines():
+    text = media.compare_summary(TEXTURE_BODY)
+
+    assert "texture bands" in text and "fine 2-8 px" in text
+    assert "- row 1 a.mp4  (baseline) @ frame:0:  Y 1.5/0.5/-" in text
+    assert "- row 2 b.mp4 @ frame:0:  Y 1.5/0.5/-  R-G" in text
+    assert "B-G 1.5/0.5/-  ratio Y 1.5/0.5/-" in text
+    assert "psnr_db mean 31.2" in text
+
+
+def test_compare_summary_keeps_no_metrics_for_an_old_shape_body_only():
+    no_ssim = {
+        "name": "b.mp4",
+        "row": 1,
+        "reason": "size differs",
+        "cells": [],
+        "psnr_db": None,
+        "ssim": None,
+        "mean_abs_diff": None,
+    }
+    old = media.compare_summary({**COMPARE_BODY, "metrics": [no_ssim]})
+    new = media.compare_summary({**TEXTURE_BODY, "metrics": [no_ssim]})
+
+    assert "no metrics - size differs" in old and "texture" not in old
+    assert "no pairwise metrics - size differs" in new
+    assert "no metrics" not in new
+
+
+def test_compare_summary_for_one_name_prints_bands_and_no_metrics_line():
+    body = {**TEXTURE_BODY, "metrics": [], "texture": TEXTURE_BODY["texture"][:1]}
+
+    text = media.compare_summary(body)
+
+    assert "no metrics" not in text
+    assert "- row 1 a.mp4  (baseline) @ frame:0:" in text
+
+
 class RecordingServer:
     def __init__(self):
         self.transport = None
