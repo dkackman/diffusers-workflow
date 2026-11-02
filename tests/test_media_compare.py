@@ -185,3 +185,121 @@ def test_crop_box_refuses_a_malformed_box_as_resolve_crop_box_does():
     with pytest.raises(ValueError) as compare_error:
         crop_box([1, 2, 3], 32, 16, "a.mp4")
     assert str(compare_error.value) == str(frames_error.value)
+
+
+# Texture bands (#1152)
+
+
+def still(name, array):
+    from PIL import Image
+
+    return {"name": name, "kind": "image", "image": Image.fromarray(array)}
+
+
+def smooth_noise(seed=0, size=64):
+    from scipy.ndimage import gaussian_filter
+
+    plane = gaussian_filter(
+        numpy.random.default_rng(seed).normal(128, 50, (size, size)), 1.0
+    )
+    return numpy.stack([numpy.clip(plane, 0, 255).astype(numpy.uint8)] * 3, axis=-1)
+
+
+def run_compare(sources, texture_bands=True, crop=None, at=None):
+    from dw.media_compare import compare
+
+    row, mode = check_request(
+        [s["name"] for s in sources], at, crop, None, texture_bands
+    )
+    return compare(sources, at, crop, row, mode, 128, texture_bands=texture_bands)
+
+
+def test_check_request_allows_one_name_only_with_texture_bands():
+    assert check_request(["a.mp4"], None, None, None, True) == (0, None)
+    with pytest.raises(ValueError, match="compare takes 2 to 8"):
+        check_request(["a.mp4"], None, None, None)
+    with pytest.raises(ValueError, match="compare takes 2 to 8"):
+        check_request(["a.mp4"], None, None, None, False)
+
+
+def test_check_request_refuses_a_per_name_crop_with_texture_bands():
+    with pytest.raises(ValueError, match="one shared box"):
+        check_request(NAMES, None, [[0, 0, 32, 32], [0, 0, 32, 32]], None, True)
+
+
+def test_check_request_refuses_a_shared_crop_too_small_for_the_fine_band():
+    with pytest.raises(ValueError, match="too small for the 2-8 px band"):
+        check_request(NAMES, None, [0, 0, 10, 40], None, True)
+    assert check_request(NAMES, None, [0, 0, 16, 16], None, True) == (0, "shared")
+
+
+def test_compare_reports_bands_for_the_baseline_and_a_ratio_for_the_rest():
+    base = smooth_noise(1)
+    answer = run_compare([still("a.png", base), still("b.png", smooth_noise(2))])
+
+    assert answer["texture_bands"] == {
+        "fine": "2-8 px",
+        "mid": "8-32 px",
+        "coarse": "32-128 px",
+    }
+    first, second = answer["texture"]
+    assert [first["name"], first["row"], first["baseline"]] == ["a.png", 0, True]
+    assert [second["name"], second["row"], second["baseline"]] == ["b.png", 1, False]
+    assert len(first["cells"]) == len(second["cells"]) == 1
+    assert first["cells"][0]["texture"]["luma"]["fine"] > 0
+    assert "texture_ratio" not in first["cells"][0]
+    assert second["cells"][0]["texture_ratio"]["luma"]["fine"] > 0
+    metric_cell = answer["metrics"][0]["cells"][0]
+    assert metric_cell["texture"] == second["cells"][0]["texture"]
+    assert metric_cell["texture_ratio"] == second["cells"][0]["texture_ratio"]
+
+
+def test_the_same_image_twice_has_ratios_of_one():
+    image = smooth_noise(3)
+    answer = run_compare([still("a.png", image), still("b.png", image.copy())])
+
+    ratios = answer["texture"][1]["cells"][0]["texture_ratio"]
+    assert ratios["luma"]["fine"] == 1.0 and ratios["luma"]["mid"] == 1.0
+    # a 64 px box can't hold the 32-128 px band
+    assert ratios["luma"]["coarse"] is None
+
+
+def test_the_ratio_is_none_where_the_baseline_band_is_zero():
+    flat = numpy.full((64, 64, 3), 100, numpy.uint8)
+    answer = run_compare([still("flat.png", flat), still("b.png", smooth_noise(4))])
+
+    cell = answer["texture"][1]["cells"][0]
+    assert cell["texture"]["luma"]["fine"] > 0
+    assert cell["texture_ratio"]["luma"]["fine"] is None
+
+
+def test_one_video_gives_one_texture_entry_with_a_cell_per_moment(tmp_path):
+    from dw import media
+    from tests.test_media_frames import write_ramp_mp4
+
+    path = tmp_path / "a.mp4"
+    write_ramp_mp4(path, frames=24, width=64, height=32)
+    source = {
+        "name": "a.mp4",
+        "kind": "video",
+        "path": str(path),
+        "shape": media.video_shape(str(path)),
+    }
+
+    answer = run_compare([source], at=["frame:0", "frame:10", "frame:20"])
+
+    assert answer["metrics"] == []
+    assert len(answer["texture"]) == 1
+    entry = answer["texture"][0]
+    assert entry["baseline"] is True and len(entry["cells"]) == 3
+    assert all(cell["texture"] is not None for cell in entry["cells"])
+
+
+def test_without_texture_bands_the_reply_has_no_texture_keys():
+    answer = run_compare(
+        [still("a.png", smooth_noise(1)), still("b.png", smooth_noise(2))],
+        texture_bands=False,
+    )
+
+    assert "texture" not in answer and "texture_bands" not in answer
+    assert "texture" not in answer["metrics"][0]["cells"][0]

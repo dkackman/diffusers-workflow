@@ -323,3 +323,102 @@ def test_an_asset_reference_compares_with_an_output(asset_server, tmp_path, outp
         body = response.json()
         assert body["baseline"] == "asset:uploads/ref.png"
         assert body["metrics"][0]["ssim"]["mean"] == 1.0
+
+
+# Texture bands (#1152)
+
+
+def write_smooth_png(path, width=64, height=64, seed=0):
+    from scipy.ndimage import gaussian_filter
+
+    plane = gaussian_filter(
+        numpy.random.default_rng(seed).normal(128, 50, (height, width)), 1.0
+    )
+    pixels = numpy.stack([numpy.clip(plane, 0, 255).astype(numpy.uint8)] * 3, axis=-1)
+    Image.fromarray(pixels).save(path)
+
+
+def test_one_name_needs_texture_bands(server, outputs):
+    write_smooth_png(outputs / "a.png")
+
+    with server(success_script) as client:
+        refused = post(client, names=["a.png"])
+        assert refused.status_code == 400
+        assert "texture_bands" in refused.json()["detail"]
+
+        accepted = post(client, names=["a.png"], texture_bands=True)
+        assert accepted.status_code == 200
+        body = accepted.json()
+        assert body["metrics"] == []
+        assert len(body["texture"]) == 1 and len(body["texture"][0]["cells"]) == 1
+        assert body["texture"][0]["cells"][0]["texture"]["luma"]["fine"] > 0
+
+
+def test_texture_bands_refuse_per_name_crops_and_a_tiny_crop(server, outputs):
+    write_smooth_png(outputs / "a.png")
+    write_smooth_png(outputs / "b.png", seed=1)
+    names = ["a.png", "b.png"]
+
+    with server(success_script) as client:
+        each = post(
+            client,
+            names=names,
+            crop=[[0, 0, 32, 32], [0, 0, 32, 32]],
+            texture_bands=True,
+        )
+        assert each.status_code == 400 and "one shared box" in each.json()["detail"]
+
+        tiny = post(client, names=names, crop=[0, 0, 10, 10], texture_bands=True)
+        assert tiny.status_code == 400
+        assert "too small for the 2-8 px band" in tiny.json()["detail"]
+
+
+def test_texture_ratio_is_null_on_a_zero_baseline_through_the_route(server, outputs):
+    Image.fromarray(numpy.full((64, 64, 3), 90, numpy.uint8)).save(outputs / "flat.png")
+    write_smooth_png(outputs / "b.png", seed=2)
+
+    with server(success_script) as client:
+        body = post(client, names=["flat.png", "b.png"], texture_bands=True).json()
+
+        base, other = body["texture"]
+        assert base["baseline"] is True and other["baseline"] is False
+        cell = other["cells"][0]
+        assert cell["texture"]["luma"]["fine"] > 0
+        assert cell["texture_ratio"]["luma"]["fine"] is None
+        assert body["metrics"][0]["cells"][0]["texture_ratio"] == cell["texture_ratio"]
+
+
+def test_texture_bands_through_the_route_on_real_files(server, outputs):
+    """A still, an identical copy and a video decoded for real: ratios of one
+    for the copy, a cell per video moment, a crop honoured."""
+    write_smooth_png(outputs / "a.png", seed=3)
+    write_smooth_png(outputs / "copy.png", seed=3)
+    write_ramp_mp4(outputs / "v.mp4", width=64, height=32)
+
+    with server(success_script) as client:
+        body = post(
+            client, names=["a.png", "copy.png"], texture_bands=True, crop=[0, 0, 48, 48]
+        ).json()
+        ratios = body["texture"][1]["cells"][0]["texture_ratio"]
+        assert ratios["luma"]["fine"] == 1.0
+        assert body["texture_bands"]["fine"] == "2-8 px"
+        assert body["region"] == "crop [0, 0, 48, 48]"
+
+        video = post(
+            client,
+            names=["v.mp4"],
+            texture_bands=True,
+            at=["frame:0", "frame:12", "frame:23"],
+        ).json()
+        assert len(video["texture"][0]["cells"]) == 3
+        assert video["texture"][0]["cells"][1]["texture"]["luma"]["fine"] == 0
+
+
+def test_the_reply_has_no_texture_keys_without_texture_bands(server, outputs):
+    write_smooth_png(outputs / "a.png")
+    write_smooth_png(outputs / "b.png", seed=1)
+
+    with server(success_script) as client:
+        body = post(client, names=["a.png", "b.png"]).json()
+
+        assert "texture" not in body and "texture_bands" not in body
