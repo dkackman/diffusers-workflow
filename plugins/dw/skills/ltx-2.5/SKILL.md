@@ -130,7 +130,8 @@ the caption the motion: open by matching the image faithfully, never
 contradict it, one continuous take, no cuts. The `ltx2/` stored prompts
 (`list_prompts`) follow it. The duration predictor times the clip as written:
 put beats in the prompt ("she pauses") or set a duration. On-screen text and
-chaotic physics are unreliable.
+chaotic physics are unreliable. Camera or look in film words: the
+`cinematography` skill.
 
 **Voice**: the caption steers a speaker's pitch and apparent age and gender, not
 their delivery. Measured 2026-11-01 on mps (one image, seed and line, four voice

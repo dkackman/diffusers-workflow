@@ -45,6 +45,13 @@ Fill in this shape before writing any prompt:
   next shot's first). Read `references/joins.md` before rendering a
   `cutaway` or `lead_in`.
 
+- **Per shot, every time** `shot_size`, `move`, `lens` and `light` (ids from
+  `cinematography`, never invented) and `duration` (seconds); `null` leaves
+  an axis to the model.
+
+Save the list as `<project>/shots` in the prompt library, one compiled
+`<project>/shot-NN` per shot: `references/shot-document.md`.
+
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent
 no character, place or line to fill it.
@@ -137,8 +144,10 @@ in with `concat_videos`: that join is recorded `hard_cut`, so
 shot's budget below.
 Before the keep, run the beat review in `references/beat-review.md` on
 the shot's `get_output_frames` frames.
-Give each shot a budget of three failed attempts, then stop and ask the user
-rather than spending more. Each shot's files are organized by `subfolder` - typically `final`
+Fix a shot in the order and within the caps of `references/fix-ladder.md`: three failed attempts, then ask.
+Check a recurring face with `templates/face-drift-check`.
+For H3, lint the prompt first: `minimax-h3/references/prompt-lint.md`.
+Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the
 manifest to determine what was written where.
 

@@ -442,8 +442,10 @@ def required_weights(arguments):
     return file_entries(*detector_source(arguments))
 
 
-def _detector(repo, filename, min_confidence, device):
-    """A callable running YuNet on an RGB array, loaded once per device."""
+def face_detector_model(repo, filename, min_confidence, device):
+    """The cached cv2.FaceDetectorYN for a source, loaded once per device -
+    the one place YuNet is loaded, shared with `analyze_face_drift`, which
+    needs its full rows (landmarks included) rather than `_detector`'s boxes."""
     import cv2
 
     from .. import get_device_type
@@ -473,9 +475,16 @@ def _detector(repo, filename, min_confidence, device):
             path, "", (320, 320), min_confidence, 0.3, 5000, backend, target
         )
 
-    model = cached_model(
+    return cached_model(
         ("crop_face_track", repo, filename, revision, min_confidence, use_cuda), load
     )
+
+
+def _detector(repo, filename, min_confidence, device):
+    """A callable running YuNet on an RGB array, loaded once per device."""
+    import cv2
+
+    model = face_detector_model(repo, filename, min_confidence, device)
 
     def detect(rgb):
         height, width = rgb.shape[:2]
