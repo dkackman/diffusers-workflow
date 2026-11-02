@@ -434,7 +434,7 @@ def run_chain(pipeline, chain_definition, arguments):
     if config.continuity == GUIDE_CONTINUITY:
         _check_guide_chain(pipeline, arguments, chain_definition, config)
     if config.anchor == ANCHOR_SEGMENT_1:
-        _check_anchor_chain(pipeline)
+        _check_anchor_chain(pipeline, arguments)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -620,9 +620,15 @@ def _record_seam(shot, segment, config, applied):
     )
 
 
-def _check_anchor_chain(pipeline):
-    """Refuse an `anchor: "segment_1"` chain whose loaded pipeline has no
-    latent anchor step - not MiniMax-H3 t2va/fl2va - before segment 1 renders."""
+def _check_anchor_chain(pipeline, arguments):
+    """Refuse an `anchor: "segment_1"` chain whose segments could not run the
+    latent anchor step - a loaded pipeline that is not MiniMax-H3 t2va/fl2va,
+    or a step that passes references (ref2va) - before segment 1 renders."""
+    if arguments.get("references") is not None:
+        raise ValueError(
+            "Chain anchor 'segment_1' cannot be combined with references - its "
+            "segments would run ref2va, which has no anchor step"
+        )
     loaded = getattr(pipeline, "pipeline", None)
     if loaded is not None:
         refusal = anchor_refusal(loaded)

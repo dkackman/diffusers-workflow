@@ -118,6 +118,27 @@ class TestChainAnchor:
                 {"segments": 2, "anchor": "segment_1", "continuity": "last_segment"}, {}
             )
 
+    def test_config_refuses_a_carry_into_references(self):
+        with pytest.raises(ValueError, match="'references'"):
+            ChainConfig(
+                {
+                    "segments": 2,
+                    "anchor": "segment_1",
+                    "segment_argument": "references",
+                },
+                {},
+            )
+
+    def test_run_refuses_references_before_segment_1(self):
+        pipeline = FakePipeline(video_output)
+        with pytest.raises(ValueError, match="references"):
+            run_chain(
+                pipeline,
+                {"segments": 2, "anchor": "segment_1"},
+                {"prompt": "p", "references": ["a.png"]},
+            )
+        assert pipeline.calls == []
+
     @pytest.mark.parametrize("continuity", ["last_frame", "guide"])
     def test_rule_accepts_the_anchor_continuities(self, continuity):
         chain = {"anchor": "segment_1", "continuity": continuity}
@@ -182,7 +203,7 @@ class TestAnchorErrors:
     def test_segment_1_on_ref2va(self):
         chain = {"segments": 2, "anchor": "segment_1"}
         (error,) = anchor_errors(definition("ref2va", chain=chain))
-        assert "not ref2va" in error["message"]
+        assert "ref2va / references" in error["message"]
 
     def test_latent_anchor_off_h3(self):
         workflow = definition(pipeline_class="WanPipeline", latent_anchor="clip.mp4")
@@ -191,7 +212,50 @@ class TestAnchorErrors:
 
     def test_latent_anchor_on_ref2va(self):
         (error,) = anchor_errors(definition("ref2va", latent_anchor="clip.mp4"))
-        assert "not ref2va" in error["message"]
+        assert "ref2va / references" in error["message"]
+
+    @pytest.mark.parametrize("workflow", [None, "t2va", "fl2va"])
+    def test_latent_anchor_with_references(self, workflow):
+        # A call that passes references runs ref2va, which has no anchor step
+        step = definition(workflow, latent_anchor="clip.mp4", references=["a.png"])
+        (error,) = anchor_errors(step)
+        assert error["path"] == "steps[0].pipeline.arguments.latent_anchor"
+        assert "references" in error["message"]
+
+    def test_segment_1_with_references(self):
+        chain = {"segments": 2, "anchor": "segment_1"}
+        (error,) = anchor_errors(definition(None, chain, references=["a.png"]))
+        assert error["path"] == "steps[0].pipeline.chain.anchor"
+        assert "references" in error["message"]
+
+    def test_segment_1_carrying_into_references(self):
+        chain = {
+            "segments": 2,
+            "anchor": "segment_1",
+            "continuity": "last_frame",
+            "segment_argument": "references",
+        }
+        (error,) = anchor_errors(definition(chain=chain))
+        assert error["path"] == "steps[0].pipeline.chain.anchor"
+        assert "'references'" in error["message"]
+
+    @pytest.mark.parametrize("workflow", ["ref2va", "fl2va"])
+    def test_the_step_rule_is_the_guides_rule(self, workflow):
+        # One owner: the anchor's refusal is the `guides` check's own reason,
+        # asked for the anchor's argument name
+        from dw.guides import _takes_guides_problem
+
+        arguments = {"latent_anchor": "clip.mp4"}
+        if workflow == "fl2va":
+            arguments["references"] = ["a.png"]
+        step = definition(workflow, **arguments)
+        pipeline = step["steps"][0]["pipeline"]
+        (error,) = anchor_errors(step)
+
+        expected = _takes_guides_problem(pipeline, arguments, LATENT_ANCHOR_INPUT)
+        assert expected and error["message"].startswith(expected)
+        guides_reason = _takes_guides_problem(pipeline, arguments)
+        assert expected == guides_reason.replace("guides", LATENT_ANCHOR_INPUT, 1)
 
 
 minimax = pytest.importorskip("diffusers.modular_pipelines.minimax_h3")
@@ -275,3 +339,47 @@ class TestStep:
         anchor_mean, anchor_std = channel_statistics(anchor_latent)
         assert torch.allclose(mean, anchor_mean, atol=1e-5)
         assert torch.allclose(std, anchor_std, atol=1e-5)
+
+
+@pytest.fixture(scope="module")
+def anchored():
+    pipeline = fresh("fl2va")
+    assert insert_latent_anchor(pipeline)
+    return pipeline
+
+
+class TestWithLatentAnchor:
+    """The run-time refusal, as `Pipeline._with_guides` refuses guides."""
+
+    def step(self, pipeline):
+        from types import SimpleNamespace
+
+        return SimpleNamespace(name="video", pipeline=pipeline, base_dir=None)
+
+    def frames(self):
+        return np.zeros((5, 4, 6, 3), dtype=np.uint8)
+
+    def test_none_passes_through(self, anchored):
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        arguments = {"prompt": "x"}
+        assert Pipeline._with_latent_anchor(self.step(anchored), arguments) is arguments
+
+    def test_frames_are_prepared(self, anchored):
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        result = Pipeline._with_latent_anchor(
+            self.step(anchored), {LATENT_ANCHOR_INPUT: self.frames()}
+        )
+        assert result[LATENT_ANCHOR_INPUT].shape == (5, 4, 6, 3)
+
+    def test_references_are_refused(self, anchored):
+        # With references the call runs ref2va, which has no anchor step: the
+        # anchor would otherwise be dropped without a word
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        with pytest.raises(ValueError, match="references"):
+            Pipeline._with_latent_anchor(
+                self.step(anchored),
+                {LATENT_ANCHOR_INPUT: self.frames(), "references": [object()]},
+            )

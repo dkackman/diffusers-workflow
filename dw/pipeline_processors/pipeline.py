@@ -811,7 +811,9 @@ class Pipeline:
 
         Raises:
             ValueError: If this pipeline has no anchor step (not MiniMax-H3
-                t2va/fl2va), or the value is not frames of a video
+                t2va/fl2va), the step also passes `references` (the call would
+                run ref2va, which has no anchor step), or the value is not
+                frames of a video
         """
         value = arguments.get(LATENT_ANCHOR_INPUT)
         if value is None:
@@ -820,6 +822,11 @@ class Pipeline:
         refusal = anchor_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
+        if arguments.get("references") is not None:
+            raise ValueError(
+                f"{where} cannot be combined with references - the call would run "
+                f"ref2va, which has no anchor step; use latent_anchor on t2va or fl2va"
+            )
         arguments = dict(arguments)
         arguments[LATENT_ANCHOR_INPUT] = prepared_anchor(where, value, self.base_dir)
         return arguments

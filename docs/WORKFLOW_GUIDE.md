@@ -1859,7 +1859,8 @@ first segment's look. Segment 1 itself is not corrected.
 |---|---|
 | `anchor` | `none` (default) or `segment_1`; anything else is refused, naming the values |
 | `segment_1` continuity | `last_frame` or `guide`; refused with any other |
-| where | MiniMax-H3 `t2va` or `fl2va`; `latent_anchor` and `segment_1` are refused on `ref2va` and on a non-H3 step |
+| where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; `latent_anchor` and `segment_1` are refused on `ref2va`, on a step that passes `references` (that call runs ref2va), and on a non-H3 step |
+| `segment_1` carry | refused with `segment_argument: "references"` - the later segments would run ref2va |
 | frames | cut to a whole-latent length (1, 5 or 17m + 5) |
 | `refine_tiles` | refused beside `latent_anchor`, as the other per-call H3 arguments are |
 
