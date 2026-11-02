@@ -37,6 +37,12 @@
                 "configuration": {
                     "component_type": "ModularPipeline",
                     "load_components": {
+                        "names": [
+                            "text_encoder",
+                            "tokenizer",
+                            "transformer",
+                            "vae"
+                        ],
                         "dtype": "torch.bfloat16"
                     },
                     "components": {
