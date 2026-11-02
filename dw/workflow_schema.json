@@ -341,8 +341,7 @@
                     "default": 22
                 },
                 "anchor": {
-                    "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing. Accepts a 'variable:' reference.",
-                    "type": "string",
+                    "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
                     "default": "none"
                 },
                 "segment_argument": {
