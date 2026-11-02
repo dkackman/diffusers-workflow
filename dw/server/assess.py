@@ -152,15 +152,6 @@ def assess(path, kind, shots, probe=None, detail=False):
 __all__ = ["PROBES", "assess", "unknown_probe"]
 
 
-def silent_by_design(shots):
-    """Whether every recorded shot says its track is silent on purpose
-    (stills_to_video's zeros, #1161)."""
-    return bool(shots) and all(
-        isinstance(shot, dict) and shot.get("silent_by_design") is True
-        for shot in shots
-    )
-
-
 def level_findings(media, shots=None):
     """The level problems a probed file's soundtrack shows, as findings:
     a peak at full scale (an encode may clip it) and a near-silent mean
@@ -188,7 +179,7 @@ def level_findings(media, shots=None):
     if (
         mean is not None
         and mean < audio_qc.NEAR_SILENT_WARN_DBFS
-        and not silent_by_design(shots)
+        and not audio_qc.all_shots_silent_by_design(shots)
     ):
         quiet_not_empty = (
             peak is not None and peak >= audio_qc.NEAR_SILENT_QUIET_NOT_EMPTY_DBFS
