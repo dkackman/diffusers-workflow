@@ -1557,6 +1557,16 @@ with owner `dkackman`, repository `diffusers-workflow`, workflow
 first release, since the project won't exist yet). Pre-release versions
 are hidden from plain `pip install`; they need `pip install --pre`.
 
+The `docker` job, also after the GitHub release, builds
+`docker/Dockerfile` from the tag, starts the image on the CPU runner and
+waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>`
+to Docker Hub. A release also moves `latest`; a pre-release does not.
+One-time setup: on Docker Hub, create the public repository
+`dkackman/diffusers-workflow` and an access token with read/write scope.
+On GitHub, under *Settings > Environments*, create an environment named
+`dockerhub` with that token as secret `DOCKERHUB_TOKEN`. A failed push
+leaves the GitHub release and PyPI as they are; re-run the job.
+
 Note: released `diffusers` from PyPI may lag the newest model pipelines
 this project targets — a PyPI install can need
 `pip install git+https://github.com/huggingface/diffusers` on top.

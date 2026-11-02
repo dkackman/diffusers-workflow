@@ -43,6 +43,9 @@ DIFFUSERS_HELPER_ROOT=$settings
 # The diffusers overlay venv - the container's own, not shared with native
 DW_ENV_DIR=$env_dir
 
+# The published image instead of a local build (then: docker compose pull)
+#DW_IMAGE=dkackman/diffusers-workflow:latest
+
 # 0.0.0.0 publishes the port to the LAN (then keep a token)
 DW_BIND=127.0.0.1
 DW_HOST_PORT=8765

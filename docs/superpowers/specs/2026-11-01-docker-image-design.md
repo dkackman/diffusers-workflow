@@ -281,7 +281,9 @@ services:
 
 1. Token: Jupyter's pattern (generated, persisted, login URL in the log).
 2. cu130 only; cu12 only through a build arg.
-3. Build it yourself; no registry publishing yet.
+3. Build it yourself; no registry publishing yet. Superseded the same day:
+   Don chose Docker Hub (`dkackman/diffusers-workflow`), published by a
+   `docker` job in ci.yml on each release tag, first with 0.18.0.
 
 ---
 

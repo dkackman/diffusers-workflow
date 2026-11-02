@@ -1,9 +1,9 @@
 # Running dw in Docker
 
 A container image for a Linux box with an NVIDIA GPU. It holds Python, torch
-(CUDA 13), dw and its web UI. You don't need a venv or `install.sh`. The
-image is built on the box from this checkout; nothing is published to a
-registry yet.
+(CUDA 13), dw and its web UI. You don't need a venv or `install.sh`. Build
+it on the box from this checkout, or run the one published on Docker Hub as
+`dkackman/diffusers-workflow` (each release from 0.18.0 on, plus `latest`).
 
 Docker is for Linux and NVIDIA only. On a Mac, Docker runs a Linux VM with
 no access to the GPU (MPS), so use `install.sh` there.
@@ -28,7 +28,10 @@ docker compose -f docker/compose.yaml up -d --build
 docker compose -f docker/compose.yaml logs -f    # wait for the login URL
 ```
 
-The first build takes a while, because torch alone is several GB. The first
+To use the published image instead of building, uncomment `DW_IMAGE` in
+`docker/.env` and run `docker compose -f docker/compose.yaml pull` before
+`up -d` (without `--build`). The first build takes a while, because torch
+alone is several GB. The first
 start then installs diffusers from GitHub main into its volume (see below),
 which takes a few more minutes before the server answers. The log prints
 `open http://localhost:8765/?token=...`. Open that link and the UI saves the

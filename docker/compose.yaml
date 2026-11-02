@@ -15,7 +15,9 @@ services:
     build:
       context: ..
       dockerfile: docker/Dockerfile
-    image: diffusers-workflow:local
+    # Built here by default; DW_IMAGE=dkackman/diffusers-workflow:latest
+    # (then `docker compose pull`) runs the published image instead
+    image: ${DW_IMAGE:-diffusers-workflow:local}
     # The host user, so files written to the shared directories are theirs
     user: "${DW_UID:?run docker/init-env.sh}:${DW_GID:?run docker/init-env.sh}"
     ports:
