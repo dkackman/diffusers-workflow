@@ -37,6 +37,11 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **`pcm_sha256`, an audio identity check over MCP** (#1139, stage #1158),
+  shipped 2026-11-02. `get_gallery_metadata`'s `media` now carries a
+  SHA-256 of the decoded samples, with `sample_format` and `frames`, for any
+  file with a soundtrack. The image/video `pixel_sha256` was cut, with its
+  trigger: `complete/pcm-sha256-complete.md`.
 - **MMAudio picture-synced sound effects** (#1124, stages #1131-#1133),
   shipped 2026-11-01. It followed a listening gate in which Don heard a
   clear win on replacing a shot's own sound, on silent clips and on
