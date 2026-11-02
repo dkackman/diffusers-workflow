@@ -84,6 +84,21 @@ class TestPreparedAnchor:
         with pytest.raises(ValueError, match="anchor"):
             prepared_anchor("anchor", 42, None)
 
+    def test_the_location_policy_checks_it_as_media(self):
+        """validate's location pass names the argument itself, since its key
+        is not named like a video (SE-F061)."""
+        from dw.locations import PIPELINE_MEDIA_ARGUMENTS
+
+        assert LATENT_ANCHOR_INPUT in PIPELINE_MEDIA_ARGUMENTS
+
+    def test_an_out_of_root_path_is_refused_at_run_time(self, monkeypatch, tmp_path):
+        from dw.security import SecurityError
+        from dw.trust import TRUST_WORKFLOWS_ENV_VAR
+
+        monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
+        with pytest.raises(SecurityError):
+            prepared_anchor("anchor", "/usr/share/videos/x.mp4", str(tmp_path))
+
 
 class TestChainAnchor:
     def test_segments_after_the_first_get_segment_ones_frames(self):
