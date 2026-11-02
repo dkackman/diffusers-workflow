@@ -24,6 +24,12 @@ A chain's `continuity: "guide"` lays guides in itself (dw/pipeline_processors/
 chain.py), so `guide_chain_errors` refuses it where those guides would be: off
 an H3 t2va/fl2va step, with a `guide_frames` other than 22 or 39, or with a
 `carry_frames` it would not read (`guide_chain_problems`, shared with the run).
+
+The latent statistics anchor (#1166) is refused here too, by `anchor_errors`:
+a `latent_anchor` argument, or a chain's `anchor: "segment_1"`, off an H3
+t2va/fl2va step, and a chain `anchor` that is unknown or paired with a
+continuity other than guide or last_frame (`chain_anchor_problem`, shared with
+the run).
 """
 
 from . import references
@@ -35,6 +41,7 @@ from .adapter_compatibility import (
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.h3_rules import (
+    ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_FRAMES,
@@ -42,7 +49,9 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
+    LATENT_ANCHOR_INPUT,
     RENDER_GRID,
+    chain_anchor_problem,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
@@ -310,4 +319,57 @@ def guide_lengths(pipeline, base_dir=None, probe=None):
     return lengths
 
 
-__all__ = ["guide_chain_errors", "guide_lengths", "guides_errors"]
+def _takes_anchor_problem(pipeline, argument):
+    """Why this step cannot take the latent anchor, or None: it is not
+    MiniMax-H3 (`h3_rules.not_h3`), or it loads ref2va, which has no anchor
+    step. A pipeline or workflow that is not literal is left to the run."""
+    h3_problem = not_h3(pipeline, argument)
+    if h3_problem:
+        return h3_problem
+    from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
+    workflow = (
+        from_pretrained.get(WORKFLOW_KEY) if isinstance(from_pretrained, dict) else None
+    )
+    if workflow in REFERENCE_WORKFLOWS:
+        return f"{argument} runs on MiniMax-H3 t2va or fl2va only, not ref2va"
+    return None
+
+
+def anchor_errors(workflow_definition, source_indices=None):
+    """Every latent statistics anchor refused before the run, as
+    [{path, message}]: a `latent_anchor` argument on a step that cannot take
+    it, and a chain `anchor` that is unknown, paired with a continuity it
+    cannot run under, or set on a step that cannot take it."""
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        base = ("steps", source, "pipeline")
+        arguments = pipeline.get("arguments")
+        if isinstance(arguments, dict) and arguments.get(LATENT_ANCHOR_INPUT) is not None:
+            problem = _takes_anchor_problem(pipeline, LATENT_ANCHOR_INPUT)
+            if problem:
+                errors.append(
+                    {
+                        "path": render_path(base + ("arguments", LATENT_ANCHOR_INPUT)),
+                        "message": f"{problem}{where}",
+                    }
+                )
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict):
+            continue
+        path = render_path(base + ("chain", "anchor"))
+        problem = chain_anchor_problem(chain)
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+            continue
+        anchor = chain.get("anchor", ANCHOR_NONE)
+        if anchor == ANCHOR_NONE or references.is_ref(references.UNRESOLVED, anchor):
+            continue
+        problem = _takes_anchor_problem(pipeline, "chain anchor 'segment_1'")
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+    return errors
+
+
+__all__ = ["anchor_errors", "guide_chain_errors", "guide_lengths", "guides_errors"]

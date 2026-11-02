@@ -40,7 +40,7 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
-from .guides import guide_chain_errors, guides_errors
+from .guides import anchor_errors, guide_chain_errors, guides_errors
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
@@ -489,6 +489,12 @@ ERROR_CHECKS = [
     Check(
         "guide_chain",
         lambda c: guide_chain_errors(c.expanded, c.source_indices),
+    ),
+    # A latent_anchor or chain anchor off H3 t2va/fl2va, an unknown chain
+    # anchor, or 'segment_1' under a continuity it cannot run under (#1166)
+    Check(
+        "latent_anchor",
+        lambda c: anchor_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
     # A task argument that runs Hub code, anywhere in the step - the run
