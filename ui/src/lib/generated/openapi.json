@@ -501,12 +501,18 @@
             "title": "Max Total Bytes"
           },
           "names": {
-            "description": "2 to 8 outputs (or `asset:` references), one row each",
+            "description": "2 to 8 outputs (or `asset:` references), one row each; 1 is enough with `texture_bands`",
             "items": {
               "type": "string"
             },
             "title": "Names",
             "type": "array"
+          },
+          "texture_bands": {
+            "default": false,
+            "description": "Add per-output RMS energy in the fine (2-8 px), mid (8-32) and coarse (32-128) wavelength bands of the measured region, on luma, R-G and B-G, plus each band's ratio to the baseline - a measurement, not a score. Needs one shared `crop` (or none: the full frame) of at least 16 px a side",
+            "title": "Texture Bands",
+            "type": "boolean"
           }
         },
         "required": [
@@ -6223,7 +6229,7 @@
     },
     "/api/gallery/compare": {
       "post": {
-        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.",
+        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.\n`texture_bands` (#1152) adds each output's band energy per moment,\nthe baseline's included, and its ratio to the baseline's.",
         "operationId": "gallery_compare_api_gallery_compare_post",
         "parameters": [
           {
