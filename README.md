@@ -226,6 +226,7 @@ frame interpolation and more.
 - [MCP Server](docs/MCP.md) — The agent tool surface (Claude Code, Claude Desktop)
 - [Server & Web UI](docs/SERVER.md) — The web UI, jobs API, and introspection service
 - [Remote GPU server](docs/REMOTE.md) — Using the server, UI and MCP from another machine
+- [Docker](docs/DOCKER.md) — The server in a container on a Linux NVIDIA box, sharing data with a native install
 - [Workspaces](docs/WORKSPACES.md) — Where your content lives, run directories, and several workspaces on one server
 - [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
 - [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ

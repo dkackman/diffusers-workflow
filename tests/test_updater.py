@@ -71,6 +71,15 @@ class TestBuildPipCommands:
         assert "git+" not in commands[0][-1]
         assert commands[0][-1] == f"{PYPI_PACKAGE}=={release_floor()}"
 
+    def test_python_names_the_interpreter(self):
+        """The container entrypoint installs into its overlay venv, not the
+        interpreter it runs under."""
+        for commands in (
+            build_pip_commands(python="/data/env/venv/bin/python"),
+            build_pip_commands(revert=True, python="/data/env/venv/bin/python"),
+        ):
+            assert all(c[0] == "/data/env/venv/bin/python" for c in commands)
+
 
 class TestReleaseFloor:
     def test_matches_the_pin_in_pyproject_toml(self):

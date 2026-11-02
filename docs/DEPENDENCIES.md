@@ -18,6 +18,12 @@ source ./activate
 
 The install scripts handle everything: Python version detection (3.12-3.14), virtual environment creation, PyTorch, diffusers, and all dependencies.
 
+### Docker (Linux, NVIDIA)
+
+A container image with torch, dw and its dependencies built in, sharing the
+workspace and caches with a native install on the same host:
+[DOCKER.md](DOCKER.md).
+
 ### Manual Installation
 
 If you prefer manual control:

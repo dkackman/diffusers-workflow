@@ -1,0 +1,63 @@
+# diffusers-workflow in a container. See docs/DOCKER.md.
+#
+#   bash docker/init-env.sh            # writes docker/.env from this host's layout
+#   docker compose -f docker/compose.yaml up -d --build
+#   docker compose -f docker/compose.yaml logs -f    # the login URL is here
+#
+# Every shared directory is mounted at the same absolute path it has on the
+# host, and the variable dw reads points at it. Run manifests, settings and
+# quantized-cache entries record absolute paths, so a container and a native
+# dw.serve (systemd, install.sh) can share the workspace and every cache and
+# read each other's records. Only DW_ENV_DIR - the diffusers overlay - is the
+# container's own.
+services:
+  dw:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    image: diffusers-workflow:local
+    # The host user, so files written to the shared directories are theirs
+    user: "${DW_UID:?run docker/init-env.sh}:${DW_GID:?run docker/init-env.sh}"
+    ports:
+      - "${DW_BIND:-127.0.0.1}:${DW_HOST_PORT:-8765}:8765"
+    volumes:
+      - ${DW_ENV_DIR:?run docker/init-env.sh}:/data/env
+      - ${DW_WORKSPACE:?run docker/init-env.sh}:${DW_WORKSPACE}
+      - ${HF_HOME:?run docker/init-env.sh}:${HF_HOME}
+      - ${TORCHINDUCTOR_CACHE_DIR:?run docker/init-env.sh}:${TORCHINDUCTOR_CACHE_DIR}
+      - ${TRITON_CACHE_DIR:?run docker/init-env.sh}:${TRITON_CACHE_DIR}
+      - ${DIFFUSERS_HELPER_ROOT:?run docker/init-env.sh}:${DIFFUSERS_HELPER_ROOT}
+    env_file:
+      # The checkout's own .env (DW_QUANTIZED_CACHE=1 and the like), the
+      # file a native dw.serve loads, so both run with the same switches;
+      # then docker/.env (DW_API_TOKEN, HF_TOKEN, DW_DIFFUSERS_REF, ...),
+      # which wins where both set a variable
+      - path: ../.env
+        required: false
+      - path: .env
+    # Only the mounted paths, which must match the mounts above. Anything
+    # else set here would override both env files, empty or not.
+    environment:
+      # docker/.env holds the overlay's host path; inside, it is /data/env
+      DW_ENV_DIR: /data/env
+      DW_WORKSPACE: ${DW_WORKSPACE}
+      HF_HOME: ${HF_HOME}
+      TORCHINDUCTOR_CACHE_DIR: ${TORCHINDUCTOR_CACHE_DIR}
+      TRITON_CACHE_DIR: ${TRITON_CACHE_DIR}
+      DIFFUSERS_HELPER_ROOT: ${DIFFUSERS_HELPER_ROOT}
+    # dw.serve's arguments; the entrypoint adds --host, --port and --examples-dir
+    command: ${DW_SERVE_ARGS:---mcp}
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
+    # Worker processes hand tensors through shared memory
+    shm_size: "16gb"
+    ulimits:
+      nofile: 65536
+    # Model loads are slow to interrupt; give a job time to unwind
+    stop_grace_period: 60s
+    restart: unless-stopped

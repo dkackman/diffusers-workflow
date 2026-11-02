@@ -5,7 +5,9 @@ your laptop use it over the network. Nothing is installed on the laptop.
 
 ## On the GPU box
 
-1. Install as usual: `git clone …`, `bash ./install.sh`.
+1. Install as usual: `git clone …`, `bash ./install.sh` - or run the
+   container instead ([DOCKER.md](DOCKER.md), `DW_BIND=0.0.0.0`), which
+   makes the token for you; skip to the clients.
 2. Make a token: `openssl rand -hex 32`. This one string is the only thing
    between "on your network" and "can run workflows on your GPU" - keep it
    long and random.
