@@ -142,6 +142,8 @@ composes into, not something to re-derive:
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
+For a dialogue scene cut master-and-singles, read `references/sitcom-multicam.md`.
+
 For smeary two-shot faces, read `references/cinema-path.md` (1344x768 base
 model); choose the path once, at episode 1.
 

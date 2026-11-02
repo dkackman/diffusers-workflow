@@ -1546,3 +1546,32 @@ class TestStoryboardSkill:
         for skill in ("script-to-video", "series-episodes"):
             body = skill_body(os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md"))
             assert "`templates/face-drift-check`" in body
+
+
+SITCOM = os.path.join(os.path.dirname(SERIES_SKILL), "references", "sitcom-multicam.md")
+
+
+class TestSitcomMulticam:
+    """Stage F (#1147): the multicam grammar as a series-episodes reference."""
+
+    def test_sitcom_reference_names_its_tools(self):
+        from dw.introspection import list_tasks
+
+        text = _read(SITCOM)
+        tasks = list_tasks()
+        for name in ("transcribe_audio", "plan_cuts", "analyze_face_drift"):
+            assert f"`{name}`" in text, name
+            assert name in tasks["commands"], name
+        assert "`templates/minimax/dialogue-short`" in text
+        assert "`templates/face-drift-check`" in text
+        assert "`templates/assemble-and-score`" in text
+        for name in CATALOG_NAME.findall(text):
+            assert os.path.isfile(
+                os.path.join(REPO_ROOT, "workflows", name + ".json")
+            ), name
+        assert "One-shot Multicam" in text and "MIT" in text
+        assert "cinematography/references/vocabulary.md" in text
+        assert "script-to-video/references/shot-document.md" in text
+
+    def test_series_points_at_sitcom(self):
+        assert "`references/sitcom-multicam.md`" in skill_body(SERIES_SKILL)
