@@ -822,7 +822,10 @@ class Result:
 
             audio = None
             if artifact.audio is not None and sample_rate is not None:
-                audio = as_audio_track(artifact.audio)
+                audio = as_audio_track(
+                    artifact.audio,
+                    quiet=getattr(artifact, "silent_by_design", False) is True,
+                )
                 self._predicted_peak_dbfs = warn_without_headroom(
                     artifact.audio, os.path.basename(output_path), emit=False
                 )
@@ -882,7 +885,9 @@ class Result:
             frames_for_encoding(artifact.frames),
             fps=fps,
             output_path=output_path,
-            audio=as_audio_track(audio),
+            audio=as_audio_track(
+                audio, quiet=getattr(artifact, "silent_by_design", False) is True
+            ),
             audio_sample_rate=sample_rate,
         )
 

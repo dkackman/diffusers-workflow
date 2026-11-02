@@ -255,3 +255,58 @@ class TestSavedManifest:
         assert list(tmp_path.glob("animatic.0*.mp4"))
         shots = step_shots(result.saved_shots, saved)
         assert [shot["start_frame"] for shot in shots] == [0, 24, 72]
+
+
+class TestSilentByDesign:
+    """The silent track raises no near-silent or mono-duplication warning (#1161)."""
+
+    def test_clip_and_shots_are_marked(self):
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        assert video.silent_by_design is True
+        assert all(shot["silent_by_design"] for shot in video.shots)
+
+    def test_gallery_level_skips_near_silent_for_marked_shots(self):
+        from dw.server.assess import level_findings
+
+        media = {"peak_dbfs": -120.0, "mean_dbfs": -120.0}
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        assert level_findings(media, video.shots) == []
+        names = [f["rule"] for f in level_findings(media)]
+        assert "near_silent" in names
+
+    def test_mono_duplication_quiet_only_when_asked(self, monkeypatch):
+        import dw.writers as writers
+
+        seen = []
+        monkeypatch.setattr(writers, "emit_warning", lambda *a, **k: seen.append(a))
+        mono = numpy.zeros((1, 100), dtype=numpy.float32)
+        writers.as_audio_track(mono, quiet=True)
+        assert seen == []
+        writers.as_audio_track(mono)
+        assert len(seen) == 1
+
+    def test_write_time_near_silent_skipped(self, monkeypatch):
+        import dw.audio_qc as qc
+
+        calls = []
+        monkeypatch.setattr(
+            qc,
+            "_probe_written_media",
+            lambda p: {"mean_dbfs": -120.0, "peak_dbfs": -120.0},
+        )
+        monkeypatch.setattr(qc, "emit_warning", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(qc, "remeasure_shots_after_mux", lambda *a, **k: None)
+        monkeypatch.setattr(
+            qc, "warn_if_written_above_full_scale", lambda *a, **k: None
+        )
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        qc.check_written_media(
+            "x.mp4",
+            video,
+            "video/mp4",
+            video_fps=None,
+            consumed_by_normalizer=False,
+            headroom_warned=False,
+            predicted_peak_dbfs=None,
+        )
+        assert calls == []

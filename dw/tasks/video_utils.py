@@ -336,13 +336,17 @@ def stills_to_video(images, durations, fps=24):
     shots, start = [], 0
     for index, (still, count) in enumerate(zip(stills, counts), start=1):
         frames[start : start + count] = numpy.asarray(still.convert("RGB"))
-        shots.append(shot_record(f"still_{index}", start, count))
+        shots.append(shot_record(f"still_{index}", start, count, silent_by_design=True))
         start += count
     silence = numpy.zeros(
         (1, frames_to_samples(len(frames), fps, STILLS_SAMPLE_RATE)),
         dtype=numpy.float32,
     )
-    return AudioVideo(frames, silence, STILLS_SAMPLE_RATE, fps=fps, shots=shots)
+    clip = AudioVideo(frames, silence, STILLS_SAMPLE_RATE, fps=fps, shots=shots)
+    # The zeros are the design (#1161): no near-silent or mono-duplication
+    # warning at save time, and the shot records say so for the gallery
+    clip.silent_by_design = True
+    return clip
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
