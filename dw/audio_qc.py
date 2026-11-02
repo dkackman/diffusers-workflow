@@ -197,6 +197,17 @@ NEAR_SILENT_WARN_DBFS = -40.0
 NEAR_SILENT_QUIET_NOT_EMPTY_DBFS = -30.0
 
 
+def all_shots_silent_by_design(shots):
+    """True when a file's recorded shots all say they are silent on purpose
+    (#1163): a cut of stills is silent by design, so the near-silent warning's
+    advice (a malformed prompt, a near-zero gain) would chase nothing. One
+    shot that is not exempt keeps the check on the whole file."""
+    return bool(shots) and all(
+        isinstance(shot, dict) and shot.get("silent_by_design") is True
+        for shot in shots
+    )
+
+
 def warn_if_written_near_silent(
     output_path, already_warned=False, info=_UNPROBED, source_already_quiet=False
 ):
@@ -437,6 +448,7 @@ def check_written_media(
         info=probed_info,
         source_already_quiet=(
             getattr(artifact, "silent_by_design", False) is True
+            or all_shots_silent_by_design(getattr(artifact, "shots", None))
             or (
                 source_mean_dbfs is not None
                 and source_mean_dbfs < NEAR_SILENT_WARN_DBFS
