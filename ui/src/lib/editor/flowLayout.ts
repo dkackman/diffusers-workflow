@@ -31,6 +31,15 @@ export const CHIP_STEP = 19
 export const CHIP_CHARS = 26
 export const CHIP_CHARS_TIMED = 17 // a finished chip's run time takes the right end
 export const CHIP_TOP = BOX_H - 2
+// Segment chips: a chained step's box holds a summary line, then one
+// chip per segment with each seam's carry written in the gap between.
+// A long chain keeps the summary alone rather than a box taller than the
+// page.
+export const CHAIN_SUMMARY_Y = CHIP_TOP + 10
+export const SEGMENT_TOP = CHIP_TOP + 16
+export const SEGMENT_STEP = CHIP_H + 14
+export const SEAM_CHARS = 28
+export const MAX_SEGMENT_CHIPS = 12
 // The gap ROW_H left between fixed-height boxes, kept for the
 // height-aware stacking below
 const ROW_GAP = ROW_H - BOX_H
@@ -53,13 +62,27 @@ export function fit(text: string, max: number, keep: 'head' | 'tail'): string {
     : '…' + text.slice(text.length - max + 1)
 }
 
+/** The segments a chained step's box draws as chips - none for a count
+ * the definition does not give, or one too long to draw. A for_each step
+ * draws its members instead: the chain reruns inside each. */
+export function segmentChips(node: FlowNode): number {
+  const count = node.forEach ? null : node.chain?.segments
+  return count && count <= MAX_SEGMENT_CHIPS ? count : 0
+}
+
 /** The box's height: the standard header, plus a chip row per entry for
  * a list-driven step - or one empty slot when the step carries
- * for_each but its list cannot be read from the definition. */
+ * for_each but its list cannot be read from the definition. A chained
+ * step holds its summary line and segment chips. */
 export function heightOf(node: FlowNode): number {
   const count = node.members?.length ?? 0
   if (count) return CHIP_TOP + (count - 1) * CHIP_STEP + CHIP_H + 6
-  return node.forEach ? BOX_H + 26 : BOX_H
+  if (node.forEach) return BOX_H + 26
+  if (!node.chain) return BOX_H
+  const segments = segmentChips(node)
+  return segments
+    ? SEGMENT_TOP + (segments - 1) * SEGMENT_STEP + CHIP_H + 6
+    : SEGMENT_TOP
 }
 
 /** One line per producer -> consumer pair, carrying every argument it

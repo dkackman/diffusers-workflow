@@ -3,6 +3,7 @@ import {
   nodeDurations,
   stepDurations,
   activeMember,
+  chainSegments,
   finishedMembers,
   finishedNodes,
   flowNodeName,
@@ -146,5 +147,47 @@ describe('step and node durations', () => {
   it('an event without a clock is skipped, not read as zero', () => {
     const bare = { seq: 0, event: 'step_start', step: 'x' } as JobEvent
     expect(stepDurations([bare, ev('step_end', 'x', 3)])).toEqual({})
+  })
+})
+
+describe('chainSegments', () => {
+  const start = (step: string, extra = {}) => ({
+    seq: 0,
+    event: 'step_start',
+    step,
+    ...extra,
+  })
+  const segment = (i: number, n: number) => ({
+    seq: 0,
+    event: 'phase',
+    phase: 'generating',
+    detail: `segment ${i}/${n}`,
+  })
+
+  it('names the segment each top-level step is on, from its generating phases', () => {
+    const events = [
+      start('clip'),
+      { seq: 0, event: 'phase', phase: 'loading', detail: 'MiniMax-H3' },
+      segment(1, 3),
+      segment(2, 3),
+    ] as JobEvent[]
+    expect(chainSegments(events)).toEqual({ clip: 2 })
+  })
+
+  it("leaves a sub-workflow's inner chain to no node", () => {
+    const events = [
+      start('compose'),
+      start('inner', { parent_step: 'compose' }),
+      segment(1, 2),
+    ] as JobEvent[]
+    expect(chainSegments(events)).toEqual({})
+  })
+
+  it("ignores a plain step's generating phase, which names the step", () => {
+    const events = [
+      start('gen'),
+      { seq: 0, event: 'phase', phase: 'generating', detail: 'gen' },
+    ] as JobEvent[]
+    expect(chainSegments(events)).toEqual({})
   })
 })

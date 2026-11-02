@@ -230,6 +230,26 @@ export interface FlowNode {
    * names the run's members carry after the `@`. Null when there is no
    * for_each or the list cannot be read statically. */
   members: string[] | null
+  /** What the step's pipeline `chain` block runs, or null without one. */
+  chain: ChainSummary | null
+}
+
+/** A chained pipeline step, read off its `chain` block: the pipeline runs
+ * once per segment inside the one step, carrying continuity across each
+ * seam, and the segments are stitched into one video
+ * (dw/pipeline_processors/chain.py). */
+export interface ChainSummary {
+  /** The segment count, when the definition gives it - a literal or a
+   * declared variable, which a realized workflow always holds. Null under
+   * `match_audio`, or for a variable left unset. */
+  segments: number | null
+  /** True when the audio's length decides the count at run time. */
+  fromAudio: boolean
+  /** What each seam carries into the next segment, in a few words. */
+  seam: string
+  /** True under `anchor: "segment_1"`: segment 1's latents anchor every
+   * later segment's (#1166). */
+  anchor: boolean
 }
 
 export interface FlowEdge {
@@ -302,6 +322,76 @@ function forEachMembers(
   )
 }
 
+// The chain block's engine defaults (dw/workflow_schema.json $defs/chain)
+const CHAIN_DEFAULTS: Record<string, unknown> = {
+  continuity: 'last_frame',
+  trim_frames: 1,
+  crossfade_ms: 75,
+  guide_frames: 22,
+  carry_audio: true,
+  anchor: 'none',
+}
+
+/** The step's `chain` block summarized for the graph, or null. A value
+ * may be a `variable:`, read from the declared variables - undefined when
+ * it names none, or one left null. */
+function chainSummary(
+  workflow: Record<string, any>,
+  step: Record<string, any>,
+): ChainSummary | null {
+  const chain = step.pipeline?.chain
+  if (chain === null || typeof chain !== 'object') return null
+  const read = (key: string): unknown => {
+    const value = key in chain ? chain[key] : CHAIN_DEFAULTS[key]
+    const name = referenceName(value, VARIABLE)
+    if (name === null) return value
+    return workflow.variables?.[name] ?? undefined
+  }
+  const segments = read('segments')
+  const parts: Array<string | null> = []
+  switch (read('continuity')) {
+    case 'last_frame': {
+      const trim = read('trim_frames')
+      const fade = read('crossfade_ms')
+      parts.push(
+        'last frame',
+        typeof trim === 'number' ? `trim ${trim}` : null,
+        typeof fade === 'number' ? `${fade}ms` : null,
+      )
+      break
+    }
+    case 'guide': {
+      const frames = read('guide_frames')
+      parts.push(
+        'guide',
+        typeof frames === 'number' ? `${frames} frames` : null,
+      )
+      break
+    }
+    case 'last_segment': {
+      const frames = read('carry_frames')
+      parts.push(
+        'video reference',
+        typeof frames === 'number' ? `${frames} frames` : null,
+      )
+      break
+    }
+    default:
+      parts.push('carry')
+  }
+  if (read('continuity') !== 'last_frame' && read('carry_audio') === false)
+    parts.push('no audio')
+  return {
+    segments:
+      typeof segments === 'number' && segments >= 1 && !chain.match_audio
+        ? segments
+        : null,
+    fromAudio: chain.match_audio === true,
+    seam: parts.filter(Boolean).join(' · '),
+    anchor: read('anchor') === 'segment_1',
+  }
+}
+
 /** The read-only data-flow view's graph: one node per step, one edge per
  * `previous_result:<step>` reference (labeled with the attribute that
  * carries it), entry points flagged, and fan-in points - steps combining
@@ -321,6 +411,7 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
       producedCount: producedCount(step),
       forEach: FOR_EACH_KEY in step,
       members: forEachMembers(workflow, step),
+      chain: chainSummary(workflow, step),
     }
   })
   const edges: FlowEdge[] = []

@@ -5,6 +5,7 @@
   import {
     BOX_H,
     BOX_W,
+    CHAIN_SUMMARY_Y,
     CHIP_CHARS,
     CHIP_CHARS_TIMED,
     CHIP_H,
@@ -13,9 +14,13 @@
     DETAIL_CHARS,
     NAME_CHARS,
     NAME_CHARS_WITH_TAG,
+    SEAM_CHARS,
+    SEGMENT_STEP,
+    SEGMENT_TOP,
     fit,
     heightOf,
     layoutGraph,
+    segmentChips,
   } from './flowLayout'
 
   let {
@@ -31,6 +36,7 @@
     doneMembers = [],
     nodeTimes = {},
     memberTimes = {},
+    activeSegments = {},
   }: {
     workflow: Record<string, any>
     onselect?: (stepName: string) => void
@@ -57,6 +63,9 @@
     nodeTimes?: Record<string, number>
     /** Seconds each finished for_each member took, engine names. */
     memberTimes?: Record<string, number>
+    /** The segment, 1-based, each chained step is on or last ran - its
+     * generating phases (runstate.ts chainSegments). */
+    activeSegments?: Record<string, number>
   } = $props()
 
   const showsRun = $derived(
@@ -87,17 +96,40 @@
           : '',
   )
 
+  // A segment's state follows its step's: every segment of a finished step
+  // is done, and on a running or failed one, those before the segment it
+  // is on are done and that one carries the step's state
+  const segmentStateOf = $derived((node: string, segment: number) => {
+    const state = stateOf(node)
+    if (state === 'done') return 'done'
+    if (state !== 'active' && state !== 'failed') return ''
+    const on = activeSegments[node]
+    if (on === undefined) return ''
+    return segment < on ? 'done' : segment === on ? state : ''
+  })
+
   const graph = $derived(dataFlowGraph(workflow))
   const hasForEach = $derived(graph.nodes.some((node) => node.forEach))
+  const hasChain = $derived(
+    graph.nodes.some((node) => node.chain && !node.forEach),
+  )
   const hasPending = $derived(
     graph.nodes.some((node) => stateOf(node.name) === 'pending'),
   )
-  // One plain step has no flow to draw: it is shown as a line, not a canvas
+  // One plain step has no flow to draw: it is shown as a line, not a canvas.
+  // A chained step is not plain - its segments are the flow
   const lone = $derived(
-    graph.nodes.length === 1 && !graph.nodes[0].forEach
+    graph.nodes.length === 1 && !graph.nodes[0].forEach && !graph.nodes[0].chain
       ? graph.nodes[0]
       : undefined,
   )
+
+  function chainLabel(node: FlowNode): string {
+    if (!node.chain || node.forEach) return ''
+    if (node.chain.fromAudio) return 'chain · length from audio'
+    const n = node.chain.segments
+    return n === null ? 'chain' : `chain · ${n} segment${n === 1 ? '' : 's'}`
+  }
   const canSelect = (name: string) => !!onselect && (selectable?.(name) ?? true)
 
   /** The parts of a node's labels that did not fit, in full, for its tooltip. */
@@ -181,6 +213,7 @@
       edges={graph.edges.length > 0}
       fanIn={graph.fanIn.size > 0}
       forEach={hasForEach}
+      chain={hasChain}
       done={doneSteps.length > 0}
       active={activeStep !== undefined}
       failed={failedStep !== undefined}
@@ -251,7 +284,7 @@
               clip-path={boxH > BOX_H
                 ? `url(#flow-nodebox-${boxH})`
                 : 'url(#flow-nodebox)'}
-              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}${node.forEach ? (node.members?.length ? `, for_each with ${node.members.length} entries` : ', for_each') : ''}`}
+              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}${node.forEach ? (node.members?.length ? `, for_each with ${node.members.length} entries` : ', for_each') : ''}${node.chain && !node.forEach ? (node.chain.segments ? `, chain of ${node.chain.segments} segments` : ', chain') : ''}`}
               {...nodeAttributes(node.name)}
             >
               {#if overflowTitle(node)}
@@ -330,6 +363,61 @@
                 <text x="11" y={CHIP_TOP + 12} class="membersunknown"
                   >for_each</text
                 >
+              {:else if node.chain}
+                <!-- The segments the one step runs, in order, each seam's
+                     carry written between them; the run's segment from its
+                     generating phases -->
+                <text x="11" y={CHAIN_SUMMARY_Y} class="chainsummary"
+                  >{chainLabel(node)}</text
+                >
+                {#each Array.from({ length: segmentChips(node) }, (_, i) => i) as i (i)}
+                  {@const y = SEGMENT_TOP + i * SEGMENT_STEP}
+                  {@const state = segmentStateOf(node.name, i + 1)}
+                  <g
+                    class="segment"
+                    class:done={state === 'done'}
+                    class:active={state === 'active'}
+                    class:failed={state === 'failed'}
+                    aria-label={`segment ${i + 1}${state ? ', ' + state : ''}`}
+                  >
+                    <rect
+                      x="10"
+                      {y}
+                      width={BOX_W - 20}
+                      height={CHIP_H}
+                      rx="4"
+                      class="chip"
+                    />
+                    <text x="15" y={y + 11} class="chiplabel"
+                      >segment {i + 1}</text
+                    >
+                    {#if i === 0 && node.chain.anchor}
+                      <g>
+                        <title
+                          >segment 1's latents anchor every later segment's
+                          (chain anchor: segment_1)</title
+                        >
+                        <text
+                          x={BOX_W - 15}
+                          y={y + 11}
+                          class="anchortag"
+                          text-anchor="end">anchor</text
+                        >
+                      </g>
+                    {/if}
+                  </g>
+                  {#if i < segmentChips(node) - 1}
+                    <text x="15" y={y + CHIP_H + 10} class="seamlabel"
+                      >{#if `↓ ${node.chain.seam}`.length > SEAM_CHARS}<title
+                          >{node.chain.seam}</title
+                        >{/if}{fit(
+                        `↓ ${node.chain.seam}`,
+                        SEAM_CHARS,
+                        'head',
+                      )}</text
+                    >
+                  {/if}
+                {/each}
               {/if}
             </g>
             {#if fanIn}
@@ -517,26 +605,31 @@
   /* The entries a for_each step runs, inset beneath its header. Machine
      state on their edges, as on the nodes: done green, running the
      safelight amber. */
-  .member .chip {
+  .member .chip,
+  .segment .chip {
     fill: var(--panel-2);
     stroke: var(--line);
     stroke-width: 1;
   }
-  .member.done .chip {
+  .member.done .chip,
+  .segment.done .chip {
     stroke: var(--good);
     stroke-width: 1.5;
   }
-  .member.failed .chip {
+  .member.failed .chip,
+  .segment.failed .chip {
     stroke: var(--bad);
     stroke-width: 1.5;
   }
-  .member.active .chip {
+  .member.active .chip,
+  .segment.active .chip {
     stroke: var(--live);
     stroke-width: 1.5;
     animation: dw-pulse 1.6s ease-in-out infinite;
   }
   @media (prefers-reduced-motion: reduce) {
-    .member.active .chip {
+    .member.active .chip,
+    .segment.active .chip {
       animation: none;
     }
   }
@@ -545,7 +638,10 @@
     fill: var(--ink);
     font-family: var(--font-mono);
   }
-  .membersunknown {
+  .membersunknown,
+  .chainsummary,
+  .seamlabel,
+  .anchortag {
     font-size: 9px;
     fill: var(--muted);
     font-family: var(--font-mono);
