@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **H3 Anti-Burn LoRA on chain continuation segments** (#1151, stage
+  #1159), probed 2026-11-02. Imagineer13's anti-burn LoRA loads through
+  the stock loader beside turbo. On a seed-42, 5-segment hand-built
+  `fl2va` chain, 0.6 on segments 2-5 held segment 1's skin, knit and wall,
+  where the unaided chain burnt by segment 5. It is in the catalog as
+  `minimax-h3/h3-antiburn`, `trial`, until Don's taste verdict (Q4). The
+  `chain.continuation_loras` option was cut and returns only on a positive
+  Q4: `complete/h3-antiburn-continuation-complete.md`.
+
 - **`pcm_sha256`, an audio identity check over MCP** (#1139, stage #1158),
   shipped 2026-11-02. `get_gallery_metadata`'s `media` now carries a
   SHA-256 of the decoded samples, with `sample_format` and `frames`, for any
