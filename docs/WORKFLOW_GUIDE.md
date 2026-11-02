@@ -1637,6 +1637,13 @@ and `load_components` pulls the weights:
   the resolution its image references are encoded at. A name the pipeline does not
   declare raises rather than passing quietly, since a dropped config reads as a setting
   that did nothing.
+- `remove_blocks` — names of top-level blocks to pop off a modular pipeline's block graph
+  once it is built (`blocks.sub_blocks.pop`). It is for a block that always runs and has no
+  input to turn it off. FLUX 3 Klein's `prompt_upsampler` is one: it rewrites every
+  caption and needs an 18.8 GB component, so every Klein definition declares
+  `"remove_blocks": ["prompt_upsampler"]` and the explicit upsample step is the only
+  upsampler. A name the pipeline has no block for raises at load, listing the blocks it
+  has (validate does not build the pipeline, so it cannot see this).
 - `components_manager` — attaches a `ComponentsManager`, which tracks the pipeline's
   components. With `enable_auto_cpu_offload` it keeps only the running components on the
   device and moves the rest to system memory, reserving `memory_reserve_margin`

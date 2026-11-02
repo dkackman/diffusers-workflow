@@ -676,6 +676,15 @@
                         }
                     }
                 },
+                "remove_blocks": {
+                    "description": "Names of top-level blocks to pop off a modular pipeline's block graph once it is built (blocks.sub_blocks.pop). For a block that always runs and has no input that turns it off: FLUX 3 Klein's 'prompt_upsampler' rewrites every caption and needs an 18.8 GB component, so its workflows remove it and use an explicit upsample step instead (#1168). A name the pipeline has no block for is an error.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "uniqueItems": true
+                },
                 "configs": {
                     "description": "Values a modular pipeline's blocks declare and read while they run - not components, and not call arguments. Keys are whatever the pipeline itself declares, so what may be set here depends on the model: MiniMax-H3 declares 'canvas_short_edge', 'canvas_max_pixels' and 'reference_image_short_edge'. A name the pipeline does not declare is an error rather than a setting that quietly did nothing.",
                     "type": "object",

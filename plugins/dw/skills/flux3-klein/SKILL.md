@@ -83,6 +83,11 @@ argument, or `output:` for an earlier run's file.
 - The upsampler (about 18 GB) and Klein (about 19 GB) do not fit a 24 GB
   card together. Keep `release_models` on the upsample step and load Klein
   after it.
+- The in-pipeline upsampler is removed: every Klein definition sets
+  `remove_blocks: ["prompt_upsampler"]`, so the explicit upsample step is the only
+  upsampler and Klein receives the caption as written, never rewritten twice. A Klein
+  workflow you author needs the same setting, plus `load_components.names` listing only
+  the four components the run uses.
 
 ## Prompts
 

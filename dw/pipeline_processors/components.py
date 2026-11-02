@@ -601,6 +601,40 @@ def get_block_configs(configuration, component):
     return dict(configs)
 
 
+def remove_pipeline_blocks(configuration, component):
+    """Pop the top-level blocks a workflow's `remove_blocks` names off a modular pipeline.
+
+    A block that always runs - Klein's `prompt_upsampler` is an AutoPipelineBlocks whose
+    default branch fires on every call - has no input that turns it off. Diffusers'
+    documented skip is `blocks.sub_blocks.pop(name)`, which this declares. Which block a
+    model needs gone is the workflow's knowledge, not the engine's.
+
+    Raises:
+        ValueError: If the pipeline has no block graph, or has no block by a name
+    """
+    names = configuration.get("remove_blocks", None)
+    if not names:
+        return []
+
+    sub_blocks = getattr(getattr(component, "blocks", None), "sub_blocks", None)
+    if sub_blocks is None or not has_method(sub_blocks, "pop"):
+        raise ValueError(
+            f"'remove_blocks' is only supported on modular pipelines, "
+            f"{type(component).__name__} has no block graph"
+        )
+    unknown = [name for name in names if name not in sub_blocks]
+    if unknown:
+        raise ValueError(
+            f"{type(component).__name__} has no block named "
+            f"{', '.join(sorted(set(unknown)))} - its blocks are "
+            f"{', '.join(sub_blocks) or 'none'}"
+        )
+    for name in names:
+        sub_blocks.pop(name, None)
+    logger.info(f"Removed pipeline blocks: {', '.join(names)}")
+    return list(names)
+
+
 def load_component(
     component_name,
     configuration,
@@ -714,6 +748,9 @@ def load_component(
                 # Before pruning, offload and sdnq_optimize, so a cached entry
                 # is the whole component as quantized (dw/quantized_cache.py)
                 quantized_cache.load_components(component, load_components_arguments)
+
+            # Blocks the workflow declares gone (Klein's prompt_upsampler)
+            remove_pipeline_blocks(configuration, component)
 
             # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
             # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)

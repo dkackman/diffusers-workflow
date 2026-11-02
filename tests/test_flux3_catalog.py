@@ -201,3 +201,28 @@ def test_every_klein_step_skips_the_repo_s_prompt_upsampler(path):
             "transformer",
             "vae",
         ], path
+
+
+KLEIN_DEFINITIONS = [
+    "workflows/templates/flux3/text-to-image.json",
+    "workflows/templates/flux3/image-edit.json",
+    "workflows/templates/flux3/multi-reference.json",
+    "workflows/templates/flux3/layout-boxes.json",
+    "workflows/templates/flux3/upsample-then-generate.json",
+    "workflows/models/flux3-klein.json",
+]
+
+
+@pytest.mark.parametrize("path", KLEIN_DEFINITIONS)
+def test_every_klein_definition_removes_the_in_pipeline_upsampler(path):
+    """#1168: the block always runs and needs the 18.8 GB upsampler loaded"""
+    definition = load(os.path.join(ROOT, path))
+    klein = [
+        s["pipeline"]["configuration"]
+        for s in definition["steps"]
+        if "pipeline" in s
+        and s["pipeline"]["configuration"].get("component_type") == "ModularPipeline"
+    ]
+    assert klein
+    for configuration in klein:
+        assert configuration["remove_blocks"] == ["prompt_upsampler"]
