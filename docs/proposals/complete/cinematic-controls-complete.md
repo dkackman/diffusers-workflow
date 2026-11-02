@@ -148,8 +148,13 @@ skill defines that marking for a future trial.
 
 - **D's estimate.** The plan said `validate_workflow` "quotes a near-zero
   GPU estimate". The animatic loads no model, so the estimate is reported
-  as `unknown` with the reason "task-only workflow". Don noted this before
-  the spec, and C-F647 tests it.
+  as `unknown` with the reason "task-only workflow" until the box has run
+  it. After that it quotes the template's own run history (`basis:
+  "observed"`, `minutes: 0.0`), by design (#439/#921). The final check
+  failed C-F647 on that, and fix-forward #1164 took it to Don as a record
+  conflict. He ruled to amend the case, not the engine: C-F647 accepts
+  `unknown` with the task-only reason, or `observed` with `minutes` under
+  0.1 (case change dkackman/harnest#174). No code changed.
 - **C's caps.** Beyond the plan's 600 s cap, C adds a 36000-frame cap and a
   4 GiB run-time byte budget. So 600 s at 120 fps is refused.
 - **C's silence.** The plan said "an AudioVideo that is silent". After the
@@ -174,6 +179,7 @@ skill defines that marking for a future trial.
 | E #1146 | 0 | |
 | F #1147 | 0 | |
 | G #1148 | 0 | |
+| Final check | 1 | C-F647: the `animatic` estimate was `observed`, not `unknown`. A record conflict, not a build miss: fix-forward #1164 carried Don's ruling to amend the case; re-run passed on develop @ 06f08f37. |
 
 Cost: no stage comment recorded `usage:` figures, so none is given here.
 G used the approved ~1 h of lem GPU (18 clips) plus the K6 download above.
