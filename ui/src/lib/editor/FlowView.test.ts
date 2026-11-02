@@ -58,6 +58,8 @@ it('keeps a long detail inside its box, showing the tail and the whole on hover'
         name: 'shot1_inventory',
         workflow: { path: 'templates/minimax/composable-reference-shot.json' },
       },
+      // a second step, so the graph draws boxes rather than one line
+      { name: 'other', task: { command: 'save' } },
     ],
   }
   const { container } = render(FlowView, { workflow: composed })
@@ -83,6 +85,7 @@ it('shortens a long step name from the end, leaving room for the entry tag', () 
         name: 'reference_to_video_audio_with_lipsync',
         pipeline: { configuration: { component_type: 'Fake' } },
       },
+      { name: 'other', task: { command: 'save' } },
     ],
   }
   const { container } = render(FlowView, { workflow: long })
@@ -281,4 +284,73 @@ describe('edges', () => {
       'first_very_long_argument, second_very_long_argument',
     )
   })
+})
+
+it('keys only the marks the diagram draws', () => {
+  const legendOf = (container: HTMLElement) =>
+    container.querySelector('ul.legend')!.textContent!.replace(/\s+/g, ' ')
+
+  const edited = legendOf(render(FlowView, { workflow }).container)
+  expect(edited).toContain('entry')
+  expect(edited).toContain('previous_result')
+  expect(edited).not.toContain('running')
+  expect(edited).not.toContain('multiply')
+  expect(edited).not.toContain('for_each')
+
+  const running = legendOf(
+    render(FlowView, { workflow, activeStep: 'upscale', doneSteps: ['gen'] })
+      .container,
+  )
+  expect(running).toContain('finished')
+  expect(running).toContain('running')
+})
+
+it('marks the step a failed run stopped in, and fades the ones it never reached', () => {
+  const three = {
+    steps: [
+      ...workflow.steps,
+      {
+        name: 'save',
+        task: {
+          command: 'save',
+          arguments: { image: 'previous_result:upscale' },
+        },
+      },
+    ],
+  }
+  const { container } = render(FlowView, {
+    workflow: three,
+    doneSteps: ['gen'],
+    failedStep: 'upscale',
+  })
+  expect(nodeFor(container, 'upscale').classList.contains('failed')).toBe(true)
+  expect(nodeFor(container, 'save').classList.contains('pending')).toBe(true)
+  expect(nodeFor(container, 'gen').classList.contains('pending')).toBe(false)
+  const legend = container.querySelector('ul.legend')!.textContent!
+  expect(legend).toContain('failed')
+  expect(legend).toContain('not run')
+  expect(legend).not.toContain('running')
+})
+
+it('makes a step a control only when it has somewhere to go', () => {
+  const { container } = render(FlowView, {
+    workflow,
+    onselect: () => {},
+    selectable: (name: string) => name === 'gen',
+  })
+  expect(nodeFor(container, 'gen').getAttribute('role')).toBe('button')
+  expect(nodeFor(container, 'upscale').hasAttribute('role')).toBe(false)
+})
+
+it('shows a lone plain step as one line, not a canvas', () => {
+  const { container } = render(FlowView, {
+    workflow: { steps: [workflow.steps[0]] },
+    doneSteps: ['gen'],
+    nodeTimes: { gen: 5.9 },
+  })
+  expect(container.querySelector('svg')).toBeNull()
+  const line = container.querySelector('.loneline')!
+  expect(line.classList.contains('done')).toBe(true)
+  expect(line.textContent).toContain('gen')
+  expect(line.textContent).toContain('Fake')
 })
