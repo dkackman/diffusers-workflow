@@ -115,23 +115,9 @@ composes into, not something to re-derive:
 - **match_levels**: shots generated independently drift in loudness -
   `assemble-and-score`'s `match_levels` (`"rms"` or `"peak"`) evens them
   before the cut; leaving it null only warns on a wide spread instead of
-  fixing it. A shot whose voice-over the score buries is a different
-  problem, not fixed by `match_levels` or `world_gain` (which lifts the
-  whole world track, action sound included). Either duck the score -
-  `minimax-h3`'s ducking recipe: `gain_audio` regions on the score, one per
-  voice-over shot, applied before the score is passed in - or give dialogue
-  its own gain. For that, in a saved copy of `assemble-and-score`, add a
-  `separate_stems` step on `world_faded`; `previous_result:<step>.vocals` is
-  the dialogue, and a `mix_audio` of its `drums`, `bass` and `other` is the
-  rest (room tone, foley, action sound). Then have `mixed` layer
-  `[soundtrack_resampled, dialogue, rest]`, one gain each, and keep
-  `balanced` after it: a dialogue gain above 1 on a stem peaking near full
-  scale sums past 0 dBFS, which `balanced` pulls back to -3. htdemucs keeps
-  H3 speech intact this way (#1091). A shot with little foley leaves a
-  near-silent rest, and a quiet unpitched bed (room tone, ambience) lands
-  mostly in `vocals`, not the rest. Separating an already-scored mix works
-  too, but its rest is the score plus the shots' foley, not a clean score:
-  keep the original score file to re-mix or replace it.
+  fixing it. A voice-over the score buries is a different problem, not
+  fixed by `match_levels` or `world_gain`: duck the score or give dialogue
+  its own gain, per `references/dialogue-mix.md`.
 - **sound effects**: `video-to-sound-effects` (or `text-to-sound-effect`) makes
   effects for the `rest` bed; MMAudio runs 7-25 dB hot, so `match_levels` them first.
 - **normalize**: the mixed world sound and score are normalized together
@@ -185,16 +171,7 @@ people - the failure mode step 0 exists to prevent. Measure it per shot with
 `integrated_lufs` (`get_gallery_metadata`), not `peak_dbfs`; the second
 half of `references/loudness.md` reads the gap. To confirm every
 line rendered rather than judging it by ear, run `templates/check-script`
-against the episode's script: `validate_workflow(name="templates/check-script",
-arguments={"input_audio": "output:<name>", "lines": [...]})` first (free; it
-takes the episode's muxed soundtrack directly, and `lines` is the script in
-order, `{text, shot}` to name each line's shot), then `run_workflow(...,
-acknowledged_cost=<that plan's {fingerprint, minutes, downloads}>,
-wait_seconds=60)`, then `get_output_text` for its `findings` - a dropped or
-changed line, speech in a silent shot, a clipped last word - and
-`delete_output(job_id=...)` the scratch run afterward. This workflow's
-plan is `basis: "unknown"` with `minutes: null` - quote seconds, not
-minutes.
+against the episode's script, per `references/check-script.md`.
 
 To take the project home, call `export_job` once per job of the project (each
 episode, and the cast run), then fetch each zip's `open_url` and unpack it into
