@@ -34,7 +34,12 @@ it is leaves every reader - and every agent - to guess from the filename.
 
 ## Structure
 
-Every workflow is a JSON file with an `id`, optional `variables`, and a list of `steps`:
+Every workflow is a JSON file with an `id`, optional `variables`, and a list of `steps`.
+The full structure is the JSON Schema in
+[dw/workflow_schema.json](../dw/workflow_schema.json), which is what `dw.validate`
+and the server check a workflow against. A running server also serves it at
+`GET /api/schema` and shows it as a browsable tree on its **Schema** page
+(see [Server & Web UI](SERVER.md)).
 
 ```json
 {

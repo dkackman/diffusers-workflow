@@ -21,8 +21,29 @@ python -m dw.serve --devices cuda:0,cuda:1   # one worker per card, two jobs at 
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
-Installed as a package, the same server is `dw-serve`. Interactive API docs
-(OpenAPI) are at `/docs`.
+Installed as a package, the same server is `dw-serve`.
+
+### The HTTP API
+
+Everything the web UI and the MCP server do goes through one HTTP API, and a
+running server describes it:
+
+| Path | What it is |
+| ---- | ---------- |
+| `/docs` | Swagger UI: every route, its parameters and response, with *Try it out* |
+| `/redoc` | The same document in ReDoc, for reading |
+| `/openapi.json` | The OpenAPI document itself |
+
+The same document is committed as
+[`ui/src/lib/generated/openapi.json`](../ui/src/lib/generated/openapi.json)
+for client generation or reading without a server. It is generated, not
+written: `scripts/dump_openapi.py` writes it from the server, CI fails when
+the committed copy is stale, and its `info.version` is fixed at `"0"` so it
+is the same on every machine. GitHub shows it as plain JSON; to browse it,
+use `/docs` on a running server. Neither document declares the bearer token;
+see [Authentication](#authentication). The sections below cover the
+[Jobs API](#jobs-api), the [Introspection API](#introspection-api) and
+[Files and models](#files-and-models) in prose.
 
 The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the

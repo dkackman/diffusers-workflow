@@ -165,7 +165,9 @@ with live progress.
 
 ![The model manager: every cached model with its size and when it was last used](docs/img/ui-models.png)
 
-The pages and the HTTP API behind them are in [Server & Web UI](docs/SERVER.md).
+The pages are described in [Server & Web UI](docs/SERVER.md). The UI and the agent
+both use the server's HTTP API, which you can browse at `/docs` on a running server
+(see [The HTTP API](docs/SERVER.md#the-http-api)).
 
 ## Underneath
 
@@ -174,7 +176,8 @@ each a diffusers pipeline or a utility task. Its arguments are references to
 variables, earlier steps' results, stored prompts and assets, not hard-coded
 values. That is how text-to-image chains into image-to-video, and how a generated
 image reopens as the recipe that made it. You rarely need to write one by hand. When
-you do, the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference, and
+you do, the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference, the
+[JSON Schema](dw/workflow_schema.json) is the exact structure, and
 [workflows/](workflows/) has runnable examples for each model family. There is also
 a command-line client, `python -m dw.run workflow.json prompt="a cat"`, which queues
 a job on a running server (see [Server & Web UI](docs/SERVER.md#the-command-line)).
@@ -208,7 +211,7 @@ acts on it.
 
 - [MCP Server](docs/MCP.md) - the agent's tool surface (Claude Code, Claude Desktop, other MCP hosts)
 - [dw plugin](plugins/dw/README.md) - the model-family and composition skills
-- [Server & Web UI](docs/SERVER.md) - the web UI, the command line, the jobs and introspection APIs
+- [Server & Web UI](docs/SERVER.md) - the web UI, the command line, and the [HTTP API](docs/SERVER.md#the-http-api) with its OpenAPI spec
 - [Workspaces](docs/WORKSPACES.md) - where your content lives, run directories, several workspaces on one server
 - [Remote GPU server](docs/REMOTE.md) - the server, UI and MCP from another machine
 - [Docker](docs/DOCKER.md) - the server in a container on a Linux NVIDIA box
