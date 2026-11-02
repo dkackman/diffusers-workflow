@@ -110,7 +110,10 @@ Kandinsky 6 and FLUX 3 Klein. It adds no new generator.
   CUDA. Both weights are at pinned revisions and listed in the plan's
   weights. SFace is `opencv/face_recognition_sface` @ `3d708243…`.
 - Findings come in the `assess.py` answer shape: `face_drift` (median
-  below threshold) and `no_face`.
+  below threshold) and `no_face`. Each finding's `at` and each
+  `measurements[]` entry carry `shot`, `index`, `start_frame`,
+  `num_frames`, `start` and `end` (seconds; null without fps), so shots
+  that share a name stay distinct (fix-forward #1165, `bec9cbe6`).
 - Validate refuses `threshold` outside [-1, 1] and `samples_per_shot`
   outside 1–64.
 - `workflows/templates/face-drift-check.json` is the template. The
@@ -155,6 +158,15 @@ skill defines that marking for a future trial.
   conflict. He ruled to amend the case, not the engine: C-F647 accepts
   `unknown` with the task-only reason, or `observed` with `minutes` under
   0.1 (case change dkackman/harnest#174). No code changed.
+- **E's same-person fixture.** The final check flagged `face_drift` on
+  `ep6-shot1-priya.mp4` against `priya-portrait.jpg` (median 0.352 under
+  0.363). Fix-forward #1165 checked the measurement first; Don ruled the
+  code right: that clip is not the portrait's person. The threshold stays
+  0.363. C-F651 arm 1 was re-pointed at a fresh H3 render conditioned on
+  the portrait (`asset:qa-cast/h3-priya-portrait-i2v.mp4`, median 0.483,
+  no findings; case change dkackman/harnest#177). The same check found
+  findings named only the shot, so #1165 added per-shot index, frames and
+  times to them.
 - **C's caps.** Beyond the plan's 600 s cap, C adds a 36000-frame cap and a
   4 GiB run-time byte budget. So 600 s at 120 fps is refused.
 - **C's silence.** The plan said "an AudioVideo that is silent". After the
@@ -180,6 +192,7 @@ skill defines that marking for a future trial.
 | F #1147 | 0 | |
 | G #1148 | 0 | |
 | Final check | 1 | C-F647: the `animatic` estimate was `observed`, not `unknown`. A record conflict, not a build miss: fix-forward #1164 carried Don's ruling to amend the case; re-run passed on develop @ 06f08f37. |
+| Final check | 2 | C-F651 arm 1: `face_drift` on the same person. The fixture's clip was not the portrait's person (Don's ruling, threshold unchanged); fix-forward #1165 re-pointed the case's fixture and added per-shot times to findings (`bec9cbe6`, merged `eb8d1424`); all three arms passed on lem @ eb8d1424. |
 
 Cost: no stage comment recorded `usage:` figures, so none is given here.
 G used the approved ~1 h of lem GPU (18 clips) plus the K6 download above.
