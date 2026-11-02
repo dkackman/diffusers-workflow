@@ -38,3 +38,7 @@ before; popping the block fixes that too.
 
 `layout-boxes` passes the caption through as written; `boxes` as an input for the
 in-pipeline upsampler is not used by any template, so popping loses nothing.
+
+## Outcome
+
+Option 1 shipped (#1168): `configuration.remove_blocks`. Validate cannot check a name against the block graph (it does not build the pipeline), so an unknown name is refused when the pipeline loads, before any weights are pulled for the step to use.
