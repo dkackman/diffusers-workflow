@@ -2515,6 +2515,61 @@ def test_gallery_metadata_survives_a_damaged_track(server, tmp_path):
         assert "job" in body
         assert body["media"]["kind"] == "video"
         assert "peak_dbfs" not in body["media"]
+        for key in ("pcm_sha256", "sample_format", "frames"):
+            assert key not in body["media"]
+
+
+def test_gallery_metadata_hashes_the_decoded_audio(server, tmp_path):
+    """get_gallery_metadata's media carries pcm_sha256 and its descriptors
+    for anything with a soundtrack - an audio output, a video's track, the
+    same file kept as an asset - and none of them for a mute video (#1139)."""
+    from tests.test_media_info import write_mp4, write_wav
+
+    with server(success_script) as client:
+        outputs = tmp_path / "outputs"
+        write_wav(outputs / "score-gen.0-0.0.wav", seconds=2.0)
+        write_mp4(outputs / "shot-gen.0-0.0.mp4", frames=12, fps=6)
+        write_mp4(outputs / "mute-gen.0-0.0.mp4", frames=12, fps=6, with_audio=False)
+
+        score = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()["media"]
+        assert len(score["pcm_sha256"]) == 64
+        assert score["sample_format"] == "int16"
+        assert score["frames"] == 16000
+        assert score["sample_rate"] == 8000 and score["channels"] == 2
+        again = client.get("/api/gallery/score-gen.0-0.0.wav/metadata").json()
+        assert again["media"]["pcm_sha256"] == score["pcm_sha256"]
+
+        shot = client.get("/api/gallery/shot-gen.0-0.0.mp4/metadata").json()["media"]
+        assert len(shot["pcm_sha256"]) == 64
+        assert shot["pcm_sha256"] != score["pcm_sha256"]
+
+        mute = client.get("/api/gallery/mute-gen.0-0.0.mp4/metadata").json()["media"]
+        for key in ("pcm_sha256", "sample_format", "frames", "sample_rate", "channels"):
+            assert key not in mute
+
+
+def test_gallery_listing_never_computes_the_pcm_hash(server, tmp_path, monkeypatch):
+    """list_gallery media=true probes every file on the page: it must not
+    pay for the hash only get_gallery_metadata reports (#1139)."""
+    from dw.server.routes import gallery
+    from tests.test_media_info import write_wav
+
+    calls = []
+    real = gallery.probe_media
+
+    def spy(*args, **kwargs):
+        calls.append(kwargs)
+        return real(*args, **kwargs)
+
+    monkeypatch.setattr(gallery, "probe_media", spy)
+    with server(success_script) as client:
+        write_wav(tmp_path / "outputs" / "score-gen.0-0.0.wav", seconds=1.0)
+
+        listing = client.get("/api/gallery", params={"media": "true"}).json()
+
+        assert calls and not any(c.get("pcm_hash") for c in calls)
+        for entry in listing["files"]:
+            assert "pcm_sha256" not in entry
 
 
 def test_gallery_paginates_and_groups_by_workflow_folder(server, tmp_path):

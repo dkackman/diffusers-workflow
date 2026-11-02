@@ -618,6 +618,13 @@ export interface paths {
          *     refused (422) with the interval that fits; the default width is
          *     never refused for length (#823).
          *
+         *     A file with a soundtrack also carries `pcm_sha256`, the SHA-256 of
+         *     its decoded samples (native dtype, interleaved, little-endian,
+         *     trimmed to the container duration), with the `sample_format` and
+         *     `frames` hashed: proof two tracks are sample-identical, comparable
+         *     only when `sample_format`, `frames`, `sample_rate` and `channels`
+         *     all agree (#1139). Only this route computes it.
+         *
          *     An image's `media` is its measured `{kind, width, height, mode}`,
          *     read from the file header (#922) - not the width/height arguments
          *     the pipeline was asked for. `include_workflow=false` drops the

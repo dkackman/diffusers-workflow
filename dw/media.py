@@ -21,6 +21,7 @@ PyAV only: this runs in the server process, where a request must not pull in
 torch or materialise frames.
 """
 
+import hashlib
 import io
 import logging
 import math
@@ -418,6 +419,7 @@ class _AudioAccumulator:
         duration_seconds=None,
         envelope=False,
         interval_seconds=1.0,
+        pcm_hash=False,
     ):
         self.rate = rate
         self.bin_samples = _bin_samples(rate, interval_seconds)
@@ -438,6 +440,12 @@ class _AudioAccumulator:
         # The whole (trimmed) soundtrack: integrated loudness and true peak
         # are measured over the full track, not per frame
         self.chunks = []
+        # The opt-in identity of the decoded samples (#1139): SHA-256 over
+        # the native dtype, interleaved (frames, channels), little-endian,
+        # over exactly the trimmed samples the loudness is measured on
+        self.hasher = hashlib.sha256() if pcm_hash else None
+        self.hash_frames = 0
+        self.sample_format = None
 
     def add(self, decoded):
         samples = to_float32(decoded)
@@ -455,9 +463,25 @@ class _AudioAccumulator:
             _fill_envelope(self.bins, frame[:length], self.elapsed, self.bin_samples)
         if length > 0:
             self.chunks.append(frame[:length])
+        if self.hasher is not None:
+            self._hash(decoded, length)
         # the frame's *full* length, so a later frame's position is measured
         # against the real track rather than the clipped one
         self.elapsed += full_length
+
+    def _hash(self, decoded, length):
+        native = as_frame_samples(decoded, self.channels)[:length]
+        if self.sample_format is None:
+            self.sample_format = native.dtype.name
+        elif native.dtype.name != self.sample_format:
+            # A stream whose sample format changes mid-decode has no one
+            # format its hash could be compared under: report none
+            self.hasher = None
+            return
+        self.hasher.update(
+            native.astype(native.dtype.newbyteorder("<"), copy=False).tobytes()
+        )
+        self.hash_frames += native.shape[0]
 
     def finish(self):
         if self.bins is not None and self.max_samples is None:
@@ -472,10 +496,14 @@ class _AudioAccumulator:
         }
         if self.bins is not None:
             levels["envelope"] = _as_envelope(self.bins, self.bin_samples / self.rate)
+        if self.hasher is not None and self.sample_format is not None:
+            levels["pcm_sha256"] = self.hasher.hexdigest()
+            levels["sample_format"] = self.sample_format
+            levels["frames"] = self.hash_frames
         return levels
 
 
-def probe_media(path, envelope=False, interval_seconds=1.0):
+def probe_media(path, envelope=False, interval_seconds=1.0, pcm_hash=False):
     """Duration, format and level of an audio or video file, or None.
 
     Video answers fps, frame_count, width and height, plus the soundtrack's
@@ -524,6 +552,15 @@ def probe_media(path, envelope=False, interval_seconds=1.0):
             (#277). A track whose *real* length isn't a whole number of
             seconds still gets a genuine final bin shorter than the rest -
             `len(rms_dbfs)` is `ceil(duration_seconds)`, not `floor` (#278)
+        pcm_hash: Also report `pcm_sha256`, the SHA-256 of the decoded
+            samples in their native dtype (`sample_format`, a numpy dtype
+            name), interleaved (frames, channels) and little-endian, trimmed
+            to the container duration as the loudness is, and `frames`, the
+            sample frames hashed. Two hashes compare only when
+            `sample_format`, `frames`, `sample_rate` and `channels` agree.
+            Off by default so `list_gallery` and the save-time check pay
+            nothing; absent, like the levels, when decode fails partway
+            (#1139)
     """
     try:
         container = av.open(path)
@@ -553,6 +590,7 @@ def probe_media(path, envelope=False, interval_seconds=1.0):
                 info.get("duration_seconds"),
                 envelope,
                 interval_seconds,
+                pcm_hash,
             )
             if audio is not None
             else None
