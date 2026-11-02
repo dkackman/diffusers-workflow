@@ -114,8 +114,11 @@ if you set one, otherwise one generated on first start and saved to
 `DW_INSECURE_NO_TOKEN=1` turns this off; only do that with the port
 published on localhost (`DW_BIND=127.0.0.1`, the default).
 
-To reach the server from your LAN, set `DW_BIND=0.0.0.0`. Clients connect
-the way [REMOTE.md](REMOTE.md) describes.
+To reach the server from your LAN, set `DW_BIND=0.0.0.0`, then run `up -d`
+again to re-create the container. Clients connect the way
+[REMOTE.md](REMOTE.md) describes. A box that switches from a systemd unit
+bound to `0.0.0.0` needs this, or after the switch the server answers only
+on the box itself.
 
 ## Options
 
