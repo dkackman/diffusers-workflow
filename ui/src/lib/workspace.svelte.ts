@@ -36,6 +36,13 @@ let lastView: RouteView | null = null
 // the default alone so the sidebar has something to show, and that fallback
 // must not be read as proof that every other workspace is gone.
 let listed = false
+// Whether `names` was fetched for the check now reading it. The listing is
+// cached for the page's life, and a workspace can be created elsewhere after
+// it landed (an agent's create_workspace, another tab) - the running chip's
+// job link then corrects the URL into one the cache has never heard of. So
+// a name the cache lacks is refetched once before it is called missing.
+let fresh = false
+let refetching = false
 
 export function applyRouteWorkspace(view: RouteView | null): void {
   lastView = view
@@ -59,6 +66,14 @@ export function applyRouteWorkspace(view: RouteView | null): void {
 export function checkWorkspaceExists(view: RouteView | null): void {
   if (!listed || !workspace.names) return
   if (workspace.names.includes(workspace.current)) return
+  if (!fresh) {
+    // The refetch's own landing re-runs this check against `lastView`
+    if (refetching) return
+    refetching = true
+    invalidateWorkspaces()
+    void loadWorkspaces().finally(() => (refetching = false))
+    return
+  }
   const missing = workspace.current
   workspace.current = DEFAULT_WORKSPACE
   rememberWorkspace(DEFAULT_WORKSPACE)
@@ -94,7 +109,12 @@ export function loadWorkspaces(): Promise<void> {
         // A route naming a workspace that has gone away (deleted elsewhere,
         // or a stale bookmark) is caught here for the route the app opened
         // on; `applyRouteWorkspace` catches every one after
-        checkWorkspaceExists(lastView)
+        fresh = true
+        try {
+          checkWorkspaceExists(lastView)
+        } finally {
+          fresh = false
+        }
       } catch {
         listed = false
         workspace.names = [DEFAULT_WORKSPACE]
