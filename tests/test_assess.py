@@ -255,6 +255,16 @@ class TestShotDeadAir:
         assert shot["dead_air_seconds"] > 0.4
         assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
 
+    def test_a_silent_by_design_shot_does_not_fire_but_a_plain_one_does(self):
+        video = self._shot(gap_dbfs=-80.0)
+        flagged = [
+            f for f in analyze_shots(video)["findings"] if f["rule"] == "shot_dead_air"
+        ]
+        assert len(flagged) == 1
+        video.shots[0]["silent_by_design"] = True
+        answer = analyze_shots(video)
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
 
 # ---------------------------------------------------------------------------
 # 2. A dissolve does not flag a level step, click, hole or frame jump
