@@ -31,7 +31,13 @@ from ..media_types import (  # noqa: F401
     FrameList,
     fit_codec_padding,
 )
-from ..task_domains import frame_size_error, whole_number
+from ..shots import shot_record
+from ..task_domains import frame_size_error, real_number, whole_number
+from ..task_problems import (  # noqa: F401
+    MAX_STILLS_FPS,
+    MAX_STILLS_SECONDS,
+    stills_to_video_problems,
+)
 
 logger = logging.getLogger("dw")
 
@@ -229,6 +235,71 @@ def loop_frames(video, num_frames):
     laps = -(-num_frames // len(frames))  # ceiling, so the last lap is trimmed
     looped = numpy.concatenate([frames] * laps, axis=0)[:num_frames]
     return (looped.astype(numpy.float32) / 255.0).clip(0.0, 1.0)
+
+
+def stills_to_video(images, durations, fps=24):
+    """Task command: storyboard stills held on screen for a duration each, as
+    one silent clip - an animatic.
+
+    The clip has no audio track (`audio=None`); `concat_videos` fills a
+    silent input with silence and `pair_audio` lays a score under it, so it
+    joins and scores like any generated shot.
+
+    Args:
+        images: The stills, in order - PIL images or arrays. As a task
+            argument they may also be `{"media_type": "image", "location":
+            "asset:x.png"}` dicts or references, read the way
+            `ingredients_grid` reads its images. Every still must be the
+            same size
+        durations: Seconds each still is held - one number for all of them, or
+            one per still. Each still gets `max(1, round(seconds * fps))`
+            frames, so a duration shorter than a frame still shows
+        fps: Frame rate of the clip, up to 120. The clip is at most 600
+            seconds long in total
+
+    Returns:
+        An AudioVideo of uint8 (frames, height, width, 3) frames at `fps`,
+        with one shot record per still
+    """
+    if isinstance(images, numpy.ndarray) and images.ndim == 4:
+        images = list(images)
+    elif isinstance(images, (numpy.ndarray, Image.Image)):
+        images = [images]
+    # Locations and dicts are read by the handler (argument_media imports this
+    # module, so it cannot import that back); what arrives here is in memory
+    stills = [
+        _to_pil(image).convert("RGB") if not isinstance(image, Image.Image) else image
+        for image in images or []
+    ]
+    if not stills:
+        raise ValueError("stills_to_video was given no 'images' to hold")
+    fps = real_number(fps, "fps", "stills_to_video", required=True)
+    problems = stills_to_video_problems(durations, fps, len(stills))
+    if durations is None:
+        problems.append(("durations", "stills_to_video needs 'durations'"))
+    if problems:
+        raise ValueError(problems[0][1])
+    seconds = list(durations) if isinstance(durations, (list, tuple)) else None
+    seconds = seconds or [durations] * len(stills)
+
+    sizes = {still.size for still in stills}
+    if len(sizes) > 1:
+        first = stills[0].size
+        other = next(still.size for still in stills if still.size != first)
+        raise ValueError(
+            f"stills_to_video needs stills of one size: got "
+            f"{first[0]}x{first[1]} and {other[0]}x{other[1]} - resize them "
+            "to match first"
+        )
+    counts = [max(1, round(float(s) * fps)) for s in seconds]
+    width, height = stills[0].size
+    frames = numpy.empty((sum(counts), height, width, 3), dtype=numpy.uint8)
+    shots, start = [], 0
+    for index, (still, count) in enumerate(zip(stills, counts), start=1):
+        frames[start : start + count] = numpy.asarray(still.convert("RGB"))
+        shots.append(shot_record(f"still_{index}", start, count))
+        start += count
+    return AudioVideo(frames, None, None, fps=fps, shots=shots)
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):

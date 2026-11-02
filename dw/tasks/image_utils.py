@@ -892,7 +892,7 @@ def ingredients_grid(
         )
     color = ingredients_background(background)
 
-    sources = _grid_load(images)
+    sources = load_rgb_images(images)
     if not sources:
         raise ValueError("ingredients_grid was given no images")
     if len(sources) > max_images:
@@ -923,8 +923,9 @@ def ingredients_grid(
     return canvas
 
 
-def _grid_load(images):
-    """The images as flat list of RGB PIL images, from whatever references resolved to"""
+def load_rgb_images(images):
+    """The images as a flat list of RGB PIL images, from whatever references
+    resolved to - read by ingredients_grid and, through its handler, stills_to_video"""
     if images is None:
         return []
     loaded = fetch_image(images)

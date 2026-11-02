@@ -33,6 +33,7 @@ from ..task_problems import (
     face_track_errors,
     ingredients_grid_errors,
     paste_face_track_errors,
+    stills_to_video_errors,
 )
 
 logger = logging.getLogger("dw")
@@ -122,6 +123,33 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     from .video_utils import loop_frames
 
     return loop_frames(**arguments)
+
+
+@register_command(
+    "stills_to_video",
+    implementation="dw.tasks.video_utils.stills_to_video",
+    domains={"fps": POSITIVE},
+    static_check=stills_to_video_errors,
+)
+def _handle_stills_to_video(task, arguments, previous_pipelines):
+    """Hold each still for a duration, as one silent clip"""
+    logger.debug("Holding stills into a clip")
+    import numpy
+
+    from .image_utils import load_rgb_images
+    from .video_utils import stills_to_video
+
+    # Read the stills as ingredients_grid reads its images; arrays are
+    # already pixels and pass through
+    images = arguments.get("images")
+    if isinstance(images, (list, tuple)):
+        arguments["images"] = [
+            item if isinstance(item, numpy.ndarray) else load_rgb_images(item)[0]
+            for item in images
+        ]
+    elif not isinstance(images, numpy.ndarray):
+        arguments["images"] = load_rgb_images(images)
+    return stills_to_video(**arguments)
 
 
 @register_command(
