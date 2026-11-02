@@ -12,12 +12,12 @@
                 "command": "canny",
                 "arguments": {
                     "image": {
-                        "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium",
-                        "low_threshold": 50,
-                        "high_threshold": 200,
-                        "detect_resolution": 1024,
-                        "image_resolution": 1024
-                    }
+                        "location": "https://pbs.twimg.com/media/GezfaKzaQAEwLJJ?format=jpg&name=medium"
+                    },
+                    "low_threshold": 50,
+                    "high_threshold": 200,
+                    "detect_resolution": 1024,
+                    "image_resolution": 1024
                 }
             },
             "result": {
