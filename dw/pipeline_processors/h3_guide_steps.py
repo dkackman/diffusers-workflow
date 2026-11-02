@@ -50,9 +50,11 @@ from .h3_rules import (
     GUIDE_AUDIO_ROWS,
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
+    GUIDE_NOISE_INPUT,
     GUIDES_INPUT,
     guide_end_problem,
     guide_frame_problem,
+    guide_noise_taper,
 )
 
 logger = logging.getLogger("dw")
@@ -249,6 +251,20 @@ def fit_guide_frames(frames, height, width):
     )
 
 
+def noised_guide_pixels(pixels, strength, seed):
+    """`pixels`, `(n, h, w, 3)` uint8, as float pixels on the same 0-255 scale
+    with Gaussian noise added - `guide_noise` (#1166). Each frame's noise std is
+    its `guide_noise_taper` amplitude as a fraction of full scale: `strength`
+    on the first frame down to none on the last, the frame next to the join.
+    The noise is drawn on the CPU under `seed`, so a seeded run repeats."""
+    amplitudes = torch.tensor(
+        guide_noise_taper(pixels.shape[0], strength), dtype=torch.float32
+    ).view(-1, 1, 1, 1)
+    generator = torch.Generator().manual_seed(seed)
+    noise = torch.randn(pixels.shape, generator=generator, dtype=torch.float32)
+    return (pixels.to(torch.float32) + noise * amplitudes * 255.0).clamp(0.0, 255.0)
+
+
 class DwH3GuideLayoutStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -292,6 +308,17 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                     "carries 'audio': (channels, samples) and 'sample_rate' holds that soundtrack over its span."
                 ),
             ),
+            InputParam(
+                name=GUIDE_NOISE_INPUT,
+                type_hint=float,
+                default=None,
+                description=(
+                    "Fixed guide noise in [0, 1): pixel noise on every video guide, tapered from this std at "
+                    "the guide's first frame to none at its last, put into the guide's latent by a paired "
+                    "encode (the same encode seed for the noisy and clean frames). The rows stay held. "
+                    "0 or unset is the guide as it is; audio is never noised."
+                ),
+            ),
             InputParam(name="condition_latents", type_hint=list, default=None),
         ]
 
@@ -319,7 +346,12 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             laid["latent_height"], laid["latent_width"], patch_h, patch_w
         )
         latents, positions = self._encode_guides(
-            components, guides, laid, frame_grid, num_text
+            components,
+            guides,
+            laid,
+            frame_grid,
+            num_text,
+            state.get(GUIDE_NOISE_INPUT) or 0.0,
         )
         layout = splice_guide_rows(
             tuple(laid[name].cpu() for name in _PACKED)
@@ -340,9 +372,16 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         state.set("condition_latents", list(laid["condition_latents"] or []) + latents)
         return components, state
 
-    def _encode_guides(self, components, guides, laid, frame_grid, num_text):
+    def _encode_guides(
+        self, components, guides, laid, frame_grid, num_text, guide_noise=0.0
+    ):
         """([latents], [positions]): each guide VAE-encoded on the canvas, and
-        its rows' rotary positions, timed from the target frame it lands on."""
+        its rows' rotary positions, timed from the target frame it lands on.
+
+        With `guide_noise`, each guide is also encoded with tapered pixel noise
+        (`noised_guide_pixels`) under the same encode seed, and the difference
+        E(noisy) - E(clean) is added to the clean latent - PrefixStream's paired
+        encode, so 0 leaves today's latent exactly."""
         device = components._execution_device
         target_time = before_denoise._temporal_position_grid(
             laid["num_latent_frames"], float(num_text)
@@ -357,14 +396,15 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 raise ValueError(f"guides[{index}]: {problem}")
             pixels = fit_guide_frames(frames, laid["height"], laid["width"])
             pixels = torch.from_numpy(np.ascontiguousarray(pixels))
-            # Through the module, so the encode is the one installed when it runs
-            encoded = encoders.encode_vae_condition(
-                components.vae,
-                pixels.to(device).permute(3, 0, 1, 2)[None],
-                components.pixel_mean,
-                components.pixel_std,
-                components.keyframe_encode_seed,
-            )
+            encoded = self._encode_pixels(components, pixels, device)
+            if guide_noise:
+                noisy = noised_guide_pixels(
+                    pixels, guide_noise, components.keyframe_encode_seed + index
+                )
+                encoded = encoded + (
+                    self._encode_pixels(components, noisy, device) - encoded
+                )
+                logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
             latents.append(encoded)
             positions.append(
                 guide_position_ids(
@@ -379,6 +419,19 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 f"({encoded.shape[2]} latent frames)"
             )
         return latents, positions
+
+    @staticmethod
+    def _encode_pixels(components, pixels, device):
+        """One guide's `(n, h, w, 3)` pixels VAE-encoded the way a keyframe
+        is, under the keyframe encode seed."""
+        # Through the module, so the encode is the one installed when it runs
+        return encoders.encode_vae_condition(
+            components.vae,
+            pixels.to(device).permute(3, 0, 1, 2)[None],
+            components.pixel_mean,
+            components.pixel_std,
+            components.keyframe_encode_seed,
+        )
 
     def _hold_guide_audio(
         self, components, state, guides, layout, laid, width_grid, num_text

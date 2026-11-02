@@ -457,6 +457,43 @@ GUIDE_LATENTS_BLOCK = "dw_guide_latents"
 GUIDE_AUDIO_BLOCK = "dw_guide_audio"
 GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
 
+# Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
+# guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put
+# into its latent by a paired encode (h3_guide_steps.DwH3GuideLayoutStep). The
+# rows stay held condition rows; audio is never noised.
+GUIDE_NOISE_INPUT = "guide_noise"
+
+
+def guide_noise_problem(value):
+    """Why `value` cannot be a `guide_noise`, naming the range, or None. An
+    unresolved reference is left to the run."""
+    if isinstance(value, str) and references.is_ref(references.UNRESOLVED, value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4 - and {value!r} is "
+            f"not a number"
+        )
+    if not 0 <= value < 1:  # NaN fails it too
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4; 0 adds none - and "
+            f"{value} is outside it"
+        )
+    return None
+
+
+def guide_noise_taper(num_frames, strength):
+    """The noise amplitude on each of a guide's `num_frames` frames: a cosine
+    taper from `strength` at the first frame to 0 at the last, the frame next
+    to the join. A one-frame guide is all join, so it is clean."""
+    if num_frames <= 1:
+        return [0.0] * num_frames
+    return [
+        strength * 0.5 * (1.0 + math.cos(math.pi * index / (num_frames - 1)))
+        for index in range(num_frames)
+    ]
+
+
 # Pixel frames per VAE chunk and latent frames per chunk - a clip encodes to whole
 # latents at 1, 5 or 17m + 5 frames, and lines up with the target's latent grid
 # only at a chunk boundary, frame 17j (latent 5j). Copies of the H3 video VAE's
