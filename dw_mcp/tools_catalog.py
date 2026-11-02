@@ -328,6 +328,10 @@ class CatalogTools:
         `findings` lists each level problem measured (full scale, near
         silence) with its fix.
 
+        `media.pcm_sha256` hashes the decoded audio samples; two hashes
+        compare only when `sample_format`, `frames`, `sample_rate` and
+        `channels` all agree.
+
         `name` may be an `asset:` reference, and then it describes that
         input asset - a shot's frame count, whether two shots share an fps,
         whether a score reaches the cut's length. Check before running: a
