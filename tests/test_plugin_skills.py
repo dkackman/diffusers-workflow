@@ -1475,3 +1475,74 @@ class TestShotDocumentAndFixLadder:
         assert "minimax-h3/references/prompt-lint.md" in body
         for key in ("shot_size", "move", "lens", "light", "duration"):
             assert f"`{key}`" in body
+
+
+STORY_DIR = os.path.join(PLUGIN_DIR, "skills", "storyboard")
+STORY_SKILL = os.path.join(STORY_DIR, "SKILL.md")
+
+
+class TestStoryboardSkill:
+    """Boards on FLUX 3 Klein, a six-cut coverage set, boards as start
+    frames, and an animatic of them (#1145, #1146)."""
+
+    def _ref(self, name):
+        return open(
+            os.path.join(STORY_DIR, "references", name), encoding="utf-8"
+        ).read()
+
+    def test_storyboard_skill_registered(self):
+        for document in (
+            os.path.join(PLUGIN_DIR, "README.md"),
+            os.path.join(REPO_ROOT, "CLAUDE.md"),
+        ):
+            assert "`storyboard`" in open(document, encoding="utf-8").read()
+        assert STORY_SKILL in SKILLS
+
+    def test_storyboard_names_six_coverage_cuts(self):
+        text = self._ref("coverage-set.md").lower()
+        for cut in (
+            "establishing",
+            "medium",
+            "close-up",
+            "over-the-shoulder",
+            "insert",
+            "low angle",
+        ):
+            assert cut in text, cut
+
+    def test_storyboard_caps_boards_at_eight(self):
+        flat = " ".join(skill_body(STORY_SKILL).split())
+        assert "up to eight boards" in flat
+        assert "image one" in flat
+
+    def test_storyboard_credits_its_sources(self):
+        text = skill_text(STORY_SKILL)
+        assert "Higgsfield" in text and "Popcorn" in text
+        assert "Shot Board" in text and "MIT" in text
+
+    def test_storyboard_animatic_recipe_names_the_template(self):
+        text = self._ref("animatic.md")
+        assert "`templates/animatic`" in text
+        assert "`templates/generate-speech`" in text
+        assert "`templates/minimax/music`" in text
+
+    def test_storyboard_maps_boards_to_each_family_s_start_frame(self):
+        text = skill_text(STORY_SKILL)
+        for template in (
+            "templates/minimax/image-to-video",
+            "templates/ltx2/image-to-video",
+            "templates/kandinsky6/image-to-video",
+        ):
+            assert f"`{template}`" in text
+
+    @pytest.mark.parametrize("template", ["animatic", "face-drift-check"])
+    def test_new_templates_validate(self, template, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        path = os.path.join(REPO_ROOT, "workflows", "templates", f"{template}.json")
+        workflow_from_file(path, str(tmp_path)).validate()
+
+    def test_face_drift_check_is_pointed_at_from_the_series_skills(self):
+        for skill in ("script-to-video", "series-episodes"):
+            body = skill_body(os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md"))
+            assert "`templates/face-drift-check`" in body

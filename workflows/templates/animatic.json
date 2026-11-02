@@ -1,0 +1,55 @@
+{
+    "id": "animatic",
+    "description": "Holds storyboard stills for a duration each and lays a soundtrack under them. The result is one clip. It is a cheap check on pacing and order before any video model is paid for. 'boards' is a list of images - asset: references uploaded with upload_asset or promoted with keep_output, or the stills of an earlier run - all the same size; a still that resolves to several images contributes each of them in order. 'durations' is seconds per board: one number holds every board for that long, or a list gives one number per board. Each board gets max(1, round(duration * fps)) frames, and the clip is at most 600 seconds and 36000 frames. 'soundtrack' is one audio asset, such as the text-to-speech scratch track or a music bed, and the output's audio is that track trimmed or padded with silence to the clip's length (pair_audio with its fit set to the picture, which warns either way), so a track longer than the boards is cut off and a shorter one leaves the tail silent. A track meant to line up with the boards must be cut to the same durations beforehand; the template does not time boards to the audio. The clip's shot records mark where each board starts.",
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 0.2
+        }
+    ],
+    "cost_drivers": [
+        "boards"
+    ],
+    "variables": {
+        "boards": [
+            "asset:board_1.png",
+            "asset:board_2.png",
+            "asset:board_3.png"
+        ],
+        "durations": 2,
+        "fps": 24,
+        "soundtrack": "asset:soundtrack.wav"
+    },
+    "steps": [
+        {
+            "name": "stills",
+            "task": {
+                "command": "stills_to_video",
+                "arguments": {
+                    "images": "variable:boards",
+                    "durations": "variable:durations",
+                    "fps": "variable:fps"
+                }
+            }
+        },
+        {
+            "name": "film",
+            "task": {
+                "command": "pair_audio",
+                "arguments": {
+                    "video": "previous_result:stills",
+                    "audio": "variable:soundtrack",
+                    "fps": "variable:fps",
+                    "fit": "video"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": "variable:fps",
+                "subfolder": "final"
+            }
+        }
+    ]
+}
