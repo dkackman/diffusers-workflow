@@ -472,7 +472,7 @@ def _shot_span_findings(probe, records, media):
         findings.append(
             {
                 "rule": "shot_span_overrun",
-                "severity": "warning",
+                "severity": "warn",
                 "at": {
                     "shot": shot.get("name"),
                     "index": index,

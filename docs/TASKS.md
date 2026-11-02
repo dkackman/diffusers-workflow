@@ -2336,7 +2336,7 @@ Guards beyond the threshold:
   `loop_audio` -> `mix_audio`.
 
 A `shots` record reaching past the file's own length is a separate finding,
-`shot_span_overrun` (severity `warning`), on all three probes; the record is
+`shot_span_overrun` (severity `warn`), on all three probes; the record is
 clipped to the file before the rules above run.
 `validate_workflow` reports the same mistake ahead of the run when the
 video's length is already knowable (a `shots` argument against an

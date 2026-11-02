@@ -13,7 +13,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.assessment_rules import RULES_BY_NAME
+from dw.assessment_rules import RULES_BY_NAME, SEVERITIES
 from dw.media_types import AudioVideo
 from dw.runs import MANIFEST_FILE_NAME, shots_beside
 from dw.shots import shot_record
@@ -995,6 +995,9 @@ class TestShotSpanOverrun:
         assert len(overrun) == 1
         assert overrun[0]["at"]["shot"] == "b"
         assert overrun[0]["value"]["frames"] == 176
+        # one of the assessment vocabulary's severities, not the validator's
+        # "warning" - a reader filtering findings by severity would miss it
+        assert overrun[0]["severity"] in SEVERITIES
 
         assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
         assert any(w[1].get("shots") == ["b"] for w in warnings)
