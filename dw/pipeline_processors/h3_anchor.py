@@ -18,8 +18,11 @@ never touched. A full match: there is no strength knob.
 
 The block is inserted at load into every t2va/fl2va core-denoise sequence
 (`insert_latent_anchor`) and passes the latent through untouched when no
-`latent_anchor` is given, so a run without one is bit-identical to stock. ref2va
-gets no block, and `anchor_refusal` names why.
+`latent_anchor` is given, so a run without one is bit-identical to stock. The
+block narrator (progress.reported_blocks) skips it then - neither named in the job
+log nor run - and a call that sets one logs a line naming the anchor's source
+(Pipeline._with_latent_anchor, #1181). ref2va gets no block, and `anchor_refusal`
+names why.
 
 The concept follows H3MD Director's segment colour anchoring (concept only, no
 code; docs/ATTRIBUTIONS.md). The block module imports diffusers when it loads, so

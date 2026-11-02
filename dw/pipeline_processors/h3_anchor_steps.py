@@ -47,6 +47,9 @@ def anchor_statistics(components, frames, height, width):
 
 class DwH3LatentAnchorStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
+    # Without this input the step is a pass-through, so the block narrator
+    # skips it - no anchor phase in a log that never asked for one (#1181)
+    idle_without = LATENT_ANCHOR_INPUT
 
     @property
     def description(self):

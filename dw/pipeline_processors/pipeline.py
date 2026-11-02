@@ -185,6 +185,16 @@ def apply_runtime_settings(pipeline_definition, model):
     apply_sparse_settings(pipeline_definition.get("configuration", {}), model)
 
 
+def latent_anchor_source(chain_source, value):
+    """What a `latent_anchor` names, for the job log (#1181): the chain
+    segment that supplied it, the reference given, or frames passed in."""
+    if chain_source:
+        return chain_source
+    if isinstance(value, str):
+        return f"'{value}'"
+    return "the frames given in the step's arguments"
+
+
 class Pipeline:
     """
     Manages pipeline initialization, configuration, and execution.
@@ -230,6 +240,9 @@ class Pipeline:
         # What a chained run calls the segment it is on, so progress can say
         # which one the denoise counter belongs to - it restarts per segment
         self.segment_label = None
+        # Where a chain's injected `latent_anchor` frames came from ("segment
+        # 1"), so the job log can name the anchor's source (#1181)
+        self.latent_anchor_source = None
         logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property
@@ -864,6 +877,13 @@ class Pipeline:
             )
         arguments = dict(arguments)
         arguments[LATENT_ANCHOR_INPUT] = prepared_anchor(where, value, self.base_dir)
+        # The one line that says the anchor applies to this call - without it
+        # the job log shows only a block name (#1181)
+        label = getattr(self, "segment_label", None) or self.name
+        source = latent_anchor_source(
+            getattr(self, "latent_anchor_source", None), value
+        )
+        emit_log(f"{label}: latent anchor applied - latent statistics from {source}")
         return arguments
 
     def _with_mask(self, arguments):

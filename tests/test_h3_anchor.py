@@ -113,10 +113,27 @@ class TestChainAnchor:
         assert len(first) == 4
         assert first[1].getpixel((0, 0)) == (0, 100, 150)
 
+    def test_segments_after_the_first_name_segment_1_as_the_source(self):
+        # #1181: the job log names where a chain's anchor came from
+        pipeline = FakePipeline(video_output)
+        sources = []
+        run_once = pipeline._run_once
+
+        def recording(arguments):
+            sources.append(pipeline.latent_anchor_source)
+            return run_once(arguments)
+
+        pipeline._run_once = recording
+        run_chain(pipeline, {"segments": 3, "anchor": "segment_1"}, {"prompt": "p"})
+
+        assert sources == [None, "segment 1", "segment 1"]
+        assert pipeline.latent_anchor_source is None
+
     def test_no_anchor_by_default(self):
         pipeline = FakePipeline(video_output)
         run_chain(pipeline, {"segments": 3}, {})
         assert all(LATENT_ANCHOR_INPUT not in call for call in pipeline.calls)
+        assert pipeline.latent_anchor_source is None
 
     def test_an_explicit_none(self):
         pipeline = FakePipeline(video_output)
@@ -415,6 +432,51 @@ class TestWithLatentAnchor:
             self.step(anchored), {LATENT_ANCHOR_INPUT: self.frames()}
         )
         assert result[LATENT_ANCHOR_INPUT].shape == (5, 4, 6, 3)
+
+    def logged(self, step, arguments):
+        from dw.events import RunContext, activate_context, deactivate_context
+        from dw.pipeline_processors.pipeline import Pipeline
+
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            Pipeline._with_latent_anchor(step, arguments)
+        finally:
+            deactivate_context(token)
+        return [event["message"] for event in events if event["event"] == "log"]
+
+    def test_no_anchor_logs_nothing(self, anchored):
+        # #1181: a call that never asked for an anchor says nothing about one
+        assert self.logged(self.step(anchored), {"prompt": "x"}) == []
+
+    def test_frames_log_one_line_naming_the_source(self, anchored):
+        (message,) = self.logged(
+            self.step(anchored), {LATENT_ANCHOR_INPUT: self.frames()}
+        )
+        assert message == (
+            "video: latent anchor applied - latent statistics from the frames "
+            "given in the step's arguments"
+        )
+
+    def test_a_chain_segment_logs_its_label_and_segment_1(self, anchored):
+        step = self.step(anchored)
+        step.segment_label = "segment 2/3"
+        step.latent_anchor_source = "segment 1"
+        (message,) = self.logged(step, {LATENT_ANCHOR_INPUT: self.frames()})
+        assert message == (
+            "segment 2/3: latent anchor applied - latent statistics from segment 1"
+        )
+
+    def test_a_reference_is_named(self, anchored, monkeypatch):
+        from dw import argument_media
+
+        monkeypatch.setattr(
+            argument_media, "fetch_video", lambda value, base_dir: self.frames()
+        )
+        (message,) = self.logged(
+            self.step(anchored), {LATENT_ANCHOR_INPUT: "asset:clip.mp4"}
+        )
+        assert message.endswith("latent statistics from 'asset:clip.mp4'")
 
     def test_references_are_refused(self, anchored):
         # With references the call runs ref2va, which has no anchor step: the
