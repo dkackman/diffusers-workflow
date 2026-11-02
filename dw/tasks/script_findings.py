@@ -177,7 +177,33 @@ def line_similarity(expected, heard):
     """How alike two word lists are, 0..1. Two empty lists are identical."""
     if not expected and not heard:
         return 1.0
-    return difflib.SequenceMatcher(None, expected, heard, autojunk=False).ratio()
+    plain = difflib.SequenceMatcher(None, expected, heard, autojunk=False).ratio()
+    merged_e = _merge_compounds(expected, heard)
+    merged_h = _merge_compounds(heard, expected)
+    if merged_e == expected and merged_h == heard:
+        return plain
+    merged = difflib.SequenceMatcher(None, merged_e, merged_h, autojunk=False).ratio()
+    return max(plain, merged)
+
+
+def _merge_compounds(words, other):
+    """`words` with adjacent words joined where the join is a word of `other`:
+    a compound written open on one side and closed on the other ('candle
+    crumbs' / 'candlecrumbs') is a spelling choice, not a different line."""
+    targets = set(other)
+    out = []
+    i = 0
+    while i < len(words):
+        for span in (3, 2):
+            joined = "".join(words[i : i + span])
+            if i + span <= len(words) and joined in targets:
+                out.append(joined)
+                i += span
+                break
+        else:
+            out.append(words[i])
+            i += 1
+    return out
 
 
 def tail_level(mono, sample_rate, end=None):
