@@ -1818,6 +1818,30 @@ server with `cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); w
 default `false`, two runs match frame for frame by eye but their audio levels differ by a
 few dB.
 
+#### Loosening a guide's hold: `guide_noise`
+
+A guide is held almost exactly, so the take freezes under it and leaves the guide's end
+with a visible change of pace. `guide_noise` (an H3 `t2va`/`fl2va` argument, a number in
+[0, 1), about 0.4 to start) loosens every video guide on the step: each guide frame gets
+Gaussian noise of standard deviation `amplitude x 255` on its 0-255 pixels, where the
+amplitude falls on a cosine taper from `guide_noise` at the guide's first frame to 0 at
+its last, so the frames nearest the new material are held clean. The guide is encoded
+twice with the same encode seed, clean and noisy, and E(noisy) - E(clean) is added to the
+clean latent; the noise draw is seeded per guide (`keyframe_encode_seed` + the guide's
+index), so a seeded run repeats. The rows are still held, never denoised, and the row
+plan, the refine schedule and guide audio (`"audio": true`) are unchanged.
+`guide_noise: 0` (or absent) skips the second encode, and the latent is bit-identical to
+a step without it.
+
+It is a step argument, so in a `continuity: "guide"` chain it rides to every segment and
+loosens the carried guide too.
+
+| Rule | Value |
+|---|---|
+| value | a number in [0, 1); anything else, or a value outside the range, is refused naming the range. Accepts a `variable:` reference |
+| where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; refused on `ref2va`, on a step that passes `references`, and on a non-H3 step |
+| no guides | a warning, not a refusal: a step with no `guides` and no `continuity: "guide"` chain has nothing to noise |
+
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
@@ -1838,6 +1862,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
 | `num_frames` | must exceed P, or the chain cannot progress |
+| `guide_noise` | rides on the step's arguments to every segment, so segments 2+ noise the carried guide (above) |
 
 #### Anchoring a chain's colour: `latent_anchor` and `anchor: "segment_1"`
 

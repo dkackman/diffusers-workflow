@@ -116,6 +116,11 @@ A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
 inspired the texture-band measurement on `compare_outputs`
 (`texture_bands`, [dw/texture_bands.py](../dw/texture_bands.py)): RMS energy by
 wavelength band, to see whether a change in a chain adds or removes texture.
+It also inspired `guide_noise`
+([dw/pipeline_processors/h3_guide_steps.py](../dw/pipeline_processors/h3_guide_steps.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)), from its prefix
+noise at `775be90`: a cosine-tapered noise on each guide, folded in as the difference of
+a paired VAE encode, so the guide's hold loosens toward its start.
 
 ### [1113800942/comfy-h3md-director](https://github.com/1113800942/comfy-h3md-director)
 

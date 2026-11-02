@@ -39,6 +39,7 @@ from .h3_mask import binarized, edits_regions
 from .h3_rules import (
     GUIDES_INPUT,
     GUIDE_LIMIT,
+    GUIDE_NOISE_INPUT,
     LATENT_ANCHOR_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
@@ -51,6 +52,7 @@ from .h3_rules import (
     REGENERATE_MASK,
     SOURCE_VIDEO_INPUT,
     edits_region,
+    guide_noise_problem,
     mask_problems,
     media_problems,
     refine_problems,
@@ -664,6 +666,7 @@ class Pipeline:
         arguments = self._with_mask(arguments)
         arguments = self._with_held_audio(arguments)
         arguments = self._with_guides(arguments)
+        arguments = self._with_guide_noise(arguments)
         arguments = self._with_latent_anchor(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
@@ -802,6 +805,38 @@ class Pipeline:
             for index, guide in enumerate(guides)
         ]
         arguments[GUIDES_INPUT] = prepared
+        return arguments
+
+    def _with_guide_noise(self, arguments):
+        """`guide_noise` checked before the call: a number in [0, 1) on a
+        pipeline with the guide layout (dw/pipeline_processors/h3_guide_steps.py).
+        None or 0 is dropped, so the call is today's.
+
+        Raises:
+            ValueError: If the value is not a number in [0, 1), or this
+                pipeline cannot take guides
+        """
+        if GUIDE_NOISE_INPUT not in arguments:
+            return arguments
+        value = arguments[GUIDE_NOISE_INPUT]
+        problem = None if value is None else guide_noise_problem(value)
+        if value is None or (value == 0 and problem is None):
+            arguments = dict(arguments)
+            del arguments[GUIDE_NOISE_INPUT]
+            return arguments
+        where = f"Step '{self.name}'"
+        if problem:
+            raise ValueError(f"{where}: {problem}")
+        refusal = guides_refusal(self.pipeline)
+        if refusal:
+            raise ValueError(f"{where}: {GUIDE_NOISE_INPUT} noises guides - {refusal}")
+        if arguments.get("references") is not None:
+            raise ValueError(
+                f"{where}: {GUIDE_NOISE_INPUT} cannot be combined with references - "
+                f"ref2va lays out its own conditioning; use it on t2va or fl2va"
+            )
+        arguments = dict(arguments)
+        arguments[GUIDE_NOISE_INPUT] = float(value)
         return arguments
 
     def _with_latent_anchor(self, arguments):

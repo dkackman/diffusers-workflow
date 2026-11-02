@@ -31,6 +31,11 @@ guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
 `references`), and a chain `anchor` that is unknown, paired with a continuity
 other than guide or last_frame, or carried into `references`
 (`chain_anchor_problem`, shared with the run).
+
+Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
+that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
+one on a step the guides step rule refuses. `guide_noise_warnings` says when it
+would do nothing: a step with no `guides` and no guide chain.
 """
 
 from . import references
@@ -51,12 +56,14 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
+    GUIDE_NOISE_INPUT,
     LATENT_ANCHOR_INPUT,
     RENDER_GRID,
     chain_anchor_problem,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
+    guide_noise_problem,
     not_h3,
     snap_guide_length,
 )
@@ -364,4 +371,67 @@ def anchor_errors(workflow_definition, source_indices=None):
     return errors
 
 
-__all__ = ["anchor_errors", "guide_chain_errors", "guide_lengths", "guides_errors"]
+def _guide_noise_steps(workflow_definition, source_indices):
+    """(pipeline, arguments, path, where) for every step passing a non-null
+    `guide_noise`."""
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if isinstance(arguments, dict) and arguments.get(GUIDE_NOISE_INPUT) is not None:
+            path = render_path(
+                ("steps", source, "pipeline", "arguments", GUIDE_NOISE_INPUT)
+            )
+            yield pipeline, arguments, path, where
+
+
+def guide_noise_errors(workflow_definition, source_indices=None):
+    """Every `guide_noise` refused before the run, as [{path, message}]: on a
+    step that cannot take guides (off H3, ref2va, references), or not a
+    number in [0, 1)."""
+    errors = []
+    for pipeline, arguments, path, where in _guide_noise_steps(
+        workflow_definition, source_indices
+    ):
+        problem = _takes_guides_problem(
+            pipeline, arguments, GUIDE_NOISE_INPUT
+        ) or guide_noise_problem(arguments[GUIDE_NOISE_INPUT])
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+    return errors
+
+
+def guide_noise_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a nonzero `guide_noise` on a step with no
+    `guides` and no guide chain: it noises guides, and there are none."""
+    warnings = []
+    for pipeline, arguments, path, where in _guide_noise_steps(
+        workflow_definition, source_indices
+    ):
+        if arguments[GUIDE_NOISE_INPUT] == 0:
+            continue
+        guides = arguments.get(GUIDES_INPUT)
+        chain = pipeline.get("chain")
+        continuity = chain.get("continuity") if isinstance(chain, dict) else None
+        if guides or continuity == GUIDE_CONTINUITY:
+            continue
+        if isinstance(continuity, str) and references.is_ref(
+            references.UNRESOLVED, continuity
+        ):
+            continue
+        warnings.append(
+            f"{path}: guide_noise does nothing here - it noises the step's "
+            f"guides, and this step has no 'guides' and no chain with "
+            f"continuity 'guide'{where}"
+        )
+    return warnings
+
+
+__all__ = [
+    "anchor_errors",
+    "guide_chain_errors",
+    "guide_lengths",
+    "guide_noise_errors",
+    "guide_noise_warnings",
+    "guides_errors",
+]
