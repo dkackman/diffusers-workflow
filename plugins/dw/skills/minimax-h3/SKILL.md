@@ -153,7 +153,7 @@ the rules are MiniMax's:
 
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
 Several characters: one cropped reference each, never a group picture (`references/per-character.md`).
-Before writing lines, read `references/dialogue.md`: how long a line fits, and what not to name.
+Lines: `references/dialogue.md` (length, what not to name). Check a draft: `references/prompt-lint.md`.
 A wanted look (clay, paper): `references/style.md`. Film-term camera or look: the `cinematography` skill.
 
 ## Run and judge

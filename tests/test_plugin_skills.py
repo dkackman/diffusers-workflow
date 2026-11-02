@@ -1385,3 +1385,93 @@ class TestStoryForgeLessons:
             assert "locked-off on a tripod" not in text  # L2's remedy wording
             assert "all-caps" not in text and "all caps" not in text  # L4
             assert "just before contact" not in text  # L3
+
+
+STB_REFS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references")
+SHOT_DOCUMENT = os.path.join(STB_REFS, "shot-document.md")
+FIX_LADDER = os.path.join(STB_REFS, "fix-ladder.md")
+H3_LINT = os.path.join(
+    PLUGIN_DIR, "skills", "minimax-h3", "references", "prompt-lint.md"
+)
+SHOT_KEYS = (
+    "id cast location opening_state ending_state beat must_not join "
+    "shot_size move lens light duration"
+).split()
+
+
+def _read(path):
+    return open(path, encoding="utf-8").read()
+
+
+def _registered_mcp_tools():
+    import asyncio
+
+    import httpx
+
+    pytest.importorskip("mcp", reason="the mcp extra is not installed")
+    from dw_mcp.client import DwClient
+    from dw_mcp.server import build_server
+
+    client = DwClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    server = build_server(client)
+    return {tool.name for tool in asyncio.run(server.list_tools())}
+
+
+class TestShotDocumentAndFixLadder:
+    """Stage B (#1143): the shot list persisted in the prompt library, the
+    fix ladder with its caps, and the H3 prompt lint."""
+
+    def test_shot_document_names_its_prompt_keys(self):
+        text = _read(SHOT_DOCUMENT)
+        assert "<project>/shots" in text and "<project>/shot-NN" in text
+        for key in SHOT_KEYS:
+            assert f"`{key}`" in text, key
+
+    def test_shot_document_points_at_the_vocabulary_not_a_copy(self):
+        text = _read(SHOT_DOCUMENT)
+        assert "cinematography/references/vocabulary.md" in text
+        assert "extreme-close-up" not in text  # ids live in one place
+
+    def test_shot_document_uses_only_existing_tools(self):
+        tools = _registered_mcp_tools()
+        for path in (SHOT_DOCUMENT, FIX_LADDER, H3_LINT):
+            for name in re.findall(r"`([a-z][a-z_]+)\(", _read(path)):
+                assert name in tools, f"{os.path.basename(path)}: {name}"
+
+    def test_shot_document_templates_resolve(self):
+        for path in (SHOT_DOCUMENT, FIX_LADDER, H3_LINT):
+            for name in CATALOG_NAME.findall(_read(path)):
+                assert os.path.exists(
+                    os.path.join(REPO_ROOT, "workflows", name + ".json")
+                ) or os.path.exists(os.path.join(REPO_ROOT, "workflows", name)), name
+
+    def test_fix_ladder_order(self):
+        text = _read(FIX_LADDER).lower()
+        at = [
+            text.index(marker)
+            for marker in ("regional-edit", "face-repair", "re-prompt", "reseed", "ask")
+        ]
+        assert at == sorted(at)
+
+    def test_fix_ladder_has_caps(self):
+        text = " ".join(_read(FIX_LADDER).lower().split())
+        assert "three failed attempts" in text and "gpu-minute" in text
+
+    def test_h3_lint_checks(self):
+        text = _read(H3_LINT)
+        for check in ("overall_soundscape", "overfull", "no new information"):
+            assert check in text
+
+    def test_credits(self):
+        text = _read(SHOT_DOCUMENT) + _read(FIX_LADDER) + _read(H3_LINT)
+        for name in ("seriesmith", "OpenReel", "open-higgsfield-skills", "Picky"):
+            assert name in text
+        assert "GPL" in text
+
+    def test_script_to_video_points_at_the_three_references(self):
+        body = skill_body(SCRIPT_SKILL)
+        for ref in ("references/shot-document.md", "references/fix-ladder.md"):
+            assert f"`{ref}`" in body
+        assert "minimax-h3/references/prompt-lint.md" in body
+        for key in ("shot_size", "move", "lens", "light", "duration"):
+            assert f"`{key}`" in body
