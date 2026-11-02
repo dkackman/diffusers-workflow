@@ -533,7 +533,8 @@ ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
 def chain_anchor_problem(chain):
     """The reason a chain block's `anchor` is refused for its own settings, or
     None: an unknown value (naming the values), or `segment_1` with a continuity
-    other than guide or last_frame. Unresolved references are left to the run;
+    other than guide or last_frame, or carrying into `references`. Unresolved
+    references are left to the run;
     whether the step is H3 is the caller's to ask (`not_h3`)."""
     anchor = chain.get("anchor", ANCHOR_NONE)
     if isinstance(anchor, str) and references.is_ref(references.UNRESOLVED, anchor):
@@ -555,6 +556,15 @@ def chain_anchor_problem(chain):
             f"anchor 'segment_1' needs continuity "
             f"{' or '.join(repr(c) for c in ANCHOR_CONTINUITIES)} - its segments "
             f"are MiniMax-H3 t2va/fl2va generations; got {continuity!r}"
+        )
+    # The carry lands in `segment_argument` on every later segment, and a call
+    # that passes references runs ref2va, which has no anchor step - the
+    # anchor would be dropped without a word
+    if chain.get("segment_argument") == "references":
+        return (
+            "anchor 'segment_1' cannot carry into 'references' - a segment that "
+            "passes references runs ref2va, which has no anchor step; use "
+            "segment_argument 'image' (t2va/fl2va)"
         )
     return None
 
