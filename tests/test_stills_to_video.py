@@ -5,7 +5,12 @@ import pytest
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.tasks.video_utils import MAX_STILLS_FPS, MAX_STILLS_SECONDS, stills_to_video
+from dw.tasks.video_utils import (
+    MAX_STILLS_FPS,
+    MAX_STILLS_SECONDS,
+    STILLS_SAMPLE_RATE,
+    stills_to_video,
+)
 
 
 def still(width=512, height=512, color=(255, 0, 0)):
@@ -42,10 +47,11 @@ class TestHold:
         video = stills_to_video([array], 1, fps=4)
         assert video.frames.shape == (4, 64, 64, 3)
 
-    def test_silent_clip_carries_no_audio(self):
-        video = stills_to_video([still()], 1, fps=4)
-        assert video.audio is None
-        assert video.sample_rate is None
+    def test_clip_carries_a_silent_track_of_its_own_length(self):
+        video = stills_to_video([still(), still()], [1, 0.5], fps=24)
+        assert video.sample_rate == STILLS_SAMPLE_RATE
+        assert video.audio.shape == (1, round(36 / 24 * STILLS_SAMPLE_RATE))
+        assert not video.audio.any()
 
 
 class TestRefusals:
@@ -91,6 +97,25 @@ class TestWithConcat:
         video = stills_to_video([still(64, 64)], 1, fps=4)
         joined = concat_videos([video, video], fps=4)
         assert len(joined.frames) == 2 * len(video.frames)
+
+    def test_clip_scores_through_the_assemble_and_score_chain(self):
+        """assemble-and-score's own steps, in order: the joined cut's track is
+        resampled as the world audio, mixed under the score and paired back
+        onto the cut - a stills clip must not stop at resample_audio."""
+        from dw.tasks.audio_utils import mix_audio, resample_audio
+        from dw.tasks.concat_videos import concat_videos
+        from dw.tasks.pair_audio import pair_audio
+
+        video = stills_to_video([still(64, 64)] * 3, [1, 2, 0.5], fps=24)
+        cut = concat_videos([video], fps=24, sample_rate=44100)
+        world = resample_audio(cut, 44100)
+        score = numpy.full((2, round(3.5 * 44100)), 0.1, dtype=numpy.float32)
+        mixed = mix_audio([score, world], gains=[1.0, 1.8], sample_rate=44100)
+        film = pair_audio(cut, mixed, sample_rate=44100, fit="video")
+
+        assert len(film.frames) == 84
+        assert film.audio.shape[-1] == round(3.5 * 44100)
+        assert film.audio.any()
 
     def test_silent_clip_saves_as_a_video(self, tmp_path):
         from dw.result import Result

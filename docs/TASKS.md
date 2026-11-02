@@ -573,8 +573,12 @@ frames in total; those cap its length, not its memory. The frames are held as
 uint8 pixels, so the command also refuses, before allocating, a clip over
 4 GiB (frames x width x height x 3), naming `durations`, `fps` and the image
 size.
-Stills of different sizes are refused, naming both sizes. The video has no
-audio track; its `shots` record where each still starts.
+Stills of different sizes are refused, naming both sizes. The video carries a
+silent mono track (48 kHz) of its own length, so it joins and scores like a
+generated shot - `assemble-and-score` reads the shots' track for its world
+audio and refuses a video with none; its `shots` record where each still
+starts. Each entry of `images` that names a file is confined at
+`validate_workflow` like any media location.
 `validate_workflow` catches a non-positive duration, an `fps` out of range, a
 duration count that does not match a literal image list, and a total over 600
 seconds or 36000 frames (the 4 GiB limit depends on the image size, so it is

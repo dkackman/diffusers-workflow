@@ -131,6 +131,7 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     implementation="dw.tasks.video_utils.stills_to_video",
     domains={"fps": POSITIVE},
     static_check=stills_to_video_errors,
+    media_arguments=("images",),
 )
 def _handle_stills_to_video(task, arguments, previous_pipelines):
     """Hold each still for a duration, as one silent clip"""
