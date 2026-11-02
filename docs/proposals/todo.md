@@ -506,6 +506,23 @@ remaining deferred fix is recorded in
   clone a voice in English, Russian and more, with a 20 s reference cap and
   a context-fit refusal. Template `voice-clone`. Record, including the
   known edges: `complete/audio8-voice-clone-complete.md`.
+- **Cinematic controls, tier 1** (#1141, stages #1142-#1148), shipped
+  2026-11-02. It adds:
+  - the `cinematography` skill: a closed camera-and-look vocabulary
+    compiled per family for H3, LTX-2.5, K6 and Klein, plus five named
+    grades;
+  - a saved shot document, a fix ladder and an H3 lint in
+    `script-to-video`;
+  - `stills_to_video` and the `storyboard` skill with an `animatic`
+    template;
+  - `analyze_face_drift` (YuNet + SFace, pinned) with a
+    `face-drift-check` template;
+  - a sitcom multicam grammar in `series-episodes`.
+
+  A measured trial put six moves × three families at honoured or partial,
+  none ignored. Record, including what was deferred (the 7 unmeasured
+  moves, tier 2 in `cinematic-addons.md`):
+  `complete/cinematic-controls-complete.md`.
 
 ## Declined
 
