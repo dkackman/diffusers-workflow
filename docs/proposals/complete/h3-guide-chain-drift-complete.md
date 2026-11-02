@@ -152,6 +152,24 @@ segment 1 (about 22 dB). Neither arm changes segment 1 (diagnostics
 long-lived cuda:0 worker, and the cause wasn't found. The three arms were re-run
 with `rerun_job` and matched A exactly. Case verified: C-F681.
 
+### Fix-forward #1181: latent anchor observability
+
+The feature's final check failed C-F673 bullet 4. Every H3 call logged a
+`denoise.dw_latent_anchor` phase, unanchored calls and segment 1 too, and no
+event said when an anchor was applied or to which segment. So the events
+couldn't tell an anchored chain from an unanchored one. This was a stage-1 build
+miss, not a plan gap, so there was no re-plan.
+
+- **Built:** the anchor step logs when it applies an anchor, naming its source.
+  When `latent_anchor` is unset, the step still runs but the progress narrator
+  (`progress.py` `reported_blocks`) emits no line naming it. Shipped at
+  `44f385c8` (merged `05ffa7ea`).
+- **Bounces: 1** (architecture). The first build (`b5cf0fae`) was bounced
+  for giving the H3 latent anchor a second owner outside its map row's
+  modules. The rebuild keeps the step always running and has the narrator
+  decide only whether to log it.
+  Case verified: C-F673, all four bullets.
+
 ## Cost and bounces
 
 | Stage | Bounces | Cost |
@@ -159,6 +177,7 @@ with `rerun_job` and matched A exactly. Case verified: C-F681.
 | #1173 | 3 (architecture, C-F671 1c, SE-F061) | Not recorded on the stage |
 | #1174 | 0 | Not recorded on the stage |
 | #1175 | 1 (C-F681, arc segment 1) | Not recorded on the stage. Lem time ran over the plan's 3 h by the three arc re-runs and their diagnostics |
+| #1181 (fix-forward, C-F673 bullet 4) | 1 (architecture, second owner) | Not recorded on the stage |
 
 ## Deferred and open
 
