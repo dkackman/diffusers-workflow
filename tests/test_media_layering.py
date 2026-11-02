@@ -99,10 +99,10 @@ def test_av_open_appears_only_in_media():
     offenders = []
     for path, tree in sources():
         relative = path.relative_to(ROOT).as_posix()
-        if relative == "dw/media.py":
+        if relative in ("dw/media.py", "dw/media_readers.py"):
             continue
         offenders.extend(f"{relative}:{line}" for line in av_open_lines(tree))
-    assert offenders == [], f"av.open outside dw/media.py: {offenders}"
+    assert offenders == [], f"av.open outside dw/media*.py: {offenders}"
 
 
 @pytest.mark.parametrize(

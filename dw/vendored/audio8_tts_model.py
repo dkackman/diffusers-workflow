@@ -1915,7 +1915,7 @@ class ArkttsProcessor:
     ) -> Tensor:
         source_rate = sampling_rate
         if isinstance(value, (str, Path)):
-            from .audio_utils import load_audio
+            from ..tasks.audio_utils import load_audio
 
             if str(value).lower().startswith(("http://", "https://")):
                 # load_audio would fetch it; this module reads local files only

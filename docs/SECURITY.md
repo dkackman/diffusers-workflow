@@ -148,7 +148,7 @@ the run is refused before it queues. `Task.run` repeats the check for every
 command before its handler runs (GHSA-hhfj-p9xj-xjmr).
 
 `speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
-`dw/tasks/audio8_tts_model.py`) runs no code from its repo: the model is
+`dw/vendored/audio8_tts_model.py`) runs no code from its repo: the model is
 vendored, so there is no `trust_remote_code` load. Its five files are fetched
 with `hf_hub_download` at one pinned 40-hex revision, never a branch, and the
 weights are safetensors. The audio codec, `codec.pth`, is a pickle checkpoint;
@@ -158,7 +158,7 @@ isn't a tensor or a plain container, and only at that pinned revision. Its
 allowlist (`temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`):
 any other key is refused by name before the model loads.
 
-MMAudio (`dw/tasks/mmaudio_model.py`, `dw/tasks/mmaudio_sync_model.py`,
+MMAudio (`dw/vendored/mmaudio_model.py`, `dw/vendored/mmaudio_sync_model.py`,
 `dw/tasks/mmaudio_decoder.py`) runs no code from its repo either: the network
 and the Synchformer visual encoder are vendored at upstream commit
 `974010a0`. Their two checkpoints, `hkchengrex/MMAudio`'s

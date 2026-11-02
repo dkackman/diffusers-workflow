@@ -4,7 +4,8 @@ A domain (dw/task_domains.py) is one number against one range. What lives here
 is everything a single range cannot say: crop_face_track's crop size on the
 video model's frame grid, gate_zero above gate_full; analyze_beats' tempo range
 and anchors that are one kind and in time order; plan_cuts' transcript shape
-and render grid; analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
+and render grid; analyze_face_drift's threshold and sample count;
+analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
 `lines` and `shots`; ingredients_grid's choices and image count. Each family's
 `*_problems` function is the rule, and both sides call it - its `*_errors`
 static check (registered as the command's `static_check`, run by
@@ -73,6 +74,140 @@ def ingredients_grid_errors(arguments):
                 )
             )
     return errors
+
+
+# stills_to_video's ceilings, read by the command and by its static check. The
+# seconds and frame caps bound the length of the clip; they do not bound its
+# memory, which also depends on the stills' size. The clip is held as uint8
+# frames, so the command refuses a clip over MAX_STILLS_BYTES before it
+# allocates (the size is only known at run time)
+MAX_STILLS_FPS = 120
+MAX_STILLS_SECONDS = 600
+MAX_STILLS_FRAMES = 36000
+MAX_STILLS_BYTES = 4 * 1024**3
+
+
+def stills_to_video_problems(durations, fps, count=None):
+    """[(argument, message)] for the stills_to_video rules past a domain: `fps`
+    in 1..MAX_STILLS_FPS, every duration above zero, one duration per still
+    when both are known, and a total of at most MAX_STILLS_SECONDS. Values
+    that are references, or not yet known, are the run's to check."""
+    problems = []
+    rate = as_number(fps)
+    if rate is not None and not 0 < rate <= MAX_STILLS_FPS:
+        problems.append(
+            (
+                "fps",
+                f"stills_to_video needs 'fps' above 0 and at most "
+                f"{MAX_STILLS_FPS}, got {fps}",
+            )
+        )
+    if durations is None or is_ref(DEFERRED, durations):
+        return problems
+    many = isinstance(durations, (list, tuple))
+    items = list(durations) if many else [durations]
+    if any(is_ref(DEFERRED, item) or is_ref(GATHER, item) for item in items):
+        return problems
+    numbers = []
+    for item in items:
+        number = as_number(item)
+        if number is None or number <= 0:
+            problems.append(
+                (
+                    "durations",
+                    f"stills_to_video needs every one of 'durations' as a "
+                    f"number of seconds above 0, got {item!r}",
+                )
+            )
+            return problems
+        numbers.append(number)
+    if many and count is not None and len(numbers) != count:
+        problems.append(
+            (
+                "durations",
+                f"stills_to_video was given {count} images but {len(numbers)} "
+                "'durations' - give one duration per image, or a single number "
+                "for all of them",
+            )
+        )
+        return problems
+    total = sum(numbers) * (count if not many and count else 1)
+    if total > MAX_STILLS_SECONDS:
+        problems.append(
+            (
+                "durations",
+                f"stills_to_video makes a clip of {total:g} seconds, over the "
+                f"{MAX_STILLS_SECONDS} second limit - shorten the durations",
+            )
+        )
+    rate = as_number(fps)
+    if rate is not None and 0 < rate <= MAX_STILLS_FPS:
+        frames = sum(max(1, round(n * rate)) for n in numbers)
+        if not many and count:
+            frames *= count
+        if frames > MAX_STILLS_FRAMES:
+            problems.append(
+                (
+                    "durations",
+                    f"stills_to_video makes {frames} frames, over the "
+                    f"{MAX_STILLS_FRAMES} frame limit - shorten the "
+                    "'durations' or lower 'fps' (each still takes at least "
+                    "one frame)",
+                )
+            )
+    return problems
+
+
+def stills_to_video_errors(arguments):
+    """The stills_to_video rules a literal workflow can break before it runs"""
+    images = arguments.get("images")
+    count = None
+    if isinstance(images, list) and not any(is_ref(GATHER, item) for item in images):
+        count = len(images)
+    return stills_to_video_problems(
+        arguments.get("durations"), arguments.get("fps", 24), count
+    )
+
+
+# analyze_face_drift's two settings: a cosine similarity is -1..1, and the
+# frames read from each shot are a whole number up to FACE_DRIFT_MAX_SAMPLES
+FACE_DRIFT_MAX_SAMPLES = 64
+
+
+def face_drift_problems(threshold=None, samples_per_shot=None):
+    """[(argument, message)] for the analyze_face_drift rules these values
+    break. A value that is None, a reference or not a number is skipped - the
+    domain check owns that complaint."""
+    problems = []
+    cosine = as_number(threshold)
+    if cosine is not None and not -1.0 <= cosine <= 1.0:
+        problems.append(
+            (
+                "threshold",
+                "analyze_face_drift: threshold must be a cosine similarity "
+                f"from -1 to 1, not {threshold}",
+            )
+        )
+    samples = as_number(samples_per_shot)
+    if samples is not None and (
+        samples != int(samples) or not 1 <= samples <= FACE_DRIFT_MAX_SAMPLES
+    ):
+        problems.append(
+            (
+                "samples_per_shot",
+                "analyze_face_drift: samples_per_shot must be a whole number "
+                f"from 1 to {FACE_DRIFT_MAX_SAMPLES}, not {samples_per_shot}",
+            )
+        )
+    return problems
+
+
+def face_drift_errors(arguments):
+    """The analyze_face_drift rules a literal workflow can break before it
+    runs"""
+    return face_drift_problems(
+        arguments.get("threshold"), arguments.get("samples_per_shot")
+    )
 
 
 # crop_face_track's rules past a plain domain. The crop feeds a video model

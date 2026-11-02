@@ -82,6 +82,7 @@ EXPECTED_SITES = {
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),
     ("dw/tasks/pair_audio.py", "pair_audio"): ("remeasures", 1),
     ("dw/tasks/video_utils.py", "_decode_audio_video"): ("none", 1),
+    ("dw/tasks/video_utils.py", "stills_to_video"): ("populates", 1),
     ("dw/output_extraction.py", "pair_audio_with_frames"): ("none", 1),
     ("dw/tasks/h3_latent_upscale.py", "decode_h3_latents"): ("none", 1),
     ("dw/tasks/face_track.py", "crop_face_track"): ("none", 1),

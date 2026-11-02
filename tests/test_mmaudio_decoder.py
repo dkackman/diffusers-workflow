@@ -153,9 +153,10 @@ def test_weights_are_pinned():
     assert dec.WEIGHTS_FILE.endswith(".safetensors")
 
 
-def test_module_is_not_imported_by_dw():
+def test_module_is_imported_only_by_the_sound_effects_task():
+    # stage D (#1133): generate_sound_effects is its one consumer
     dw_root = Path(dec.__file__).resolve().parents[1]
     for path in dw_root.rglob("*.py"):
-        if path.name == "mmaudio_decoder.py":
+        if path.name in ("mmaudio_decoder.py", "sound_effects.py"):
             continue
         assert "mmaudio_decoder" not in path.read_text(encoding="utf-8"), path

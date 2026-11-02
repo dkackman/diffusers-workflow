@@ -1,5 +1,5 @@
-"""The vendored MMAudio network and Euler sampler (dw/tasks/mmaudio_model.py)
-and its DFN5B CLIP key map and towers (dw/tasks/mmaudio_clip.py), on tiny random configurations on CPU."""
+"""The vendored MMAudio network and Euler sampler (dw/vendored/mmaudio_model.py)
+and its DFN5B CLIP key map and towers (dw/vendored/mmaudio_clip.py), on tiny random configurations on CPU."""
 
 import math
 import re
@@ -9,8 +9,8 @@ import pytest
 import torch
 import torch.nn.functional as F
 
-import dw.tasks.mmaudio_clip as mc
-import dw.tasks.mmaudio_model as mm
+import dw.vendored.mmaudio_clip as mc
+import dw.vendored.mmaudio_model as mm
 
 MODULE_PATH = Path(mm.__file__)
 CLIP_MODULE_PATH = Path(mc.__file__)
@@ -530,10 +530,16 @@ def test_weights_are_pinned():
     assert mc.CLIP_REVISION == "01b771ed0d1395ca5ffdd279897d665ebe00dfd2"
 
 
-def test_modules_are_not_imported_by_dw():
-    # stage B is inert: nothing in dw imports either module
-    own = {MODULE_PATH, CLIP_MODULE_PATH}
-    for path in MODULE_PATH.parents[1].rglob("*.py"):
+def test_modules_are_imported_only_by_the_sound_effects_task():
+    # stage D (#1133): generate_sound_effects is their one consumer
+    dw = MODULE_PATH.parents[1]  # dw/, with the ports under dw/vendored/
+    own = {
+        MODULE_PATH,
+        CLIP_MODULE_PATH,
+        dw / "tasks" / "sound_effects.py",
+        dw / "vendored" / "__init__.py",
+    }
+    for path in dw.rglob("*.py"):
         if path not in own:
             text = path.read_text(encoding="utf-8")
             assert "mmaudio_model" not in text and "mmaudio_clip" not in text, path

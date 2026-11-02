@@ -8,9 +8,12 @@ guide layout dw/pipeline_processors/h3_guides.py. tests/test_h3_rules.py pins
 that it imports neither.
 """
 
+import math
+from array import array
+
 from .. import references
 from ..adapter_compatibility import FROM_PRETRAINED_KEY, H3_WORKFLOWS, WORKFLOW_KEY
-from ..variable_constraints import aligned_down
+from ..variable_constraints import aligned, aligned_down
 
 MODULAR_PIPELINE = "ModularPipeline"
 
@@ -128,14 +131,21 @@ def _sigma_problems(arguments):
             f"to 0, and {sigmas!r} is not a list of numbers"
         ]
     problems = []
+    if not all(math.isfinite(s) for s in sigmas):
+        return [f"refine_sigmas must be finite numbers, and {list(sigmas)} is not"]
+    # The scheduler compares the points as float32: two that differ only past
+    # that precision collapse there and are refused after the load, so they
+    # are refused here first
+    as_stored = [float(array("f", [s])[0]) for s in sigmas]
     if len(sigmas) < 2:
         problems.append(
             f"refine_sigmas needs at least 2 points, refine_strength and 0, and "
             f"has {len(sigmas)}"
         )
-    elif any(later >= earlier for earlier, later in zip(sigmas, sigmas[1:])):
+    elif any(later >= earlier for earlier, later in zip(as_stored, as_stored[1:])):
         problems.append(
-            f"refine_sigmas must be strictly decreasing, and {list(sigmas)} is not"
+            f"refine_sigmas must be strictly decreasing (as float32, the "
+            f"scheduler's precision), and {list(sigmas)} is not"
         )
     strength = arguments[REFINE_STRENGTH_INPUT]
     if sigmas and _number(strength) and abs(sigmas[0] - strength) > SIGMA_TOLERANCE:
@@ -661,4 +671,17 @@ def media_problems(name, shape, width, height, num_frames=None):
             f"{name} has {shape[0]} frames, and the step renders num_frames="
             f"{num_frames} - they must match"
         )
+    elif num_frames is not None and name == SOURCE_VIDEO_INPUT:
+        # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
+        # is padded to fit, so the mask drifts in time and the output is longer
+        # than the source: refused here, where the count can still be changed
+        on_grid = aligned(num_frames, RENDER_GRID)
+        if on_grid != num_frames:
+            below = aligned_down(num_frames, RENDER_GRID)
+            problems.append(
+                f"{name} has {shape[0]} frames, off the 17n + 5 grid the step "
+                f"renders on: the pipeline would render {on_grid} and pad the "
+                f"source, drifting the mask - trim the clip to {below} frames or "
+                f"pad it to {on_grid}"
+            )
     return problems

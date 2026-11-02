@@ -559,7 +559,7 @@ class TestMiniMaxH3Skill:
             mask_errors,
             refine_strength_errors,
         )
-        from dw.pipeline_processors import h3_mask
+        from dw.pipeline_processors import h3_mask_cells
 
         text = skill_text(H3_SKILL)
         assert "`templates/minimax/regional-edit`" in text
@@ -614,7 +614,7 @@ class TestMiniMaxH3Skill:
         # Both wrap their prose, so the grain is matched with the lines joined
         assert "16 px times the patch size" in " ".join(guide.split())
         assert "16 px times the patch size" in " ".join(reference.split())
-        assert "`16 * patch`" in inspect.getsource(h3_mask)
+        assert "`16 * patch`" in inspect.getsource(h3_mask_cells)
 
 
 LTX_SKILL = os.path.join(PLUGIN_DIR, "skills", "ltx-2.5", "SKILL.md")
@@ -997,6 +997,186 @@ class TestSeriesEpisodesLook:
             self._validate(workflow, tmp_path)
 
 
+CINE_DIR = os.path.join(PLUGIN_DIR, "skills", "cinematography")
+CINE_SKILL = os.path.join(CINE_DIR, "SKILL.md")
+CINE_REFS = os.path.join(CINE_DIR, "references")
+
+# The closed vocabulary. Later stages (the shot document, the storyboard
+# skill, the A/B probes) cite these ids verbatim, so a rename fails here.
+CINE_AXES = {
+    "shot_size": [
+        "extreme-wide",
+        "wide",
+        "full",
+        "medium",
+        "medium-close",
+        "close-up",
+        "extreme-close-up",
+    ],
+    "move": [
+        "static",
+        "dolly-in",
+        "dolly-out",
+        "truck-left",
+        "truck-right",
+        "crane-up",
+        "crane-down",
+        "orbit",
+        "tracking",
+        "whip-pan",
+        "push-in",
+        "handheld",
+        "crash-zoom",
+    ],
+    "lens": ["wide", "normal", "long", "anamorphic", "vintage"],
+    "light": ["high-key", "low-key", "golden-hour", "practical", "noir"],
+    "era": ["8mm", "16mm", "35mm", "vhs-dv", "digital"],
+    "tempo": ["still", "measured", "brisk", "frantic"],
+}
+CINE_GRADES = ["noir", "teal-orange", "70s-stock", "vhs", "bleach-bypass"]
+CINE_COMPILES = {
+    "minimax-h3": "compile-h3.md",
+    "ltx-2.5": "compile-ltx-2.5.md",
+    "kandinsky-6": "compile-kandinsky-6.md",
+    "flux3-klein": "compile-flux3-klein.md",
+}
+
+
+def _table_ids(text, section):
+    """The backticked ids in the first column of a markdown table, read
+    from `section` (a heading) to the next heading of any level."""
+    start = text.index(section)
+    end = text.find("\n#", start + len(section))
+    block = text[start : end if end != -1 else len(text)]
+    return re.findall(r"^\| `([^`]+)` \|", block, re.M)
+
+
+class TestCinematographySkill:
+    """A closed director vocabulary compiled to one sentence per family's
+    caption format (#1142). The words are hints the models may ignore, so
+    the skill says so; the grades are real apply_lut palettes and real
+    film_grain arguments."""
+
+    def _ref(self, name):
+        return open(os.path.join(CINE_REFS, name), encoding="utf-8").read()
+
+    def _grades(self):
+        return json.loads(_fenced_block_after(self._ref("grades.md"), "## The grades"))
+
+    def test_cinematography_skill_is_registered(self):
+        for document in (
+            os.path.join(PLUGIN_DIR, "README.md"),
+            os.path.join(REPO_ROOT, "CLAUDE.md"),
+        ):
+            assert "`cinematography`" in open(document, encoding="utf-8").read()
+        assert CINE_SKILL in SKILLS
+
+    def test_cinematography_names_no_camera_brands(self):
+        """Higgsfield retreated from camera-body presets; a brand only works
+        if the model learned it, and nobody has measured that."""
+        for path in glob.glob(os.path.join(CINE_DIR, "**", "*"), recursive=True):
+            if not os.path.isfile(path):
+                continue
+            text = open(path, encoding="utf-8").read()
+            for brand in ("ARRI", "RED ", "Cooke", "Venice", "Alexa"):
+                assert brand not in text, f"{brand!r} in {path}"
+
+    def test_cinematography_vocabulary_defines_every_axis(self):
+        text = self._ref("vocabulary.md")
+        for axis, ids in CINE_AXES.items():
+            assert _table_ids(text, f"## `{axis}`") == ids, axis
+
+    @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
+    def test_cinematography_vocabulary_covers_every_family(self, family):
+        text = self._ref(CINE_COMPILES[family])
+        assert _table_ids(text, "## `shot_size`") == CINE_AXES["shot_size"]
+        assert _table_ids(text, "## `move`") == CINE_AXES["move"]
+        assert f"`{family}`" in text
+
+    def test_cinematography_says_presets_are_hints(self):
+        body = " ".join(skill_body(CINE_SKILL).split())
+        assert "a hint, not a promise" in body
+        assert "get_output_frames" in body
+
+    def test_cinematography_scopes_out_audio_families(self):
+        body = skill_body(CINE_SKILL)
+        section = body[body.index("## Not in scope") :]
+        assert "`minimax-music3`" in section
+        flat = " ".join(section.split())
+        assert (
+            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein stills only"
+            in flat
+        )
+        assert "do not borrow a table" in flat
+
+    def test_cinematography_ltx_every_move_row_carries_a_viewpoint(self):
+        text = self._ref("compile-ltx-2.5.md")
+        section = text[text.index("## `move`") :]
+        section = section[: section.index("Example:")]
+        rows = [r for r in section.splitlines() if r.startswith("| `")]
+        assert len(rows) == len(CINE_AXES["move"])
+        for row in rows:
+            assert "<viewpoint>" in row, row
+
+    def test_cinematography_whip_pan_direction_is_the_shots(self):
+        for name in CINE_COMPILES.values():
+            for row in self._ref(name).splitlines():
+                if row.startswith("| `whip-pan`"):
+                    assert "to the right" not in row and "pans right" not in row
+
+    def test_cinematography_compiles_to_each_family_s_own_spec(self):
+        """Each table follows its family's caption rules, not a shared one."""
+        ltx = " ".join(self._ref("compile-ltx-2.5.md").split())
+        assert "remains static" in ltx and "viewpoint" in ltx
+        assert "comes into view" in ltx
+        k6 = " ".join(self._ref("compile-kandinsky-6.md").split())
+        assert "exactly one camera sentence" in k6
+        assert "The camera is static." in k6
+        h3 = " ".join(self._ref("compile-h3.md").split())
+        assert "integrated_multimodal_description" in h3
+        assert "amplitude" in h3 and "speed" in h3
+        klein = " ".join(self._ref("compile-flux3-klein.md").split())
+        assert "still" in klein and "no camera move" in klein
+
+    def test_grades_are_valid_palettes(self):
+        from dw.task_problems import check_lut_source
+
+        grades = self._grades()
+        assert sorted(grades) == sorted(CINE_GRADES)
+        for name, grade in grades.items():
+            check_lut_source(palette=grade["palette"])
+            assert 0 < grade["strength"] <= 1, name
+
+    def test_grades_name_real_film_grain_arguments(self):
+        from dw.introspection import list_tasks
+        from dw.task_domains import check_arguments
+        from dw.tasks.finish import film_grain
+
+        list_tasks()  # registers the command domains
+        accepted = set(inspect.signature(film_grain).parameters) - {"media", "seed"}
+        for name, grade in self._grades().items():
+            grain = grade["film_grain"]
+            assert set(grain) <= accepted, name
+            check_arguments("film_grain", **grain)
+
+    def test_the_grade_recipe_validates(self, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        workflow = json.loads(
+            _fenced_block_after(self._ref("grades.md"), "## Applying one")
+        )
+        steps = workflow["steps"]
+        assert [s["task"]["command"] for s in steps] == ["apply_lut", "film_grain"]
+        path = tmp_path / "grade.json"
+        path.write_text(json.dumps(workflow), encoding="utf-8")
+        workflow_from_file(str(path), str(tmp_path)).validate()
+
+    @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
+    def test_family_skills_point_at_cinematography(self, family):
+        path = os.path.join(PLUGIN_DIR, "skills", family, "SKILL.md")
+        assert "`cinematography`" in skill_body(path)
+
+
 MUSIC_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
 
 
@@ -1205,3 +1385,336 @@ class TestStoryForgeLessons:
             assert "locked-off on a tripod" not in text  # L2's remedy wording
             assert "all-caps" not in text and "all caps" not in text  # L4
             assert "just before contact" not in text  # L3
+
+
+STB_REFS = os.path.join(os.path.dirname(SCRIPT_SKILL), "references")
+SHOT_DOCUMENT = os.path.join(STB_REFS, "shot-document.md")
+FIX_LADDER = os.path.join(STB_REFS, "fix-ladder.md")
+H3_LINT = os.path.join(
+    PLUGIN_DIR, "skills", "minimax-h3", "references", "prompt-lint.md"
+)
+SHOT_KEYS = (
+    "id cast location opening_state ending_state beat must_not join "
+    "shot_size move lens light duration"
+).split()
+
+
+def _read(path):
+    return open(path, encoding="utf-8").read()
+
+
+def _registered_mcp_tools():
+    import asyncio
+
+    import httpx
+
+    pytest.importorskip("mcp", reason="the mcp extra is not installed")
+    from dw_mcp.client import DwClient
+    from dw_mcp.server import build_server
+
+    client = DwClient(transport=httpx.MockTransport(lambda r: httpx.Response(200)))
+    server = build_server(client)
+    return {tool.name for tool in asyncio.run(server.list_tools())}
+
+
+class TestShotDocumentAndFixLadder:
+    """Stage B (#1143): the shot list persisted in the prompt library, the
+    fix ladder with its caps, and the H3 prompt lint."""
+
+    def test_shot_document_names_its_prompt_keys(self):
+        text = _read(SHOT_DOCUMENT)
+        assert "<project>/shots" in text and "<project>/shot-NN" in text
+        for key in SHOT_KEYS:
+            assert f"`{key}`" in text, key
+
+    def test_shot_document_points_at_the_vocabulary_not_a_copy(self):
+        text = _read(SHOT_DOCUMENT)
+        assert "cinematography/references/vocabulary.md" in text
+        assert "extreme-close-up" not in text  # ids live in one place
+
+    def test_shot_document_uses_only_existing_tools(self):
+        tools = _registered_mcp_tools()
+        for path in (SHOT_DOCUMENT, FIX_LADDER, H3_LINT):
+            for name in re.findall(r"`([a-z][a-z_]+)\(", _read(path)):
+                assert name in tools, f"{os.path.basename(path)}: {name}"
+
+    def test_shot_document_templates_resolve(self):
+        for path in (SHOT_DOCUMENT, FIX_LADDER, H3_LINT):
+            for name in CATALOG_NAME.findall(_read(path)):
+                assert os.path.exists(
+                    os.path.join(REPO_ROOT, "workflows", name + ".json")
+                ) or os.path.exists(os.path.join(REPO_ROOT, "workflows", name)), name
+
+    def test_fix_ladder_order(self):
+        text = _read(FIX_LADDER).lower()
+        at = [
+            text.index(marker)
+            for marker in ("regional-edit", "face-repair", "re-prompt", "reseed", "ask")
+        ]
+        assert at == sorted(at)
+
+    def test_fix_ladder_has_caps(self):
+        text = " ".join(_read(FIX_LADDER).lower().split())
+        assert "three failed attempts" in text and "gpu-minute" in text
+
+    def test_h3_lint_checks(self):
+        text = _read(H3_LINT)
+        for check in ("overall_soundscape", "overfull", "no new information"):
+            assert check in text
+
+    def test_credits(self):
+        text = _read(SHOT_DOCUMENT) + _read(FIX_LADDER) + _read(H3_LINT)
+        for name in ("seriesmith", "OpenReel", "open-higgsfield-skills", "Picky"):
+            assert name in text
+        assert "GPL" in text
+
+    def test_script_to_video_points_at_the_three_references(self):
+        body = skill_body(SCRIPT_SKILL)
+        for ref in ("references/shot-document.md", "references/fix-ladder.md"):
+            assert f"`{ref}`" in body
+        assert "minimax-h3/references/prompt-lint.md" in body
+        for key in ("shot_size", "move", "lens", "light", "duration"):
+            assert f"`{key}`" in body
+
+
+STORY_DIR = os.path.join(PLUGIN_DIR, "skills", "storyboard")
+STORY_SKILL = os.path.join(STORY_DIR, "SKILL.md")
+
+
+class TestStoryboardSkill:
+    """Boards on FLUX 3 Klein, a six-cut coverage set, boards as start
+    frames, and an animatic of them (#1145, #1146)."""
+
+    def _ref(self, name):
+        return open(
+            os.path.join(STORY_DIR, "references", name), encoding="utf-8"
+        ).read()
+
+    def test_storyboard_skill_registered(self):
+        for document in (
+            os.path.join(PLUGIN_DIR, "README.md"),
+            os.path.join(REPO_ROOT, "CLAUDE.md"),
+        ):
+            assert "`storyboard`" in open(document, encoding="utf-8").read()
+        assert STORY_SKILL in SKILLS
+
+    def test_storyboard_names_six_coverage_cuts(self):
+        text = self._ref("coverage-set.md").lower()
+        for cut in (
+            "establishing",
+            "medium",
+            "close-up",
+            "over-the-shoulder",
+            "insert",
+            "low angle",
+        ):
+            assert cut in text, cut
+
+    def test_storyboard_caps_boards_at_eight(self):
+        flat = " ".join(skill_body(STORY_SKILL).split())
+        assert "up to eight boards" in flat
+        assert "image one" in flat
+
+    def test_storyboard_credits_its_sources(self):
+        text = skill_text(STORY_SKILL)
+        assert "Higgsfield" in text and "Popcorn" in text
+        assert "Shot Board" in text and "MIT" in text
+
+    def test_storyboard_animatic_recipe_names_the_template(self):
+        text = self._ref("animatic.md")
+        assert "`templates/animatic`" in text
+        assert "`templates/generate-speech`" in text
+        assert "`templates/minimax/music`" in text
+
+    def test_storyboard_maps_boards_to_each_family_s_start_frame(self):
+        text = skill_text(STORY_SKILL)
+        for template in (
+            "templates/minimax/image-to-video",
+            "templates/ltx2/image-to-video",
+            "templates/kandinsky6/image-to-video",
+        ):
+            assert f"`{template}`" in text
+
+    @pytest.mark.parametrize("template", ["animatic", "face-drift-check"])
+    def test_new_templates_validate(self, template, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        path = os.path.join(REPO_ROOT, "workflows", "templates", f"{template}.json")
+        workflow_from_file(path, str(tmp_path)).validate()
+
+    def test_face_drift_check_is_pointed_at_from_the_series_skills(self):
+        for skill in ("script-to-video", "series-episodes"):
+            body = skill_body(os.path.join(PLUGIN_DIR, "skills", skill, "SKILL.md"))
+            assert "`templates/face-drift-check`" in body
+
+
+SITCOM = os.path.join(os.path.dirname(SERIES_SKILL), "references", "sitcom-multicam.md")
+
+
+class TestSitcomMulticam:
+    """Stage F (#1147): the multicam grammar as a series-episodes reference."""
+
+    def test_sitcom_reference_names_its_tools(self):
+        from dw.introspection import list_tasks
+
+        text = _read(SITCOM)
+        tasks = list_tasks()
+        for name in ("transcribe_audio", "plan_cuts", "analyze_face_drift"):
+            assert f"`{name}`" in text, name
+            assert name in tasks["commands"], name
+        assert "`templates/minimax/dialogue-short`" in text
+        assert "`templates/face-drift-check`" in text
+        assert "`templates/assemble-and-score`" in text
+        for name in CATALOG_NAME.findall(text):
+            assert os.path.isfile(
+                os.path.join(REPO_ROOT, "workflows", name + ".json")
+            ), name
+        assert "One-shot Multicam" in text and "MIT" in text
+        assert "cinematography/references/vocabulary.md" in text
+        assert "`templates/attribute-lines`" in text and "`attribute_voices`" in text
+        assert '`timestamps` set to `"segment"`' in text
+        assert '`timestamps` set to `"word"`' not in text
+        for field in ("start_frame", "cut_frames", "num_frames", "modulus: 17"):
+            assert field in text, field
+        assert "script-to-video/references/shot-document.md" in text
+
+    def test_series_points_at_sitcom(self):
+        assert "`references/sitcom-multicam.md`" in skill_body(SERIES_SKILL)
+
+
+def _fenced_json(text):
+    """Every ```json block in `text`, parsed."""
+    return [json.loads(block) for block in re.findall(r"```json\n(.*?)```", text, re.S)]
+
+
+CINEMATOGRAPHY_KEYS = ("shot_size", "move", "lens", "light", "duration")
+
+
+class TestShotDocumentShape:
+    """Final review of #1141: every shot carries the five cinematography keys,
+    with null for the model's choice, a worked example, and the project name
+    pattern the prompt library accepts."""
+
+    def test_example_shot_and_two_shot_array_carry_every_key(self):
+        blocks = _fenced_json(_read(SHOT_DOCUMENT))
+        objects = [block for block in blocks if isinstance(block, dict)]
+        arrays = [block for block in blocks if isinstance(block, list)]
+        assert objects and any(len(array) == 2 for array in arrays)
+        for shot in objects + [shot for array in arrays for shot in array]:
+            for key in SHOT_KEYS:
+                assert key in shot, (shot.get("id"), key)
+        nulls = [
+            key
+            for shot in objects + [s for a in arrays for s in a]
+            for key in CINEMATOGRAPHY_KEYS
+            if shot[key] is None
+        ]
+        assert nulls, "the example must show an axis left to the model as null"
+
+    def test_null_and_seconds_are_stated(self):
+        flat = " ".join(_read(SHOT_DOCUMENT).split())
+        assert "all five cinematography keys" in flat
+        assert "`null`" in flat and "model's own choice" in flat
+        assert "`duration` is a number of seconds, not a vocabulary id" in flat
+        body = " ".join(skill_body(SCRIPT_SKILL).split())
+        assert "`null`" in body and "`duration` (seconds)" in body
+        assert "ids from `cinematography`, never invented) and `duration`" in body
+
+    def test_project_name_pattern_matches_the_prompt_library(self):
+        from dw.security import PROMPT_REFERENCE_PATTERN
+
+        segment = PROMPT_REFERENCE_PATTERN[1:].split("(")[0]
+        assert segment == r"[\w][\w.-]*"
+        text = _read(SHOT_DOCUMENT)
+        assert f"`{segment}`" in text
+        assert "no spaces and no further `/`" in " ".join(text.split())
+        pattern = re.compile(PROMPT_REFERENCE_PATTERN)
+        assert pattern.match("gilded_echoes/shots")
+        assert not pattern.match("gilded echoes/shots")
+        assert not pattern.match("series/ep1/shots")
+
+
+class TestStoryboardFinalReview:
+    """Final review of #1141: names keep_output accepts, one duration per
+    board in the animatic, and one plugin description."""
+
+    def test_no_storyboard_keep_output_name_ends_in_png(self):
+        names = [
+            (path, name)
+            for path in glob.glob(os.path.join(STORY_DIR, "**", "*.md"), recursive=True)
+            for name in re.findall(r'asset_name="([^"]*)"', _read(path))
+        ]
+        assert len(names) >= 2
+        for path, name in names:
+            assert not name.endswith(".png"), (path, name)
+        assert "asset:boards/<scene>-NN.jpg" in skill_body(STORY_SKILL)
+
+    def test_animatic_takes_one_float_duration_per_board(self, tmp_path):
+        from dw.variables import argument_errors
+
+        path = os.path.join(REPO_ROOT, "workflows", "templates", "animatic.json")
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        variables = definition["variables"]
+        assert variables["durations"] == [2.0] * len(variables["boards"])
+        assert isinstance(variables["fps"], float)
+        assert argument_errors(definition, {"durations": [1, 2, 0.5]}) == []
+        assert argument_errors(definition, {"fps": 30}) == []
+        assert "one duration per board" in definition["description"]
+        assert "one number holds every board" not in definition["description"]
+
+    def test_animatic_docs_say_one_duration_per_board(self):
+        recipe = " ".join(
+            open(os.path.join(STORY_DIR, "references", "animatic.md"), encoding="utf-8")
+            .read()
+            .split()
+        )
+        assert "one duration per board" in recipe
+        assert "one number for every board" not in recipe
+        assert "one duration per board" in " ".join(skill_body(STORY_SKILL).split())
+        assert "`width`" not in skill_body(STORY_SKILL)
+
+    def test_plugin_and_marketplace_describe_the_plugin_alike(self):
+        with open(
+            os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8"
+        ) as handle:
+            plugin = json.load(handle)
+        with open(
+            os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json"),
+            encoding="utf-8",
+        ) as handle:
+            marketplace = json.load(handle)
+        entry = next(p for p in marketplace["plugins"] if p["name"] == "dw")
+        assert plugin["description"] == entry["description"]
+        assert "storyboard" in plugin["description"]
+
+
+class TestSitcomAssembly:
+    """Final review of #1141: the master's dialogue is the score with the
+    shots' own sound muted, and master spans are cut with trim_video."""
+
+    def test_master_dialogue_is_the_score_with_world_gain_zero(self):
+        text = " ".join(_read(SITCOM).split())
+        assert "Pass the master as `score`" in text
+        assert "`world_gain: 0`" in text
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "assemble-and-score.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            variables = json.load(handle)["variables"]
+        for name in ("score", "world_gain", "score_start_frame", "total_frames"):
+            assert name in variables, name
+            assert f"`{name}" in text, name
+
+    def test_master_spans_are_cut_with_trim_video(self):
+        text = _read(SITCOM)
+        steps = [b for b in _fenced_json(text) if isinstance(b, dict)]
+        trims = [s for s in steps if s.get("task", {}).get("command") == "trim_video"]
+        assert trims
+        tasks_doc = _read(os.path.join(REPO_ROOT, "docs", "TASKS.md"))
+        section = tasks_doc[tasks_doc.index("### trim_video") :]
+        section = section[: section.index("\n### ", 4)]
+        for name in trims[0]["task"]["arguments"]:
+            assert f"| `{name}` |" in section, name
+        flat = " ".join(text.split())
+        assert "planned `start_frame` and `cut_frames`" in flat

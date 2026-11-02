@@ -132,6 +132,8 @@ composes into, not something to re-derive:
   mostly in `vocals`, not the rest. Separating an already-scored mix works
   too, but its rest is the score plus the shots' foley, not a clean score:
   keep the original score file to re-mix or replace it.
+- **sound effects**: `video-to-sound-effects` (or `text-to-sound-effect`) makes
+  effects for the `rest` bed; MMAudio runs 7-25 dB hot, so `match_levels` them first.
 - **normalize**: the mixed world sound and score are normalized together
   (`assemble-and-score`'s `balanced` step, -3 dBFS peak ceiling, always
   enforced), but a shared peak is not a shared loudness. Pass one series
@@ -141,6 +143,8 @@ composes into, not something to re-derive:
   `limiter_heavy` mean.
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
+
+For a dialogue scene cut master-and-singles, read `references/sitcom-multicam.md`.
 
 For smeary two-shot faces, read `references/cinema-path.md` (1344x768 base
 model); choose the path once, at episode 1.
@@ -176,7 +180,8 @@ Before keeping each episode shot, run `dw:script-to-video`'s beat review
 Beyond `minimax-h3`'s own judging checklist (a character that changes
 between shots, a portrait imposing its framing, a voice without affect):
 watch two episodes back to back and check the cast reads as the same
-people - the failure mode step 0 exists to prevent. Compare episodes'
+people - the failure mode step 0 exists to prevent. Measure it per shot with
+`templates/face-drift-check` (a flag to look at, not a verdict). Compare episodes'
 `integrated_lufs` (`get_gallery_metadata`), not `peak_dbfs`; the second
 half of `references/loudness.md` reads the gap. To confirm every
 line rendered rather than judging it by ear, run `templates/check-script`

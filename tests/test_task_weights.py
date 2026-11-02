@@ -135,7 +135,7 @@ class TestSpeechGeneration:
     def test_audio8_lists_its_pinned_files_and_the_codec(self):
         # #1121: a vendored model fetched file by file at one revision, so
         # the plan names each file - codec.pth among them - not the repo
-        from dw.tasks import audio8_tts_model as a8
+        from dw.vendored import audio8_tts_model as a8
 
         hook = required_weights_hook("generate_speech")
         entries = hook({"model_name": a8.REPO_ID})
@@ -145,6 +145,100 @@ class TestSpeechGeneration:
         ]
         assert "codec.pth" in [entry["filename"] for entry in entries]
         assert a8.REVISION == "1e857568bfd4f02931aca3988ee773a44d2d26d3"
+
+
+class TestSoundEffects:
+    MMAUDIO = "eb13a1a98fdbec91753775c57b074ccdfc60587c"
+    K6 = "4c487e8b4aeeb9059e5a77905aa2ddb59ec28f81"
+    DFN5B = "01b771ed0d1395ca5ffdd279897d665ebe00dfd2"
+    EXPECTED = [
+        ("hkchengrex/MMAudio", "weights/mmaudio_large_44k_v2.pth", MMAUDIO),
+        ("hkchengrex/MMAudio", "ext_weights/synchformer_state_dict.pth", MMAUDIO),
+        (
+            "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+            "audio_vae/config.json",
+            K6,
+        ),
+        (
+            "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+            "audio_vae/diffusion_pytorch_model.safetensors",
+            K6,
+        ),
+        (
+            "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+            "vocoder/config.json",
+            K6,
+        ),
+        (
+            "kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers",
+            "vocoder/diffusion_pytorch_model.safetensors",
+            K6,
+        ),
+        ("apple/DFN5B-CLIP-ViT-H-14-384", "open_clip_pytorch_model.bin", DFN5B),
+        ("apple/DFN5B-CLIP-ViT-H-14-384", "tokenizer.json", DFN5B),
+    ]
+
+    def entries(self):
+        hook = required_weights_hook("generate_sound_effects")
+        assert hook is not None
+        return hook({"prompt": "a door"})
+
+    def test_it_lists_exactly_its_pinned_files(self):
+        got = [(e["repo"], e["filename"], e["revision"]) for e in self.entries()]
+        assert got == self.EXPECTED
+
+    def test_it_never_lists_mmaudios_own_vae_or_vocoder(self):
+        names = [entry["filename"] for entry in self.entries()]
+        assert "v1-44.pth" not in names
+        assert "bigvgan_generator.pt" not in names
+
+    def test_the_loader_downloads_what_the_plan_declares(self, monkeypatch):
+        import huggingface_hub
+        import torch
+
+        from dw.tasks import mmaudio_decoder, model_cache, sound_effects
+        from dw.vendored import mmaudio_clip, mmaudio_model, mmaudio_sync_model
+
+        downloads = []
+
+        def fake_download(repo_id=None, filename=None, revision=None, **_):
+            downloads.append((repo_id, filename, revision))
+            return f"/fake/{repo_id}/{filename}"
+
+        monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+        monkeypatch.setattr(mmaudio_model, "load_network", lambda *a, **k: "net")
+        monkeypatch.setattr(mmaudio_clip, "load_clip", lambda *a, **k: "clip")
+        monkeypatch.setattr(mmaudio_clip, "load_clip_tokenizer", lambda *a: "tok")
+        monkeypatch.setattr(
+            mmaudio_sync_model, "load_synchformer", lambda *a, **k: "sync"
+        )
+        monkeypatch.setattr(mmaudio_decoder, "load_decoder", lambda *a, **k: "dec")
+
+        keys = []
+
+        def run_factory(key, factory):
+            keys.append(key)
+            return factory()
+
+        monkeypatch.setattr(model_cache, "cached_model", run_factory)
+
+        net, (clip, tokenizer), sync, decoder = sound_effects._load_models(
+            "cpu", torch.float32
+        )
+
+        assert (net, clip, tokenizer, sync, decoder) == (
+            "net",
+            "clip",
+            "tok",
+            "sync",
+            "dec",
+        )
+        assert sorted(downloads) == sorted(self.EXPECTED)
+        revisions = {repo: rev for repo, _, rev in self.EXPECTED}
+        assert len(keys) == 4
+        for key in keys:
+            assert key[0] == "generate_sound_effects"
+            assert revisions[key[1]] in key
 
 
 class TestVoiceAttribution:
@@ -353,7 +447,7 @@ class TestLoaderAgreesWithDeclaration:
         assert [key[1] for key in keys] == declared("generate_speech", arguments)
 
     def test_generate_speech_loads_the_audio8_repo_it_declares(self, monkeypatch):
-        from dw.tasks import audio8_tts_model as a8
+        from dw.vendored import audio8_tts_model as a8
         from dw.tasks import speech_generation
 
         keys = recording_cache(monkeypatch, speech_generation)

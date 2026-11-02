@@ -98,8 +98,9 @@ class MMAudioDecoder:
         return self
 
     def decode(self, latents):
-        """`latents` (B, latent_channels, frames), already divided by the
-        VAE's scaling_factor, to a waveform (B, 1, frames * samples_per_latent)."""
+        """`latents` (B, latent_channels, frames) as the flow network sampled
+        them - no scaling_factor division; MMAudio's VAE takes them raw - to a
+        waveform (B, 1, frames * samples_per_latent)."""
         return decode_latents(self.vae, self.vocoder, latents)
 
 

@@ -526,6 +526,7 @@ add grain last so it is not itself sharpened:
 | `get_first_frame` | Extract first video frame | |
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
+| `stills_to_video` | Hold storyboard stills for a duration each, as one silent clip | `images`, `durations`, `fps` - see [stills_to_video](#stills_to_video) |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
@@ -534,6 +535,50 @@ add grain last so it is not itself sharpened:
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
 The extracted frame is always a PIL image.
+
+### stills_to_video
+
+Hold each still on screen for a set time and get one silent clip back - an
+animatic of a storyboard. The result joins with `concat_videos` and takes a
+score from `pair_audio` or the `assemble-and-score` template like any shot.
+
+```json
+{
+    "name": "animatic",
+    "task": {
+        "command": "stills_to_video",
+        "arguments": {
+            "images": [
+                "previous_result:frame_1",
+                "previous_result:frame_2",
+                "previous_result:frame_3"
+            ],
+            "durations": [1, 2, 0.5],
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "save": true }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `images` | Yes | The stills in order - images, arrays, or `{"media_type": "image", "location": "asset:x.png"}`. All the same size |
+| `durations` | Yes | Seconds per still: one number for all, or one per still |
+| `fps` | No | Frame rate, default 24, at most 120 |
+
+Each still gets `max(1, round(duration * fps))` frames, so a duration shorter
+than a frame still shows for one. The clip is at most 600 seconds and 36000
+frames in total; those cap its length, not its memory. The frames are held as
+uint8 pixels, so the command also refuses, before allocating, a clip over
+4 GiB (frames x width x height x 3), naming `durations`, `fps` and the image
+size.
+Stills of different sizes are refused, naming both sizes. The video has no
+audio track; its `shots` record where each still starts.
+`validate_workflow` catches a non-positive duration, an `fps` out of range, a
+duration count that does not match a literal image list, and a total over 600
+seconds or 36000 frames (the 4 GiB limit depends on the image size, so it is
+checked at run time).
 
 ### concat_videos
 
@@ -2329,6 +2374,42 @@ whole file:
 | `video_seconds` / `audio_seconds` | Each stream's own duration |
 | `length_delta_ms` | `audio_seconds` minus `video_seconds` |
 
+### analyze_face_drift
+
+Whether a recurring character still looks like their cast portrait. It
+answers the shape of the probes above but is not one: it measures faces, not
+the soundtrack, and its two rules live in the command rather than in the
+table below. Needs the SFace and YuNet weights from `opencv/face_recognition_sface`
+and `opencv/face_detection_yunet`, which `validate_workflow` lists under
+`downloads_required`.
+
+```json
+{
+    "command": "analyze_face_drift",
+    "arguments": {
+        "video": "output:<identity>/latest/final/cut.mp4",
+        "reference": "asset:cast/ada.png"
+    }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | A stored video, or the video an earlier step returned |
+| `reference` | The face to hold. With several faces the largest is used and `notes` says so; with none the step is refused |
+| `shots` | Shot records, as the probes take them; else the video's own, else the run manifest, else the whole file is one shot |
+| `threshold` | Median cosine similarity below which a shot raises `face_drift`, from -1 to 1. Default 0.363, OpenCV's published SFace threshold |
+| `samples_per_shot` | Frames read per shot, evenly spaced, 1 to 64. Default 8 |
+
+Each shot is a `measurements[]` entry: `shot`, `frames_sampled`,
+`faces_found` (sampled frames with a face), `similarity_median` and
+`similarity_min` - over those frames, the best cosine match among the faces
+in each frame. Both are null when no sampled frame had a face. Findings:
+`face_drift` (warn) when the median is below `threshold`, and `no_face`
+(info) for a shot where no sampled frame had a face. Like the probes, they
+are places to look, not verdicts: a turned head or a mask also lowers the
+score, so look at the shot before regenerating it.
+
 ### Rules
 
 Each rule names the probe and field it reads, how the value is compared to
@@ -3206,7 +3287,7 @@ The result needs no `sample_rate`. A generated track carries the rate its model 
 
 ### Cloning a voice (Audio8-TTS)
 
-`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/tasks/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
+`model_name: "Edge0/Audio8-TTS-Realistic-0.6b"` takes its own branch. The model is vendored (`dw/vendored/audio8_tts_model.py`), so it loads no code from its repo, and its files - `config.json`, `generation_config.json`, `model.safetensors`, `tokenizer.json` and the codec `codec.pth` - are fetched at one pinned revision; a validate's `downloads_required` lists all five. The result is a 44.1 kHz mono track.
 
 Give `reference_audio` and `reference_text` together and it speaks `text` in the reference's voice; leave both out and it speaks in its default voice. The language follows `text` - there is no `language` argument. Every refusal fires before the model loads:
 
@@ -3243,6 +3324,46 @@ A speech model is worth releasing before a video model loads — set `release_mo
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line and save it as a `.wav`
 - [voice-clone.json](../workflows/templates/voice-clone.json) — Speak a line in the voice of a reference clip (Audio8-TTS)
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice, then condition H3's `<Audio 1>` on it
+
+## Sound Effects Generation
+
+`generate_sound_effects` makes sound effects with MMAudio (large 44.1 kHz v2) from a video clip, a text prompt, or both, as a 44.1 kHz mono track. A validate's `downloads_required` lists the pinned weights: `hkchengrex/MMAudio` (the network `weights/mmaudio_large_44k_v2.pth` and Synchformer `ext_weights/synchformer_state_dict.pth`), the `audio_vae/` and `vocoder/` config and safetensors of `kandinskylab/Kandinsky-6.0-Lite-distill-5s-Diffusers`, and the weights and tokenizer of `apple/DFN5B-CLIP-ViT-H-14-384`. MMAudio's own `v1-44.pth` and `bigvgan_generator.pt` are never downloaded.
+
+```json
+{
+    "task": {
+        "command": "generate_sound_effects",
+        "arguments": {
+            "video": "asset:shot.mp4",
+            "prompt": "footsteps on gravel, a door creaking",
+            "negative_prompt": "music, speech"
+        }
+    },
+    "result": { "content_type": "audio/wav" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `video` | One of `video`/`prompt` | The clip the effects follow (typically an `asset:` or `previous_result:` reference) |
+| `prompt` | One of `video`/`prompt` | What should be heard |
+| `negative_prompt` | No | What to steer away from, such as `music, speech` |
+| `duration` | No | Seconds. Defaults to the clip's length, or 8 s text-only; at least 0.64 s (16 sync frames at 25 fps), at most 20 s and never longer than the clip |
+| `steps` | No | Sampler steps (default: 25) |
+| `guidance_scale` | No | Classifier-free guidance (default: 4.5) |
+
+Video-only is the weaker mode: give a `prompt` that names the on-screen sound sources as well. The model was trained around 8 s, so a `duration` outside 4-12 s adds a warning to the result, as does noise-like output (spectral flatness of 0.3 or more with a centroid of 8 kHz or more).
+
+Every refusal fires before anything loads: neither `video` nor `prompt`; a `duration` under 0.64 s, over 20 s or longer than the clip; an unknown argument; and `trust_remote_code`, `custom_pipeline` or `custom_generate` (the trust gate).
+
+The output runs 7-25 dB hot. Route it through `match_levels` before mixing it with dialogue or music.
+
+**Licences.** The MMAudio weights (network, Synchformer and the VAE tensors) are CC-BY-NC 4.0: non-commercial use only. The DFN5B CLIP encoder is under the Apple Machine Learning Research Model License: research purposes only. Apple Machine Learning Research Model is licensed under the Apple Machine Learning Research Model License Agreement. See [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
+**Examples:**
+
+- [video-to-sound-effects.json](../workflows/templates/video-to-sound-effects.json) — Effects that follow a clip's picture
+- [text-to-sound-effect.json](../workflows/templates/text-to-sound-effect.json) — An effect from a text prompt alone
 
 ## Speech Transcription
 

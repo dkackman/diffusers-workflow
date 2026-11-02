@@ -7,6 +7,220 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.18.0
+
+<!-- Drafted from v0.17.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.18.0 --notes-file ... -->
+
+This release has two halves. One is directing: a shared vocabulary for the
+camera and the look, compiled into each video family's own caption format.
+Alongside it come storyboards and a timed animatic before any video is paid
+for, and a check that a recurring face stays the same person across shots.
+The other is packaging: dw now runs from a Docker image, the first step
+toward making it something you install rather than build.
+
+**Docker** (`docs/DOCKER.md`)
+
+- `docker/compose.yaml` runs the server, web UI and MCP endpoint on a Linux
+  box with an NVIDIA GPU (driver 580 or newer; CUDA 13). The image carries
+  Python, torch and dw. From this release on, each release publishes it to
+  Docker Hub as `dkackman/diffusers-workflow:<version>` and `latest`. Set
+  `DW_IMAGE` in `docker/.env` to run that instead of building locally.
+- diffusers keeps following GitHub main. It lives in a small venv on a
+  volume, layered over the image, so the Models page's update button works
+  as it does on a native install. A restart never moves it, a new image
+  reinstalls the commit you had, and a broken HEAD falls back to the copy
+  of diffusers built into the image so the server still starts.
+- `bash docker/init-env.sh` points the container at the directories a
+  native install on the same box already uses: the workspace, the Hugging
+  Face cache (quantized cache included), the compile caches and settings.
+  Each is mounted at its own path, so runs, downloads and compiled kernels
+  are shared both ways. `docker/switch.sh docker|native` swaps between the
+  container and the systemd unit.
+- Inside the container the server always has a token: `DW_API_TOKEN`, or
+  one generated on first start and kept. The token never goes in the log;
+  `entrypoint.py login-url` prints a `/?token=...` link, which the web UI
+  now accepts. It saves the token, then
+  clears it from the address bar.
+
+**Camera and look, per family** (#1142)
+
+- The `cinematography` skill is a closed vocabulary of six axes: shot size,
+  move, lens, light, era and tempo. Each value has the one sentence it
+  becomes in H3's, LTX-2.5's, Kandinsky 6's and FLUX 3 Klein's own caption
+  formats. A shot list can say `move: dolly-in` and mean the same thing on
+  every family. An unset axis is left to the model.
+- Named grades applied after generation, on the CPU: `noir`, `teal-orange`,
+  `70s-stock`, `vhs` and `bleach-bypass`. Each is an `apply_lut` palette
+  followed by `film_grain`.
+
+**Storyboards and animatics** (#1144, #1145)
+
+- The `storyboard` skill draws boards on FLUX 3 Klein from a character
+  reference, covers one moment from six camera positions, and hands boards
+  to H3, LTX-2.5 or Kandinsky 6 as first frames.
+- `stills_to_video` holds each still for a duration (one for all, or one per
+  still) and returns a silent clip with a shot record per still.
+  `templates/animatic` lays a scratch voice or music bed under the boards.
+  It loads no model, so pacing and order can be checked before any video is
+  rendered. Sizes are checked up front: over 600 s, 36000 frames, or a
+  clip that would need more than 4 GiB is refused before it allocates.
+
+**Shot documents, the fix ladder, and face drift** (#1143, #1146, #1147)
+
+- `script-to-video` keeps its shot list in the prompt library
+  (`<project>/shots`, one compiled `<project>/shot-NN` per shot). A revision
+  recompiles only the shots it changed, and a later session picks the
+  project up where it stopped.
+- A wrong shot is fixed in a fixed order, cheapest first, each step with
+  a cap: edit the region or repair the face, re-prompt with the seed kept,
+  reseed, and then stop and ask, showing the attempts and what each one
+  changed. H3 prompts get a lint checklist before a
+  render (a missing `overall_soundscape`, an overfull beat, and so on).
+- `analyze_face_drift` (`templates/face-drift-check`) scores sampled frames
+  of each shot against a cast portrait with OpenCV's SFace. A shot whose
+  median falls below the published same-person threshold is flagged as
+  `face_drift`, and one with no face found as `no_face`. These are places to
+  look before regenerating, not verdicts: a turned head scores low too.
+- `series-episodes` gains a sitcom multicam grammar: a wide master held for
+  the whole scene, a single per speaker, and cuts on line boundaries, never
+  mid-word. `plan_cuts` places them from the transcript's line starts.
+
+**Web UI**
+
+- On the job page, clicking a step in the data-flow graph scrolls to what
+  that step produced. A failed run draws the step it stopped in, red. The
+  workflow's JSON is behind a toggle under the graph.
+
+### 0.17.0
+
+<!-- Drafted from v0.16.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.17.0 --notes-file ... -->
+
+A release about fixing a good take instead of re-rolling it, and about
+sound that is not the model's own. MiniMax H3 edits one region of a take
+behind a mask, redraws a soft face and takes an explicit refine schedule;
+LTX-2.5 pulls an alpha matte and colourises black-and-white footage; a
+picture-synced sound-effects task (MMAudio) and a zero-shot voice clone
+(Audio8-TTS) join the catalog as vendored ports that run no Hub code; and
+every one-for-one video task now writes at its source's frame rate, exactly.
+
+**H3 regional edit, face repair and refine schedule** (#1062, #1077, #1078, #1082, #1087, #1092, #1098, #1099)
+
+- `templates/minimax/regional-edit`: an H3 step takes `source_video` and a
+  `mask_image` or `mask_video` (white regenerates) with `refine_strength`,
+  re-denoises the masked rows and writes every other row back to the source
+  at each step, soundtrack held. The guide's *H3: regional edit with
+  source_video and a mask* has the measured strength bands (0.9 replaces an
+  object, 0.6 redraws a face); the `minimax-h3` skill routes "fix one region
+  of a good take" to it (`references/regional-edit.md`). Validate and the call
+  refuse the same things: a mask with no source, a source on a chained step,
+  a size or frame-count mismatch, an all-black mask, a source whose frame
+  count is off the `17n + 5` grid (the pipeline would snap it up over a
+  padded source and the mask would drift).
+- `templates/minimax/face-repair`: `crop_face_track` cuts the face out on H3's
+  grid carrying the take's padded soundtrack, a t2va refine at 0.6 redraws it
+  with `hold_audio` so the mouth stays on the speech, and `paste_face_track`
+  puts it back at the source's frame rate. The crop refuses a window outside
+  124-345 frames or a rate other than 24 before H3 loads.
+- `refine_sigmas` on an H3 refine step gives the schedule as the sigma points
+  themselves (first = `refine_strength`, last = 0, strictly decreasing as
+  float32, finite, `num_inference_steps` = the point count), the guide's
+  *Explicit refine sigmas*. A full-frame refine whose `width`/`height`
+  disagree with the upscaled latents is refused at validate (#1087), and a
+  single-file LoRA is priced as its file, not its repo (#1088).
+- The `minimax-h3` skill gains the style pointer (`references/style.md`,
+  #1070), the AISkills and odd-then-bridge probes recorded as "probed, not a
+  rule" (#1072, #1103), the re-measured lead-in (#1089), and routes for the
+  past-768p latent refine and for replacing a shot's own sound.
+
+**Sound effects and voice cloning** (#1112, #1120, #1121, #1124, #1131-#1133, #1134)
+
+- `generate_sound_effects` (MMAudio, vendored at a pinned commit with its
+  Synchformer and DFN5B CLIP conditioning, decoder weights read from
+  Kandinsky 6's safetensors) makes picture-synced effects for a clip and/or
+  a prompt: `templates/video-to-sound-effects` and
+  `templates/text-to-sound-effect`. Duration is the clip's (0.64-20 s), the
+  model is trained around 8 s, noise-like output is warned about, and the
+  output runs 7-25 dB hot: `match_levels` before mixing. The weights are
+  CC-BY-NC and Apple research-only; `docs/ATTRIBUTIONS.md` lists them.
+- `generate_speech` with `model_name: Edge0/Audio8-TTS-Realistic-0.6b` clones
+  a voice from a short `reference_audio` (a path, an `asset:`, or an earlier
+  audio step's output) and its `reference_text`; `templates/voice-clone` runs
+  it. The model is a vendored port pinned to one revision; its Hub repo's
+  code never runs. `attribute_voices` takes an audio step's output as a voice
+  reference too (#1134).
+- The vendored ports live in `dw/vendored/`, outside the architecture ratchet
+  like `dw/community_pipelines/`.
+
+**LTX-2.5: alpha matte, colourisation, and the source's frame rate** (#1064, #1079, #1080, #1090, #1106-#1109, #1114)
+
+- `templates/ltx2/alpha-matte` (Alpha-Gen IC-LoRA) pulls a grey matte from a
+  clip, one shot at a time (a hard cut leaks), with the decoders kept off the
+  card; `templates/ltx2/restore-colorize` colourises black-and-white footage
+  from a prompt that describes the clip, with its colour limit on low-rate
+  and portrait sources documented.
+- Every one-for-one template (`upscale-clip`, `refine-clip`,
+  `refine-in-place`, `restore-deblur`, `restore-decompression`,
+  `restore-long`, `face-repair`, `alpha-matte`, `restore-colorize`) writes at
+  the source's frame rate (`frame_rate: "source"`), never relabelled to 24,
+  and a fractional rate (29.97, 23.976) is written as its exact rational
+  (#1109). `restore-deblur` and `restore-decompression` fit the clip to the
+  model, then restore to the source's size.
+
+**Cuts, phrases and the script check** (#1095, #1104, #1105, #1115-#1119, #1129, #1130, #1135-#1138)
+
+- `analyze_phrases` times sung phrases from centre-weighted voiced energy,
+  with no transcript, and `plan_cuts` takes its result: lyric lines pair with
+  phrases one to one when the counts match (a disproportionate pairing is
+  warned about) and are spread evenly when they do not, with the warning
+  naming which way to move `min_gap_seconds` or `floor_db`. The music-video
+  templates' README shows the Whisper-free chain.
+- `transcribe_audio` marks Whisper's hallucinations: chunks of a near-silent
+  clip (`silent`), its stock outro lines (`stock_phrase`), 5-6 word loops and
+  duplicate overlapping chunks (`repetition`); `plan_cuts` and `check_script`
+  leave suspect chunks out and say so.
+- `check_script`: an untranscribed block crossing a shot seam is credited to
+  each shot it covers (a shot too short to stand alone is folded into its
+  neighbour, never dropped); a line's timing stays inside its shot; a take
+  with no shots is one implicit shot for `unscripted_speech`; a looped
+  room-tone bed is not untranscribed speech; speech outside a partial shot
+  map is named in `rules_skipped`; an unheard line's clip is checked against
+  its shot's end.
+- `separate_stems` no longer shift-averages a clip shorter than the htdemucs
+  segment, which clipped the stems 9-17 dB hot (#1130).
+
+**Skills and composition** (#1093, #1100, #1122, #1125, #1123, #1126-#1128, #1091, #1096)
+
+- `script-to-video`: cutaway and lead-in joins (`references/joins.md`), beat
+  authoring and the beat review (`references/beat-review.md`), shared with
+  `series-episodes`; `series-episodes` gains the dialogue/rest stem recipe
+  via `separate_stems`, kept balanced for headroom.
+- The story-forge lessons that held on lem (framing, no invented camera, no
+  all-caps) landed as guidance in the `ltx-2.5` skill; the ones that did not
+  are recorded as probed.
+
+**Validation, server and security** (#1086, #1101, #1111, #1116, #1119, GHSA-hhfj-p9xj-xjmr, GHSA-75fh-g499-53cf, GHSA-9597-5qpq-55x6, GHSA-w9qv-2pg5-j79m, GHSA-75cg-7964-pjwx)
+
+- A task step's `trust_remote_code`, `custom_pipeline` or `custom_generate`
+  is refused at validate and again at `Task.run`, for every task; a `videos`
+  list and the active result types are gated at validate; a reference error
+  no longer names a server path.
+- `for_each` refuses a literal cross-entry reference inside one group;
+  `list_jobs` refuses a workspace that does not exist; a cached pipeline's
+  minutes-long decode and a slow first pass are warned about as measurements,
+  with no cause asserted.
+- Python 3.12 or newer is required (#1084); the install scripts and
+  classifiers say so.
+
+**Architecture**
+
+- `dw/media.py`, `dw/tasks/cuts.py`, `dw/tasks/script_check.py` and
+  `dw/pipeline_processors/pipeline.py` each hand a concern to a companion
+  module (`media_readers`, `cuts_lines`, `script_findings`,
+  `pipeline_outputs`), and the regional edit's mask arithmetic moves to
+  `h3_mask_cells` so the blocks never import their importer. The ratchet's
+  module count rises 226 -> 236 for these and the new tasks; every other
+  metric holds.
+
 ### 0.16.0
 
 <!-- Drafted from v0.15.0..develop (7a0884ee). Paste into the GitHub release body once the tag has published: gh release edit v0.16.0 --notes-file ... -->
@@ -1426,6 +1640,16 @@ with owner `dkackman`, repository `diffusers-workflow`, workflow
 `ci.yml`, environment `pypi` (use "add a pending publisher" before the
 first release, since the project won't exist yet). Pre-release versions
 are hidden from plain `pip install`; they need `pip install --pre`.
+
+The `docker` job, also after the GitHub release, builds
+`docker/Dockerfile` from the tag, starts the image on the CPU runner and
+waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>`
+to Docker Hub. A release also moves `latest`; a pre-release does not.
+One-time setup: on Docker Hub, create the public repository
+`dkackman/diffusers-workflow` and an access token with read/write scope.
+On GitHub, under *Settings > Environments*, create an environment named
+`dockerhub` with that token as secret `DOCKERHUB_TOKEN`. A failed push
+leaves the GitHub release and PyPI as they are; re-run the job.
 
 Note: released `diffusers` from PyPI may lag the newest model pipelines
 this project targets — a PyPI install can need

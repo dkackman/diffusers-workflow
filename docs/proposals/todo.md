@@ -37,6 +37,24 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **MMAudio picture-synced sound effects** (#1124, stages #1131-#1133),
+  shipped 2026-11-01. It followed a listening gate in which Don heard a
+  clear win on replacing a shot's own sound, on silent clips and on
+  text-only effects. A new task, `generate_sound_effects`, is a vendored
+  port with no upstream dependencies: the flow network, the DFN5B CLIP key
+  map and Synchformer, with K6's safetensors as the decoder. Its weights
+  are pinned and CC-BY-NC 4.0 / Apple AMLR. Templates:
+  `video-to-sound-effects` and `text-to-sound-effect`. Record, including
+  the known edges: `complete/mmaudio-sound-effects-complete.md`.
+- **Story-forge's production lessons, checked on lem** (#1123, stages
+  #1126-#1128), closed 2026-11-01. A/B probes in `probe-1123` found none of
+  lessons 1, 2, 3, 4 or 6 (haze, invented camera moves, contact, all-caps
+  signage, impacts) reproduced on our diffusers pipeline at N = 2, so no
+  rule landed for them. Lesson 5 (wide shots drift on identity) landed as
+  unmeasured guidance in `script-to-video` and `series-episodes`. Lesson 7
+  was cut, and lesson 8 went to #1122. Findings:
+  `audits/2026-11-story-forge-lessons.md`. Record, including the Klein
+  template OOM found on the way: `complete/story-forge-lessons-complete.md`.
 - **Phrase timing without Whisper** (#1095, stages #1104-#1105), shipped
   2026-11-01. A new JSON task, `analyze_phrases`, times sung phrases from
   centre-weighted voice-band energy with no model. `plan_cuts` takes its

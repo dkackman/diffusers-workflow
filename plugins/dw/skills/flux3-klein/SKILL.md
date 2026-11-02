@@ -101,6 +101,9 @@ the caption Klein expects, not as advice for a short prompt. The stored
 captions, `man_dog` and `balloons_layout`: read one before writing your own.
 The upsampler writes English only.
 
+A shot size, camera move or look in film words: the `cinematography`
+skill's Klein table. A still has no move; it becomes framing.
+
 ## Run and judge
 
 1. `validate_workflow` first - free, and catches an off-grid size.

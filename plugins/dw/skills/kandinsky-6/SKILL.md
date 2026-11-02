@@ -64,6 +64,8 @@ read the `workflows` guide's authoring section first.
   and keep the result's `fps` on the same variable.
 - The soundtrack is mono at 44.1 kHz, duplicated to stereo in the mp4.
   `sample_audio` false gives a silent clip and skips the audio decode.
+- To replace a shot's own sound with generated effects, run `video-to-sound-effects`
+  on the clip (MMAudio runs 7-25 dB hot: `match_levels` before mixing), then `pair_audio`.
 
 ## Prompts
 
@@ -85,6 +87,10 @@ The `kandinsky6/` stored prompts (`list_prompts`) follow that format. Let the
 user's language stand; the model takes it. The pipeline can also expand a
 short prompt with its own text encoder (`expand_prompts` true, a shorter
 version of the same instructions). No template uses it yet.
+
+A shot size, camera move or look in film words (a dolly-in, low-key light,
+16mm): the `cinematography` skill's Kandinsky table writes the one camera
+sentence.
 
 ## Run and judge
 

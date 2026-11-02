@@ -35,6 +35,13 @@ def test_exact_frame_rate(fps, expected):
     assert exact_frame_rate(fps) == expected
 
 
+def test_a_tiny_rate_is_never_zero():
+    # round(fps * 1001) is 0 for a rate under about 0.0005, and 0 % 1000 == 0
+    # took the NTSC branch to Fraction(0, 1001), a rate PyAV refuses at write
+    rate = exact_frame_rate(1e-9)
+    assert rate > 0
+
+
 def test_encode_video_with_audio_keeps_fractional_rate(tmp_path):
     path = tmp_path / "out.mp4"
     encode_video(

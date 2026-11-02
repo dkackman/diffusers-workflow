@@ -26,14 +26,12 @@ from .. import get_device_type, preferred_task_dtype
 from ..dsp import as_channels_samples
 from ..media_types import AudioTrack
 from ..dsp import resample_waveform
-from .audio_utils import load_audio
-from ..security import UntrustedWorkflowError
+from .audio_utils import load_audio, waveform_and_rate
 from ..trust import (
-    TASK_REMOTE_CODE_ARGUMENTS,
+    refuse_unused_task_remote_code,
     require_trusted_generate_arguments,
-    workflows_are_trusted,
 )
-from . import audio8_tts_model as audio8
+from ..vendored import audio8_tts_model as audio8
 from .model_cache import cached_model, hf_pipeline_placement
 from .weights import argument_or_default, file_entries, repo_entries
 
@@ -175,30 +173,6 @@ def _generation_settings(value, name):
     return value
 
 
-def _refuse_top_level_remote_code(kwargs):
-    """Refuse trust_remote_code / custom_pipeline / custom_generate given as
-    step arguments, for every model, before anything loads: the trust gate's
-    refusal for an untrusted workflow, and a plain error for a trusted one
-    (the task still would not use it). generate_speech reads none of them
-    there, and a kwargs task drops what it does not read, so one would
-    otherwise pass silently - looking as if it took effect (#1121 bounce)."""
-    given = [name for name in TASK_REMOTE_CODE_ARGUMENTS if kwargs.get(name)]
-    if not given:
-        return
-    names = " or ".join(map(repr, given))
-    if not workflows_are_trusted():
-        raise UntrustedWorkflowError(
-            f"Refusing to run speech_generation: its arguments set {names}, "
-            "which downloads and executes Python from a Hub repository, so it "
-            "needs trusted workflows - see docs/SECURITY.md. generate_speech "
-            "loads no Hub code from its arguments in any case; drop it"
-        )
-    raise ValueError(
-        f"generate_speech takes no {names} argument - it loads no Hub code "
-        "from its arguments, so the setting would have no effect. Drop it"
-    )
-
-
 def _audio8_dtype(device):
     # The checkpoint is bf16, which a 0.6B Qwen-style decoder keeps finite
     # where fp16 may not; MPS and CPU run it in fp32 (fp16/bf16 NaN or crawl)
@@ -318,7 +292,10 @@ def _generate_audio8(text, device, seed, kwargs, settings):
     reference = None
     reference_seconds = 0.0
     if reference_audio is not None:
-        waveform, sample_rate = load_audio(reference_audio)
+        # A path or URL, or an earlier audio step's output (#1134's shape)
+        waveform, sample_rate = waveform_and_rate(
+            reference_audio, None, "generate_speech"
+        )
         reference_seconds = waveform.shape[-1] / float(sample_rate)
         if reference_seconds > _AUDIO8_MAX_REFERENCE_SECONDS:
             raise ValueError(
@@ -381,6 +358,56 @@ def _generate_audio8(text, device, seed, kwargs, settings):
     return AudioTrack(as_channels_samples(samples), int(model.config.codec_sample_rate))
 
 
+def _transformers_pipe(model_name, device, dtype):
+    """The cached transformers text-to-speech pipeline for `model_name`."""
+
+    def load_pipe():
+        logger.info(f"Generating speech with {model_name} on {device}")
+        placement = hf_pipeline_placement(device)
+        return hf_pipeline(
+            "text-to-speech",
+            model=model_name,
+            torch_dtype=dtype,
+            **placement,
+        )
+
+    return cached_model(
+        ("speech_generation", model_name, str(device), str(dtype)), load_pipe
+    )
+
+
+def _with_voice_controls(
+    pipe, model_name, voice_preset, speaker_embedding, forward_params, device, dtype
+):
+    """`forward_params` with the x-vector a SpeechT5 `speaker_embedding` adds;
+    refuses a voice control the loaded model would silently drop."""
+    if voice_preset and getattr(pipe, "processor", None) is None:
+        # A single-voice model has no processor to hand the preset to;
+        # transformers logs the kwarg as unrecognised and speaks anyway
+        raise ValueError(
+            f"{model_name} takes no 'voice_preset' - it has one voice. Drop the "
+            "preset, or use a model with speaker presets such as suno/bark-small"
+        )
+    if not speaker_embedding:
+        return forward_params
+    model_type = getattr(getattr(pipe.model, "config", None), "model_type", None)
+    if model_type != "speecht5":
+        # Only SpeechT5 conditions on an x-vector; a model that does not
+        # would drop 'speaker_embeddings' as an unrecognised forward kwarg
+        # and generate in its own voice, same failure mode as voice_preset
+        raise ValueError(
+            f"{model_name} takes no 'speaker_embedding' - only a SpeechT5 "
+            "model conditions on an x-vector. Drop it, or use a SpeechT5 "
+            "model such as microsoft/speecht5_tts"
+        )
+    return {
+        **forward_params,
+        "speaker_embeddings": _speaker_embedding_tensor(
+            speaker_embedding, device, dtype
+        ),
+    }
+
+
 def generate_speech(text=None, device="cpu", seed=None, **kwargs):
     """Speak a line of text with a local text-to-speech model - any
     transformers text-to-speech checkpoint named by model_name. Three
@@ -432,7 +459,8 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
                 which already reaches the model unchanged through
                 forward_params and needs no argument of its own.
             reference_audio: Edge0/Audio8-TTS-Realistic-0.6b only - a clip of
-                the voice to clone (typically an 'asset:' reference), at most
+                the voice to clone (an 'asset:' reference, a path or URL, or an
+                earlier audio step's 'previous_result:'), at most
                 20 s; 5-10 s of clean speech is plenty. Requires
                 reference_text. Refused on any other model, and refused
                 together with speaker_embedding, voice_preset or messages,
@@ -474,7 +502,7 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
     if messages is not None:
         _check_messages(messages)
     text_inputs = messages if messages is not None else text
-    _refuse_top_level_remote_code(kwargs)
+    refuse_unused_task_remote_code("generate_speech", kwargs)
     # Both reach model.generate() for a generative model, where
     # custom_generate / trust_remote_code download and run Hub code: refused
     # for an untrusted workflow before anything loads, as text_generation does
@@ -494,47 +522,10 @@ def generate_speech(text=None, device="cpu", seed=None, **kwargs):
     voice_preset = kwargs.get("voice_preset", None)
     speaker_embedding = kwargs.get("speaker_embedding", None)
     dtype = preferred_task_dtype(device)
-
-    def load_pipe():
-        logger.info(f"Generating speech with {model_name} on {device}")
-        placement = hf_pipeline_placement(device)
-        return hf_pipeline(
-            "text-to-speech",
-            model=model_name,
-            torch_dtype=dtype,
-            **placement,
-        )
-
-    pipe = cached_model(
-        ("speech_generation", model_name, str(device), str(dtype)),
-        load_pipe,
+    pipe = _transformers_pipe(model_name, device, dtype)
+    forward_params = _with_voice_controls(
+        pipe, model_name, voice_preset, speaker_embedding, forward_params, device, dtype
     )
-
-    if voice_preset and getattr(pipe, "processor", None) is None:
-        # A single-voice model has no processor to hand the preset to;
-        # transformers logs the kwarg as unrecognised and speaks anyway
-        raise ValueError(
-            f"{model_name} takes no 'voice_preset' - it has one voice. Drop the "
-            "preset, or use a model with speaker presets such as suno/bark-small"
-        )
-
-    if speaker_embedding:
-        model_type = getattr(getattr(pipe.model, "config", None), "model_type", None)
-        if model_type != "speecht5":
-            # Only SpeechT5 conditions on an x-vector; a model that does not
-            # would drop 'speaker_embeddings' as an unrecognised forward kwarg
-            # and generate in its own voice, same failure mode as voice_preset
-            raise ValueError(
-                f"{model_name} takes no 'speaker_embedding' - only a SpeechT5 "
-                "model conditions on an x-vector. Drop it, or use a SpeechT5 "
-                "model such as microsoft/speecht5_tts"
-            )
-        forward_params = {
-            **forward_params,
-            "speaker_embeddings": _speaker_embedding_tensor(
-                speaker_embedding, device, dtype
-            ),
-        }
 
     if messages is not None:
         logger.info(f"Speaking {len(messages)} chat-templated message(s)")

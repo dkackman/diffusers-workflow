@@ -1024,6 +1024,30 @@ class TestSpeechNotTranscribed(unittest.TestCase):
             [s for s in skipped(answer, "line_clipped_at_end") if "line" in s], []
         )
 
+    def test_a_short_shot_covered_whole_by_a_block_is_not_dropped(self):
+        # #1115 follow-up: sound 1-10 s over A | M | B with M only 1.0 s wide,
+        # under the 1.5 s a piece needs on its own. It used to be filtered
+        # out of the split; folded into A instead, the whole span is reported
+        spans = [
+            {"name": "A", "start": 0.0, "end": 4.0},
+            {"name": "M", "start": 4.0, "end": 5.0},
+            {"name": "B", "start": 5.0, "end": 11.0},
+        ]
+        chunks = [
+            {"start": 0.9, "end": 10.6, "text": " alpha"},
+            {"start": 10.6, "end": 11.0, "text": " bravo"},
+        ]
+        mono = numpy.concatenate([silent(1.0), voiced(9.0), silent(1.0)])
+        answer = shot_run(
+            [{"text": "alpha bravo", "shot": "B"}], chunks, mono=mono, spans=spans
+        )
+        found = sorted(
+            rules(answer, "speech_not_transcribed"), key=lambda f: f["at"]["seconds"]
+        )
+        self.assertEqual([f["at"]["shot"] for f in found], ["A", "B"])
+        self.assertAlmostEqual(found[0]["at"]["end"], 5.0, places=1)
+        self.assertAlmostEqual(found[1]["at"]["seconds"], 5.0, places=1)
+
     def test_an_unheard_line_with_nothing_to_check_is_listed_skipped(self):
         chunks = words("charlie delta", 6.0)
         mono = numpy.concatenate([silent(6.0), voiced(5.042)])

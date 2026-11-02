@@ -194,22 +194,23 @@ class StepTimer:
         """Say so once per call when a cached pipeline's decode runs for minutes.
 
         The decode is the tail of the call, after the last denoise pass. On a
-        pipeline already loaded, a decode this long is not weights loading: it
-        is a one-off cost of meeting a new shape (a different frame count gives
-        the video decoder a chunk shape it has not run: kernel selection,
-        allocator re-growth) or a memory-pressure slow path. Without a word the
-        consumer sees only `phase_stall` notices (#1116)."""
+        pipeline already loaded, a decode this long is not weights loading;
+        what it is cannot be told from here (a shape the cached pipeline has
+        not run and memory pressure on the decode device are the usual causes),
+        so the warning states the measurement and names those as things to
+        check, never as the cause (#1116, the #1119 rule). Without a word the
+        consumer sees only `phase_stall` notices."""
         if self._load_cached is not True:
             return
         decode = segment.spans()[3]
         if decode is None or decode < _SLOW_DECODE_S:
             return
         emit_warning(
-            f"Decode took {decode:.0f}s with the pipeline already loaded. That "
-            "is far past a steady decode and is not proportional to frame "
-            "count: a one-off cost of a cached pipeline meeting a shape it has "
-            "not run (a different number of frames), or memory pressure on the "
-            "decode device.",
+            f"Decode took {decode:.0f}s with the pipeline already loaded, far "
+            "past a steady decode. The cause is not identified from here: a "
+            "shape this cached pipeline has not run before (a different number "
+            "of frames) and memory pressure on the decode device are the usual "
+            "ones to check.",
             kind="decode_slow",
             decode_s=round(decode, 1),
             step=self.step,

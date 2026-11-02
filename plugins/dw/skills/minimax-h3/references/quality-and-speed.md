@@ -165,6 +165,24 @@ Every rung above moves one. Quote that rung's minutes from the ladder instead
 (the *Attn* column says which backend they were measured with), and say
 which figure you are quoting.
 
+## Past 768p: the latent refine
+
+H3 renders at most 768x1344. A sharper deliverable is a second pass on the
+take's own latents, not a re-render: `upscale_h3_latents` scales the base
+take's latents (cap 1920x1088 or 1088x1920), and an H3 step with `latents`,
+`hold_audio` (the take's soundtrack) and `refine_strength` re-denoises them -
+in feathered tiles (`refine_tiles: {width, height, overlap}` on the 32 px
+grid) so 1080p fits a 24 GB card, about 12 min on an RTX 3090 for 124
+frames. The recipe, the strength bands and the one-decode rule are the
+`workflows` guide's *Refining above 768p in tiles*, *Promoting an H3 take to
+768p in latent space* and *Refining the upscaled latents: refine_strength*;
+`refine_sigmas` (*Explicit refine sigmas*) replaces the shift-spaced schedule
+with the sigma points themselves when a measured schedule is wanted. Validate
+refuses a full-frame refine whose size disagrees with the upscaled latents,
+and references, guides and keyframes in tile mode. A regional fix of one area
+of a good take is `templates/minimax/regional-edit` (`references/regional-edit.md`),
+not a refine of the whole canvas.
+
 ## Prompting the base model
 
 - It invents an extra person unless every subject is placed explicitly

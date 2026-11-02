@@ -21,7 +21,7 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
 
 from ..events import emit_log
 
-from .h3_mask import keep_rows
+from .h3_mask_cells import keep_rows
 from .h3_rules import (
     KEEP_ROWS,
     MASK_GROW_DEFAULT,
