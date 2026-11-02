@@ -41,6 +41,14 @@ Delivered rate is the 2026-10 definition: words divided by the time from the
 first word's start to the last word's end. Per-segment rates are given too.
 Tail is 5.167 s minus the end of "Daniel."
 
+**Which rate the verdicts use.** Every arm is judged by the delivered
+(whole-line) rate, which is the rate the plan's bar names. The per-segment
+rates are reported but not judged. By the per-segment rate, segment 1 runs at
+5.8–6.6 words/s in every B and C clip. So on that reading both B seeds and
+both C seeds fail the 4.5 words/s bar, and "split paces the line" would be
+**refuted**. The verdict in row 1 below holds only because the bar measures
+the delivered rate.
+
 ## Verdicts
 
 | # | Rule | Verdict | Jobs | Observation |
@@ -52,18 +60,26 @@ Tail is 5.167 s minus the end of "Daniel."
 ## Measurements
 
 Times are in seconds from clip start. **Lead** is the onset of the first
-spoken word. Onsets and gaps come from the RMS envelope, which agrees with the
-Whisper word timestamps within 0.1 s at each onset (see *Method notes*).
-Transcripts are `H3DialoguePacingProbe-words_{a.3,b.4,c.5}-0.json` in each run.
+spoken word. The envelope agrees with the Whisper word timestamps within 0.1 s
+at the lead and the tail. It doesn't agree at segment 2's onset wherever
+Whisper stretches "for" across the gap (see *Method notes*).
 
-| Arm | Seed | Lead | Gap at the break | Seg 1 w/s | Seg 2 w/s | Delivered w/s | Tail | Action word | Mouth moves in silence | Action at its break |
-| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
-| A | 1001 | 2.14 | n/a (no break) | n/a | n/a | 4.71 (8 / 1.70) | 1.33 | none | **possibly**: lips parted or open at 0.0–1.5 s in the silent lead-in | n/a |
-| A | 2002 | 2.72 | n/a | n/a | n/a | 5.41 (8 / 1.48) | 0.97 | none | no: closed or neutral at 0.0–2.5 s | n/a |
-| B | 1001 | 0.70 | about 1.9 (1.6–3.5) | 6.25 | about 4.1 | 2.23 | 0.89 | none | no: closed or neutral through the gap | n/a |
-| B | 2002 | 0.64 | about 1.9 (1.5–3.4) | 6.6 | about 3.8 | 2.26 | 0.99 | none | no: closed through the gap | n/a |
-| C | 1001 | 0.44 | about 2.5 (1.3–3.8) | 6.25 | about 3.8 | 1.93 | 0.59 | none | no: closed through the break | **no**: no sniff; head and gaze drop at 4.0–5.0 s, after the break |
-| C | 2002 | 0.66 | about 2.1 (1.5–3.6) | 5.8 | 4.05 | 2.16 | 0.81 | none | no: closed or smiling through the break | **no**: head down at 4.5–5.0 s, after the break |
+Every clip's transcript output is `words_{a,b,c}` in the job named, i.e.
+`H3DialoguePacingProbe/<run>/final/H3DialoguePacingProbe-words_{a.3,b.4,c.5}-0.json`.
+There is no stray early word in any clip, so each lead has one reading.
+
+| Arm | Seed | Job | Lead | Gap at the break | Seg 1 w/s | Seg 2 w/s | Delivered w/s | Tail | Action word | `suspect` chunks, and how counted | Mouth moves in silence | Action at its break |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| A | 1001 | 150751a7522c | 2.14 | n/a (no break) | n/a | n/a | 4.71 (8 / 1.70) | 1.33 | none | all 8 `silent`; counted as speech (envelope shows speech at each) | **possibly**: lips parted or open at 0.0–1.5 s in the silent lead-in | n/a |
+| A | 2002 | 900ea1581d22 | 2.72 | n/a | n/a | n/a | 5.41 (8 / 1.48) | 0.97 | none | all 8 `silent`; counted as speech (envelope) | no: closed or neutral at 0.0–2.5 s | n/a |
+| B | 1001 | 150751a7522c | 0.70 | about 1.9 (1.6–3.5, envelope) | 6.25 | about 4.1 | 2.23 | 0.89 | none | "for" `long` (1.50–3.68); counted as speech, but its onset is taken from the envelope (about 3.5), not Whisper | no: closed or neutral through the gap | n/a |
+| B | 2002 | 900ea1581d22 | 0.64 | about 1.9 (1.5–3.4, envelope) | 6.6 | about 3.8 | 2.26 | 0.99 | none | all 8 `silent`; counted as speech (envelope). "for" also stretched 1.40–3.52, onset from the envelope | no: closed through the gap | n/a |
+| C | 1001 | 150751a7522c | 0.44 | about 2.5 (1.3–3.8, envelope) | 6.25 | about 3.8 | 1.93 | 0.59 | none | all 8 `silent`; counted as speech (envelope). "for" stretched 2.50–3.96, onset from the envelope | no: closed through the break | **no**: no sniff; head and gaze drop at 4.0–5.0 s, after the break |
+| C | 2002 | 900ea1581d22 | 0.66 | about 2.1 (1.5–3.6, envelope) | 5.8 | 4.05 | 2.16 | 0.81 | none | all 8 `silent`; counted as speech (envelope) | no: closed or smiling through the break | **no**: head down at 4.5–5.0 s, after the break |
+
+Lead and tail are read from the transcript (the first chunk's `start`, and
+5.167 s minus the last chunk's `end`), `suspect` chunks included. The gap and
+the segment-2 onset come from the RMS envelope wherever Whisper stretches "for".
 
 ### Arm A: the control
 
@@ -134,9 +150,12 @@ None. All three arms ran on both seeds.
   (`release_pipeline: true`), then one `transcribe_audio` step per arm
   (`words_a`, `words_b`, `words_c`, `timestamps: "word"`). The generation
   arguments are the ones listed at the top of this document.
-- **Whisper "silent" suspects.** The clips are quiet (mean −40 to −43 dBFS),
-  and Whisper flagged most words `suspect: "silent"`. The envelope shows speech
-  at each flagged word, so the words were kept. Lead and tail can be re-read
+- **Whisper "silent" suspects.** The clips are quiet (mean −40 to −43 dBFS,
+  peaks −18 to −23), and the job warnings call each clip "quiet overall".
+  In 5 of the 6 transcripts every word is flagged `suspect: "silent"`. The
+  exception is B s1001, where only "for" is flagged (`long`). The envelope
+  shows speech at each flagged word, so every `silent` chunk is counted as
+  speech. The per-clip table says so row by row. Lead and tail can be re-read
   from each transcript's first-word start and last-word end within 0.1 s.
 - **Long "for" chunks.** In B, Whisper stretches the word "for" across the
   gap (1.50–3.68 s on s1001, 1.40–3.52 s on s2002). The segment-2 onset and
