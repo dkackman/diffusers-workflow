@@ -40,21 +40,21 @@ the spec's seven (for example "a low angle" or "a front-facing angle").
 
 ## `move`
 
-| id | Camera motion to write (every row carries the viewpoint, as the spec requires) |
-| --- | --- |
-| `static` | "captured from <viewpoint>, the camera remains static" |
-| `dolly-in` | "seen from <viewpoint>, as the camera dollies in toward <subject>, <reveal> comes into view" |
-| `dolly-out` | "seen from <viewpoint>, as the camera dollies back from <subject>, <reveal> comes into view around them" |
-| `truck-left` | "seen from <viewpoint>, as the camera trucks left alongside <subject>, <reveal> slides into view from the left" |
-| `truck-right` | "seen from <viewpoint>, as the camera trucks right alongside <subject>, <reveal> slides into view from the right" |
-| `crane-up` | "seen from <viewpoint>, as the camera cranes upward above <subject>, <reveal> comes into view below" |
-| `crane-down` | "seen from <viewpoint>, as the camera cranes down to <subject>'s level, <reveal> comes into view behind them" |
-| `orbit` | "seen from <viewpoint>, as the camera arcs around <subject>, <reveal> comes into view behind them" |
-| `tracking` | "seen from <viewpoint>, the camera tracks alongside <subject> at their pace, <reveal> passing through the frame" |
-| `whip-pan` | "seen from <viewpoint>, the camera whip-pans <left or right> in a blur, landing on <reveal>" |
-| `push-in` | "seen from <viewpoint>, the camera pushes in slowly toward <subject's face>, until <reveal> fills the frame" |
-| `handheld` | "seen from <viewpoint>, the handheld camera sways slightly as it follows <subject>, <reveal> drifting into view" |
-| `crash-zoom` | "seen from <viewpoint>, the camera crash-zooms in on <subject>, until <reveal> fills the frame" |
+| id | Camera motion to write (every row carries the viewpoint, as the spec requires) | measured (#1148) |
+| --- | --- | --- |
+| `static` | "captured from <viewpoint>, the camera remains static" | honoured |
+| `dolly-in` | "seen from <viewpoint>, as the camera dollies in toward <subject>, <reveal> comes into view" | honoured |
+| `dolly-out` | "seen from <viewpoint>, as the camera dollies back from <subject>, <reveal> comes into view around them" | honoured |
+| `truck-left` | "seen from <viewpoint>, as the camera trucks left alongside <subject>, <reveal> slides into view from the left" | honoured |
+| `truck-right` | "seen from <viewpoint>, as the camera trucks right alongside <subject>, <reveal> slides into view from the right" | not measured |
+| `crane-up` | "seen from <viewpoint>, as the camera cranes upward above <subject>, <reveal> comes into view below" | honoured |
+| `crane-down` | "seen from <viewpoint>, as the camera cranes down to <subject>'s level, <reveal> comes into view behind them" | not measured |
+| `orbit` | "seen from <viewpoint>, as the camera arcs around <subject>, <reveal> comes into view behind them" | honoured |
+| `tracking` | "seen from <viewpoint>, the camera tracks alongside <subject> at their pace, <reveal> passing through the frame" | not measured |
+| `whip-pan` | "seen from <viewpoint>, the camera whip-pans <left or right> in a blur, landing on <reveal>" | not measured |
+| `push-in` | "seen from <viewpoint>, the camera pushes in slowly toward <subject's face>, until <reveal> fills the frame" | not measured |
+| `handheld` | "seen from <viewpoint>, the handheld camera sways slightly as it follows <subject>, <reveal> drifting into view" | not measured |
+| `crash-zoom` | "seen from <viewpoint>, the camera crash-zooms in on <subject>, until <reveal> fills the frame" | not measured |
 
 Example: "A medium shot frames a woman in a grey wool coat from the waist up,
 captured from a low angle as the camera dollies in toward her, the lit

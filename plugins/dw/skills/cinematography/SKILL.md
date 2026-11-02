@@ -68,10 +68,30 @@ each family's format with a camera already in it - `ltx2/`, `kandinsky6/`,
 ## A hint, not a promise
 
 Every value here is a hint, not a promise. The models were trained on
-captions that describe camera work; none was trained on this list, and dw
-has not measured which named moves each family honours (one 241-frame LTX
+captions that describe camera work; none was trained on this list. dw has
+measured six named moves per video family once: one seed (42), one wide shot
+of a fixed subject, the catalog text-to-video template's defaults, each clip
+judged by its first and last frames (job ids and what the frames showed are
+in `docs/proposals/audits/2026-11-higgsfield/move-trial.md`):
+
+| move | `minimax-h3` | `ltx-2.5` | `kandinsky-6` |
+| --- | --- | --- | --- |
+| `static` | honoured | honoured | honoured |
+| `dolly-in` | honoured | honoured | honoured |
+| `dolly-out` | honoured | honoured | honoured |
+| `truck-left` | partial | honoured | partial |
+| `crane-up` | honoured | honoured | partial |
+| `orbit` | honoured | honoured | partial |
+
+*Honoured*: the move landed in the right direction at a visible size.
+*Partial*: some motion of the right kind, too small or mixed with another
+move (Kandinsky 6's truck, crane and orbit each drifted forward more than
+they moved as named). *Ignored*: no motion of that kind; a move measured so
+would read "hint only, rarely honoured" - none did in this trial. The
+other seven moves, and `flux3-klein` (a still), are not measured. One seed is
+one sample, not a rate: a longer clip can still drift (one 241-frame LTX
 image-to-video clip told "the camera remains static" pushed or arced from
-about five seconds, while six clips in the L2 cells showed no clear move; see
+about five seconds; see
 `docs/proposals/audits/2026-11-story-forge-lessons.md`). So:
 
 1. Describe the move in the caption in the family's own words (the table
