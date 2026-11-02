@@ -103,7 +103,24 @@ def test_other_face_drift_on_every_shot(probe):
         clip([a_face(PERSON_B)] * 6, shots_of(3, 3)), a_face(), samples_per_shot=3
     )
     drifted = [f for f in answer["findings"] if f["rule"] == "face_drift"]
-    assert [f["at"] for f in drifted] == [{"shot": "shot0"}, {"shot": "shot1"}]
+    assert [f["at"] for f in drifted] == [
+        {
+            "shot": "shot0",
+            "index": 0,
+            "start_frame": 0,
+            "num_frames": 3,
+            "start": 0.0,
+            "end": 0.125,
+        },
+        {
+            "shot": "shot1",
+            "index": 1,
+            "start_frame": 3,
+            "num_frames": 3,
+            "start": 0.125,
+            "end": 0.25,
+        },
+    ]
     assert drifted[0]["threshold"] == 0.363
     assert drifted[0]["value"] < 0.363
 
@@ -113,13 +130,37 @@ def test_empty_shot_reports_no_face_only_there(probe):
     answer = fd.analyze_face_drift(
         clip(frames, shots_of(3, 3)), a_face(), samples_per_shot=3
     )
-    assert [(f["rule"], f["at"]) for f in answer["findings"]] == [
-        ("no_face", {"shot": "shot0"})
+    assert [(f["rule"], f["at"]["shot"]) for f in answer["findings"]] == [
+        ("no_face", "shot0")
     ]
+    assert answer["findings"][0]["at"]["start_frame"] == 0
     first, second = answer["measurements"]
     assert first["faces_found"] == 0 and first["similarity_median"] is None
     assert first["similarity_min"] is None
     assert second["faces_found"] == 3
+
+
+def test_measurements_carry_each_shots_frames_and_times(probe):
+    # two shots share a name: their index, frames and times tell them apart
+    records = [shot_record("take", 0, 2), shot_record("take", 2, 4)]
+    answer = fd.analyze_face_drift(
+        clip([a_face(PERSON_B)] * 6, records), a_face(), samples_per_shot=2
+    )
+    first, second = answer["measurements"]
+    assert (first["index"], first["start_frame"], first["num_frames"]) == (0, 0, 2)
+    assert (first["start"], first["end"]) == (0.0, 0.083)
+    assert (second["index"], second["start_frame"], second["num_frames"]) == (1, 2, 4)
+    assert (second["start"], second["end"]) == (0.083, 0.25)
+    places = [(f["at"]["index"], f["at"]["start"]) for f in answer["findings"]]
+    assert places == [(0, 0.0), (1, 0.083)]
+
+
+def test_whole_file_shot_has_times(probe):
+    answer = fd.analyze_face_drift(clip([a_face()] * 48), a_face())
+    whole = answer["measurements"][0]
+    assert whole["shot"] == "whole"
+    assert (whole["start_frame"], whole["num_frames"]) == (0, 48)
+    assert (whole["start"], whole["end"]) == (0.0, 2.0)
 
 
 def test_reference_without_face_refused(probe):
