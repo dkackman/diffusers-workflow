@@ -31,12 +31,11 @@ docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py login
 
 To use the published image instead of building, uncomment `DW_IMAGE` in
 `docker/.env` and run `docker compose -f docker/compose.yaml pull` before
-`up -d` (without `--build`). The first build takes a while, because torch
-alone is several GB. The first
-start then installs diffusers from GitHub main into its volume (see below),
-which takes a few more minutes before the server answers. Then `login-url`
-prints `http://localhost:8765/?token=...`. Open that link and the UI saves
-the token.
+`up -d` (without `--build`). The first build takes a while (torch alone is
+several GB), and the first start installs diffusers from GitHub main into
+its volume (see below), a few more minutes before the server answers.
+`login-url` prints `http://localhost:<DW_HOST_PORT>/?token=...`; opening it
+saves the token in the UI.
 
 ## Where the data lives: shared with a native install
 
@@ -75,8 +74,9 @@ bash docker/switch.sh native    # stop the container, start the unit
 bash docker/switch.sh status
 ```
 
-The script assumes the user unit from `scripts/dw-serve.service`. For the
-system unit in `contrib/systemd/`, set `DW_SYSTEMCTL="sudo systemctl"`.
+The script assumes the user unit from `scripts/dw-serve.service`
+(`DW_SYSTEMD_UNIT` names another unit). For the system unit in
+`contrib/systemd/`, set `DW_SYSTEMCTL="sudo systemctl"`.
 To keep the token your MCP clients already use, set `DW_API_TOKEN` in
 `docker/.env` to the one the unit passes.
 
@@ -94,16 +94,18 @@ only diffusers and any dependency a new commit needs that the image lacks.
 
 - **The first start** installs main HEAD (or `DW_DIFFUSERS_REF`; see below).
 - **A restart changes nothing.** diffusers moves only when you ask it to.
-- **Update** from the web UI's Models page, as on a native install, or:
+- **Update** to HEAD from the web UI's Models page, as on a native install,
+  or to HEAD, a commit or the release floor with
   `docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py update-diffusers [--commit SHA | --revert]`,
-  then restart the container.
+  then restart the container (a running job keeps the old import).
 - **A rebuilt image** (a new dw) rebuilds the overlay and reinstalls the
   diffusers commit you had, not HEAD.
 - **If the overlay doesn't import** (a broken HEAD, or no network on the
   first start), the server starts on the copy of diffusers built into the
-  image, and says so in the log. Pin a working commit from the Models page,
-  then restart. An update made in this state goes into the container
-  rather than the volume, so it's lost when the container is re-created.
+  image and says so in the log. Pin a working commit with `update-diffusers
+  --commit SHA` (or `--revert`), then restart. An update from the Models
+  page in this state goes into the container rather than the volume, so it
+  is lost when the container is re-created.
 
 `DW_DIFFUSERS_REF` in `docker/.env`: `head` (the default), a commit hash
 (the overlay is held to it), or `image` (no overlay; use the copy built
@@ -112,19 +114,18 @@ into the image).
 ## The API token
 
 Inside the container the server listens on every interface, and it can't
-tell how the port is published. So it always gets a token: `DW_API_TOKEN`
+tell how the port is published, so it always has a token: `DW_API_TOKEN`
 if you set one, otherwise one generated on first start and saved to
 `DIFFUSERS_HELPER_ROOT/api-token`. The token is never written to the log,
-so `docker logs` output is safe to paste into an issue: `login-url` prints
-the link when you ask for it.
-`DW_INSECURE_NO_TOKEN=1` turns this off; only do that with the port
-published on localhost (`DW_BIND=127.0.0.1`, the default).
+so `docker logs` output is safe to paste into an issue; `login-url` prints
+it on request. `DW_INSECURE_NO_TOKEN=1` turns this off; do that only with
+the port published on localhost (`DW_BIND=127.0.0.1`, the default).
 
 To reach the server from your LAN, set `DW_BIND=0.0.0.0`, then run `up -d`
-again to re-create the container. Clients connect the way
-[REMOTE.md](REMOTE.md) describes. A box that switches from a systemd unit
-bound to `0.0.0.0` needs this, or after the switch the server answers only
-on the box itself.
+again to re-create the container; clients connect as
+[REMOTE.md](REMOTE.md) describes. A box switching from a systemd unit bound
+to `0.0.0.0` needs this, or the container answers only on the box itself.
+`DW_HOST_PORT` (default 8765) is the host port it is published on.
 
 ## Options
 
@@ -132,6 +133,8 @@ on the box itself.
 `--mcp --devices cuda:0,cuda:1` for one worker per card. The entrypoint adds
 `--host 0.0.0.0`, `--port 8765` and the examples catalog unless you give
 them. `HF_TOKEN` is passed through for gated models.
+`DW_MCP_MAX_WAIT_SECONDS` (written as 1800 by `init-env.sh`, the systemd
+unit's value) caps how long an MCP `wait_for_job` may block (55 s when unset).
 
 Build arguments (`docker compose build --build-arg ...`): `TORCH_INDEX`
 (default the cu130 index; `https://pypi.org/simple` gives the CUDA 12 wheel

@@ -10,15 +10,12 @@ sub-workflows, `pipeline_reference`, typed references), or a reference
 convention (`prompt:`, `previous_result:`). These are what to read and copy.
 Where several checkpoints run the same pattern through the same pipeline class,
 one template carries them all and its `description` spells out the per-checkpoint
-argument sets, so the variations travel with the file rather than in a document
-that drifts from it. The `templates/ltx2/` and `templates/minimax/` subfolders
-each hold a family whose members build on one baseline.
+argument sets. The `templates/ltx2/` and `templates/minimax/` subfolders each
+hold a family whose members build on one baseline.
 
 **`workflows/models/`** records a hardware fact: the quantization, offloading and
-component placement that make one checkpoint fit a real card. That is knowledge
-you cannot re-derive from a template, so it is kept runnable - but nobody learns
-a pattern from the fifth one, so these stay out of the way. Each carries a
-`configures` naming the template it is an instance of:
+component placement that make one checkpoint fit a real card. Each is runnable
+and carries a `configures` naming the template it is an instance of:
 
 ```json
 {
@@ -28,9 +25,6 @@ a pattern from the fifth one, so these stay out of the way. Each carries a
     "steps": [ ... ]
 }
 ```
-
-The distinction exists because a catalog entry that cannot say which of the two
-it is leaves every reader - and every agent - to guess from the filename.
 
 ## Structure
 
@@ -52,13 +46,15 @@ and the server check a workflow against. A running server also serves it at
 }
 ```
 
-**Variables** define defaults that can be overridden from the command line:
+**Variables** define defaults that a caller overrides, from the command line or
+as `run_workflow`'s `arguments`:
 
 ```bash
 python -m dw.run my_workflow.json prompt="a cat" steps=50
 ```
 
-Variable names must be alphanumeric with underscores or hyphens.
+A variable name matches `^[a-zA-Z_][a-zA-Z0-9_-]*$`: a letter or underscore, then
+letters, digits, underscores or hyphens.
 
 ## Step Types
 
@@ -170,22 +166,9 @@ Invoke another workflow file:
 }
 ```
 
-`path` is read the way `run_workflow`'s `workflow_path` is: a catalog name as
-`list_workflows` reports it (`templates/minimax/reference-to-video`), with or
-without `.json`; a path relative to the file that names it (`../models/x.json`);
-or `builtin:name.json` for the packaged fragments in `dw/workflows/`. A name
-resolves beside the referencing file first, then against the run's own
-`workflows/` directory, then against each read-only source the server lists -
-so a stored template can be composed without copying it into the workspace. A
-path that lands outside every source is refused, and one that resolves nowhere
-is a validation error rather than a run that fails on its first step.
-
-When the composing step declares a `result`, that is where the composed output
-is written, once: the child's own last step does not save it a second time
-under its own name. A composing step that declares no `result` (or one with no
-`content_type`) leaves the saving to the child, as before. The child's other
-steps write into the same run directory, with the composing step's name
-leading their file names.
+`arguments` become the child workflow's variables. How `path` resolves, where
+the child's output is saved, and what validation checks are in
+[Composing a stored workflow](#composing-a-stored-workflow).
 
 ## Cross-Step Data Flow
 
@@ -197,11 +180,12 @@ Reference workflow variables with `variable:name`:
 "prompt": "variable:prompt"
 ```
 
-A variable's declared value is both its default and its type — a value passed in is
-converted to the type of the default, so declaring `25` and `"25"` are different things
-(see the schema note under Variables). Declaring `null` opts out of that: the variable
-becomes optional and untyped, taking whatever it is given and staying `null` when it is
-given nothing.
+A variable's declared value is both its default and its type: a value passed in is
+converted to the type of the default, so declaring `25` and `"25"` are different
+things. Declaring `null` makes the variable optional and untyped: it takes whatever
+it is given and stays `null` when given nothing. That is how a workflow exposes an
+argument a caller *may* pass. A caller can set only variables the workflow declares,
+so an optional argument still has to be declared.
 
 ```json
 "variables": { "image": null }
@@ -209,11 +193,6 @@ given nothing.
 
 A value the library already declares does not need a variable at all - see
 [Constant References](#constant-references).
-
-This is how a workflow exposes an argument a caller *may* pass without inventing a
-sentinel for its absence — a sub-workflow that behaves differently when handed an image,
-say. A caller can only set variables the workflow declares, so an optional argument still
-has to be declared to be passable.
 
 ### Previous Result References
 
@@ -239,12 +218,11 @@ Pass output from one step to another with `previous_result:step_name`:
 }
 ```
 
-A reference is resolved wherever it appears in the arguments, not only at the top of
-them - an argument holding a list or a nested object can reference a step too, which is
-what lets a constructed object be
-[built from an earlier step](#objects-built-from-an-earlier-step).
-
-Multiple `previous_result` references create a **cartesian product**: if step A produces 4 images and step B produces 3 masks, a step referencing both will run 12 times.
+A reference resolves anywhere in the arguments, including inside a list or nested
+object, which is what lets a constructed object be
+[built from an earlier step](#objects-built-from-an-earlier-step). Several
+`previous_result` references on one step multiply into a cartesian product (see
+[Several `previous_result` references multiply](#several-previous_result-references-multiply)).
 
 A step whose result is a dict (a task returning several named outputs, or a pipeline
 step that returns something like `inverted_latents`) can be referenced property by
@@ -295,108 +273,94 @@ fails the run - unless it arrives in the `arguments` passed to
 `validate_workflow`, which checks an `asset:`, `prompt:` or `output:` there
 for existence.
 
-- `variable:` — `variable:name` is the workflow's own `variables` entry,
-  overridden by the caller's `arguments`. A variable declared `null` is optional and untyped.
-  Schema validation runs before substitution, so a default must already be the
-  JSON type the field expects: `25`, not `"25"`.
-- `previous_result:` — `previous_result:step_name` is the outputs of an earlier
-  step, named by that step's `name`. It iterates; see the cartesian rule
-  below. Validation checks it: a literal reference naming no earlier step is
-  an error with the JSON path it sits at, rather than a run-time failure
-  reached after everything before it has generated. A `.field` suffix
-  (`previous_result:invert.inverted_latents`) picks one field of a result that
-  is a dict, or a data attribute of a result object.
-- `constant:` — `constant:module.path.NAME` is a value declared in Python,
+- `variable:` - `variable:name` is the workflow's own `variables` entry,
+  overridden by the caller's `arguments`. A variable declared `null` is optional
+  and untyped. Schema validation runs before substitution, so a default must
+  already be the JSON type the field expects: `25`, not `"25"`. Once a workflow
+  has a `variables` block, a reference to a variable it does not declare is a
+  validation error (with no block, the string is passed through unresolved).
+- `previous_result:` - `previous_result:step_name` is the outputs of an earlier
+  step, named by that step's `name`. It iterates (see the cartesian rule below).
+  A literal reference naming no earlier step is a validation error at its JSON
+  path. A `.field` suffix (`previous_result:invert.inverted_latents`) picks one
+  field of a result that is a dict, or a data attribute of a result object.
+- `constant:` - `constant:module.path.NAME` is a value declared in Python,
   read by import rather than copied into JSON. Anything callable is refused.
-- `asset:` — `asset:name` is a file in the asset library. Rooted at the
-  library and confined to it, never resolved relative to the workflow file; a path that
-  escapes the library is rejected. `upload_asset` returns one of these names.
-  One name, three places it can sit: a bare string (`"image": "asset:x.png"`),
-  an element of a list, or the `location` of a media dict
-  (`{"location": "asset:x.png"}`, with or without `media_type`) - all resolve
-  to the same file. When the file is on neither the MCP session's machine nor
-  reachable as `content=` (over 4MB, or the agent has no filesystem access to
-  read it into the call), curl it straight into the library the same way the
-  web UI's file picker does — `POST /api/uploads`, body is the raw bytes, up to
-  200MB:
+- `asset:` - `asset:name` is a file in the asset library, confined to it and
+  never resolved relative to the workflow file. `upload_asset` returns one of
+  these names. It may be a bare string (`"image": "asset:x.png"`), a list
+  element, or the `location` of a media dict (`{"location": "asset:x.png"}`,
+  with or without `media_type`). A file `upload_asset` cannot send (over 4MB as
+  `content=`, or not readable from the MCP session's machine) goes straight to
+  `POST /api/uploads`, the route the web UI's file picker uses: the body is the
+  raw bytes, up to 200MB, and the reply (201) carries `reference`, the `asset:`
+  name to use. Send the bearer token when the server requires one:
   ```
   curl -H "Authorization: Bearer $DW_API_TOKEN" --data-binary @portrait.jpg \
     "http://<host>:8765/api/uploads?filename=portrait.jpg&asset_name=cast/portrait.jpg&workspace=<ws>"
   ```
-  It answers 201 with `reference` - the `asset:` reference to use in a workflow
-  argument (the bearer token only when the server requires one). The same
-  route is also how a file assembled entirely on the client - a finished cut
-  stitched locally rather than by a workflow step - gets onto the server at
-  all: it never lands in the gallery and `export_job` has no run to bundle it
-  from, so uploading it as an asset is the only way to hand it back to the
-  engine or to a teammate reading the workspace.
-- `output:` — `output:<workflow identity>/<run id>/<file>` is a file an earlier
-  run wrote, under the output root and confined to it. `latest` in the run-id position
-  picks the newest run that holds that file; `v<N>` picks the run the gallery labels
-  `v<N>` (`list_gallery`'s `version`), and only that run. A run id is not stable against
-  pruning: to depend on a generated file, promote it with `keep_output` and
-  reference the `asset:` name instead.
-- `prompt:` — `prompt:name` or `prompt:folder/name` is a stored prompt's
-  `text`, rooted at the prompt library. That text may not itself begin with any of these
-  prefixes; the engine rejects such a prompt rather than resolving twice.
-  The library is also the worked-example shelf: a template's default prompt
-  is usually a `prompt:` reference, and the text behind it is a caption
-  written to whatever spec that model was trained on. Before writing a
-  prompt for a family, read the one that is already there —
+  The same route is the only way to hand the engine a file made on the client,
+  such as a cut stitched locally: it has no run for `output:` or `export_job`
+  to name.
+- `output:` - `output:<workflow identity>/<run id>/<file>` is a file an earlier
+  run wrote, confined to the output root. `latest` in the run-id position picks
+  the newest run that holds that file; `v<N>` picks the run the gallery labels
+  `v<N>` (`list_gallery`'s `version`), and only that run. A run id is not stable
+  against pruning: to depend on a generated file, promote it with `keep_output`
+  and reference the `asset:` name instead.
+- `prompt:` - `prompt:name` or `prompt:folder/name` is a stored prompt's
+  `text`, rooted at the prompt library. That text may not itself begin with any
+  of these prefixes. A template's default prompt is usually a `prompt:`
+  reference to a caption written to the spec its model was trained on, so read
+  the existing one before writing a prompt for a family:
   `list_prompts(intended_model="ltx-2.5")` for the shelf,
-  `get_prompt("ltx2/fox_dawn_choir")` for a body. The listing leaves the
-  bodies out by default and reports each one's `text_chars`; asking for all
-  of them at once is more than a client will accept.
-- `item:` — only inside a step that carries `for_each`: `item:` is the
-  entry the member was made for, `item:field` one field of an object entry,
-  spliced in whole whatever its type — a string, a number, a list of
-  references. See "One step per entry" below.
-- `gather:` — `gather:shot` is the result of *every* member of the
-  `for_each` step `shot`, in list order, as one list. Inside a list it splices
-  into it. It is how a step downstream of a fan-out reads the whole group;
-  `previous_result:shot` naming a `for_each` step is an error that says so.
+  `get_prompt("ltx2/fox_dawn_choir")` for a body. The listing leaves the bodies
+  out by default and reports each one's `text_chars`; asking for all of them at
+  once is more than a client will accept.
+- `item:` - only inside a step that carries `for_each`: `item:` is the entry
+  the member was made for, `item:field` one field of an object entry, spliced in
+  whole whatever its type. See "One step per entry" below.
+- `gather:` - `gather:shot` is the result of *every* member of the `for_each`
+  step `shot`, in list order, as one list. Inside a list it splices into it.
+  `previous_result:shot` naming a `for_each` step is an error that says to use
+  `gather:`.
 
-After a long inline run that is worth keeping, `get_job_workflow(job_id)`
-returns the realized workflow — the definition with the arguments, seed and
-prompts of that run pinned into it — and `save_workflow` gives it a name, so
-the next run is by name rather than by pasting JSON again. `export_job(job_id)`
-bundles the whole run (workflow, manifest, job row, the media on both sides)
-into a directory on the server plus a zip URL, for a run worth committing or
-handing to someone else.
+A reference is always the *whole* value: `"variable:base_prompt"` resolves,
+`"variable:base_prompt, in fog"` asks for a variable named `base_prompt, in fog`
+and fails. Nothing is interpolated around a reference. When several steps share
+a block of text (a character's description repeated in every shot), write it
+once as a variable and assemble each step's prompt with a
+[`compose_text`](TASKS.md#compose_text) task, whose parts are whole references
+joined in order; the shot then reads `"prompt": "previous_result:shot_1_prompt"`.
 
-A reference is resolved wherever it appears in the arguments, including inside
-a nested object or list — not only at the top level. It is always the *whole*
-value: `"variable:base_prompt"` resolves, `"variable:base_prompt, in fog"` asks
-for a variable named `base_prompt, in fog` and fails the run. Nothing is
-interpolated around a reference. To vary a fixed prompt across steps, write
-each full prompt out, or put the shared text in a variable and let a step's
-argument override it whole. A `variable:` reference that names nothing the
-workflow declares is a validation error, not a warning: once a `variables`
-block exists the engine refuses an undeclared reference, so it is a run that
-cannot start.
-
-When several steps share a block of text — a character's description and voice
-repeated in every shot of a dialogue short — the answer is composition rather
-than interpolation: write the shared text once as a variable and assemble each
-step's prompt with a [`compose_text`](TASKS.md#compose_text) task, whose parts
-are whole references joined in order. The shot then references the composed
-result (`"prompt": "previous_result:shot_1_prompt"`), so changing the voice
-changes it in every shot instead of in however many copies were made by hand.
+After an inline run worth keeping, `get_job_workflow(job_id)` returns the
+realized workflow (the definition with that run's arguments, seed and prompts
+pinned into it), and `save_workflow` gives it a name. `export_job(job_id)`
+bundles the whole run (workflow, manifest, job row, input and output media) into
+a directory on the server plus a zip URL.
 
 ### Types and escaping
 
 Any key ending in `_type` or `_dtype`, or named `dtype`, has its string value
-loaded as a Python object: `"FluxPipeline"` from `diffusers`, a dotted name
-(`"torch.bfloat16"`, `"sdnq.SDNQConfig"`) by full module path. Wrapping a value
-in braces keeps it a plain string — `"{nf4}"` is the string `nf4`. Getting this
-wrong fails at load time, after validation has already passed, so a value that
-is meant as text under one of those keys must be braced.
+loaded as a Python object: a bare name (`"FluxPipeline"`) from `diffusers`, a
+dotted name (`"torch.bfloat16"`, `"sdnq.SDNQConfig"`) by full module path.
+Wrapping a value in braces keeps it a plain string: `"{nf4}"` is the string
+`nf4`. Getting this wrong fails at load time, after validation has already
+passed, so a value meant as text under one of those keys must be braced. Two
+keys are exempt and always stay strings: `content_type` and `offload_type`
+(braces are accepted there too).
+
+On a server without `--trust-workflows`, a dotted name must sit in one of the
+packages `dw/trust.py` allows (`diffusers`, `torch`, `transformers`, `sdnq`,
+`torchao` and the other quantization backends, `dw`), and must resolve to a
+class defined there, or to a `torch.dtype` under a `dtype` key. Anything else is
+refused at load.
 
 ### What a variable is allowed to be
 
-A model's own rule about a value belongs in the workflow, not in engine code
-(CLAUDE.md) and not in a consumer's head. `variable_constraints` declares it
-per variable, in the same field names a chain step's `frame_snap` uses:
+A model's own rule about a value belongs in the workflow, not in engine code.
+`variable_constraints` declares it per variable, in the same field names a chain
+step's `frame_snap` uses:
 
 ```json
 "variable_constraints": {
@@ -419,40 +383,35 @@ it is refused. The bounds are checked against the value the run will use, so
 they hold for the rounded number: on the rule above `108` is accepted (it
 becomes `124`) and `346` is refused (it would become `362`).
 
-Checked three times, for the reasons the task-argument domains are: in
-`validation_errors`, so `POST /api/validate`, `validate_workflow` and the
-pre-queue check all refuse a bad value at `arguments.<name>` or
-`variables.<name>` for free; at run time before anything loads, which is the
-backstop for a value the static pass cannot see (an inline workflow, a value
-a parent passed down); and in the catalog, where `list_workflows` and
-`get_workflow(variables_only=true)` report the rule beside the default - the
-half that stops the next caller picking a number the model refuses.
+The rule is checked at validation (`POST /api/validate`, `validate_workflow` and
+the pre-queue check refuse a bad value at `arguments.<name>` or
+`variables.<name>`), again at run time before anything loads (for a value the
+static pass cannot see, such as one a parent workflow passed down), and is
+reported in the catalog beside the default by `list_workflows` and
+`get_workflow(variables_only=true)`.
 
-State the rule once. Where a template both declares a constraint and snaps a
-chain, the chain's `frame_snap` names it rather than repeating the numbers:
+Where a template both declares a constraint and snaps a chain, the chain's
+`frame_snap` names the constraint rather than repeating the numbers:
 
 ```json
 "frame_snap": "constraint:num_frames"
 ```
 
-Two limits, both accepted. A constraint cannot express a bound that depends
-on another variable (a maximum that is `fps * seconds` where a template
-exposes `fps`), and it reaches a top-level variable only - not a field inside
-a list entry, so a `for_each` template whose entries each carry their own
-`num_frames` is unconstrained and relies on the run-time check.
+A constraint cannot express a bound that depends on another variable (a maximum
+of `fps * seconds`), and it reaches a top-level variable only, not a field inside
+a list entry: a `for_each` template whose entries carry their own `num_frames`
+relies on the run-time check.
 
 ### A workflow takes only the keys the engine reads
 
 The workflow object itself, `step`, `task`, `workflow`,
-`pipeline_reference` and `result` are closed: a property the engine does not
-read is a validation error naming the object and the key, not a warning.
+`pipeline_reference`, `result`, `chain` and a pipeline's `configuration` are
+closed: a property the engine does not read is a validation error naming the
+object and the key, not a warning. A component's own `configuration` is not
+closed, so a misspelt key there is ignored.
 There is no `when`, no `retry`, no `select` - if a draft reaches for one, the
-shape it wants is a different arrangement of steps, not a flag. The error
-exists because a plausible invented key used to validate cleanly and then do
-nothing, so the expensive work ran with the input silently having had no
-effect - a mistyped `sedd` left the run unseeded while validation advised
-setting a seed, and a mistyped `subfoldr` put the deliverable at the run
-root rather than in `final/`.
+shape it wants is a different arrangement of steps, not a flag. A mistyped
+`sedd` or `subfoldr` is refused rather than silently ignored.
 
 `pipeline` is closed to the same rule with one opening: any key whose value
 is a *component definition* - an object carrying `from_pretrained_arguments` -
@@ -495,18 +454,17 @@ and `from_pretrained_arguments.workflow` - and project it against the
 ceiling a catalog template declared for that same pipeline. Past it, the
 answer stays `valid: true` and carries a warning of kind
 `vram_projection_inherited` that names the source template and the heaviest
-step (for a `for_each`, the heaviest member). It warns rather than
-refuses: your offload and quantization config may differ from the
-template's. Cut frames, size or references until it goes quiet, or declare
-your own `vram_estimate`, which always wins and is judged exactly as a
-template's. Under the ceiling it is not always silent: the template's
-estimate was calibrated on its own offload and quantization, so a workflow
-that sets either differently (no `offload` where the template sets
-`model`, say) gets one warning of kind `vram_config_differs` naming both
-settings and the projection - real usage may be higher. Over the ceiling the
-one `vram_projection_inherited` warning names that difference instead. A pipeline the catalog declares no ceiling for gets no warning -
-silence there is not a clearance - and H3's `t2va` and `ref2va` are
-different identities with different ceilings.
+step (for a `for_each`, the heaviest member). It warns rather than refuses,
+since your offload and quantization may differ from the template's. Cut
+frames, size or references until it goes quiet, or declare your own
+`vram_estimate`, which always wins and is judged exactly as a template's.
+Under the ceiling, a workflow whose offload or quantization differs from the
+template's (no `offload` where the template sets `model`, say) gets one
+`vram_config_differs` warning naming both settings and the projection, since
+real usage may be higher; over the ceiling the `vram_projection_inherited`
+warning names that difference instead. A pipeline the catalog declares no
+ceiling for gets no warning, which is not a clearance. H3's `t2va` and
+`ref2va` are different identities with different ceilings.
 
 The projection is `base_gb`, plus `bytes_per_voxel` times the product of
 the `voxel_variables`, plus `gb_per_reference` per non-null reference, plus
@@ -534,16 +492,15 @@ which `get_server_info` reports as `trust_workflows`.
 ### Several `previous_result` references multiply
 
 When one step carries two or more `previous_result` references, the engine runs
-that step once for every combination — a cartesian product. Four images and
+that step once for every combination, a cartesian product: four images and
 three masks is twelve iterations, not three pairs. Past 10000 combinations the
-run is refused outright.
+run is refused.
 
-This is deliberate: it is how one prompt fans out over a set. The consequence
-is that a *pairing* — shot *i* with speaker *i*, prompt *i* with portrait *i* —
-cannot be expressed with two references on one step. Write it as one step per
-pair, each referencing exactly the two things it pairs, or gather the pairs
-upstream so each is a single result. A step that seems to need a "zip" is the
-signal to restructure the workflow, not to add another reference.
+So a *pairing* (shot *i* with speaker *i*, prompt *i* with portrait *i*) cannot
+be expressed with two references on one step. Write one step per pair, each
+referencing exactly the two things it pairs, gather the pairs upstream so each
+is a single result, or use two `for_each` steps over one list, which pair by
+entry (below).
 
 ### One step per entry: `for_each`
 
@@ -583,21 +540,18 @@ and downstream
 ```
 
 Before the run starts, the engine replaces the `for_each` step with one
-ordinary step per entry, named `shot@wide_open`, `shot@closeup` — the
-entry's `name`, or its index for an entry without one. Those are the names
-the manifest, the job's events and the gallery show, and `@` is reserved
-for them: a hand-written step name may not contain it. An entry's `name`
-must be unique in its list and match `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Give
-entries names: the step cache keys on the member name, so a shot inserted
-in the middle of a named list leaves every other shot cached, while an
-indexed list shifts every later shot onto a different entry and regenerates
-it.
+ordinary step per entry, named `shot@wide_open`, `shot@closeup`: the entry's
+`name`, or its index for an entry without one. Those are the names the
+manifest, the job's events and the gallery show, and `@` is reserved for them:
+a hand-written step name may not contain it. An entry's `name` must be unique
+in its list and match `^[a-zA-Z_][a-zA-Z0-9_-]*$`. Give entries names: the step
+cache keys on the member name, so a shot inserted into a named list leaves every
+other shot cached, while in an indexed list every later shot regenerates.
 
 `item:field` is the whole value of that field, so an entry can carry
-anything a step argument can — including a `references` list whose length
-differs by shot, with `from_previous_result` and `asset:` strings inside
-it. Nothing is interpolated: `"item:prompt"` is the field, `"shot: item:prompt"`
-is a literal string.
+anything a step argument can, including a `references` list whose length
+differs by shot. Nothing is interpolated: `"item:prompt"` is the field,
+`"shot: item:prompt"` is a literal string.
 
 A field an entry may leave out is read with the object form
 `{"item": "singer", "default": "variable:singer_reference"}` (the field's bare
@@ -624,58 +578,42 @@ Two `for_each` steps over the *same* list are paired by key — the entry's
 `name`, or its index for an entry without one: inside `shot@closeup`, a
 reference to another `for_each` step `slice` over the same `shots` list
 resolves to `slice@closeup`. That is how a shot reads the audio
-slice cut for it when slicing and generating are two steps. It is the one
-pairing the engine has; `for_each` runs over exactly one list, and there is
-no zip and no loop index. Same-key pairing is the only way one member reads another
-member of the same list's expansion: a member never reads a sibling entry of
-its own list (below).
+slice cut for it when slicing and generating are two steps. It is the only
+pairing the engine has: `for_each` runs over exactly one list, with no zip and
+no loop index.
 
-That auto-pairing is at the *step* level only, where `from_previous_result`
-(or `previous_result:`) sits directly in the `for_each` step's own
-arguments. Inside an **item** — an entry field the step reads with
-`item:`, such as a `references` entry — nothing pairs it for you, because the
-entry is data the caller wrote and the engine does not know which list it
-came from. Spell the member out: `{"reference_type": "…",
-"from_previous_result": "slice@closeup"}`, not `"slice"`. Getting this wrong
-fails the run with a precise error naming the members that do exist, but the
-guide says it here first.
+That pairing applies only where `from_previous_result` (or `previous_result:`)
+sits directly in the `for_each` step's own arguments. Inside an **item** (an
+entry field the step reads with `item:`, such as a `references` entry) nothing
+pairs it, because the entry is data the caller wrote. Spell the member out:
+`{"reference_type": "…", "from_previous_result": "slice@closeup"}`, not
+`"slice"`. Getting it wrong fails the run with an error naming the members that
+exist.
 
 Members of one list can't read each other. A literal reference to another
 entry of the member's own list (`"image": "previous_result:shot@accuse"`
-inside `shot@deflect`, spelled in the template or carried in an entry, with
-either spelling and with or without a `.property`) is refused at validate:
-it would make the list's order part of its meaning, and no derivation — "shot
-2 starts where shot 1 ended," a still pulled from shot 1's last frame with
-`get_last_frame` — can sit between two members of one list. When one entry
-depends on another, use separate runs: generate the one being derived from
-in its own run (with the derivation, such as a `get_last_frame` step, after
-it), then pass that run's file to the next run as an `output:` reference in
+inside `shot@deflect`, in the template or in an entry, either spelling, with or
+without a `.property`) is refused at validate. When one entry depends on
+another (shot 2 starts from shot 1's last frame), use separate runs: generate
+the first in its own run, with any derivation such as a `get_last_frame` step
+after it, then pass that run's file to the next run as an `output:` reference in
 the dependent entry. Another `for_each` step over the same list reading a
 different key (`trim@deflect` reading `shot@accuse`) stays legal: every member
 of `shot` has finished before `trim` starts.
 
 Limits: a list has at most 32 entries, and an empty list is a validation
-error — the step would run nothing. Validation realizes a `constant:`
-default before checking it, so a list defaulted to a constant validates the
-same way it will run. `release_pipeline` on a `for_each`
-step releases after the *last* member. Each entry is a full generation, so
-quote the cost before running a list-driven workflow: the listing's `lists`
+error. Validation realizes a `constant:` default before checking it, so a list
+defaulted to a constant validates the way it will run. `release_pipeline` on a
+`for_each` step releases after the *last* member. An entry key no step reads is
+a validation warning at the entry's path.
+
+Each entry is a full generation, so quote the cost first. The listing's `lists`
 block names the fields an entry takes and the steps over it, and its `cost`
-carries `per_entry` once one entry has been measured. `validate_workflow`
-with your `arguments` answers with a `plan` whose `estimate` already does
-that arithmetic (`basis: per_entry`); without `per_entry` it extrapolates
-the stored total linearly over your list (`basis: derived` - an estimate
-rather than a measurement) and reports the stored total unchanged only
-when your list is the one it was measured with (`basis: catalog`). Ahead of
-all of those it quotes this box's own finished runs of the shape you are
-about to run when it has any (`basis: observed`, with `runs` saying how
-many) - quote the plan's figure and say which basis it has. An
-entry key no step reads is a validation warning at the entry's path, so a
-misspelt field is caught before the run. Then
-`validate_workflow` with the
-`arguments` you will run with: it expands your list, not the template's
-default, resolves the variables your entries name, and reports a duplicate
-name or a missing field at the entry's path.
+carries `per_entry` once one entry has been measured. `validate_workflow` with
+the `arguments` you will run with expands your list (not the template's
+default), resolves the variables your entries name, reports a duplicate name
+or a missing field at the entry's path, and answers with a `plan` priced for
+your list (the `basis` values are in "The loop", step 4).
 
 Every error carries a path in the file you wrote, not in the expanded step
 list: a bad reference inside a member is reported at the `for_each` step's
@@ -690,118 +628,105 @@ by the source, and `validate_workflow` names the entries to add or drop.
 
 ### The loop
 
-1. `validate_workflow` — free and instant. It reports every schema error at
-   once, each with the JSON path it sits at, plus warnings for argument names
-   that do not appear in the real pipeline signature. It also catches a
-   `previous_result:` (or `from_previous_result`) that names no earlier step,
-   which is what renaming a step half way through leaves behind. Pass the
-   `arguments` you are going to run with as well: a name the workflow no
-   longer declares, a value that will not coerce to the declared type, and an
-   `asset:`, `prompt:` or `output:` reference that names nothing in this
-   workspace each come back at `arguments.<name>`, for free, instead of after
-   the model has loaded. Without them the verdict is about the stored
-   definition and its stock defaults - `checked_arguments` in the answer says
-   which it was.
-2. Fix everything reported, including the warnings: a passing validation does
-   not mean the pipeline accepts the arguments, and a typo against a real
-   `__call__` shows up only as one of those warnings. The server only computes
-   signature warnings for a schema-valid draft — while schema errors remain it
-   returns `warnings: []`, so validate again after fixing them to see the
-   warnings.
-3. `save_workflow` — validates again on the way in and returns the catalog
+1. `validate_workflow` - free and instant. It reports every schema error at
+   once, each at its JSON path, plus warnings for argument names that are not
+   in the real pipeline signature, and a `previous_result:` (or
+   `from_previous_result`) that names no earlier step. Pass the `arguments` you
+   will run with: an undeclared name, a value that will not coerce to the
+   declared type, and an `asset:`, `prompt:` or `output:` reference that names
+   nothing in this workspace each come back at `arguments.<name>`. Without them
+   the verdict is about the stored definition and its defaults;
+   `checked_arguments` in the answer says which it was.
+2. Fix everything reported, including the warnings: a typo against a real
+   `__call__` shows up only as a warning. Signature warnings are computed only
+   for a schema-valid draft (while schema errors remain, `warnings` is `[]`),
+   so validate again after fixing the errors.
+3. `save_workflow` - validates again on the way in and returns the catalog
    metadata the saved draft will carry.
-4. `run_workflow` with `acknowledged_cost=true`, after telling the user what it
-   costs. Without the acknowledgement the call is refused. The figure to tell
-   them is the `plan` on the validate answer - `estimate.minutes` with its
-   `basis`, and every `downloads_required` entry named as its own line item,
-   since weights not on this box are minutes and gigabytes the cost block
-   never counted. `basis` says where the figure came from, and that is what
-   decides how to quote it: `observed` is this box's own finished runs of
-   this shape (the cold median over `runs` of them, preferred over any
-   curated figure) - "about N minutes, measured over M runs"; `per_entry` is
-   a measured per-entry rate re-priced for your list; `catalog` is a
-   measured total for a run whose lists are the ones it was measured with;
-   `derived` is that total extrapolated over a list you changed the length
-   of, or scaled along the steps, canvas or frames you moved off the
-   defaults it was measured at (`scaled` names each axis that moved) - say
-   it is an estimate; `inherited` is an inline workflow priced
-   from this box's runs of the catalog template with the same pipeline
-   (`inherited_from`) - say it is an approximation, and relay the warning
-   if offload, quantization or frame count differ; `other_device` is a figure from another
-   accelerator - say so too; `unknown` is no figure at all. `gb` on a
-   `downloads_required` entry is null when the hub could not be asked, and
-   `steps`/`list_entries` say how many members the list actually produced.
-   Then pass that plan back:
-   `acknowledged_cost={"fingerprint": plan.fingerprint, "minutes":
-   plan.estimate.minutes, "downloads": [...]}` - the server refuses with 409
-   if the run's shape changed since the quote, and the refusal carries the
-   new plan to quote from. `true` is for a plan that was null. When `basis`
-   is `unknown`: a workflow you wrote
-   or copied carries no `cost` of its own, but the pipeline inside it usually
-   does: `list_workflows(include_models=true)` finds the `models/` entry that
-   loads the same checkpoint, and its per-image figure times the number of
-   images is the number to quote. Say "a few minutes" only when no entry with
-   that pipeline has been measured.
-5. `wait_for_job` rather than a polling loop, asking for the job's
-   `plan.estimate` (in seconds, plus a margin) as `timeout_seconds`, so one
-   call can cover the whole run. The server caps a single call, and the
-   tool's description states the cap: the reply's
-   `timeout_applied_seconds` and `timeout_capped` say what you got, and
-   `waited_seconds` how long it took. Call it again if it returns
-   `still_running: true`. Without `timeout_seconds` a call waits 20 seconds. A
-   running job's `progress` carries the step being run; the phase
-   (`loading`, `generating`, `decoding`, `saving`) with the model it names in
-   `phase_detail`; `seconds_in_phase`, time spent in that phase; and
-   `seconds_since_event`, time since the last progress event - a number that
-   climbs while `denoise_step` stays put is the "nothing is happening" read.
-   It also carries `denoise_step`/`denoise_total_steps`,
-   null until the denoise loop starts; judge a slow run against a stuck one
-   by whether `denoise_step` has moved since a poll minutes ago, not by
-   silence past a fixed threshold. A null `denoise_step` under `generating`
-   is the pipeline's lead-in - encoding the prompt and every reference -
-   which emits nothing and can run for many minutes when a video reference
-   is among them; gaps between denoise steps are uneven too where a
+4. `run_workflow` with `acknowledged_cost`, after telling the user what it
+   costs; without it the call is refused. The figure to tell them is the
+   `plan` on the validate answer: `estimate.minutes` with its `basis`, and
+   every `downloads_required` entry as its own line item, since weights not on
+   this box are minutes and gigabytes the estimate does not count. `basis`
+   decides how to quote it:
+   - `observed` - this box's own finished runs of this shape (the cold median
+     over `runs` of them, preferred over any curated figure): "about N
+     minutes, measured over M runs".
+   - `per_entry` - a measured per-entry rate re-priced for your list.
+   - `catalog` - a measured total for a run whose lists are the ones it was
+     measured with.
+   - `derived` - that total extrapolated over a list of another length, or
+     scaled along the steps, canvas or frames you moved off its defaults
+     (`scaled` names each axis): say it is an estimate.
+   - `inherited` - an inline workflow priced from this box's runs of the
+     catalog template with the same pipeline (`inherited_from`): say it is an
+     approximation, and relay the warning if offload, quantization or frame
+     count differ.
+   - `other_device` - a figure from another accelerator: say so.
+   - `unknown` - no figure. A workflow you wrote carries no `cost`, but
+     `list_workflows(include_models=true)` finds the `models/` entry that loads
+     the same checkpoint, and its per-image figure times the number of images
+     is the number to quote. Say "a few minutes" only when no entry with that
+     pipeline has been measured.
+
+   `gb` on a `downloads_required` entry is null when the hub could not be
+   asked, and `steps`/`list_entries` say how many members the list produced.
+   Pass the plan back as `acknowledged_cost={"fingerprint": plan.fingerprint,
+   "minutes": plan.estimate.minutes, "downloads": [...]}`: the server refuses
+   with 409 if the run's shape changed since the quote, and the refusal carries
+   the new plan. `true` is for a plan that was null.
+5. `wait_for_job` rather than a polling loop, with the job's `plan.estimate`
+   (in seconds, plus a margin) as `timeout_seconds`, so one call can cover the
+   whole run. The server caps a single call (the tool's description states the
+   cap); the reply's `timeout_applied_seconds` and `timeout_capped` say what you
+   got, and `waited_seconds` how long it took. Call again on
+   `still_running: true`. Without `timeout_seconds` a call waits 20 seconds.
+
+   A running job's `progress` carries the step; the phase (`loading`,
+   `generating`, `decoding`, `saving`) with the model in `phase_detail`;
+   `seconds_in_phase`; `seconds_since_event`, the time since the last progress
+   event; and `denoise_step`/`denoise_total_steps`, null until the denoise loop
+   starts. Judge a slow run from a stuck one by whether `denoise_step` has moved
+   since a poll minutes ago, not by silence past a fixed threshold. A null
+   `denoise_step` under `generating` is the pipeline's lead-in (encoding the
+   prompt and every reference), which emits nothing and can run for many
+   minutes with a video reference; gaps between denoise steps are uneven where a
    transformer block cache is configured. Both are normal, and the model
-   family's own skill carries the measured figures. `denoise_total_steps` is
-   the schedule the pipeline actually runs, which is not always the
-   `num_inference_steps` that was asked for: MiniMax H3's scheduler counts
-   sigma grid points including the terminal zero, so it runs N-1 model
-   evaluations for N (9 reports 8, 20 reports 19) - the vendor's convention,
-   not a dropped step; raising the number still buys the steps it looks
-   like it does.
-6. `get_output_image` to look at what was actually made, and say whether it
-   answers the request. Nothing before this step establishes that it does.
+   family's skill carries the measured figures. `denoise_total_steps` is the
+   schedule the pipeline actually runs: MiniMax H3's scheduler counts sigma
+   grid points including the terminal zero, so it runs N-1 model evaluations
+   for N (9 reports 8, 20 reports 19). That is the vendor's convention, not a
+   dropped step.
+6. `get_output_image` to look at what was made, and say whether it answers
+   the request. Nothing before this step establishes that it does.
    `get_output_frames` looks at a video and `get_output_audio` listens to a
    soundtrack. A text-only client reads levels and clipping from
    `get_gallery_metadata` instead (`media` peak and mean, `findings`;
    `envelope=true` for where).
 
-   To confirm the words a clip speaks - a text-only client can't consume the
-   `AudioContent` block `get_output_audio` returns - run
-   `templates/check-script` against its script rather than reading a
-   transcript by eye. `validate_workflow(name="templates/check-script",
-   arguments={"input_audio": "output:<name>", "lines": [...]})` first (free;
-   it takes an audio file or a video's muxed soundtrack directly, and
-   `lines` is the script in order, H3 markup allowed, `{text, shot}` to name
-   a line's shot (plus `start_frame` when the cut repeats that shot's name), `[]` for a take that should be silent), then
-   `run_workflow(..., acknowledged_cost={"fingerprint": ..., "minutes": ...,
-   "downloads": [...]})` bound to that plan with `wait_seconds=60`, then
-   `get_output_text` on the result, and `delete_output(job_id=...)` the
-   scratch run afterward. Its `findings` are the places to listen: a
-   dropped or changed line (`line_mismatch`, with `heard`), a markup word
-   spoken aloud, speech in a shot meant to be silent, a last word clipped
-   by the cut. Words Whisper invents over silence or music are under
-   `discarded`, not findings. This workflow's plan comes back
-   `basis: "unknown"` with `minutes: null` - nothing is curated or observed
-   for it - so quote what it actually takes rather than the plan: seconds,
-   not minutes (a few seconds per clip in practice). Four calls and a short
-   wait, not a GPU-spending read tool - keep the normal queue rather than
-   adding one.
+   To confirm the words a clip speaks (a text-only client can't consume the
+   `AudioContent` block `get_output_audio` returns), run
+   `templates/check-script` against its script.
+   `validate_workflow(name="templates/check-script",
+   arguments={"input_audio": "output:<name>", "lines": [...]})` first: it takes
+   an audio file or a video's muxed soundtrack, and `lines` is the script in
+   order, H3 markup allowed, `{text, shot}` to name a line's shot (plus
+   `start_frame` when the cut repeats that shot's name), `[]` for a take that
+   should be silent. Then `run_workflow(..., acknowledged_cost={"fingerprint":
+   ..., "minutes": ..., "downloads": [...]})` bound to that plan with
+   `wait_seconds=60`, `get_output_text` on the result, and
+   `delete_output(job_id=...)` for the scratch run. Its `findings` are the
+   places to listen: a dropped or changed line (`line_mismatch`, with `heard`),
+   a markup word spoken aloud, speech in a shot meant to be silent, a last word
+   clipped by the cut. Words Whisper invents over silence or music are under
+   `discarded`, not findings. The plan comes back `basis: "unknown"` with
+   `minutes: null`; quote seconds, not minutes (a few seconds per clip).
 7. Getting the files to the user's machine. `download_output` and `export_job`
    write on the machine running `dw.serve`, which over a remote `--mcp`
    endpoint is the GPU box. The last mile of every deliverable is the `url`
-   each `list_gallery` entry carries (or `export_job`'s `zip_url`), fetched
-   with the same bearer token the MCP connection uses:
+   each `list_gallery` entry carries (or `export_job`'s `zip_url`). `/outputs`
+   and `/exports` are served without the token (only `/api/*` and `/mcp` are
+   gated), so the header below is harmless but not required:
 
        curl -H "Authorization: Bearer $DW_API_TOKEN" \
             -o exports/still.png "http://<box>:8765/outputs/ltx2/Gyre/20260910-.../still.png"
@@ -937,59 +862,44 @@ can name a subfolder of the run directory for its files:
 
 The convention is two names: `final` for a step whose output the user will
 be shown, `intermediate` for everything else. The engine treats no name
-specially and applies no default - a step that says nothing writes to the
-run's root as it always has - but the gallery, `get_job` and `list_gallery`
-all carry the value, so a consumer that follows the convention can tell the
-deliverable from the scratch without knowing the workflow. Mark every saving
-step of a multi-step workflow; a one-step workflow needs nothing.
-
-The shipped templates follow it: every template with two or more saving
-steps marks each one, so a workflow copied from a template starts with the
-roles in place.
+specially and applies no default (a step that names none writes to the run's
+root), but the gallery, `get_job` and `list_gallery` all carry the value, so a
+consumer can tell the deliverable from the scratch without knowing the
+workflow. Mark every saving step of a multi-step workflow; a one-step workflow
+needs nothing. Every shipped template marks each of its saving steps, with at
+least one `final`.
 
 The value is a relative path of any depth (`shots/act-1`), may be a
 `variable:` or, inside a `for_each` step, an `item:` reference, and follows
-the `output:` segment rule - each segment starts with a letter, digit or
-underscore; `..`, a backslash and a leading `.` are refused - so every
+the `output:` segment rule (each segment starts with a letter, digit or
+underscore; `..`, a backslash and a leading `.` are refused), so every
 subfolder written is one a later workflow can name:
 `output:dialogue-short/latest/final/episode.mp4`. A bad value is a
-validation error at its JSON path. `file_base_name` is a name, not a path:
-a separator there is refused, and `subfolder` is the way to place a file. It
-replaces the name the engine would derive from the workflow and step rather
-than prefixing it, so `"file_base_name": "episode"` in a `final` subfolder
-writes `final/episode-0.0.mp4` - name each step that sets one differently, or
-the second collides and picks up a `-2`.
+validation error at its JSON path. `file_base_name` is a name, not a path: a
+separator there is refused (see [Result Configuration](#result-configuration)
+for how it names files).
 
-A step that saves nothing and which no later step reads does not run at
-all: the engine drops it before the first step executes and warns once per
-dropped step. That is how a template whose portraits can be supplied as
-`asset:` files stops paying for the steps that would have drawn them. It
-follows from what the definition says, never from a value produced during
-the run, so it is decided at validate time too - the `plan` a validate call
-answers with counts only the steps that will run and lists the rest under
-`elided_steps`. Four things keep a step: a `result` with a `content_type`
-and `save` not `false`, being the last step, being read by a later step
-(`previous_result:`, `gather:`, a `pipeline_reference`, a shared component),
-or being read by a step that is itself kept - elision is transitive. If a
-step you meant to run is named in the warnings, a reference to it is
-misspelled somewhere later or it needs a `result`.
+A step that saves nothing and that no later step reads does not run at all;
+see [A step nothing reads does not run](#a-step-nothing-reads-does-not-run).
 
 ### Composing a stored workflow
 
 A step with a `workflow` block runs another workflow as one step of this one,
 with `arguments` handed down as that workflow's variables. Its `path` is read
-the way `run_workflow`'s `workflow_path` is - a catalog name from
-`list_workflows`, with or without `.json`, a path relative to the file that
-names it, or `builtin:name.json` - and resolves beside the referencing file
-first, then in this workspace's `workflows/`, then in each read-only source
-the server lists. A stored template is composed by its catalog name; copying
-it into the workspace to reach it is no longer necessary, and a copy silently
-stops tracking the original.
+the way `run_workflow`'s `workflow_path` is: a catalog name as `list_workflows`
+reports it (`templates/minimax/reference-to-video`), with or without `.json`; a
+path relative to the file that names it (`../models/x.json`); or
+`builtin:name.json` for the packaged fragments in `dw/workflows/`. A name
+resolves beside the referencing file first, then in this workspace's
+`workflows/`, then in each read-only source the server lists, so a stored
+template is composed by its catalog name rather than copied (a copy stops
+tracking the original). A path that lands outside every source is refused.
 
-Declare a `result` on the composing step and the composed output is saved
-there, once, under that step's name and subfolder - the composed workflow's
-own last step does not write a second copy. Its other steps write into the
-same run directory, prefixed with the composing step's name.
+Declare a `result` (with a `content_type`) on the composing step and the
+composed output is saved there, once, under that step's name and subfolder;
+the child's own last step does not write a second copy. Without one, the child
+saves its own output. The child's other steps write into the same run
+directory, prefixed with the composing step's name.
 
 `validate_workflow` resolves the path, so a name that reaches nothing is an
 error at `steps[N].workflow.path` before anything is queued; it also validates
@@ -1010,37 +920,30 @@ supplied stills" — rather than what technique it demonstrates. A first sentenc
 longer than that is truncated with an ellipsis in every listing.
 
 Declare `shape`, `traits` or `summary` at the top level only when derivation
-gets it wrong; a declaration that merely repeats the derivation is noise that
-rots when the rules change, and the repo's catalog tests refuse it. `cost` is
-never derived — leave it absent until a run has been measured. A `cost` entry
-is measured at the workflow's variable defaults: a run that moves
-`num_inference_steps`, `width`/`height` or `num_frames` (per entry in a list,
-summed) is quoted scaled in proportion to them, so a figure measured at some
-other size or step count is re-priced to the defaults before it is written
-(dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). That makes it
-the catalog's verified marker as well: an entry carrying `cost` has been run
-to completion on the device it names, and one without has only been authored
-— its description may still say what it has not been able to check (VRAM at
-a size, whether a format carries what the pipeline returns), and the first
-run is the one that finds out.
+gets it wrong; the repo's catalog tests refuse a declaration that repeats the
+derivation. `cost` is never derived: leave it absent until a run has been
+measured. A `cost` entry is measured at the workflow's variable defaults, and a
+run that moves `num_inference_steps`, `width`/`height` or `num_frames` (per
+entry in a list, summed) is quoted scaled in proportion to them, so a figure
+measured at another size or step count is re-priced to the defaults before it
+is written (dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). An
+entry carrying `cost` has been run to completion on the device it names; one
+without has only been authored, and its first run is the one that finds out
+what its description could not check.
 
-`cost_drivers` is the other half of saying what a workflow costs, and it *is*
-for derivation: the variables that move the wall clock — a frame count, a
-step count, a segment count, the list a `for_each` runs over — never a prompt
+`cost_drivers` names the variables that move the wall clock (a frame count, a
+step count, a segment count, the list a `for_each` runs over), never a prompt
 or a seed. The server buckets its own finished runs by those values and
-reports the result as `observed` beside the curated `cost`, so a 345-frame
-run never informs a 124-frame figure and a list driver buckets on its length.
-Declaring none is not neutral: the figure then falls back to runs that
-overrode nothing at all, which most real runs do, so a measured workflow with
-no drivers keeps answering "unknown". A driver the estimate cannot scale
-along - anything but steps, width, height and frames, such as a weights
-dtype, a LoRA name or an audio duration - still splits the buckets (a text
-value buckets by its exact value). When a run moves one off its default, the
-curated figure is kept but carries `low_confidence: true`, and `differs`
-names the drivers, since it was measured at the default. Each name must be a variable the
-workflow declares — `tests/test_observed_cost.py` sweeps the catalog for one
-that is not, since a driver bucketing on nothing looks exactly like a driver
-that works.
+reports the result as `observed` beside the curated `cost`, so a 345-frame run
+never informs a 124-frame figure, and a list driver buckets on its length.
+With no drivers, the figure falls back to runs that overrode nothing at all, so
+a measured workflow with no drivers mostly answers "unknown". A driver the
+estimate cannot scale along (anything but steps, width, height and frames,
+such as a weights dtype, a LoRA name or an audio duration) still splits the
+buckets, a text value by its exact value. When a run moves one off its
+default, the curated figure is kept but carries `low_confidence: true`, and
+`differs` names the drivers. Each name must be a variable the workflow
+declares (`tests/test_observed_cost.py` sweeps the catalog for that).
 
 ## Assessing a run's output
 
@@ -1194,7 +1097,7 @@ already made: each entry in `videos` is `output:` + the run's
 }
 ```
 
-Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the common aliases `audio/x-wav`, `audio/mp3`, `audio/vorbis`).
+Supported content types: `image/jpeg`, `image/png`, `image/webp`, `image/gif`, `video/mp4`, `audio/wav`, `audio/flac`, `audio/mpeg` (mp3), `audio/ogg`, `audio/opus`, `audio/aiff`, `application/json`, `text/plain` (plus the aliases `audio/x-wav`, `audio/x-flac`, `audio/mp3`, `audio/vorbis`). Any other `audio/` or `video/` type is a validation error, and so is a type a browser runs as a page (`text/html`, `image/svg+xml`, `application/xml` and the like) (`dw/content_types.py`).
 
 A task command's implementation declares what it hands back - most answer an
 `artifact` (a file `result` saves in one of the media content types above),
@@ -1205,7 +1108,7 @@ some (`judge`) answer a bare `scalar` that cannot be saved at all, and some
 may not carry a `result` at all. Both are checked in validation, by the
 command's own declared kind rather than a name match.
 
-`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above. `file_base_name` is the base name the step's files are written under, replacing the name derived from the workflow and step; it may not contain a path separator.
+`subfolder` places the step's files in a subfolder of the run directory - see *Saying which output is the deliverable* above.
 
 For video, `"fps"` is the rate the file is written at. It is rarely needed:
 frames that know their own rate carry it - a video read from a file or an
@@ -1250,21 +1153,22 @@ where `base_name` is `{workflow_id}-{step_name}.{step_index}` unless the step's 
 `file_base_name`, which replaces it entirely. `step_index` is the step's position in the
 workflow, `result_index` counts the argument-combination iterations the step ran (see
 cartesian product, above), and `artifact_index` counts multiple artifacts within one result
-(`num_images_per_prompt > 1`, or a dict result saved key by key). The derived name is what
-makes two steps' files distinct, so when you replace it on more than one step in the same
-subfolder, give each a different name - otherwise the second one gets a `-2` counter.
+(`num_images_per_prompt > 1`, or a dict result saved key by key); a JSON result is one
+`{base_name}-{result_index}.json`. In a composed child the composing step's name leads
+`base_name`. `file_base_name` may not
+contain a path separator; `"file_base_name": "episode"` in a `final` subfolder writes
+`final/episode-0.0.mp4`. The derived name is what makes two steps' files distinct, so when
+you replace it on more than one step in the same subfolder, give each a different name -
+otherwise the second one gets a `-2` counter.
 
 ## Pipeline Configuration
 
-A step's `configuration` is dw's own vocabulary rather than the model's — each key drives
-a different call — so it is a closed set: a name the schema does not declare fails
-validation instead of being ignored. That matters most for the keys it would otherwise
-be quietest about. A misspelled `offload` used to validate, load, and run with no
-offloading at all, surfacing as an out-of-memory error with nothing pointing at the
-spelling; it now fails before the first model loads. Model-side values that are not part
-of this vocabulary have blocks of their own: `from_pretrained_arguments` for the
-constructor, `arguments` for the call, and `configs` for a modular pipeline's block
-configs.
+A pipeline step's `configuration` is dw's own vocabulary rather than the model's, so it
+is a closed set: a name the schema does not declare (a misspelt `offload`, say) fails
+validation instead of being ignored. Model-side values have blocks of their own:
+`from_pretrained_arguments` for the constructor, `arguments` for the call, and
+`configs` for a modular pipeline's block configs. A component's `configuration` (under
+`transformer`, `vae` and the like) is not closed.
 
 ### Memory Offloading
 
@@ -1365,9 +1269,9 @@ pins its tensors to one device is the usual reason.
 }
 ```
 
-> **Renamed:** this setting was `do_not_send_to_device`. The old name is no longer
-> recognized - a workflow still using it will load the component and then move it to the
-> device anyway, since an unknown key is ignored rather than rejected. Rename the key.
+> **Renamed:** this setting was `do_not_send_to_device`, which is no longer recognized.
+> In a pipeline `configuration` the old name is a validation error; in a component's
+> `configuration` it is ignored and the component is moved to the device anyway.
 
 #### On-demand components
 
@@ -1477,26 +1381,25 @@ later step needing one of them reloads it.
 
 Before the first step executes, the engine drops any step whose result no later step
 reads and which writes no file, and warns once per dropped step saying which and why.
-`dialogue-short` cast from portraits that already exist used to run its two Z-Image
-steps anyway and throw the pictures away - about a minute of GPU per episode on
-something nothing looked at (#122).
+That is how a template whose portraits can be supplied as `asset:` files skips the steps
+that would have drawn them (#122). Elision follows from the definition, never from a
+value produced during the run, so it is decided at validate time too.
 
 Four things keep a step:
 
-- **it saves** - a `result` with a `content_type`, and `save` not `false`. A workflow
-  whose whole point is writing three images references nothing, so this is the rule that
-  keeps elision from being destructive. `"save": false` is how a step says it is
-  scaffolding.
+- **it saves** - a `result` with a `content_type`, and `save` not `false`.
+  `"save": false` is how a step says it is scaffolding.
 - **it is the last step** - it is the run's answer, whatever it declares.
 - **something reads it** - `previous_result:`/`from_previous_result` (including
   `previous_result:step.property`), a `gather:` (which is a list of those by the time
   this runs), a `pipeline_reference` naming it, or a `reused_components` entry naming a
   component it shares.
-- Elision is transitive, so dropping a step can drop the step it read in turn.
+- **a kept step reads it** - elision is transitive, so dropping a step can drop the step
+  it read in turn.
 
 `release_pipeline` on an elided step moves onto the last surviving step before it when
-that step loaded the same pipeline, and `release_models` moves unconditionally - a
-release that vanished with its step would leak the memory it existed to free. The plan a
+that step loaded the same pipeline, and `release_models` moves unconditionally, so the
+release still happens. The plan a
 validate call answers with is computed after elision, so `steps`, `downloads_required`
 and the cost it quotes are the work that will actually happen, and it lists what was
 dropped under `elided_steps`; the run manifest records the same list.
@@ -1674,11 +1577,9 @@ on a Mac and back again:
 ```
 
 Only the backend is translated. A device index survives when the backend matches, so
-`cuda:1` on a single-GPU CUDA box remains the error it always was; when the backend does
-not match, the index is dropped and the warning says so — a workflow that meant to spread
-work across two accelerators will not on a machine that has one. `"device": "cpu"` is
-never translated, since pinning a step to the CPU is how a GPU-specific problem gets
-ruled out.
+`cuda:1` on a single-GPU CUDA box is an error; when the backend does not match, the index
+is dropped and the warning says so. `"device": "cpu"` is never translated, since pinning
+a step to the CPU is how a GPU-specific problem gets ruled out.
 
 ### Modular Pipelines
 
@@ -1814,24 +1715,24 @@ Hold plus the reference is the `music-video` default: the template passes each s
 as a `MiniMaxH3AudioReference` and its `hold_audio` variable defaults to
 `previous_result:slice`; set it to null for the reference alone. The `match_audio` chains
 (`chain-matched-to-audio`, `chain-matched-and-aligned`) keep `hold_audio` null by default,
-since a chain has no per-shot slice to name; set it to an audio file to hold. Measured on
-lem (#808: `music-video`, 4 shots of 124 frames, two seeds and so two songs, offset of each
-shot's own audio against its source slice by `measure_sync`), the reference alone put one of
-four shots 1.37 s late (seed 42) and another 0.18 s early (seed 7), with correlation 0.35 to
-0.96; reference plus hold measured 0.00 s on all eight shots, correlation 0.95 to 1.00. The
-earlier A/B (#619: `chain-matched-to-audio`, a 10 s sung track, seed 42, one run per arm)
-found a held track with *image-only* references kept the soundtrack exact but the mouth was
-open at about 3 of 6 sung-word onsets, against 6 of 6 with the reference alone, and read as
-speech to camera rather than singing. #808 measured the audio's offset, not mouth onsets,
-so how closely the mouth follows a held-plus-referenced song is still a visual check. Hold
-is also for picture that must fit audio exactly, such as motion cut to music.
-On `fl2va`, hold is the locked-frame lip-sync route (#985: `image-to-video`'s fl2va, a first
-frame plus a held 5.17 s song, int8 turbo, two seeds): frame 0 kept the picture's pixels and
-the mouth followed the song as in an audio-referenced Ref2VA shot, at about a fifth of the
-denoise time of Ref2VA `[keyframe completion + audio reuse]`, which keeps only the framing.
-`refine_strength` also uses hold, to keep the base pass's own audio, which was generated
-jointly with that video - a different case from lip sync to supplied audio (see the refine
-section below).
+since a chain has no per-shot slice to name; set it to an audio file to hold. What was
+measured:
+
+- **Reference plus hold keeps the audio in sync** (#808, `music-video`, 4 shots of 124
+  frames at two seeds, `measure_sync` against each source slice): 0.00 s offset on all
+  eight shots, correlation 0.95 to 1.00. The reference alone put one shot 1.37 s late and
+  another 0.18 s early, correlation 0.35 to 0.96. That measured the audio, not the mouth.
+- **Hold with image-only references** keeps the soundtrack exact but weakens the singing
+  (#619, a 10 s sung track): the mouth was open at about 3 of 6 sung-word onsets against 6
+  of 6 with the audio reference alone, and read as speech to camera.
+- **On `fl2va`, hold is the locked-frame lip-sync route** (#985, a first frame plus a held
+  5.17 s song): frame 0 kept the picture's pixels and the mouth followed the song as in an
+  audio-referenced Ref2VA shot, at about a fifth of the denoise time of Ref2VA
+  `[keyframe completion + audio reuse]`, which keeps only the framing.
+
+Hold is also for picture that must fit audio exactly, such as motion cut to music.
+`refine_strength` uses hold differently, to keep the base pass's own jointly generated
+audio (see the refine section below).
 
 ### H3: holding a clip with `guides`
 
@@ -1899,28 +1800,26 @@ footage, as its frames are.
 
 A guide holds its span's look as well as its composition and motion: the frames under it
 come out close to a copy of the clip, whatever the prompt says about style. A full-length
-guide at frame 0 therefore reproduces the take rather than restyling it - measured on lem,
-a 124-frame guide with the prompt "the same scene as a hand-painted watercolour
-animation" came back photoreal (#648). The prompt steers the frames the guides leave
-free. Restyling a whole take needs a LoRA trained on guides (#612), not the guide alone.
+guide at frame 0 reproduces the take rather than restyling it (a 124-frame guide prompted
+as "a hand-painted watercolour animation" came back photoreal, #648). The prompt steers
+only the frames the guides leave free; restyling a whole take needs a LoRA trained on
+guides (#612).
 
 With no guides (or `guides: []`) the step runs the stock layout and draws the same noise
-from its seed as before. Repeat runs at one seed are bit-identical only on a server with
-`cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); with the default
-`false`, two runs at seed 42 match frame for frame by eye, but their audio levels differ by
-a few dB.
+from its seed as an unguided step. Repeat runs at one seed are bit-identical only on a
+server with `cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); with the
+default `false`, two runs match frame for frame by eye but their audio levels differ by a
+few dB.
 
 #### Chaining with a guide: `continuity: "guide"`
 
 A chain on an H3 `t2va` or `fl2va` step can carry its seam with a guide instead of a
 keyframe: `"chain": {"segments": 3, "continuity": "guide", "guide_frames": 22}`. Every
 segment after the first gets the previous segment's last P = `guide_frames` frames as a
-guide at frame 0 (appended to the step's own `guides`; the carried clip counts as a guide, so a step
-that also writes its own `guides` may list at most three of them with
-`continuity: "guide"` - validation says so before the run rather than after the first
-segment), with `"audio": true` when
+guide at frame 0, appended to the step's own `guides`, with `"audio": true` when
 `carry_audio` is (the default), so motion and voice run on across the seam rather than
-restarting from a still. On `fl2va`, `image` is set to the guide's first frame. The
+restarting from a still. The carried clip counts toward the four-guide limit, so a step
+that writes its own `guides` may list at most three; validation says so before the run. On `fl2va`, `image` is set to the guide's first frame. The
 next segment opens with a near-copy of those P frames, so P frames are trimmed from its
 head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 is 328.
 
@@ -1940,37 +1839,30 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 ### Promoting an H3 take to 768p in latent space: upscale_h3_latents and decode_h3_latents
 
 Once a 960x544 MiniMax-H3 take reads the way it should, `upscale_h3_latents` and
-`decode_h3_latents` promote it to 1344x768 without denoising it again - cheaper than a
-native 768p render, since only a small 3D-convolution network and a VAE decode run,
-not the transformer. These two tasks run no refine pass, so the result
-is sharper than the 544p take but cannot show detail the base pass never generated; the
-refine section below adds one.
-Measured on a 124-frame crowd scene, it took 7.8 min against a native 768p render's
-12.7 min, and the faces came out soft and waxy where the native render's were distinct.
-So this is a measurement path, not a catalog template: the catalog's native 768p render
-is `templates/minimax/video-with-audio-768p`, and it is the one to use when faces matter.
+`decode_h3_latents` promote it to 1344x768 without denoising it again: only a small
+3D-convolution network and a VAE decode run, not the transformer. With no refine pass the
+result is sharper than the 544p take but cannot show detail the base pass never generated;
+the refine section below adds one. Measured on a 124-frame crowd scene, it took 7.8 min
+against a native 768p render's 12.7 min, and the faces came out soft and waxy where the
+native render's were distinct. When faces matter, use the catalog's native 768p render,
+`templates/minimax/video-with-audio-768p`.
 
 Target `width`/`height` must be multiples of 16, each between 1x and 4x the base
 latents' own size, and within the upscale cap of 1920x1088 (or portrait 1088x1920);
 validation refuses a literal size off the grid or over the cap before the run. Above
 1344x768 the plate is for a tiled refine ([Refining above 768p in
 tiles](#refining-above-768p-in-tiles)), and upscale-only it is soft. The latents
-pass from `base` to `up` to `decode` entirely in memory. A `previous_result:` property
+pass from `base` to `up` to `decode` in memory. A `previous_result:` property
 on a modular step names a key of the dict its `output` list returns, spelled as the
-pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` - not
-`sample_rate`, which is what the saved AudioVideo calls it, and which the dict does
-not carry. A property no result carries is an error rather than an empty list, so a
-misspelt one fails the step instead of skipping the mux that reads it. The base
-step carries no `result` at all, so nothing beyond its return value is written -
-upscaling only makes sense for a take chosen from something already reviewed, so the
-544p pass that produced it is not itself a deliverable here.
+pipeline spells it: `base.latents`, `base.audio` and `base.sampling_rate` (not
+`sample_rate`, which the dict does not carry). A property no result carries is an
+error, so a misspelt one fails the step. The base step carries no `result`, so the 544p
+pass is not written.
 
-The upscaler weights (~691 MB, `LBH-123-AI/Minimax_h3_latent_Upscaler`, Apache-2.0,
-read at a pinned revision) and the H3 VAE download on first use, the same as any other
-model. A validate's `plan.downloads_required` lists the upscaler file as a file entry
-(`{repo, filename, revision, ...}`) while it is not cached, and the VAE is covered by
-the pipeline step's whole `MiniMaxAI/MiniMax-H3` entry, so a box that has run the base
-pass before but never this task is told of the upscaler download beforehand.
+The upscaler weights (`LBH-123-AI/Minimax_h3_latent_Upscaler`, read at a pinned
+revision) and the H3 VAE download on first use. While the upscaler file is not cached, a
+validate's `plan.downloads_required` lists it as a file entry (`{repo, filename,
+revision, ...}`); the VAE is covered by the pipeline step's `MiniMaxAI/MiniMax-H3` entry.
 
 ```json
 {
@@ -2178,12 +2070,11 @@ step with `"video": "previous_result:base.videos"` and the same `audio`/`sample_
 (and `fit`), saved with `"result": {"content_type": "video/mp4", "subfolder":
 "intermediate"}`. `base.videos` is the pipeline's batch - a list holding the one video -
 and `pair_audio` unwraps a batch of one (a batch of several is refused, since one track
-goes under one video). The H3 step hands its `videos` on carrying the model's 24 fps,
-the way the tiled refine's do, so `pair_audio` fits the track against 5.17 s and the
-file is written at 24 fps without being told. Frames that carry no rate - a plain list
-from a task - need `pair_audio`'s own `fps` argument, not the result's: the result's
-`fps` is applied by the writer after `fit` has already measured the frames at the 8 fps
-fallback, so it would re-time the picture under a track padded to three times its length.
+goes under one video). The H3 step's `videos` carry the model's 24 fps, so `pair_audio`
+fits the track against 5.17 s and the file is written at 24 fps without being told.
+Frames that carry no rate (a plain list from a task) need `pair_audio`'s own `fps`
+argument: `fit` measures the frames before the writer applies a declared rate, so
+without it the track is padded to the 8 fps fallback's length, three times too long.
 
 ### Refining the upscaled latents: refine_strength
 
@@ -2200,317 +2091,28 @@ track. This is a different use of hold from the one above: it keeps the audio th
 generated jointly with that video, rather than fitting picture to supplied audio. For lip
 sync to supplied audio see the hold section above (#619, #795).
 
+The workflow is the one above with `decode` and `mux` replaced by a `refine` step.
+`refine` carries a copy of the `base` step's whole `pipeline` block - the same
+`configuration`, `from_pretrained_arguments`, `loras`, `scheduler` and `audio_scheduler`,
+so the loaded model is reused - with these `arguments`, and the step saves the result:
+
 ```json
 {
-    "id": "H3LatentUpscaleRefine",
-    "description": "Promote a MiniMax-H3 take from 960x544 to 1344x768 in latent space, then refine it at low strength.",
-    "variables": {
-        "prompt": "prompt:minimax/fox_dawn_context_ir",
-        "num_frames": 124,
-        "num_inference_steps": 9,
-        "video_shift": 12.0,
-        "audio_shift": 3.0,
-        "weights_dtype": "{int4}",
-        "lora_scale": 1.0,
-        "lora_alpha": null,
-        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_bf16.safetensors",
-        "lora_adapter_name": "turbo",
-        "seed": 42
-    },
-    "variable_constraints": {
-        "num_frames": {
-            "modulus": 17,
-            "remainder": 5,
-            "min_frames": 124,
-            "max_frames": 345,
-            "snap": "up",
-            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    "name": "refine",
+    "pipeline": {
+        "arguments": {
+            "prompt": "variable:prompt",
+            "num_frames": "variable:num_frames",
+            "width": 1344,
+            "height": 768,
+            "num_inference_steps": 5,
+            "output": ["videos", "audio", "sampling_rate"],
+            "latents": "previous_result:up",
+            "refine_strength": 0.2,
+            "hold_audio": "previous_result:base.audio"
         }
     },
-    "seed": "variable:seed",
-    "steps": [
-        {
-            "name": "base",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ModularPipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
-                    "load_components": {
-                        "dtype": "torch.bfloat16",
-                        "quantization_config": {
-                            "transformer": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "use_quantized_matmul": true,
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        "proj_in",
-                                        "audio_proj_in",
-                                        "context_embedder",
-                                        "time_embedder",
-                                        "time_proj",
-                                        "token_refiner",
-                                        "norm_out",
-                                        "proj_out",
-                                        "audio_proj_out"
-                                    ]
-                                }
-                            },
-                            "text_encoder": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        ".model.visual",
-                                        "lm_head"
-                                    ]
-                                }
-                            },
-                            "vae": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "{int8}",
-                                    "quant_conv": true,
-                                    "use_quantized_matmul_conv": true,
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false
-                                }
-                            }
-                        }
-                    },
-                    "components": {
-                        "transformer": {
-                            "group_offload": {
-                                "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
-                                "use_stream": true,
-                                "record_stream": true,
-                                "low_cpu_mem_usage": true
-                            }
-                        },
-                        "text_encoder": {
-                            "remove_modules": [
-                                "lm_head"
-                            ]
-                        },
-                        "text_encoder.model": {
-                            "truncate_layers": {
-                                "language_model.layers": 51
-                            },
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
-                        },
-                        "vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        },
-                        "audio_vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        }
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
-                },
-                "loras": [
-                    {
-                        "model_name": "variable:lora_model_name",
-                        "weight_name": "variable:lora_weight_name",
-                        "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale",
-                        "alpha": "variable:lora_alpha"
-                    }
-                ],
-                "scheduler": {
-                    "shift": "variable:video_shift"
-                },
-                "audio_scheduler": {
-                    "shift": "variable:audio_shift"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_frames": "variable:num_frames",
-                    "width": 960,
-                    "height": 544,
-                    "num_inference_steps": "variable:num_inference_steps",
-                    "output": [
-                        "videos",
-                        "audio",
-                        "sampling_rate",
-                        "latents"
-                    ]
-                }
-            }
-        },
-        {
-            "name": "up",
-            "task": {
-                "command": "upscale_h3_latents",
-                "arguments": {
-                    "latents": "previous_result:base.latents",
-                    "width": 1344,
-                    "height": 768
-                }
-            }
-        },
-        {
-            "name": "refine",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ModularPipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
-                    "load_components": {
-                        "dtype": "torch.bfloat16",
-                        "quantization_config": {
-                            "transformer": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "use_quantized_matmul": true,
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        "proj_in",
-                                        "audio_proj_in",
-                                        "context_embedder",
-                                        "time_embedder",
-                                        "time_proj",
-                                        "token_refiner",
-                                        "norm_out",
-                                        "proj_out",
-                                        "audio_proj_out"
-                                    ]
-                                }
-                            },
-                            "text_encoder": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        ".model.visual",
-                                        "lm_head"
-                                    ]
-                                }
-                            },
-                            "vae": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "{int8}",
-                                    "quant_conv": true,
-                                    "use_quantized_matmul_conv": true,
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false
-                                }
-                            }
-                        }
-                    },
-                    "components": {
-                        "transformer": {
-                            "group_offload": {
-                                "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
-                                "use_stream": true,
-                                "record_stream": true,
-                                "low_cpu_mem_usage": true
-                            }
-                        },
-                        "text_encoder": {
-                            "remove_modules": [
-                                "lm_head"
-                            ]
-                        },
-                        "text_encoder.model": {
-                            "truncate_layers": {
-                                "language_model.layers": 51
-                            },
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
-                        },
-                        "vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        },
-                        "audio_vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        }
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
-                },
-                "loras": [
-                    {
-                        "model_name": "variable:lora_model_name",
-                        "weight_name": "variable:lora_weight_name",
-                        "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale",
-                        "alpha": "variable:lora_alpha"
-                    }
-                ],
-                "scheduler": {
-                    "shift": "variable:video_shift"
-                },
-                "audio_scheduler": {
-                    "shift": "variable:audio_shift"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_frames": "variable:num_frames",
-                    "width": 1344,
-                    "height": 768,
-                    "num_inference_steps": 5,
-                    "output": [
-                        "videos",
-                        "audio",
-                        "sampling_rate"
-                    ],
-                    "latents": "previous_result:up",
-                    "refine_strength": 0.2,
-                    "hold_audio": "previous_result:base.audio"
-                }
-            },
-            "result": {
-                "content_type": "video/mp4",
-                "fps": 24,
-                "subfolder": "final"
-            }
-        }
-    ]
+    "result": { "content_type": "video/mp4", "fps": 24, "subfolder": "final" }
 }
 ```
 
@@ -2560,7 +2162,7 @@ check before the call, refuse a `refine_sigmas` that:
 - has a length other than `num_inference_steps`, or comes with no `num_inference_steps`;
 - comes with no `refine_strength`.
 
-A step without `refine_sigmas` runs the shift-spaced schedule as before. It works with
+A step without `refine_sigmas` runs the shift-spaced schedule. `refine_sigmas` works with
 `refine_tiles` too: every tile runs the same list.
 
 ### H3: regional edit with source_video and a mask
@@ -2656,7 +2258,7 @@ Validation and the call both refuse:
 
 ### Refining above 768p in tiles
 
-H3's refine runs at 1344x768 at most, and `upscale_h3_latents` now reaches 1920x1088 (or
+H3's refine runs at 1344x768 at most, and `upscale_h3_latents` reaches 1920x1088 (or
 1088x1920). An upscale-only plate above 768p is soft: `upscale_h3_latents` to 1920x1088
 alone, decoded, is not a 1080p render, since the interpolation adds no detail. To put the
 detail in, give the refine step `refine_tiles`, which refines a `latents` canvas bigger than
@@ -2683,336 +2285,47 @@ about 12 minutes measured on an RTX 3090 for 124 frames (the recipe below, with 
 base), against about 9.6 minutes for a native 768p take. The validate projection prices the denoise at the tile's size and the decode at the
 canvas's, so a tiled refine does not warn as if it denoised 1080p at once.
 
+The workflow is the refine one above with four changes. The variables set the 768p turbo
+LoRA and its schedule: `"num_inference_steps": 5`, `"video_shift": 6.0` and
+`"lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors"` (as
+`workflows/templates/minimax/video-with-audio-768p.json` does, alpha left to the file);
+`base` and `refine` both read them. `up` targets `"width": 1920, "height": 1088`. The
+`refine` step's `arguments` drop `width` and `height` and add `refine_tiles`, and it saves
+nothing itself. A `mux` step pairs the refined video with the held audio and saves it:
+
 ```json
 {
-    "id": "H3LatentUpscaleRefineTiles",
-    "description": "Promote a MiniMax-H3 take from 960x544 to a 1920x1088 canvas in latent space, refine it in overlapping 1344x768 tiles, and pair the held audio.",
-    "variables": {
-        "prompt": "prompt:minimax/fox_dawn_context_ir",
-        "num_frames": 124,
-        "num_inference_steps": 5,
-        "video_shift": 6.0,
-        "audio_shift": 3.0,
-        "weights_dtype": "{int4}",
-        "lora_scale": 1.0,
-        "lora_alpha": null,
-        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
-        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
-        "lora_adapter_name": "turbo",
-        "seed": 42
-    },
-    "variable_constraints": {
-        "num_frames": {
-            "modulus": 17,
-            "remainder": 5,
-            "reason": "the video VAE encodes 17 * n + 5 frames"
+    "name": "refine",
+    "pipeline": {
+        "arguments": {
+            "prompt": "variable:prompt",
+            "num_frames": "variable:num_frames",
+            "num_inference_steps": "variable:num_inference_steps",
+            "output": ["videos", "audio", "sampling_rate"],
+            "latents": "previous_result:up",
+            "refine_strength": 0.2,
+            "refine_tiles": { "width": 1344, "height": 768, "overlap": 256 },
+            "hold_audio": "previous_result:base.audio"
+        }
+    }
+},
+{
+    "name": "mux",
+    "task": {
+        "command": "pair_audio",
+        "arguments": {
+            "video": "previous_result:refine.videos",
+            "audio": "previous_result:base.audio",
+            "sample_rate": "previous_result:base.sampling_rate",
+            "fit": "video"
         }
     },
-    "seed": "variable:seed",
-    "steps": [
-        {
-            "name": "base",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ModularPipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
-                    "load_components": {
-                        "dtype": "torch.bfloat16",
-                        "quantization_config": {
-                            "transformer": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "use_quantized_matmul": true,
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        "proj_in",
-                                        "audio_proj_in",
-                                        "context_embedder",
-                                        "time_embedder",
-                                        "time_proj",
-                                        "token_refiner",
-                                        "norm_out",
-                                        "proj_out",
-                                        "audio_proj_out"
-                                    ]
-                                }
-                            },
-                            "text_encoder": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        ".model.visual",
-                                        "lm_head"
-                                    ]
-                                }
-                            },
-                            "vae": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "{int8}",
-                                    "quant_conv": true,
-                                    "use_quantized_matmul_conv": true,
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false
-                                }
-                            }
-                        }
-                    },
-                    "components": {
-                        "transformer": {
-                            "group_offload": {
-                                "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
-                                "use_stream": true,
-                                "record_stream": true,
-                                "low_cpu_mem_usage": true
-                            }
-                        },
-                        "text_encoder": {
-                            "remove_modules": [
-                                "lm_head"
-                            ]
-                        },
-                        "text_encoder.model": {
-                            "truncate_layers": {
-                                "language_model.layers": 51
-                            },
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
-                        },
-                        "vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        },
-                        "audio_vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        }
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
-                },
-                "loras": [
-                    {
-                        "model_name": "variable:lora_model_name",
-                        "weight_name": "variable:lora_weight_name",
-                        "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale",
-                        "alpha": "variable:lora_alpha"
-                    }
-                ],
-                "scheduler": {
-                    "shift": "variable:video_shift"
-                },
-                "audio_scheduler": {
-                    "shift": "variable:audio_shift"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_frames": "variable:num_frames",
-                    "width": 960,
-                    "height": 544,
-                    "num_inference_steps": "variable:num_inference_steps",
-                    "output": [
-                        "videos",
-                        "audio",
-                        "sampling_rate",
-                        "latents"
-                    ]
-                }
-            }
-        },
-        {
-            "name": "up",
-            "task": {
-                "command": "upscale_h3_latents",
-                "arguments": {
-                    "latents": "previous_result:base.latents",
-                    "width": 1920,
-                    "height": 1088
-                }
-            }
-        },
-        {
-            "name": "refine",
-            "pipeline": {
-                "configuration": {
-                    "component_type": "ModularPipeline",
-                    "pre_load_modules": [
-                        "sdnq"
-                    ],
-                    "load_components": {
-                        "dtype": "torch.bfloat16",
-                        "quantization_config": {
-                            "transformer": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "use_quantized_matmul": true,
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        "proj_in",
-                                        "audio_proj_in",
-                                        "context_embedder",
-                                        "time_embedder",
-                                        "time_proj",
-                                        "token_refiner",
-                                        "norm_out",
-                                        "proj_out",
-                                        "audio_proj_out"
-                                    ]
-                                }
-                            },
-                            "text_encoder": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "variable:weights_dtype",
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false,
-                                    "modules_to_not_convert": [
-                                        ".model.visual",
-                                        "lm_head"
-                                    ]
-                                }
-                            },
-                            "vae": {
-                                "configuration": {
-                                    "config_type": "sdnq.SDNQConfig"
-                                },
-                                "arguments": {
-                                    "weights_dtype": "{int8}",
-                                    "quant_conv": true,
-                                    "use_quantized_matmul_conv": true,
-                                    "quantization_device": "cuda",
-                                    "return_device": "cpu",
-                                    "dequantize_fp32": false
-                                }
-                            }
-                        }
-                    },
-                    "components": {
-                        "transformer": {
-                            "group_offload": {
-                                "offload_type": "block_level",
-                                "num_blocks_per_group": 2,
-                                "use_stream": true,
-                                "record_stream": true,
-                                "low_cpu_mem_usage": true
-                            }
-                        },
-                        "text_encoder": {
-                            "remove_modules": [
-                                "lm_head"
-                            ]
-                        },
-                        "text_encoder.model": {
-                            "truncate_layers": {
-                                "language_model.layers": 51
-                            },
-                            "group_offload": {
-                                "offload_type": "leaf_level"
-                            }
-                        },
-                        "vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        },
-                        "audio_vae": {
-                            "device": "cuda",
-                            "residency": "on_demand"
-                        }
-                    }
-                },
-                "from_pretrained_arguments": {
-                    "model_name": "MiniMaxAI/MiniMax-H3",
-                    "workflow": "t2va"
-                },
-                "loras": [
-                    {
-                        "model_name": "variable:lora_model_name",
-                        "weight_name": "variable:lora_weight_name",
-                        "adapter_name": "variable:lora_adapter_name",
-                        "scale": "variable:lora_scale",
-                        "alpha": "variable:lora_alpha"
-                    }
-                ],
-                "scheduler": {
-                    "shift": "variable:video_shift"
-                },
-                "audio_scheduler": {
-                    "shift": "variable:audio_shift"
-                },
-                "arguments": {
-                    "prompt": "variable:prompt",
-                    "num_frames": "variable:num_frames",
-                    "num_inference_steps": "variable:num_inference_steps",
-                    "output": [
-                        "videos",
-                        "audio",
-                        "sampling_rate"
-                    ],
-                    "latents": "previous_result:up",
-                    "refine_strength": 0.2,
-                    "refine_tiles": {
-                        "width": 1344,
-                        "height": 768,
-                        "overlap": 256
-                    },
-                    "hold_audio": "previous_result:base.audio"
-                }
-            }
-        },
-        {
-            "name": "mux",
-            "task": {
-                "command": "pair_audio",
-                "arguments": {
-                    "video": "previous_result:refine.videos",
-                    "audio": "previous_result:base.audio",
-                    "sample_rate": "previous_result:base.sampling_rate",
-                    "fit": "video"
-                }
-            },
-            "result": {
-                "content_type": "video/mp4",
-                "fps": 24,
-                "subfolder": "final"
-            }
-        }
-    ]
+    "result": { "content_type": "video/mp4", "fps": 24, "subfolder": "final" }
 }
 ```
 
-The refine step uses the 768p turbo LoRA with its own schedule (`video_shift` 6, `audio_shift`
-3, alpha left to the file), as `workflows/templates/minimax/video-with-audio-768p.json` does. It
-carries no `width` or `height`: the canvas is the `latents`. Naming them is allowed, and must
-equal the canvas, which is the latent height x width x 16.
+The refine step carries no `width` or `height`: the canvas is the `latents`. Naming them is
+allowed, and they must equal the canvas, which is the latent height x width x 16.
 
 Validation and the run refuse, naming `refine_tiles`:
 
@@ -3162,6 +2475,13 @@ each already names something pinned by the asset library or by the manifest's
 SHA-256 recorded in the manifest. The manifest also lists which stored prompts
 were inlined, since inlining loses the name.
 
+The file is a valid workflow: `python -m dw.run workflow.json`, or its contents as
+`run_workflow`'s `inline_workflow`, runs it again. Its `asset:` and `output:` names
+resolve against the server's or CLI's own libraries, not the run directory, so it
+reproduces the run only where those libraries are the ones the original run used.
+Writing it is best effort, like the manifest, and `--output-layout flat` writes no run
+directory, so neither file.
+
 A step that joins shots (`concat_videos`, `dissolve_videos`, or a pipeline
 step with a `chain`) also records where each one landed, as `shots` on its
 manifest entry (and on its `step_end` event):
@@ -3205,15 +2525,6 @@ say, or a video read back from a file. `get_gallery_metadata` reports the
 recorded shots as `media.shots`, and `get_output_frames(seams=true)` uses them
 when you pass no `boundaries`.
 
-The file is a valid workflow, and running it again is `python -m dw.run
-workflow.json` or handing its contents to `run_workflow` as `inline_workflow`
-— but either way the `asset:` and `output:` names in it resolve against the
-server's or CLI's own libraries, not against the run directory, so doing this
-from inside that directory reproduces the run only when its libraries are the
-ones the original run used too. Writing the file is best effort, exactly like
-the manifest — a run that produced its files has succeeded either way — and
-`--output-layout flat` writes no run directory, so it writes neither file.
-
 Any of the three levels accepts a `variable:` reference, which is how a seed becomes
 settable per run without editing the file:
 
@@ -3240,25 +2551,19 @@ not reproduce from the seed it was given.
 
 The step cache that lets a reproduced step skip re-running (see *Runs* in
 [Workspaces](WORKSPACES.md#runs)) is scoped to the output directory a run
-writes into, which on `dw.serve` is the pinned workspace's own `outputs/`.
-Two workspaces holding what looks like the same prior run - same workflow,
-same seed, same arguments - do not share a cache entry, so
-`validate_workflow`'s `plan.cached_steps` answers for the workspace the call
-is pinned to, not for every workspace that happens to hold a matching run.
-Deleting a workspace takes its cache entries with it, the same as deleting
-its `outputs/` directory would.
+writes into, which on `dw.serve` is the workspace's own `outputs/`. Two workspaces
+holding the same prior run do not share a cache entry, so `validate_workflow`'s
+`plan.cached_steps` answers for the workspace the call is pinned to. Deleting a
+workspace takes its cache entries with it.
 
-The step cache is also per card and per workflow identity. Identity is the stored
-workflow's name, or an inline workflow's `id`; entries are keyed on the definition `id`
-and step name (`StepCache.get` in `dw/step_cache.py`), and an inline job's identity is
-`("inline", id)` (`workflow_identity` in `dw/worker_protocol.py`). Switching identity on a
-card empties that card's cache (the worker's `_cleanup_all` calls `step_cache.clear()`),
-so:
+The step cache is also per card and per workflow identity: the stored workflow's path,
+or an inline workflow's `id` (`workflow_identity` in `dw/worker_protocol.py`). Switching
+identity on a card empties that card's step cache (the worker's `_cleanup_all`), so:
 
 - running any other workflow on the card in between starts the next run cold: A, then B,
-  then A runs the second A cold. This is the common case. On a multi-card server
-  warm-identity routing (`choose_slot` in `dw/server/pool.py`) mostly avoids it unless
-  that card is busy; on a single card it happens every time.
+  then A runs the second A cold. On a multi-card server warm-identity routing
+  (`choose_slot` in `dw/server/pool.py`) mostly avoids it unless that card is busy; on a
+  single card it happens every time.
 - a renamed copy, a new inline `id`, or switching between a stored workflow and its
   inline copy also starts cold.
 
@@ -3270,16 +2575,15 @@ step reads re-runs that step. To check before running, `validate_workflow`'s
 
 ## Type System
 
-Dynamic type conversion applies to certain values:
+- Keys ending in `_type` or `_dtype`, or named `dtype`: `"torch.bfloat16"` becomes
+  `torch.bfloat16`, and `"sdnq.SDNQConfig"` loads the class by import.
+- Braces keep a value a string: `"{nf4}"` stays `"nf4"`.
+- `content_type` and `offload_type` always stay strings.
+- `constant:` values are read from Python rather than copied into the workflow
+  (below).
 
-- Keys ending in `_type` or `_dtype`, or named `dtype`: `"torch.bfloat16"` becomes `torch.bfloat16`
-- Dotted names: `"sdnq.SDNQConfig"` loads the class via importlib
-- Escape with braces to keep as string: `"{nf4}"` stays as `"nf4"`
-- `content_type` and `offload_type` are exempt even though they end in `_type` - they
-  name a category, not a Python type, so their value always stays a plain string (the
-  `{}` escape is accepted but not required for these two keys)
-- Values prefixed with `constant:` are read from python rather than copied into the
-  workflow: `"constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES"`
+The full rule, including what an untrusted server refuses, is in
+[Types and escaping](#types-and-escaping).
 
 ### Constant References
 
@@ -3307,15 +2611,11 @@ is declared by its default:
 "variables": { "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT" }
 ```
 
-A constant is data. The name has to resolve to a value - anything callable is refused,
-because a type is named with a `*_type` argument and constructed there, and reaching a
-function this way would be evaluating python rather than referencing it. Mutable values
-are copied, so a pipeline that consumes its schedule in place cannot edit the library's
-constant for the rest of the session.
-
-The value the library declares is the value the workflow gets, which is the point: a
-constant that changes upstream changes here, and one that is renamed or moved fails
-loudly rather than leaving a stale copy behind.
+A constant is data: anything callable is refused (a type is named with a `*_type` key
+instead). Mutable values are copied, so a pipeline that consumes its schedule in place
+cannot edit the library's constant for the rest of the session. A constant that changes
+upstream changes here, and one that is renamed or moved fails the run rather than
+leaving a stale copy behind.
 
 ### Prompt References
 
@@ -3348,21 +2648,18 @@ the server's prompt enhancer uses it to preselect a preset. One spelling per fam
 beside `minimax-music3` hides half a shelf, and `tests/test_prompt_library.py` sweeps
 the repo's library for a variant.
 
-The library's location is resolved in order: the `DW_PROMPT_DIR` environment
-variable (which `--prompt-dir` on `dw.serve` sets), then
-`./prompts` in the working directory when it exists, then the first `prompts/`
-folder found walking up from the workflow file's own directory - which is how
-a repo workflow run from any working directory still reaches the library beside
-it. `dw.serve` resolves the directory once at startup with this same order
-(anchored at its workflow directory) and pins it for every job, so the Prompts
-page and `prompt:` resolution always agree on one library.
-References are rooted at that one directory - not at the workflow file - so
-the same reference means the same text from every workflow. Like `constant:`, a reference
-resolves anywhere in a workflow's arguments, including a `variables` default, and it
-always resolves to exactly one string: it never multiplies a step's iterations the way
-`previous_result:` references do. A prompt's text may not itself begin with a
-reference prefix such as `variable:` - the engine refuses it rather than resolving
-text as syntax.
+The library's location is resolved in order (`discover_library` in `dw/workspace.py`):
+the `DW_PROMPT_DIR` environment variable (which `--prompt-dir` on `dw.serve` sets); a
+workspace named explicitly (`--workspace`, `DW_WORKSPACE` or the setting), whose
+`prompts/` it is; `./prompts` in the working directory when it exists; the first
+`prompts/` folder found walking up from the workflow file's own directory; and last the
+workspace's `prompts/`. `dw.serve` resolves it once at startup and pins it for every
+job, so the Prompts page and `prompt:` resolution agree on one library. References are
+rooted at that directory, not at the workflow file, so the same reference means the same
+text from every workflow. A reference resolves anywhere in a workflow's arguments,
+including a `variables` default, always to exactly one string: it never multiplies a
+step's iterations. A prompt's text may not itself begin with a reference prefix such as
+`variable:`.
 
 ### Asset References
 
@@ -3383,15 +2680,13 @@ so a workflow and the media it reads do not have to live in the same place:
 ```
 
 A reference names a file with its extension, at most four folders deep, and resolves to
-that file's path - so it works under any argument that accepts a path: `image`, `video`,
-a `from_file`, a list of any of them, or a task argument that names a file. What loads
-the path is unchanged; only where the path comes from is.
+that file's path, so it works under any argument that accepts a path: `image`, `video`,
+a `from_file`, a list of any of them, or a task argument that names a file.
 
-The library's location is resolved in order: the `DW_ASSET_DIR` environment variable
-(which `--asset-dir` on `dw.serve` sets), then the workspace's
-`assets/` when a workspace was named explicitly, then `./assets` in the working
-directory when it exists, then the first `assets/` folder found walking up from the
-workflow file's own directory. See [Workspaces](WORKSPACES.md).
+On `dw.serve` each job reads the asset library of the workspace it runs in. Elsewhere
+the location is resolved in the prompt library's order, with `DW_ASSET_DIR`
+(`--asset-dir`) and `assets/` in place of `DW_PROMPT_DIR` and `prompts/`. See
+[Workspaces](WORKSPACES.md).
 
 A reference can only name a file inside the library: `..`, an absolute path, or a
 symlink pointing out of it are all refused. Browser uploads land in the library's
@@ -3400,9 +2695,8 @@ an upload still resolves on the next run.
 
 ### Output References
 
-Multi-stage work — generate stills, then animate them; generate a score, then mux it —
-used to mean copying files out of the output directory and back in beside the next
-workflow. An `output:` reference names what an earlier run wrote, directly:
+For multi-stage work (generate stills, then animate them in another run), an `output:`
+reference names what an earlier run wrote:
 
 ```json
 "image": "output:ltx2/Gyre/latest/Gyre-still.0-0.0.png",
@@ -3411,17 +2705,13 @@ workflow. An `output:` reference names what an earlier run wrote, directly:
 
 The name is a path under the output directory — the workflow's identity, the run, and
 the file (see [Runs](WORKSPACES.md#runs)). Writing `latest` where the run id goes
-resolves to the newest run of that workflow *that holds the file*, which is what lets a
-second-stage workflow name the first stage's product without being edited after every
-run - and keeps working when the newest run failed part way, or reused every step from
-the cache and so wrote nothing of its own but a manifest. Runs sort by their id, which
-starts with a UTC timestamp, so "newest" needs no file timestamps and survives a
-directory being copied. `v<N>` in the same position names the run whose version is N -
-the `v4` the gallery labels its files with - so the number a person was told is a name
-a workflow can take. Unlike `latest` it picks exactly one run: `v4` not holding the file
-is an error, not a reason to try `v3`. `latest` and `v<N>` only select a run where run
-directories are; a workflow or file that happens to be called either is still named as
-itself.
+resolves to the newest run of that workflow *that holds the file*, so it keeps working
+when the newest run failed part way or reused every step from the cache and wrote only
+a manifest. Runs sort by their id, which starts with a UTC timestamp. `v<N>` in the same
+position names the run whose version is N (the `v4` the gallery labels its files with).
+Unlike `latest` it picks exactly one run: `v4` not holding the file is an error, not a
+reason to try `v3`. `latest` and `v<N>` select a run only in the run-id position; a
+workflow or file that happens to be called either is still named as itself.
 
 Like `asset:`, a reference resolves to a path and then whatever loads paths loads it, so
 it works under `image`, `video`, a `from_file`, or a list of them. The audio tasks take
@@ -3617,16 +2907,11 @@ rate of their own. A mono track needs no preparation: an mp4 audio stream
 takes stereo and nothing else, so saving duplicates the single channel into
 two and emits a warning saying it did.
 
-The track and the frames are two lengths a workflow used to have to keep equal by
-hand. `"fit": "video"` derives one from the other instead: the track is cut to
-exactly the frames it is laid over, or padded with silence and warned about when it
-is shorter than they are. That is what a soundtrack over a cut whose length is an
-argument needs - nothing in a workflow can multiply a list's length by a frame
-count, so `music-video.json` sliced a fixed 496 frames of song (it now cuts
-each shot to its own `cut_frames`) while its cut
-followed a `shots` list, and a two-shot run wrote 10.3 s of picture into a 20.7 s
-container and reported `succeeded` with no warnings (#142). Left unset the track is
-used as it is and a disagreement is warned about rather than passing in silence.
+`"fit": "video"` makes the track fit the frames: it is cut to exactly the frames it is
+laid over, or padded with silence and warned about when it is shorter. Use it for a
+soundtrack under a cut whose length is an argument (a `shots` list), since nothing in a
+workflow can multiply a list's length by a frame count (#142). Left unset, the track is
+used as it is and a length mismatch is warned about.
 
 Which shape a pipeline argument wants is the pipeline's business, and the two LTX-2
 paths differ: a keyframe condition is mapped from 0-255, so it takes the `video_frames`

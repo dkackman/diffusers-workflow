@@ -3,14 +3,14 @@
 diffusers-workflow is Apache-2.0. This page credits the work it builds on that
 a dependency list does not show: code that was copied in, and other projects
 whose ideas were reimplemented here. Python dependencies are in
-[requirements.txt](../requirements.txt) and [pyproject.toml](../pyproject.toml).
+[pyproject.toml](../pyproject.toml).
 Model and LoRA weights keep their own licences, and each catalog entry
 ([workflows/models/](../workflows/models/), [loras/](../loras/)) names the
 repository it downloads from.
 
 ## Code included in this repository
 
-Each file keeps its upstream licence notice in its header.
+Each copied or ported file keeps its upstream licence notice in its header.
 
 | File | Source | Licence |
 |---|---|---|

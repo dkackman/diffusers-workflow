@@ -1,11 +1,53 @@
 # Releasing
 
+## Cutting a release
+
+A release is a `v<semver>` tag on `master`. CI builds and publishes it.
+
+Before merging `develop` into `master`, get `scripts/preflight.sh` passing. It runs the real-model integration tests (`pytest -m integration`), which CI cannot run, and the UI's full `npm run preflight` (see [TESTING.md](TESTING.md)).
+
+```bash
+scripts/release.sh 0.38.0
+scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
+scripts/release.sh 0.38.0 --next 0.39.0-alpha.1     # and reopen develop
+```
+
+`scripts/release.sh`, run on `master` with the venv active:
+
+1. Refuses a malformed version, a branch other than `master`, an existing tag, or staged changes. Unstaged changes elsewhere are fine; the release commit is path-limited.
+2. Runs `pytest -m integration -n0` against the working tree, and refuses when they fail or when the machine has no CUDA or MPS device (there they would skip and pass having run nothing).
+3. Sets the version in `pyproject.toml` (the single source; `dw.__version__` reads it at run time) and in `plugins/dw/.claude-plugin/plugin.json` (`tests/test_plugin_skills.py` holds them equal), commits those two files as `release <version>`, and pushes `master`.
+4. Tags the bump commit `v<version>` (annotated with the message, default `release <version>`) and pushes the tag.
+5. With `--next <version>`: in a temporary detached worktree, merges `master` into `develop` (a fast-forward when nothing landed there since the release PR), sets `<version>` in the same two files, commits `chore: open <version> on develop` and pushes `develop`. It works while `develop` is checked out elsewhere. Without `--next`, do this by hand, or `develop` keeps reporting the previous pre-release.
+
+By hand, the equivalent of steps 3-4 is:
+
+```bash
+# Set version = "0.38.0" in pyproject.toml and plugins/dw/.claude-plugin/plugin.json
+git commit -m "release 0.38.0" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
+git tag -a v0.38.0 -m "release 0.38.0"
+git push origin master v0.38.0
+```
+
+### What CI does with the tag
+
+`.github/workflows/ci.yml` runs on `v<semver>` tags:
+
+- **backend** and **ui**: the same checks as on every push.
+- **wheel** (after both): `scripts/build_dist.sh` builds the SPA, copies it into `dw/server/ui`, copies `docs/*.md` into `dw/docs` (the guides an installed server serves), and runs `python -m build`. It uploads `dist/*` as an artifact.
+- **release** (after wheel): fails unless the tag is `v` + semver and equals the `pyproject.toml` version, then creates a GitHub release named after the tag, with auto-generated notes and the wheel and sdist attached. A tag with a pre-release part (`v0.38.0-rc1`) is marked as a pre-release.
+- **pypi** (after release): publishes the same artifacts to PyPI by [trusted publishing](https://docs.pypi.org/trusted-publishers/) (OIDC; no token is stored). One-time setup on pypi.org under *Publishing*: a trusted publisher for project `diffusers-workflow`, owner `dkackman`, repository `diffusers-workflow`, workflow `ci.yml`, environment `pypi` (a pending publisher before the first release). A pre-release needs `pip install --pre`.
+- **docker** (after release): builds `docker/Dockerfile`, starts the image on the CPU runner and waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>` to Docker Hub. A release also moves `latest`; a pre-release does not. One-time setup: the public Docker Hub repository `dkackman/diffusers-workflow`, a read/write access token, and a GitHub environment `dockerhub` holding it as secret `DOCKERHUB_TOKEN`. A failed push leaves the GitHub release and PyPI as they are; re-run the job.
+
+Python packaging normalizes a semver pre-release, so `0.38.0-alpha.1` builds a wheel named `0.38.0a1`. The tag, `pyproject.toml` and the GitHub release keep the semver form.
+
+To build artifacts without releasing, run CI by hand (`workflow_dispatch`); the wheel job uploads `dist/*`.
+
+A PyPI install gets released `diffusers`, which may lag the newest pipelines; install `git+https://github.com/huggingface/diffusers` on top.
+
 ## Unreleased
 
-This project has no standing release-notes file - GitHub auto-generates
-notes from commits at tag time (see below). This section is a scratch pad
-for items a branch's author wants the next release note to name; clear it
-when a release ships.
+GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
 ### 0.18.0
 
@@ -1557,104 +1599,3 @@ release body once the tag has published (`gh release edit v0.4.0
   `reference-sheet` (#444) run with their own defaults again.
 - Joined audio and shot maps stay on the frame grid through repeated joins
   (#423, #426, #428, #435).
-
-Releases are cut by pushing a `v<semver>` tag. CI does the rest.
-
-Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
-passing. It covers more than CI: ruff over the whole repo rather than
-`dw dw_mcp tests` and the real-model integration tests (`pytest -m
-integration`), neither of which CI runs. (CI runs the UI's Playwright e2e
-tests on every develop push and on PRs into develop; the release PR from
-develop relies on the push runs.)
-
-```bash
-scripts/release.sh 0.38.0
-scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
-scripts/release.sh 0.38.0 --next 0.39.0-alpha.1     # and reopen develop
-```
-
-The script bumps `pyproject.toml` (the single source of the version —
-`dw.__version__` reads it at runtime) and sets the same version in
-`plugins/dw/.claude-plugin/plugin.json`, so an installed plugin names the
-engine it was written against; it commits just those two files, pushes
-master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
-a malformed version, a branch other than master, an existing tag, or a
-dirty index (unstaged changes elsewhere are fine — the release commit
-is path-limited to those two files).
-
-Before it bumps anything it runs the integration tests, the gate CI's
-accelerator-less runners cannot, and refuses to release when they fail or
-when the machine has no CUDA or MPS device - there they would skip and
-pass having run nothing. Cut a release from the Mac or lem, with the venv
-active. The tests run against the working tree, so unstaged changes are
-part of what they check.
-
-`--next <version>` finishes the release on the other branch: it merges
-`master` back into `develop` (a fast-forward when nothing landed there
-since the release PR), sets `<version>` in the same two files, commits
-`chore: open <version> on develop` and pushes `develop`, all in a temporary
-worktree, so it works while `develop` is checked out elsewhere. Without it, do that by hand, or `develop` goes on reporting the
-previous pre-release.
-
-CI runs on every push to `develop` as well as `master` - the agent loop
-pushes `develop` directly, with no PR - so a failure shows up against the
-commit that caused it, not first on the release PR.
-
-By hand, the equivalent is:
-
-```bash
-# 1. Bump the version in pyproject.toml:
-#    version = "0.38.0"
-# 2. Set the same version in plugins/dw/.claude-plugin/plugin.json
-git commit -m "release 0.38.0" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
-
-# 3. Tag the bump commit and push
-git tag -a v0.38.0 -m "release 0.38.0"
-git push origin master v0.38.0
-```
-
-The tag must point at a commit whose pyproject already declares the
-same version — the release job checks and refuses a mismatch.
-
-The tag triggers the full CI chain: backend tests, UI lint/type-check/
-unit tests, then the wheel build (SPA compiled into the package via
-`scripts/build_dist.sh`). Only if all of that passes does the `release`
-job run — it verifies the tag matches the pyproject version, then
-creates a GitHub release named after the tag with auto-generated notes
-and the wheel + sdist attached.
-
-Note on pre-release numbering: Python packaging normalizes semver-style
-pre-releases, so a `0.38.0-alpha.1` version builds a wheel named
-`0.38.0a1`. The tag, pyproject, and release stay in the semver form;
-only the wheel filename and pip metadata show the normalized one.
-
-A pre-release tag like `v0.38.0-rc1` is marked as a pre-release on
-GitHub. Tags that aren't `v` + semver (or that don't match the declared
-versions) fail the release job before anything is published.
-
-After the GitHub release, the `pypi` job publishes the same artifacts to
-PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
-(OIDC — no token stored anywhere). One-time setup on pypi.org under
-*Publishing*: add a trusted publisher for project `diffusers-workflow`
-with owner `dkackman`, repository `diffusers-workflow`, workflow
-`ci.yml`, environment `pypi` (use "add a pending publisher" before the
-first release, since the project won't exist yet). Pre-release versions
-are hidden from plain `pip install`; they need `pip install --pre`.
-
-The `docker` job, also after the GitHub release, builds
-`docker/Dockerfile` from the tag, starts the image on the CPU runner and
-waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>`
-to Docker Hub. A release also moves `latest`; a pre-release does not.
-One-time setup: on Docker Hub, create the public repository
-`dkackman/diffusers-workflow` and an access token with read/write scope.
-On GitHub, under *Settings > Environments*, create an environment named
-`dockerhub` with that token as secret `DOCKERHUB_TOKEN`. A failed push
-leaves the GitHub release and PyPI as they are; re-run the job.
-
-Note: released `diffusers` from PyPI may lag the newest model pipelines
-this project targets — a PyPI install can need
-`pip install git+https://github.com/huggingface/diffusers` on top.
-
-To rebuild artifacts without releasing, run the CI workflow manually
-(`workflow_dispatch`) — the wheel job uploads `dist/*` as a workflow
-artifact.

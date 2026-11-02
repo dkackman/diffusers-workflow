@@ -5,93 +5,90 @@ your laptop use it over the network. Nothing is installed on the laptop.
 
 ## On the GPU box
 
-1. Install as usual: `git clone …`, `bash ./install.sh` - or run the
-   container instead ([DOCKER.md](DOCKER.md), `DW_BIND=0.0.0.0`), which
-   makes the token for you; skip to the clients.
-2. Make a token: `openssl rand -hex 32`. This one string is the only thing
-   between "on your network" and "can run workflows on your GPU" - keep it
-   long and random.
+1. Install as usual (`git clone …`, `bash ./install.sh`), or run the
+   container ([DOCKER.md](DOCKER.md), with `DW_BIND=0.0.0.0`), which makes
+   the token for you; then skip to the clients.
+2. Make a token: `openssl rand -hex 32`. It is the only thing between "on
+   your network" and "can run workflows on your GPU".
 3. Run it bound to the network, with the token, with MCP:
 
        DW_API_TOKEN=<token> dw-serve --host 0.0.0.0 --mcp
 
-   `--mcp` is refused outright (exit 2) on a non-loopback bind with no
-   token: an MCP endpoint can author and run workflows and has no
-   token-entry page in front of it the way the web UI does.
+   `--mcp` on a non-loopback bind with no token is refused (exit 2): an MCP
+   endpoint can author and run workflows and has no token-entry page in
+   front of it. Without `--mcp`, a non-loopback bind with no token only logs
+   a warning.
 
-   To keep it running across logouts and reboots, install the systemd unit
-   in [contrib/systemd](../contrib/systemd/README.md) instead.
+   To keep it running across logouts and reboots, use the systemd unit in
+   [contrib/systemd](../contrib/systemd/README.md).
 4. Open port 8765 in the box's firewall for your LAN only (for example
    `sudo ufw allow from 192.168.1.0/24 to any port 8765`).
 
-Never pass `--trust-workflows` on a server other machines can reach: it
-lets any workflow - including one an agent authored - execute arbitrary
-Python. See [SECURITY.md](SECURITY.md#trust-model).
+Never pass `--trust-workflows` on a server other machines can reach: it lets
+any workflow, including one an agent wrote, execute arbitrary Python. See
+[SECURITY.md](SECURITY.md#trust-model).
 
 Check it from the laptop:
 
     curl http://<box>:8765/api/health -H "Authorization: Bearer <token>"
     {"status":"ok","version":"…","hostname":"gpu-box","device":"cuda","mcp":true,…}
 
-`hostname` and `device` are there so you can tell which machine answered.
+`hostname` and `device` say which machine answered.
 
-If an agent on this box will ever export a job or list gallery/asset URLs to
-hand to a person who isn't at a terminal on the box itself, set
-`DW_API_TOKEN` and also set `DW_PUBLIC_URL` to this server's origin (for
-example `https://dw.example.com`, or `http://<box>:8765` with no proxy):
+### URLs handed to a person
+
+`export_job`, `list_gallery` and the upload and asset routes return paths
+relative to the server (`/exports/job-1.zip`): right for a browser already
+pointed at the box, useless to someone who is not. Set `DW_PUBLIC_URL` (or
+the `public_url` setting) to the server's origin and those responses add
+`absolute_url` / `absolute_zip_url` built from it:
 
     DW_API_TOKEN=<token> DW_PUBLIC_URL=https://dw.example.com dw-serve --host 0.0.0.0 --mcp
 
-Without it, `export_job`, `list_gallery` and the upload/asset routes only
-return paths relative to this server (`/exports/job-1.zip`) - correct for a
-browser already pointed at the box, useless handed to someone who isn't.
-With `DW_PUBLIC_URL` set (or the equivalent `public_url` setting), those
-responses add an `absolute_url` / `absolute_zip_url` built from it; nothing
-guesses this from request headers, so an unconfigured server omits the
-field rather than composing a wrong origin.
-
-The export zip, like `/outputs` and `/inputs` files, needs no token (#592), so
-an agent with HTTP fetches `export_job`'s `open_url` itself, prefixing a
-relative one with the address it reaches the server at; `DW_PUBLIC_URL` is for
-the URLs handed to a person.
+Nothing guesses the origin from request headers, so an unconfigured server
+omits the field. The export zip, like `/outputs` and `/inputs`, needs no
+token (#592), so an agent with HTTP fetches `export_job`'s `open_url`
+itself, prefixing a relative one with the address it reaches the server at.
 
 ## Browser
 
-Open `http://<box>:8765`. Click the key icon next to the theme toggle,
-paste the token once; it is kept in the browser's `localStorage` and sent
-with every request.
+Open `http://<box>:8765`. Click the key icon in the header and paste the
+token once; it is kept in the browser's `localStorage` and sent with every
+request. The Server → Status page shows the server's addresses and the
+`claude mcp add` line below, ready to copy.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/ui-connect-dark.png">
+  <img alt="Status page, Connect from another machine: an address picker, the browser URL, and the claude mcp add line for that address with a token placeholder" src="img/ui-connect.png">
+</picture>
 
 ## Claude Code, no local install
 
     claude mcp add --transport http dw http://<box>:8765/mcp \
       --header "Authorization: Bearer <token>"
 
-Start a new Claude Code session; `/mcp` should list `dw` as connected.
-Pick the scope with `-s user` to have it in every project.
+Start a new Claude Code session; `/mcp` should list `dw` as connected. Add
+`-s user` to have it in every project.
 
-`http://<box>:8765/mcp` and `http://<box>:8765/mcp/` are both answered, and
-both require the token in an `Authorization: Bearer` header - the
-`?token=...` allowance a few browser GET routes have does not extend to
-`/mcp`.
+`/mcp` and `/mcp/` are both answered, and both take the token only as an
+`Authorization: Bearer` header; the `?token=` allowance a few browser GET
+routes have does not extend to `/mcp`.
 
-Two things differ from the local stdio setup:
+What differs from the local stdio setup:
 
-- `download_output` writes on the GPU box (where the MCP server runs), not
-  on your laptop, so an omitted destination is refused rather than dropped
-  loose in the workspace root - nothing on your laptop would find or
-  delete it there (#353). Pass an explicit destination inside the
-  workspace to save one anyway, or use `get_output_image` /
+- `download_output` writes on the GPU box, where the MCP server runs, so an
+  omitted destination is refused rather than dropped in the workspace root
+  where nothing on your laptop would find it (#353). Pass an explicit
+  destination inside the workspace, use `get_output_image` /
   `get_output_text` to see a result, or open
   `http://<box>:8765/outputs/<name>` in the browser.
-- The connection is a plain HTTP call per tool invocation; there is no
-  subprocess to restart.
-- `use_workspace`/`create_workspace` pin *this box's* one MCP client, shared
-  by every agent connected to it - this server is single-user, so there is
-  no per-session isolation. If you and another agent are both against the
-  same box, either one's `use_workspace` call can move what the other reads
-  and writes next (#298). Pass `workspace=` on each call that takes it
-  (`validate_workflow`, `run_workflow`, most read/media tools) instead of
-  relying on the session pin when that matters.
+- Each tool call is a plain HTTP request; there is no subprocess to restart.
+- The mounted MCP server is one client shared by every agent connected to
+  the box, so `use_workspace` (or `create_workspace(use=true)`) moves the
+  workspace for all of them (#298). When two agents share a box, pass
+  `workspace=` on each call that takes it (`validate_workflow`,
+  `run_workflow`, most read and media tools) instead of relying on the
+  session pin.
 
 ## Claude Code with a local install (stdio)
 
@@ -102,48 +99,42 @@ remote box too:
       --url http://<box>:8765 --token <token>
 
 `dw-mcp` refuses to start (exit 2) against a non-loopback URL without a
-token, and makes one `GET /api/health` at startup so a wrong URL or token
-is reported once, with a message, instead of as a 401 on every tool call.
-Against a remote URL a failed probe is fatal - it is a misconfiguration you
-have to fix. Against a loopback URL it only warns and serves anyway, since
-there it usually means "dw.serve is not up yet", which the next tool call
-reports for itself. `--no-probe` skips the check entirely.
+token. At startup it makes one `GET /api/health`, so a wrong URL or token is
+reported once instead of as a 401 on every tool call: against a remote URL a
+failed probe is fatal, against a loopback URL it only warns (the server may
+not be up yet). `--no-probe` skips it.
 
 ## Beyond your LAN
 
 Everything above is plaintext HTTP: the token and every prompt and result
-are readable by anything on the network path. That is acceptable on a
-network you control and nowhere else. **Do not port-forward 8765 on your
+are readable on the network path. **Do not port-forward 8765 on your
 router.** Two ways to reach the box from outside:
 
-**Tailscale (or another WireGuard overlay).** Install it on the box and the
-laptop; use the box's Tailscale IP or MagicDNS name in every URL above.
-Traffic is encrypted end to end, no certificates to manage, and `dw-serve`
-can stay bound to the Tailscale interface (`--host 100.x.y.z`) rather than
-`0.0.0.0`. This is the recommended option.
+**Tailscale (or another WireGuard overlay)**, the recommended option. Install
+it on the box and the laptop and use the box's Tailscale IP or MagicDNS name
+in every URL above. Traffic is encrypted end to end with no certificates to
+manage, and `dw-serve` can bind to the Tailscale interface
+(`--host 100.x.y.z`) rather than `0.0.0.0`.
 
-**A TLS-terminating reverse proxy.** Bind `dw-serve` back to loopback and
-put Caddy in front of it with a real hostname:
+**A TLS-terminating reverse proxy.** Bind `dw-serve` to loopback and put
+Caddy in front of it with a real hostname:
 
     # /etc/caddy/Caddyfile
     dw.example.com {
         reverse_proxy 127.0.0.1:8765
     }
 
-Caddy obtains and renews a certificate automatically. Use
-`https://dw.example.com` (no port) in every URL above. `dw-serve`'s Origin
-and Host checks work unchanged behind the proxy because Caddy forwards the
-`Host` header as-is. nginx works the same way with `proxy_pass` and
-`proxy_set_header Host $host;` plus your own certificate.
+Caddy obtains and renews the certificate. Use `https://dw.example.com` (no
+port) in every URL above. The Origin and Host checks work unchanged because
+Caddy forwards `Host` as-is; nginx works the same way with `proxy_pass`,
+`proxy_set_header Host $host;` and your own certificate.
 
-A token holder can also empty dw's disk caches (`DELETE /api/caches/{name}`, or one entry via `/entries/{entry}`), as they can delete models.
-
-The token is still the only authentication in either setup; a proxy or a
-VPN protects the transport, not the door.
+Either way the token is still the only authentication: a proxy or a VPN
+protects the transport, not the door. A token holder can do anything the API
+does, including deleting outputs, models and dw's disk caches.
 
 ## What is not here
 
 - TLS inside `dw-serve` itself: a reverse proxy does it better.
 - More than one token, or users: one shared secret, deliberately
   ([SERVER.md](SERVER.md#authentication)).
-- Docker: `install.sh` on the box is the supported install.
