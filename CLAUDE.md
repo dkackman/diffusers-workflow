@@ -74,11 +74,11 @@ The guides in `docs/`, by topic:
 composition skill per model family (`minimax-h3`, `minimax-music3`, `ltx-2.5`,
 `kandinsky-6`, `flux3-klein`) that chooses a template for a request's shape and
 states the family's hard rules, plus
-cross-cutting composition skills (`script-to-video`, `series-episodes`) - shapes above
-the families that orchestrate the decision trees and cast consistency across multiple
-generations. Every skill the directory holds is named in `plugins/dw/README.md` and here,
-pinned by `tests/test_plugin_skills.py`; that README says how the rest is pinned and
-versioned.
+cross-cutting composition skills (`script-to-video`, `series-episodes`, `cinematography`) -
+shapes above the families that orchestrate the decision trees, cast consistency across
+multiple generations, and one camera-and-look vocabulary compiled per family. Every
+skill the directory holds is named in `plugins/dw/README.md` and here, pinned by
+`tests/test_plugin_skills.py`; that README says how the rest is pinned and versioned.
 
 ## Security Rules
 

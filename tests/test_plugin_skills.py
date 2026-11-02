@@ -997,6 +997,165 @@ class TestSeriesEpisodesLook:
             self._validate(workflow, tmp_path)
 
 
+CINE_DIR = os.path.join(PLUGIN_DIR, "skills", "cinematography")
+CINE_SKILL = os.path.join(CINE_DIR, "SKILL.md")
+CINE_REFS = os.path.join(CINE_DIR, "references")
+
+# The closed vocabulary. Later stages (the shot document, the storyboard
+# skill, the A/B probes) cite these ids verbatim, so a rename fails here.
+CINE_AXES = {
+    "shot_size": [
+        "extreme-wide",
+        "wide",
+        "full",
+        "medium",
+        "medium-close",
+        "close-up",
+        "extreme-close-up",
+    ],
+    "move": [
+        "static",
+        "dolly-in",
+        "dolly-out",
+        "truck-left",
+        "truck-right",
+        "crane-up",
+        "crane-down",
+        "orbit",
+        "tracking",
+        "whip-pan",
+        "push-in",
+        "handheld",
+        "crash-zoom",
+    ],
+    "lens": ["wide", "normal", "long", "anamorphic", "vintage"],
+    "light": ["high-key", "low-key", "golden-hour", "practical", "noir"],
+    "era": ["8mm", "16mm", "35mm", "vhs-dv", "digital"],
+    "tempo": ["still", "measured", "brisk", "frantic"],
+}
+CINE_GRADES = ["noir", "teal-orange", "70s-stock", "vhs", "bleach-bypass"]
+CINE_COMPILES = {
+    "minimax-h3": "compile-h3.md",
+    "ltx-2.5": "compile-ltx-2.5.md",
+    "kandinsky-6": "compile-kandinsky-6.md",
+    "flux3-klein": "compile-flux3-klein.md",
+}
+
+
+def _table_ids(text, section):
+    """The backticked ids in the first column of a markdown table, read
+    from `section` (a heading) to the next heading of any level."""
+    start = text.index(section)
+    end = text.find("\n#", start + len(section))
+    block = text[start : end if end != -1 else len(text)]
+    return re.findall(r"^\| `([^`]+)` \|", block, re.M)
+
+
+class TestCinematographySkill:
+    """A closed director vocabulary compiled to one sentence per family's
+    caption format (#1142). The words are hints the models may ignore, so
+    the skill says so; the grades are real apply_lut palettes and real
+    film_grain arguments."""
+
+    def _ref(self, name):
+        return open(os.path.join(CINE_REFS, name), encoding="utf-8").read()
+
+    def _grades(self):
+        return json.loads(_fenced_block_after(self._ref("grades.md"), "## The grades"))
+
+    def test_cinematography_skill_is_registered(self):
+        for document in (
+            os.path.join(PLUGIN_DIR, "README.md"),
+            os.path.join(REPO_ROOT, "CLAUDE.md"),
+        ):
+            assert "`cinematography`" in open(document, encoding="utf-8").read()
+        assert CINE_SKILL in SKILLS
+
+    def test_cinematography_names_no_camera_brands(self):
+        """Higgsfield retreated from camera-body presets; a brand only works
+        if the model learned it, and nobody has measured that."""
+        for path in glob.glob(os.path.join(CINE_DIR, "**", "*"), recursive=True):
+            if not os.path.isfile(path):
+                continue
+            text = open(path, encoding="utf-8").read()
+            for brand in ("ARRI", "RED ", "Cooke", "Venice", "Alexa"):
+                assert brand not in text, f"{brand!r} in {path}"
+
+    def test_cinematography_vocabulary_defines_every_axis(self):
+        text = self._ref("vocabulary.md")
+        for axis, ids in CINE_AXES.items():
+            assert _table_ids(text, f"## `{axis}`") == ids, axis
+
+    @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
+    def test_cinematography_vocabulary_covers_every_family(self, family):
+        text = self._ref(CINE_COMPILES[family])
+        assert _table_ids(text, "## `shot_size`") == CINE_AXES["shot_size"]
+        assert _table_ids(text, "## `move`") == CINE_AXES["move"]
+        assert f"`{family}`" in text
+
+    def test_cinematography_says_presets_are_hints(self):
+        body = " ".join(skill_body(CINE_SKILL).split())
+        assert "a hint, not a promise" in body
+        assert "get_output_frames" in body
+
+    def test_cinematography_scopes_out_audio_families(self):
+        body = skill_body(CINE_SKILL)
+        section = body[body.index("## Not in scope") :]
+        assert "`minimax-music3`" in section
+
+    def test_cinematography_compiles_to_each_family_s_own_spec(self):
+        """Each table follows its family's caption rules, not a shared one."""
+        ltx = " ".join(self._ref("compile-ltx-2.5.md").split())
+        assert "remains static" in ltx and "viewpoint" in ltx
+        assert "comes into view" in ltx
+        k6 = " ".join(self._ref("compile-kandinsky-6.md").split())
+        assert "exactly one camera sentence" in k6
+        assert "The camera is static." in k6
+        h3 = " ".join(self._ref("compile-h3.md").split())
+        assert "integrated_multimodal_description" in h3
+        assert "amplitude" in h3 and "speed" in h3
+        klein = " ".join(self._ref("compile-flux3-klein.md").split())
+        assert "still" in klein and "no camera move" in klein
+
+    def test_grades_are_valid_palettes(self):
+        from dw.task_problems import check_lut_source
+
+        grades = self._grades()
+        assert sorted(grades) == sorted(CINE_GRADES)
+        for name, grade in grades.items():
+            check_lut_source(palette=grade["palette"])
+            assert 0 < grade["strength"] <= 1, name
+
+    def test_grades_name_real_film_grain_arguments(self):
+        from dw.introspection import list_tasks
+        from dw.task_domains import check_arguments
+        from dw.tasks.finish import film_grain
+
+        list_tasks()  # registers the command domains
+        accepted = set(inspect.signature(film_grain).parameters) - {"media", "seed"}
+        for name, grade in self._grades().items():
+            grain = grade["film_grain"]
+            assert set(grain) <= accepted, name
+            check_arguments("film_grain", **grain)
+
+    def test_the_grade_recipe_validates(self, tmp_path):
+        from dw.workflow import workflow_from_file
+
+        workflow = json.loads(
+            _fenced_block_after(self._ref("grades.md"), "## Applying one")
+        )
+        steps = workflow["steps"]
+        assert [s["task"]["command"] for s in steps] == ["apply_lut", "film_grain"]
+        path = tmp_path / "grade.json"
+        path.write_text(json.dumps(workflow), encoding="utf-8")
+        workflow_from_file(str(path), str(tmp_path)).validate()
+
+    @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
+    def test_family_skills_point_at_cinematography(self, family):
+        path = os.path.join(PLUGIN_DIR, "skills", family, "SKILL.md")
+        assert "`cinematography`" in skill_body(path)
+
+
 MUSIC_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
 
 
