@@ -1571,6 +1571,11 @@ class TestSitcomMulticam:
             ), name
         assert "One-shot Multicam" in text and "MIT" in text
         assert "cinematography/references/vocabulary.md" in text
+        assert "`templates/attribute-lines`" in text and "`attribute_voices`" in text
+        assert '`timestamps` set to `"segment"`' in text
+        assert '`timestamps` set to `"word"`' not in text
+        for field in ("start_frame", "cut_frames", "num_frames", "modulus: 17"):
+            assert field in text, field
         assert "script-to-video/references/shot-document.md" in text
 
     def test_series_points_at_sitcom(self):
