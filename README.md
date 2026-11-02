@@ -35,6 +35,20 @@ source ./activate
 `python -m dw.test` runs a small built-in workflow end to end - it downloads
 SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
 
+**Or run it in Docker** (Linux with an NVIDIA GPU). The image
+[`dkackman/diffusers-workflow`](https://hub.docker.com/r/dkackman/diffusers-workflow)
+has torch, the engine and the web UI built in, and it shares the model cache
+and workspace with a native install on the same box. diffusers itself lives
+on a volume, so it can follow GitHub main. That makes step 2 a container:
+
+```bash
+bash docker/init-env.sh
+docker compose -f docker/compose.yaml up -d --build
+docker compose -f docker/compose.yaml logs -f    # prints the login URL
+```
+
+Setup, data sharing and updates are in [docs/DOCKER.md](docs/DOCKER.md).
+
 **2. Start the engine.** Leave it running; everything else talks to it.
 
 ```bash
