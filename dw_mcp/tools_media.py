@@ -216,12 +216,16 @@ class MediaTools:
         crop: list[int] | list[list[int]] | None = None,
         baseline: str | None = None,
         max_dimension: int = 384,
+        texture_bands: bool = False,
         workspace: str | None = None,
     ) -> list[ImageContent | TextContent]:
         """2-8 outputs as one grid (a row each, a column per `at` moment,
         the same frame number in all) with PSNR, SSIM and mean abs diff
         against `baseline` (default the first). One `crop` box is shown
-        and measured; one box per name is shown only. Takes `asset:`."""
+        and measured; one box per name is shown only. Takes `asset:`.
+        `texture_bands` adds per-output FFT band energy over `crop`, 1+
+        names (a measurement, not a score; see the workflows guide,
+        Comparing outputs)."""
         result = media.compare_outputs(
             self.client,
             names,
@@ -229,6 +233,7 @@ class MediaTools:
             crop=crop,
             baseline=baseline,
             max_dimension=max_dimension,
+            texture_bands=texture_bands,
             workspace=workspace,
         )
         image = result["image"]

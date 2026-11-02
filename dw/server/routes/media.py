@@ -652,7 +652,8 @@ def _encoded_tile(tile, image):
 
 class CompareRequest(BaseModel):
     names: list[str] = Field(
-        description="2 to 8 outputs (or `asset:` references), one row each"
+        description="2 to 8 outputs (or `asset:` references), one row each; "
+        "1 is enough with `texture_bands`"
     )
     at: Optional[list[Union[float, str]]] = Field(
         None,
@@ -671,6 +672,14 @@ class CompareRequest(BaseModel):
     max_dimension: int = Field(384, description="Longest side of each grid cell")
     max_total_bytes: Optional[int] = Field(
         None, description="A budget on the grid's base64 size"
+    )
+    texture_bands: bool = Field(
+        False,
+        description="Add per-output RMS energy in the fine (2-8 px), mid "
+        "(8-32) and coarse (32-128) wavelength bands of the measured region, "
+        "on luma, R-G and B-G, plus each band's ratio to the baseline - a "
+        "measurement, not a score. Needs one shared `crop` (or none: the "
+        "full frame) of at least 16 px a side",
     )
 
 
@@ -718,10 +727,12 @@ def gallery_compare(
     name is shown only, and the metrics stay on the full frame. Outputs
     of different sizes get no metrics, and say why. Stills join a video
     comparison as the same image in every column. `max_total_bytes`
-    shrinks the whole grid, and `downscaled_to` says to what."""
+    shrinks the whole grid, and `downscaled_to` says to what.
+    `texture_bands` (#1152) adds each output's band energy per moment,
+    the baseline's included, and its ratio to the baseline's."""
     try:
         baseline_row, crop_mode = media_compare.check_request(
-            body.names, body.at, body.crop, body.baseline
+            body.names, body.at, body.crop, body.baseline, body.texture_bands
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -730,7 +741,13 @@ def gallery_compare(
     limit = max(1, int(body.max_dimension))
     try:
         answer = media_compare.compare(
-            sources, body.at, body.crop, baseline_row, crop_mode, limit
+            sources,
+            body.at,
+            body.crop,
+            baseline_row,
+            crop_mode,
+            limit,
+            texture_bands=body.texture_bands,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
