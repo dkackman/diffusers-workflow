@@ -668,19 +668,19 @@ TEMPLATE_PIPELINE_KEYS = {
     "expand-prompt.json": {},
     "face-drift-check.json": {},
     "flux3/image-edit.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "8ba947272298d95529e632f381db181ab573ca6c08b25c1e293e80fd70d1147e"
     },
     "flux3/layout-boxes.json": {
-        "layout_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "layout_to_image": "8ba947272298d95529e632f381db181ab573ca6c08b25c1e293e80fd70d1147e"
     },
     "flux3/multi-reference.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "8ba947272298d95529e632f381db181ab573ca6c08b25c1e293e80fd70d1147e"
     },
     "flux3/text-to-image.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "8ba947272298d95529e632f381db181ab573ca6c08b25c1e293e80fd70d1147e"
     },
     "flux3/upsample-then-generate.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "8ba947272298d95529e632f381db181ab573ca6c08b25c1e293e80fd70d1147e"
     },
     "generate-speech.json": {},
     "image-edit.json": {
