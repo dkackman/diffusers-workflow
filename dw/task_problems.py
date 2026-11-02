@@ -76,10 +76,14 @@ def ingredients_grid_errors(arguments):
 
 
 # stills_to_video's ceilings, read by the command and by its static check. The
-# clip is held in memory as uint8 frames, so the total length is capped rather
-# than left to run the host out of RAM
+# seconds and frame caps bound the length of the clip; they do not bound its
+# memory, which also depends on the stills' size. The clip is held as uint8
+# frames, so the command refuses a clip over MAX_STILLS_BYTES before it
+# allocates (the size is only known at run time)
 MAX_STILLS_FPS = 120
 MAX_STILLS_SECONDS = 600
+MAX_STILLS_FRAMES = 36000
+MAX_STILLS_BYTES = 4 * 1024**3
 
 
 def stills_to_video_problems(durations, fps, count=None):
@@ -135,6 +139,21 @@ def stills_to_video_problems(durations, fps, count=None):
                 f"{MAX_STILLS_SECONDS} second limit - shorten the durations",
             )
         )
+    rate = as_number(fps)
+    if rate is not None and 0 < rate <= MAX_STILLS_FPS:
+        frames = sum(max(1, round(n * rate)) for n in numbers)
+        if not many and count:
+            frames *= count
+        if frames > MAX_STILLS_FRAMES:
+            problems.append(
+                (
+                    "durations",
+                    f"stills_to_video makes {frames} frames, over the "
+                    f"{MAX_STILLS_FRAMES} frame limit - shorten the "
+                    "'durations' or lower 'fps' (each still takes at least "
+                    "one frame)",
+                )
+            )
     return problems
 
 

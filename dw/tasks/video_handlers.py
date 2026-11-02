@@ -143,10 +143,22 @@ def _handle_stills_to_video(task, arguments, previous_pipelines):
     # already pixels and pass through
     images = arguments.get("images")
     if isinstance(images, (list, tuple)):
-        arguments["images"] = [
-            item if isinstance(item, numpy.ndarray) else load_rgb_images(item)[0]
-            for item in images
-        ]
+        stills = []
+        for item in images:
+            if isinstance(item, numpy.ndarray):
+                stills.append(item)
+                continue
+            loaded = load_rgb_images(item)
+            if not loaded:
+                raise ValueError(
+                    "stills_to_video: an entry of 'images' resolved to no "
+                    "image - check the reference"
+                )
+            # An entry that resolves to several images (a step that made
+            # num_images_per_prompt > 1) contributes them in order, as
+            # ingredients_grid reads the same input
+            stills.extend(loaded)
+        arguments["images"] = stills
     elif not isinstance(images, numpy.ndarray):
         arguments["images"] = load_rgb_images(images)
     return stills_to_video(**arguments)

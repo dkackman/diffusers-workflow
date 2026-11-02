@@ -155,3 +155,84 @@ class TestHandlerLoadsLocations:
             {},
         )
         assert video.frames.shape == (4, 32, 32, 3)
+
+
+class TestByteBudget:
+    def test_over_budget_refused_before_allocating(self, monkeypatch):
+        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 1000)
+        with pytest.raises(ValueError) as error:
+            stills_to_video([still(16, 16)], [1], fps=24)
+        message = str(error.value)
+        assert "durations" in message and "fps" in message and "16x16" in message
+
+    def test_within_budget_passes(self, monkeypatch):
+        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 4 * 16 * 16 * 3)
+        assert len(stills_to_video([still(16, 16)], [1], fps=4).frames) == 4
+
+    def test_many_tiny_durations_cap_the_frame_count(self):
+        from dw.task_problems import MAX_STILLS_FRAMES, stills_to_video_problems
+
+        durations = [0.001] * (MAX_STILLS_FRAMES + 1)
+        problems = stills_to_video_problems(durations, 24, len(durations))
+        assert [a for a, _ in problems] == ["durations"]
+        assert "frame" in problems[0][1]
+        with pytest.raises(ValueError, match="frame"):
+            stills_to_video([still(2, 2)] * len(durations), durations, fps=24)
+
+    def test_frame_cap_applies_to_a_scalar_duration(self):
+        from dw.task_problems import MAX_STILLS_FRAMES, stills_to_video_problems
+
+        count = MAX_STILLS_FRAMES + 1
+        assert stills_to_video_problems(0.001, 24, count)
+
+
+class TestDurationsShapes:
+    def test_numpy_durations(self):
+        video = stills_to_video(
+            [still(16, 16), still(16, 16)], numpy.array([1, 2]), fps=4
+        )
+        assert [s["num_frames"] for s in video.shots] == [4, 8]
+
+    def test_empty_durations_refused(self):
+        with pytest.raises(ValueError, match="durations"):
+            stills_to_video([still(16, 16)], [], fps=4)
+
+
+class TestHandlerEntries:
+    def _run(self, images):
+        from dw.tasks.task import _COMMAND_REGISTRY
+
+        return _COMMAND_REGISTRY["stills_to_video"](
+            None, {"images": images, "durations": 1, "fps": 2}, {}
+        )
+
+    def test_an_entry_of_several_images_is_flattened_in_order(self):
+        red, blue = still(16, 16, (255, 0, 0)), still(16, 16, (0, 0, 255))
+        video = self._run([[red, blue], still(16, 16, (0, 255, 0))])
+        assert len(video.shots) == 3
+        assert tuple(video.frames[0, 0, 0]) == (255, 0, 0)
+        assert tuple(video.frames[2, 0, 0]) == (0, 0, 255)
+
+    def test_an_entry_of_no_images_is_refused(self):
+        with pytest.raises(ValueError, match="images"):
+            self._run([[]])
+
+
+class TestSavedManifest:
+    def test_saved_shots_start_frames(self, tmp_path):
+        from unittest.mock import patch
+
+        from dw.result import Result
+        from dw.shots import step_shots
+
+        video = stills_to_video([still(16, 16)] * 3, [1, 2, 0.5], fps=24)
+        result = Result({"content_type": "video/mp4", "save": True})
+        result.add_result(video)
+        with (
+            patch("dw.result.encode_video"),
+            patch("dw.result.export_to_video"),
+            patch("dw.result.is_av_available", return_value=True),
+        ):
+            saved = result.save(str(tmp_path), "animatic.0")
+        shots = step_shots(result.saved_shots, saved)
+        assert [shot["start_frame"] for shot in shots] == [0, 24, 72]

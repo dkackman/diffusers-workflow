@@ -37,6 +37,7 @@ from ..task_problems import (  # noqa: F401
     MAX_STILLS_FPS,
     MAX_STILLS_SECONDS,
     stills_to_video_problems,
+    MAX_STILLS_BYTES,
 )
 
 logger = logging.getLogger("dw")
@@ -237,6 +238,23 @@ def loop_frames(video, num_frames):
     return (looped.astype(numpy.float32) / 255.0).clip(0.0, 1.0)
 
 
+def _stills_durations(durations):
+    """`durations` with a numpy array as a list, and an empty list refused"""
+    if isinstance(durations, numpy.ndarray):
+        durations = durations.tolist()
+    if isinstance(durations, (list, tuple)) and not durations:
+        raise ValueError(
+            "stills_to_video needs 'durations' as a number or a non-empty list"
+        )
+    return durations
+
+
+def _stills_seconds(durations, count):
+    if isinstance(durations, (list, tuple)):
+        return list(durations)
+    return [durations] * count
+
+
 def stills_to_video(images, durations, fps=24):
     """Task command: storyboard stills held on screen for a duration each, as
     one silent clip - an animatic.
@@ -274,13 +292,13 @@ def stills_to_video(images, durations, fps=24):
     if not stills:
         raise ValueError("stills_to_video was given no 'images' to hold")
     fps = real_number(fps, "fps", "stills_to_video", required=True)
+    durations = _stills_durations(durations)
     problems = stills_to_video_problems(durations, fps, len(stills))
     if durations is None:
         problems.append(("durations", "stills_to_video needs 'durations'"))
     if problems:
         raise ValueError(problems[0][1])
-    seconds = list(durations) if isinstance(durations, (list, tuple)) else None
-    seconds = seconds or [durations] * len(stills)
+    seconds = _stills_seconds(durations, len(stills))
 
     sizes = {still.size for still in stills}
     if len(sizes) > 1:
@@ -293,6 +311,14 @@ def stills_to_video(images, durations, fps=24):
         )
     counts = [max(1, round(float(s) * fps)) for s in seconds]
     width, height = stills[0].size
+    needed = sum(counts) * height * width * 3
+    if needed > MAX_STILLS_BYTES:
+        raise ValueError(
+            f"stills_to_video would hold {sum(counts)} frames of "
+            f"{width}x{height} ({needed / 1024**3:.1f} GiB), over the "
+            f"{MAX_STILLS_BYTES / 1024**3:g} GiB limit - shorten 'durations', "
+            "lower 'fps', or use smaller images"
+        )
     frames = numpy.empty((sum(counts), height, width, 3), dtype=numpy.uint8)
     shots, start = [], 0
     for index, (still, count) in enumerate(zip(stills, counts), start=1):
