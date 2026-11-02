@@ -72,11 +72,14 @@ def diffusers_install_info():
     return info
 
 
-def build_pip_commands(commit=None, revert=False):
+def build_pip_commands(commit=None, revert=False, python=None):
     """The pip commands, run in order, for one of three installs: HEAD, a
     pinned commit, or a revert to the pyproject.toml release floor.
     `commit` is validated by the caller before it reaches here - this only
     assembles the already-validated pieces, never a raw request value.
+    `python` is the interpreter whose environment they install into - this
+    one by default; the container entrypoint (docker/entrypoint.py) passes
+    its diffusers overlay venv's.
 
     A git install is two commands. diffusers main keeps one dev version
     string for a whole release cycle, so `install --upgrade <git url>` saw a
@@ -88,7 +91,7 @@ def build_pip_commands(commit=None, revert=False):
     commit requires - no URL, so no second clone, and no --upgrade, so the
     git build stays.
     """
-    pip = [sys.executable, "-m", "pip", "install"]
+    pip = [python or sys.executable, "-m", "pip", "install"]
     if revert:
         return [pip + [f"{PYPI_PACKAGE}=={release_floor()}"]]
     target = DIFFUSERS_GIT_URL if not commit else f"{DIFFUSERS_GIT_URL}@{commit}"

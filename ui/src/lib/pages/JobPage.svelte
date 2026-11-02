@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { TriangleAlert } from '@lucide/svelte'
+  import { Braces, TriangleAlert } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api, streamJobEvents } from '../api'
   import { route } from '../router.svelte'
   import { wsHref } from '../routes'
@@ -178,6 +178,43 @@
   const activeMemberStep = $derived(
     running ? activeMember(events as JobEvent[]) : undefined,
   )
+  // Where a failed run stopped: the step it had started and never ended,
+  // drawn red on the graph so the reader does not have to match the error
+  // to a step by name
+  const failed = $derived(job?.status === 'failed')
+  const failedNode = $derived(
+    failed && activeNode && !finishedSteps.includes(activeNode)
+      ? activeNode
+      : undefined,
+  )
+  const failedMemberStep = $derived(
+    failed ? activeMember(events as JobEvent[]) : undefined,
+  )
+
+  // A graph node opens what that step left behind: its files, or its line
+  // under "Steps that wrote nothing". The results carry the engine's names,
+  // so a node finds its own, its for_each members' (`node@entry`) and, for a
+  // sub-workflow, nothing it can name - such a node is not a control.
+  function resultFor(node: string): Element | null {
+    for (const el of document.querySelectorAll('[data-step]')) {
+      const step = el.getAttribute('data-step') ?? ''
+      if (step === node || step.startsWith(node + '@')) return el
+    }
+    return null
+  }
+  const resultSteps = $derived(
+    new Set([
+      ...fileGroups.map((group) => group.step),
+      ...unsaved.map((entry) => entry.node),
+    ]),
+  )
+  const hasResult = (node: string) =>
+    [...resultSteps].some(
+      (step) => step === node || step.startsWith(node + '@'),
+    )
+  function openResult(node: string) {
+    resultFor(node)?.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  }
   // A cancel requested while loading a model or running a task step has no
   // checkpoint to catch it until that phase finishes - without this the UI
   // goes silent for however long that takes, and looks hung rather than
@@ -251,27 +288,35 @@
             : 'this is the definition as submitted - no realized copy of this run is on file'}
           >{realized ? 'realized' : 'as submitted'}</span
         >
-        <span class="flex"></span>
-        <button
-          class="bare"
-          onclick={() => (showJson = !showJson)}
-          aria-expanded={showJson}
-          title={showJson
-            ? 'hide the workflow this job ran'
-            : 'show the workflow this job ran, as JSON'}
-        >
-          {showJson ? 'hide' : 'show'} JSON
-        </button>
       </div>
       <FlowView
         workflow={definition}
         activeStep={running ? activeNode : undefined}
         doneSteps={finishedSteps}
+        failedStep={failedNode}
         activeMember={activeMemberStep}
+        failedMember={failedMemberStep}
+        onselect={openResult}
+        selectable={hasResult}
+        selectHint="click a step to see its results"
         doneMembers={finishedMemberSteps}
         {nodeTimes}
         {memberTimes}
       />
+      <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
+      <div class="jsontoggle">
+        <button
+          class="quiet icon"
+          onclick={() => (showJson = !showJson)}
+          aria-expanded={showJson}
+          aria-label={showJson ? 'hide JSON' : 'show JSON'}
+          title={showJson
+            ? 'hide the workflow this job ran'
+            : 'show the workflow this job ran, as JSON'}
+        >
+          <Braces size={14} />
+        </button>
+      </div>
       {#if showJson}
         <div class="json">
           <JsonEditor
@@ -322,6 +367,11 @@
     align-items: center;
     gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
+  }
+  .jsontoggle {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-1);
   }
   .flowhead h2 {
     margin: 0;

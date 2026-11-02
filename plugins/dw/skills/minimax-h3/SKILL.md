@@ -10,7 +10,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 ## Before anything
 
 1. `get_server_info`: the device (H3 is CUDA; quantized configs don't
-   run on mps) and the session's workspace.
+   run on mps) and the workspace.
 2. `list_workflows(shape="shot")`, `list_workflows(shape="sequence")` and
    `list_workflows(shape="audio")`: the family's templates by name,
    `summary`, `traits`, `cost`; it outranks names below.
@@ -82,7 +82,7 @@ H3 generates video and audio together. Every template fits a 24 GB card.
   `pair_audio`, in that reference's last section.
 - **Unrelated shots, no cut**: `templates/minimax/shots-batch` - one H3
   step per `shots` entry. `keep_output` each clip, then `templates/assemble-and-score` cuts and scores.
-- **Music alone**: `templates/minimax/music` (Music3); the `minimax-music3`
+- **Music alone**: `templates/minimax/music`; the `minimax-music3`
   skill - its `audio_duration` is a ceiling, not a length.
 - **Replace a shot's own sound**: `templates/video-to-sound-effects` (MMAudio,
   7-25 dB hot: `match_levels` first), then `pair_audio`.
@@ -152,9 +152,9 @@ the rules are MiniMax's:
    framed as `Task: T2VA. Duration: 5.17 seconds. Idea: ...`.
 
 Either way: write the whole script before the first shot. Repeat a speaker's voice description verbatim across shots.
-Several characters: one cropped reference each, never a group picture, which imposes its framing on every shot (`references/per-character.md`).
-Before writing lines, read `references/dialogue.md`: how long a line fits, and what not to name.
-A wanted look (clay, paper): `references/style.md`.
+Several characters: one cropped reference each, never a group picture (`references/per-character.md`).
+Lines: `references/dialogue.md` (length, what not to name). Check a draft: `references/prompt-lint.md`.
+A wanted look (clay, paper): `references/style.md`. Film-term camera or look: the `cinematography` skill.
 
 ## Run and judge
 

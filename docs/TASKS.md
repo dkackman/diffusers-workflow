@@ -526,6 +526,7 @@ add grain last so it is not itself sharpened:
 | `get_first_frame` | Extract first video frame | |
 | `get_last_frame` | Extract last video frame | |
 | `get_frame` | Extract frame at index | `frame_index` |
+| `stills_to_video` | Hold storyboard stills for a duration each, as one silent clip | `images`, `durations`, `fps` - see [stills_to_video](#stills_to_video) |
 | `window_video` | One overlapping, fixed-length window of a long video, with its audio | `index`, `num_frames`, `overlap`, `fps` - see [window_video](#window_video) |
 | `join_windows` | Blend processed windows back into one video the source's length, with the source's audio | `videos`, `source`, `num_frames`, `overlap`, `curve`, `fps` - see [join_windows](#join_windows) |
 | `fit_to_model` | Fit a video into a model's working size and exact frame count; returns `{video, fit}` | `width`, `height`, `num_frames`, `mode` (`letterbox`, `stretch`, `crop`), `downscale` - see [fit_to_model and restore_to_source](#fit_to_model-and-restore_to_source) |
@@ -534,6 +535,50 @@ add grain last so it is not itself sharpened:
 The frame commands accept videos in any shape a result carries them: PIL frame
 lists, numpy or torch frame arrays, and audio+video pairs (LTX-2, MiniMax H3).
 The extracted frame is always a PIL image.
+
+### stills_to_video
+
+Hold each still on screen for a set time and get one silent clip back - an
+animatic of a storyboard. The result joins with `concat_videos` and takes a
+score from `pair_audio` or the `assemble-and-score` template like any shot.
+
+```json
+{
+    "name": "animatic",
+    "task": {
+        "command": "stills_to_video",
+        "arguments": {
+            "images": [
+                "previous_result:frame_1",
+                "previous_result:frame_2",
+                "previous_result:frame_3"
+            ],
+            "durations": [1, 2, 0.5],
+            "fps": 24
+        }
+    },
+    "result": { "content_type": "video/mp4", "save": true }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `images` | Yes | The stills in order - images, arrays, or `{"media_type": "image", "location": "asset:x.png"}`. All the same size |
+| `durations` | Yes | Seconds per still: one number for all, or one per still |
+| `fps` | No | Frame rate, default 24, at most 120 |
+
+Each still gets `max(1, round(duration * fps))` frames, so a duration shorter
+than a frame still shows for one. The clip is at most 600 seconds and 36000
+frames in total; those cap its length, not its memory. The frames are held as
+uint8 pixels, so the command also refuses, before allocating, a clip over
+4 GiB (frames x width x height x 3), naming `durations`, `fps` and the image
+size.
+Stills of different sizes are refused, naming both sizes. The video has no
+audio track; its `shots` record where each still starts.
+`validate_workflow` catches a non-positive duration, an `fps` out of range, a
+duration count that does not match a literal image list, and a total over 600
+seconds or 36000 frames (the 4 GiB limit depends on the image size, so it is
+checked at run time).
 
 ### concat_videos
 
@@ -2328,6 +2373,42 @@ whole file:
 | `max_offset_ms` | The largest `end_offset_ms` across all shots, by magnitude |
 | `video_seconds` / `audio_seconds` | Each stream's own duration |
 | `length_delta_ms` | `audio_seconds` minus `video_seconds` |
+
+### analyze_face_drift
+
+Whether a recurring character still looks like their cast portrait. It
+answers the shape of the probes above but is not one: it measures faces, not
+the soundtrack, and its two rules live in the command rather than in the
+table below. Needs the SFace and YuNet weights from `opencv/face_recognition_sface`
+and `opencv/face_detection_yunet`, which `validate_workflow` lists under
+`downloads_required`.
+
+```json
+{
+    "command": "analyze_face_drift",
+    "arguments": {
+        "video": "output:<identity>/latest/final/cut.mp4",
+        "reference": "asset:cast/ada.png"
+    }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | A stored video, or the video an earlier step returned |
+| `reference` | The face to hold. With several faces the largest is used and `notes` says so; with none the step is refused |
+| `shots` | Shot records, as the probes take them; else the video's own, else the run manifest, else the whole file is one shot |
+| `threshold` | Median cosine similarity below which a shot raises `face_drift`, from -1 to 1. Default 0.363, OpenCV's published SFace threshold |
+| `samples_per_shot` | Frames read per shot, evenly spaced, 1 to 64. Default 8 |
+
+Each shot is a `measurements[]` entry: `shot`, `frames_sampled`,
+`faces_found` (sampled frames with a face), `similarity_median` and
+`similarity_min` - over those frames, the best cosine match among the faces
+in each frame. Both are null when no sampled frame had a face. Findings:
+`face_drift` (warn) when the median is below `threshold`, and `no_face`
+(info) for a shot where no sampled frame had a face. Like the probes, they
+are places to look, not verdicts: a turned head or a mask also lowers the
+score, so look at the shot before regenerating it.
 
 ### Rules
 

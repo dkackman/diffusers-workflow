@@ -142,6 +142,8 @@ composes into, not something to re-derive:
 - **pair**: the normalized track is muxed onto the cut - the episode's
   deliverable.
 
+For a dialogue scene cut master-and-singles, read `references/sitcom-multicam.md`.
+
 For smeary two-shot faces, read `references/cinema-path.md` (1344x768 base
 model); choose the path once, at episode 1.
 
@@ -176,7 +178,8 @@ Before keeping each episode shot, run `dw:script-to-video`'s beat review
 Beyond `minimax-h3`'s own judging checklist (a character that changes
 between shots, a portrait imposing its framing, a voice without affect):
 watch two episodes back to back and check the cast reads as the same
-people - the failure mode step 0 exists to prevent. Compare episodes'
+people - the failure mode step 0 exists to prevent. Measure it per shot with
+`templates/face-drift-check` (a flag to look at, not a verdict). Compare episodes'
 `integrated_lufs` (`get_gallery_metadata`), not `peak_dbfs`; the second
 half of `references/loudness.md` reads the gap. To confirm every
 line rendered rather than judging it by ear, run `templates/check-script`

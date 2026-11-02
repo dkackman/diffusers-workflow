@@ -173,8 +173,9 @@
     {#each group.files as file (file)}
       {@const info = describeOutputMeta(fileMeta[file])}
       <!-- Laid out as the gallery detail is: the media on the left,
-           what made it on the right -->
-      <div class="output">
+           what made it on the right. data-step is what a flow-graph node
+           scrolls to. -->
+      <div class="output" data-step={group.step}>
         {#if kindOf(file) === 'image'}
           <a
             class="frame plain"
@@ -234,7 +235,7 @@
   <h3 class="subhead">Steps that wrote nothing</h3>
   <ul class="unsaved">
     {#each unsaved as entry (entry.node)}
-      <li>
+      <li data-step={entry.node}>
         <code>{entry.node}</code>
         {#if entry.members.length}
           <span

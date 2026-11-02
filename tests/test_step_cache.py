@@ -623,6 +623,7 @@ def test_normalized_downstream_false_when_nothing_references_it():
 # moved when it defaulted to sparse instead of null (#931): the backend is part of
 # the pipeline's identity, sparse_tau is not.
 TEMPLATE_PIPELINE_KEYS = {
+    "animatic.json": {},
     "assemble-and-score.json": {},
     "attention-processor.json": {
         "generate_with_sdpa": "8dc3e92052c445d5dbf20bf6e8b6fe91794cfa3772bb7366e2390889b4e99459"
@@ -665,6 +666,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "generate": "bfe2e09d70b6bf6e7799266cf735abd779e5a9e3c283b8287d962eab17d95425"
     },
     "expand-prompt.json": {},
+    "face-drift-check.json": {},
     "flux3/image-edit.json": {
         "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
     },

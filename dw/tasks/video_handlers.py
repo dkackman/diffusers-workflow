@@ -30,9 +30,11 @@ from ..task_domains import (
 from ..task_problems import (
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
+    face_drift_errors,
     face_track_errors,
     ingredients_grid_errors,
     paste_face_track_errors,
+    stills_to_video_errors,
 )
 
 logger = logging.getLogger("dw")
@@ -122,6 +124,45 @@ def _handle_loop_frames(task, arguments, previous_pipelines):
     from .video_utils import loop_frames
 
     return loop_frames(**arguments)
+
+
+@register_command(
+    "stills_to_video",
+    implementation="dw.tasks.video_utils.stills_to_video",
+    domains={"fps": POSITIVE},
+    static_check=stills_to_video_errors,
+)
+def _handle_stills_to_video(task, arguments, previous_pipelines):
+    """Hold each still for a duration, as one silent clip"""
+    logger.debug("Holding stills into a clip")
+    import numpy
+
+    from .image_utils import load_rgb_images
+    from .video_utils import stills_to_video
+
+    # Read the stills as ingredients_grid reads its images; arrays are
+    # already pixels and pass through
+    images = arguments.get("images")
+    if isinstance(images, (list, tuple)):
+        stills = []
+        for item in images:
+            if isinstance(item, numpy.ndarray):
+                stills.append(item)
+                continue
+            loaded = load_rgb_images(item)
+            if not loaded:
+                raise ValueError(
+                    "stills_to_video: an entry of 'images' resolved to no "
+                    "image - check the reference"
+                )
+            # An entry that resolves to several images (a step that made
+            # num_images_per_prompt > 1) contributes them in order, as
+            # ingredients_grid reads the same input
+            stills.extend(loaded)
+        arguments["images"] = stills
+    elif not isinstance(images, numpy.ndarray):
+        arguments["images"] = load_rgb_images(images)
+    return stills_to_video(**arguments)
 
 
 @register_command(
@@ -381,6 +422,42 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     from .face_track import crop_face_track
 
     return crop_face_track(device=task.device_for(arguments), **arguments)
+
+
+@register_command(
+    "analyze_face_drift",
+    implementation="dw.tasks.face_drift.analyze_face_drift",
+    returns="json",
+    consumes_device=True,
+    required_weights="dw.tasks.face_drift.required_weights",
+    summary=(
+        "Measure, per shot, how close the faces in a clip are to a reference "
+        "face (SFace cosine similarity), and name the shots to look at."
+    ),
+    parameter_descriptions={
+        "video": "Video to measure - an asset:/output: reference, a path, or an earlier step's video.",
+        "reference": (
+            "Picture of the face to hold, such as the cast portrait. The "
+            "largest face is used when it holds several; one with none is refused."
+        ),
+        "shots": "Shot records to measure; else the video's own, else the whole file.",
+        "threshold": (
+            "Median cosine similarity below which a shot is a face_drift "
+            "finding, from -1 to 1; 0.363 is OpenCV's SFace threshold."
+        ),
+        "samples_per_shot": "Frames read from each shot, evenly spaced (1 to 64).",
+    },
+    domains={"threshold": FINITE, "samples_per_shot": POSITIVE},
+    whole_numbers=("samples_per_shot",),
+    media_arguments=("reference",),
+    static_check=face_drift_errors,
+)
+def _handle_analyze_face_drift(task, arguments, previous_pipelines):
+    """Measure how close each shot's faces are to a reference face"""
+    logger.debug("Analyzing face drift")
+    from .face_drift import analyze_face_drift
+
+    return analyze_face_drift(device=task.device_for(arguments), **arguments)
 
 
 @register_command(

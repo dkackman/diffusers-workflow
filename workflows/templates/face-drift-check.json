@@ -1,0 +1,28 @@
+{
+    "id": "face-drift-check",
+    "description": "Checks whether a character's face holds across a video, and saves the answer as JSON for get_output_text. It runs 'analyze_face_drift' on 'video' against 'reference', an image of the face it should keep: YuNet finds the faces in 'samples_per_shot' frames of each shot (default 8, at most 64) and SFace scores each against the reference. A shot whose faces score under 'threshold' (a cosine similarity between -1 and 1; 0.363 is SFace's published same-person cut-off) is a 'face_drift' finding, and a shot with no detectable face is 'no_face'. By default the video's own recorded shots are used; the answer lists the measurements, the rules applied and where the shots came from. The scores are a flag to look at the frames with get_output_frames, not a verdict: profile, occluded and distant faces score low for the same person. Run it on each shot of a series episode before the cut, and re-roll or re-reference only the shots it flags.",
+    "variables": {
+        "video": "asset:shot.mp4",
+        "reference": "asset:character.png",
+        "threshold": 0.363,
+        "samples_per_shot": 8
+    },
+    "steps": [
+        {
+            "name": "drift",
+            "task": {
+                "command": "analyze_face_drift",
+                "arguments": {
+                    "video": "variable:video",
+                    "reference": "variable:reference",
+                    "threshold": "variable:threshold",
+                    "samples_per_shot": "variable:samples_per_shot"
+                }
+            },
+            "result": {
+                "content_type": "application/json",
+                "subfolder": "final"
+            }
+        }
+    ]
+}

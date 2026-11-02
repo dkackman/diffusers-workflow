@@ -76,12 +76,14 @@ describe('EditorPage view switch', () => {
     render(EditorPage, { name: '' })
 
     // Form view is up by default (no saved view-mode preference in a
-    // fresh jsdom localStorage) - the flow diagram's read-only hint text
+    // fresh jsdom localStorage) - the flow diagram region
     // is the flow view's fingerprint and should be absent.
     await waitFor(() =>
       expect(screen.getByLabelText('workflow id')).toBeTruthy(),
     )
-    expect(screen.queryByText(/Read-only data-flow view/)).toBeNull()
+    expect(
+      screen.queryByRole('region', { name: 'workflow data-flow' }),
+    ).toBeNull()
 
     const flowButton = screen.getByTitle(
       'read-only data-flow diagram: steps as boxes, previous_result as edges',
@@ -89,14 +91,18 @@ describe('EditorPage view switch', () => {
     await flowButton.click()
 
     await waitFor(() =>
-      expect(screen.queryByText(/Read-only data-flow view/)).not.toBeNull(),
+      expect(
+        screen.queryByRole('region', { name: 'workflow data-flow' }),
+      ).not.toBeNull(),
     )
     // Switching away hides it again - it isn't just always-rendered and
     // toggled with CSS.
     const formButton = screen.getByRole('button', { name: /^form$/i })
     await formButton.click()
     await waitFor(() =>
-      expect(screen.queryByText(/Read-only data-flow view/)).toBeNull(),
+      expect(
+        screen.queryByRole('region', { name: 'workflow data-flow' }),
+      ).toBeNull(),
     )
   })
 })
