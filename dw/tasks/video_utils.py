@@ -32,7 +32,12 @@ from ..media_types import (  # noqa: F401
     fit_codec_padding,
 )
 from ..shots import shot_record
-from ..task_domains import frame_size_error, real_number, whole_number
+from ..task_domains import (
+    frame_size_error,
+    frames_to_samples,
+    real_number,
+    whole_number,
+)
 from ..task_problems import (  # noqa: F401
     MAX_STILLS_FPS,
     MAX_STILLS_SECONDS,
@@ -41,6 +46,13 @@ from ..task_problems import (  # noqa: F401
 )
 
 logger = logging.getLogger("dw")
+
+# The rate of stills_to_video's silent track. A track of zeros rather than
+# none, so the clip scores like a generated shot: the world-audio path of
+# assemble-and-score (resample_audio on the joined cut) refuses a video that
+# carries no track at all. Mono, which concat_videos tiles up to a stereo
+# neighbour's channels
+STILLS_SAMPLE_RATE = 48000
 
 # A location that names a scheme is a URL, whatever the scheme
 _URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
@@ -259,9 +271,10 @@ def stills_to_video(images, durations, fps=24):
     """Task command: storyboard stills held on screen for a duration each, as
     one silent clip - an animatic.
 
-    The clip has no audio track (`audio=None`); `concat_videos` fills a
-    silent input with silence and `pair_audio` lays a score under it, so it
-    joins and scores like any generated shot.
+    The clip carries a silent mono track at STILLS_SAMPLE_RATE, its own
+    length, so it joins and scores like any generated shot: `concat_videos`
+    and the audio commands that read a video's track (`resample_audio` in
+    assemble-and-score) take it, and `pair_audio` lays a score in its place.
 
     Args:
         images: The stills, in order - PIL images or arrays. As a task
@@ -277,7 +290,7 @@ def stills_to_video(images, durations, fps=24):
 
     Returns:
         An AudioVideo of uint8 (frames, height, width, 3) frames at `fps`,
-        with one shot record per still
+        with a silent track and one shot record per still
     """
     if isinstance(images, numpy.ndarray) and images.ndim == 4:
         images = list(images)
@@ -325,7 +338,11 @@ def stills_to_video(images, durations, fps=24):
         frames[start : start + count] = numpy.asarray(still.convert("RGB"))
         shots.append(shot_record(f"still_{index}", start, count))
         start += count
-    return AudioVideo(frames, None, None, fps=fps, shots=shots)
+    silence = numpy.zeros(
+        (1, frames_to_samples(len(frames), fps, STILLS_SAMPLE_RATE)),
+        dtype=numpy.float32,
+    )
+    return AudioVideo(frames, silence, STILLS_SAMPLE_RATE, fps=fps, shots=shots)
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):

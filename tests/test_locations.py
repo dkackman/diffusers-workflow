@@ -932,6 +932,57 @@ class TestVideosArgument:
         assert location_errors(definition, base_dir=workflow_dir) == []
 
 
+class TestStillsImagesArgument:
+    """stills_to_video's `images` list - a plural no media key matches - is
+    confined at validation entry by entry, as the joining commands' `videos`
+    is (#1144)."""
+
+    @staticmethod
+    def _step(images):
+        return {
+            "steps": [
+                {
+                    "name": "probe",
+                    "task": {
+                        "command": "stills_to_video",
+                        "arguments": {"images": images, "durations": 1},
+                    },
+                }
+            ]
+        }
+
+    @pytest.mark.parametrize(
+        "value",
+        [
+            "/etc/hostname",
+            "../../../../etc/hostname",
+            "file:///etc/hostname",
+        ],
+    )
+    def test_an_unreadable_entry_is_an_error_at_its_index(
+        self, untrusted, workflow_dir, value
+    ):
+        errors = location_errors(
+            self._step(["asset:a.png", value]), base_dir=workflow_dir
+        )
+
+        assert [error["path"] for error in errors] == [
+            "steps[0].task.arguments.images[1]"
+        ]
+        assert "'images'" in errors[0]["message"]
+
+    def test_a_scalar_is_checked_too(self, untrusted, workflow_dir):
+        errors = location_errors(self._step("/etc/hostname"), base_dir=workflow_dir)
+
+        assert [error["path"] for error in errors] == ["steps[0].task.arguments.images"]
+
+    def test_references_are_left_alone(self, untrusted, workflow_dir):
+        definition = self._step(
+            ["asset:a.png", "output:wf/run/b.png", "previous_result:c"]
+        )
+        assert location_errors(definition, base_dir=workflow_dir) == []
+
+
 class TestOwnOutputHint:
     """#951: a bare manifest file name is refused with `output:` as the fix."""
 
