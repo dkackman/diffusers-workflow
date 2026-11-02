@@ -1,0 +1,24 @@
+# The image builds from a clean tree: no venv, no build products, no outputs
+.git
+venv
+activate
+.env
+.env.*
+**/__pycache__
+**/*.pyc
+*.egg-info
+build
+dist
+outputs
+log
+tmp*
+.superpowers
+.remember
+.claude
+docker/.env
+ui/node_modules
+ui/dist
+ui/test-results
+ui/playwright-report
+dw/server/ui
+dw/docs
