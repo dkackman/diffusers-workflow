@@ -306,7 +306,7 @@
       <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
       <div class="jsontoggle">
         <button
-          class="bare icon"
+          class="quiet icon"
           onclick={() => (showJson = !showJson)}
           aria-expanded={showJson}
           aria-label={showJson ? 'hide JSON' : 'show JSON'}
@@ -314,7 +314,7 @@
             ? 'hide the workflow this job ran'
             : 'show the workflow this job ran, as JSON'}
         >
-          <Braces size={15} />
+          <Braces size={14} />
         </button>
       </div>
       {#if showJson}
