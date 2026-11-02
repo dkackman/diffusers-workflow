@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { TriangleAlert } from '@lucide/svelte'
+  import { Braces, TriangleAlert } from '@lucide/svelte'
   import { TERMINAL_STATUSES, api, streamJobEvents } from '../api'
   import { route } from '../router.svelte'
   import { wsHref } from '../routes'
@@ -288,17 +288,6 @@
             : 'this is the definition as submitted - no realized copy of this run is on file'}
           >{realized ? 'realized' : 'as submitted'}</span
         >
-        <span class="flex"></span>
-        <button
-          class="bare"
-          onclick={() => (showJson = !showJson)}
-          aria-expanded={showJson}
-          title={showJson
-            ? 'hide the workflow this job ran'
-            : 'show the workflow this job ran, as JSON'}
-        >
-          {showJson ? 'hide' : 'show'} JSON
-        </button>
       </div>
       <FlowView
         workflow={definition}
@@ -314,6 +303,20 @@
         {nodeTimes}
         {memberTimes}
       />
+      <!-- The JSON toggle sits where the JSON opens, beneath the graph -->
+      <div class="jsontoggle">
+        <button
+          class="bare icon"
+          onclick={() => (showJson = !showJson)}
+          aria-expanded={showJson}
+          aria-label={showJson ? 'hide JSON' : 'show JSON'}
+          title={showJson
+            ? 'hide the workflow this job ran'
+            : 'show the workflow this job ran, as JSON'}
+        >
+          <Braces size={15} />
+        </button>
+      </div>
       {#if showJson}
         <div class="json">
           <JsonEditor
@@ -364,6 +367,11 @@
     align-items: center;
     gap: 0.4rem 1rem;
     margin-bottom: var(--space-2);
+  }
+  .jsontoggle {
+    display: flex;
+    justify-content: flex-end;
+    margin-top: var(--space-1);
   }
   .flowhead h2 {
     margin: 0;
