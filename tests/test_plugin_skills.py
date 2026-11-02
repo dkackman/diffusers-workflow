@@ -1102,6 +1102,27 @@ class TestCinematographySkill:
         body = skill_body(CINE_SKILL)
         section = body[body.index("## Not in scope") :]
         assert "`minimax-music3`" in section
+        flat = " ".join(section.split())
+        assert (
+            "covers H3, LTX-2.5 and Kandinsky 6 video plus FLUX 3 Klein stills only"
+            in flat
+        )
+        assert "do not borrow a table" in flat
+
+    def test_cinematography_ltx_every_move_row_carries_a_viewpoint(self):
+        text = self._ref("compile-ltx-2.5.md")
+        section = text[text.index("## `move`") :]
+        section = section[: section.index("Example:")]
+        rows = [r for r in section.splitlines() if r.startswith("| `")]
+        assert len(rows) == len(CINE_AXES["move"])
+        for row in rows:
+            assert "<viewpoint>" in row, row
+
+    def test_cinematography_whip_pan_direction_is_the_shots(self):
+        for name in CINE_COMPILES.values():
+            for row in self._ref(name).splitlines():
+                if row.startswith("| `whip-pan`"):
+                    assert "to the right" not in row and "pans right" not in row
 
     def test_cinematography_compiles_to_each_family_s_own_spec(self):
         """Each table follows its family's caption rules, not a shared one."""

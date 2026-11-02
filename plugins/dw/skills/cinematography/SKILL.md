@@ -69,8 +69,10 @@ each family's format with a camera already in it - `ltx2/`, `kandinsky6/`,
 
 Every value here is a hint, not a promise. The models were trained on
 captions that describe camera work; none was trained on this list, and dw
-has not measured which named moves each family honours (an LTX clip asked
-to stay static has pushed in after five seconds). So:
+has not measured which named moves each family honours (one 241-frame LTX
+image-to-video clip told "the camera remains static" pushed or arced from
+about five seconds, while six clips in the L2 cells showed no clear move; see
+`docs/proposals/audits/2026-11-story-forge-lessons.md`). So:
 
 1. Describe the move in the caption in the family's own words (the table
    does that) rather than naming the id alone.
@@ -116,6 +118,9 @@ look recipe takes the palette from here.
 
 ## Not in scope
 
+- Any family not in the table above. The vocabulary covers H3, LTX-2.5 and
+  Kandinsky 6 video plus FLUX 3 Klein stills only; for any other family,
+  image or audio, stop and do not borrow a table.
 - Audio-only families: `minimax-music3` has no camera, and nothing here
   applies to it. A soundtrack's mood is the music skill's.
 - Choosing a template or a family, sizes, frame counts and cost: the family

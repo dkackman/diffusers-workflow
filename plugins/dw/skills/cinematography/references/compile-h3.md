@@ -52,7 +52,7 @@ The guide sets no shot-size words; its own examples use the plain ones.
 | `crane-down` | "The camera pedestals down to <subject>'s eye level." |
 | `orbit` | "The camera moves in an arc shot around <subject>." |
 | `tracking` | "The camera holds a tracking shot, matching <subject>'s pace." |
-| `whip-pan` | "The camera pans right with large amplitude at fast speed, revealing <the new view>." |
+| `whip-pan` | "The camera pans <left or right> with large amplitude at fast speed, revealing <the new view>." |
 | `push-in` | "The camera pushes in with small amplitude at slow speed toward <subject's face>." |
 | `handheld` | "The camera shakes slightly as it follows <subject>." |
 | `crash-zoom` | "The camera zooms in with large amplitude at fast speed on <subject>." |
