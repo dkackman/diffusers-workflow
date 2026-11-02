@@ -608,10 +608,13 @@ def shots_answer(media, records, source):
         rms_range = 0.0
     answer = {"shots": measured, "rms_range_db": rms_range, "has_audio": True}
     dead_air_findings = []
-    for index, shot in enumerate(measured):
+    for index, (shot, record) in enumerate(zip(measured, records)):
         # A shot that is quiet throughout, on purpose, holds no gap to find -
-        # the same guard seam_hole applies to a seam's two sides (#465)
-        quiet = shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
+        # the same guard seam_hole applies to a seam's two sides (#465); a
+        # shot recorded silent_by_design is silent on purpose (#1162)
+        quiet = (
+            shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
+        ) or (isinstance(record, dict) and record.get("silent_by_design") is True)
         dead_air_findings.extend(
             _findings(
                 "analyze_shots",
