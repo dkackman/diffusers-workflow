@@ -388,6 +388,8 @@ class TestSeamFadeIsRecorded:
         assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
         skipped = [r for r in answer["rules_skipped"] if r["rule"] == "seam_hole"]
         assert skipped and skipped[0]["seams"] == [1]
+        # Skipped on every seam: measured nowhere, so not "applied" (#1179)
+        assert "seam_hole" not in answer["rules_applied"]
 
     def test_an_unrequested_hole_still_fires(self):
         # Same material and the same dip, but the fade is only in the
