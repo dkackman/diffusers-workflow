@@ -32,12 +32,14 @@ and the one step (0 below) that keeps the cast fixed; everything past it is
 Draw each character's portrait (and, for a voice that must hold, its
 reference clip) exactly once, in whichever workflow is convenient - a bare
 `templates/minimax/dialogue-short` run works, or any Z-Image step. Then
-`keep_output(name, asset_name="cast/<character>.png", shared=True)` for
-each portrait, and `upload_asset(..., shared=True)` for a voice clip that
+`keep_output(name, asset_name="cast/<character>", shared=True)` for
+each portrait (leave the extension off: the engine appends the file's own, and
+a portrait may be a JPEG or a PNG; cite the `asset:cast/<character>.<ext>`
+that `keep_output` replies with), and `upload_asset(..., shared=True)` for a voice clip that
 did not come from a run. `shared=True` is the whole point: it puts the
 portrait in the asset library every workspace shares
 (`docs/WORKSPACES.md`), so an episode generated in a different workspace,
-weeks later, still resolves `asset:cast/<character>.png` to the same file.
+weeks later, still resolves `asset:cast/<character>.<ext>` to the same file.
 
 Every later episode's `shots` entries reference that cast with `from_file`,
 never `from_previous_result`:
