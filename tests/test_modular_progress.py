@@ -304,10 +304,11 @@ class FakeAnchoredPipeline:
         return FakeOutput()
 
 
-def test_an_idle_block_is_neither_named_nor_run_without_its_input():
+def test_an_idle_block_is_unnamed_but_still_run_without_its_input():
     """#1181: an H3 call that never asked for a latent anchor logged an
-    anchor phase anyway. Without its input the step is a pass-through, so it
-    is skipped: nothing in the log names it, and the latents are untouched."""
+    anchor phase anyway. Without its input nothing in the log names it - but
+    the narrator still calls it: whether the block acts is the block's own
+    decision (a pass-through there), not the narrator's (arch review)."""
     pipeline = FakeAnchoredPipeline(anchor=None)
     events = _events(pipeline)
 
@@ -315,7 +316,7 @@ def test_an_idle_block_is_neither_named_nor_run_without_its_input():
         "acme/model: denoise.after_denoise",
         "acme/model: decode",
     ]
-    assert pipeline.ran == []
+    assert pipeline.ran == ["anchor"]
 
 
 def test_an_idle_block_is_named_and_run_when_its_input_is_given():

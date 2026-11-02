@@ -235,17 +235,18 @@ def reported_blocks(pipeline, label):
             return original(self, pipe, state)
         for name, block in self.sub_blocks.items():
             # A dw block that does nothing without one input (the latent
-            # anchor, #1181) is neither named nor run when that input is
-            # absent - the job log of a call that never asked for it says
-            # nothing about it, and the latents are untouched either way
+            # anchor, #1181) is not named when that input is absent - the
+            # job log of a call that never asked for it says nothing about
+            # it. It still runs: whether it acts is the block's own call
+            # (a pass-through without its input), not the narrator's
             idle_without = getattr(block, "idle_without", None)
-            if (
+            unnamed = (
                 idle_without
                 and hasattr(state, "get")
                 and state.get(idle_without) is None
-            ):
-                continue
-            run_context.emit("log", message=f"{label}: {name}")
+            )
+            if not unnamed:
+                run_context.emit("log", message=f"{label}: {name}")
             # A block boundary is a cancellation checkpoint the lead-in
             # otherwise has none of
             run_context.check_cancelled()
