@@ -480,6 +480,52 @@ class TestValidationTimeErrors:
         ]
         assert "'file' URL" in errors[0]["message"]
 
+    @pytest.mark.parametrize(
+        "anchor",
+        [
+            "/usr/share/videos/x.mp4",
+            "file:///usr/share/videos/x.mp4",
+            "http://127.0.0.1:8765/api/server",
+            "../../outside.mp4",
+            ["/usr/share/videos/x.mp4"],
+            {"location": "/usr/share/videos/x.mp4"},
+        ],
+    )
+    def test_a_latent_anchor_meets_the_media_policy(
+        self, untrusted, workflow_dir, anchor
+    ):
+        """`latent_anchor` reads a video but is not named like one, so the
+        key match alone let every location through to the run (SE-F061)."""
+        definition = {
+            "steps": [
+                {
+                    "name": "shot",
+                    "pipeline": {"arguments": {"latent_anchor": anchor}},
+                }
+            ]
+        }
+        errors = location_errors(definition, base_dir=workflow_dir)
+        assert len(errors) == 1
+        assert errors[0]["path"].startswith("steps[0].pipeline.arguments.latent_anchor")
+
+    def test_a_latent_anchor_inside_a_root_is_allowed(self, untrusted, workflow_dir):
+        clip = os.path.join(workflow_dir, "anchor.mp4")
+        open(clip, "wb").close()
+        definition = {
+            "steps": [
+                {
+                    "name": "shot",
+                    "pipeline": {
+                        "arguments": {
+                            "latent_anchor": clip,
+                            "image": "previous_result:keyframe",
+                        }
+                    },
+                }
+            ]
+        }
+        assert location_errors(definition, base_dir=workflow_dir) == []
+
     def test_an_upper_case_https_url_is_checked_as_a_url(self, untrusted, workflow_dir):
         """Not refused for its scheme, and still sent through the host policy."""
         definition = {
