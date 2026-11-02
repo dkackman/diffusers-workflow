@@ -37,6 +37,15 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Texture-band drift measurement on `compare_outputs`** (#1152, stage
+  #1160), shipped 2026-11-02. `compare_outputs(texture_bands=true)` reports
+  RMS energy in the fine 2-8, mid 8-32 and coarse 32-128 px bands (luma, R−G,
+  B−G) per output per moment over one shared crop, plus ratios to the
+  baseline. It accepts one name, so one chain's segments can be compared. It
+  is a measurement, not a score. The `assess_output` shape, pre-encode frame
+  export and any thresholds were cut:
+  `complete/texture-bands-complete.md`.
+
 - **H3 Anti-Burn LoRA on chain continuation segments** (#1151, stage
   #1159), probed 2026-11-02. Imagineer13's anti-burn LoRA loads through
   the stock loader beside turbo. On a seed-42, 5-segment hand-built
