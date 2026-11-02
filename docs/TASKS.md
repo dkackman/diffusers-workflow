@@ -2374,6 +2374,42 @@ whole file:
 | `video_seconds` / `audio_seconds` | Each stream's own duration |
 | `length_delta_ms` | `audio_seconds` minus `video_seconds` |
 
+### analyze_face_drift
+
+Whether a recurring character still looks like their cast portrait. It
+answers the shape of the probes above but is not one: it measures faces, not
+the soundtrack, and its two rules live in the command rather than in the
+table below. Needs the SFace and YuNet weights from `opencv/face_recognition_sface`
+and `opencv/face_detection_yunet`, which `validate_workflow` lists under
+`downloads_required`.
+
+```json
+{
+    "command": "analyze_face_drift",
+    "arguments": {
+        "video": "output:<identity>/latest/final/cut.mp4",
+        "reference": "asset:cast/ada.png"
+    }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | A stored video, or the video an earlier step returned |
+| `reference` | The face to hold. With several faces the largest is used and `notes` says so; with none the step is refused |
+| `shots` | Shot records, as the probes take them; else the video's own, else the run manifest, else the whole file is one shot |
+| `threshold` | Median cosine similarity below which a shot raises `face_drift`, from -1 to 1. Default 0.363, OpenCV's published SFace threshold |
+| `samples_per_shot` | Frames read per shot, evenly spaced, 1 to 64. Default 8 |
+
+Each shot is a `measurements[]` entry: `shot`, `frames_sampled`,
+`faces_found` (sampled frames with a face), `similarity_median` and
+`similarity_min` - over those frames, the best cosine match among the faces
+in each frame. Both are null when no sampled frame had a face. Findings:
+`face_drift` (warn) when the median is below `threshold`, and `no_face`
+(info) for a shot where no sampled frame had a face. Like the probes, they
+are places to look, not verdicts: a turned head or a mask also lowers the
+score, so look at the shot before regenerating it.
+
 ### Rules
 
 Each rule names the probe and field it reads, how the value is compared to

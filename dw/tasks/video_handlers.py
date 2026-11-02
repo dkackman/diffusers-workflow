@@ -424,6 +424,41 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
 
 
 @register_command(
+    "analyze_face_drift",
+    implementation="dw.tasks.face_drift.analyze_face_drift",
+    returns="json",
+    consumes_device=True,
+    required_weights="dw.tasks.face_drift.required_weights",
+    summary=(
+        "Measure, per shot, how close the faces in a clip are to a reference "
+        "face (SFace cosine similarity), and name the shots to look at."
+    ),
+    parameter_descriptions={
+        "video": "Video to measure - an asset:/output: reference, a path, or an earlier step's video.",
+        "reference": (
+            "Picture of the face to hold, such as the cast portrait. The "
+            "largest face is used when it holds several; one with none is refused."
+        ),
+        "shots": "Shot records to measure; else the video's own, else the whole file.",
+        "threshold": (
+            "Median cosine similarity below which a shot is a face_drift "
+            "finding, from -1 to 1; 0.363 is OpenCV's SFace threshold."
+        ),
+        "samples_per_shot": "Frames read from each shot, evenly spaced (1 to 64).",
+    },
+    domains={"threshold": FINITE, "samples_per_shot": POSITIVE},
+    whole_numbers=("samples_per_shot",),
+    media_arguments=("reference",),
+)
+def _handle_analyze_face_drift(task, arguments, previous_pipelines):
+    """Measure how close each shot's faces are to a reference face"""
+    logger.debug("Analyzing face drift")
+    from .face_drift import analyze_face_drift
+
+    return analyze_face_drift(device=task.device_for(arguments), **arguments)
+
+
+@register_command(
     "paste_face_track",
     implementation="dw.tasks.face_track.paste_face_track",
     summary=(
