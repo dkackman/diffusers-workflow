@@ -64,7 +64,12 @@ In the opening of the shot, with the style:
 - **lens**: the effect - "wide-angle", "long-lens compression with a soft
   background", "anamorphic widescreen, horizontal flares", "soft vintage
   glass".
-- **light**: the `vocabulary.md` meaning, in the visual description.
+- **light**: one phrase per value, in the visual description - `high-key`
+  "bright, even high-key lighting, few shadows", `low-key` "low-key
+  lighting from one hard source, deep shadows", `golden-hour` "warm
+  golden-hour sunlight, long shadows, glowing rim light", `practical` "lit
+  only by the lamps, screens and neon in the scene", `noir` "film noir
+  lighting, hard contrast, venetian-blind shadows, smoke, night".
 - **era**: "shot on grainy 8mm home-movie film", "16mm documentary film",
   "35mm film", "VHS camcorder footage", "clean digital video". For a medium
   (clay, paper) the `minimax-h3` skill's `style.md` reference applies too.

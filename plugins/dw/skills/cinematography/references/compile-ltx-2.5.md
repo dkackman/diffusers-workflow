@@ -69,8 +69,12 @@ and texture, and in the spec's aesthetic-quality descriptors:
   stretches the edges", "compressed depth and a shallow focus", "a
   widescreen frame with oval bokeh and horizontal flares", "soft, glowing
   vintage glass". Say the effect, not a lens name.
-- **light**: the `vocabulary.md` meaning in observable words ("a single hard
-  lamp leaves most of the room in deep shadow").
+- **light**: one phrase per value, in observable words - `high-key` "bright,
+  even light with almost no shadows", `low-key` "a single hard lamp leaves
+  most of the room in deep shadow", `golden-hour` "low, warm sunlight casts
+  long shadows and a glowing rim around <subject>", `practical` "lit only by
+  the lamps, screens and signs in the scene", `noir` "hard-contrast night
+  light, venetian-blind shadows striping the wall, a haze of smoke".
 - **era**: "grainy 8mm home-movie footage", "16mm documentary film grain",
   "35mm film with fine grain", "soft VHS camcorder footage", "clean digital
   video".
