@@ -4,261 +4,229 @@
 
 Your GPU, as something an agent can drive.
 
-diffusers-workflow wraps the [Hugging Face Diffusers library](https://github.com/huggingface/diffusers)
-in an engine that runs image, video and audio generation as jobs, and puts
-two front ends on it: an **MCP server**, so Claude Code (or any MCP client)
-can author, run and inspect generations; and a **web UI** for doing the same
-by hand. A CLI sits underneath for when you want neither.
+diffusers-workflow runs [Hugging Face Diffusers](https://github.com/huggingface/diffusers)
+image, video and audio generation as jobs on your own GPU. **An agent does the work.**
+Claude Code, or any MCP client, picks or writes the workflow, checks what it will
+cost, runs it, and looks at what came back. **You steer from the browser.** Every
+workflow, run and output the agent made is in the web UI, where you can change a
+variable, run it again, compare takes and keep the one you like.
 
 **Python 3.12-3.14 | CUDA (NVIDIA) | MPS (Apple Silicon) | CPU**
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="docs/img/ui-workflows-dark.png">
-  <img alt="The workflow browser: every workflow as a card with its description, output kinds, and variables" src="docs/img/ui-workflows.png">
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/ui-overview-dark.jpg">
+  <img alt="A workspace's overview in the web UI: recent outputs from an agent-made musical trailer, its jobs, and the workflows the agent wrote" src="docs/img/ui-overview.jpg">
 </picture>
 
 ## Getting started
 
-**1. Install.** The script picks the right torch build for your platform,
-creates a virtual environment and installs everything, MCP server included.
+**1. Install.** The script picks the right torch build for your platform, creates a
+virtual environment and installs everything, MCP server included.
 
 ```bash
-# Linux / macOS
-bash ./install.sh
-source ./activate
-
-# Windows
-.\install.ps1
-.\venv\scripts\activate
+bash ./install.sh && source ./activate      # Linux / macOS
+.\install.ps1; .\venv\scripts\activate      # Windows
 ```
 
-`python -m dw.test` runs a small built-in workflow end to end - it downloads
-SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
-
-**Or run it in Docker** (Linux with an NVIDIA GPU). The image
-[`dkackman/diffusers-workflow`](https://hub.docker.com/r/dkackman/diffusers-workflow)
-has torch, the engine and the web UI built in, and it shares the model cache
-and workspace with a native install on the same box. diffusers itself lives
-on a volume, so it can follow GitHub main. That makes step 2 a container:
+**2. Start the engine.** Leave it running; the agent and the browser both talk to it.
 
 ```bash
-bash docker/init-env.sh
-docker compose -f docker/compose.yaml up -d --build
-docker compose -f docker/compose.yaml logs -f    # wait for the server to start
-docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py login-url   # the login link
+dw-serve        # web UI on http://127.0.0.1:8765
 ```
 
-Setup, data sharing and updates are in [docs/DOCKER.md](docs/DOCKER.md).
-
-**2. Start the engine.** Leave it running; everything else talks to it.
-
-```bash
-dw-serve
-# diffusers-workflow server on http://127.0.0.1:8765
-```
-
-That address is the web UI. Open it and run `templates/text-to-image` — a
-small, ungated model, so the first generation needs no Hugging Face login and
-downloads only a few GB.
-
-**3. Connect Claude Code.** Register the MCP server with the absolute path to
-`dw-mcp` in the venv you just made (the relative path is the one setup detail
-that reliably goes wrong):
+**3. Connect your agent.** Register the MCP server with the absolute path to `dw-mcp`
+in the venv you just made (a relative path is the setup detail that most often goes
+wrong). Then add the [dw plugin](plugins/dw/README.md):
 
 ```bash
 claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
 ```
-
-Then, optionally, the [dw plugin](plugins/dw/README.md) — one skill per model
-family that knows which workflow fits a request and the rules that bite:
 
 ```
 /plugin marketplace add dkackman/diffusers-workflow
 /plugin install dw@diffusers-workflow
 ```
 
-Most of the shipped workflows (Flux, LTX-2, MiniMax...) use **gated** models.
-Request access on the model's Hugging Face page, then `hf auth login`
-once; without it the run fails partway through with a 401/403 from the Hub.
+Most of the shipped models (Flux, LTX, MiniMax, ...) are **gated**. Request access on
+the model's Hugging Face page and run `hf auth login` once. Without it a run fails
+partway through with a 401/403 from the Hub. `templates/text-to-image` uses a small,
+ungated model, so it makes a good first run.
 
-> **GPU on another machine?** Start the engine there with `--mcp` and connect
-> over HTTP — nothing to install on the laptop:
->
-> ```bash
-> # on the GPU box
-> dw-serve --host 0.0.0.0 --token "$DW_API_TOKEN" --mcp --workspace ~/studio
->
-> # on your laptop
-> claude mcp add --transport http dw http://gpu-box:8765/mcp \
->   --header "Authorization: Bearer $DW_API_TOKEN"
-> ```
->
-> The server's own **Server** page composes that line for the address you
-> pick. End to end: [Remote GPU server](docs/REMOTE.md).
+<details>
+<summary><b>GPU on another machine, or in Docker?</b></summary>
 
-## Drive it from an agent
+Start the engine on the GPU box with `--mcp` and connect over HTTP. There is nothing
+to install on the laptop:
 
-Then just ask. The agent has 65 tools covering the whole surface — the
-workflow catalog, the real diffusers pipeline signatures, the job queue, the
-gallery, the model cache:
+```bash
+# on the GPU box
+dw-serve --host 0.0.0.0 --token "$DW_API_TOKEN" --mcp --workspace ~/studio
+
+# on your laptop
+claude mcp add --transport http dw http://gpu-box:8765/mcp \
+  --header "Authorization: Bearer $DW_API_TOKEN"
+```
+
+The server's **Status** page writes that line for you. The whole setup is in
+[Remote GPU server](docs/REMOTE.md).
+
+On Linux with an NVIDIA GPU, the
+[`dkackman/diffusers-workflow`](https://hub.docker.com/r/dkackman/diffusers-workflow)
+image runs the server with torch, the engine and the web UI built in. It shares the
+model cache and workspace with a native install on the same box. See
+[Docker](docs/DOCKER.md).
+
+</details>
+
+## Ask the agent
+
+Describe what you want. The agent has 65 tools covering the workflow catalog, the
+real diffusers pipeline signatures, the job queue, the gallery and the model cache,
+and it stays with a long render until it finishes:
 
 ![Claude Code driving the dw MCP server: creating a workspace, authoring a script, and generating from it](docs/img/claude-authoring.png)
 
-Generation is the long pass, and the agent stays with it — queuing each shot,
-waiting it out, and reporting what came back:
+A session sounds like this:
 
-![The same session hours later: shots rendering one at a time, roughly 30 minutes each, with the agent reporting progress between them](docs/img/claude-generating.png)
+- **"Make a 30-second musical trailer: four men in boater hats, a giant eye, a
+  score under it."** The agent picks a shape from the catalog (`list_workflows`),
+  breaks the brief into shots, writes each prompt to the prompt library, and builds
+  the workflow that renders the shots and cuts them to the score.
+- **"What will that cost?"** `validate_workflow` checks the JSON against the schema
+  *and* the real pipeline signatures, with no model loads, and quotes an estimate in
+  GPU minutes from this box's own history. Anything that spends GPU time or disk
+  refuses to run until the agent passes `acknowledged_cost`, so it has to tell you
+  what it is about to spend first.
+- **"How's it going?"** `wait_for_job` waits out a render without polling. Then
+  `get_output_frames`, `get_output_image` and `get_output_audio` bring the result
+  back into the conversation, so the agent judges what it made against what you
+  asked for.
+- **"Shot three is the one. Keep it and start the next scene from it."**
+  `keep_output` turns the file into a named asset, and the next workflow references
+  it as `asset:hero-frame.png`.
 
-What a session looks like:
+The [dw plugin](plugins/dw/README.md) adds what a general-purpose agent can't know
+on its own: one skill per model family (MiniMax H3 and Music 3, LTX-2.5, Kandinsky 6,
+FLUX 3 Klein) that picks the template for a request and states the rules that bite.
+Cross-cutting skills cover script-to-video, series with a consistent cast,
+storyboards and animatics, and a shared camera-and-look vocabulary.
 
-- **"What can this box run, and what do I already have?"** — `get_server_info`
-  for the accelerator and workspace, `list_workflows` for the catalog with each
-  entry's shape, cost and variables, `list_models` for what is already in the
-  hub cache. The agent knows the device before it proposes anything CUDA-only.
-- **"Take my Flux workflow, swap in the portrait LoRA, render four at 1024."**
-  — `get_workflow`, `get_pipeline_signature` to check the arguments exist,
-  `validate_workflow` (free: schema *and* signature checking, no model loads),
-  `save_workflow`, `run_workflow`. That last one refuses until the agent passes
-  `acknowledged_cost=true`, so it has to tell you what it is about to spend.
-- **"How's it going?"** — `wait_for_job` blocks for a bounded interval instead
-  of polling; `get_output_image` brings the result back into the conversation
-  so the agent can look at what it made.
-- **"That third frame is the one — keep it and seed the video pass from it."**
-  — `keep_output` promotes the file into the asset library under a name you
-  pick, and the next workflow references `asset:hero-frame.png`.
+![The same session hours later: shots rendering one at a time, with the agent reporting progress between them](docs/img/claude-generating.png)
 
-Everything that costs real GPU time or real disk (`run_workflow`, `rerun_job`,
-`enhance_prompt`, `download_model`, `delete_model`, `update_diffusers`,
-`delete_workspace`) refuses until it is explicitly acknowledged, so an agent
-cannot quietly burn an hour of GPU or delete 40GB of weights.
+One server holds several **workspaces**, each with its own workflows, assets and
+outputs. Two agents, or an agent and you in the browser, can share one GPU without
+saving over each other's work.
 
-One server holds several **workspaces** — each with its own workflows, assets
-and outputs — so two agents, or an agent and you in the browser, share the GPU
-without saving over each other. An agent calls `use_workspace` once and the
-rest of the session lands there.
+The tool reference, setup for other MCP hosts and the troubleshooting table are in
+[MCP Server](docs/MCP.md).
 
-**Feedback from a session.** At the end of a working session, ask the agent
-what got in its way: bugs, gaps, misleading skill text, tools it reached for
-and couldn't find. Have it file each one as an issue on
-`dkackman/diffusers-workflow` with the `field-report` label, for example:
+## Then tweak it in the browser
 
-> File each bug or gap you hit as an issue on dkackman/diffusers-workflow
-> with the label `field-report`.
+The web UI shows everything the agent made and lets you take over at any point. It
+runs on the same persistent GPU worker, so models stay loaded between runs.
 
-The label marks a report as coming from real use, not from the automated test
-loop. The agent loop (see [Agent Loop](docs/AGENT_LOOP.md)) picks the report up
-like any other issue when you filed it yourself; a report filed under any
-other GitHub login is parked for the maintainer to review first (relabelled
-`owner:don` + `status:needs-approval`), since the loop must not act
-unattended on third-party text in a public repo, and is only handed to the
-loop, or not, after that review. The label is also what feature planning
-reads as evidence of demand.
+**A workflow the agent wrote is a form you can edit.** The workflow's description,
+recent outputs and variables are on one page. Change a prompt, a frame count or a
+LoRA scale and press **Run**.
 
-The complete tool reference, client configuration for other MCP hosts, and the
-troubleshooting table: [MCP Server](docs/MCP.md). Workspaces in depth:
-[Workspaces](docs/WORKSPACES.md).
+![A workflow page: the agent's description of the trailer, its recent shots, and its variables ready to edit and run](docs/img/ui-workflow.jpg)
 
-## The web UI
+**Every job is a recipe.** A job keeps the exact workflow it ran and draws it as a
+graph of how data flows between steps. Click a step to see what it produced. The
+run's warnings sit above the graph, so a problem the agent missed, such as an
+audible level jump at a cut, is in front of you with the argument that fixes it.
+**Run again** repeats the job, and **New seed** gives you another take. Progress
+streams live for each denoising step, and a cancel stops the job cleanly at the
+next step.
 
-Everything the engine does, in a browser, backed by the same persistent GPU
-worker — models stay loaded between runs.
+![A finished cut-and-score job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through resampling, mixing and normalizing to the final film](docs/img/ui-job.png)
 
-**An editor built from the real pipeline signatures.** Forms and argument
-autocomplete are generated by introspecting diffusers itself, so every knob a
-pipeline exposes is there with its documentation. Validation catches schema
-errors *and* argument typos before any model loads.
+**The gallery** groups outputs by the workflow that made them, with final and
+intermediate files kept apart. Any image reopens as the workflow that produced it.
+*Keep as asset* adds a file to the asset library for later workflows to use.
 
-![The editor: introspection-driven forms beside live JSON in Monaco](docs/img/ui-editor.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="docs/img/ui-gallery-dark.jpg">
+  <img alt="The gallery: a poster workflow's four takes and the frames grabbed from the trailer's shots" src="docs/img/ui-gallery.jpg">
+</picture>
 
-**A gallery where every image is a recipe.** Outputs carry their full workflow
-and seed; *open as workflow* drops any image back into the editor, ready to
-reproduce or riff on. *Keep as asset* promotes a generated file into the asset
-library for later workflows to build on.
+**The editor works on the agent's JSON.** You can view the workflow as a form, as
+JSON, side by side, or as a flow graph. The forms and autocomplete come from the
+real diffusers pipeline signatures, so every argument a pipeline takes is there with
+its documentation. **Validate** catches schema errors and argument typos before any
+model loads.
 
-![The gallery with generated images and videos](docs/img/ui-gallery.jpg)
+![The editor in split view: variables as a form beside the workflow JSON](docs/img/ui-editor.png)
 
-**A prompt library** stores a prompt once and lets any workflow reference it,
-with an *Enhance with AI* panel that expands an idea into a full prompt using
-a local language model. **A model manager** inventories the Hugging Face hub
-cache — sizes, last use, free space — and downloads or deletes models with
-live progress.
+There is also a **prompt library**, with an *Enhance with AI* panel that expands an
+idea into a full prompt using a local language model. The **model manager** shows
+the Hugging Face cache (size, last use, free disk) and downloads or deletes models
+with live progress.
 
-![The model manager listing cached models with sizes](docs/img/ui-models.png)
+![The model manager: every cached model with its size and when it was last used](docs/img/ui-models.png)
 
-Jobs queue, stream progress live per denoising step, cancel cooperatively and
-persist to a searchable history. See [Server & Web UI](docs/SERVER.md) for the
-pages and the HTTP API.
+The pages and the HTTP API behind them are in [Server & Web UI](docs/SERVER.md).
 
-## The command line
+## Underneath
 
-`dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
-its progress, and reports the run directory the server wrote to - start the
-server first.
+Every front end reads and writes the same thing: a JSON workflow of named steps,
+each a diffusers pipeline or a utility task. Its arguments are references to
+variables, earlier steps' results, stored prompts and assets, not hard-coded
+values. That is how text-to-image chains into image-to-video, and how a generated
+image reopens as the recipe that made it. You rarely need to write one by hand. When
+you do, the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference, and
+[workflows/](workflows/) has runnable examples for each model family. There is also
+a command-line client, `python -m dw.run workflow.json prompt="a cat"`, which queues
+a job on a running server (see [Server & Web UI](docs/SERVER.md#the-command-line)).
 
-```bash
-python -m dw.serve
-python -m dw.run workflows/templates/text-to-image.json
-python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
-python -m dw.validate workflows/models/flux-dev.json
-```
+The engine also covers:
 
-`dw.run` takes `WORKFLOW [name=value ...] [--server URL] [--workspace NAME]
-[--token TOKEN]` - `--server` defaults to `DW_MCP_URL`, else
-`http://127.0.0.1:8765`; `--token` to `DW_API_TOKEN`. Where the output lands,
-which workspace's `prompts:`/`asset:` references resolve, and the output
-layout are all `dw.serve` flags now (`--workspace`, `--output-dir`,
-`--prompt-dir`, `--asset-dir`, `--output-layout` on the server) - `dw.run`
-only says which server and which of its workspaces to run in.
+- **Quantization:** BitsAndBytes, TorchAO, GGUF, SDNQ and optimum-quanto, set per
+  component.
+- **Acceleration:** FirstBlockCache, FasterCache, MagCache, TaylorSeerCache,
+  `torch.compile` and attention backends.
+- **Adapters and prompts:** LoRA, IP-Adapter and A1111-style prompt weighting.
+- **Long video and caching:** long-video chaining with audio-driven length, and
+  step-output caching, so re-running a fixed-seed workflow finishes instantly.
+- **Utility tasks:** upscaling, face restoration, segmentation, captioning, frame
+  interpolation, audio slicing, cut-and-score assembly and more.
 
-## What's underneath
-
-Every front end reads and writes the same thing: a JSON document of named
-steps, each a diffusers pipeline or a utility task, whose arguments reference
-variables, earlier steps' outputs, stored prompts and assets rather than
-hard-coded values. That is what makes text-to-image chain into image-to-video,
-and what makes a generated image reopen as the exact recipe that produced it.
-[workflows/](workflows/) is a corpus of runnable examples across model
-families; the [Workflow Guide](docs/WORKFLOW_GUIDE.md) is the reference when
-you do want to write one.
-
-Because a workflow reaches any diffusers pipeline or quantization backend by
-dynamic import, loading one can execute arbitrary Python. Treat a workflow
-file from someone else the way you'd treat a `.py` script — see
+A workflow can reach any diffusers pipeline or quantization backend by dynamic
+import, so loading one can execute arbitrary Python. Treat a workflow file from
+someone else the way you'd treat a `.py` script. See
 [Trust model](docs/SECURITY.md#trust-model).
 
-Under the hood the engine also handles: quantization (BitsAndBytes, TorchAO,
-GGUF, SDNQ, optimum-quanto); inference acceleration
-(FirstBlockCache, FasterCache, MagCache, TaylorSeerCache); LoRA and IP-Adapter;
-A1111-style prompt weighting; long-video chaining with audio-driven length;
-step-output caching, so re-running a fixed-seed workflow finishes instantly;
-and utility tasks for upscaling, face restoration, segmentation, captioning,
-frame interpolation and more.
+**Field reports.** At the end of a session, ask the agent what got in its way, and
+have it file each bug or gap as an issue on `dkackman/diffusers-workflow` with the
+`field-report` label. The label marks a report as coming from real use. A report
+from anyone but the maintainer is reviewed before the [agent loop](docs/AGENT_LOOP.md)
+acts on it.
 
 ## Documentation
 
-### Guides
+**Using it**
 
-- [MCP Server](docs/MCP.md) — The agent tool surface (Claude Code, Claude Desktop)
-- [Server & Web UI](docs/SERVER.md) — The web UI, jobs API, and introspection service
-- [Remote GPU server](docs/REMOTE.md) — Using the server, UI and MCP from another machine
-- [Docker](docs/DOCKER.md) — The server in a container on a Linux NVIDIA box, sharing data with a native install
-- [Workspaces](docs/WORKSPACES.md) — Where your content lives, run directories, and several workspaces on one server
-- [Workflow Guide](docs/WORKFLOW_GUIDE.md) — JSON structure, variables, steps, data flow
-- [Quantization](docs/QUANTIZATION.md) — BitsAndBytes, TorchAO, GGUF, SDNQ
-- [Inference Acceleration](docs/ACCELERATION.md) — torch.compile, FirstBlockCache, MagCache, TaylorSeer
-- [Fast on 24GB](docs/RECIPES_24GB.md) — Recommended speed/memory configurations per model family
-- [LoRA](docs/LORAS.md) — Loading and stacking LoRA adapters
-- [IP-Adapter](docs/IP_ADAPTER.md) — Image-prompt conditioning
-- [Prompt Weighting](docs/PROMPT_WEIGHTING.md) — A1111-style syntax
-- [Prompt References](docs/WORKFLOW_GUIDE.md#prompt-references) — The stored prompt library and `prompt:` references
-- [Tasks](docs/TASKS.md) — Image processing, ControlNet preprocessors, utilities
+- [MCP Server](docs/MCP.md) - the agent's tool surface (Claude Code, Claude Desktop, other MCP hosts)
+- [dw plugin](plugins/dw/README.md) - the model-family and composition skills
+- [Server & Web UI](docs/SERVER.md) - the web UI, the command line, the jobs and introspection APIs
+- [Workspaces](docs/WORKSPACES.md) - where your content lives, run directories, several workspaces on one server
+- [Remote GPU server](docs/REMOTE.md) - the server, UI and MCP from another machine
+- [Docker](docs/DOCKER.md) - the server in a container on a Linux NVIDIA box
 
-### Reference
+**Workflows in depth**
 
-- [Worker Guide](docs/WORKER_GUIDE.md) — GPU persistence and troubleshooting
-- [Dependencies](docs/DEPENDENCIES.md) — Installation details
-- [Security](docs/SECURITY.md) — Security model
-- [Testing](docs/TESTING.md) — Running the test suite
-- [Releasing](docs/RELEASING.md) — Cutting a release from a version tag
-- [Agent Loop](docs/AGENT_LOOP.md) — What the automated implementer/tester ticket labels mean, for anyone joining an Issue
-- [Attributions](docs/ATTRIBUTIONS.md) — Code included from other projects, and the projects whose ideas dw reimplemented
+- [Workflow Guide](docs/WORKFLOW_GUIDE.md) - JSON structure, variables, steps, data flow, references
+- [Tasks](docs/TASKS.md) - image, video and audio utility tasks, ControlNet preprocessors
+- [Quantization](docs/QUANTIZATION.md) - BitsAndBytes, TorchAO, GGUF, SDNQ
+- [Inference Acceleration](docs/ACCELERATION.md) - caches, `torch.compile`, attention backends, MPS
+- [Fast on 24GB](docs/RECIPES_24GB.md) - tested speed/memory settings per model family
+- [LoRA](docs/LORAS.md), [IP-Adapter](docs/IP_ADAPTER.md), [Prompt Weighting](docs/PROMPT_WEIGHTING.md)
+
+**Reference**
+
+- [Architecture](docs/ARCHITECTURE.md) - each concept, the module that owns it, and the check that enforces it
+- [Worker Guide](docs/WORKER_GUIDE.md) - the persistent GPU worker and troubleshooting
+- [Security](docs/SECURITY.md) - validators and the trust gate ([quick reference](docs/SECURITY_QUICKREF.md))
+- [Dependencies](docs/DEPENDENCIES.md), [Testing](docs/TESTING.md), [Releasing](docs/RELEASING.md)
+- [Agent Loop](docs/AGENT_LOOP.md) - what the automated implementer/tester labels mean
+- [Attributions](docs/ATTRIBUTIONS.md) - code from other projects, and the projects whose ideas dw reimplemented

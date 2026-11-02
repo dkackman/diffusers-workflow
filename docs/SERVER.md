@@ -28,6 +28,29 @@ The server keeps a persistent GPU worker underneath: models stay
 loaded between runs, so re-running a workflow with a new prompt skips the
 load entirely.
 
+### The command line
+
+`dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
+its progress, and reports the run directory the server wrote to - start the
+server first.
+
+```bash
+python -m dw.run workflows/templates/text-to-image.json
+python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
+python -m dw.validate workflows/models/flux-dev.json
+```
+
+`dw.run` takes `WORKFLOW [name=value ...] [--server URL] [--workspace NAME]
+[--token TOKEN]` - `--server` defaults to `DW_MCP_URL`, else
+`http://127.0.0.1:8765`; `--token` to `DW_API_TOKEN`. Where the output lands,
+which workspace's `prompts:`/`asset:` references resolve, and the output
+layout are all `dw.serve` flags (`--workspace`, `--output-dir`,
+`--prompt-dir`, `--asset-dir`, `--output-layout` on the server) - `dw.run`
+only says which server and which of its workspaces to run in.
+
+`python -m dw.test` runs a small built-in workflow end to end - it downloads
+SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
+
 ### Environment
 
 The server reads these from its environment (e.g. `.env`) and its workers inherit them; changing one needs a restart.
