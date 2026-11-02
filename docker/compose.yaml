@@ -2,7 +2,8 @@
 #
 #   bash docker/init-env.sh            # writes docker/.env from this host's layout
 #   docker compose -f docker/compose.yaml up -d --build
-#   docker compose -f docker/compose.yaml logs -f    # the login URL is here
+#   docker compose -f docker/compose.yaml logs -f    # wait for it to start
+#   docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py login-url
 #
 # Every shared directory is mounted at the same absolute path it has on the
 # host, and the variable dw reads points at it. Run manifests, settings and

@@ -7,6 +7,90 @@ notes from commits at tag time (see below). This section is a scratch pad
 for items a branch's author wants the next release note to name; clear it
 when a release ships.
 
+### 0.18.0
+
+<!-- Drafted from v0.17.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.18.0 --notes-file ... -->
+
+This release has two halves. One is directing: a shared vocabulary for the
+camera and the look, compiled into each video family's own caption format.
+Alongside it come storyboards and a timed animatic before any video is paid
+for, and a check that a recurring face stays the same person across shots.
+The other is packaging: dw now runs from a Docker image, the first step
+toward making it something you install rather than build.
+
+**Docker** (`docs/DOCKER.md`)
+
+- `docker/compose.yaml` runs the server, web UI and MCP endpoint on a Linux
+  box with an NVIDIA GPU (driver 580 or newer; CUDA 13). The image carries
+  Python, torch and dw. From this release on, each release publishes it to
+  Docker Hub as `dkackman/diffusers-workflow:<version>` and `latest`. Set
+  `DW_IMAGE` in `docker/.env` to run that instead of building locally.
+- diffusers keeps following GitHub main. It lives in a small venv on a
+  volume, layered over the image, so the Models page's update button works
+  as it does on a native install. A restart never moves it, a new image
+  reinstalls the commit you had, and a broken HEAD falls back to the copy
+  of diffusers built into the image so the server still starts.
+- `bash docker/init-env.sh` points the container at the directories a
+  native install on the same box already uses: the workspace, the Hugging
+  Face cache (quantized cache included), the compile caches and settings.
+  Each is mounted at its own path, so runs, downloads and compiled kernels
+  are shared both ways. `docker/switch.sh docker|native` swaps between the
+  container and the systemd unit.
+- Inside the container the server always has a token: `DW_API_TOKEN`, or
+  one generated on first start and kept. The token never goes in the log;
+  `entrypoint.py login-url` prints a `/?token=...` link, which the web UI
+  now accepts. It saves the token, then
+  clears it from the address bar.
+
+**Camera and look, per family** (#1142)
+
+- The `cinematography` skill is a closed vocabulary of six axes: shot size,
+  move, lens, light, era and tempo. Each value has the one sentence it
+  becomes in H3's, LTX-2.5's, Kandinsky 6's and FLUX 3 Klein's own caption
+  formats. A shot list can say `move: dolly-in` and mean the same thing on
+  every family. An unset axis is left to the model.
+- Named grades applied after generation, on the CPU: `noir`, `teal-orange`,
+  `70s-stock`, `vhs` and `bleach-bypass`. Each is an `apply_lut` palette
+  followed by `film_grain`.
+
+**Storyboards and animatics** (#1144, #1145)
+
+- The `storyboard` skill draws boards on FLUX 3 Klein from a character
+  reference, covers one moment from six camera positions, and hands boards
+  to H3, LTX-2.5 or Kandinsky 6 as first frames.
+- `stills_to_video` holds each still for a duration (one for all, or one per
+  still) and returns a silent clip with a shot record per still.
+  `templates/animatic` lays a scratch voice or music bed under the boards.
+  It loads no model, so pacing and order can be checked before any video is
+  rendered. Sizes are checked up front: over 600 s, 36000 frames, or a
+  clip that would need more than 4 GiB is refused before it allocates.
+
+**Shot documents, the fix ladder, and face drift** (#1143, #1146, #1147)
+
+- `script-to-video` keeps its shot list in the prompt library
+  (`<project>/shots`, one compiled `<project>/shot-NN` per shot). A revision
+  recompiles only the shots it changed, and a later session picks the
+  project up where it stopped.
+- A wrong shot is fixed in a fixed order, cheapest first, each step with
+  a cap: edit the region or repair the face, re-prompt with the seed kept,
+  reseed, and then stop and ask, showing the attempts and what each one
+  changed. H3 prompts get a lint checklist before a
+  render (a missing `overall_soundscape`, an overfull beat, and so on).
+- `analyze_face_drift` (`templates/face-drift-check`) scores sampled frames
+  of each shot against a cast portrait with OpenCV's SFace. A shot whose
+  median falls below the published same-person threshold is flagged as
+  `face_drift`, and one with no face found as `no_face`. These are places to
+  look before regenerating, not verdicts: a turned head scores low too.
+- `series-episodes` gains a sitcom multicam grammar: a wide master held for
+  the whole scene, a single per speaker, and cuts on line boundaries, never
+  mid-word. `plan_cuts` places them from the transcript's line starts.
+
+**Web UI**
+
+- On the job page, clicking a step in the data-flow graph scrolls to what
+  that step produced. A failed run draws the step it stopped in, red. The
+  workflow's JSON is behind a toggle under the graph.
+
 ### 0.17.0
 
 <!-- Drafted from v0.16.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.17.0 --notes-file ... -->

@@ -215,8 +215,11 @@ services:
   `dw.serve` warns on a non-loopback host without a token, and refuses
   `--mcp` there. **Decided: Jupyter's pattern.** If `DW_API_TOKEN` is unset
   on first start, the entrypoint generates a token, saves it to
-  `/data/settings/token` (mode 0600), and logs a login URL,
-  `http://127.0.0.1:8765/?token=<token>`, on every start. Unlike Jupyter,
+  `/data/settings/token` (mode 0600). Unlike Jupyter, it never logs the
+  token: CodeQL flagged that (alert 85 on PR #1156), and because this token
+  outlives the container, a `docker logs` paste in an issue would leak a
+  working credential. `entrypoint.py login-url` prints the
+  `http://localhost:8765/?token=<token>` link when asked. Also unlike Jupyter,
   the token persists across restarts, so an MCP client configured with the
   header keeps working. Setting `DW_API_TOKEN` overrides it.
   `DW_INSECURE_NO_TOKEN=1` is the explicit opt-out, for a port published on
@@ -279,7 +282,8 @@ services:
 
 ## Decisions (Don, 2026-11-01)
 
-1. Token: Jupyter's pattern (generated, persisted, login URL in the log).
+1. Token: Jupyter's pattern (generated, persisted). Amended the same day:
+   the login URL comes from `login-url` on request, never the log.
 2. cu130 only; cu12 only through a build arg.
 3. Build it yourself; no registry publishing yet. Superseded the same day:
    Don chose Docker Hub (`dkackman/diffusers-workflow`), published by a

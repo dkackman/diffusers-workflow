@@ -44,7 +44,8 @@ on a volume, so it can follow GitHub main. That makes step 2 a container:
 ```bash
 bash docker/init-env.sh
 docker compose -f docker/compose.yaml up -d --build
-docker compose -f docker/compose.yaml logs -f    # prints the login URL
+docker compose -f docker/compose.yaml logs -f    # wait for the server to start
+docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py login-url   # the login link
 ```
 
 Setup, data sharing and updates are in [docs/DOCKER.md](docs/DOCKER.md).

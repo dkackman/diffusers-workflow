@@ -212,6 +212,17 @@ class TestToken:
         assert stat.S_IMODE(path.stat().st_mode) == 0o600
         assert entry.resolve_token(environ) == token
 
+    def test_login_url_prints_the_saved_token_and_never_mints_one(
+        self, entry, tmp_path, capsys
+    ):
+        environ = {"DIFFUSERS_HELPER_ROOT": str(tmp_path), "DW_HOST_PORT": "9000"}
+        assert entry.login_url(environ) == 0
+        assert capsys.readouterr().out == "http://localhost:9000/\n"
+        assert not (tmp_path / entry.TOKEN_FILE_NAME).exists()
+        token = entry.resolve_token(environ)
+        entry.login_url(environ)
+        assert capsys.readouterr().out == f"http://localhost:9000/?token={token}\n"
+
     def test_healthcheck_never_mints_one(self, entry, tmp_path, monkeypatch):
         environ = {"DIFFUSERS_HELPER_ROOT": str(tmp_path)}
         monkeypatch.setattr(
@@ -250,6 +261,21 @@ class TestServe:
         assert path == entry.BASE_PYTHON
         assert env["DW_API_TOKEN"] == "xyz"
         assert "xyz" not in argv and "--token" not in argv
+
+    def test_token_never_reaches_the_log(self, entry, tmp_path, capsys):
+        """docker logs output gets pasted into bug reports, and the token
+        outlives the container; login-url is how a person gets it."""
+        environ = environ_for(
+            tmp_path,
+            DW_DIFFUSERS_REF="image",
+            HOME=str(tmp_path / "home"),
+            DIFFUSERS_HELPER_ROOT=str(tmp_path / "settings"),
+        )
+        entry.serve([], environ, FakeRun(), lambda *a: None)
+        token = entry.saved_token(environ)
+        captured = capsys.readouterr()
+        assert token and token not in captured.err + captured.out
+        assert "login-url" in captured.err
 
 
 class TestPins:

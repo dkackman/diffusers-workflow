@@ -20,7 +20,7 @@ case "${1:-status}" in
   docker)
     "${systemctl[@]}" stop "$unit" || true
     "${compose[@]}" up -d
-    echo "container started; the login URL is in: ${compose[*]} logs dw"
+    echo "container started; the login link: ${compose[*]} exec dw python /opt/dw/entrypoint.py login-url"
     ;;
   native)
     "${compose[@]}" down

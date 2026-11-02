@@ -25,7 +25,8 @@ Check the GPU reaches a container:
 ```bash
 bash docker/init-env.sh                          # writes docker/.env
 docker compose -f docker/compose.yaml up -d --build
-docker compose -f docker/compose.yaml logs -f    # wait for the login URL
+docker compose -f docker/compose.yaml logs -f    # wait for the server to start
+docker compose -f docker/compose.yaml exec dw python /opt/dw/entrypoint.py login-url
 ```
 
 To use the published image instead of building, uncomment `DW_IMAGE` in
@@ -33,9 +34,9 @@ To use the published image instead of building, uncomment `DW_IMAGE` in
 `up -d` (without `--build`). The first build takes a while, because torch
 alone is several GB. The first
 start then installs diffusers from GitHub main into its volume (see below),
-which takes a few more minutes before the server answers. The log prints
-`open http://localhost:8765/?token=...`. Open that link and the UI saves the
-token.
+which takes a few more minutes before the server answers. Then `login-url`
+prints `http://localhost:8765/?token=...`. Open that link and the UI saves
+the token.
 
 ## Where the data lives: shared with a native install
 
@@ -113,7 +114,9 @@ into the image).
 Inside the container the server listens on every interface, and it can't
 tell how the port is published. So it always gets a token: `DW_API_TOKEN`
 if you set one, otherwise one generated on first start and saved to
-`DIFFUSERS_HELPER_ROOT/api-token`. Its login URL is logged on every start.
+`DIFFUSERS_HELPER_ROOT/api-token`. The token is never written to the log,
+so `docker logs` output is safe to paste into an issue: `login-url` prints
+the link when you ask for it.
 `DW_INSECURE_NO_TOKEN=1` turns this off; only do that with the port
 published on localhost (`DW_BIND=127.0.0.1`, the default).
 

@@ -25,8 +25,9 @@ up and the Models page can pin a working commit.
 a commit hash (which the overlay is then held to), or `image` (no overlay).
 
 Subcommands: `serve` (the default; anything after it is passed to dw.serve),
-`update-diffusers [--commit SHA | --revert]`, `healthcheck`, `record-image`
-(run once at image build) and `probe` (run under the overlay's interpreter).
+`login-url`, `update-diffusers [--commit SHA | --revert]`, `healthcheck`,
+`record-image` (run once at image build) and `probe` (run under the overlay's
+interpreter).
 See docs/DOCKER.md.
 """
 
@@ -260,6 +261,11 @@ def saved_token(environ):
         return ""
 
 
+def known_token(environ):
+    """The token a running server has, read and never minted."""
+    return (environ.get("DW_API_TOKEN") or "").strip() or saved_token(environ)
+
+
 def resolve_token(environ):
     """The API token: DW_API_TOKEN, else the one saved in the settings
     directory, else a new one saved there. None only with DW_INSECURE_NO_TOKEN=1.
@@ -267,7 +273,9 @@ def resolve_token(environ):
     The server binds every interface inside the container and cannot see
     whether the host published its port on localhost only, so it gets a token
     unless told otherwise - Jupyter's pattern, but kept across restarts so an
-    MCP client configured with it keeps working."""
+    MCP client configured with it keeps working. Being long-lived, it is never
+    logged: `docker logs` output gets pasted into bug reports. `login-url`
+    prints it on request."""
     token = (environ.get("DW_API_TOKEN") or "").strip()
     if token:
         return token
@@ -309,8 +317,10 @@ def serve(args, environ=None, run=subprocess.run, execve=os.execve):
     if token:
         # The environment, not --token: argv shows in `ps` on the host
         environ["DW_API_TOKEN"] = token
-        port = environ.get("DW_HOST_PORT") or CONTAINER_PORT
-        log(f"open http://localhost:{port}/?token={token}")
+        log(
+            "the login URL: docker compose -f docker/compose.yaml exec dw "
+            "python /opt/dw/entrypoint.py login-url"
+        )
     command = serve_command(python, args)
     log(" ".join(command))
     execve(python, sanitize_command_args(command), environ)
@@ -350,11 +360,22 @@ def update_diffusers(args, environ=None, run=subprocess.run):
     return 0
 
 
+def login_url(environ=None):
+    """Print the web UI's login link, `/?token=...`, which saves the token in
+    the browser. On stdout, for the person who asked - not in the log."""
+    environ = os.environ if environ is None else environ
+    port = environ.get("DW_HOST_PORT") or CONTAINER_PORT
+    token = known_token(environ)
+    url = f"http://localhost:{port}/"
+    sys.stdout.write(f"{url}?token={token}\n" if token else f"{url}\n")
+    return 0
+
+
 def healthcheck(environ=None):
     environ = os.environ if environ is None else environ
     request = urllib.request.Request(f"http://127.0.0.1:{CONTAINER_PORT}/api/health")
     # Never resolve_token: a healthcheck must not mint one
-    token = (environ.get("DW_API_TOKEN") or "").strip() or saved_token(environ)
+    token = known_token(environ)
     if token:
         request.add_header("Authorization", f"Bearer {token}")
     try:
@@ -404,6 +425,8 @@ def main(argv=None):
     )
     if command == "serve":
         return serve(rest)
+    if command == "login-url":
+        return login_url()
     if command == "update-diffusers":
         return update_diffusers(rest)
     if command == "healthcheck":
