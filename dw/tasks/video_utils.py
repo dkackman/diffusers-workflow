@@ -305,7 +305,7 @@ def stills_to_video(images, durations, fps=24):
         first = stills[0].size
         other = next(still.size for still in stills if still.size != first)
         raise ValueError(
-            f"stills_to_video needs stills of one size: got "
+            f"stills_to_video: 'images' must all be one size: got "
             f"{first[0]}x{first[1]} and {other[0]}x{other[1]} - resize them "
             "to match first"
         )

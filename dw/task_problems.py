@@ -4,7 +4,8 @@ A domain (dw/task_domains.py) is one number against one range. What lives here
 is everything a single range cannot say: crop_face_track's crop size on the
 video model's frame grid, gate_zero above gate_full; analyze_beats' tempo range
 and anchors that are one kind and in time order; plan_cuts' transcript shape
-and render grid; analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
+and render grid; analyze_face_drift's threshold and sample count;
+analyze_phrases' `centre` as a real boolean; apply_lut's one-of-two source and its palette; check_script's
 `lines` and `shots`; ingredients_grid's choices and image count. Each family's
 `*_problems` function is the rule, and both sides call it - its `*_errors`
 static check (registered as the command's `static_check`, run by
@@ -165,6 +166,47 @@ def stills_to_video_errors(arguments):
         count = len(images)
     return stills_to_video_problems(
         arguments.get("durations"), arguments.get("fps", 24), count
+    )
+
+
+# analyze_face_drift's two settings: a cosine similarity is -1..1, and the
+# frames read from each shot are a whole number up to FACE_DRIFT_MAX_SAMPLES
+FACE_DRIFT_MAX_SAMPLES = 64
+
+
+def face_drift_problems(threshold=None, samples_per_shot=None):
+    """[(argument, message)] for the analyze_face_drift rules these values
+    break. A value that is None, a reference or not a number is skipped - the
+    domain check owns that complaint."""
+    problems = []
+    cosine = as_number(threshold)
+    if cosine is not None and not -1.0 <= cosine <= 1.0:
+        problems.append(
+            (
+                "threshold",
+                "analyze_face_drift: threshold must be a cosine similarity "
+                f"from -1 to 1, not {threshold}",
+            )
+        )
+    samples = as_number(samples_per_shot)
+    if samples is not None and (
+        samples != int(samples) or not 1 <= samples <= FACE_DRIFT_MAX_SAMPLES
+    ):
+        problems.append(
+            (
+                "samples_per_shot",
+                "analyze_face_drift: samples_per_shot must be a whole number "
+                f"from 1 to {FACE_DRIFT_MAX_SAMPLES}, not {samples_per_shot}",
+            )
+        )
+    return problems
+
+
+def face_drift_errors(arguments):
+    """The analyze_face_drift rules a literal workflow can break before it
+    runs"""
+    return face_drift_problems(
+        arguments.get("threshold"), arguments.get("samples_per_shot")
     )
 
 

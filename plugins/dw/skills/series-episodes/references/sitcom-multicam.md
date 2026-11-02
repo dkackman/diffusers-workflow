@@ -59,10 +59,29 @@ follow) rather than keeping the list in your head.
    against the cast reference. A `face_drift` or `no_face` finding replaces
    that single with the master's span for the same times. The check is a flag
    to look at, not a verdict.
-7. Assemble the cut list in order, master spans and singles interleaved, with
-   `templates/assemble-and-score` (its `concat_videos` joins them). The
-   dialogue audio runs under the whole cut unbroken; the singles' own audio is
-   not used.
+7. Cut each master span out of the master with `trim_video`: `video` the
+   master (`keep_output(name, asset_name="scenes/<scene>-master")` keeps it
+   as `asset:scenes/<scene>-master.mp4`), and
+   `start_frame` and `num_frames` that span's planned `start_frame` and
+   `cut_frames`, so the span sits at the same times as the line it covers:
+
+   ```json
+   {"name": "span_03", "task": {"command": "trim_video", "arguments": {
+     "video": "asset:scenes/s1-master.mp4",
+     "start_frame": 248, "num_frames": 131}}}
+   ```
+
+   Each single is trimmed the same way from `start_frame` 0 to its
+   `cut_frames` (step 3).
+8. Assemble the cut list in order, master spans and singles interleaved, with
+   `templates/assemble-and-score` (its `concat_videos` joins them). Pass the
+   master as `score` - `slice_audio` takes a video's soundtrack, so the
+   scene's dialogue runs under the whole cut unbroken, from
+   `score_start_frame` 0 for `total_frames` the summed `cut_frames` - and
+   `world_gain: 0`. The template otherwise mixes each shot's own sound under
+   the score (`world_gain` defaults to 1.8), and every line would be heard
+   twice: once from the master track, once from the single or span that
+   speaks it, a few frames apart.
 
 Review the assembled scene with `assess_output` before keeping it, the same as
 any episode shot.

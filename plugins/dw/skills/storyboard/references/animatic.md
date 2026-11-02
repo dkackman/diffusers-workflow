@@ -6,9 +6,11 @@ the cut's pace and order for the price of a few seconds of CPU.
 
 ## 1. The boards
 
-Boards at one size, kept with `keep_output(name, asset_name="boards/<scene>-NN.png")`
-so each is an `asset:boards/<scene>-NN.png`. A mixed-size set is refused by
-the task, naming both sizes.
+Boards at one size, kept with `keep_output(name, asset_name="boards/<scene>-NN")`
+with no extension: the engine appends the kept file's own, and Klein writes
+JPEG, so each is an `asset:boards/<scene>-NN.jpg`. A name ending in another
+extension is refused. A mixed-size set is refused by the task, naming both
+sizes.
 
 ## 2. A scratch voice
 
@@ -30,13 +32,14 @@ Run `templates/animatic`:
 
 ```
 validate_workflow(name="templates/animatic", arguments={
-  "boards": ["asset:boards/s1-01.png", "asset:boards/s1-02.png", ...],
+  "boards": ["asset:boards/s1-01.jpg", "asset:boards/s1-02.jpg", ...],
   "durations": [2.0, 1.5, 3.0],
   "soundtrack": "asset:audio/s1-scratch.wav",
   "fps": 24})
 ```
 
-`durations` is one number for every board or one per board. Each board gets
+`durations` is a list with one duration per board, in seconds, as long as
+`boards`; repeat the number to hold every board alike. Each board gets
 `max(1, round(duration * fps))` frames, at most 600 seconds and 36000 frames
 in total. The output's audio is the soundtrack trimmed or padded to the
 clip's length. A voice line only lines up with its board if the soundtrack

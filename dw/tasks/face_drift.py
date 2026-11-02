@@ -26,6 +26,7 @@ from PIL import Image
 
 from ..assessment_rules import finding, sort_findings
 from ..task_domains import real_number
+from ..task_problems import face_drift_problems
 from .assess import media_from, resolve_shots
 from .face_track import (
     DEFAULT_DETECTOR_FILE,
@@ -52,7 +53,6 @@ COSINE = 0
 # are the same person
 DEFAULT_THRESHOLD = 0.363
 DEFAULT_SAMPLES = 8
-MAX_SAMPLES = 64
 # The detector score below which a face is ignored, as crop_face_track's
 DETECTOR_CONFIDENCE = 0.6
 PLACES = 3
@@ -99,7 +99,9 @@ def _models(device=None):
         )
         return cv2.FaceRecognizerSF.create(path, "")
 
-    recognizer = cached_model(("analyze_face_drift", SFACE_REPO, SFACE_FILE), load)
+    recognizer = cached_model(
+        ("analyze_face_drift", SFACE_REPO, SFACE_FILE, SFACE_REVISION), load
+    )
 
     def detect(bgr):
         height, width = bgr.shape[:2]
@@ -236,18 +238,13 @@ def _findings(measurements, threshold):
 
 
 def _checked_settings(threshold, samples_per_shot):
+    """(threshold, samples) as numbers, or ValueError in the static check's
+    words: `face_drift_problems` is the one rule for both (#692)."""
     threshold = real_number(threshold, "threshold", COMMAND, required=True)
-    if not -1.0 <= threshold <= 1.0:
-        raise ValueError(
-            f"{COMMAND}: threshold must be a cosine similarity from -1 to 1, "
-            f"not {threshold}"
-        )
     samples = real_number(samples_per_shot, "samples_per_shot", COMMAND, required=True)
-    if samples != int(samples) or not 1 <= samples <= MAX_SAMPLES:
-        raise ValueError(
-            f"{COMMAND}: samples_per_shot must be a whole number from 1 to "
-            f"{MAX_SAMPLES}, not {samples_per_shot}"
-        )
+    problems = face_drift_problems(threshold, samples)
+    if problems:
+        raise ValueError(problems[0][1])
     return float(threshold), int(samples)
 
 

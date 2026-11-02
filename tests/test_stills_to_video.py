@@ -50,7 +50,7 @@ class TestHold:
 
 class TestRefusals:
     def test_mismatched_sizes_refused(self):
-        with pytest.raises(ValueError, match=r"512x512.*512x768"):
+        with pytest.raises(ValueError, match=r"'images' must all.*512x512.*512x768"):
             stills_to_video([still(512, 512), still(512, 768)], 1)
 
     def test_wrong_duration_count_refused(self):
@@ -220,19 +220,13 @@ class TestHandlerEntries:
 
 class TestSavedManifest:
     def test_saved_shots_start_frames(self, tmp_path):
-        from unittest.mock import patch
-
         from dw.result import Result
         from dw.shots import step_shots
 
         video = stills_to_video([still(16, 16)] * 3, [1, 2, 0.5], fps=24)
         result = Result({"content_type": "video/mp4", "save": True})
         result.add_result(video)
-        with (
-            patch("dw.result.encode_video"),
-            patch("dw.result.export_to_video"),
-            patch("dw.result.is_av_available", return_value=True),
-        ):
-            saved = result.save(str(tmp_path), "animatic.0")
+        saved = result.save(str(tmp_path), "animatic.0")
+        assert list(tmp_path.glob("animatic.0*.mp4"))
         shots = step_shots(result.saved_shots, saved)
         assert [shot["start_frame"] for shot in shots] == [0, 24, 72]

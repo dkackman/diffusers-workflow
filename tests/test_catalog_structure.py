@@ -547,7 +547,11 @@ def test_no_stale_entry_in_the_allowlist():
 # catalog's only sound-effect generation (MMAudio), with no cost block yet.
 # Then to 12_800 for `animatic` and `face-drift-check` (#1145/#1146,
 # 2026-11-01), measured at 12_791: two new entries, the catalog's only timed
-# stills-to-clip and its only per-shot identity check, with no cost block.
+# stills-to-clip and its only per-shot identity check. `animatic` first
+# shipped an unmeasured CUDA cost block; the final review (#1141) removed it,
+# since the template loads no model and only encodes on the CPU, so neither
+# entry carries a cost block now. Re-measured at 12_780 after that and
+# face-drift-check's `samples_per_shot`, so the budget stands.
 COMPACT_BUDGET = 12_800
 FILTERED_BUDGET = 1_500
 

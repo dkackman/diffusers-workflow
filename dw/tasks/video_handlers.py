@@ -30,6 +30,7 @@ from ..task_domains import (
 from ..task_problems import (
     INGREDIENTS_FITS,
     INGREDIENTS_LAYOUTS,
+    face_drift_errors,
     face_track_errors,
     ingredients_grid_errors,
     paste_face_track_errors,
@@ -449,6 +450,7 @@ def _handle_crop_face_track(task, arguments, previous_pipelines):
     domains={"threshold": FINITE, "samples_per_shot": POSITIVE},
     whole_numbers=("samples_per_shot",),
     media_arguments=("reference",),
+    static_check=face_drift_errors,
 )
 def _handle_analyze_face_drift(task, arguments, previous_pipelines):
     """Measure how close each shot's faces are to a reference face"""

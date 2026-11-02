@@ -45,8 +45,9 @@ Fill in this shape before writing any prompt:
   next shot's first). Read `references/joins.md` before rendering a
   `cutaway` or `lead_in`.
 
-- **Per shot, optional camera axes** `shot_size`, `move`, `lens`, `light`,
-  plus `duration`: ids from `cinematography`, never invented.
+- **Per shot, every time** `shot_size`, `move`, `lens` and `light` (ids from
+  `cinematography`, never invented) and `duration` (seconds); `null` leaves
+  an axis to the model.
 
 Save the list as `<project>/shots` in the prompt library, one compiled
 `<project>/shot-NN` per shot: `references/shot-document.md`.

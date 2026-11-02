@@ -1580,3 +1580,141 @@ class TestSitcomMulticam:
 
     def test_series_points_at_sitcom(self):
         assert "`references/sitcom-multicam.md`" in skill_body(SERIES_SKILL)
+
+
+def _fenced_json(text):
+    """Every ```json block in `text`, parsed."""
+    return [json.loads(block) for block in re.findall(r"```json\n(.*?)```", text, re.S)]
+
+
+CINEMATOGRAPHY_KEYS = ("shot_size", "move", "lens", "light", "duration")
+
+
+class TestShotDocumentShape:
+    """Final review of #1141: every shot carries the five cinematography keys,
+    with null for the model's choice, a worked example, and the project name
+    pattern the prompt library accepts."""
+
+    def test_example_shot_and_two_shot_array_carry_every_key(self):
+        blocks = _fenced_json(_read(SHOT_DOCUMENT))
+        objects = [block for block in blocks if isinstance(block, dict)]
+        arrays = [block for block in blocks if isinstance(block, list)]
+        assert objects and any(len(array) == 2 for array in arrays)
+        for shot in objects + [shot for array in arrays for shot in array]:
+            for key in SHOT_KEYS:
+                assert key in shot, (shot.get("id"), key)
+        nulls = [
+            key
+            for shot in objects + [s for a in arrays for s in a]
+            for key in CINEMATOGRAPHY_KEYS
+            if shot[key] is None
+        ]
+        assert nulls, "the example must show an axis left to the model as null"
+
+    def test_null_and_seconds_are_stated(self):
+        flat = " ".join(_read(SHOT_DOCUMENT).split())
+        assert "all five cinematography keys" in flat
+        assert "`null`" in flat and "model's own choice" in flat
+        assert "`duration` is a number of seconds, not a vocabulary id" in flat
+        body = " ".join(skill_body(SCRIPT_SKILL).split())
+        assert "`null`" in body and "`duration` (seconds)" in body
+        assert "ids from `cinematography`, never invented) and `duration`" in body
+
+    def test_project_name_pattern_matches_the_prompt_library(self):
+        from dw.security import PROMPT_REFERENCE_PATTERN
+
+        segment = PROMPT_REFERENCE_PATTERN[1:].split("(")[0]
+        assert segment == r"[\w][\w.-]*"
+        text = _read(SHOT_DOCUMENT)
+        assert f"`{segment}`" in text
+        assert "no spaces and no further `/`" in " ".join(text.split())
+        pattern = re.compile(PROMPT_REFERENCE_PATTERN)
+        assert pattern.match("gilded_echoes/shots")
+        assert not pattern.match("gilded echoes/shots")
+        assert not pattern.match("series/ep1/shots")
+
+
+class TestStoryboardFinalReview:
+    """Final review of #1141: names keep_output accepts, one duration per
+    board in the animatic, and one plugin description."""
+
+    def test_no_storyboard_keep_output_name_ends_in_png(self):
+        names = [
+            (path, name)
+            for path in glob.glob(os.path.join(STORY_DIR, "**", "*.md"), recursive=True)
+            for name in re.findall(r'asset_name="([^"]*)"', _read(path))
+        ]
+        assert len(names) >= 2
+        for path, name in names:
+            assert not name.endswith(".png"), (path, name)
+        assert "asset:boards/<scene>-NN.jpg" in skill_body(STORY_SKILL)
+
+    def test_animatic_takes_one_float_duration_per_board(self, tmp_path):
+        from dw.variables import argument_errors
+
+        path = os.path.join(REPO_ROOT, "workflows", "templates", "animatic.json")
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        variables = definition["variables"]
+        assert variables["durations"] == [2.0] * len(variables["boards"])
+        assert isinstance(variables["fps"], float)
+        assert argument_errors(definition, {"durations": [1, 2, 0.5]}) == []
+        assert argument_errors(definition, {"fps": 30}) == []
+        assert "one duration per board" in definition["description"]
+        assert "one number holds every board" not in definition["description"]
+
+    def test_animatic_docs_say_one_duration_per_board(self):
+        recipe = " ".join(
+            open(os.path.join(STORY_DIR, "references", "animatic.md"), encoding="utf-8")
+            .read()
+            .split()
+        )
+        assert "one duration per board" in recipe
+        assert "one number for every board" not in recipe
+        assert "one duration per board" in " ".join(skill_body(STORY_SKILL).split())
+        assert "`width`" not in skill_body(STORY_SKILL)
+
+    def test_plugin_and_marketplace_describe_the_plugin_alike(self):
+        with open(
+            os.path.join(PLUGIN_DIR, ".claude-plugin", "plugin.json"), encoding="utf-8"
+        ) as handle:
+            plugin = json.load(handle)
+        with open(
+            os.path.join(REPO_ROOT, ".claude-plugin", "marketplace.json"),
+            encoding="utf-8",
+        ) as handle:
+            marketplace = json.load(handle)
+        entry = next(p for p in marketplace["plugins"] if p["name"] == "dw")
+        assert plugin["description"] == entry["description"]
+        assert "storyboard" in plugin["description"]
+
+
+class TestSitcomAssembly:
+    """Final review of #1141: the master's dialogue is the score with the
+    shots' own sound muted, and master spans are cut with trim_video."""
+
+    def test_master_dialogue_is_the_score_with_world_gain_zero(self):
+        text = " ".join(_read(SITCOM).split())
+        assert "Pass the master as `score`" in text
+        assert "`world_gain: 0`" in text
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "assemble-and-score.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            variables = json.load(handle)["variables"]
+        for name in ("score", "world_gain", "score_start_frame", "total_frames"):
+            assert name in variables, name
+            assert f"`{name}" in text, name
+
+    def test_master_spans_are_cut_with_trim_video(self):
+        text = _read(SITCOM)
+        steps = [b for b in _fenced_json(text) if isinstance(b, dict)]
+        trims = [s for s in steps if s.get("task", {}).get("command") == "trim_video"]
+        assert trims
+        tasks_doc = _read(os.path.join(REPO_ROOT, "docs", "TASKS.md"))
+        section = tasks_doc[tasks_doc.index("### trim_video") :]
+        section = section[: section.index("\n### ", 4)]
+        for name in trims[0]["task"]["arguments"]:
+            assert f"| `{name}` |" in section, name
+        flat = " ".join(text.split())
+        assert "planned `start_frame` and `cut_frames`" in flat

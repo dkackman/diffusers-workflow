@@ -183,3 +183,98 @@ def test_command_registered():
     info = task_command_info("analyze_face_drift")
     assert info["returns"] == "json"
     assert required_weights_hook("analyze_face_drift") is fd.required_weights
+
+
+class TestStaticCheck:
+    """The settings refused at validate, in the run's words (one rule)."""
+
+    @staticmethod
+    def _errors(**arguments):
+        from dw.task_problems import face_drift_errors
+
+        return face_drift_errors(arguments)
+
+    @pytest.mark.parametrize(
+        "arguments, argument",
+        [
+            ({"threshold": 1.5}, "threshold"),
+            ({"threshold": -1.01}, "threshold"),
+            ({"samples_per_shot": 0}, "samples_per_shot"),
+            ({"samples_per_shot": 65}, "samples_per_shot"),
+            ({"samples_per_shot": 1.5}, "samples_per_shot"),
+        ],
+    )
+    def test_out_of_range_found(self, arguments, argument):
+        assert [a for a, _ in self._errors(**arguments)] == [argument]
+
+    def test_clean_and_referenced_values_pass(self):
+        assert not self._errors(threshold=0.363, samples_per_shot=64)
+        assert not self._errors(threshold=-1, samples_per_shot=1)
+        assert not self._errors(
+            threshold="variable:t", samples_per_shot="previous_result:x"
+        )
+
+    def test_the_run_refuses_in_the_same_words(self, probe):
+        (_, message), *_ = self._errors(threshold=1.5)
+        with pytest.raises(ValueError) as refused:
+            fd.analyze_face_drift(clip([a_face()]), a_face(), threshold=1.5)
+        assert str(refused.value) == message
+
+
+TEMPLATE = "workflows/templates/face-drift-check.json"
+
+
+class TestTemplateValidation:
+    @staticmethod
+    def _errors(tmp_path, arguments):
+        import os
+
+        from dw.validation import workflow_errors
+        from dw.workflow import workflow_from_file
+        from tests.test_examples import REPO_ROOT
+
+        workflow = workflow_from_file(os.path.join(REPO_ROOT, TEMPLATE), str(tmp_path))
+        return workflow_errors(workflow, arguments)
+
+    @pytest.mark.parametrize(
+        "arguments, argument",
+        [
+            ({"threshold": 1.5}, "threshold"),
+            ({"samples_per_shot": 0}, "samples_per_shot"),
+            ({"samples_per_shot": 65}, "samples_per_shot"),
+        ],
+    )
+    def test_validate_refuses_out_of_range_settings(
+        self, tmp_path, arguments, argument
+    ):
+        errors = self._errors(tmp_path, arguments)
+        assert errors
+        assert all(error["path"].endswith(f".{argument}") for error in errors)
+
+    def test_defaults_are_clean(self, tmp_path):
+        assert self._errors(tmp_path, {}) == []
+
+    def test_template_declares_and_wires_samples_per_shot(self):
+        import json
+        import os
+
+        from tests.test_examples import REPO_ROOT
+
+        with open(os.path.join(REPO_ROOT, TEMPLATE), encoding="utf-8") as handle:
+            definition = json.load(handle)
+        assert definition["variables"]["samples_per_shot"] == fd.DEFAULT_SAMPLES
+        arguments = definition["steps"][0]["task"]["arguments"]
+        assert arguments["samples_per_shot"] == "variable:samples_per_shot"
+
+
+def test_sface_cache_key_carries_the_revision(monkeypatch):
+    """A revision bump must not be answered by the recognizer cached before it."""
+    import dw.tasks.model_cache as model_cache
+
+    keys = []
+    monkeypatch.setattr(fd, "face_detector_model", lambda *args: object())
+    monkeypatch.setattr(
+        model_cache, "cached_model", lambda key, load: keys.append(key) or object()
+    )
+    fd._models()
+    assert keys and fd.SFACE_REVISION in keys[0]

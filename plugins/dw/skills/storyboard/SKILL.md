@@ -16,10 +16,11 @@ from `cinematography`; the shot list's fields from `script-to-video`.
 
 1. `get_server_info`: Klein needs a CUDA card (`flux3-klein`'s rules apply:
    16 steps, no guidance, sides in multiples of 16, gated license).
-2. Boards must be on the server: `keep_output(name, asset_name="boards/<scene>-NN.png")`
-   after each draw, so `asset:` names them later.
-3. All boards of one animatic share one size. Draw them at one `width` and
-   `height`, or take the first reference's aspect ratio and keep it.
+2. Boards must be on the server: `keep_output(name, asset_name="boards/<scene>-NN")`
+   after each draw. Leave the extension off - the engine adds the file's own
+   (Klein writes `.jpg`) - and cite `asset:boards/<scene>-NN.jpg` later.
+3. All boards of one animatic share one size: keep the same first reference,
+   whose aspect ratio sets the board's, for every board of the scene.
 
 ## 1. Draw the boards (Popcorn shape)
 
@@ -72,8 +73,9 @@ character's face held.
 Boards, a scratch voice and a music bed cut into one timed clip, cheaply, to
 judge pacing and order before video. `references/animatic.md` has the recipe:
 `templates/generate-speech` for the voice, `templates/minimax/music` for the
-bed, then `templates/animatic` with the boards, durations and soundtrack.
-Change a duration and re-run: it costs seconds, not GPU hours.
+bed, then `templates/animatic` with the boards, one duration per board and
+the soundtrack. Change a duration and re-run: it costs seconds, not GPU
+hours.
 
 ## Run and judge
 

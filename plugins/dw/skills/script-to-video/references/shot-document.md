@@ -17,6 +17,12 @@ across workspaces, so the prefix is what keeps projects apart):
   `01`, in source order. A workflow argument names it as
   `prompt:<project>/shot-NN`.
 
+`<project>` is one name segment matching `[\w][\w.-]*`: letters, digits
+and `_`, then `.` or `-` as well - no spaces and no further `/`. A prompt
+name holds at most one `/`, and the project prefix uses it, so
+`gilded_echoes/shots` is a name and `gilded echoes/shots` or
+`series/ep1/shots` is refused.
+
 `<project>/shots` is the source of truth; each `<project>/shot-NN` is what
 it compiles to for that shot's family. Never edit a compiled prompt by
 hand without writing the change back into the shot object.
@@ -33,18 +39,64 @@ hand without writing the change back into the shot object.
 | `beat` | one visible state a single frame can show |
 | `must_not` | the few things to rule out |
 | `join` | `continue`, `cut`, `cutaway` or `lead_in` |
-| `shot_size` | the cinematography axis of that name |
+| `shot_size` | the cinematography axis of that name, or `null` |
 | `move` | likewise |
 | `lens` | likewise |
 | `light` | likewise |
-| `duration` | seconds the shot should run |
+| `duration` | seconds the shot should run (a number), or `null` |
 
-`shot_size`, `move`, `lens` and `light` take an id from
-`cinematography/references/vocabulary.md` and nothing else; an axis left
-out is the model's own choice, not a default. Their meaning, and the
-caption words each family gets for them, are that skill's. `duration` is
-snapped to the family's own grid when the prompt is compiled (H3's is in
-`dw:minimax-h3`), and the document keeps what the script asked for.
+Every shot carries all five cinematography keys - `shot_size`, `move`,
+`lens`, `light` and `duration` - so a reader never has to guess whether a
+key was forgotten. `shot_size`, `move`, `lens` and `light` take an id from
+`cinematography/references/vocabulary.md` and nothing else, or `null`: an
+axis set to `null` is left to the model's own choice, not a default. Their
+meaning, and the caption words each family gets for them, are that skill's.
+`duration` is a number of seconds, not a vocabulary id, or `null` for the
+family's default length. It is snapped to the family's own grid when the
+prompt is compiled (H3's is in `dw:minimax-h3`), and the document keeps what
+the script asked for.
+
+One shot object:
+
+```json
+{
+  "id": "01",
+  "cast": ["asset:cast/priya.png"],
+  "location": "the lighthouse kitchen",
+  "opening_state": "Priya at the window, back to the room, kettle steaming",
+  "ending_state": "Priya turned to face the door, mug in both hands",
+  "beat": "she hears the knock and turns",
+  "must_not": ["text in frame", "a second figure"],
+  "join": "cut",
+  "shot_size": "medium",
+  "move": "push-in",
+  "lens": null,
+  "light": "practical",
+  "duration": 4.0
+}
+```
+
+`<project>/shots` is an array of them, in source order. A two-shot
+document, saved with `save_prompt("lighthouse/shots", ...)`:
+
+```json
+[
+  {"id": "01", "cast": ["asset:cast/priya.png"],
+   "location": "the lighthouse kitchen",
+   "opening_state": "Priya at the window, kettle steaming",
+   "ending_state": "Priya facing the door, mug in hand",
+   "beat": "she hears the knock and turns", "must_not": ["text in frame"],
+   "join": "cut", "shot_size": "medium", "move": "push-in", "lens": null,
+   "light": "practical", "duration": 4.0},
+  {"id": "02", "cast": ["asset:cast/priya.png"],
+   "location": "the lighthouse kitchen",
+   "opening_state": "Priya facing the door, mug in hand",
+   "ending_state": "Priya's hand on the latch",
+   "beat": "she crosses to the door", "must_not": ["text in frame"],
+   "join": "continue", "shot_size": null, "move": "tracking",
+   "lens": "normal", "light": "practical", "duration": null}
+]
+```
 
 ## Recompiling only what changed
 
