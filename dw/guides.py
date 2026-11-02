@@ -346,7 +346,10 @@ def anchor_errors(workflow_definition, source_indices=None):
     ):
         base = ("steps", source, "pipeline")
         arguments = pipeline.get("arguments")
-        if isinstance(arguments, dict) and arguments.get(LATENT_ANCHOR_INPUT) is not None:
+        if (
+            isinstance(arguments, dict)
+            and arguments.get(LATENT_ANCHOR_INPUT) is not None
+        ):
             problem = _takes_anchor_problem(pipeline, LATENT_ANCHOR_INPUT)
             if problem:
                 errors.append(
