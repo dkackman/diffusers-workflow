@@ -1832,6 +1832,30 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
 | `num_frames` | must exceed P, or the chain cannot progress |
 
+#### Anchoring a chain's colour: `latent_anchor` and `anchor: "segment_1"`
+
+A long H3 chain drifts in colour and contrast: each segment's latent statistics wander
+a little from the last, and the carry passes the drift on. `latent_anchor` (an H3
+`t2va`/`fl2va` argument) takes video frames - a path, an `asset:`/`output:` reference,
+or a step's frames - VAE-encodes them on the render's canvas the way a guide is
+encoded, and takes each latent channel's mean and standard deviation over every
+position. After denoising and before decode, the generated video latent is moved onto
+them, channel by channel: `(x - mean_x) / std_x * std_a + mean_a`. The audio is never
+touched. It is a full match, with no strength setting; without `latent_anchor` the
+step is unchanged, bit for bit.
+
+In a chain, `"anchor": "segment_1"` sets it for you: every segment after the first
+gets segment 1's frames as its `latent_anchor`, so the whole chain is held to the
+first segment's look. Segment 1 itself is not corrected.
+
+| Rule | Value |
+|---|---|
+| `anchor` | `none` (default) or `segment_1`; anything else is refused, naming the values |
+| `segment_1` continuity | `last_frame` or `guide`; refused with any other |
+| where | MiniMax-H3 `t2va` or `fl2va`; `latent_anchor` and `segment_1` are refused on `ref2va` and on a non-H3 step |
+| frames | cut to a whole-latent length (1, 5 or 17m + 5) |
+| `refine_tiles` | refused beside `latent_anchor`, as the other per-call H3 arguments are |
+
 `workflows/templates/minimax/chained-segments.json` takes `continuity` and
 `guide_frames` as variables. The `ref2va` chains (`chain-video-continuity` and the
 `match_audio` chains) keep `last_segment`.
@@ -2378,6 +2402,10 @@ joined into a single file:
   next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
   guide*).
 - `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.
+- `anchor` — `none` (default) or `segment_1` (MiniMax-H3 `t2va`/`fl2va`, with
+  `last_frame` or `guide` continuity): every segment after the first is rescaled to
+  segment 1's per-channel latent statistics before decode, holding the chain's colour
+  and contrast (see *Anchoring a chain's colour*).
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
   segment (the audio is cut to the same span). Unset carries the whole segment.
 - `carry_audio` — with `last_segment` or `guide`, whether the carried reference includes its

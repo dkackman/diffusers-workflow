@@ -201,6 +201,7 @@ ERROR_ORDER = [
     "select",
     "chain_prompts",
     "guide_chain",
+    "latent_anchor",
     "task_signatures",
     "task_remote_code",
     "component_types",

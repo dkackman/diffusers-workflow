@@ -116,3 +116,15 @@ A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
 inspired the texture-band measurement on `compare_outputs`
 (`texture_bands`, [dw/texture_bands.py](../dw/texture_bands.py)): RMS energy by
 wavelength band, to see whether a change in a chain adds or removes texture.
+
+### [1113800942/comfy-h3md-director](https://github.com/1113800942/comfy-h3md-director)
+
+H3MD Director, a ComfyUI node pack for directing long MiniMax H3 videos, under
+AGPL-3.0-or-later, so only the concept was taken. It inspired the latent
+statistics anchor: rescaling each later segment's video latent to the first
+segment's per-channel mean and standard deviation before decode
+(`latent_anchor`, `chain.anchor: "segment_1"`,
+[dw/pipeline_processors/h3_anchor.py](../dw/pipeline_processors/h3_anchor.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
+diagnosis it answers, colour and contrast drifting from segment to segment of
+an H3 chain, was described by Lumifel and by roycho87 (NerdNotes).
