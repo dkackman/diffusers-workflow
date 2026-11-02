@@ -1136,7 +1136,9 @@ cache, attention backend or quantization) but the shot is the same; about 19 dB
 means it was re-staged (the composition changed). Look at the grid before
 trusting a number.
 
-**Texture bands.** `compare_outputs(names, texture_bands=true)` adds, per output,
+#### Texture bands
+
+`compare_outputs(names, texture_bands=true)` adds, per output,
 the RMS energy of the picture's texture by wavelength over the measured region:
 `fine` (2-8 px), `mid` (8-32 px) and `coarse` (32-128 px), in three channels,
 `luma`, `chroma_rg` (R-G) and `chroma_bg` (B-G), on a 0-255 scale. A
