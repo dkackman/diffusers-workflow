@@ -18,7 +18,7 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
     OutputParam,
 )
 
-from .h3_anchor import channel_statistics, match_channel_statistics
+from .h3_anchor_stats import channel_statistics, match_channel_statistics
 from .h3_guide_steps import fit_guide_frames
 from .h3_rules import LATENT_ANCHOR_INPUT, snap_guide_length
 
