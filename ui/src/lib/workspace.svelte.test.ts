@@ -182,3 +182,42 @@ it('a failed listing does not read as every other workspace being gone', async (
   expect(workspace.current).toBe('studio')
   expect(errorToast).not.toHaveBeenCalled()
 })
+
+it('a refetch that fails keeps the listing and still redirects the missing name', async () => {
+  // Driven through applyRouteWorkspace rather than a hashchange: the routers
+  // earlier tests imported still listen, and one would take the rejection
+  const { applyRouteWorkspace, loadWorkspaces, workspace } =
+    await import('./workspace.svelte')
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'studio',
+    section: 'gallery',
+    rest: [],
+  })
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default', 'studio'])
+  // The refetch a name the cache lacks triggers hits a server hiccup
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  applyRouteWorkspace({
+    kind: 'ws',
+    workspace: 'typo',
+    section: 'gallery',
+    rest: [],
+  })
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default', 'studio'])
+  expect(location.hash).toBe('#/ws/default/overview')
+  expect(workspace.current).toBe('default')
+  expect(errorToast).toHaveBeenCalledWith(expect.stringContaining('typo'))
+})
+
+it('a first listing that fails falls back to the default alone, until one lands', async () => {
+  listWorkspaces.mockRejectedValueOnce(new Error('down'))
+  const { invalidateWorkspaces, loadWorkspaces, workspace } =
+    await import('./workspace.svelte')
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default'])
+  invalidateWorkspaces()
+  await loadWorkspaces()
+  expect(workspace.names).toEqual(['default', 'studio'])
+})
