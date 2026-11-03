@@ -54,7 +54,7 @@ the delivered rate.
 | # | Rule | Verdict | Jobs | Observation |
 | --- | --- | --- | --- | --- |
 | 1 | "Split paces the line." | **confirmed** by the bar, with a caveat | 150751a7522c, 900ea1581d22 | A has a lead-in on both seeds (2.14 s, 2.72 s) and is spoken at 4.71 and 5.41 words/s, so it fails the bar. B leads at 0.70 s and 0.64 s, with delivered rates of 2.23 and 2.26 words/s, so it passes. **Caveat:** the split doesn't slow the words. Segment 1 is still spoken at 6.25 and 6.6 words/s. The rate falls because H3 puts a 1.9 s silent gap between the segments, not because the speech is slower. See *Arm B*. |
-| 2 | "An action between segments paces it." | **refuted** (the action condition fails) | 150751a7522c, 900ea1581d22 | Lead and rate pass on both C seeds (lead 0.44 s and 0.66 s, delivered 1.93 and 2.16 words/s), and the break is a 2.1–2.5 s silence. But the action doesn't render at its break on either seed. The mouth stays closed through the break and no sniff is visible. The look-down comes after segment 2 has started, at about 4.0–5.0 s on s1001 and 4.5–5.0 s on s2002. See *Arm C*. |
+| 2 | "An action between segments paces it." | **refuted** (the action condition fails) | 150751a7522c, 900ea1581d22 | Lead and rate pass on both C seeds (lead 0.44 s and 0.66 s, delivered 1.93 and 2.16 words/s), and the break is a 2.1–2.5 s silence. But the action landed at the break on 1 of 2 seeds, at the window edge, and the bar needs both. On s1001 the look-down begins by 4.0 s, 0.2 s after the gap's envelope end (3.8 s), inside the ±0.5 s window (borderline). On s2002 the head is level at 4.0 s and down at 4.5 s, after the window closes at 4.1 s (no). On neither seed does the man move during the break itself: the mouth stays closed and no sniff is visible. See *Arm C*. |
 | 3 | "The action prose is spoken." | **no**: 0 of 6 clips | 150751a7522c, 900ea1581d22 | None of "sniffs", "looks", "down" or "table" appears in any transcript, and none of the arms' words was added or dropped. No warning. |
 
 ## Measurements
@@ -74,8 +74,8 @@ There is no stray early word in any clip, so each lead has one reading.
 | A | 2002 | 900ea1581d22 | 2.72 | n/a | n/a | n/a | 5.41 (8 / 1.48) | 0.97 | none | all 8 `silent`; counted as speech (envelope) | no: closed or neutral at 0.0–2.5 s | n/a |
 | B | 1001 | 150751a7522c | 0.70 | about 1.9 (1.6–3.5, envelope) | 6.25 | about 4.1 | 2.23 | 0.89 | none | "for" `long` (1.50–3.68); counted as speech, but its onset is taken from the envelope (about 3.5), not Whisper | no: closed or neutral through the gap | n/a |
 | B | 2002 | 900ea1581d22 | 0.64 | about 1.9 (1.5–3.4, envelope) | 6.6 | about 3.8 | 2.26 | 0.99 | none | all 8 `silent`; counted as speech (envelope). "for" also stretched 1.40–3.52, onset from the envelope | no: closed through the gap | n/a |
-| C | 1001 | 150751a7522c | 0.44 | about 2.5 (1.3–3.8, envelope) | 6.25 | about 3.8 | 1.93 | 0.59 | none | all 8 `silent`; counted as speech (envelope). "for" stretched 2.50–3.96, onset from the envelope | no: closed through the break | **no**: no sniff; head and gaze drop at 4.0–5.0 s, after the break |
-| C | 2002 | 900ea1581d22 | 0.66 | about 2.1 (1.5–3.6, envelope) | 5.8 | 4.05 | 2.16 | 0.81 | none | all 8 `silent`; counted as speech (envelope) | no: closed or smiling through the break | **no**: head down at 4.5–5.0 s, after the break |
+| C | 1001 | 150751a7522c | 0.44 | about 2.5 (1.3–3.8, envelope) | 6.25 | about 3.8 | 1.93 | 0.59 | none | all 8 `silent`; counted as speech (envelope). "for" stretched 2.50–3.96, onset from the envelope | no: closed through the break | **yes (borderline)**: no visible sniff; the look-down begins by 4.0 s (frame 96; level at 3.5 s, fully down 4.5–5.12 s), 0.2 s after the gap's envelope end at 3.8 s, inside the ±0.5 s window at its edge |
+| C | 2002 | 900ea1581d22 | 0.66 | about 2.1 (1.5–3.6, envelope) | 5.8 | 4.05 | 2.16 | 0.81 | none | all 8 `silent`; counted as speech (envelope) | no: closed or smiling through the break | **no**: head level at 4.0 s, down at 4.5–5.0 s, after the ±0.5 s window closes at 4.1 s |
 
 Lead and tail are read from the transcript (the first chunk's `start`, and
 5.167 s minus the last chunk's `end`), `suspect` chunks included. The gap and
@@ -103,11 +103,15 @@ segment stays at the fast rate A uses for the whole line.
 The timing matches B: an early lead, a fast first segment, a silent break of
 2.1–2.5 s and a slower second segment. The action prose doesn't fill the break
 on screen. On both seeds the man sits still with his mouth closed through
-it. The look-down renders late, overlapping or following segment 2. On
-s1001, a quiet sound at 2.4–2.9 s (−51 to −58 dBFS, against speech at about
+it. The look-down comes as segment 2 starts. On s1001 it begins by 4.0 s,
+0.2 s after the gap ends, which is inside the ±0.5 s window at its edge, so
+that cell is a borderline yes. On s2002 it comes at 4.5 s, after the window.
+On s1001, a quiet sound at 2.4–2.9 s (−51 to −58 dBFS, against speech at about
 −40 dBFS) sits in the break. It could be a breath or a sniff, but nothing
-visible goes with it, and it isn't transcribed. So C passes the lead and rate
-test but fails the "action rendered at its break" condition on both seeds.
+visible goes with it, and it isn't transcribed. Don may want to listen for it
+at about 2.5 s in `150751a7522c` `final/c_split_action-0.0.mp4`. So C passes
+the lead and rate test but meets the "action rendered at its break" condition
+on 1 of 2 seeds (s1001, borderline), and the bar needs both.
 
 ### What this says about the rules
 
@@ -115,7 +119,8 @@ test but fails the "action rendered at its break" condition on both seeds.
   puts a pause between the blocks. By the bar's delivered-rate definition, that
   paces the line. It doesn't slow the first block's words.
 - Action prose between the blocks gives no pacing beyond what the split already
-  gives, and H3 doesn't stage the action in the break. Here it rendered late.
+  gives, and H3 doesn't stage the action in the break. Here it rendered as
+  segment 2 began: at the window's edge on one seed, after it on the other.
 - Action prose between `<d>` blocks isn't spoken (0 of 6 clips, counting A and
   B, which have none, as controls).
 
