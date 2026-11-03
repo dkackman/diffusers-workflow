@@ -5,6 +5,7 @@ Stdlib only; never fetches media files."""
 
 import argparse
 import json
+import math
 import os
 import sys
 import time
@@ -19,10 +20,7 @@ sys.path.insert(0, str(HERE))
 from verdict import noise_floor, verdict  # noqa: E402
 
 DEFAULT_SERVER = "http://127.0.0.1:18766"
-DEFAULT_TOKEN_FILE = (
-    "/private/tmp/claude-501/-Users-don-src-dkackman-diffusers-workflow/"
-    "6fdf55cd-3550-46d6-9df0-2dc8bfbc47e0/scratchpad/bench-token"
-)
+DEFAULT_TOKEN_FILE = "~/.dw-bench-token"
 MAX_COMPARE_BYTES = 4_000_000
 TERMINAL = ("succeeded", "failed", "cancelled")
 
@@ -180,28 +178,43 @@ def measure(job, scene, server, token, workspace=None):
     row = (compared.get("texture") or [{}])[0]
     cells = [c.get("texture") for c in row.get("cells") or []]
     if len(cells) >= 2 and cells[0] and cells[-1]:
-        for band in ("fine", "mid"):
-            first, last = cells[0]["luma"].get(band), cells[-1]["luma"].get(band)
-            if first and last is not None:
-                out[f"texture_{band}_seg_last"] = last / first
+        # Two-sided: blur (ratio < 1) and crust (ratio > 1) both count as
+        # drift, so the measure is |ln(last / first)| and lower is better.
+        for band in ("fine", "mid", "coarse"):
+            luma = cells[0].get("luma") or {}, cells[-1].get("luma") or {}
+            first, last = luma[0].get(band), luma[1].get(band)
+            if first and last and first > 0 and last > 0:
+                out[f"texture_{band}_seg_last"] = abs(math.log(last / first))
     if job.get("started_at") is not None and job.get("finished_at") is not None:
         out["wall_minutes"] = (job["finished_at"] - job["started_at"]) / 60.0
     return out
 
 
-def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None):
+def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None, out_path=None):
     ids = {arm.name: submit(arm, server, token, workspace) for arm in arms}
     records = []
+
+    def flush():
+        if out_path:
+            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
+            Path(out_path).write_text(json.dumps(records, indent=2))
+
     for arm in arms:
-        job = wait(ids[arm.name], server, token, timeout_s)
         record = {"arm": arm.name, "scene": arm.scene, "seed": arm.seed,
-                  "job_id": ids[arm.name], "status": job.get("status"),
-                  "error": job.get("error")}
-        if job.get("status") == "succeeded":
-            record["output"] = output_name(job)
-            if do_measure:
-                record["measures"] = measure(job, scenes[arm.scene], server, token, workspace)
+                  "job_id": ids[arm.name]}
+        try:
+            job = wait(ids[arm.name], server, token, timeout_s)
+            record["status"] = job.get("status")
+            record["error"] = job.get("error")
+            if job.get("status") == "succeeded":
+                record["output"] = output_name(job)
+                if do_measure:
+                    record["measures"] = measure(job, scenes[arm.scene], server, token, workspace)
+        except Exception as exc:  # one arm's failure must not lose the others
+            record.setdefault("status", "error")
+            record["error"] = f"{type(exc).__name__}: {exc}"
         records.append(record)
+        flush()
     return records
 
 
@@ -218,13 +231,16 @@ def report(records):
 
 
 def _token(args):
-    if args.token_file is None and os.environ.get("BENCH_TOKEN"):
+    if args.token_file:
+        return Path(args.token_file).expanduser().read_text().strip()
+    if os.environ.get("BENCH_TOKEN"):
         return os.environ["BENCH_TOKEN"]
-    path = args.token_file or DEFAULT_TOKEN_FILE
-    try:
-        return Path(path).read_text().strip()
-    except OSError:
-        return os.environ.get("BENCH_TOKEN", "")
+    path = Path(DEFAULT_TOKEN_FILE).expanduser()
+    if path.is_file():
+        return path.read_text().strip()
+    raise SystemExit(
+        f"no bench token: pass --token-file, set BENCH_TOKEN, or write {DEFAULT_TOKEN_FILE}"
+    )
 
 
 def main(argv=None):
@@ -251,14 +267,10 @@ def main(argv=None):
     token = _token(args)
     records = run_arms(
         load_arms(args.arms), load_scenes(args.scenes) if args.measure else {},
-        args.server, token, args.measure, args.timeout, args.workspace,
+        args.server, token, args.measure, args.timeout, args.workspace, args.out,
     )
-    text = json.dumps(records, indent=2)
-    if args.out:
-        Path(args.out).parent.mkdir(parents=True, exist_ok=True)
-        Path(args.out).write_text(text)
-    else:
-        print(text)
+    if not args.out:
+        print(json.dumps(records, indent=2))
     return 0
 
 
