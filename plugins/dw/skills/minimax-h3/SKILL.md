@@ -179,8 +179,9 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    portrait's framing imposed on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. It returns sound, not text; to confirm a
-   take's lines, run `templates/check-script` with them as `lines` (markup
-   and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone,
+   take's lines, run `templates/check-script` with them as `lines` (each
+   `<d>` block's contents, markup and all, never the prose between blocks,
+   which H3 doesn't speak) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone,
    in that reference. Then `get_gallery_metadata` for duration/audio and hand the
    user the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
