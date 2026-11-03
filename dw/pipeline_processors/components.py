@@ -724,50 +724,13 @@ def load_component(
                 logger.info(f"Creating new {component_name}")
                 component = component_type(**from_pretrained_arguments)
 
-            # Register the shared components before anything is pulled, so the
-            # weights an earlier step already loaded and quantized are the ones
-            # this step runs on rather than a second copy of them. The block
-            # configs go in the same call - update_components takes both
-            update_arguments = get_block_configs(configuration, component)
-            if reused_components and takes_components_after_load:
-                logger.info(
-                    f"Reusing {', '.join(reused_components)} from an earlier step"
-                )
-                update_arguments.update(reused_components)
-            if update_arguments:
-                component.update_components(**update_arguments)
-
-            # Modular pipelines load only their config in from_pretrained - the component
-            # weights are pulled separately by load_components()
-            load_components_arguments = get_load_components_arguments(configuration)
-            if load_components_arguments is not None:
-                if not has_method(component, "load_components"):
-                    raise ValueError(
-                        f"load_components is only supported on modular pipelines, "
-                        f"{component_type.__name__} does not have it"
-                    )
-                logger.info(f"Loading components for {component_name}")
-                # Before pruning, offload and sdnq_optimize, so a cached entry
-                # is the whole component as quantized (dw/quantized_cache.py)
-                quantized_cache.load_components(component, load_components_arguments)
-
-            # Blocks the workflow declares gone (Klein's prompt_upsampler)
-            remove_pipeline_blocks(configuration, component)
-
-            # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
-            # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)
-            insert_audio_hold(component)
-            # ...and `guides` on t2va and fl2va
-            insert_guides(component)
-            # ...and `latent_anchor` on t2va and fl2va (h3_anchor.py)
-            insert_latent_anchor(component)
-            # ...and `source_video` with a mask, a regional edit (h3_mask.py)
-            insert_mask_blocks(component)
-            # ...and the decode-free graph a `refine_tiles` step runs per tile
-            from .h3_tiles import attach_tile_blocks
-
-            if core_denoise_sequences(component):
-                attach_tile_blocks(component)
+            _assemble_loaded(
+                component_name,
+                component_type,
+                configuration,
+                component,
+                reused_components if takes_components_after_load else {},
+            )
 
         if defer_placement:
             # The caller places this itself, once it has finished loading the
@@ -791,6 +754,63 @@ def load_component(
             raise auth_error from e
         logger.error(f"{type(e).__name__} loading {component_name}: {e}", exc_info=True)
         raise
+
+
+def _assemble_loaded(
+    component_name, component_type, configuration, component, reused_components
+):
+    """Finish a freshly loaded component in place, before placement: register
+    the block configs and the components reused from an earlier step, pull a
+    modular pipeline's weights, drop the blocks the workflow declares gone and
+    put the MiniMax-H3 blocks in.
+
+    Args:
+        reused_components: The shared components a modular pipeline registers
+            after load (`update_components`); empty for a pipeline that took
+            them in its constructor
+    """
+    # Register the shared components before anything is pulled, so the
+    # weights an earlier step already loaded and quantized are the ones
+    # this step runs on rather than a second copy of them. The block
+    # configs go in the same call - update_components takes both
+    update_arguments = get_block_configs(configuration, component)
+    if reused_components:
+        logger.info(f"Reusing {', '.join(reused_components)} from an earlier step")
+        update_arguments.update(reused_components)
+    if update_arguments:
+        component.update_components(**update_arguments)
+
+    # Modular pipelines load only their config in from_pretrained - the component
+    # weights are pulled separately by load_components()
+    load_components_arguments = get_load_components_arguments(configuration)
+    if load_components_arguments is not None:
+        if not has_method(component, "load_components"):
+            raise ValueError(
+                f"load_components is only supported on modular pipelines, "
+                f"{component_type.__name__} does not have it"
+            )
+        logger.info(f"Loading components for {component_name}")
+        # Before pruning, offload and sdnq_optimize, so a cached entry
+        # is the whole component as quantized (dw/quantized_cache.py)
+        quantized_cache.load_components(component, load_components_arguments)
+
+    # Blocks the workflow declares gone (Klein's prompt_upsampler)
+    remove_pipeline_blocks(configuration, component)
+
+    # MiniMax-H3 takes `hold_audio` on every core-denoise workflow; a
+    # no-op on any other pipeline (dw/pipeline_processors/h3_hold.py)
+    insert_audio_hold(component)
+    # ...and `guides` on t2va and fl2va
+    insert_guides(component)
+    # ...and `latent_anchor` on t2va and fl2va (h3_anchor.py)
+    insert_latent_anchor(component)
+    # ...and `source_video` with a mask, a regional edit (h3_mask.py)
+    insert_mask_blocks(component)
+    # ...and the decode-free graph a `refine_tiles` step runs per tile
+    from .h3_tiles import attach_tile_blocks
+
+    if core_denoise_sequences(component):
+        attach_tile_blocks(component)
 
 
 def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):
