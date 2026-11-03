@@ -50,6 +50,7 @@ from .h3_rules import (
 
 logger = logging.getLogger("dw")
 
+
 def anchor_block():
     """The anchor step class (imports diffusers on first use)."""
     from .h3_anchor_steps import DwH3LatentAnchorStep
