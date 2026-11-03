@@ -40,8 +40,8 @@ remaining deferred fix is recorded in
 - **H3 guide-chain drift counters** (#1166, stages #1173-#1175), shipped
   2026-11-02. Two off-by-default H3 options: `latent_anchor` with
   `chain.anchor: "segment_1"`, a pre-decode per-channel latent statistics
-  match to segment 1, and `guide_noise`, a cosine-tapered paired-encode noise
-  on video guides. A 10-segment, two-scene probe on lem found the anchor
+  match to segment 1, and `guide_noise`, cosine-tapered pixel noise on video
+  guides before their encode. A 10-segment, two-scene probe on lem found the anchor
   (with or without guide noise) best on a static scene and worst on a
   moving-camera arc, and guide noise alone the only arm that didn't hurt the
   arc. No template or skill sets either until Don's taste verdict (Q6);

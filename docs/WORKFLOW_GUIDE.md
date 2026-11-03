@@ -1825,13 +1825,12 @@ with a visible change of pace. `guide_noise` (an H3 `t2va`/`fl2va` argument, a n
 [0, 1), about 0.4 to start) loosens every video guide on the step: each guide frame gets
 Gaussian noise of standard deviation `amplitude x 255` on its 0-255 pixels, where the
 amplitude falls on a cosine taper from `guide_noise` at the guide's first frame to 0 at
-its last, so the frames nearest the new material are held clean. The guide is encoded
-twice with the same encode seed, clean and noisy, and E(noisy) - E(clean) is added to the
-clean latent; the noise draw is seeded per guide (`keyframe_encode_seed` + the guide's
-index), so a seeded run repeats. The rows are still held, never denoised, and the row
-plan, the refine schedule and guide audio (`"audio": true`) are unchanged.
-`guide_noise: 0` (or absent) skips the second encode, and the latent is bit-identical to
-a step without it.
+its last, so the frames nearest the new material are held clean. The noised frames are
+encoded once, under the same encode seed as a clean guide; the noise draw is seeded per
+guide (`keyframe_encode_seed` + the guide's index), so a seeded run repeats. The rows are
+still held, never denoised, and the row plan, the refine schedule and guide audio
+(`"audio": true`) are unchanged. `guide_noise: 0` (or absent) adds no noise, and the
+latent is bit-identical to a step without it.
 
 It is a step argument, so in a `continuity: "guide"` chain it rides to every segment and
 loosens the carried guide too.

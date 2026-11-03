@@ -459,7 +459,7 @@ GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
 
 # Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
 # guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put
-# into its latent by a paired encode (h3_guide_steps.DwH3GuideLayoutStep). The
+# into its latent by encoding the noised pixels (h3_guide_steps.DwH3GuideLayoutStep). The
 # rows stay held condition rows; audio is never noised.
 GUIDE_NOISE_INPUT = "guide_noise"
 

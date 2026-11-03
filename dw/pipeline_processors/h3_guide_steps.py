@@ -314,8 +314,8 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 default=None,
                 description=(
                     "Fixed guide noise in [0, 1): pixel noise on every video guide, tapered from this std at "
-                    "the guide's first frame to none at its last, put into the guide's latent by a paired "
-                    "encode (the same encode seed for the noisy and clean frames). The rows stay held. "
+                    "the guide's first frame to none at its last, encoded in place of the clean frames "
+                    "under the same encode seed. The rows stay held. "
                     "0 or unset is the guide as it is; audio is never noised."
                 ),
             ),
@@ -378,10 +378,11 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         """([latents], [positions]): each guide VAE-encoded on the canvas, and
         its rows' rotary positions, timed from the target frame it lands on.
 
-        With `guide_noise`, each guide is also encoded with tapered pixel noise
-        (`noised_guide_pixels`) under the same encode seed, and the difference
-        E(noisy) - E(clean) is added to the clean latent - PrefixStream's paired
-        encode, so 0 leaves today's latent exactly."""
+        With `guide_noise`, the guide's pixels get tapered noise
+        (`noised_guide_pixels`) before the one encode, under the same encode
+        seed as a clean guide - PrefixStream's guide noise. (Its paired encode,
+        E(clean) + (E(noisy) - E(clean)), is E(noisy) under one seed, so the
+        clean encode is never run.) 0 leaves today's latent exactly."""
         device = components._execution_device
         target_time = before_denoise._temporal_position_grid(
             laid["num_latent_frames"], float(num_text)
@@ -396,15 +397,12 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 raise ValueError(f"guides[{index}]: {problem}")
             pixels = fit_guide_frames(frames, laid["height"], laid["width"])
             pixels = torch.from_numpy(np.ascontiguousarray(pixels))
-            encoded = self._encode_pixels(components, pixels, device)
             if guide_noise:
-                noisy = noised_guide_pixels(
+                pixels = noised_guide_pixels(
                     pixels, guide_noise, components.keyframe_encode_seed + index
                 )
-                encoded = encoded + (
-                    self._encode_pixels(components, noisy, device) - encoded
-                )
                 logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
+            encoded = self._encode_pixels(components, pixels, device)
             latents.append(encoded)
             positions.append(
                 guide_position_ids(

@@ -107,9 +107,11 @@ Merged as `bdbe4723` on `develop` (commits 3dbf8a04, 9363e97c), deployed to lem.
 - **Cosine taper** per guide frame (`h3_rules.guide_noise_taper`): `guide_noise`
   at the first frame, exactly 0 at the last, the one next to the join. A
   one-frame guide stays clean.
-- **Paired encode** in `DwH3GuideLayoutStep._encode_guides`: the clean and the
-  noisy pixels are encoded with the same seed, and `E(noisy) − E(clean)` is added
-  to the clean latent, so 0 is exactly today's latent. Guide rows are held as
+- **Noised encode** in `DwH3GuideLayoutStep._encode_guides`: the noisy pixels
+  are encoded once, under the clean guide's seed, so 0 is exactly today's
+  latent. (It first shipped as PrefixStream's paired encode, `E(clean) +
+  (E(noisy) − E(clean))`, which under one encode seed is `E(noisy)` with a
+  wasted clean encode; the 0.19.0 release review folded it.) Guide rows are held as
   before, the row plan and refine schedule are unchanged, and guide audio rows
   are untouched.
 - A warning when nothing is noised (no `guides` and no guide chain).

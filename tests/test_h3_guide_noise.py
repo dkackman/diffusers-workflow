@@ -1,5 +1,5 @@
 """MiniMax-H3 fixed guide noise (#1166, #1174): the cosine taper, the noised
-pixels, the paired encode in the guide layout step, the pre-run checks and the
+pixels, the noised encode in the guide layout step, the pre-run checks and the
 call-time refusal of `guide_noise`."""
 
 import math
@@ -167,7 +167,7 @@ def video_guide(frame=17, n=22, fill=100):
     return {"video": np.full((n, 32, 32, 3), fill, np.uint8), "frame": frame}
 
 
-class TestPairedEncode:
+class TestNoisedEncode:
     @pytest.mark.parametrize("noise", [None, 0, 0.0])
     def test_zero_is_todays_latent_with_one_encode_per_guide(self, encodes, noise):
         guides = [video_guide(0), video_guide(17)]
@@ -187,42 +187,40 @@ class TestPairedEncode:
         expected = encodes_value(pixels)
         assert torch.equal(state.get("condition_latents")[0], expected)
 
-    def test_noise_encodes_twice_per_guide_with_one_seed(self, encodes):
+    def test_noise_encodes_once_per_guide_with_the_clean_seed(self, encodes):
         run_step([video_guide(0), video_guide(17)], 0.4)
-        assert len(encodes) == 4
-        # Clean then noisy, per guide, under the same encode seed
-        for clean, noisy in (encodes[0:2], encodes[2:4]):
-            assert clean[1] == noisy[1] == 100
-            assert clean[0].dtype == torch.uint8
-            assert noisy[0].dtype == torch.float32
-            assert clean[0].shape == noisy[0].shape
+        # The noisy pixels, encoded once each, under the clean encode seed
+        assert len(encodes) == 2
+        for noisy, seed in encodes:
+            assert seed == 100
+            assert noisy.dtype == torch.float32
 
-    def test_result_is_clean_plus_the_encode_difference(self, encodes):
+    def test_result_is_the_noisy_encode(self, encodes):
         state = run_step([video_guide()], 0.4)
-        (clean_pixels, _), (noisy_pixels, _) = encodes
-        clean = encodes_value(clean_pixels)
+        ((noisy_pixels, _),) = encodes
+        clean = encodes_value(torch.full_like(noisy_pixels, 100))
         noisy = encodes_value(noisy_pixels)
         assert not torch.equal(clean, noisy)
-        result = state.get("condition_latents")[0]
-        assert torch.equal(result, clean + (noisy - clean))
+        assert torch.equal(state.get("condition_latents")[0], noisy)
 
     def test_the_noisy_frames_are_the_tapered_noise(self, encodes):
         run_step([video_guide()], 0.4)
-        (clean_pixels, _), (noisy_pixels, _) = encodes
+        ((noisy_pixels, _),) = encodes
+        clean_pixels = torch.full_like(noisy_pixels, 100)
         # (1, c, n, h, w): the last frame is the join, left clean
-        assert torch.equal(noisy_pixels[:, :, -1], clean_pixels[:, :, -1].float())
-        assert not torch.equal(noisy_pixels[:, :, 0], clean_pixels[:, :, 0].float())
+        assert torch.equal(noisy_pixels[:, :, -1], clean_pixels[:, :, -1])
+        assert not torch.equal(noisy_pixels[:, :, 0], clean_pixels[:, :, 0])
 
     def test_another_guide_gets_another_noise_seed(self, encodes):
         run_step([video_guide(0, fill=100), video_guide(17, fill=100)], 0.4)
-        first = encodes[1][0]
-        second = encodes[3][0]
+        first = encodes[0][0]
+        second = encodes[1][0]
         assert not torch.equal(first, second)
 
     def test_a_run_repeats(self, encodes):
         run_step([video_guide()], 0.4)
         run_step([video_guide()], 0.4)
-        assert torch.equal(encodes[1][0], encodes[3][0])
+        assert torch.equal(encodes[0][0], encodes[1][0])
 
 
 def encodes_value(pixels):
