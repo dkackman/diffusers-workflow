@@ -441,79 +441,22 @@ describe('the shared reference cases', () => {
 })
 
 describe('chained segments', () => {
-  const chainStep = (chain: Record<string, unknown>) => ({
-    name: 'clip',
-    pipeline: { configuration: { component_type: 'ModularPipeline' }, chain },
-  })
-
-  it("reads a declared segment count and the seam's last-frame bookkeeping", () => {
-    // The chained-segments template's shape: the count and continuity are
-    // variables, which a realized workflow always carries
+  // The summary itself is flowChain.test.ts; here, that the node carries it
+  it('puts the chain summary on the node, null on a step without one', () => {
     const wf = {
-      variables: { segments: 3, continuity: 'last_frame', anchor: 'segment_1' },
       steps: [
-        chainStep({
-          segments: 'variable:segments',
-          continuity: 'variable:continuity',
-          anchor: 'variable:anchor',
-          trim_frames: 2,
-          crossfade_ms: 80,
-        }),
+        {
+          name: 'clip',
+          pipeline: {
+            configuration: { component_type: 'ModularPipeline' },
+            chain: { segments: 2 },
+          },
+        },
+        step('plain', {}),
       ],
     }
-    expect(dataFlowGraph(wf).nodes[0].chain).toEqual({
-      segments: 3,
-      fromAudio: false,
-      seam: 'last frame · trim 2 · 80ms',
-      anchor: true,
-    })
-  })
-
-  it('falls back to the engine defaults the block leaves out', () => {
-    const wf = { steps: [chainStep({ segments: 2 })] }
-    expect(dataFlowGraph(wf).nodes[0].chain).toEqual({
-      segments: 2,
-      fromAudio: false,
-      seam: 'last frame · trim 1 · 75ms',
-      anchor: false,
-    })
-  })
-
-  it('names what a guide or a video reference carries across the seam', () => {
-    const seam = (chain: Record<string, unknown>) =>
-      dataFlowGraph({ steps: [chainStep({ segments: 2, ...chain })] }).nodes[0]
-        .chain!.seam
-    expect(seam({ continuity: 'guide' })).toBe('guide · 22 frames')
-    expect(seam({ continuity: 'guide', guide_frames: 39 })).toBe(
-      'guide · 39 frames',
-    )
-    expect(seam({ continuity: 'last_segment' })).toBe('video reference')
-    expect(
-      seam({
-        continuity: 'last_segment',
-        carry_frames: 24,
-        carry_audio: false,
-      }),
-    ).toBe('video reference · 24 frames · no audio')
-    expect(seam({ continuity: 'variable:unset' })).toBe('carry')
-  })
-
-  it('leaves the count unknown when the length comes from audio or an unset variable', () => {
-    const fromAudio = dataFlowGraph({
-      steps: [chainStep({ match_audio: true })],
-    }).nodes[0].chain!
-    expect(fromAudio.segments).toBeNull()
-    expect(fromAudio.fromAudio).toBe(true)
-    const unset = dataFlowGraph({
-      steps: [chainStep({ segments: 'variable:missing' })],
-    }).nodes[0].chain!
-    expect(unset.segments).toBeNull()
-    expect(unset.fromAudio).toBe(false)
-  })
-
-  it('is null on a step with no chain', () => {
-    expect(dataFlowGraph({ steps: [step('plain', {})] }).nodes[0].chain).toBe(
-      null,
-    )
+    const [clip, plain] = dataFlowGraph(wf).nodes
+    expect(clip.chain?.segments).toBe(2)
+    expect(plain.chain).toBeNull()
   })
 })
