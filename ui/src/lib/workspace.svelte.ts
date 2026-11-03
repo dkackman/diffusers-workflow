@@ -83,6 +83,17 @@ export function checkWorkspaceExists(view: RouteView | null): void {
   }
 }
 
+/** The check with `names` counted as fetched for it - a name it lacks is
+ * missing, not refetched again. */
+function checkAgainstFreshListing(): void {
+  fresh = true
+  try {
+    checkWorkspaceExists(lastView)
+  } finally {
+    fresh = false
+  }
+}
+
 // The in-flight/completed listing, shared across every caller - the sidebar
 // and any page that needs names call loadWorkspaces() and would otherwise
 // refetch a listing that has not changed.
@@ -109,15 +120,15 @@ export function loadWorkspaces(): Promise<void> {
         // A route naming a workspace that has gone away (deleted elsewhere,
         // or a stale bookmark) is caught here for the route the app opened
         // on; `applyRouteWorkspace` catches every one after
-        fresh = true
-        try {
-          checkWorkspaceExists(lastView)
-        } finally {
-          fresh = false
-        }
+        checkAgainstFreshListing()
       } catch {
-        listed = false
-        workspace.names = [DEFAULT_WORKSPACE]
+        // The first listing failing leaves the fallback. A refetch failing
+        // (the one `checkWorkspaceExists` runs for a name the cache lacks)
+        // keeps the listing that landed: a server hiccup does not empty the
+        // sidebar, and the name that listing lacks is still called missing,
+        // since that listing is the only answer there is.
+        if (listed) checkAgainstFreshListing()
+        else workspace.names = [DEFAULT_WORKSPACE]
       }
     })()
   }
