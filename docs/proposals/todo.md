@@ -557,6 +557,14 @@ remaining deferred fix is recorded in
   none ignored. Record, including what was deferred (the 7 unmeasured
   moves, tier 2 in `cinematic-addons.md`):
   `complete/cinematic-controls-complete.md`.
+- **H3 dialogue pacing: split `<d>` blocks** (#1180, stages #1184, #1185),
+  shipped 2026-11-02. A non-turbo probe on lem found that splitting a short
+  line into two `<d>` blocks removes the silent lead-in on both seeds (the
+  first block is still fast; the pause sits between blocks). Body-action
+  prose between blocks adds nothing and isn't spoken. `minimax-h3`'s
+  `dialogue.md` and check-script line say so. Probe record:
+  `audits/2026-11-h3-dialogue-pacing-probes.md`; design record:
+  `complete/h3-dialogue-pacing-complete.md`. Enhancer follow-up: #1186.
 
 ## Declined
 
