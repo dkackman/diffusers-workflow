@@ -604,7 +604,7 @@ def test_a_workflow_without_presets_is_unchanged(): ...
 
 ### Task 30: GitHub hand-off
 
-- [ ] **Step 1: File the feature issue** "Long-form media" (`feature`, `owner:tester`, `backend:shared`, `target:lem`) linking the design and the record, with the plan as its plan comment (`<!-- harnest:plan v1 -->`) and `status:plan-approved` added by Don's approval of this plan (ask Don to add the label, since only Don may).
+- [ ] **Step 1: Hand the feature issue over.** #1199 already exists (filed 2026-11-03, `owner:don` + `status:plan-approved`, Don's authorization), and the 18 folded ideas are parked under it as `owner:don` + `parked` + `status:plan-approved`. At hand-off: link the design record on #1199, swap it to `owner:tester`, and post the hand-off comment.
 - [ ] **Step 2: File one `stage` issue per shipped behaviour** (Tasks 6, 7, 8, 9, 10, 12, 13, 14, 15, 18, 20, 21, 22, 23, 24-25, 27), each with: what was built; how to observe it over MCP (tool calls, workflow names in the `bench` workspace, arguments); the acceptance intent the tester writes cases from; the bench job ids that showed it; `breaking-change` where a default moved. Labels `stage`, `owner:tester`, `status:fixed-pending-verify`, `target:lem`.
 - [ ] **Step 3: Close every idea with its verdict.** For each of #1187-#1197, #1030, #1032, #1033, #1044, #1067, #1150, #1169: a comment with the bench numbers and the stage that shipped it (closed as completed by the tester through the stage) or the reason it lost (closed `not planned` now). A winner too large for this effort gets a follow-up feature issue (`idea`, `owner:lead`).
 - [ ] **Step 4: Post `bench/records/for-don.md`** as a comment on the feature issue: every taste call left open, each with a recommendation.
