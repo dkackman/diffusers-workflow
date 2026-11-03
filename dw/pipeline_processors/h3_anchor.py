@@ -26,7 +26,9 @@ names why.
 
 The concept follows H3MD Director's segment colour anchoring (concept only, no
 code; docs/ATTRIBUTIONS.md). The block module imports diffusers when it loads, so
-it is imported in `anchor_block()` only, as h3_guides does its blocks (#790).
+it is imported in `anchor_block()` only, as h3_guides does its blocks (#790); the
+statistics arithmetic it runs is `h3_anchor_stats.py`, re-exported here, so the
+block never imports this module back.
 """
 
 import logging
