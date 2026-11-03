@@ -502,7 +502,7 @@ def test_a_workflow_without_presets_is_unchanged(): ...
 - Test: `tests/test_text_takes.py`
 
 **Interfaces:**
-- Produces: `split_takes(text: str, max_seconds: float, words_per_second: float) -> list[str]` (sentence boundaries, never mid-sentence; a sentence longer than one take is split at its last comma before the limit) as a task `split_takes`; `narration-long` speaks each take with `voice-clone` under one seed and voice and joins them with `concat_audio` (or the existing join task) with a measured gap; `music-long` writes a piece longer than one Music 3 track (300 s) as sections joined with a crossfade at musical boundaries (`analyze_beats`, `join_into_song`).
+- Produces: `split_takes(text: str, max_seconds: float, words_per_second: float) -> list[str]` (sentence boundaries, never mid-sentence; a sentence longer than one take is split at its last comma before the limit) as a task `split_takes`; `narration-long` speaks each take with `voice-clone` under one seed and voice and joins them with `crossfade_audio` (`dw/tasks/joins.py`) with a measured gap; `music-long` writes a piece longer than one Music 3 track (300 s) as sections joined with a crossfade at musical boundaries (`analyze_beats`, `join_into_song`).
 
 - [ ] **Step 1: Check what exists.** `list_tasks` on the bench server for text splitting and audio joins; reuse before writing.
 - [ ] **Step 2: Write the failing tests** for `split_takes` (no take over the limit; no take ends mid-sentence unless the sentence alone is over it; the takes rejoin to the text).
