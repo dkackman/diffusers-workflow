@@ -195,8 +195,10 @@ def _merge_compounds(words, other):
     i = 0
     while i < len(words):
         for span in (3, 2):
+            if i + span > len(words):
+                continue
             joined = "".join(words[i : i + span])
-            if i + span <= len(words) and joined in targets:
+            if joined in targets:
                 out.append(joined)
                 i += span
                 break

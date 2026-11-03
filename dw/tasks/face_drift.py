@@ -244,8 +244,8 @@ def _measure_shot(video, index, shot, media, models, embedding, samples):
     where = _where(index, shot.get("name"), first, last, media.fps)
     indexes = _sample_indexes(start, count, media.frame_count, samples)
     matches = []
-    for index in indexes:
-        faces = _embeddings(detect, recognizer, _picture_at(video, index))
+    for frame in indexes:
+        faces = _embeddings(detect, recognizer, _picture_at(video, frame))
         if faces:
             matches.append(_best_match(recognizer, embedding, faces))
     return _shot_measurement(where, matches, len(indexes), len(matches))
