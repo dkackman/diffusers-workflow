@@ -26,13 +26,19 @@ names why.
 
 The concept follows H3MD Director's segment colour anchoring (concept only, no
 code; docs/ATTRIBUTIONS.md). The block module imports diffusers when it loads, so
-it is imported in `anchor_block()` only, as h3_guides does its blocks (#790).
+it is imported in `anchor_block()` only, as h3_guides does its blocks (#790); the
+statistics arithmetic it runs is `h3_anchor_stats.py`, re-exported here, so the
+block never imports this module back.
 """
 
 import logging
 
-import torch
-
+from .h3_anchor_stats import (  # noqa: F401 - re-exported
+    CHANNEL_DIMS,
+    STD_FLOOR,
+    channel_statistics,
+    match_channel_statistics,
+)
 from .h3_hold import core_denoise_sequences
 from .h3_guides import guide_frames_array
 from .h3_rules import (
@@ -43,43 +49,6 @@ from .h3_rules import (
 )
 
 logger = logging.getLogger("dw")
-
-# The floor a generated channel's std is held to, so a flat channel is moved
-# onto the anchor's mean rather than divided by zero
-STD_FLOOR = 1e-6
-# The dims a (batch, channel, frames, height, width) latent is reduced over
-CHANNEL_DIMS = (0, 2, 3, 4)
-
-
-def channel_statistics(latents):
-    """(mean, std) per channel of a (B, C, T, H, W) latent, each shaped
-    (1, C, 1, 1, 1), in float32 - over every batch item and latent position."""
-    values = latents.to(torch.float32)
-    mean = values.mean(dim=CHANNEL_DIMS, keepdim=True)
-    std = values.std(dim=CHANNEL_DIMS, keepdim=True, unbiased=False)
-    return mean, std
-
-
-def match_channel_statistics(latents, anchor_mean, anchor_std):
-    """`latents` (B, C, T, H, W) rescaled per channel to `anchor_mean` and
-    `anchor_std`: `(x - mean_x) / std_x * std_a + mean_a`, computed in float32
-    and returned in the latent's own dtype and device."""
-    if latents.dim() != 5:
-        raise ValueError(
-            f"latent_anchor works on a (batch, channel, frames, height, width) "
-            f"video latent, got shape {tuple(latents.shape)}"
-        )
-    values = latents.to(torch.float32)
-    mean, std = channel_statistics(values)
-    anchor_mean = anchor_mean.to(values.device, torch.float32).reshape(1, -1, 1, 1, 1)
-    anchor_std = anchor_std.to(values.device, torch.float32).reshape(1, -1, 1, 1, 1)
-    if anchor_mean.shape[1] != values.shape[1]:
-        raise ValueError(
-            f"latent_anchor has {anchor_mean.shape[1]} latent channels and the "
-            f"render {values.shape[1]}"
-        )
-    matched = (values - mean) / std.clamp_min(STD_FLOOR) * anchor_std + anchor_mean
-    return matched.to(latents.dtype)
 
 
 def anchor_block():

@@ -165,10 +165,66 @@ def gallery_metadata(
     `version` are that source run's own - `job.id` is still the one to
     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
     of its own to reopen. `inputs` is the source run's too (#902)."""
+    name = strip_output_prefix(name)
+    path, source, job, run_id, version, role, inputs, notes = _provenance(
+        request, name, ws
+    )
+    metadata = read_embedded_metadata(path)
+    if metadata is not None and not include_workflow and "workflow" in metadata:
+        metadata = {
+            **{k: v for k, v in metadata.items() if k != "workflow"},
+            "workflow_omitted": True,
+        }
+    extension = os.path.splitext(path)[1].lower()
+    kind = MEDIA_KINDS.get(extension)
+    try:
+        if kind in ("audio", "video"):
+            media = probe_media(
+                path,
+                envelope=envelope,
+                interval_seconds=interval_seconds,
+                pcm_hash=True,
+            )
+        elif kind == "image":
+            media = _image_media(path)
+        else:
+            media = None
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if kind == "image":
+        pass  # no shots in a still
+    elif media is not None and source == "output":
+        # Where each shot of a joined video sits, as the run that wrote
+        # it recorded (dw/shots.py) - null for a file not joined from shots
+        media["shots"] = recorded_shots(ws.outputs, name)
+    elif media is not None and source == "asset":
+        # keep_output carries the source run's shots into a sidecar
+        # manifest beside the asset (#393); a file kept before that fix,
+        # or never joined from shots, has none
+        media["shots"] = shots_beside(path)
+    return {
+        "name": name,
+        "source": source,
+        "metadata": metadata,
+        "job": job,
+        "run_id": run_id,
+        "version": version,
+        "media": media,
+        "findings": level_findings(media, (media or {}).get("shots")),
+        "role": role,
+        "inputs": inputs,
+        **notes,
+    }
+
+
+def _provenance(request, name, ws):
+    """Where `name` lives and which run made it: `(path, source, job, run_id,
+    version, role, inputs, notes)`. An `asset:` name is read from the asset
+    root with the provenance `keep_output` left beside it; anything else is an
+    output, with the run's manifest and the listing's annotations."""
     run_id, version = "", None
     role, inputs = None, None
     notes = {}
-    name = strip_output_prefix(name)
     if is_asset_reference(name):
         path = asset_file(request.app.state, name, ws)
         source, job = "asset", None
@@ -219,52 +275,7 @@ def gallery_metadata(
                 for key in ("note", "note_source", "starred", "run_note")
                 if key in annotated
             }
-    metadata = read_embedded_metadata(path)
-    if metadata is not None and not include_workflow and "workflow" in metadata:
-        metadata = {
-            **{k: v for k, v in metadata.items() if k != "workflow"},
-            "workflow_omitted": True,
-        }
-    extension = os.path.splitext(path)[1].lower()
-    kind = MEDIA_KINDS.get(extension)
-    try:
-        if kind in ("audio", "video"):
-            media = probe_media(
-                path,
-                envelope=envelope,
-                interval_seconds=interval_seconds,
-                pcm_hash=True,
-            )
-        elif kind == "image":
-            media = _image_media(path)
-        else:
-            media = None
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    if kind == "image":
-        pass  # no shots in a still
-    elif media is not None and source == "output":
-        # Where each shot of a joined video sits, as the run that wrote
-        # it recorded (dw/shots.py) - null for a file not joined from shots
-        media["shots"] = recorded_shots(ws.outputs, name)
-    elif media is not None and source == "asset":
-        # keep_output carries the source run's shots into a sidecar
-        # manifest beside the asset (#393); a file kept before that fix,
-        # or never joined from shots, has none
-        media["shots"] = shots_beside(path)
-    return {
-        "name": name,
-        "source": source,
-        "metadata": metadata,
-        "job": job,
-        "run_id": run_id,
-        "version": version,
-        "media": media,
-        "findings": level_findings(media, (media or {}).get("shots")),
-        "role": role,
-        "inputs": inputs,
-        **notes,
-    }
+    return path, source, job, run_id, version, role, inputs, notes
 
 
 def _image_media(path):
