@@ -27,4 +27,8 @@ A code change needs `stop`, `deploy`, `start`: the server runs persistent worker
 
 ## Host RAM rule
 
-The two servers do not share the host-RAM hold. lem has 125 GB; see the Task 1 report for the measured budget. If a bench job and a main-server job could together exceed it, run the bench only while the main server is idle.
+The two servers do not share the host-RAM hold. lem has 125 GB (122 GB available idle), but no recent H3 chain with a projected `host_ram_need` was on the main server to confirm that both servers' largest jobs fit together. Until that is measured, run the bench only while the main server is idle (`curl localhost:8765/api/jobs?status=running` on lem).
+
+## Reaching it from the Mac
+
+lem's firewall passes 8765 but not 8766 (a rule needs sudo: `sudo ufw allow 8766/tcp`, if ufw is the filter). Until then, tunnel: `ssh -f -N -L 18766:127.0.0.1:8766 lem`, then use `http://127.0.0.1:18766`.
