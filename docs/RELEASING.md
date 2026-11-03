@@ -49,6 +49,94 @@ A PyPI install gets released `diffusers`, which may lag the newest pipelines; in
 
 GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
 
+### 0.19.0
+
+<!-- Drafted from v0.18.0..develop at release prep (2026-11-03). Paste into the GitHub release body once the tag has published: gh release edit v0.19.0 --notes-file ... -->
+
+This release is about long H3 chains: two off-by-default ways to hold a
+chain's look across its segments, a measurement that says whether the look
+drifted, a LoRA that was probed against burn, and the skill lines that came
+out of the probes. Alongside it, FLUX 3 Klein no longer loads a model it
+never runs, and the web UI draws a chained step as its segments.
+
+**H3 chain drift** (#1166, #1173, #1174, #1181)
+
+- `latent_anchor`, an H3 `t2va`/`fl2va` argument, matches each segment's
+  per-channel latent statistics to a reference clip before decode.
+  `chain.anchor: "segment_1"` uses the chain's own first segment. It is off
+  unless set, and the run logs one line per anchored call naming the source.
+  The argument meets the media location policy at validate: a bare server
+  path, `..`, `file://` or a loopback URL is refused there.
+- `guide_noise`, a number in [0, 1), loosens every video guide on the step:
+  cosine-tapered Gaussian noise from the guide's first frame to clean at
+  its last, encoded once under the guide's seed. A seeded run repeats.
+- A ten-segment, two-scene probe found the anchor best on a static scene and
+  worst on a moving-camera arc, and guide noise alone the only arm that did
+  not hurt the arc. No template or skill sets either yet; the H3 skill's
+  `chains.md` says what the community reports agree on (#1167).
+- Imagineer13's anti-burn LoRA is in the catalog as
+  `minimax-h3/h3-antiburn`, marked `trial` (#1151, #1159). On a five-segment
+  chain it held segment 1's skin, knit and wall where the unaided chain had
+  burnt by segment 5.
+
+**Measuring drift** (#1152, #1160, #1139, #1158)
+
+- `compare_outputs(names, texture_bands=true)` reports the RMS texture
+  energy per output per moment in three wavelength bands, fine (2-8 px), mid
+  (8-32 px) and coarse (32-128 px), on luma and both chroma differences,
+  over one shared crop, with ratios to the baseline. One name is allowed,
+  so a chain's own segments can be read across. It is a measurement, not a
+  score; the guide's *Texture bands* section says how to read it.
+- `get_gallery_metadata` carries `pcm_sha256`, a SHA-256 of the decoded
+  samples, with `sample_format` and `frames`, for any file with a
+  soundtrack: an identity check for audio over MCP.
+
+**Assessment fixes**
+
+- A `stills_to_video` clip's silent track no longer raises `near_silent` or
+  mono-duplication warnings, `assess_output` no longer reports
+  `shot_dead_air` on its shots, and a cut whose shots are all silent by
+  design no longer warns near-silent (#1161, #1162, #1163). One predicate
+  decides it everywhere.
+- `shot_span_overrun` findings carry severity `warn`; `seam_hole` leaves
+  `rules_applied` when it was skipped on every seam (#1179).
+- `face_drift` measurements and findings name the shot's index, frames and
+  times (#1165), and the `script-to-video` skill says what to do on one
+  (#1178).
+- `check-script` no longer counts a compound Whisper closed that the script
+  wrote open ('candle crumbs' / 'candlecrumbs') against line similarity
+  (#1172).
+
+**FLUX 3 Klein** (#1168)
+
+- Loading Klein on an empty 24 GB card no longer runs out of memory: the
+  pipeline loads only its four components, not the repository's 18.8 GB
+  prompt upsampler, and `configuration.remove_blocks` pops the upsampler
+  block off the modular graph. The step cache keys follow the names.
+- The `controlnet` template passes Canny's thresholds beside `image`, where
+  the detector reads them.
+
+**Skills**
+
+- `minimax-h3`: splitting a short line into two `<d>` blocks removes the
+  lead-in; action prose between blocks is not a pacing rule (#1180, #1184,
+  #1185). `check-script` takes each block's contents, never the prose between.
+- `cinematography`: one light phrase per value in the LTX-2.5, H3 and Klein
+  compile tables (#1142); six named moves measured per video family (#1148).
+- `series-episodes` keeps cast portraits with an extensionless asset name
+  (#1154); the sitcom multicam master sets `move: static` (#1157).
+
+**Web UI and docs**
+
+- A chained step draws its segments: the count when the definition gives
+  it, what each seam carries, and the running segment while the job runs.
+- A workspace named in the URL that the cached listing lacks is refetched
+  once before the UI decides it is gone.
+- Every guide had an accuracy and concision pass, with page screenshots in
+  the README and SERVER guide. The workflow schema's `$id` names this
+  repository, and the HTTP API's OpenAPI document and the schema are linked
+  from the docs.
+
 ### 0.18.0
 
 <!-- Drafted from v0.17.0..develop at release prep (2026-11-01). Paste into the GitHub release body once the tag has published: gh release edit v0.18.0 --notes-file ... -->
