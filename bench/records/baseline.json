@@ -1,0 +1,212 @@
+[
+  {
+    "arm": "control-s1-seed2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "4282a9c7f0c8",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-031311-3ab97814/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.9266666666666666,
+      "seam_jump_max": 1.45,
+      "seam_look_mean": 1.3233333333333333,
+      "seam_look_max": 2.23,
+      "seam_level_step_db_mean": 11.183333333333334,
+      "seam_level_step_db_max": 17.74,
+      "texture_fine_seg_last": 1.0201111779244663,
+      "texture_mid_seg_last": 0.3860839420115827,
+      "texture_coarse_seg_last": 0.046858716343750044,
+      "wall_minutes": 21.279575717449188
+    }
+  },
+  {
+    "arm": "control-s2-seed2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "911cf038e1d1",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-033426-51d13983/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.1633333333333333,
+      "seam_jump_max": 1.83,
+      "seam_look_mean": 1.2111111111111112,
+      "seam_look_max": 1.77,
+      "seam_level_step_db_mean": 6.846666666666668,
+      "seam_level_step_db_max": 24.46,
+      "texture_fine_seg_last": 3.386474702125032,
+      "texture_mid_seg_last": 3.378192274816704,
+      "texture_coarse_seg_last": 2.9058749743617796,
+      "wall_minutes": 17.863606576124827
+    }
+  },
+  {
+    "arm": "control-s3-seed2",
+    "scene": "s3-dialogue-walk",
+    "seed": 2,
+    "job_id": "f93a17539b2a",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS3DialogueWalk/20261104-035218-d2733a3a/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.192,
+      "seam_jump_max": 1.69,
+      "seam_look_mean": 1.06,
+      "seam_look_max": 1.64,
+      "seam_level_step_db_mean": 2.59,
+      "seam_level_step_db_max": 6.22,
+      "texture_fine_seg_last": 0.293776369695831,
+      "texture_mid_seg_last": 0.22550331446142596,
+      "texture_coarse_seg_last": 0.29862160095698154,
+      "wall_minutes": 10.578909420967102
+    }
+  },
+  {
+    "arm": "control-s4-seed2",
+    "scene": "s4-montage",
+    "seed": 2,
+    "job_id": "1a0f702c9e85",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS4Montage/20261104-040255-9813688b/final/BenchS4Montage-film.14-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 19.753333333333334,
+      "seam_jump_max": 22.64,
+      "seam_look_mean": 17.22,
+      "seam_look_max": 23.4,
+      "seam_level_step_db_mean": 1.86,
+      "seam_level_step_db_max": 2.35,
+      "texture_fine_seg_last": 1.0392178603891866,
+      "texture_mid_seg_last": 0.19872986814382518,
+      "texture_coarse_seg_last": 0.6681090796511284,
+      "wall_minutes": 20.203961877028146
+    }
+  },
+  {
+    "arm": "control-s5-seed2",
+    "scene": "s5-ltx-action",
+    "seed": 2,
+    "job_id": "958d1ee9d7c7",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS5LtxAction/20261104-031441-74587ca7/final/BenchS5LtxAction-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.17,
+      "seam_jump_max": 1.95,
+      "seam_look_mean": 1.31,
+      "seam_look_max": 1.73,
+      "seam_level_step_db_mean": 3.5650000000000004,
+      "seam_level_step_db_max": 5.98,
+      "texture_fine_seg_last": 0.5121222203819994,
+      "texture_mid_seg_last": 0.8211880233415666,
+      "texture_coarse_seg_last": 0.34714888810802724,
+      "wall_minutes": 3.6416345477104186
+    }
+  },
+  {
+    "arm": "control-s6-seed2",
+    "scene": "s6-narration",
+    "seed": 2,
+    "job_id": "c3da32af6ac0",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS6Narration/20261104-031331-66be03f2/final/BenchS6Narration-film.9-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 40.2,
+      "seam_jump_max": 45.33,
+      "seam_look_mean": 70.635,
+      "seam_look_max": 82.75,
+      "seam_level_step_db_mean": 12.485,
+      "seam_level_step_db_max": 17.59,
+      "texture_fine_seg_last": 1.4010987900525822,
+      "texture_mid_seg_last": 1.2212536933691236,
+      "texture_coarse_seg_last": 0.8530977746815804,
+      "wall_minutes": 1.17655055920283
+    }
+  },
+  {
+    "arm": "best-s1-seed1166",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "3603455d0c2a",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-042305-3bcc7171/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.71,
+      "seam_jump_max": 0.78,
+      "seam_look_mean": 0.7322222222222222,
+      "seam_look_max": 1.67,
+      "seam_level_step_db_mean": 6.153333333333333,
+      "seam_level_step_db_max": 17.1,
+      "texture_fine_seg_last": 0.12281329071298945,
+      "texture_mid_seg_last": 0.12591968488307506,
+      "texture_coarse_seg_last": 0.04795116479393186,
+      "wall_minutes": 25.81393301486969
+    }
+  },
+  {
+    "arm": "best-s1-seed2",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "75f765edb2da",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-044853-894054fa/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.7077777777777778,
+      "seam_jump_max": 0.84,
+      "seam_look_mean": 0.8333333333333334,
+      "seam_look_max": 1.9,
+      "seam_level_step_db_mean": 7.248888888888889,
+      "seam_level_step_db_max": 14.75,
+      "texture_fine_seg_last": 0.022018064701662118,
+      "texture_mid_seg_last": 0.08473033239469573,
+      "texture_coarse_seg_last": 0.044340428064213094,
+      "wall_minutes": 22.743692163626353
+    }
+  },
+  {
+    "arm": "best-s2-seed1166",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "d2a6892e316d",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-051138-5de055bd/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.0588888888888888,
+      "seam_jump_max": 1.65,
+      "seam_look_mean": 1.2166666666666666,
+      "seam_look_max": 1.8,
+      "seam_level_step_db_mean": 2.537777777777778,
+      "seam_level_step_db_max": 8.5,
+      "texture_fine_seg_last": 3.2384555405664814,
+      "texture_mid_seg_last": 2.098823041067278,
+      "texture_coarse_seg_last": 2.0967858300268203,
+      "wall_minutes": 17.970901489257812
+    }
+  },
+  {
+    "arm": "best-s2-seed2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "1e6617922f42",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc/20261104-052935-e40247b8/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.0577777777777777,
+      "seam_jump_max": 1.59,
+      "seam_look_mean": 1.4366666666666665,
+      "seam_look_max": 2.4,
+      "seam_level_step_db_mean": 3.7477777777777774,
+      "seam_level_step_db_max": 7.25,
+      "texture_fine_seg_last": 0.31886725381461656,
+      "texture_mid_seg_last": 0.7244061149423758,
+      "texture_coarse_seg_last": 0.6962845205153961,
+      "wall_minutes": 17.924632473786673
+    }
+  }
+]
