@@ -164,6 +164,7 @@
           }
         ],
         "chain": {
+          "prompts": "variable:prompts",
           "segments": "variable:segments",
           "continuity": "variable:continuity",
           "guide_frames": "variable:guide_frames",

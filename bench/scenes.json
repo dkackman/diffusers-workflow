@@ -12,7 +12,8 @@
       "frame:481",
       "frame:990"
     ],
-    "face_reference": "asset:bench/static-stripes.jpg"
+    "face_reference": "asset:bench/static-stripes.jpg",
+    "crop_verified": true
   },
   {
     "name": "s2-arc",
@@ -26,7 +27,8 @@
       "frame:62",
       "frame:481",
       "frame:990"
-    ]
+    ],
+    "crop_verified": true
   },
   {
     "name": "s3-dialogue-walk",
@@ -49,7 +51,8 @@
       "Funny how a place waits for you without asking.",
       "Maybe that is what I was afraid of.",
       "Well. Let's see if the door still sticks."
-    ]
+    ],
+    "crop_verified": false
   },
   {
     "name": "s4-montage",
@@ -63,7 +66,8 @@
       "frame:62",
       "frame:186",
       "frame:434"
-    ]
+    ],
+    "crop_verified": false
   },
   {
     "name": "s5-ltx-action",
@@ -77,7 +81,8 @@
       "frame:60",
       "frame:180",
       "frame:299"
-    ]
+    ],
+    "crop_verified": false
   },
   {
     "name": "s6-narration",
@@ -96,6 +101,7 @@
       "The keeper climbed the stairs every evening, long before the storm.",
       "By the time he reached the lamp, the sea had already gone dark.",
       "Then the light turned, and the whole coast could see him."
-    ]
+    ],
+    "crop_verified": false
   }
 ]

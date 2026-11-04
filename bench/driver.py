@@ -41,6 +41,7 @@ class Scene:
     moments: list  # "frame:N" at segments 1, middle and last
     face_reference: str | None = None
     lines: list | None = None
+    crop_verified: bool = False
 
 
 def load_arms(path):
@@ -66,6 +67,7 @@ def load_scenes(path):
             moments=s["moments"],
             face_reference=s.get("face_reference"),
             lines=s.get("lines"),
+            crop_verified=s.get("crop_verified", False),
         )
         for s in data
     }

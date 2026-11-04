@@ -23,6 +23,7 @@
     "frame_rate": 24.0,
     "num_frames": 121,
     "segments": 3,
+    "continuity": "last_frame",
     "image": "asset:bench/runner.png",
     "seed": 1166
   },
@@ -144,7 +145,7 @@
         "chain": {
           "segments": "variable:segments",
           "prompts": "variable:prompts",
-          "continuity": "last_frame",
+          "continuity": "variable:continuity",
           "segment_argument": "image",
           "trim_frames": 2,
           "crossfade_ms": 80,

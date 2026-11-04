@@ -66,3 +66,11 @@ def test_scenes_are_well_formed():
 def test_s2_reproduces_the_1175_arc_crop():
     scenes = driver.load_scenes(BENCH / "scenes.json")
     assert scenes["s2-arc"].crop == [0, 0, 240, 150]
+
+
+def test_a_workflow_declaring_prompts_references_it():
+    for path in sorted((BENCH / "workflows").glob("*.json")):
+        definition = json.loads(path.read_text())
+        if "prompts" in (definition.get("variables") or {}):
+            steps = json.dumps(definition.get("steps"))
+            assert "variable:prompts" in steps, path.name
