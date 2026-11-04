@@ -5,8 +5,9 @@ keep it from drifting.
 
 ## A guide seam
 
-`templates/minimax/chained-segments` with `continuity: "guide"` holds the
-previous segment's last `guide_frames` and its voice as a guide.
+`templates/minimax/chained-segments` defaults to `continuity: "guide"` (best
+for every shot type; `last_frame` is the rare case) and holds the previous
+segment's last `guide_frames` and its voice as a guide.
 
 - The guide prefix is trimmed off the deliverable, so `trim_frames` and the
   crossfade do not apply.

@@ -1968,7 +1968,8 @@ without flattening a deliberate change in light.
 | frames | cut to a whole-latent length (1, 5 or 17m + 5) |
 | `refine_tiles` | refused beside `latent_anchor`, as the other per-call H3 arguments are |
 
-`workflows/templates/minimax/chained-segments.json` takes `continuity` and
+`workflows/templates/minimax/chained-segments.json` takes `continuity` (default
+`guide`, measured best for every shot type; `last_frame` is the uncommon case) and
 `guide_frames` as variables. The `ref2va` chains (`chain-video-continuity` and the
 `match_audio` chains) keep `last_segment`.
 

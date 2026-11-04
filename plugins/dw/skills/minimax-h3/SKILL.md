@@ -55,9 +55,8 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Longer than 14.4 seconds**: chain when one action or line of speech
   crosses the seam, cut when the scene changes.
 - **As one take (a chain)**: `templates/minimax/chained-segments`
-  (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
-  22 or 39 - default 22 - holds the last frames and voice as a guide instead;
-  guide only here),
+  (default `continuity: "guide"`, `guide_frames` 22 or 39 - default 22 -
+  holds the last frames and voice as a guide; `last_frame` is the rare case),
   `templates/minimax/chain-video-continuity`
   (previous segment's tail rides as a video reference - motion, camera,
   voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track

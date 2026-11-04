@@ -35,8 +35,9 @@ def test_shot_static_applies_the_anchor_at_a_quarter_on_guide():
     assert chain["anchor_strength"] == 0.25
 
 
-def test_shot_moving_applies_no_anchor():
+def test_shot_moving_is_guide_with_no_counters():
     chain = _chain({"shot": "moving"})
+    assert chain["continuity"] == "guide"
     assert chain.get("anchor") in (None, "none")
     assert chain.get("anchor_strength") is None
 
@@ -61,14 +62,25 @@ def test_explicit_continuity_beats_the_bundle():
     )
 
 
-def test_default_chain_block_is_todays():
-    """The template as it was before `shot`, expanded: its chain block is
-    today's plus the anchor's explicit 'none' (the chain's own default)."""
-    old = Workflow(json.loads(BEFORE.read_text()), None, str(BEFORE))
-    today = old.expanded_definition({})["steps"][0]["pipeline"]["chain"]
+def test_default_is_guide_with_no_counters():
     chain = _chain()
+    assert chain["continuity"] == "guide"
+    assert chain["guide_frames"] == 22
+    assert chain["anchor"] == "none"
+    assert chain.get("anchor_strength") is None
+    for shot in ("static", "moving", "dialogue"):
+        assert _chain({"shot": shot})["continuity"] == "guide"
+    assert json.loads(TEMPLATE.read_text())["variables"]["continuity"] == "guide"
+
+
+def test_continuity_last_frame_is_still_the_old_chain_block():
+    """The template as it was before `shot`, expanded: with continuity
+    last_frame its chain block is today's plus the anchor's explicit 'none'."""
+    old = Workflow(json.loads(BEFORE.read_text()), None, str(BEFORE))
+    before = old.expanded_definition({})["steps"][0]["pipeline"]["chain"]
+    chain = _chain({"continuity": "last_frame"})
     assert chain.pop("anchor") == "none"
-    assert chain == today
+    assert chain == before
 
 
 def test_description_states_the_rules():
@@ -81,5 +93,6 @@ def test_description_states_the_rules():
         "look_hold",
         "carry_pick",
         "camera move",
+        "Guide is the default",
     ):
         assert phrase in description, phrase
