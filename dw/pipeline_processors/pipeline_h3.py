@@ -9,7 +9,12 @@ and the rest are still named from there; the rules they apply live in
 """
 
 from .h3_anchor import anchor_refusal, prepared_anchor
-from .h3_guides import guide_frames_array, guides_refusal, prepared_guide
+from .h3_guides import (
+    guide_frames_array,
+    guides_refusal,
+    prepared_guide,
+    source_frame_rate,
+)
 from .h3_hold import hold_audio_reference, holds_audio, refines
 from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
 from .h3_rules import (
@@ -21,6 +26,8 @@ from .h3_rules import (
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HELD_VIDEO_OUTPUT,
+    HELD_VIDEO_RATE_OUTPUT,
+    H3_FPS,
     HOLD_AUDIO_INPUT,
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
@@ -33,6 +40,7 @@ from .h3_rules import (
     edits_region,
     is_audio_pass,
     listen_canvas,
+    retimed_indices,
     anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
@@ -52,12 +60,18 @@ def latent_anchor_source(chain_source, value):
     return "the frames given in the step's arguments"
 
 
-def with_audio_pass(pipeline, arguments, where):
+def with_audio_pass(pipeline, arguments, where, fps):
     """An audio pass's arguments (dw/pipeline_processors/h3_mask.py): the
-    full-size source as `HELD_VIDEO_OUTPUT`, asked for beside `videos` so
-    the result plays it in place of the decode, and at a `listen_scale`
-    below 1 the canvas scaled and the source area-resampled onto it. The
-    frame count - and so the audio's length - is the source's either way.
+    full-size source as `HELD_VIDEO_OUTPUT` and its rate `fps` as
+    `HELD_VIDEO_RATE_OUTPUT`, asked for beside `videos` so the result plays
+    the source's own frames at the source's own rate in place of the decode.
+
+    The conditioning is what the kept rows encode. At any rate but H3_FPS it
+    is the source retimed to 24 fps over its own duration (`retimed_indices`),
+    and `num_frames` that count, so the audio generated covers the source's
+    real length; a 24 fps source is conditioned on as it is (R25). At a
+    `listen_scale` below 1 the canvas is scaled and the conditioning
+    area-resampled onto it.
 
     Raises:
         ValueError: If this pipeline has no audio-pass blocks
@@ -69,15 +83,29 @@ def with_audio_pass(pipeline, arguments, where):
         )
     source = arguments[SOURCE_VIDEO_INPUT]
     arguments[HELD_VIDEO_OUTPUT] = source
+    arguments[HELD_VIDEO_RATE_OUTPUT] = fps
+    if fps != H3_FPS:
+        indices = retimed_indices(len(source), fps)
+        arguments[SOURCE_VIDEO_INPUT] = source[indices]
+        arguments["num_frames"] = len(indices)
+        emit_log(
+            f"Audio pass: the source runs at {fps:g} fps - conditioning on "
+            f"{len(indices)} frames retimed to {H3_FPS} fps; the result plays "
+            f"its own {len(source)} frames at {fps:g} fps",
+            source_fps=fps,
+            conditioning_frames=len(indices),
+        )
     scale = arguments.get(LISTEN_SCALE_INPUT)
     if scale is not None and scale != 1:
         width, height = listen_canvas(arguments["width"], arguments["height"], scale)
         arguments["width"], arguments["height"] = width, height
-        arguments[SOURCE_VIDEO_INPUT] = listen_frames(source, width, height)
+        arguments[SOURCE_VIDEO_INPUT] = listen_frames(
+            arguments[SOURCE_VIDEO_INPUT], width, height
+        )
     output = arguments.get("output")
     names = [output] if isinstance(output, str) else list(output or [])
     if "videos" in names:
-        arguments["output"] = names + [HELD_VIDEO_OUTPUT]
+        arguments["output"] = names + [HELD_VIDEO_OUTPUT, HELD_VIDEO_RATE_OUTPUT]
     return arguments
 
 
@@ -266,13 +294,25 @@ class H3Arguments:
         problems = mask_problems(arguments, chained=self.segment_label is not None)
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
+        # Decided before the mask is popped below, so an edit is never misread
+        audio_pass = is_audio_pass(arguments)
         arguments = dict(arguments)
         try:
             source = guide_frames_array(arguments[SOURCE_VIDEO_INPUT])
         except ValueError as e:
             raise ValueError(f"{where}: {SOURCE_VIDEO_INPUT} is not a video: {e}")
-        arguments[SOURCE_VIDEO_INPUT] = source
         frames, height, width = source.shape[:3]
+        fps = None
+        if audio_pass:
+            fps = source_frame_rate(arguments[SOURCE_VIDEO_INPUT], frames)
+            if fps is None:
+                raise ValueError(
+                    f"{where}: an audio pass plays the source_video's own frames "
+                    f"at its own frame rate, and this source carries no frame "
+                    f"rate and no soundtrack to time it by - pass a video file "
+                    f"that declares its rate, or a step's video result"
+                )
+        arguments[SOURCE_VIDEO_INPUT] = source
         for key, value in (
             ("width", width),
             ("height", height),
@@ -286,6 +326,7 @@ class H3Arguments:
             arguments["width"],
             arguments["height"],
             arguments["num_frames"],
+            fps,
         )
         name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
         if name is not None:
@@ -313,8 +354,8 @@ class H3Arguments:
             arguments[REGENERATE_MASK] = mask
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
-        if is_audio_pass(arguments):
-            return with_audio_pass(self.pipeline, arguments, where)
+        if audio_pass:
+            return with_audio_pass(self.pipeline, arguments, where, fps)
         return arguments
 
     def _check_refine(self, arguments):

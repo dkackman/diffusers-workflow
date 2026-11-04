@@ -882,6 +882,8 @@ AUDIO_PASS_ROWS = "dw_audio_pass_rows"
 # The source's own frames at full size, uint8 - what the result plays in
 # place of the decode (dw/output_extraction.py), as dw_held_audio is for audio
 HELD_VIDEO_OUTPUT = "dw_held_video"
+# The rate those frames play at: the source's own, never H3's 24 (R25)
+HELD_VIDEO_RATE_OUTPUT = "dw_held_video_fps"
 # The refine arguments an audio pass has no use for: no video row is re-denoised
 AUDIO_PASS_REFUSES = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
 
@@ -1001,18 +1003,36 @@ def _audio_pass_problems(arguments):
 
 def listen_canvas(width, height, scale):
     """The (width, height) an audio pass at `scale` runs its kept rows on: the
-    source's canvas scaled and snapped to the nearest TILE_GRID multiple, ties
-    up, never below one cell of it."""
-    return tuple(
-        max(TILE_GRID, int(side * scale / TILE_GRID + 0.5) * TILE_GRID)
-        for side in (width, height)
-    )
+    shorter side scaled and snapped to the nearest TILE_GRID multiple, ties
+    up, the longer derived from the source's aspect and snapped the same way,
+    neither below one cell of the grid. Snapping each side on its own would
+    squeeze 960x544 at 0.25 to 256x128, 13% off its aspect."""
+
+    def snapped(side):
+        return max(TILE_GRID, int(side / TILE_GRID + 0.5) * TILE_GRID)
+
+    short = snapped(min(width, height) * scale)
+    long = snapped(short * max(width, height) / min(width, height))
+    return (long, short) if width >= height else (short, long)
 
 
-def media_problems(name, shape, width, height, num_frames=None):
+def retimed_indices(frame_count, fps):
+    """The source frame each conditioning frame of an audio pass shows: the
+    source's `frame_count` frames at `fps` resampled in time, nearest frame,
+    to H3_FPS over the same duration, the count snapped up onto RENDER_GRID
+    as `num_frames` is (the frames past the end repeat the last). The video
+    rows then encode a 24 fps picture of the same moments, and the audio
+    generated against them covers the source's real duration (R25)."""
+    count = aligned(max(1, round(frame_count / fps * H3_FPS)), RENDER_GRID)
+    return [min(frame_count - 1, int(i * fps / H3_FPS + 0.5)) for i in range(count)]
+
+
+def media_problems(name, shape, width, height, num_frames=None, fps=None):
     """Why a `source_video` or mask of `shape` - (frames, height, width) -
     does not fit a `width` x `height` canvas, as a list. `num_frames` is the
-    step's frame count, when it is known; a `mask_image` (one frame) fits any."""
+    step's frame count, when it is known; a `mask_image` (one frame) fits any.
+    `fps` is an audio pass's source rate: at any rate but H3_FPS the source is
+    retimed onto the grid (`retimed_indices`), so its own count need not be."""
     problems = []
     if (width, height) != (shape[2], shape[1]):
         problems.append(
@@ -1024,7 +1044,9 @@ def media_problems(name, shape, width, height, num_frames=None):
             f"{name} has {shape[0]} frames, and the step renders num_frames="
             f"{num_frames} - they must match"
         )
-    elif num_frames is not None and name == SOURCE_VIDEO_INPUT:
+    elif (
+        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
+    ):
         # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
         # is padded to fit, so the mask drifts in time and the output is longer
         # than the source: refused here, where the count can still be changed

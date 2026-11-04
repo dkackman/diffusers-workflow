@@ -195,6 +195,33 @@ def guide_frames_array(value):
     return np.ascontiguousarray(value)
 
 
+def source_frame_rate(value, frame_count):
+    """The rate a video argument plays at: the rate it carries at any level a
+    step's result wraps it in (a FrameList's, an AudioVideo's, a
+    FittedVideo's), else the rate its own soundtrack's length gives its
+    `frame_count` frames, else None - what `guide_frames_array` drops."""
+    from ..media_types import sample_axis
+
+    seconds = None
+    while value is not None:
+        fps = getattr(value, "fps", None)
+        if isinstance(fps, (int, float)) and not isinstance(fps, bool) and fps > 0:
+            return fps
+        audio, rate = getattr(value, "audio", None), getattr(value, "sample_rate", None)
+        axis = sample_axis(audio) if hasattr(audio, "ndim") else None
+        if seconds is None and axis is not None and rate and audio.shape[axis]:
+            seconds = audio.shape[axis] / rate
+        if hasattr(value, "value") and hasattr(value, "position"):
+            value = value.value
+        elif hasattr(value, "frames") and hasattr(value, "audio"):
+            value = value.frames
+        elif isinstance(value, (list, tuple)) and len(value) == 1:
+            value = value[0]
+        else:
+            break
+    return frame_count / seconds if seconds else None
+
+
 def prepared_guide(where, index, guide, base_dir):
     """One `guides` entry checked and read: its clip as uint8 frames cut to
     a whole-latent length, with its soundtrack when it asks for one."""

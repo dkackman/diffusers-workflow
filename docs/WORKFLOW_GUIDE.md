@@ -2310,7 +2310,9 @@ it over the generated rows and re-denoises from `refine_strength`, which is requ
 in (0, 1]: 1.0 regenerates the masked region from pure noise, and about 0.9 replaces an
 object in it (see [Choosing refine_strength for a regional
 edit](#choosing-refine_strength-for-a-regional-edit)). (Without a `source_video` the refine's range stays (0, 1).) With no
-mask the whole source is refined.
+mask and a `hold_audio`, the whole source is refined under that soundtrack. With no mask
+and no `hold_audio`, the call is not a refine at all: it is the audio pass (see [Audio over
+a finished picture](#audio-over-a-finished-picture)).
 
 ```json
 {
@@ -2417,13 +2419,22 @@ Run it without a distillation LoRA, on the dialogue schedule (`num_inference_ste
 `video_shift` 12, `audio_shift` 3): the turbo LoRA is what makes H3 voices sound
 digital (#984). `listen_scale` (1, 0.5 or 0.25, default 1) encodes the source at that
 fraction of its canvas, area-resampled and snapped to 32 px, which is cheaper per step.
-The audio's length still follows the source's frame count, and the picture returned is the
+The scale keeps the source's aspect: the shorter side is snapped and the longer derived from
+it. The audio's length still follows the source's duration, and the picture returned is the
 full-size source. `width`, `height` and `num_frames` stay the source's, as for an edit.
+
+The result keeps the source's own frame rate. A source at 24 fps is conditioned on as it
+is. A source at another rate (30 fps, say) is conditioned on a copy retimed to H3's 24 fps
+over the same duration, nearest frame, its count snapped up onto the `17n + 5` grid. The
+step returns the source's own frames at the source's own rate, with the track trimmed to the
+source's duration, so its own frame count need not be on the grid. The rate comes from the
+file or the step result that supplied the video, or else from the length of its soundtrack.
+A source with neither is refused.
 
 Validation and the call refuse `refine_strength`, `refine_sigmas` or `refine_tiles` on an
 audio pass (no video row is re-denoised; pass `hold_audio` for a whole-source refine
 instead), a `listen_scale` other than those three, a `listen_scale` on a step that is not
-an audio pass, and an audio pass on a chained step or beside `latents`. A draft template
+an audio pass (on any pipeline, H3 or not), and an audio pass on a chained step or beside `latents`. A draft template
 is `bench/workflows/add-sound.json`; it is not in the catalog yet.
 
 ### Refining above 768p in tiles

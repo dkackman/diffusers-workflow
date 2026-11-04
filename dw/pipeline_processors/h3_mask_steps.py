@@ -26,6 +26,7 @@ from .h3_mask_cells import keep_rows
 from .h3_rules import (
     AUDIO_PASS_ROWS,
     HELD_VIDEO_OUTPUT,
+    HELD_VIDEO_RATE_OUTPUT,
     KEEP_ROWS,
     LISTEN_SCALE_INPUT,
     MASK_GROW_DEFAULT,
@@ -272,6 +273,14 @@ class DwH3AudioPassStep(ModularPipelineBlocks):
                 description=(
                     "Internal: the source's own frames at full size, uint8 - set for an audio pass only, "
                     "and what the result plays in place of the decode."
+                ),
+            ),
+            InputParam(
+                name=HELD_VIDEO_RATE_OUTPUT,
+                default=None,
+                description=(
+                    "Internal: the frame rate those frames play at - the source's own, which the "
+                    "result keeps."
                 ),
             ),
             InputParam(

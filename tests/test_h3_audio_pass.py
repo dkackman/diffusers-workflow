@@ -17,6 +17,7 @@ from dw.pipeline_processors.h3_rules import (
     AUDIO_PASS_BLOCK,
     AUDIO_PASS_ROWS,
     HELD_VIDEO_OUTPUT,
+    HELD_VIDEO_RATE_OUTPUT,
     LISTEN_SCALE_INPUT,
     REGENERATE_MASK,
     RELEASE_VIDEO_BLOCK,
@@ -48,6 +49,14 @@ def source_frames(width=WIDTH, height=HEIGHT, frames=FRAMES, seed=0):
     return rng.integers(0, 256, (frames, height, width, 3), dtype=np.uint8)
 
 
+def rated(frames, fps=24):
+    """Frames carrying the rate they play at, as a loaded video file's do -
+    an audio pass refuses a source with no rate (R25)."""
+    from dw.media_types import FrameList
+
+    return FrameList(list(frames), fps)
+
+
 def pipeline_with_blocks():
     pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
     h3_mask.insert_mask_blocks(pipeline)
@@ -71,7 +80,7 @@ def with_mask(pipeline, arguments, chained=False):
 
 def audio_pass_arguments(**overrides):
     arguments = {
-        "source_video": source_frames(),
+        "source_video": rated(source_frames()),
         "prompt": "a voice says <d>[English] hello</d>",
         "output": ["videos", "audio", "sampling_rate"],
     }
@@ -92,13 +101,14 @@ def test_the_output_frames_are_the_sources_own():
 
     source = source_frames()
     arguments = with_mask(
-        pipeline_with_blocks(), audio_pass_arguments(source_video=source)
+        pipeline_with_blocks(), audio_pass_arguments(source_video=rated(source))
     )
     assert arguments["output"] == [
         "videos",
         "audio",
         "sampling_rate",
         HELD_VIDEO_OUTPUT,
+        HELD_VIDEO_RATE_OUTPUT,
     ]
 
     # What the pipeline would hand back: a VAE round trip that is not the source
@@ -109,6 +119,7 @@ def test_the_output_frames_are_the_sources_own():
         "audio": generated,
         "sampling_rate": 48000,
         HELD_VIDEO_OUTPUT: arguments[HELD_VIDEO_OUTPUT],
+        HELD_VIDEO_RATE_OUTPUT: arguments[HELD_VIDEO_RATE_OUTPUT],
     }
     artifacts = modular_artifacts(result)
 
@@ -124,7 +135,7 @@ def test_listen_scale_half_runs_the_kept_rows_at_half_canvas():
     source = source_frames()
     arguments = with_mask(
         pipeline_with_blocks(),
-        audio_pass_arguments(source_video=source, listen_scale=0.5),
+        audio_pass_arguments(source_video=rated(source), listen_scale=0.5),
     )
     assert (arguments["width"], arguments["height"]) == (WIDTH // 2, HEIGHT // 2)
     assert arguments["source_video"].shape == (FRAMES, HEIGHT // 2, WIDTH // 2, 3)
@@ -245,9 +256,10 @@ class TestRules:
 
     def test_the_listen_canvas_snaps_to_32_px(self):
         assert listen_canvas(960, 544, 1) == (960, 544)
-        assert listen_canvas(960, 544, 0.5) == (480, 288)
-        assert listen_canvas(960, 544, 0.25) == (256, 128)
-        assert listen_canvas(48, 32, 0.25) == (32, 32)
+        assert listen_canvas(960, 544, 0.5) == (512, 288)
+        assert listen_canvas(960, 544, 0.25) == (224, 128)
+        assert listen_canvas(544, 960, 0.25) == (128, 224)
+        assert listen_canvas(64, 32, 0.25) == (64, 32)
 
 
 def h3_step(**arguments):
@@ -344,6 +356,8 @@ class TestInsertion:
             h3_mask.insert_mask_blocks(pipeline)
             names = [param.name for param in pipeline._blocks.inputs]
             assert LISTEN_SCALE_INPUT in names, label
+            # The held frames and their rate are inputs, so the call returns them
+            assert HELD_VIDEO_OUTPUT in names and HELD_VIDEO_RATE_OUTPUT in names, label
 
     def test_the_hold_and_the_pass_coexist(self):
         from dw.pipeline_processors.h3_hold import insert_audio_hold
@@ -529,7 +543,7 @@ class TestTheCall:
         arguments = with_mask(
             pipeline_with_blocks(), audio_pass_arguments(listen_scale=0.25)
         )
-        assert (arguments["width"], arguments["height"]) == (32, 32)
+        assert (arguments["width"], arguments["height"]) == (64, 32)
 
     def test_the_step_canvas_is_still_the_sources(self):
         with pytest.raises(ValueError, match="must match"):
@@ -617,3 +631,181 @@ class TestDraftTemplate:
         assert "source_video" in step
         for name in ("hold_audio", "mask_image", "mask_video", "refine_strength"):
             assert name not in step
+
+
+# The source's own frame rate (R25): conditioning is retimed to H3's 24 fps,
+# the result plays the source's own frames at the source's own rate
+
+
+def pass_result(arguments, seconds, sample_rate=48000):
+    """What the pipeline would hand back for `arguments`: a decode that is not
+    the source, `seconds` of generated audio, and the held keys echoed."""
+    from dw.media_types import rated_videos
+    from dw.pipeline_processors.h3_rules import HELD_VIDEO_RATE_OUTPUT
+    from PIL import Image
+
+    count = arguments["num_frames"]
+    canvas = (arguments["height"], arguments["width"], 3)
+    decoded = [Image.fromarray(np.zeros(canvas, np.uint8))] * count
+    generated = torch.randn(1, 2, round(seconds * sample_rate))
+    return {
+        "videos": rated_videos([decoded], 24),
+        "audio": generated,
+        "sampling_rate": sample_rate,
+        HELD_VIDEO_OUTPUT: arguments[HELD_VIDEO_OUTPUT],
+        HELD_VIDEO_RATE_OUTPUT: arguments[HELD_VIDEO_RATE_OUTPUT],
+    }, generated
+
+
+class TestSourceFrameRate:
+    def test_a_30_fps_source_plays_at_30_under_audio_of_its_own_length(self):
+        from dw.output_extraction import modular_artifacts
+        from dw.pipeline_processors.h3_rules import RENDER_GRID
+        from dw.variable_constraints import aligned
+
+        # 124 frames at 30 fps is 4.13 s; at a relabelled 24 it would be 5.17 s
+        source = source_frames(frames=124)
+        arguments = with_mask(
+            pipeline_with_blocks(), audio_pass_arguments(source_video=rated(source, 30))
+        )
+        conditioning = aligned(round(124 / 30 * 24), RENDER_GRID)
+        assert arguments["num_frames"] == conditioning == 107
+        assert arguments["source_video"].shape[0] == conditioning
+        assert np.array_equal(arguments[HELD_VIDEO_OUTPUT], source)
+
+        result, _ = pass_result(arguments, conditioning / 24)
+        (played,) = modular_artifacts(result)
+        assert played.fps == 30
+        assert len(played.frames) == 124
+        assert np.array_equal(np.stack([np.asarray(f) for f in played.frames]), source)
+        assert played.audio.shape[-1] == round(124 / 30 * 48000)
+
+    def test_a_24_fps_source_is_unchanged(self):
+        from dw.output_extraction import modular_artifacts
+
+        source = source_frames()
+        arguments = with_mask(
+            pipeline_with_blocks(), audio_pass_arguments(source_video=rated(source, 24))
+        )
+        assert arguments["num_frames"] == FRAMES
+        assert arguments["source_video"] is arguments[HELD_VIDEO_OUTPUT]
+        assert np.array_equal(arguments["source_video"], source)
+
+        result, generated = pass_result(arguments, 0.1)
+        (played,) = modular_artifacts(result)
+        assert played.fps == 24
+        assert torch.equal(played.audio, generated[0])
+
+    @pytest.mark.parametrize(
+        "frames, fps",
+        [(124, 30), (100, 30), (60, 25), (240, 60), (50, 12), (124, 23.976)],
+    )
+    def test_the_retimed_conditioning_lands_on_the_h3_grid(self, frames, fps):
+        from dw.pipeline_processors.h3_rules import RENDER_GRID, retimed_indices
+        from dw.variable_constraints import aligned
+
+        indices = retimed_indices(frames, fps)
+        assert len(indices) == aligned(len(indices), RENDER_GRID)
+        # It covers the source's duration, with less than one grid step over
+        assert len(indices) >= round(frames / fps * 24)
+        assert len(indices) - round(frames / fps * 24) < 17
+        # Nearest-frame in time, never past the source's last frame
+        assert all(0 <= i < frames for i in indices)
+        assert indices == sorted(indices)
+        assert indices[0] == 0
+
+    def test_the_conditioning_frames_are_the_nearest_source_frames(self):
+        source = source_frames(width=32, height=32, frames=124)
+        arguments = with_mask(
+            pipeline_with_blocks(),
+            audio_pass_arguments(source_video=rated(source, 30)),
+        )
+        for i in (0, 1, 4, 50, 98):
+            nearest = min(123, int(i * 30 / 24 + 0.5))
+            assert np.array_equal(arguments["source_video"][i], source[nearest])
+
+    def test_a_soundtrack_times_a_source_that_carries_no_rate(self):
+        from dw.media_types import AudioVideo
+        from dw.pipeline_processors.h3_rules import HELD_VIDEO_RATE_OUTPUT
+
+        source = source_frames(frames=124)
+        clip = AudioVideo(list(source), np.zeros((2, 124 * 1600)), 48000)
+        arguments = with_mask(
+            pipeline_with_blocks(), audio_pass_arguments(source_video=clip)
+        )
+        assert arguments[HELD_VIDEO_RATE_OUTPUT] == pytest.approx(30)
+        assert arguments["num_frames"] == 107
+
+    def test_a_source_with_no_rate_and_no_soundtrack_is_refused(self):
+        with pytest.raises(ValueError, match="frame rate"):
+            with_mask(
+                pipeline_with_blocks(),
+                audio_pass_arguments(source_video=source_frames()),
+            )
+
+    def test_an_off_grid_source_at_another_rate_is_not_refused_for_the_grid(self):
+        # The conditioning count is retimed onto the grid, so the source's own
+        # count need not be on it; at 24 fps it still must
+        arguments = with_mask(
+            pipeline_with_blocks(),
+            audio_pass_arguments(source_video=rated(source_frames(frames=100), 30)),
+        )
+        assert arguments["num_frames"] == 90
+        with pytest.raises(ValueError, match="17n"):
+            with_mask(
+                pipeline_with_blocks(),
+                audio_pass_arguments(source_video=rated(source_frames(frames=100), 24)),
+            )
+
+    def test_validate_reads_the_rate_for_the_grid_check(self, tmp_path):
+        (tmp_path / "take.mp4").write_bytes(b"")
+
+        def probe(fps):
+            return lambda path: {
+                "kind": "video",
+                "frame_count": 100,
+                "width": WIDTH,
+                "height": HEIGHT,
+                "fps": fps,
+            }
+
+        step = {"steps": [h3_step(source_video="take.mp4")]}
+        assert mask_errors(step, None, str(tmp_path), probe=probe(30)) == []
+        errors = mask_errors(step, None, str(tmp_path), probe=probe(24))
+        assert len(errors) == 1 and "17n" in errors[0]["message"]
+
+
+class TestReviewFindings:
+    def test_a_mask_edit_is_never_read_as_an_audio_pass(self):
+        # A mask with no hold_audio: _check_refine refuses it before the call
+        # today, but _with_mask itself must not take it for an audio pass
+        from PIL import Image
+
+        mask = np.zeros((HEIGHT, WIDTH, 3), dtype=np.uint8)
+        mask[:8, :8] = 255
+        arguments = with_mask(
+            pipeline_with_blocks(),
+            audio_pass_arguments(mask_image=Image.fromarray(mask), refine_strength=0.5),
+        )
+        assert HELD_VIDEO_OUTPUT not in arguments
+        assert REGENERATE_MASK in arguments
+
+    @pytest.mark.parametrize("width, height", [(960, 544), (1344, 768), (544, 960)])
+    def test_a_quarter_listen_canvas_keeps_the_aspect(self, width, height):
+        canvas = listen_canvas(width, height, 0.25)
+        assert all(side % 32 == 0 and side >= 32 for side in canvas)
+        error = abs(canvas[0] / canvas[1] - width / height) / (width / height)
+        assert error < 0.07
+
+    def test_listen_scale_on_a_non_h3_step_is_refused_at_validate(self):
+        step = {
+            "name": "still",
+            "pipeline": {
+                "configuration": {"component_type": "FluxPipeline"},
+                "arguments": {"prompt": "x", LISTEN_SCALE_INPUT: 0.5},
+            },
+        }
+        errors = mask_errors({"steps": [step]})
+        assert errors
+        assert all(e["path"].endswith(LISTEN_SCALE_INPUT) for e in errors)
+        assert any("MiniMax-H3" in e["message"] for e in errors)
