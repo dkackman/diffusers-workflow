@@ -1859,6 +1859,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` |
+| `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
 | `num_frames` | must exceed P, or the chain cannot progress |
@@ -2447,6 +2448,9 @@ joined into a single file:
   `last_frame` or `guide` continuity): every segment after the first is rescaled to
   segment 1's per-channel latent statistics before decode, holding the chain's colour
   and contrast (see *Anchoring a chain's colour*).
+- `keystone` — `none` (default) or `segment_1` (with `guide` continuity only): every later
+  segment's keyframe is segment 1's frame 0 instead of the guide's first frame (see
+  *Chaining with a guide*).
 - `anchor_strength` — with `anchor: "segment_1"`, how far that match goes: 0 to 1,
   default 1 (the full match).
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the

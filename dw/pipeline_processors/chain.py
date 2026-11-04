@@ -68,7 +68,10 @@ from .h3_rules import (
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
     anchor_strength_problem,
+    KEYSTONE_NONE,
+    KEYSTONE_SEGMENT_1,
     chain_anchor_problem,
+    chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
 )
@@ -196,7 +199,7 @@ class GuideContinuity:
             frames, audio[:, max(stop - samples, 0) : stop], sample_rate
         )
 
-    def inject(self, arguments, carry, segment_argument):
+    def inject(self, arguments, carry, segment_argument, keystone=None):
         if carry.audio is not None:
             video = AudioVideo(
                 carry.frames,
@@ -211,7 +214,10 @@ class GuideContinuity:
         arguments[GUIDES_INPUT] = list(arguments.get(GUIDES_INPUT) or []) + [guide]
         # fl2va's keyframe - t2va passes none, and gets none
         if arguments.get(segment_argument) is not None:
-            arguments[segment_argument] = carry.frames[0]
+            # A keystone (#1187) is segment 1's frame 0 in place of the guide's
+            arguments[segment_argument] = (
+                keystone if keystone is not None else carry.frames[0]
+            )
 
 
 # The names are h3_rules.CHAIN_CONTINUITY_MODES, which validation reads too;
@@ -285,6 +291,9 @@ def run_chain(pipeline, chain_definition, arguments):
     # under `anchor: "segment_1"` (#1166) - the same frame objects the output
     # holds, so keeping them costs no copy on an unspilled chain
     anchor_frames = None
+    # Segment 1's frame 0 alone, the keyframe of every later segment under
+    # `keystone: "segment_1"` (#1187)
+    keystone_frame = None
     # One shot per segment, measured as the picture and track grow (#378);
     # the frames are counted rather than read off `frames`, which a spilled
     # chain never fills
@@ -294,7 +303,13 @@ def run_chain(pipeline, chain_definition, arguments):
     try:
         for segment in config.plan:
             segment_arguments = _segment_arguments(
-                arguments, config, segment, continuity, carry, anchor_frames
+                arguments,
+                config,
+                segment,
+                continuity,
+                carry,
+                anchor_frames,
+                keystone_frame,
             )
 
             logger.info(
@@ -316,6 +331,8 @@ def run_chain(pipeline, chain_definition, arguments):
             segment_frames = frames_as_pil_list(artifact)
             if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
                 anchor_frames = segment_frames
+            if config.keystone == KEYSTONE_SEGMENT_1 and segment.index == 0:
+                keystone_frame = segment_frames[0]
             segment_audio, segment_rate = _generated_audio(artifact)
             # A segment's own generated audio can run a codec-padding sliver
             # short of the frames it was asked for - the same gap #197 fixed for
@@ -418,7 +435,7 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
 
 
 def _segment_arguments(
-    arguments, config, segment, continuity, carry, anchor_frames=None
+    arguments, config, segment, continuity, carry, anchor_frames=None, keystone=None
 ):
     """One segment's arguments: the step's, with this segment's prompt, its
     slice of a match_audio track, the previous segment's carry, and - under
@@ -441,7 +458,12 @@ def _segment_arguments(
             )
 
     if segment.index > 0:
-        continuity.inject(segment_arguments, carry, config.segment_argument)
+        if keystone is not None:
+            continuity.inject(
+                segment_arguments, carry, config.segment_argument, keystone=keystone
+            )
+        else:
+            continuity.inject(segment_arguments, carry, config.segment_argument)
         if anchor_frames is not None:
             segment_arguments[LATENT_ANCHOR_INPUT] = anchor_frames
             if config.anchor_strength is not None:
@@ -557,6 +579,12 @@ class ChainConfig:
             raise ValueError(f"Chain {problem}")
         if self.anchor_strength is not None:
             self.anchor_strength = float(self.anchor_strength)
+
+        # Segment 1's frame 0 as every later keyframe (#1187)
+        problem = chain_keystone_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

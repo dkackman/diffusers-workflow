@@ -577,6 +577,13 @@ CHAIN_ANCHOR_MODES = (ANCHOR_NONE, ANCHOR_SEGMENT_1)
 ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
 
 
+# The keystone (#1187): segment 1's frame 0 as every later segment's fl2va
+# keyframe, instead of the guide's first frame. Guide continuity only
+KEYSTONE_NONE = "none"
+KEYSTONE_SEGMENT_1 = "segment_1"
+CHAIN_KEYSTONE_MODES = (KEYSTONE_NONE, KEYSTONE_SEGMENT_1)
+
+
 def anchor_strength_problem(value):
     """Why `value` cannot be a `latent_anchor_strength` / chain `anchor_strength`,
     naming the range, or None. An unresolved reference is left to the run."""
@@ -591,6 +598,34 @@ def anchor_strength_problem(value):
         return (
             f"anchor strength is a number in [0, 1] - 1 is the full match, 0 "
             f"none - and {value} is outside it"
+        )
+    return None
+
+
+def chain_keystone_problem(chain):
+    """The reason a chain block's `keystone` is refused, or None: an unknown
+    value (naming the values), or `segment_1` without `continuity: "guide"`.
+    Unresolved references are left to the run."""
+    keystone = chain.get("keystone", KEYSTONE_NONE)
+    if isinstance(keystone, str) and references.is_ref(references.UNRESOLVED, keystone):
+        return None
+    if keystone not in CHAIN_KEYSTONE_MODES:
+        return (
+            f"unknown chain keystone {keystone!r} - expected one of "
+            f"{', '.join(CHAIN_KEYSTONE_MODES)}"
+        )
+    if keystone == KEYSTONE_NONE:
+        return None
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity != GUIDE_CONTINUITY:
+        return (
+            f"keystone 'segment_1' needs continuity 'guide' - the keystone "
+            f"replaces the keyframe, and on {continuity!r} the keyframe is the "
+            f"only carry; got {continuity!r}"
         )
     return None
 

@@ -975,6 +975,77 @@ class TestGuideContinuity:
         ) <= (3 * per_frame)
         assert [s["num_samples"] for s in result.shots][-1] > 0
 
+    def test_keystone_sets_every_later_keyframe_to_segment_1_frame_0(self):
+        pipeline = FakePipeline(self.output)
+        keyframe = solid_frame((1, 2, 3))
+
+        run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=keyframe),
+        )
+
+        assert pipeline.calls[0]["image"] is keyframe
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 0, 7)
+        assert pipeline.calls[2]["image"].getpixel((0, 0)) == (0, 0, 7)
+
+    def test_keystone_leaves_the_guide_as_the_carried_tail(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=solid_frame((1, 2, 3))),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        got = [frame.getpixel((0, 0)) for frame in guide["video"].frames]
+        assert got == [(0, f, 7) for f in range(102, 124)]
+        assert len(result.frames) == 124 + 2 * (124 - 22)
+        # segment 1's frame 0 appears once, at the head of the output
+        assert result.frames[0].getpixel((0, 0)) == (0, 0, 7)
+        assert result.frames[124].getpixel((0, 0)) == (50, 22, 7)
+
+    def test_keystone_is_refused_without_guide_continuity(self):
+        chain = self.chain(keystone="segment_1", continuity="last_frame")
+        with pytest.raises(ValueError, match="only carry"):
+            ChainConfig(chain, self.arguments())
+
+    def test_keystone_refuses_an_unknown_value_naming_both(self):
+        with pytest.raises(ValueError, match="none, segment_1"):
+            ChainConfig(self.chain(keystone="segment_2"), self.arguments())
+
+    def test_keystone_none_is_todays_chain(self):
+        key = solid_frame((1, 2, 3))
+        plain = run_chain(
+            FakePipeline(self.output), self.chain(), self.arguments(image=key)
+        )
+        pipeline = FakePipeline(self.output)
+        none = run_chain(
+            pipeline, self.chain(keystone="none"), self.arguments(image=key)
+        )
+
+        assert [f.getpixel((0, 0)) for f in none.frames] == [
+            f.getpixel((0, 0)) for f in plain.frames
+        ]
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 102, 7)
+
+    def test_keystone_validation_wires_the_rule(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "keystone": "segment_1"},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("keystone" in e["message"] for e in anchor_errors(definition))
+
     def test_backoff_zero_is_todays_chain(self):
         plain = run_chain(FakePipeline(self.output), self.chain(), self.arguments())
         zero = run_chain(

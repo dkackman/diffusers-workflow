@@ -355,6 +355,10 @@
                 "anchor_strength": {
                     "description": "How far each later segment's latent statistics match goes, with anchor 'segment_1' (refused without it): a number from 0 to 1, default 1. 1 is the full per-channel mean/std match; 0 leaves the latent alone; 0.5 moves each channel halfway to segment 1's statistics, holding the look without flattening a deliberate change in light. Anything outside [0, 1], or not a number, is refused naming the range. Accepts a 'variable:' reference."
                 },
+                "keystone": {
+                    "description": "Keyframe source for a guide chain on MiniMax-H3 fl2va. 'segment_1' sets every later segment's keyframe (the 'segment_argument' image) to segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain; the guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Needs continuity 'guide': on 'last_frame' the keyframe is the only carry and is refused. 'none' (the default) leaves the keyframe as it is; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
+                    "default": "none"
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",

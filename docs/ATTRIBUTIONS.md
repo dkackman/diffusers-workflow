@@ -142,4 +142,9 @@ concept was taken, together with seitanism's context hold. It inspired
 ([dw/pipeline_processors/chain.py](../dw/pipeline_processors/chain.py);
 [#1189](https://github.com/dkackman/diffusers-workflow/issues/1189)): handing the
 next segment the frames one block before the end and dropping the previous
-segment's last block at assembly, so the join lands inside the held copy.
+segment's last block at assembly, so the join lands inside the held copy. The
+same suite's idea of a first-segment keyframe, and NerdNotes' (no licence, so
+concepts only), inspired `keystone`
+([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
+frame 0 as every later segment's keyframe, pulling the chain back toward its
+clean start.
