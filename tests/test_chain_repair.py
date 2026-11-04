@@ -315,16 +315,18 @@ class TestSegmentFiles:
             )
 
     def test_without_a_manifest_the_siblings_are_found_by_name(self, tmp_path):
+        # The by-name fallback finds the files only; the take must still
+        # have shots, so the cut refuses it
         made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
-        cut = chain_repair_cut(
-            chain_take=made["take"],
-            chain_output=made["segments"][2],
-            segment=2,
-            num_frames=107,
-            tail_frames=22,
-        )
-        assert cut["segment_files"] == made["segments"]
-        assert cut["start_frame"] == 40 and cut["end_frame"] == 40 + 51 + 12
+        assert segment_files(made["segments"][2]) == made["segments"]
+        with pytest.raises(ValueError, match="chain's own output with its shots"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                chain_output=made["segments"][2],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
 
     def test_siblings_that_disagree_are_refused(self, tmp_path):
         # Two runs' files mixed by the flat layout: one is another size
@@ -507,19 +509,28 @@ class TestSplice:
         assert all(not seam["hard_cut"] for seam in analyze_seams(spliced)["seams"])
 
     @pytest.mark.parametrize("match_audio", [False, True])
-    def test_a_take_without_its_shots_is_refused(self, tmp_path, match_audio):
-        # No manifest: whether the track is the chain's or a match_audio one
-        # cannot be told, so the splice does not guess
+    def test_a_take_without_shots_is_refused_by_the_cut(self, tmp_path, match_audio):
+        # Before any render step runs: the cut is the template's first step
         made = write_run(
             str(tmp_path), [40, 51, 51, 51], match_audio=match_audio, manifest=False
         )
+        with pytest.raises(ValueError, match="chain's own output with its shots"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
+    @pytest.mark.parametrize("match_audio", [False, True])
+    def test_a_take_without_its_shots_is_refused(self, tmp_path, match_audio):
+        # The shots go after the cut: the splice refuses on its own too
+        made = write_run(str(tmp_path), [40, 51, 51, 51], match_audio=match_audio)
         cut = chain_repair_cut(
-            chain_take=made["take"],
-            chain_output=made["segments"][0],
-            segment=2,
-            num_frames=107,
-            tail_frames=22,
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
         )
+        os.remove(os.path.join(str(tmp_path), "run", "manifest.json"))
         with pytest.raises(ValueError, match="chain's own output with its shots"):
             chain_repair_splice(
                 chain_take=cut["chain_take"],

@@ -324,6 +324,27 @@ def _take_spans(take, shots, paths, segment, neighbours):
     return spans, total
 
 
+def check_take_shots(command, shots, segment, start):
+    """Refuse a take whose shots do not place `segment` at frame `start`.
+
+    The cut and the splice both apply it, so a bad take is refused before the
+    render's GPU minutes, not after. Without the shots the track's kind (the
+    chain's, or a match_audio one kept whole) and the seams' blends cannot be
+    told, so nothing is guessed."""
+    if shots and len(shots) > segment and shots[segment - 1]["start_frame"] == start:
+        return
+    raise ValueError(
+        f"{command}: the take must be the chain's own output with its shots "
+        f"(its manifest's shot list, with segment {segment} starting at "
+        f"frame {start}) - "
+        + (
+            "it has none"
+            if not shots
+            else f"its {len(shots)} shots do not place segment {segment} there"
+        )
+    )
+
+
 def chain_repair_cut(
     chain_take=None,
     chain_output=None,
@@ -412,6 +433,8 @@ def chain_repair_cut(
     counts[segment] = len(following.frames)
     geometry = repair_geometry(counts, segment, num_frames, head_frames, tail_frames)
     start = spans[segment - 1][0]
+    # The splice refuses a take like this too, but only after the render
+    check_take_shots(COMMAND, shots_beside(take), segment, start)
     end = min(start + geometry["keep_frames"], total)
 
     head_guide = trim_video(previous, geometry["head_start"], head_frames)
@@ -505,19 +528,7 @@ def chain_repair_splice(chain_take, video, segment, start_frame, end_frame, keep
     spliced += frames[end:]
     fps = take.fps or getattr(video, "fps", None)
     shots = take.shots
-    if not shots or len(shots) <= segment or shots[segment - 1]["start_frame"] != start:
-        # Without them the track's kind (the chain's, or a match_audio one
-        # kept whole) and the seams' blends cannot be told, so do not guess
-        raise ValueError(
-            f"{SPLICE}: the take must be the chain's own output with its shots "
-            f"(its manifest's shot list, with segment {segment} starting at "
-            f"frame {start}) - "
-            + (
-                "it has none"
-                if not shots
-                else f"its {len(shots)} shots do not place segment {segment} there"
-            )
-        )
+    check_take_shots(SPLICE, shots, segment, start)
     audio, blends, samples = _spliced_track(
         take, video, fps, shots, segment, start, end, keep_start
     )
