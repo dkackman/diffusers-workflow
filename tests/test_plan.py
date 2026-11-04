@@ -241,6 +241,7 @@ KEPT_TOP_LEVEL_KEYS = {
     "id",  # names every file the run saves, and the step cache keys on it
     "variables",  # the folded values are the work
     "variable_constraints",  # a rule rounds or refuses a value
+    "presets",  # a bundle sets the variables the caller did not pass
     "argument_template",  # read as arguments when not run as a child
     "seed",  # removed separately: a seed is not the work, but it is the output
     "steps",

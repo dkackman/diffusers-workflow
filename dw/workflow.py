@@ -20,6 +20,7 @@ from .step_cache import borrowed_pipeline_keys
 from .runs import activate_output_root, deactivate_output_root
 from .schema import format_validation_errors
 from .for_each import expand_for_each
+from .presets import apply_presets
 from .variables import (
     ConstantError,
     argument_errors,
@@ -353,6 +354,7 @@ class Workflow:
         if fold_arguments:
             # set variable values from the arguments passed to the workflow;
             # these may come from the command line or from a parent workflow
+            apply_presets(definition, arguments, variables)
             set_variables(arguments, variables)
         # an entry of a list-valued variable may name another variable;
         # resolve those before anything inside it is realized, so a

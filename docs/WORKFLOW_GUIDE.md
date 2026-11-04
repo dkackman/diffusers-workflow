@@ -356,6 +356,30 @@ packages `dw/trust.py` allows (`diffusers`, `torch`, `transformers`, `sdnq`,
 class defined there, or to a `torch.dtype` under a `dtype` key. Anything else is
 refused at load.
 
+### Presets
+
+`presets` lets one variable select a bundle of others - a template's quality
+dial. The shape is `{selector: {value: {variable: value}}}`:
+
+```json
+"variables": {"tier": "standard", "width": 1024, "num_inference_steps": 30},
+"presets": {
+  "tier": {
+    "draft":    {"width": 512,  "num_inference_steps": 4},
+    "standard": {"width": 768,  "num_inference_steps": 12}
+  }
+}
+```
+
+The chosen bundle (the caller's value for the selector, else its default) sets
+every variable the caller did not pass; an explicit argument always wins, so
+`tier=draft num_inference_steps=30` runs 30 steps on the draft canvas. The
+estimate, `variable_constraints` and substitution all see the bundle's values.
+Validation refuses a bundle key that is no declared variable, a selector whose
+default is no bundle name, and a caller value for the selector outside the
+bundle names (at `arguments.<selector>`, naming the allowed ones). Bundle values
+are validated like caller values.
+
 ### What a variable is allowed to be
 
 A model's own rule about a value belongs in the workflow, not in engine code.

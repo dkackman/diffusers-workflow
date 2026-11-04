@@ -65,6 +65,17 @@
             "items": {"type": "string"},
             "uniqueItems": true
         },
+        "presets": {
+            "description": "One variable that selects a bundle of other variables' values - a template's quality dial. {selector: {value: {variable: value}}}: the selector is a declared variable whose default names one of its bundles, and every key of a bundle is a declared variable. The chosen bundle sets the variables the caller did not pass; an explicit argument always wins. Bundle values are validated exactly as caller values are.",
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": {"$ref": "#/$defs/arguments/additionalProperties"}
+                }
+            }
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },

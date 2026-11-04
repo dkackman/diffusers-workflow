@@ -40,6 +40,7 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
+from .presets import apply_presets
 from .guides import (
     anchor_errors,
     guide_chain_errors,
@@ -79,6 +80,7 @@ from .type_references import (
     component_type_errors,
     unbraced_type_warnings,
 )
+from .presets import preset_errors
 from .variable_constraints import (
     ConstraintReferenceError,
     constraint_errors,
@@ -533,6 +535,9 @@ ERROR_CHECKS = [
         "constraints",
         lambda c: constraint_errors(c.definition, c.arguments, supplied=c.supplied),
     ),
+    # A `presets` block naming nothing declared, or a selector value that
+    # is no bundle (dw/presets.py)
+    Check("presets", lambda c: preset_errors(c.definition, c.arguments)),
     # An 'attn_processor_type' whose Hub kernel this machine has no build
     # variant for (dw/kernel_availability.py, #178)
     Check(
@@ -898,6 +903,7 @@ def undeclared_variable_errors(workflow, arguments=None):
     supplied = set()
     if isinstance(variables, dict) and arguments:
         if not argument_errors(definition, arguments):
+            apply_presets(definition, arguments, variables)
             set_variables(arguments, variables)
             supplied = set(arguments)
     declared = sorted(variables or {})

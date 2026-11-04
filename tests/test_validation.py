@@ -208,6 +208,7 @@ ERROR_ORDER = [
     "component_types",
     "component_names",
     "constraints",
+    "presets",
     "kernel_availability",
     "sub_workflows",
 ]

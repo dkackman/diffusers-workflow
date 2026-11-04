@@ -37,6 +37,7 @@ from .references import render_path as render_path
 from .references import FROM_PREVIOUS_RESULT_KEY
 from .security import InvalidInputError, validate_variable_name
 from .step_cache import reference_resolves_to
+from .presets import apply_presets
 from .variables import argument_errors, set_variables
 
 FOR_EACH_KEY = "for_each"
@@ -450,6 +451,7 @@ def entry_field_warnings(definition, arguments=None):
     variables = copy.deepcopy(variables)
     supplied = set()
     if arguments and not argument_errors(definition, arguments):
+        apply_presets(definition, arguments, variables)
         set_variables(arguments, variables)
         supplied = set(arguments)
     warnings = []

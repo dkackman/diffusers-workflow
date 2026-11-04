@@ -176,6 +176,7 @@ SCHEMA_SECTIONS = {
             "cost",
             "cost_drivers",
             "variables",
+            "presets",
             "variable_constraints",
             "seed",
         ],
