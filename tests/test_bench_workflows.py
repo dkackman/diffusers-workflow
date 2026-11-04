@@ -91,3 +91,37 @@ def test_a_workflow_declaring_prompts_references_it():
         if "prompts" in (definition.get("variables") or {}):
             steps = json.dumps(definition.get("steps"))
             assert "variable:prompts" in steps, path.name
+
+
+ARM_FILES = sorted((BENCH / "arms").glob("*.json"))
+
+
+@pytest.mark.parametrize("path", ARM_FILES, ids=lambda p: p.stem)
+def test_every_arm_file_loads_and_each_arm_validates(path):
+    """Each arm names a scene and workflow that exist, passes only variables
+    its workflow declares, and validates with those arguments."""
+    from dw.workflow import Workflow
+
+    scenes = driver.load_scenes(BENCH / "scenes.json")
+    arms = driver.load_arms(path)
+    assert arms
+    names = [a.name for a in arms]
+    assert len(names) == len(set(names)), "arm names must be unique"
+    for arm in arms:
+        assert arm.scene in scenes, arm.name
+        workflow_path = BENCH / "workflows" / arm.workflow
+        definition = json.loads(workflow_path.read_text(encoding="utf-8"))
+        undeclared = set(arm.arguments) - set(definition["variables"])
+        assert not undeclared, (arm.name, sorted(undeclared))
+        errors = Workflow(definition, None, str(workflow_path)).validation_errors(
+            arguments=dict(arm.arguments)
+        )
+        assert errors == [], (arm.name, errors)
+
+
+def test_the_counter_round_arms_exist():
+    controls = driver.load_arms(BENCH / "arms" / "counters-controls.json")
+    round1 = driver.load_arms(BENCH / "arms" / "counters-round1.json")
+    assert {a.seed for a in controls} == {1166, 2}
+    assert {a.arguments["continuity"] for a in controls} == {"guide", "last_frame"}
+    assert all(a.arguments["segments"] == 6 for a in controls + round1)

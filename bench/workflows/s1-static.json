@@ -1,6 +1,6 @@
 {
   "id": "BenchS1Static",
-  "description": "Long-form bench S1 (static): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A).",
+  "description": "Long-form bench S1 (static): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A). Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment).",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/static-stripes.jpg",
@@ -19,7 +19,14 @@
     "guide_noise": null,
     "lora_model_name": "lightx2v/Minimax-h3-Turbo",
     "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
-    "attention_backend": "sparse"
+    "attention_backend": "sparse",
+    "anchor_strength": null,
+    "guide_backoff": null,
+    "keystone": null,
+    "look_hold": null,
+    "antiburn_model_name": null,
+    "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
+    "antiburn_scale": 0.6
   },
   "variable_constraints": {
     "num_frames": {
@@ -153,6 +160,12 @@
             "weight_name": "variable:lora_weight_name",
             "adapter_name": "turbo",
             "scale": 1
+          },
+          {
+            "model_name": "variable:antiburn_model_name",
+            "weight_name": "variable:antiburn_weight_name",
+            "adapter_name": "antiburn",
+            "scale": "variable:antiburn_scale"
           }
         ],
         "chain": {
@@ -164,7 +177,11 @@
           "trim_frames": 2,
           "crossfade_ms": 80,
           "fps": 24,
-          "frame_snap": "constraint:num_frames"
+          "frame_snap": "constraint:num_frames",
+          "anchor_strength": "variable:anchor_strength",
+          "guide_backoff": "variable:guide_backoff",
+          "keystone": "variable:keystone",
+          "look_hold": "variable:look_hold"
         },
         "scheduler": {
           "shift": "variable:video_shift"

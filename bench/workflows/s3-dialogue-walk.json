@@ -1,6 +1,6 @@
 {
   "id": "BenchS3DialogueWalk",
-  "description": "Long-form bench S3 (dialogue walk): templates/minimax/chained-segments with continuity 'guide' and carry_audio, six segments, a cast portrait (asset:bench/walker.png) and one short spoken line per segment through `prompts`. Each line is sized to a segment (see plugins/dw/skills/minimax-h3/references/dialogue.md). `anchor` and `guide_noise` are the drift-probe knobs; their defaults are today's call.",
+  "description": "Long-form bench S3 (dialogue walk): templates/minimax/chained-segments with continuity 'guide' and carry_audio, six segments, a cast portrait (asset:bench/walker.png) and one short spoken line per segment through `prompts`. Each line is sized to a segment (see plugins/dw/skills/minimax-h3/references/dialogue.md). `anchor` and `guide_noise` are the drift-probe knobs; their defaults are today's call. Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment).",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She walks toward the camera down the cobblestone street, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/walker.png",
@@ -27,7 +27,14 @@
       "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. A faint smile crosses her face as she keeps walking toward the camera. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Funny how a place waits for you without asking.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
       "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. Her expression softens and her pace eases, the golden light warm along her shoulder. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Maybe that is what I was afraid of.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
       "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She squares her shoulders and walks on, the camera keeping her centered in frame. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Well. Let's see if the door still sticks.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
-    ]
+    ],
+    "anchor_strength": null,
+    "guide_backoff": null,
+    "keystone": null,
+    "look_hold": null,
+    "antiburn_model_name": null,
+    "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
+    "antiburn_scale": 0.6
   },
   "variable_constraints": {
     "num_frames": {
@@ -161,6 +168,12 @@
             "weight_name": "variable:lora_weight_name",
             "adapter_name": "turbo",
             "scale": 1
+          },
+          {
+            "model_name": "variable:antiburn_model_name",
+            "weight_name": "variable:antiburn_weight_name",
+            "adapter_name": "antiburn",
+            "scale": "variable:antiburn_scale"
           }
         ],
         "chain": {
@@ -174,7 +187,11 @@
           "crossfade_ms": 80,
           "fps": 24,
           "frame_snap": "constraint:num_frames",
-          "carry_audio": true
+          "carry_audio": true,
+          "anchor_strength": "variable:anchor_strength",
+          "guide_backoff": "variable:guide_backoff",
+          "keystone": "variable:keystone",
+          "look_hold": "variable:look_hold"
         },
         "scheduler": {
           "shift": "variable:video_shift"
