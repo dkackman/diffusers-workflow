@@ -49,7 +49,7 @@
       "reason": "H3 refuses width/height not a multiple of 32"
     }
   },
-  "seed": 1166,
+  "seed": "variable:seed",
   "steps": [
     {
       "name": "chained_keyframe_to_video_audio",
