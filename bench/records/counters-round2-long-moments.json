@@ -1,0 +1,410 @@
+[
+  {
+    "arm": "ctl-guide-s1-120s",
+    "output": "BenchS1Static/20261104-133844-23b1c5b1/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "moments": [
+      62,
+      300,
+      583,
+      1000,
+      1501,
+      2000,
+      2500,
+      2868
+    ],
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "texture_drift": {
+      "62": {
+        "fine": 0.0,
+        "mid": 0.0,
+        "coarse": 0.0
+      },
+      "300": {
+        "fine": 0.18025993421208494,
+        "mid": 0.04490486020150464,
+        "coarse": 0.000761415263032645
+      },
+      "583": {
+        "fine": 0.5356445216304937,
+        "mid": 0.17558025571703065,
+        "coarse": 0.016023705618812927
+      },
+      "1000": {
+        "fine": 1.1075384076182646,
+        "mid": 0.406155001202102,
+        "coarse": 0.056311464238995246
+      },
+      "1501": {
+        "fine": 1.3989414462224836,
+        "mid": 0.7161807400771484,
+        "coarse": 0.10258601894262132
+      },
+      "2000": {
+        "fine": 1.6459796696597704,
+        "mid": 1.0713307837645822,
+        "coarse": 0.08019719226533902
+      },
+      "2500": {
+        "fine": 1.657883979627354,
+        "mid": 1.1562509725508072,
+        "coarse": 0.21290180180563448
+      },
+      "2868": {
+        "fine": 1.7060122912259976,
+        "mid": 1.170543964304953,
+        "coarse": 0.08828520286094746
+      }
+    },
+    "seams": [
+      {
+        "jump_ratio": 0.7,
+        "look_ratio": 2.13,
+        "level_step_db": 16.58
+      },
+      {
+        "jump_ratio": 0.97,
+        "look_ratio": 1.75,
+        "level_step_db": 0.46
+      },
+      {
+        "jump_ratio": 0.77,
+        "look_ratio": 1.68,
+        "level_step_db": 0.75
+      },
+      {
+        "jump_ratio": 0.95,
+        "look_ratio": 0.73,
+        "level_step_db": 7.26
+      },
+      {
+        "jump_ratio": 0.88,
+        "look_ratio": 1.03,
+        "level_step_db": 13.22
+      },
+      {
+        "jump_ratio": 1.09,
+        "look_ratio": 2.61,
+        "level_step_db": 3.32
+      },
+      {
+        "jump_ratio": 0.91,
+        "look_ratio": 0.99,
+        "level_step_db": 5.61
+      },
+      {
+        "jump_ratio": 1.05,
+        "look_ratio": 1.01,
+        "level_step_db": 4.95
+      },
+      {
+        "jump_ratio": 1.06,
+        "look_ratio": 1.83,
+        "level_step_db": 36.53
+      },
+      {
+        "jump_ratio": 1.02,
+        "look_ratio": 2.35,
+        "level_step_db": 6.42
+      },
+      {
+        "jump_ratio": 1.16,
+        "look_ratio": 2.47,
+        "level_step_db": 0.17
+      },
+      {
+        "jump_ratio": 1.43,
+        "look_ratio": 1.9,
+        "level_step_db": 6.28
+      },
+      {
+        "jump_ratio": 1.64,
+        "look_ratio": 1.88,
+        "level_step_db": 6.19
+      },
+      {
+        "jump_ratio": 1.23,
+        "look_ratio": 3.26,
+        "level_step_db": 4.78
+      },
+      {
+        "jump_ratio": 1.3,
+        "look_ratio": 0.9,
+        "level_step_db": 0.55
+      },
+      {
+        "jump_ratio": 0.93,
+        "look_ratio": 0.72,
+        "level_step_db": 1.42
+      },
+      {
+        "jump_ratio": 0.73,
+        "look_ratio": 1.54,
+        "level_step_db": 1.73
+      },
+      {
+        "jump_ratio": 0.69,
+        "look_ratio": 0.43,
+        "level_step_db": 2.11
+      },
+      {
+        "jump_ratio": 1.62,
+        "look_ratio": 1.31,
+        "level_step_db": 2.93
+      },
+      {
+        "jump_ratio": 1.94,
+        "look_ratio": 3.75,
+        "level_step_db": 1.52
+      },
+      {
+        "jump_ratio": 1.72,
+        "look_ratio": 2.19,
+        "level_step_db": 1.84
+      },
+      {
+        "jump_ratio": 1.42,
+        "look_ratio": 1.33,
+        "level_step_db": 0.7
+      },
+      {
+        "jump_ratio": 0.91,
+        "look_ratio": 2.83,
+        "level_step_db": 0.45
+      },
+      {
+        "jump_ratio": 1.75,
+        "look_ratio": 1.93,
+        "level_step_db": 0.14
+      },
+      {
+        "jump_ratio": 0.89,
+        "look_ratio": 3.5,
+        "level_step_db": 8.96
+      },
+      {
+        "jump_ratio": 6.56,
+        "look_ratio": 11.51,
+        "level_step_db": 26.55
+      },
+      {
+        "jump_ratio": 1.1,
+        "look_ratio": 3.2,
+        "level_step_db": 2.36
+      },
+      {
+        "jump_ratio": 1.12,
+        "look_ratio": 1.76,
+        "level_step_db": 0.07
+      }
+    ]
+  },
+  {
+    "arm": "r2-anchor50-s1-120s",
+    "output": "BenchS1Static/20261104-144414-d9c61bc5/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "moments": [
+      62,
+      300,
+      583,
+      1000,
+      1501,
+      2000,
+      2500,
+      2868
+    ],
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "texture_drift": {
+      "62": {
+        "fine": 0.0,
+        "mid": 0.0,
+        "coarse": 0.0
+      },
+      "300": {
+        "fine": 0.1369508249460004,
+        "mid": 0.03783186367725497,
+        "coarse": 0.0049794677468551415
+      },
+      "583": {
+        "fine": 0.269789364587522,
+        "mid": 0.11577271085341745,
+        "coarse": 0.027805739291449503
+      },
+      "1000": {
+        "fine": 0.35984393865915915,
+        "mid": 0.16206212075564824,
+        "coarse": 0.04574123675256187
+      },
+      "1501": {
+        "fine": 0.6024172178552615,
+        "mid": 0.22709741147372972,
+        "coarse": 0.028619020258172798
+      },
+      "2000": {
+        "fine": 0.7373379159774919,
+        "mid": 0.3072406728734482,
+        "coarse": 0.00032004389446539124
+      },
+      "2500": {
+        "fine": 0.7589507674521561,
+        "mid": 0.2725833807242856,
+        "coarse": 0.09379867156925861
+      },
+      "2868": {
+        "fine": 1.0671458806310952,
+        "mid": 0.4622265049839578,
+        "coarse": 0.08861803287357502
+      }
+    },
+    "seams": [
+      {
+        "jump_ratio": 0.69,
+        "look_ratio": 1.71,
+        "level_step_db": 16.58
+      },
+      {
+        "jump_ratio": 1.15,
+        "look_ratio": 1.6,
+        "level_step_db": 1.54
+      },
+      {
+        "jump_ratio": 1.18,
+        "look_ratio": 0.3,
+        "level_step_db": 12.23
+      },
+      {
+        "jump_ratio": 0.9,
+        "look_ratio": 0.66,
+        "level_step_db": 15.43
+      },
+      {
+        "jump_ratio": 1.32,
+        "look_ratio": 0.98,
+        "level_step_db": 20.34
+      },
+      {
+        "jump_ratio": 1.28,
+        "look_ratio": 2.36,
+        "level_step_db": 2.91
+      },
+      {
+        "jump_ratio": 1.0,
+        "look_ratio": 1.2,
+        "level_step_db": 18.02
+      },
+      {
+        "jump_ratio": 0.93,
+        "look_ratio": 0.91,
+        "level_step_db": 2.99
+      },
+      {
+        "jump_ratio": 0.91,
+        "look_ratio": 0.55,
+        "level_step_db": 2.57
+      },
+      {
+        "jump_ratio": 0.83,
+        "look_ratio": 0.56,
+        "level_step_db": 10.1
+      },
+      {
+        "jump_ratio": 0.82,
+        "look_ratio": 1.13,
+        "level_step_db": 2.54
+      },
+      {
+        "jump_ratio": 0.96,
+        "look_ratio": 1.05,
+        "level_step_db": 0.15
+      },
+      {
+        "jump_ratio": 1.13,
+        "look_ratio": 1.9,
+        "level_step_db": 4.84
+      },
+      {
+        "jump_ratio": 0.87,
+        "look_ratio": 1.06,
+        "level_step_db": 1.06
+      },
+      {
+        "jump_ratio": 0.75,
+        "look_ratio": 1.02,
+        "level_step_db": 1.94
+      },
+      {
+        "jump_ratio": 0.87,
+        "look_ratio": 1.49,
+        "level_step_db": 17.5
+      },
+      {
+        "jump_ratio": 0.92,
+        "look_ratio": 1.0,
+        "level_step_db": 2.07
+      },
+      {
+        "jump_ratio": 0.83,
+        "look_ratio": 1.45,
+        "level_step_db": 5.33
+      },
+      {
+        "jump_ratio": 0.62,
+        "look_ratio": 1.66,
+        "level_step_db": 14.88
+      },
+      {
+        "jump_ratio": 0.53,
+        "look_ratio": 1.2,
+        "level_step_db": 9.76
+      },
+      {
+        "jump_ratio": 0.56,
+        "look_ratio": 1.53,
+        "level_step_db": 4.33
+      },
+      {
+        "jump_ratio": 0.51,
+        "look_ratio": 1.11,
+        "level_step_db": 13.9
+      },
+      {
+        "jump_ratio": 0.86,
+        "look_ratio": 0.98,
+        "level_step_db": 8.67
+      },
+      {
+        "jump_ratio": 0.92,
+        "look_ratio": 0.69,
+        "level_step_db": 0.05
+      },
+      {
+        "jump_ratio": 1.18,
+        "look_ratio": 0.79,
+        "level_step_db": 5.08
+      },
+      {
+        "jump_ratio": 1.46,
+        "look_ratio": 1.87,
+        "level_step_db": 9.73
+      },
+      {
+        "jump_ratio": 1.18,
+        "look_ratio": 2.65,
+        "level_step_db": 4.54
+      },
+      {
+        "jump_ratio": 0.9,
+        "look_ratio": 1.56,
+        "level_step_db": 3.42
+      }
+    ]
+  }
+]

@@ -1,0 +1,44 @@
+[
+  {
+    "arm": "ctl-guide-s1-120s",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "8d1614ced27a",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-133844-23b1c5b1/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.3407142857142857,
+      "seam_jump_max": 6.56,
+      "seam_look_mean": 2.232857142857143,
+      "seam_look_max": 11.51,
+      "seam_level_step_db_mean": 5.851785714285714,
+      "seam_level_step_db_max": 36.53,
+      "texture_fine_seg_last": 1.7060122912259976,
+      "texture_mid_seg_last": 1.170543964304953,
+      "texture_coarse_seg_last": 0.08828520286094746,
+      "wall_minutes": 52.203673243522644
+    }
+  },
+  {
+    "arm": "r2-anchor50-s1-120s",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "107859a31bc1",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-144414-d9c61bc5/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.9307142857142857,
+      "seam_jump_max": 1.46,
+      "seam_look_mean": 1.2489285714285714,
+      "seam_look_max": 2.65,
+      "seam_level_step_db_mean": 7.589285714285714,
+      "seam_level_step_db_max": 20.34,
+      "texture_fine_seg_last": 1.0671458806310952,
+      "texture_mid_seg_last": 0.4622265049839578,
+      "texture_coarse_seg_last": 0.08861803287357502,
+      "wall_minutes": 67.82185592651368
+    }
+  }
+]
