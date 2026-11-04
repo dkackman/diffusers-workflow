@@ -212,6 +212,9 @@ H3_FPS = 24
 
 # The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
 LATENT_ANCHOR_INPUT = "latent_anchor"
+# How far the match goes (#1190): 1 (default) is the full per-channel match, 0
+# leaves the latent alone; a blend in between
+LATENT_ANCHOR_STRENGTH_INPUT = "latent_anchor_strength"
 
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
@@ -572,6 +575,24 @@ CHAIN_ANCHOR_MODES = (ANCHOR_NONE, ANCHOR_SEGMENT_1)
 ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
 
 
+def anchor_strength_problem(value):
+    """Why `value` cannot be a `latent_anchor_strength` / chain `anchor_strength`,
+    naming the range, or None. An unresolved reference is left to the run."""
+    if isinstance(value, str) and references.is_ref(references.UNRESOLVED, value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            f"anchor strength is a number in [0, 1] - 1 is the full match, 0 "
+            f"none - and {value!r} is not a number"
+        )
+    if not 0 <= value <= 1:  # NaN fails it too
+        return (
+            f"anchor strength is a number in [0, 1] - 1 is the full match, 0 "
+            f"none - and {value} is outside it"
+        )
+    return None
+
+
 def chain_anchor_problem(chain):
     """The reason a chain block's `anchor` is refused for its own settings, or
     None: an unknown value (naming the values), or `segment_1` with a continuity
@@ -587,6 +608,11 @@ def chain_anchor_problem(chain):
             f"{', '.join(CHAIN_ANCHOR_MODES)}"
         )
     if anchor == ANCHOR_NONE:
+        if chain.get("anchor_strength") is not None:
+            return (
+                "anchor_strength needs anchor 'segment_1' - it sets how far "
+                "the anchor's latent match goes, and anchor is 'none'"
+            )
         return None
     continuity = chain.get("continuity", "last_frame")
     if isinstance(continuity, str) and references.is_ref(

@@ -1872,18 +1872,23 @@ or a step's frames - VAE-encodes them on the render's canvas the way a guide is
 encoded, and takes each latent channel's mean and standard deviation over every
 position. After denoising and before decode, the generated video latent is moved onto
 them, channel by channel: `(x - mean_x) / std_x * std_a + mean_a`. The audio is never
-touched. It is a full match, with no strength setting; without `latent_anchor` the
+touched. By default it is a full match; `latent_anchor_strength` (a number in [0, 1],
+default 1) blends it with the untouched latent, `x + strength * (matched - x)`, so 0.5
+moves each channel halfway and 0 changes nothing. Without `latent_anchor` the
 step is unchanged, bit for bit, and its job log says nothing about an anchor. A call
 that applies one logs a line naming its source, such as
 `segment 2/3: latent anchor applied - latent statistics from segment 1`.
 
 In a chain, `"anchor": "segment_1"` sets it for you: every segment after the first
 gets segment 1's frames as its `latent_anchor`, so the whole chain is held to the
-first segment's look. Segment 1 itself is not corrected.
+first segment's look. Segment 1 itself is not corrected. `"anchor_strength": 0.5` sets
+`latent_anchor_strength` on those segments, for a chain that should hold its look
+without flattening a deliberate change in light.
 
 | Rule | Value |
 |---|---|
 | `anchor` | `none` (default) or `segment_1`; anything else is refused, naming the values |
+| `anchor_strength` | a number in [0, 1] (default 1, the full match); refused outside it, and refused without `anchor: "segment_1"`. A step's `latent_anchor_strength` is the same number, and needs a `latent_anchor` |
 | `segment_1` continuity | `last_frame` or `guide`; refused with any other |
 | where | MiniMax-H3 `t2va` or `fl2va`, where `guides` run; `latent_anchor` and `segment_1` are refused on `ref2va`, on a step that passes `references` (that call runs ref2va), and on a non-H3 step |
 | `segment_1` carry | refused with `segment_argument: "references"` - the later segments would run ref2va |
@@ -2440,6 +2445,8 @@ joined into a single file:
   `last_frame` or `guide` continuity): every segment after the first is rescaled to
   segment 1's per-channel latent statistics before decode, holding the chain's colour
   and contrast (see *Anchoring a chain's colour*).
+- `anchor_strength` — with `anchor: "segment_1"`, how far that match goes: 0 to 1,
+  default 1 (the full match).
 - `carry_frames` — with `last_segment`, bound the carry to the last N frames of the
   segment (the audio is cut to the same span). Unset carries the whole segment.
 - `carry_audio` — with `last_segment` or `guide`, whether the carried reference includes its

@@ -17,6 +17,7 @@ from .h3_rules import (
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
     HOLD_AUDIO_INPUT,
@@ -28,6 +29,7 @@ from .h3_rules import (
     REGENERATE_MASK,
     SOURCE_VIDEO_INPUT,
     edits_region,
+    anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
     media_problems,
@@ -168,9 +170,18 @@ class H3Arguments:
                 frames of a video
         """
         value = arguments.get(LATENT_ANCHOR_INPUT)
+        strength = arguments.get(LATENT_ANCHOR_STRENGTH_INPUT)
         if value is None:
-            return arguments
+            if strength is None:
+                return arguments
+            raise ValueError(
+                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT} sets how far "
+                f"{LATENT_ANCHOR_INPUT} goes, and there is no {LATENT_ANCHOR_INPUT}"
+            )
         where = f"Step '{self.name}': {LATENT_ANCHOR_INPUT}"
+        problem = None if strength is None else anchor_strength_problem(strength)
+        if problem:
+            raise ValueError(f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT}: {problem}")
         refusal = anchor_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")
@@ -181,6 +192,8 @@ class H3Arguments:
             )
         arguments = dict(arguments)
         arguments[LATENT_ANCHOR_INPUT] = prepared_anchor(where, value, self.base_dir)
+        if strength is not None:
+            arguments[LATENT_ANCHOR_STRENGTH_INPUT] = float(strength)
         # The one line that says the anchor applies to this call - without it
         # the job log shows only a block name (#1181)
         label = getattr(self, "segment_label", None) or self.name

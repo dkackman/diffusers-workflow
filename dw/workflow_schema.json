@@ -344,6 +344,9 @@
                     "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
                     "default": "none"
                 },
+                "anchor_strength": {
+                    "description": "How far each later segment's latent statistics match goes, with anchor 'segment_1' (refused without it): a number from 0 to 1, default 1. 1 is the full per-channel mean/std match; 0 leaves the latent alone; 0.5 moves each channel halfway to segment 1's statistics, holding the look without flattening a deliberate change in light. Anything outside [0, 1], or not a number, is refused naming the range. Accepts a 'variable:' reference."
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",

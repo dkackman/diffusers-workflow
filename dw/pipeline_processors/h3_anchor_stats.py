@@ -24,10 +24,15 @@ def channel_statistics(latents):
     return mean, std
 
 
-def match_channel_statistics(latents, anchor_mean, anchor_std):
+def match_channel_statistics(latents, anchor_mean, anchor_std, strength=1.0):
     """`latents` (B, C, T, H, W) rescaled per channel to `anchor_mean` and
     `anchor_std`: `(x - mean_x) / std_x * std_a + mean_a`, computed in float32
-    and returned in the latent's own dtype and device."""
+    and returned in the latent's own dtype and device.
+
+    `strength` in [0, 1] blends the match with the input, `x + strength *
+    (matched - x)`: 1 is the full match, 0 returns `latents` itself."""
+    if strength == 0:
+        return latents
     if latents.dim() != 5:
         raise ValueError(
             f"latent_anchor works on a (batch, channel, frames, height, width) "
@@ -43,4 +48,6 @@ def match_channel_statistics(latents, anchor_mean, anchor_std):
             f"render {values.shape[1]}"
         )
     matched = (values - mean) / std.clamp_min(STD_FLOOR) * anchor_std + anchor_mean
+    if strength != 1.0:
+        matched = values + strength * (matched - values)
     return matched.to(latents.dtype)

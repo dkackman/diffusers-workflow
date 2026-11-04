@@ -66,6 +66,8 @@ from .h3_rules import (
     GUIDE_CONTINUITY,
     HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
+    anchor_strength_problem,
     chain_anchor_problem,
     guide_chain_problems,
 )
@@ -417,6 +419,8 @@ def _segment_arguments(
         continuity.inject(segment_arguments, carry, config.segment_argument)
         if anchor_frames is not None:
             segment_arguments[LATENT_ANCHOR_INPUT] = anchor_frames
+            if config.anchor_strength is not None:
+                segment_arguments[LATENT_ANCHOR_STRENGTH_INPUT] = config.anchor_strength
     return segment_arguments
 
 
@@ -517,6 +521,15 @@ class ChainConfig:
         if problem:
             raise ValueError(f"Chain {problem}")
         self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
+        # How far each later segment's match goes (#1190); None is the full one
+        self.anchor_strength = chain_definition.get("anchor_strength")
+        problem = anchor_strength_problem(self.anchor_strength) if (
+            self.anchor_strength is not None
+        ) else None
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        if self.anchor_strength is not None:
+            self.anchor_strength = float(self.anchor_strength)
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

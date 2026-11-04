@@ -58,6 +58,8 @@ from .pipeline_processors.h3_rules import (
     GUIDE_LIMIT,
     GUIDE_NOISE_INPUT,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
+    anchor_strength_problem,
     RENDER_GRID,
     chain_anchor_problem,
     guide_chain_problems,
@@ -331,6 +333,24 @@ def guide_lengths(pipeline, base_dir=None, probe=None):
     return lengths
 
 
+def _strength_argument_errors(arguments, base, where):
+    """A `latent_anchor_strength` argument out of range, or with no
+    `latent_anchor` for it to set (#1190), as [{path, message}]."""
+    if not isinstance(arguments, dict):
+        return []
+    strength = arguments.get(LATENT_ANCHOR_STRENGTH_INPUT)
+    if strength is None:
+        return []
+    path = render_path(base + ("arguments", LATENT_ANCHOR_STRENGTH_INPUT))
+    problem = anchor_strength_problem(strength)
+    if problem is None and arguments.get(LATENT_ANCHOR_INPUT) is None:
+        problem = (
+            f"{LATENT_ANCHOR_STRENGTH_INPUT} sets how far {LATENT_ANCHOR_INPUT} "
+            f"goes, and the step has no {LATENT_ANCHOR_INPUT}"
+        )
+    return [{"path": path, "message": f"{problem}{where}"}] if problem else []
+
+
 def anchor_errors(workflow_definition, source_indices=None):
     """Every latent statistics anchor refused before the run, as
     [{path, message}]: a `latent_anchor` argument on a step that cannot take
@@ -354,9 +374,19 @@ def anchor_errors(workflow_definition, source_indices=None):
                         "message": f"{problem}{where}",
                     }
                 )
+        errors += _strength_argument_errors(arguments, base, where)
         chain = pipeline.get("chain")
         if not isinstance(chain, dict):
             continue
+        strength = chain.get("anchor_strength")
+        problem = None if strength is None else anchor_strength_problem(strength)
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", "anchor_strength")),
+                    "message": f"{problem}{where}",
+                }
+            )
         path = render_path(base + ("chain", "anchor"))
         problem = chain_anchor_problem(chain)
         if problem:
