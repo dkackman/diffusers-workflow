@@ -249,6 +249,30 @@ def run_arms(
     return records
 
 
+def measure_records(
+    records, scenes, arms, server, token, workspace=None, out_path=None
+):
+    """Measure again, without running again, every succeeded record, with the
+    scene crops and moments as they are now (an arm's own moments, when an
+    arms file names one, win). Other records pass through untouched."""
+    moments = {arm.name: arm.moments for arm in arms}
+    for record in records:
+        if record.get("status") != "succeeded":
+            continue
+        job = http("GET", f"/api/jobs/{record['job_id']}", server, token)
+        record["measures"] = measure(
+            job,
+            scenes[record["scene"]],
+            server,
+            token,
+            workspace,
+            moments.get(record["arm"]),
+        )
+        if out_path:
+            Path(out_path).write_text(json.dumps(records, indent=2))
+    return records
+
+
 def report(records):
     lines = []
     keys = sorted({k for r in records for k in r.get("measures", {})})
@@ -292,6 +316,12 @@ def main(argv=None):
     run.add_argument("--measure", action="store_true")
     run.add_argument("--out")
     run.add_argument("--timeout", type=int, default=7200)
+    meas = sub.add_parser(
+        "measure", help="measure a record's succeeded jobs again; rewrites it"
+    )
+    meas.add_argument("record")
+    meas.add_argument("--scenes", default=str(HERE / "scenes.json"))
+    meas.add_argument("--arms", help="arms file whose per-arm moments apply")
     rep = sub.add_parser("report", help="markdown tables from records")
     rep.add_argument("records", nargs="+")
     args = parser.parse_args(argv)
@@ -302,6 +332,17 @@ def main(argv=None):
             print()
         return 0
     token = _token(args)
+    if args.command == "measure":
+        measure_records(
+            json.loads(Path(args.record).read_text()),
+            load_scenes(args.scenes),
+            load_arms(args.arms) if args.arms else [],
+            args.server,
+            token,
+            args.workspace,
+            args.record,
+        )
+        return 0
     records = run_arms(
         load_arms(args.arms),
         load_scenes(args.scenes) if args.measure else {},

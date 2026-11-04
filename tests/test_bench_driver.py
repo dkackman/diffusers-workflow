@@ -201,3 +201,86 @@ def test_measure_uses_the_arm_moments_override(monkeypatch):
     job = {"id": "j", "manifest": [{"files": ["o.mp4"], "subfolder": "final"}]}
     driver.measure(job, scene, "http://h", "tok", moments=["frame:9"])
     assert calls[-1]["at"] == ["frame:9"]
+
+
+def _fake_server(compare_calls):
+    def fake(method, path, server, token, payload=None, params=None):
+        if path.startswith("/api/jobs/"):
+            return {
+                "id": path.rsplit("/", 1)[1],
+                "status": "succeeded",
+                "started_at": 0,
+                "finished_at": 600,
+                "manifest": [{"subfolder": "final", "files": ["out/x.mp4"]}],
+                "output_kinds": {"out/x.mp4": "video"},
+            }
+        if path.endswith("/assess"):
+            return {"seams": [{"jump_ratio": 2.0, "look_ratio": 1.0}]}
+        compare_calls.append(payload)
+        cell = {"texture": {"luma": {"fine": 10.0, "mid": 10.0, "coarse": 10.0}}}
+        return {"texture": [{"cells": [cell, cell]}]}
+
+    return fake
+
+
+def test_measure_records_remeasures_succeeded_jobs_with_current_crops(
+    monkeypatch, tmp_path
+):
+    calls = []
+    monkeypatch.setattr(driver, "http", _fake_server(calls))
+    scenes = tmp_path / "scenes.json"
+    scenes.write_text(
+        json.dumps(
+            [{"name": "s", "crop": [5, 6, 7, 8], "moments": ["frame:3", "frame:9"]}]
+        )
+    )
+    rec = tmp_path / "rec.json"
+    rec.write_text(
+        json.dumps(
+            [
+                {
+                    "arm": "a",
+                    "scene": "s",
+                    "seed": 1,
+                    "job_id": "j1",
+                    "status": "succeeded",
+                    "measures": {"stale": 1.0},
+                },
+                {
+                    "arm": "b",
+                    "scene": "s",
+                    "seed": 1,
+                    "job_id": "j2",
+                    "status": "failed",
+                    "error": "boom",
+                },
+            ]
+        )
+    )
+    token = tmp_path / "t"
+    token.write_text("tok")
+    argv = ["--token-file", str(token), "measure", str(rec), "--scenes", str(scenes)]
+    assert driver.main(argv) == 0
+    saved = json.loads(rec.read_text())
+    assert saved[0]["measures"]["seam_jump_mean"] == 2.0
+    assert "stale" not in saved[0]["measures"]
+    assert saved[0]["measures"]["wall_minutes"] == 10.0
+    assert saved[1] == {
+        "arm": "b",
+        "scene": "s",
+        "seed": 1,
+        "job_id": "j2",
+        "status": "failed",
+        "error": "boom",
+    }
+    assert calls[0]["crop"] == [5, 6, 7, 8] and calls[0]["at"] == ["frame:3", "frame:9"]
+
+
+def test_measure_records_takes_arm_moments_from_the_arms_file(monkeypatch, tmp_path):
+    calls = []
+    monkeypatch.setattr(driver, "http", _fake_server(calls))
+    scenes = {"s": driver.Scene("s", [0, 0, 9, 9], ["frame:1", "frame:2"])}
+    arms = [driver.Arm("a", "s", "w.json", {}, 1, moments=["frame:62", "frame:99"])]
+    records = [{"arm": "a", "scene": "s", "job_id": "j1", "status": "succeeded"}]
+    driver.measure_records(records, scenes, arms, "http://h", "tok")
+    assert calls[0]["at"] == ["frame:62", "frame:99"]
