@@ -216,4 +216,4 @@ def test_the_command_is_registered_with_an_otioz_content_type():
     assert info is not None
     from dw.content_types import guess_extension
 
-    assert guess_extension(te.OTIOZ_CONTENT_TYPE) == ".otioz"
+    assert guess_extension("application/x-otioz") == ".otioz"
