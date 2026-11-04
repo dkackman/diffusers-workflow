@@ -44,6 +44,18 @@ With one window covering the whole take the sub-sequence is the sequence
 itself, every weight is 1, and the result is bit-identical to the stock step
 (tests/test_h3_windows.py).
 
+Past 15 s. diffusers' layout step refuses a take over
+`MiniMaxH3ModularPipeline.max_duration` (15 s, a read-only property).
+`insert_refine_windows` also swaps each t2va/fl2va `prepare_layout` for
+`DwH3LongRefineLayoutStep`, which runs the stock step unchanged unless the
+call carries both `experimental_refine_windows` and `refine_strength`; then it
+hands the stock step a view of `components` whose `max_duration` is the take's
+own (`_LongTakeComponents`). Nothing is patched: every other call, and every
+other job in the worker, keeps the ceiling, because a generation over 15 s is
+another model regime. The upstream change that would replace it is a
+`ConfigSpec("max_duration", 15.0)` on the layout step, read as
+`components.config.max_duration` like `canvas_max_pixels`.
+
 Imports diffusers when it loads, so nothing imports it at module level: the
 loader (dw/pipeline_processors/components.py) and the run-time check
 (dw/pipeline_processors/pipeline_h3.py) import it on first use.
@@ -54,6 +66,11 @@ import logging
 import math
 
 import torch
+from diffusers.modular_pipelines.minimax_h3 import MiniMaxH3ModularPipeline
+from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+    MiniMaxH3PrepareLayoutStep,
+    align_num_frames,
+)
 from diffusers.modular_pipelines.minimax_h3.denoise import MiniMaxH3LoopDenoiser
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
@@ -70,6 +87,7 @@ from .h3_rules import (
     REFINE_TILES_INPUT,
     REFINE_WINDOWS_ENV_VAR as ENABLE_ENV_VAR,
     REFINE_WINDOWS_INPUT,
+    H3_FPS,
     RENDER_GRID,
     SOURCE_VIDEO_INPUT,
     guide_latent_frames,
@@ -79,6 +97,10 @@ logger = logging.getLogger("dw")
 
 # The denoise loop's forward sub-block, which the windowed one replaces
 DENOISER = "denoiser"
+# The core sequence's layout block, whose duration ceiling a windowed refine lifts
+LAYOUT = "prepare_layout"
+# diffusers' ceiling, read off its own property rather than copied
+H3_MAX_SECONDS = MiniMaxH3ModularPipeline.max_duration.fget(None)
 BLENDS = ("pyramid", "cosine")
 POSITIONS = ("true", "rebased")
 _KEYS = ("frames", "overlap", "blend", "positions")
@@ -219,6 +241,30 @@ def _take_latent_frames(arguments):
 # 2. The rules - what the call needs, checked before it runs
 
 
+def _long_source_problem(arguments):
+    """Why a `source_video` is too long to refine through its own encode, or
+    None. Past the ceiling the whole take would go through the VAE as one
+    float32 tensor (about 18 GB at 60 s, 768p); `encode_h3_latents` encodes it
+    a clip at a time into the `latents` the refine takes instead."""
+    if arguments.get(SOURCE_VIDEO_INPUT) is None:
+        return None
+    num_frames = arguments.get("num_frames")
+    if isinstance(num_frames, bool) or not isinstance(num_frames, int):
+        num_frames = (
+            len(arguments[SOURCE_VIDEO_INPUT])
+            if hasattr(arguments[SOURCE_VIDEO_INPUT], "__len__")
+            else None
+        )
+    if num_frames is None or num_frames / H3_FPS <= H3_MAX_SECONDS:
+        return None
+    return (
+        f"{REFINE_WINDOWS_INPUT}: a source_video of {num_frames} frames is "
+        f"over {H3_MAX_SECONDS:g} s, and its encode holds the whole take as "
+        f"float32 - encode it with an encode_h3_latents step and pass that "
+        f"step's latents and num_frames instead"
+    )
+
+
 def window_problems(arguments, has_cache=False):
     """Why this step's `experimental_refine_windows` cannot run - a list,
     empty when it can. Pure: the settings, and the refine it rides on."""
@@ -266,6 +312,9 @@ def window_problems(arguments, has_cache=False):
             f"{name} refines 'latents' or an unmasked 'source_video' with "
             f"'hold_audio' held"
         )
+    long_source = _long_source_problem(arguments)
+    if long_source:
+        problems.append(long_source)
     for other in (REFINE_TILES_INPUT, *MASK_INPUTS):
         if arguments.get(other) is not None:
             problems.append(f"{name} does not take {other} yet")
@@ -307,10 +356,48 @@ def _loops(pipeline):
             yield loop
 
 
+def _layout_slots(pipeline):
+    """[(holder, key)] for every t2va/fl2va layout step that runs: the
+    sequence's `prepare_layout`, or, when the guides' layout wraps it
+    (h3_guide_steps.DwH3GuideLayoutStep, which calls a stock layout it holds
+    as `_layout`), that inner step. Ref2VA's layout is another class and is
+    left out: it keeps its own ceiling, and the windows refuse references."""
+    slots = []
+    for prefix, sequence in core_denoise_sequences(pipeline):
+        name = prefix + LAYOUT
+        step = sequence.sub_blocks.get(name)
+        if isinstance(step, MiniMaxH3PrepareLayoutStep):
+            slots.append((sequence.sub_blocks, name))
+        elif isinstance(getattr(step, "_layout", None), MiniMaxH3PrepareLayoutStep):
+            slots.append((step, "_layout"))
+    return slots
+
+
+def _slot(holder, key):
+    return holder[key] if isinstance(holder, dict) else getattr(holder, key)
+
+
+def _set_slot(holder, key, value):
+    if isinstance(holder, dict):
+        # OrderedDict assignment keeps the key's place in the sequence
+        holder[key] = value
+    else:
+        setattr(holder, key, value)
+
+
+def layout_steps(pipeline):
+    """The t2va/fl2va layout steps a pipeline runs, wrapped or not."""
+    return [_slot(holder, key) for holder, key in _layout_slots(pipeline)]
+
+
 def insert_refine_windows(pipeline):
     """Replace every H3 denoise loop's `denoiser` with the windowed one, in
-    place and keeping its transformer. Idempotent. Returns whether the
-    pipeline now windows a refine."""
+    place and keeping its transformer, and every t2va/fl2va `prepare_layout`
+    with the one that lifts the duration ceiling for a windowed refine.
+    Idempotent. Returns whether the pipeline now windows a refine."""
+    for holder, key in _layout_slots(pipeline):
+        if type(_slot(holder, key)) is MiniMaxH3PrepareLayoutStep:
+            _set_slot(holder, key, DwH3LongRefineLayoutStep())
     inserted = False
     for loop in _loops(pipeline):
         current = loop.sub_blocks[DENOISER]
@@ -330,6 +417,61 @@ def windows_refine(pipeline):
         isinstance(loop.sub_blocks[DENOISER], DwH3WindowedLoopDenoiser)
         for loop in loops
     )
+
+
+class _LongTakeComponents:
+    """`components` as the stock layout step reads them, with `max_duration`
+    raised to one call's take. A view, not a change: the pipeline itself, and
+    every other call, keep diffusers' ceiling."""
+
+    def __init__(self, components, max_duration):
+        self._components = components
+        self.max_duration = max_duration
+
+    def __getattr__(self, name):
+        return getattr(self._components, name)
+
+
+class DwH3LongRefineLayoutStep(MiniMaxH3PrepareLayoutStep):
+    model_name = "minimax-h3"
+
+    @property
+    def description(self):
+        return (
+            super().description
+            + " dw (experimental): a refine with `experimental_refine_windows` lays out a take longer than "
+            "15 s; every other call keeps the ceiling."
+        )
+
+    @property
+    def inputs(self):
+        return super().inputs + [
+            InputParam(name=REFINE_WINDOWS_INPUT, type_hint=dict, default=None),
+            InputParam(name=REFINE_STRENGTH_INPUT, default=None),
+        ]
+
+    def __call__(self, components, state):
+        block_state = self.get_block_state(state)
+        windowed = (
+            getattr(block_state, REFINE_WINDOWS_INPUT, None) is not None
+            and getattr(block_state, REFINE_STRENGTH_INPUT, None) is not None
+        )
+        if not windowed or block_state.num_frames is None:
+            return super().__call__(components, state)
+        aligned = align_num_frames(
+            block_state.num_frames,
+            components.vae_frames_per_chunk,
+            components.vae_latents_per_chunk,
+        )
+        ceiling = max(components.max_duration, aligned / components.fps)
+        if ceiling > components.max_duration:
+            logger.info(
+                f"Windowed refine: laying out {aligned} frames "
+                f"({aligned / components.fps:.2f}s), past H3's "
+                f"{components.max_duration:g}s ceiling"
+            )
+        super().__call__(_LongTakeComponents(components, ceiling), state)
+        return components, state
 
 
 # 4. One window of the packed sequence

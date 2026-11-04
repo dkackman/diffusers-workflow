@@ -580,27 +580,37 @@ def tiny_h3():
     return pipeline
 
 
-def tiny_refine(pipeline, windows, source_video=None):
+def tiny_refine(
+    pipeline,
+    windows,
+    source_video=None,
+    num_frames=124,
+    output="latents",
+    refine_strength=0.3,
+):
     from diffusers.modular_pipelines.minimax_h3.references import (
         MiniMaxH3AudioReference,
     )
 
     # 124 frames: 37 latent frames of 2x2 latents (one row a frame at 32x32)
-    latents = torch.randn(1, 24, 37, 2, 2, generator=torch.Generator().manual_seed(3))
+    latent_frames = h3_rules.guide_latent_frames(num_frames)
+    latents = torch.randn(
+        1, 24, latent_frames, 2, 2, generator=torch.Generator().manual_seed(3)
+    )
     track = torch.randn(
-        2, 124 * 16000 // 24, generator=torch.Generator().manual_seed(4)
+        2, num_frames * 16000 // 24, generator=torch.Generator().manual_seed(4)
     )
     arguments = dict(
         prompt="a cat sat",
         height=32,
         width=32,
-        num_frames=124,
+        num_frames=num_frames,
         num_inference_steps=4,
         latents=latents,
         hold_audio=MiniMaxH3AudioReference(audio=track * 0.1, sample_rate=16000),
-        refine_strength=0.3,
+        refine_strength=refine_strength,
         generator=torch.Generator("cpu").manual_seed(1234),
-        output="latents",
+        output=output,
     )
     if source_video is not None:
         del arguments["latents"]
@@ -622,6 +632,109 @@ def test_end_to_end_windows_run_and_differ(tiny_h3):
     assert windowed.shape == plain.shape
     assert torch.isfinite(windowed).all()
     assert not torch.equal(plain, windowed)
+
+
+# 6b. Past 15 s: the layout's duration ceiling, lifted for a windowed refine only
+
+# 17 * 22 + 5 frames: 15.8 s at 24 fps, over diffusers' 15 s ceiling
+LONG_TAKE = 379
+
+
+def test_a_windowed_refine_lays_out_a_take_past_fifteen_seconds(tiny_h3):
+    """The whole long take - 112 latents and its 15.8 s held track - through
+    the real graph, windowed. The held audio is the whole track: its own
+    encode has no ceiling of its own."""
+    result = tiny_refine(
+        tiny_h3,
+        {"frames": 40, "overlap": 10},
+        num_frames=LONG_TAKE,
+        output=["latents", "audio", "sampling_rate"],
+    )
+    latents = result["latents"]
+    assert latents.shape[2] == h3_rules.guide_latent_frames(LONG_TAKE) == 112
+    assert torch.isfinite(latents).all()
+    # The decoded soundtrack covers the whole take, to within one 40 Hz latent
+    audio, rate = result["audio"], result["sampling_rate"]
+    assert abs(audio.shape[-1] - LONG_TAKE / 24 * rate) < rate / 40
+
+
+def test_the_ceiling_lifts_inside_the_guides_layout_too():
+    """The loader wraps the layout in the guides' one (h3_guides.py) before the
+    windows go in: the long refine runs through that graph as well."""
+    from dw.pipeline_processors.h3_guides import insert_guides
+    from tests.test_chain_h3_native import _tiny_h3
+
+    pipeline = _tiny_h3()
+    insert_audio_hold(pipeline)
+    assert insert_guides(pipeline)
+    assert insert_refine_windows(pipeline)
+    latents = tiny_refine(pipeline, {"frames": 40, "overlap": 10}, num_frames=LONG_TAKE)
+    assert latents.shape[2] == 112
+    with pytest.raises(ValueError, match="between 5.0 and 15.0 seconds"):
+        tiny_refine(pipeline, None, num_frames=LONG_TAKE)
+
+
+def test_a_plain_refine_past_fifteen_seconds_keeps_the_ceiling(tiny_h3):
+    with pytest.raises(ValueError, match="between 5.0 and 15.0 seconds"):
+        tiny_refine(tiny_h3, None, num_frames=LONG_TAKE)
+
+
+def test_windows_without_a_refine_keep_the_ceiling(tiny_h3):
+    """A generation over 15 s is another model regime: the windows argument
+    alone does not lift the ceiling, only a windowed refine does."""
+    with pytest.raises(ValueError, match="between 5.0 and 15.0 seconds"):
+        tiny_refine(
+            tiny_h3,
+            {"frames": 40, "overlap": 10},
+            num_frames=LONG_TAKE,
+            refine_strength=None,
+        )
+
+
+def test_the_layout_is_replaced_where_the_windows_go_and_only_there():
+    from diffusers.modular_pipelines.minimax_h3.before_denoise import (
+        MiniMaxH3Ref2VAPrepareLayoutStep,
+    )
+
+    from dw.pipeline_processors.h3_guides import insert_guides
+
+    def sequences(pipeline):
+        return h3_windows.core_denoise_sequences(pipeline)
+
+    for guided in (False, True):
+        for pipeline in pipelines():
+            if guided:
+                insert_guides(pipeline)
+            before = [list(s.sub_blocks) for _, s in sequences(pipeline)]
+            stock = h3_windows.layout_steps(pipeline)
+            ref2va = [
+                b
+                for prefix, s in sequences(pipeline)
+                for b in [s.sub_blocks.get(prefix + h3_windows.LAYOUT)]
+                if isinstance(b, MiniMaxH3Ref2VAPrepareLayoutStep)
+            ]
+            insert_refine_windows(pipeline)
+            insert_refine_windows(pipeline)  # idempotent
+            layouts = h3_windows.layout_steps(pipeline)
+            assert len(layouts) == len(stock)
+            for block in layouts:
+                assert isinstance(block, h3_windows.DwH3LongRefineLayoutStep)
+            # The block order is kept, and Ref2VA's own layout is untouched
+            assert before == [list(s.sub_blocks) for _, s in sequences(pipeline)]
+            for block in ref2va:
+                assert type(block) is MiniMaxH3Ref2VAPrepareLayoutStep
+        assert any(h3_windows.layout_steps(p) for p in pipelines())
+
+
+def test_a_source_video_past_fifteen_seconds_is_sent_to_the_chunked_encode():
+    problems = window_problems(
+        refine(latents=None, source_video=object(), num_frames=LONG_TAKE)
+    )
+    assert any("encode_h3_latents" in p for p in problems), problems
+    assert (
+        window_problems(refine(latents=None, source_video=object(), num_frames=124))
+        == []
+    )
 
 
 def test_the_run_time_check_refuses_with_the_flag_off():
@@ -739,4 +852,12 @@ def test_the_loader_inserts_the_windows_only_behind_the_flag(
         assert isinstance(denoiser, DwH3WindowedLoopDenoiser) is windowed
         if not windowed:
             assert type(denoiser) is MiniMaxH3LoopDenoiser
+    # The loader's graph wraps the layout in the guides' one: the step that
+    # runs is the one it holds
+    layouts = h3_windows.layout_steps(pipeline)
+    assert layouts
+    for block in layouts:
+        assert isinstance(block, h3_windows.DwH3LongRefineLayoutStep) is windowed
+        if not windowed:
+            assert type(block) is MiniMaxH3PrepareLayoutStep
     assert windows_refine(pipeline) is windowed

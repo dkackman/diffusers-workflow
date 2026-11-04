@@ -2518,6 +2518,32 @@ Validation and the run refuse, naming `refine_tiles`:
 - a reference image or video, a `<Picture N>`, a keyframe or `guides` on the step;
 - an explicit `width` or `height` that does not match the `latents` canvas.
 
+### Experimental: refining a long take in time windows
+
+**Experimental, off by default.** `experimental_refine_windows: {"frames": W, "overlap":
+O}` (latent frames) on a `refine_strength` step refines the take in overlapping time
+windows fused at every step. It needs `DW_EXPERIMENTAL_REFINE_WINDOWS=1` in the server's
+environment and a server restart, and a step that sets it without the flag is refused.
+Only such a step may be longer than H3's 15 s. Every other H3 call keeps the ceiling.
+
+A take over 15 s is three steps:
+
+1. `encode_h3_latents` with `source` set to the finished 24 fps take (`output:` or
+   `asset:`). It reads and encodes one 17-frame VAE clip at a time, and the result is
+   bit-identical to the whole-take encode. It returns `latents`, `num_frames` (the take
+   padded with its last frame up to the next 17m + 5) and `source_frames` (the take's own
+   count).
+2. The H3 refine, with `latents: previous_result:encode.latents`, `num_frames:
+   previous_result:encode.num_frames`, `refine_strength`, `experimental_refine_windows`
+   and `hold_audio` set to the take's own soundtrack. The held track is encoded whole,
+   and that encode has no ceiling of its own. Put `"latents"` in the step's `output`.
+3. `decode_h3_latents` with `latents: previous_result:refine.latents` and `num_frames:
+   previous_result:encode.source_frames`, which trims the padding off so the take comes
+   back at its own length. `pair_audio` then puts the soundtrack back.
+
+A `source_video` over 15 s is refused on a windowed step, and the refusal names
+`encode_h3_latents`: that path would encode the whole take as one float32 tensor.
+
 ### Chained Video Generation
 
 Video pipelines generate short clips - a `chain` block on a pipeline step runs the
