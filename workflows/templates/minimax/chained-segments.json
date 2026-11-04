@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3I2VChained",
-    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. To ask for a length instead of a count, set `duration_seconds`; it overrides `segments` (the run logs that `segments` was ignored), and the plan derives the segments and the video and audio are trimmed to exactly that length (not with a guide back-off or carry_pick). Set `continuity` to 'guide' to carry motion and voice rather than a still: each segment's last `guide_frames` frames (22 or 39) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again - 'trim_frames' and the crossfade then do not apply. Guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode. 'keep_segments' (default false) saves each segment as a playable mp4 beside the take and keeps it, naming it on the take's shots - what 'repair-segment' needs to re-render one segment in place later.",
+    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The simplest form of 'chain': a fixed segment count with 'last_frame' continuity, where each segment's final frame becomes the next segment's keyframe. Also shows the bookkeeping a stitched video needs - 'frame_snap' to keep every segment a length the model accepts, 'trim_frames' to drop the duplicated keyframe at each seam, and a crossfade over the generated audio so the joins are not audible. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. To ask for a length instead of a count, set `duration_seconds`; it overrides `segments` (the run logs that `segments` was ignored), and the plan derives the segments and the video and audio are trimmed to exactly that length (not with a guide back-off or carry_pick). Set `continuity` to 'guide' to carry motion and voice rather than a still: each segment's last `guide_frames` frames (22 or 39) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again - 'trim_frames' and the crossfade then do not apply. Guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode. 'keep_segments' (default false) saves each segment as a playable mp4 beside the take and keeps it, naming it on the take's shots - what 'repair-segment' needs to re-render one segment in place later. 'shot' picks the drift counters measured for a kind of shot (bench/records/counters.md), through 'presets'; any variable you pass still wins. 'moving' (the default) applies nothing: no anchor, and the template's own continuity. 'static' (locked-off camera, subject in front) applies continuity 'guide' with anchor 'segment_1' at anchor_strength 0.25. 'dialogue' (a speaking subject in motion) applies continuity 'guide' with no counters. A static take longer than about 30 s should be cut into shots of 30 s or less: the measured drift builds past that and no tested counter holds a longer take. Never use 'last_frame' with 'look_hold' or 'carry_pick' on a camera move: it froze the camera on an orbit.",
     "summary": "A long H3 clip from a supplied still, chained by last frame past the model's fixed clip length.",
     "cost": [
         {
@@ -35,6 +35,7 @@
     ],
     "variables": {
         "keep_segments": false,
+        "shot": "moving",
         "prompts": null,
         "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
         "image": {
@@ -45,6 +46,8 @@
         "duration_seconds": null,
         "continuity": "last_frame",
         "guide_frames": 22,
+        "anchor": "none",
+        "anchor_strength": null,
         "width": 960,
         "height": 544,
         "num_inference_steps": 5,
@@ -61,6 +64,19 @@
         "sparse_tau": 0.5,
         "sparse_topk": 0.15,
         "cache": null
+    },
+    "presets": {
+        "shot": {
+            "static": {
+                "continuity": "guide",
+                "anchor": "segment_1",
+                "anchor_strength": 0.25
+            },
+            "moving": {},
+            "dialogue": {
+                "continuity": "guide"
+            }
+        }
     },
     "variable_constraints": {
         "num_frames": {
@@ -204,6 +220,8 @@
                     "duration_seconds": "variable:duration_seconds",
                     "continuity": "variable:continuity",
                     "guide_frames": "variable:guide_frames",
+                    "anchor": "variable:anchor",
+                    "anchor_strength": "variable:anchor_strength",
                     "segment_argument": "image",
                     "trim_frames": 2,
                     "crossfade_ms": 80,
