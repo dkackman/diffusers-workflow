@@ -2535,11 +2535,13 @@ A take over 15 s is three steps:
    count).
 2. The H3 refine, with `latents: previous_result:encode.latents`, `num_frames:
    previous_result:encode.num_frames`, `refine_strength`, `experimental_refine_windows`
-   and `hold_audio` set to the take's own soundtrack. The held track is encoded whole,
+   and `hold_audio` set to the take's own soundtrack (`hold_audio` reads a video's
+   track, so the take's `.mp4` can go in directly). The held track is encoded whole,
    and that encode has no ceiling of its own. Put `"latents"` in the step's `output`.
 3. `decode_h3_latents` with `latents: previous_result:refine.latents` and `num_frames:
    previous_result:encode.source_frames`, which trims the padding off so the take comes
-   back at its own length. `pair_audio` then puts the soundtrack back.
+   back at its own length. `pair_audio` then puts back the take's own soundtrack, which
+   is `source_frames` long.
 
 A `source_video` over 15 s is refused on a windowed step, and the refusal names
 `encode_h3_latents`: that path would encode the whole take as one float32 tensor.

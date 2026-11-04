@@ -250,9 +250,12 @@ def _long_source_problem(arguments):
         return None
     num_frames = arguments.get("num_frames")
     if isinstance(num_frames, bool) or not isinstance(num_frames, int):
+        # Frames or an array have a length; a path (all validation sees) is
+        # characters, not frames
+        source = arguments[SOURCE_VIDEO_INPUT]
         num_frames = (
-            len(arguments[SOURCE_VIDEO_INPUT])
-            if hasattr(arguments[SOURCE_VIDEO_INPUT], "__len__")
+            len(source)
+            if hasattr(source, "__len__") and not isinstance(source, (str, bytes, dict))
             else None
         )
     if num_frames is None or num_frames / H3_FPS <= H3_MAX_SECONDS:

@@ -737,6 +737,11 @@ def test_a_source_video_past_fifteen_seconds_is_sent_to_the_chunked_encode():
     )
 
 
+def test_a_source_video_path_is_not_counted_as_frames():
+    long_path = "/data/" + "a" * 411 + ".mp4"
+    assert window_problems(refine(latents=None, source_video=long_path)) == []
+
+
 def test_the_run_time_check_refuses_with_the_flag_off():
     from dw.pipeline_processors.pipeline import Pipeline
 

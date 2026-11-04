@@ -229,6 +229,58 @@ def test_a_take_the_refine_cannot_use_is_refused(monkeypatch, take, match):
         encode_h3_latents(take)
 
 
+# 3b. An untrusted header's frame count is bounded before anything is allocated
+
+
+def _fake_header(monkeypatch, tmp_path, frames, fps=24.0, seconds=None):
+    path = tmp_path / "take.mp4"
+    path.write_bytes(b"x")
+    monkeypatch.setattr(
+        hlu,
+        "video_shape",
+        lambda p: {"frame_count": frames, "fps": fps, "width": 64, "height": 64},
+    )
+    monkeypatch.setattr(hlu, "media_duration", lambda p: seconds)
+
+    def no_alloc(*a, **k):
+        raise AssertionError("allocated before the frame count was bounded")
+
+    monkeypatch.setattr(hlu, "_load_decoder", no_alloc)
+    monkeypatch.setattr(torch, "empty", no_alloc)
+    monkeypatch.setattr(hlu, "encode_take", no_alloc)
+    return str(path)
+
+
+def test_a_header_claiming_a_billion_frames_is_refused_before_any_allocation(
+    monkeypatch, tmp_path
+):
+    path = _fake_header(monkeypatch, tmp_path, 10**9, seconds=10**9 / 24)
+    with pytest.raises(ValueError, match="longest take"):
+        encode_h3_latents(path)
+
+
+def test_a_count_far_over_duration_times_fps_is_refused(monkeypatch, tmp_path):
+    path = _fake_header(monkeypatch, tmp_path, 20000, seconds=5.0)
+    with pytest.raises(ValueError, match="duration"):
+        encode_h3_latents(path)
+
+
+def test_a_count_slightly_over_duration_times_fps_is_clamped(monkeypatch, tmp_path):
+    path = _fake_header(monkeypatch, tmp_path, 130, seconds=5.0)  # 120 expected
+    seen = {}
+
+    def load(device, name):
+        raise RuntimeError("stop after the bound")
+
+    monkeypatch.setattr(hlu, "_load_decoder", load)
+    monkeypatch.setattr(
+        hlu, "_take_problem", lambda n, *a: seen.setdefault("n", n) and None
+    )
+    with pytest.raises(RuntimeError, match="stop after"):
+        encode_h3_latents(path)
+    assert seen["n"] <= 121
+
+
 # 4. The decode returns the take's own length
 
 
@@ -245,6 +297,19 @@ def test_the_decode_trims_back_to_the_takes_length(monkeypatch):
     latents = torch.randn(1, 24, 12, 2, 4)
     assert len(decode_h3_latents(latents).frames) == 39
     assert len(decode_h3_latents(latents, num_frames=30).frames) == 30
+    with pytest.raises(ValueError, match="39"):
+        decode_h3_latents(latents, num_frames=40)
+
+
+def test_the_decode_checks_its_count_before_decoding(monkeypatch):
+    class Boom:
+        _execution_device = torch.device("cpu")
+
+        def __call__(self, **kwargs):
+            raise AssertionError("decoded before the count was checked")
+
+    monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: Boom())
+    latents = torch.randn(1, 24, 12, 2, 4)  # decodes to 17 * 2 + 5 = 39 frames
     with pytest.raises(ValueError, match="39"):
         decode_h3_latents(latents, num_frames=40)
 

@@ -423,17 +423,20 @@ def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
             f"latents must be MiniMax-H3 video latents, shaped (batch, "
             f"{LATENT_CHANNELS}, frames, height, width); got {shape}"
         )
+    num_frames = whole_number(num_frames, "num_frames", "decode_h3_latents")
+    if num_frames is not None:
+        # The 5m + 2 latent grid decodes to 17m + 5 frames
+        decodable = 17 * ((latents.shape[2] - 2) // 5) + 5
+        if num_frames > decodable:
+            raise ValueError(
+                f"decode_h3_latents: num_frames {num_frames} is more than the "
+                f"{decodable} frames the latents decode to"
+            )
     pipeline = _load_decoder(device, model_name or DEFAULT_H3_REPO)
     x = latents.to(device=pipeline._execution_device, dtype=torch.float32)
     videos = pipeline(latents=x, output_type="pil", output="videos")
     frames = list(videos[0])
-    num_frames = whole_number(num_frames, "num_frames", "decode_h3_latents")
     if num_frames is not None:
-        if num_frames > len(frames):
-            raise ValueError(
-                f"decode_h3_latents: num_frames {num_frames} is more than the "
-                f"{len(frames)} frames the latents decode to"
-            )
         frames = frames[:num_frames]
     logger.info(
         f"Decoded {len(frames)} frames at {frames[0].size[0]}x{frames[0].size[1]}"
