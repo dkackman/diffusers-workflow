@@ -3041,6 +3041,38 @@ number (the reference resolved to something other than text); and a list left
 with nothing once empty parts are dropped. The parts are positional; there is
 no named form.
 
+## Splitting Text into Takes
+
+`split_takes` cuts a long text into takes a speech model can say in one go
+(`dw/tasks/text_takes.py`). Audio8-TTS holds about 95 s of reference, text and
+speech together, so a narration longer than that is spoken take by take and
+joined (`templates/narration-long`).
+
+```json
+{
+    "name": "split",
+    "task": {
+        "command": "split_takes",
+        "arguments": { "text": "variable:text", "max_seconds": 60, "words_per_second": 2.5 }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The text to speak |
+| `max_seconds` | No | The longest a take may run (default 60: the ~95 s voice-clone context less the reference clip) |
+| `words_per_second` | No | The rate that turns the limit into a word count (default 2.5; written dialogue measured 2.5 to 4 words a second as filling a clip) |
+
+It answers `{takes, count, words}`. A take ends at a sentence boundary; a
+sentence that alone is over the limit is cut at its last comma that fits, else
+at a word, and the run warns. The takes rejoin to the text, modulo whitespace.
+The engine expands `for_each` before a run, so the list cannot feed a
+`for_each` in the same workflow: run `templates/split-takes`, then pass its
+`takes` to `templates/narration-long`. Refused: empty text, a limit that is not
+above zero.
+
 ## Extracting Sections
 
 Reduce generated text to a known set of labelled sections, dropping anything else:

@@ -683,6 +683,8 @@ TEMPLATE_PIPELINE_KEYS = {
         "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "generate-speech.json": {},
+    "narration-long.json": {},
+    "split-takes.json": {},
     "image-edit.json": {
         "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
     },
@@ -848,6 +850,10 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/music.json": {
         "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
+    },
+    "minimax/music-long.json": {
+        "generate_section@intro": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
+        "generate_section@chorus": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
     },
     "minimax/reference-to-video.json": {
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"

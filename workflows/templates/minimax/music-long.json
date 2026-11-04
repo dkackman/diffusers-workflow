@@ -1,0 +1,124 @@
+{
+  "id": "MiniMaxMusicLong",
+  "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its length, faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (empty for an instrumental), 'seconds' the length kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). Cost grows with the sum of the sections' 'audio_duration'.",
+  "cost_drivers": [
+    "sections"
+  ],
+  "variables": {
+    "sections": [
+      {
+        "name": "intro",
+        "caption": "warm acoustic folk, fingerpicked guitar, soft brushed drums, intimate male vocal, 90 BPM",
+        "lyrics": "[verse]\nMorning comes in slow across the field\nEverything I carried finally healed",
+        "seconds": 30,
+        "audio_duration": 45
+      },
+      {
+        "name": "chorus",
+        "caption": "warm acoustic folk, fingerpicked guitar, soft brushed drums, intimate male vocal, 90 BPM, a lift into the chorus",
+        "lyrics": "[chorus]\nLet it rise, let it rise\nGold along the skyline",
+        "seconds": 30,
+        "audio_duration": 45
+      }
+    ],
+    "crossfade_ms": 1500,
+    "section_fade_out_ms": 400,
+    "seed": null
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "generate_section",
+      "for_each": "variable:sections",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "load_components": {
+            "dtype": "torch.bfloat16"
+          },
+          "components_manager": {
+            "enable_auto_cpu_offload": true
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-Music3"
+        },
+        "arguments": {
+          "prompt": "item:caption",
+          "lyrics": "item:lyrics",
+          "audio_duration": "item:audio_duration",
+          "output": "audios"
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100,
+        "save": false
+      }
+    },
+    {
+      "name": "trim",
+      "for_each": "variable:sections",
+      "task": {
+        "command": "slice_audio",
+        "arguments": {
+          "audio": "previous_result:generate_section",
+          "start_seconds": 0,
+          "duration_seconds": "item:seconds"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "fade",
+      "for_each": "variable:sections",
+      "task": {
+        "command": "fade_audio",
+        "arguments": {
+          "audio": "previous_result:trim",
+          "fade_in_ms": 0,
+          "fade_out_ms": "variable:section_fade_out_ms"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "joined",
+      "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+          "audios": "gather:fade",
+          "crossfade_ms": "variable:crossfade_ms",
+          "sample_rate": 44100
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "save": false
+      }
+    },
+    {
+      "name": "balanced",
+      "task": {
+        "command": "normalize_audio",
+        "arguments": {
+          "audio": "previous_result:joined",
+          "peak_dbfs": -3.0,
+          "sample_rate": 44100
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100,
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "A piece longer than one Music 3 track, written as sections and crossfaded together."
+}

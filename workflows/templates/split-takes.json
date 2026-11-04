@@ -1,0 +1,27 @@
+{
+  "id": "SplitTakes",
+  "description": "Cuts a long text into takes a speech model can say in one go, at sentence boundaries, and answers them as JSON: {takes, count, words}. Run it before 'narration-long', whose list of takes is the list it answers - the engine expands a 'for_each' before a run, so the list cannot come from a step of the same workflow. A take ends at a sentence boundary unless one sentence alone is over the limit, which is cut at its last comma that fits, else at a word. 'max_seconds' is the longest a take may run (60 keeps a voice-clone take, its reference and its speech inside Audio8-TTS's ~95 s context); 'words_per_second' turns it into words (2.5 default; written dialogue measured 2.5 to 4 words a second as filling a clip, so a text that is slow to say wants a lower figure).",
+  "variables": {
+    "text": "Somebody finished the pistachio and nobody is saying anything. The fridge hums. Nobody looks up from their phone, and nobody admits to the crime.",
+    "max_seconds": 60,
+    "words_per_second": 2.5
+  },
+  "steps": [
+    {
+      "name": "split",
+      "task": {
+        "command": "split_takes",
+        "arguments": {
+          "text": "variable:text",
+          "max_seconds": "variable:max_seconds",
+          "words_per_second": "variable:words_per_second"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "Cuts a long text into speakable takes at sentence boundaries, answered as JSON."
+}

@@ -132,6 +132,7 @@ UTILITIES = {
     "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
+    "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
     "workflows/templates/minimax/music-video-cuts.json",
@@ -323,6 +324,8 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/minimax/last-frame-only.json": {"image"},
     # a 'result' field the modular pipeline needs declared
     "workflows/templates/minimax/music.json": {"sample_rate"},
+    # fields of a 'sections' list entry, not this workflow's own variables
+    "workflows/templates/minimax/music-long.json": {"audio_duration", "lyrics"},
     # pair_audio's 'fit' argument and its value 'video', and the per-entry
     # 'num_frames' of a shot
     "workflows/templates/minimax/music-video.json": {"fit", "num_frames", "video"},
@@ -552,7 +555,11 @@ def test_no_stale_entry_in_the_allowlist():
 # since the template loads no model and only encodes on the CPU, so neither
 # entry carries a cost block now. Re-measured at 12_780 after that and
 # face-drift-check's `samples_per_shot`, so the budget stands.
-COMPACT_BUDGET = 12_800
+# Then to 13_150 for `narration-long`, `split-takes` and `minimax/music-long`
+# (long-form media, task 22, 2026-11-03), measured at 13_112: three new
+# entries, the catalog's only long narration, its text splitter and its
+# multi-section music, with no cost blocks yet.
+COMPACT_BUDGET = 13_150
 FILTERED_BUDGET = 1_500
 
 
