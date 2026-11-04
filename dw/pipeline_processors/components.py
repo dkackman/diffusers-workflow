@@ -1,6 +1,7 @@
 import torch
 import contextlib
 import logging
+import os
 from .config_objects import (
     get_group_offload_configuration,
     get_load_components_arguments,
@@ -811,6 +812,11 @@ def _assemble_loaded(
 
     if core_denoise_sequences(component):
         attach_tile_blocks(component)
+        # ...and, behind its scratch flag, the time-windowed refine (h3_windows.py)
+        if os.environ.get("DW_EXPERIMENTAL_REFINE_WINDOWS") == "1":
+            from .h3_windows import insert_refine_windows
+
+            insert_refine_windows(component)
 
 
 def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):

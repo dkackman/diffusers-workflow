@@ -367,6 +367,18 @@ class H3Arguments:
                 `refine_sigmas` schedule or the step count is out of range, or the
                 step passes no `latents` or `hold_audio`
         """
+        if arguments.get("experimental_refine_windows") is not None:
+            # The experimental time-windowed refine (h3_windows.py), which
+            # imports diffusers, so only when a step asks for it
+            from .h3_windows import windows_refusal
+
+            refusal = windows_refusal(
+                self.pipeline,
+                arguments,
+                has_cache=self.configuration.get("cache") is not None,
+            )
+            if refusal is not None:
+                raise ValueError(f"Step '{self.name}': {refusal}")
         given = [
             name
             for name in (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
