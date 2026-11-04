@@ -27,6 +27,7 @@ import math
 import numpy
 import torch
 
+from ..media import media_duration
 from ..media_readers import (
     ShortFrameRange,
     count_video_frames,
@@ -560,6 +561,44 @@ def _take_reader(source):
     )
 
 
+# The longest take encode_h3_latents will size an allocation for: 30 minutes at
+# 24 fps. A container header's frame count is untrusted input - the noise draw
+# and the output latent are sized from it - so nothing larger is allocated for.
+MAX_TAKE_FRAMES = 30 * 60 * H3_FPS
+# A header count this far over duration x fps is a lie, not a rounding error
+_DURATION_SLACK = 2
+
+
+def bounded_take_frames(claimed, path, fps):
+    """The frame count to size allocations by, or a ValueError. The header's
+    claim is checked against the file's duration x fps (the smaller wins; a
+    count more than twice that is refused as absurd) and against
+    MAX_TAKE_FRAMES, before anything is allocated."""
+    count = claimed
+    if path is not None and fps:
+        try:
+            seconds = media_duration(path)
+        except Exception:
+            seconds = None
+        if seconds and seconds > 0:
+            expected = math.ceil(seconds * fps) + 1
+            if claimed > _DURATION_SLACK * expected + fps:
+                raise ValueError(
+                    f"encode_h3_latents: the file's header claims {claimed} "
+                    f"frames but its duration ({seconds:.2f}s at {fps:g} fps) "
+                    f"holds about {expected} - refusing a count that does not "
+                    f"match the duration"
+                )
+            count = min(claimed, expected)
+    if count > MAX_TAKE_FRAMES:
+        raise ValueError(
+            f"encode_h3_latents: a take of {count} frames is over the longest "
+            f"take it encodes ({MAX_TAKE_FRAMES} frames, "
+            f"{MAX_TAKE_FRAMES / H3_FPS / 60:g} minutes at {H3_FPS} fps)"
+        )
+    return count
+
+
 def _take_problem(source_frames, fps, height, width, multiple):
     """Why a take cannot be encoded for an H3 refine, or None."""
     if source_frames < 1:
@@ -600,6 +639,7 @@ def encode_h3_latents(source, device="cpu", model_name=None):
         take's own count, for `decode_h3_latents`' `num_frames` to trim back to
     """
     read, source_frames, fps, path, (height, width) = _take_reader(source)
+    source_frames = bounded_take_frames(source_frames, path, fps)
     # The canvas multiple of the released H3 (VAE 16x times patch 2)
     problem = _take_problem(source_frames, fps, height, width, 32)
     if problem:
@@ -624,7 +664,7 @@ def encode_h3_latents(source, device="cpu", model_name=None):
         if path is None:
             raise
         # The header over-counted: encode again on a counted total
-        source_frames = count_video_frames(path)
+        source_frames = bounded_take_frames(count_video_frames(path), path, fps)
         latents, num_frames = encode(source_frames)
     logger.info(
         f"Encoded a {source_frames}-frame take ({source_frames / H3_FPS:.2f}s) "
