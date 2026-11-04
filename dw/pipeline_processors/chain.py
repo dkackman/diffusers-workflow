@@ -605,7 +605,10 @@ class ChainConfig:
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
 
         # The sharpest of the last N frames as the keyframe (#1032)
-        problem = chain_carry_pick_problem(chain_definition)
+        problem = chain_carry_pick_problem(
+            chain_definition,
+            arguments.get("num_frames") if isinstance(arguments, dict) else None,
+        )
         if problem:
             raise ValueError(f"Chain {problem}")
         pick = chain_definition.get("carry_pick")

@@ -1423,6 +1423,16 @@ class TestCarryPick:
         with pytest.raises(ValueError, match="1 and 8"):
             ChainConfig(self.chain(carry_pick={"sharpest": 9}), {"num_frames": 8})
 
+    def test_it_is_refused_with_match_audio(self):
+        chain = self.chain(carry_pick={"sharpest": 3}, match_audio=True)
+        with pytest.raises(ValueError, match="match_audio"):
+            ChainConfig(chain, {"num_frames": 8})
+
+    def test_it_is_refused_when_the_window_could_empty_a_segment(self):
+        with pytest.raises(ValueError, match=r"num_frames 8.*trim_frames 0"):
+            ChainConfig(self.chain(carry_pick={"sharpest": 8}), {"num_frames": 8})
+        ChainConfig(self.chain(carry_pick={"sharpest": 7}), {"num_frames": 8})
+
     def test_validation_wires_the_rule(self):
         from dw.guides import anchor_errors
 

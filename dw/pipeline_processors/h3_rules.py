@@ -636,10 +636,13 @@ CARRY_PICK_MIN = 1
 CARRY_PICK_MAX = 8
 
 
-def chain_carry_pick_problem(chain):
+def chain_carry_pick_problem(chain, num_frames=None):
     """The reason a chain block's `carry_pick` is refused, or None: a shape
-    other than {"sharpest": N}, N outside 1..8, or a continuity other than
-    `last_frame`. Unresolved references are left to the run."""
+    other than {"sharpest": N}, N outside 1..8, a continuity other than
+    `last_frame`, `match_audio` (the plan is fixed from the track's length and
+    the pick drops frames per seam), or - when the step's `num_frames` is known
+    - an N that could empty a segment. Unresolved references are left to the
+    run."""
     if "carry_pick" not in chain:
         return None
     pick = chain["carry_pick"]
@@ -671,6 +674,26 @@ def chain_carry_pick_problem(chain):
         return (
             f"carry_pick needs continuity 'last_frame' - the other modes carry "
             f"more than one frame; got {continuity!r}"
+        )
+    if chain.get("match_audio"):
+        return (
+            "carry_pick does not combine with match_audio: the plan covers the "
+            "track up front and the pick drops up to "
+            f"{CARRY_PICK_MAX - 1} more frames per seam, leaving the video "
+            "shorter than the track - use 'segments'"
+        )
+    trim = chain.get("trim_frames", 1)
+    if (
+        isinstance(num_frames, int)
+        and not isinstance(num_frames, bool)
+        and isinstance(trim, int)
+        and not isinstance(trim, bool)
+        and window >= num_frames - trim
+    ):
+        return (
+            f"carry_pick sharpest {window} must be less than num_frames "
+            f"{num_frames} minus trim_frames {trim} ({num_frames - trim}), or "
+            "the pick could empty a segment"
         )
     return None
 

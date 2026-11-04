@@ -59,3 +59,33 @@ def test_the_rule_names_the_allowed_values():
         {"carry_pick": {"sharpest": 3}, "continuity": "guide"}
     )
     assert "last_frame" in problem
+
+
+def test_the_rule_refuses_match_audio_and_a_window_that_fills_the_segment():
+    from dw.pipeline_processors.h3_rules import chain_carry_pick_problem
+
+    pick = {"sharpest": 4}
+    assert "match_audio" in chain_carry_pick_problem(
+        {"carry_pick": pick, "match_audio": True}
+    )
+    problem = chain_carry_pick_problem({"carry_pick": pick, "trim_frames": 1}, 5)
+    assert "5" in problem and "trim_frames 1" in problem
+    assert chain_carry_pick_problem({"carry_pick": pick, "trim_frames": 1}, 6) is None
+    assert chain_carry_pick_problem({"carry_pick": pick}) is None
+
+
+def test_validation_refuses_match_audio():
+    from dw.guides import anchor_errors
+
+    definition = {
+        "steps": [
+            {
+                "name": "s",
+                "pipeline": {
+                    "chain": {"match_audio": True, "carry_pick": {"sharpest": 3}},
+                    "arguments": {"num_frames": 49},
+                },
+            }
+        ]
+    }
+    assert any("match_audio" in e["message"] for e in anchor_errors(definition))

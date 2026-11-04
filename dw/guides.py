@@ -397,7 +397,12 @@ def anchor_errors(workflow_definition, source_indices=None):
                     "message": f"{problem}{where}",
                 }
             )
-        problem = chain_carry_pick_problem(chain)
+        problem = chain_carry_pick_problem(
+            chain,
+            pipeline.get("arguments", {}).get("num_frames")
+            if isinstance(pipeline.get("arguments"), dict)
+            else None,
+        )
         if problem:
             errors.append(
                 {
