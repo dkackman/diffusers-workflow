@@ -196,3 +196,19 @@ def test_music_long_refuses_a_section_over_300_seconds():
     definition["variables"]["sections"][0]["audio_duration"] = 301
     errors = Workflow(definition, str(path.parent), str(path)).validation_errors()
     assert any("300" in json.dumps(e) for e in errors), errors
+
+
+def test_music_long_slice_audio_steps_carry_a_sample_rate():
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    definition = json.loads((root / "minimax" / "music-long.json").read_text())
+    slices = [
+        s
+        for s in definition["steps"]
+        if s.get("task", {}).get("command") == "slice_audio"
+    ]
+    assert slices
+    for step in slices:
+        assert "sample_rate" in step["task"]["arguments"], step["name"]

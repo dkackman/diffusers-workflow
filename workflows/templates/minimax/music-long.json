@@ -69,6 +69,7 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "previous_result:generate_section",
+          "sample_rate": 44100,
           "start_seconds": 0,
           "duration_seconds": "item:seconds"
         }
