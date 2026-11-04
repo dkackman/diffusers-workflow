@@ -2628,13 +2628,15 @@ state:
 
 | Measure | Against | Default ceiling | Fails when |
 |---|---|---|---|
-| `jump_ratio` | the previous segment: the largest frame change across the seam over the larger of the two segments' own typical change, floored at 2 grey levels (`analyze_seams`'s measure) | `jump_ratio_max` 25 | above the ceiling |
-| `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 12 | above the ceiling |
+| `jump_ratio` | the previous segment: the largest frame change across the seam over the larger of the two segments' own typical change, floored at 2 grey levels (`analyze_seams`'s measure) | `jump_ratio_max` 4 | above the ceiling |
+| `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 5.5 | above the ceiling |
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
-it names. `face` is reserved and must be `null`. The ceilings are provisional, set to
-catch gross failures only until the bench's noise floor sets them. A static segment's own
+it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
+99th percentile of the bench's unchecked S1-S3 chains (`bench/records/noise-floor.md`);
+the texture ceiling is still provisional, because those chains' own texture ratio is the
+drift it exists to catch. A static segment's own
 motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
 and is never checked, nor is a seam whose incoming shot is a hard cut (a chain's own
 segments never are).

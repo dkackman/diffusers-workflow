@@ -19,22 +19,27 @@ from dataclasses import dataclass, field
 
 import numpy
 
-# PROVISIONAL: the default ceilings, to be set from the 99th percentile of
-# each measure across the noise-floor runs of S1-S3, plus margin, once
-# bench/records/noise-floor.md has them. Until then they are set to catch
-# gross failures only:
-# - jump_ratio: `seam_frame_jump`'s own threshold (dw/assessment_rules.py),
-#   above every intended cut the stage D runs measured (9.9-20.3; a dissolve
-#   reads about 1.8) - a chain seam over it is a cut nobody asked for
-# - look_ratio: no assessment rule reads it yet; its calibration
+# The default ceilings, set from the 99th percentile of each seam measure
+# across the noise-floor runs of S1-S3 (bench/records/noise-floor.md, "Chain
+# check thresholds"; 28 seams of unchecked chains, measured with this
+# module's own arithmetic), doubled for margin and rounded up to half a point:
+# - jump_ratio: P99 2.02 -> 4.0. Well under `seam_frame_jump`'s own threshold
+#   (25, dw/assessment_rules.py) and the 9.9-20.3 the stage D runs measured
+#   for an intended cut, above a dissolve's 1.8 - a chain seam over it is a
+#   cut nobody asked for
+# - look_ratio: P99 2.67 -> 5.5. The calibration
 #   (docs/proposals/complete/seam-look-measures-complete.md) read 0.64 for a
-#   clip joined to itself, 19.2 for a saturation-1.6 grade (the size of
-#   join Kinoloom reported) and 47.5 for an exposure step - 12 is ~19x the
-#   control and under the visible grade
-# - texture_ratio: the segment's fine-band luma against segment 1's, either
-#   way - halved (blur) or doubled (crust)
-JUMP_RATIO_MAX = 25.0
-LOOK_RATIO_MAX = 12.0
+#   clip joined to itself and 19.2 for a saturation-1.6 grade, so 5.5 is
+#   well under a visible grade
+# - texture_ratio: still PROVISIONAL, 2.0, the segment's fine-band luma
+#   against segment 1's, either way - halved (blur) or doubled (crust). The
+#   noise runs cannot set it: the two same-seed runs of S1 and S2 are
+#   identical (no spread), and the unchecked chains' own ratio is the drift
+#   the check exists to catch (P99 3.0x, up to 2.4x in S1 and 0.32x in S2
+#   by segment 10), so a percentile of it would raise the ceiling to the
+#   very defect. It is set from a checked chain's runs, not these
+JUMP_RATIO_MAX = 4.0
+LOOK_RATIO_MAX = 5.5
 TEXTURE_RATIO_MAX = 2.0
 
 # The measures a check can fail, in the order a failure names them

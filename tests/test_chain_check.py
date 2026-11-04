@@ -61,11 +61,11 @@ def test_a_seamless_segment_passes():
 def test_a_static_shot_with_near_zero_motion_does_not_fail_on_jump():
     # Both shots static: their own typical delta is ~0, under the assess
     # floor, so the seam's change is divided by the floor and not by ~0
-    result = check_segment(grey(100), grey(130), grey(100), SegmentCheck())
+    result = check_segment(grey(100), grey(105), grey(100), SegmentCheck())
 
     assert "jump_ratio" not in result.failed
     assert result.measures["typical_delta"] == 2.0
-    assert result.measures["jump_ratio"] == pytest.approx(15.0)
+    assert result.measures["jump_ratio"] == pytest.approx(2.5)
 
 
 def test_hard_cut_seams_are_never_checked():
