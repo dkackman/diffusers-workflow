@@ -412,9 +412,30 @@ def test_the_estimate_quotes_the_worst_case_retries(): ...  # plan.estimate minu
 - [ ] **Step 1: The gate.** From Tasks 11-15: does the best chain per shot type still leave a seam or drift gap larger than noise against segment 1 on any scene? If not, close #1150, #1044 and #1030 with the numbers, and skip to Step 4.
 - [ ] **Step 2: Latent carry spike** (#1150's stages A and B as its plan comment designs them, on a scratch flag): measure against the best chain on the scene with the gap.
 - [ ] **Step 3: Verdict for #1150, #1044, #1030.** A winner becomes a follow-up feature with its own plan, filed at hand-off.
-- [ ] **Step 4: Hybrid windows spike (#1188).** On the diffusers H3 modular pipeline: can a denoise block run the transformer on a token sub-range (video rows plus their 40 Hz audio rows, rotary positions kept) per step? Build the smallest version that renders S1 at about 40 s in windows, with no keystone, and measure it against the best chain. Record feasibility, VRAM, wall time and the measures.
-- [ ] **Step 5: Verdict for #1188.** A win becomes a follow-up feature filed at hand-off; a loss or an infeasible spike closes it with the record.
-- [ ] **Step 6: Commit the record.**
+**What makes hybrid windows seamless (amended 2026-11-03, from a correction relayed by Don).** The keystone and capstone are not the core of #1188. They keep burn down while every window is brought to a clean finish. The seamlessness comes from the **handoff and the blended refine**:
+1. each window runs its early steps in order, overlap pinned to the window before;
+2. with `finished_handoff`, each window runs on to the last step, and the next window's overlap is pinned to those *finished* frames;
+3. every window then steps back to its switch-step state (6 of 8);
+4. the remaining steps run as **blended context windows over the whole video**: a refine pass in overlapping, fused time windows.
+
+So the spikes test the handoff and the blended refine first, and the anchors last. They run at 8 steps (switch at 6), not the 4-step turbo default, because at 4 steps the blended refine would be a single step. Don answers the commenter himself after the measurements: **do not comment on #1188 from this plan** unless a label or state change is mechanically required.
+
+- [ ] **Step 4: Temporal windowed refine over a finished chain (the cheap arm, first).**
+  - **Mechanism.** Take a finished chain's stitched take as one latent: encode it in chunks, or use the decode-once carry from Step 2 / #1030 if that spike built it. Run a low-sigma refine over the whole take in overlapping time windows, and fuse the windows' predictions at every step (pyramid weights, as kijai's context windows do).
+  - **Reuse.** This is dw's refine schedule (`refine_strength`, `refine_sigmas`, `hold_audio` for the take's own track) and its tiled refine (`refine_tiles`, #1043/#1048), tiled in time instead of space.
+  - **Feasibility first.** Can a dw denoise block run the transformer on a time window of the packed sequence (video rows and their 40 Hz audio rows, rotary positions kept) and fuse overlapping windows per step?
+  - **Bench it** on S1, S2 and S3's best chains from Task 11/15, at the refine strengths the regional-edit bands suggest (start near 0.3, then 0.2 and 0.4). Measure the seams (`analyze_seams` jump and look) and drift against the unrefined chain, plus wall time and VRAM.
+  - **If it wins,** it is the seam-smoothing pass for every chain, family by family. Its follow-up feature (or stages here) gets the full TDD treatment.
+- [ ] **Step 5: Full hybrid-windows recipe (#1188).** One long render in windows, built on Step 4's windowed-transformer block:
+  - sequential windows for the first `switch_step` of 8 steps (6), overlap pinned;
+  - `finished_handoff` (each window finished, next overlap pinned to the finished frames, then rewound);
+  - the blended context-window finish over the whole video;
+  - no keystone or capstone yet.
+
+  Render S1 and S2 at about 40 s, and compare against the best chain and against Step 4's refined chain. Record feasibility, VRAM, wall time, the handoff's extra cost, and the measures.
+- [ ] **Step 6: The anchors as a second arm.** Only if Step 5 works: add the keystone and the capstone (window 1's finished frame 0 into every window's first slot; window 1's last single-frame latent tacked past each window's end from `capstone_step`), and measure the burn on S1 and S2 at about 40 s and at two minutes.
+- [ ] **Step 7: Verdicts for #1188 and the windowed refine.** A win becomes a follow-up feature filed at hand-off; a loss or an infeasible spike closes with the record. Record the verdicts in `structural.md` for Don, who answers the #1188 commenter himself.
+- [ ] **Step 8: Commit the record.**
 
 ## Phase 4: The quality dial and speed
 
