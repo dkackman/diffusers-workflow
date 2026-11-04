@@ -63,6 +63,7 @@ from .pipeline_processors.h3_rules import (
     RENDER_GRID,
     chain_anchor_problem,
     chain_carry_pick_problem,
+    chain_check_problem,
     chain_look_hold_problem,
     chain_keystone_problem,
     guide_backoff_problems,
@@ -424,6 +425,15 @@ def anchor_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(base + ("chain", "keystone")),
+                    "message": f"{problem}{where}",
+                }
+            )
+        problem = chain_check_problem(chain)
+        if problem:
+            key = "retries" if problem.startswith("retries") else "check"
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", key)),
                     "message": f"{problem}{where}",
                 }
             )

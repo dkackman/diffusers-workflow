@@ -258,6 +258,46 @@ def _chain_segments(definition, variables):
     return chain_segment_count(chain, arguments)
 
 
+def _chain_retries(definition, variables):
+    """The re-rolls a checked segment of the workflow's one chain may take
+    at `variables`: its `retries` with `check` on, else 0."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return 0
+    chain = blocks[0][0]
+    check = _resolved(chain.get("check"), variables)
+    retries = _resolved(chain.get("retries", 0), variables)
+    if not (check is True or isinstance(check, dict)):
+        return 0
+    if isinstance(retries, bool) or not isinstance(retries, int):
+        return 0
+    return max(0, retries)
+
+
+def _worst_case_retries(definition, variables):
+    """(factor, axes, unscaled) for the worst case of a checked chain's
+    re-rolls, as `chain_check` runs them: segment 1 is never checked, and
+    each later segment may render 1 + retries times, so N segments cost up
+    to 1 + (N - 1)(1 + retries) renders where the curated figure, measured
+    without re-rolls, paid N. `retries` is flagged unscaled when the segment
+    count cannot be told; with no re-rolls nothing moves."""
+    retries = _chain_retries(definition, variables)
+    segments = _chain_segments(definition, variables) if retries else None
+    if not retries:
+        return 1.0, [], []
+    if not segments:
+        return 1.0, [], ["retries"]
+    renders = 1 + (segments - 1) * (1 + retries)
+    return (
+        renders / segments,
+        [
+            f"worst case {retries} re-roll(s) of each of {segments - 1} checked "
+            f"segment(s): {renders} renders for {segments}"
+        ],
+        [],
+    )
+
+
 def _driver_scaling(definition, expanded, list_entries):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -322,7 +362,8 @@ def _driver_scaling(definition, expanded, list_entries):
             for name in chain_drivers
         ):
             unscaled.extend(chain_drivers)
-    return factor, scaled_axes, unscaled
+    worst, worst_axes, worst_unscaled = _worst_case_retries(definition, effective)
+    return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 
 
 def _scaled(price, scaling):

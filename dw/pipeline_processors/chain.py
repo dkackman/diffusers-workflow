@@ -44,7 +44,7 @@ import torch
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
-from ..events import emit_log
+from ..events import emit_log, emit_warning
 from ..shots import shot_record, without_samples
 from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
@@ -55,6 +55,13 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     SegmentedFrames,
     SegmentSpill,
     spilled_frames,
+)
+from .chain_check import (
+    best_attempt,
+    check_segment,
+    reroll_seed,
+    segment_check,
+    texture_samples,
 )
 from .chain_look import LookHold
 from .chain_pick import sharpest_index
@@ -77,6 +84,7 @@ from .h3_rules import (
     KEYSTONE_SEGMENT_1,
     chain_anchor_problem,
     chain_carry_pick_problem,
+    chain_check_problem,
     chain_keystone_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
@@ -319,76 +327,63 @@ def run_chain(pipeline, chain_definition, arguments):
     shots = []
     frame_count = 0
 
+    # The step's seed, which a re-roll offsets (chain_check.reroll_seed); the
+    # previous segment's kept frames, which a check measures the seam
+    # against, and segment 1's texture samples, which it measures drift by
+    seed = _step_seed(arguments)
+    previous_kept = None
+    segment_1_texture = None
+
     try:
         for segment in config.plan:
-            segment_arguments = _segment_arguments(
-                arguments,
-                config,
-                segment,
-                continuity,
-                carry,
-                anchor_frames,
-                keystone_frame,
-            )
-
             logger.info(
                 f"Chain segment {segment.index + 1}/{len(config.plan)}"
                 + (f": {segment.num_frames} frames" if segment.num_frames else "")
             )
-
-            # The denoise counter restarts for every segment - without this the
-            # bar rewinds to zero with nothing saying why
-            pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
-            # Names the anchor in the job log when this segment carries one
-            pipeline.latent_anchor_source = (
-                "segment 1" if segment.index > 0 and anchor_frames is not None else None
+            state = _ChainState(
+                carry, raw_carry, hold, anchor_frames, keystone_frame, seed
             )
-            output = pipeline._run_once(segment_arguments)
-            artifact = _single_artifact(output)
-
-            if hold is not None:
-                artifact = _look_held(artifact, hold, raw_carry, segment.index == 0)
-            carry = continuity.extract(artifact)
-            if hold is not None and config.continuity == "last_frame":
-                raw_carry, carry = carry, hold.feed(carry)
-            segment_frames = frames_as_pil_list(artifact)
-            if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
-                anchor_frames = segment_frames
-            if config.keystone == KEYSTONE_SEGMENT_1 and segment.index == 0:
-                keystone_frame = segment_frames[0]
-            segment_audio, segment_rate = _generated_audio(artifact)
-            # A segment's own generated audio can run a codec-padding sliver
-            # short of the frames it was asked for - the same gap #197 fixed for
-            # a decoded file (_decode_audio_video) and for an in-memory
-            # previous_result shot (Result.save). A chained segment goes through
-            # neither of those, so the shortfall was surviving here uncorrected
-            # and compounding once per segment (#408).
-            if segment_audio is not None and segment_rate and config.fps:
-                segment_audio = fit_codec_padding(
-                    segment_audio, len(segment_frames), config.fps, segment_rate
+            if config.check is not None and segment.index > 0:
+                attempt, checked = _checked_attempt(
+                    pipeline,
+                    arguments,
+                    config,
+                    segment,
+                    continuity,
+                    state,
+                    previous_kept,
+                    segment_1_texture,
                 )
+            else:
+                attempt = _render_attempt(
+                    pipeline, arguments, config, segment, continuity, state
+                )
+                checked = None
 
-            tail_trim = config.tail_trim + getattr(continuity, "picked_back", 0)
+            # Only the kept attempt reaches the timeline: its carry, its
+            # look-hold state, its frames and its audio
+            carry, raw_carry = attempt.carry, attempt.raw_carry
+            hold = attempt.hold
+            if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
+                anchor_frames = attempt.rendered
+            if config.keystone == KEYSTONE_SEGMENT_1 and segment.index == 0:
+                keystone_frame = attempt.rendered[0]
+            if config.check is not None:
+                previous_kept = attempt.kept
+                if segment.index == 0:
+                    segment_1_texture = texture_samples(attempt.kept)
+            segment_audio, segment_rate = attempt.audio, attempt.rate
+
+            tail_trim = attempt.tail_trim
             if config.carry_pick and segment.index < len(config.plan) - 1:
                 emit_log(
                     f"Chain seam {segment.index + 1}/{len(config.plan) - 1}: "
-                    f"carry_pick took frame {len(segment_frames) - tail_trim} of "
-                    f"{len(segment_frames)} (sharpest of the last "
+                    f"carry_pick took frame {len(attempt.rendered) - tail_trim} of "
+                    f"{len(attempt.rendered)} (sharpest of the last "
                     f"{config.carry_pick}), dropping {tail_trim} after it"
                 )
-            if tail_trim and segment.index < len(config.plan) - 1:
-                # The carry is already taken; the tail it backed off from is
-                # replaced by the next segment's fresh take (#1189), and a
-                # picked frame ends its segment (#1032)
-                segment_frames = segment_frames[:-tail_trim]
-                if segment_audio is not None:
-                    segment_audio = segment_audio[
-                        :,
-                        : segment_audio.shape[1]
-                        - frames_to_samples(tail_trim, config.fps, segment_rate),
-                    ]
 
-            kept_frames = segment_frames[segment.head_trim :]
+            kept_frames = attempt.kept
             start_sample = audio.shape[1] if audio is not None else 0
             shots.append(
                 shot_record(
@@ -398,6 +393,8 @@ def run_chain(pipeline, chain_definition, arguments):
                     start_sample,
                 )
             )
+            if config.check is not None:
+                _record_check(shots[-1], segment, config, checked)
             frame_count += len(kept_frames)
             if spill is not None:
                 spill.write(
@@ -429,7 +426,7 @@ def run_chain(pipeline, chain_definition, arguments):
             # The segment's raw output is finished with - the frames live on
             # (in RAM or on disk) and the carry frame is extracted. Free it
             # before the next segment needs the accelerator.
-            del output, artifact, segment_frames, segment_audio, kept_frames
+            del attempt, segment_audio, kept_frames
             gc.collect()
             empty_device_cache()
     finally:
@@ -439,6 +436,231 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.latent_anchor_source = None
 
     return _stitched(config, spill, frames, audio, audio_rate, shots)
+
+
+@dataclass
+class _ChainState:
+    """What a segment is rendered from: the previous segment's carry (and,
+    under look_hold, the carry before pre-compensation and the hold's state),
+    segment 1's anchor frames and keystone, and the step's seed. A re-roll
+    renders from exactly this again."""
+
+    carry: object
+    raw_carry: object
+    hold: object  # LookHold or None
+    anchor_frames: list
+    keystone_frame: object
+    seed: int  # None when the step passes neither a generator nor a seed
+
+
+@dataclass
+class _Attempt:
+    """One render of a segment and everything derived from it, before any of
+    it is committed to the chain's timeline."""
+
+    rendered: list  # its frames as rendered (look-held), before any trim
+    kept: list  # the frames it adds to the timeline: tail and head trimmed
+    audio: object  # (channels, samples) numpy, tail trimmed, or None
+    rate: int
+    carry: object
+    raw_carry: object
+    hold: object  # the look-hold state after this segment, or None
+    tail_trim: int
+    seed: int = None
+
+
+def _render_attempt(
+    pipeline, arguments, config, segment, continuity, state, number=0, attempts=1
+):
+    """Render one attempt of a segment from `state`. Attempt 0 runs on the
+    step's own generator; attempt n > 0 on `chain_check.reroll_seed`'s seed.
+    The look-hold state is forked when more than one attempt may run, so a
+    discarded attempt leaves nothing behind in it."""
+    segment_arguments = _segment_arguments(
+        arguments,
+        config,
+        segment,
+        continuity,
+        state.carry,
+        state.anchor_frames,
+        state.keystone_frame,
+    )
+    seed = _reseeded(segment_arguments, state.seed, number) if number else None
+
+    # The denoise counter restarts for every segment - without this the
+    # bar rewinds to zero with nothing saying why
+    pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}" + (
+        f", attempt {number + 1}/{attempts}" if number else ""
+    )
+    # Names the anchor in the job log when this segment carries one
+    pipeline.latent_anchor_source = (
+        "segment 1" if segment.index > 0 and state.anchor_frames is not None else None
+    )
+    output = pipeline._run_once(segment_arguments)
+    artifact = _single_artifact(output)
+    del output
+
+    hold, raw_carry = state.hold, state.raw_carry
+    if hold is not None:
+        if attempts > 1:
+            hold = copy.deepcopy(hold)
+        artifact = _look_held(artifact, hold, raw_carry, segment.index == 0)
+    carry = continuity.extract(artifact)
+    if hold is not None and config.continuity == "last_frame":
+        raw_carry, carry = carry, hold.feed(carry)
+    rendered = frames_as_pil_list(artifact)
+    segment_audio, segment_rate = _generated_audio(artifact)
+    # A segment's own generated audio can run a codec-padding sliver
+    # short of the frames it was asked for - the same gap #197 fixed for
+    # a decoded file (_decode_audio_video) and for an in-memory
+    # previous_result shot (Result.save). A chained segment goes through
+    # neither of those, so the shortfall was surviving here uncorrected
+    # and compounding once per segment (#408).
+    if segment_audio is not None and segment_rate and config.fps:
+        segment_audio = fit_codec_padding(
+            segment_audio, len(rendered), config.fps, segment_rate
+        )
+
+    segment_frames = rendered
+    tail_trim = config.tail_trim + getattr(continuity, "picked_back", 0)
+    if tail_trim and segment.index < len(config.plan) - 1:
+        # The carry is already taken; the tail it backed off from is
+        # replaced by the next segment's fresh take (#1189), and a
+        # picked frame ends its segment (#1032)
+        segment_frames = segment_frames[:-tail_trim]
+        if segment_audio is not None:
+            segment_audio = segment_audio[
+                :,
+                : segment_audio.shape[1]
+                - frames_to_samples(tail_trim, config.fps, segment_rate),
+            ]
+    return _Attempt(
+        rendered,
+        segment_frames[segment.head_trim :],
+        segment_audio,
+        segment_rate,
+        carry,
+        raw_carry,
+        hold,
+        tail_trim,
+        seed,
+    )
+
+
+def _checked_attempt(
+    pipeline,
+    arguments,
+    config,
+    segment,
+    continuity,
+    state,
+    previous_kept,
+    segment_1_texture,
+):
+    """Render a segment, check it against the one before and segment 1, and
+    re-roll it from the same state up to `config.retries` times while it
+    fails. Returns (the kept attempt, its record): the attempt with the
+    fewest failed measures, then the lowest jump ratio (`best_attempt`), and
+    {"attempts", "result", "kept"}. Only the best attempt so far is held."""
+    attempts = 1 + config.retries
+    results = []
+    best, best_index = None, None
+    for number in range(attempts):
+        if number:
+            emit_log(
+                f"Chain segment {segment.index + 1}/{len(config.plan)}: check "
+                f"failed ({_failures(results[-1])}) - re-rolling, attempt "
+                f"{number + 1} of {attempts}"
+                + (
+                    f" at seed {reroll_seed(state.seed, number)}"
+                    if state.seed is not None
+                    else " (the step passes no seed to vary)"
+                )
+            )
+            gc.collect()
+            empty_device_cache()
+        attempt = _render_attempt(
+            pipeline, arguments, config, segment, continuity, state, number, attempts
+        )
+        results.append(
+            check_segment(previous_kept, attempt.kept, segment_1_texture, config.check)
+        )
+        kept_index = best_attempt(results)
+        if kept_index == number:
+            best, best_index = attempt, number
+        del attempt
+        if results[-1].passed:
+            break
+    return best, {
+        "attempts": len(results),
+        "result": results[best_index],
+        "kept": best_index,
+        "seed": best.seed,
+    }
+
+
+def _failures(result):
+    return ", ".join(f"{name} {result.measures.get(name)}" for name in result.failed)
+
+
+def _record_check(shot, segment, config, checked):
+    """Put a checked segment's attempts on its shot - and, when every attempt
+    failed, the measures its kept attempt failed, with one job warning that
+    reaches the caller. Segment 1 is never checked: one attempt."""
+    if checked is None:
+        shot["attempts"] = 1
+        return
+    shot["attempts"] = checked["attempts"]
+    result, kept = checked["result"], checked["kept"]
+    if kept:
+        # The seed the kept re-roll ran at, so the run can be repeated
+        shot["seed"] = checked.get("seed")
+    if result.passed:
+        return
+    shot["check_failed"] = list(result.failed)
+    emit_warning(
+        f"Chain segment {segment.index + 1}/{len(config.plan)} failed its check "
+        f"on every attempt ({_failures(result)}); kept attempt {kept + 1} of "
+        f"{checked['attempts']}, the closest",
+        kind="chain_check_failed",
+        segment=segment.index + 1,
+        measures=list(result.failed),
+        values={name: result.measures.get(name) for name in result.failed},
+        kept_attempt=kept + 1,
+        attempts=checked["attempts"],
+    )
+
+
+def _step_seed(arguments):
+    """The seed a chain's segments run at: the step's generator's (a
+    workflow naming none drew one before the run, `workflow_run`, and seeded
+    the generator with it), else a `seed` argument, else None."""
+    generator = arguments.get("generator")
+    if isinstance(generator, torch.Generator):
+        return generator.initial_seed()
+    seed = arguments.get("seed")
+    if isinstance(seed, int) and not isinstance(seed, bool):
+        return seed
+    return None
+
+
+def _reseeded(segment_arguments, seed, number):
+    """Point a re-roll's arguments at attempt `number`'s seed - a fresh
+    generator on the step generator's device, or the `seed` argument - and
+    return that seed; None, with the arguments as they were, without one.
+    The step's own generator is left where attempt 0 left it, so the
+    segments after a re-roll run as they would have."""
+    if seed is None:
+        return None
+    rerolled = reroll_seed(seed, number)
+    generator = segment_arguments.get("generator")
+    if isinstance(generator, torch.Generator):
+        segment_arguments["generator"] = torch.Generator(
+            device=generator.device
+        ).manual_seed(rerolled)
+    else:
+        segment_arguments["seed"] = rerolled
+    return rerolled
 
 
 def _look_held(artifact, hold, raw_carry, first):
@@ -675,6 +897,13 @@ class ChainConfig:
         if problem:
             raise ValueError(f"Chain {problem}")
         self.look_hold = chain_look_hold_flags(chain_definition)
+
+        # The per-segment check and its re-roll budget; absent is off and 0
+        problem = chain_check_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.check = segment_check(chain_definition.get("check"))
+        self.retries = int(chain_definition.get("retries", 0)) if self.check else 0
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

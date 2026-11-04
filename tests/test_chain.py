@@ -1576,3 +1576,151 @@ class TestLookHold:
             ]
         }
         assert any("look_hold" in e["message"] for e in anchor_errors(definition))
+
+
+class TestCheckAndReroll:
+    """The per-segment check (chain_check.py) and its bounded re-roll: a
+    failed segment is rendered again from the same carry with a new seed,
+    and only the kept attempt reaches the timeline."""
+
+    SEED = 42
+    PRIME = 1000003
+
+    def chain(self, **extra):
+        return {"segments": 2, "trim_frames": 1, "fps": 4, **extra}
+
+    def arguments(self):
+        return {"generator": torch.Generator().manual_seed(self.SEED)}
+
+    @staticmethod
+    def pattern():
+        x = numpy.arange(32)
+        row = 128 + 100 * numpy.sin(2 * numpy.pi * x / 32)
+        plane = numpy.tile(row, (32, 1))
+        return numpy.stack([plane] * 3, axis=-1).astype(numpy.uint8)
+
+    def output_for(self, shifts):
+        """Segment 1 is a sinusoid; a later segment is its carry rolled
+        sideways by the shift its seed maps to (0 = a seamless take, and
+        the look is the same at any shift), and its audio is the call
+        number, so the stitched track says which attempt it came from."""
+
+        def output(arguments, index):
+            seed = arguments["generator"].initial_seed()
+            carry = arguments.get("image")
+            if carry is None:
+                pixels = self.pattern()
+            else:
+                pixels = numpy.roll(numpy.asarray(carry), shifts[seed], axis=1)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            audio = torch.full((1, 2, 200), float(index + 1))
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        return output
+
+    def seeds(self, *shifts):
+        return {self.SEED + n * self.PRIME: k for n, k in enumerate(shifts)}
+
+    def test_absent_check_is_todays_chain(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16)))
+        out = run_chain(pipeline, self.chain(), self.arguments())
+        assert len(pipeline.calls) == 2
+        assert all("attempts" not in shot for shot in out.shots)
+
+    def test_a_failed_segment_is_rerolled_with_a_new_seed_from_the_same_carry(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+
+        assert len(pipeline.calls) == 3
+        first, reroll = pipeline.calls[1], pipeline.calls[2]
+        assert first["generator"].initial_seed() == self.SEED
+        assert reroll["generator"].initial_seed() == self.SEED + self.PRIME
+        assert numpy.array_equal(
+            numpy.asarray(reroll["image"]), numpy.asarray(first["image"])
+        )
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["seed"] == self.SEED + self.PRIME
+        assert "check_failed" not in out.shots[1]
+        assert out.shots[0]["attempts"] == 1
+
+    def test_the_kept_attempts_audio_replaces_the_failed_one(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+        plain = run_chain(
+            FakePipeline(self.output_for(self.seeds(0))),
+            self.chain(),
+            self.arguments(),
+        )
+
+        audio = numpy.asarray(out.audio)
+        # 200 samples, then 200 less the 25-sample trimmed head
+        assert audio.shape[-1] == plain.audio.shape[-1] == 375
+        # Call 3 (the re-roll) is what follows the seam; call 2 is gone
+        assert set(numpy.unique(audio[..., 200:])) == {3.0}
+        assert 2.0 not in numpy.unique(audio)
+        assert out.shots[1]["crossfade_ms"] == plain.shots[1]["crossfade_ms"]
+        assert out.shots[1]["num_samples"] == plain.shots[1]["num_samples"]
+        # And the kept attempt's frames are the ones stitched
+        assert len(out.frames) == 15
+        assert numpy.array_equal(
+            numpy.asarray(out.frames[-1]), numpy.asarray(out.frames[0])
+        )
+
+    def test_budget_exhausted_keeps_the_best_attempt_and_warns(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 8, 12)))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+
+        assert len(pipeline.calls) == 4
+        shot = out.shots[1]
+        assert shot["attempts"] == 3
+        assert "jump_ratio" in shot["check_failed"]
+        assert shot["seed"] == self.SEED + self.PRIME
+        # The shift of 8 (call 3) is kept: the lowest jump of three failures
+        assert set(numpy.unique(numpy.asarray(out.audio)[..., 200:])) == {3.0}
+        expected = numpy.roll(self.pattern(), 8, axis=1)
+        assert numpy.array_equal(numpy.asarray(out.frames[8]), expected)
+        assert warn.call_count == 1
+        message = warn.call_args.args[0]
+        assert "segment 2" in message and "jump_ratio" in message
+        assert "attempt 2 of 3" in message
+        assert warn.call_args.kwargs["kind"] == "chain_check_failed"
+        assert warn.call_args.kwargs["kept_attempt"] == 2
+
+    def test_retries_zero_never_rerolls(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16)))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=0), self.arguments()
+            )
+        assert len(pipeline.calls) == 2
+        assert out.shots[1]["attempts"] == 1
+        assert "jump_ratio" in out.shots[1]["check_failed"]
+        assert "seed" not in out.shots[1]
+        assert warn.call_count == 1
+
+    def test_a_passing_segment_is_not_rerolled(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(0)))
+        out = run_chain(
+            pipeline, self.chain(segments=3, check=True, retries=3), self.arguments()
+        )
+        assert len(pipeline.calls) == 3
+        assert [shot["attempts"] for shot in out.shots] == [1, 1, 1]
+
+    def test_a_reroll_leaves_the_look_hold_as_a_single_render_would(self):
+        # The failed attempts' look-hold state is dropped with them: a run
+        # that re-rolls into seamless takes stitches what one that rendered
+        # them first time does
+        chain = self.chain(segments=3, check=True, retries=1, look_hold=True)
+        rerolled = run_chain(
+            FakePipeline(self.output_for(self.seeds(16, 0))), chain, self.arguments()
+        )
+        direct = run_chain(
+            FakePipeline(self.output_for(self.seeds(0))), chain, self.arguments()
+        )
+        assert [shot["attempts"] for shot in rerolled.shots] == [1, 2, 2]
+        assert [numpy.asarray(f).tolist() for f in rerolled.frames] == [
+            numpy.asarray(f).tolist() for f in direct.frames
+        ]

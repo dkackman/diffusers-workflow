@@ -403,6 +403,24 @@
                     },
                     "additionalProperties": false
                 },
+                "check": {
+                    "description": "Check each segment after the first before keeping it, any model family: its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max' and 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 and a seam opened by a hard cut are never checked. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
+                    "type": ["boolean", "object", "string"],
+                    "properties": {
+                        "jump_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
+                        "look_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
+                        "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
+                        "face": {"type": "null"}
+                    },
+                    "additionalProperties": false
+                },
+                "retries": {
+                    "description": "With 'check' on, how many times a segment that fails its check is re-rendered from the same carry, each at a new seed (the step's seed plus the attempt number times 1000003): 0 to 3, default 0. When every attempt fails, the chain keeps the attempt with the fewest failed measures (then the lowest jump), records 'check_failed' on its shot, warns and finishes. A cost estimate quotes the worst case. Above 0 without 'check' is refused. Accepts a 'variable:' reference.",
+                    "type": ["integer", "string"],
+                    "minimum": 0,
+                    "maximum": 3,
+                    "default": 0
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",

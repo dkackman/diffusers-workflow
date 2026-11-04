@@ -1023,3 +1023,71 @@ def chain_look_hold_problem(chain):
                 "creep and texture work on any continuity"
             )
     return None
+
+
+# The per-segment check and its bounded re-roll (chain_check.py): the fields a
+# `check` object may set (`face` is reserved, null only) and the most re-rolls
+# a checked segment may take. Family-independent
+CHAIN_CHECK_FIELDS = ("jump_ratio_max", "look_ratio_max", "texture_ratio_max", "face")
+CHAIN_RETRIES_MAX = 3
+
+
+def _number_over(value, floor):
+    """Whether `value` is a finite number above `floor` (never a bool), or an
+    unresolved reference, which is left to the run."""
+    if isinstance(value, str):
+        return references.is_ref(references.UNRESOLVED, value)
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value > floor
+    )
+
+
+def chain_check_problem(chain):
+    """The reason a chain block's `check` or `retries` is refused, or None.
+    `check` is true (the default ceilings), false, or an object of
+    `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
+    above 1 (it bounds the ratio both ways) or null, `face` null. `retries`
+    is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
+    check on, as with no check nothing fails. Unresolved references are left
+    to the run, whose `ChainConfig` asks this same rule."""
+    check = chain.get("check")
+    expected = "expected true, false or an object of " + ", ".join(CHAIN_CHECK_FIELDS)
+    if isinstance(check, dict):
+        unknown = sorted(set(check) - set(CHAIN_CHECK_FIELDS))
+        if unknown:
+            return f"check has unknown key(s) {unknown} - {expected}"
+        for name in ("jump_ratio_max", "look_ratio_max"):
+            if name in check and not _number_over(check[name], 0):
+                return f"check {name} must be a number above 0, got {check[name]!r}"
+        texture = check.get("texture_ratio_max")
+        if texture is not None and not _number_over(texture, 1):
+            return (
+                "check texture_ratio_max bounds the fine-band ratio both ways, "
+                f"so must be a number above 1 or null, got {texture!r}"
+            )
+        if check.get("face") is not None:
+            return f"check face is reserved and must be null, got {check['face']!r}"
+    elif not (
+        check is None
+        or isinstance(check, bool)
+        or (isinstance(check, str) and _number_over(check, 0))
+    ):
+        return f"invalid check {check!r} - {expected}"
+    retries = chain.get("retries", 0)
+    if isinstance(retries, str) and _number_over(retries, 0):
+        return None
+    whole = isinstance(retries, int) and not isinstance(retries, bool)
+    if not whole or not 0 <= retries <= CHAIN_RETRIES_MAX:
+        return (
+            f"retries must be a whole number between 0 and {CHAIN_RETRIES_MAX}, "
+            f"got {retries!r}"
+        )
+    if retries and (check is None or check is False):
+        return (
+            f"retries {retries} needs check on - a re-roll replaces a segment "
+            "its check failed, and with no check no segment fails"
+        )
+    return None

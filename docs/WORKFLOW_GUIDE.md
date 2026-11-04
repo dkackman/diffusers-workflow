@@ -2559,6 +2559,11 @@ joined into a single file:
   instead, so the numbers live in one place (*What a variable is allowed to be*).
 - `prompts` — optional per-segment prompt list for narrative progression; segment
   `i` uses `prompts[min(i, len - 1)]`.
+- `check` — check each segment after the first before it is kept (any model family):
+  `true` for the default ceilings, an object to set any of them, absent or `false` for
+  no check (the chain is unchanged). See *Checking each segment* below.
+- `retries` — with `check` on, how many times a segment that fails is re-rendered,
+  0 to 3 (default 0). Above 0 without `check` is refused.
 - `save_segments` — write each completed segment to the output directory as a
   playable mp4 and free its frames, bounding memory to roughly one segment
   regardless of chain length. The final video is streamed from the segment files
@@ -2572,7 +2577,7 @@ The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a
 `pipeline_reference` step can carry its own `chain`. Seeds behave like a normal run:
 the step's generator advances across segments, so one seed reproduces the whole
-chain. Expect some visual drift across many segments with `last_frame` continuity -
+chain (a `check` re-roll runs on a generator of its own, below). Expect some visual drift across many segments with `last_frame` continuity -
 it is single-frame conditioning; `last_segment` continuity exists for exactly that,
 where the pipeline can take a video reference.
 
@@ -2580,6 +2585,42 @@ See [workflows/templates/ltx2/chained-segments.json](../workflows/templates/ltx2
 [workflows/templates/minimax/chained-segments.json](../workflows/templates/minimax/chained-segments.json), and
 [workflows/templates/minimax/chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json)
 (audio-matched lip-sync of arbitrary length).
+
+#### Checking each segment: `check` and `retries`
+
+With `check` on, each segment after the first is measured before anything of it reaches
+the stitched video, its audio, its shot record, a `save_segments` file or the look-hold
+state:
+
+| Measure | Against | Default ceiling | Fails when |
+|---|---|---|---|
+| `jump_ratio` | the previous segment: the largest frame change across the seam over the larger of the two segments' own typical change, floored at 2 grey levels (`analyze_seams`'s measure) | `jump_ratio_max` 25 | above the ceiling |
+| `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 12 | above the ceiling |
+| `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
+
+`"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
+it names. `face` is reserved and must be `null`. The ceilings are provisional, set to
+catch gross failures only until the bench's noise floor sets them. A static segment's own
+motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
+and is never checked, nor is a seam whose incoming shot is a hard cut (a chain's own
+segments never are).
+
+A segment that fails is rendered again from the same carry and the same arguments, at a
+new seed: attempt `n` (0 is the first) runs at the step's seed plus `n` x 1000003, on a
+fresh generator, so the step's own generator - and every later segment - runs as it
+would have. A workflow that names no seed draws one before the run and records it, so a
+re-roll is repeatable from the manifest. The first attempt that passes is kept. When all
+`1 + retries` fail, the chain keeps the one with the fewest failed measures, then the
+lowest `jump_ratio`, and finishes - it never restructures the run. The kept attempt's
+frames and audio are the ones stitched, and the seam is crossfaded against them.
+
+Each shot of a checked chain records `attempts`; a re-rolled one records the `seed` its
+kept attempt ran at, and one that failed every attempt records `check_failed` (the
+measures its kept attempt failed). The job gets one `warning` (`kind:
+"chain_check_failed"`) per such segment, naming the measures, their values and the kept
+attempt, and the job log names each re-roll. A cost estimate quotes the worst case:
+segment 1 is never re-rolled, so N segments cost up to 1 + (N - 1)(1 + `retries`)
+segment renders where the curated figure, measured without re-rolls, paid N.
 
 ## Schedulers
 
