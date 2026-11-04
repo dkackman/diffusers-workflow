@@ -9,7 +9,11 @@ import numpy
 import torch
 
 from .media_types import AudioTrack, AudioVideo, rated_videos
-from .pipeline_processors.h3_rules import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
+from .pipeline_processors.h3_rules import (
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HELD_VIDEO_OUTPUT,
+)
 
 logger = logging.getLogger("dw")
 
@@ -36,6 +40,26 @@ MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
 # video, which plays in place of the decoded audio (the VAE round trip of it)
 HELD_AUDIO_KEYS = (HELD_AUDIO_OUTPUT,)
 HELD_AUDIO_RATE_KEYS = (HELD_AUDIO_RATE_OUTPUT,)
+# A MiniMax-H3 audio pass: the source's own frames, which play in place of the
+# decoded video (the VAE round trip of them) under the generated track
+HELD_VIDEO_KEYS = (HELD_VIDEO_OUTPUT,)
+
+
+def held_videos(videos, held):
+    """The batch `videos` with every video replaced by `held` - uint8
+    `(frames, height, width, 3)` source frames - in the batch's own form: a
+    list of PIL frame lists (H3's default `output_type`), keeping the batch's
+    rate, or a float array in [0, 1] for `output_type='np'`."""
+    held = numpy.asarray(held)
+    if isinstance(videos, numpy.ndarray):
+        return numpy.stack([held.astype(numpy.float32) / 255.0] * len(videos))
+    if isinstance(videos, torch.Tensor):
+        pixels = torch.from_numpy(held).permute(0, 3, 1, 2).float() / 255.0
+        return torch.stack([pixels] * len(videos)).to(videos.device)
+    from PIL import Image
+
+    frames = [Image.fromarray(frame) for frame in held]
+    return rated_videos([list(frames) for _ in videos], getattr(videos, "fps", None))
 
 
 def _frames_from_attributes(result):
@@ -155,6 +179,10 @@ def modular_artifacts(result):
         return None
 
     consumed_keys = {video_key}
+    held_video_key, held_video = first_item(result, HELD_VIDEO_KEYS)
+    if held_video is not None:
+        videos = held_videos(videos, held_video)
+    consumed_keys.update(HELD_VIDEO_KEYS)
 
     audio_key, audio = first_item(result, MODULAR_AUDIO_KEYS)
     sample_rate = None

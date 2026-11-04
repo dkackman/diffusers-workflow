@@ -163,6 +163,14 @@ grade of a segment's opening to the carried frame, an ease-out of contrast and
 saturation creep, an ease-out of faint texture, and a keyframe pre-compensated for
 the measured boost.
 
+Smite79/MiniMax-H3-LongVideos (concepts only, under the licence above) and WanGP
+(concept only, from [#984](https://github.com/dkackman/diffusers-workflow/issues/984))
+inspired the H3 audio pass
+([dw/pipeline_processors/h3_mask.py](../dw/pipeline_processors/h3_mask.py);
+[#1192](https://github.com/dkackman/diffusers-workflow/issues/1192)): a finished
+picture's video latents locked clean while only the audio is generated over it, and
+the listen pass on a smaller canvas.
+
 leonardofrito/Directors-Cut (MIT; concept and schema shape, no code taken)
 inspired `export_timeline`
 ([dw/tasks/timeline_export.py](../dw/tasks/timeline_export.py);

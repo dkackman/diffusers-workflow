@@ -92,7 +92,8 @@ def refine_problems(arguments, canvas=None):
             "refine_strength re-denoises the 'latents' it is passed - pass the "
             "upscaled latents, e.g. 'previous_result:up'"
         )
-    if arguments.get(HOLD_AUDIO_INPUT) is None:
+    # An audio pass refuses refine_strength itself (h3_audio_pass.py)
+    if arguments.get(HOLD_AUDIO_INPUT) is None and not is_audio_pass(arguments):
         problems.append(
             "refine_strength re-denoises the video only, so it needs 'hold_audio' "
             "to keep a soundtrack - e.g. the base pass's 'previous_result:base.audio'"
@@ -842,7 +843,17 @@ MASK_VIDEO_INPUT = "mask_video"
 MASK_IMAGE_INPUT = "mask_image"
 MASK_GROW_INPUT = "mask_grow"
 MASK_INPUTS = (MASK_VIDEO_INPUT, MASK_IMAGE_INPUT)
-REGIONAL_EDIT_INPUTS = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, MASK_GROW_INPUT)
+# The audio pass (#1192): a `source_video` with no mask and no `hold_audio`
+# keeps every video row and generates only the audio; `listen_scale` runs the
+# kept rows on a smaller canvas (dw/pipeline_processors/h3_mask.py)
+LISTEN_SCALE_INPUT = "listen_scale"
+LISTEN_SCALES = (1, 0.5, 0.25)
+REGIONAL_EDIT_INPUTS = (
+    SOURCE_VIDEO_INPUT,
+    *MASK_INPUTS,
+    MASK_GROW_INPUT,
+    LISTEN_SCALE_INPUT,
+)
 # Patch cells a mask is widened by past what it covers, so the edit's seam
 # lands in regenerated rows rather than against a kept one
 MASK_GROW_DEFAULT = 1
@@ -861,6 +872,18 @@ KEEP_ROWS = "dw_keep_rows"
 # The refine block's re-noise of the generated rows, packed - the noise the
 # blend re-noises the kept rows with, so they ride the same trajectory
 REFINE_ROW_NOISE = "dw_refine_row_noise"
+# The audio pass's blocks: one before `denoise` widens the conditioning rows
+# over every video row, one before `after_denoise` puts the count back
+AUDIO_PASS_BLOCK = "dw_audio_pass"
+AUDIO_PASS_BEFORE = REFINE_BEFORE
+RELEASE_VIDEO_BLOCK = "dw_release_video"
+RELEASE_VIDEO_BEFORE = RELEASE_BEFORE
+AUDIO_PASS_ROWS = "dw_audio_pass_rows"
+# The source's own frames at full size, uint8 - what the result plays in
+# place of the decode (dw/output_extraction.py), as dw_held_audio is for audio
+HELD_VIDEO_OUTPUT = "dw_held_video"
+# The refine arguments an audio pass has no use for: no video row is re-denoised
+AUDIO_PASS_REFUSES = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
 
 
 def is_h3_step(pipeline):
@@ -886,6 +909,14 @@ def _given(arguments, name):
     return arguments.get(name) is not None
 
 
+def is_audio_pass(arguments):
+    """A `source_video` with no mask and no `hold_audio`: the audio pass, which
+    keeps every video row and generates the audio (#1192)."""
+    names = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, HOLD_AUDIO_INPUT)
+    given = [_given(arguments, name) for name in names]
+    return given[0] and not any(given[1:])
+
+
 def mask_problems(arguments, chained=False):
     """Why this step's regional edit - `source_video`, `mask_video` or
     `mask_image`, `mask_grow` - cannot run, as a list; empty when it can or
@@ -897,9 +928,10 @@ def mask_problems(arguments, chained=False):
     masks = [name for name in MASK_INPUTS if _given(arguments, name)]
     source = _given(arguments, SOURCE_VIDEO_INPUT)
     grow = arguments.get(MASK_GROW_INPUT)
+    audio_pass = is_audio_pass(arguments)
+    problems = [] if audio_pass else _listen_scale_problems(arguments)
     if not masks and not source and grow is None:
-        return []
-    problems = []
+        return problems
     if len(masks) > 1:
         problems.append(
             "pass mask_video or mask_image, not both - mask_image holds one mask "
@@ -918,7 +950,9 @@ def mask_problems(arguments, chained=False):
         problems.append(
             f"mask_grow is a whole number of patch cells, 0 or more, not {grow!r}"
         )
-    if source and arguments.get(REFINE_STRENGTH_INPUT) is None:
+    if audio_pass:
+        problems.extend(_audio_pass_problems(arguments))
+    elif source and not _given(arguments, REFINE_STRENGTH_INPUT):
         problems.append(
             "source_video is re-denoised from 'refine_strength' - pass one, near "
             "1.0 to replace what the mask covers, lower to keep its layout"
@@ -926,11 +960,53 @@ def mask_problems(arguments, chained=False):
     if source and _given(arguments, "latents"):
         problems.append("source_video stands in for 'latents' - pass one or the other")
     if source and chained:
+        what = "an audio pass scores" if audio_pass else "a regional edit re-denoises"
         problems.append(
-            "a regional edit re-denoises one source_video, and a chained step "
-            "renders several segments - use an unchained step"
+            f"{what} one source_video, and a chained step renders several "
+            f"segments - use an unchained step"
         )
     return problems
+
+
+def _listen_scale_problems(arguments):
+    """A `listen_scale` on a step that is no audio pass: what makes it one is
+    said, since a mask or `hold_audio` is the usual reason it is not."""
+    if not _given(arguments, LISTEN_SCALE_INPUT):
+        return []
+    return [
+        "listen_scale sets the canvas of an audio pass - a 'source_video' with "
+        "no mask_video, mask_image or hold_audio - and this step is not one"
+    ]
+
+
+def _audio_pass_problems(arguments):
+    """Why this audio pass's own arguments cannot run: a refine argument (no
+    video row is re-denoised) or a `listen_scale` not in LISTEN_SCALES."""
+    problems = [
+        f"{name} re-denoises video, and an audio pass (a source_video with no "
+        f"mask and no hold_audio) keeps every video row - drop it, or pass "
+        f"hold_audio to re-denoise the source under its own soundtrack"
+        for name in AUDIO_PASS_REFUSES
+        if _given(arguments, name)
+    ][:1]
+    scale = arguments.get(LISTEN_SCALE_INPUT)
+    if scale is not None and not _deferred(scale):
+        if isinstance(scale, bool) or scale not in LISTEN_SCALES:
+            problems.append(
+                f"listen_scale is one of {', '.join(map(str, LISTEN_SCALES))} - "
+                f"the audio pass's canvas against the source's - not {scale!r}"
+            )
+    return problems
+
+
+def listen_canvas(width, height, scale):
+    """The (width, height) an audio pass at `scale` runs its kept rows on: the
+    source's canvas scaled and snapped to the nearest TILE_GRID multiple, ties
+    up, never below one cell of it."""
+    return tuple(
+        max(TILE_GRID, int(side * scale / TILE_GRID + 0.5) * TILE_GRID)
+        for side in (width, height)
+    )
 
 
 def media_problems(name, shape, width, height, num_frames=None):
@@ -962,132 +1038,3 @@ def media_problems(name, shape, width, height, num_frames=None):
                 f"pad it to {on_grid}"
             )
     return problems
-
-
-# The look hold (#1191): pixel corrections applied to each finished segment
-# before its carry is taken. Family-independent
-LOOK_HOLD_PARTS = ("pickup", "creep", "texture", "precompensate")
-# Parts that act on a single carried keyframe, so need `last_frame`
-LOOK_HOLD_KEYFRAME_PARTS = ("pickup", "precompensate")
-
-
-def chain_look_hold_flags(chain):
-    """The four look-hold switches as {part: bool}, or None when off. `true`
-    turns on all four; an object names the ones it wants."""
-    hold = chain.get("look_hold")
-    if hold is True:
-        return dict.fromkeys(LOOK_HOLD_PARTS, True)
-    if isinstance(hold, dict) and any(hold.get(part) is True for part in hold):
-        return {part: hold.get(part) is True for part in LOOK_HOLD_PARTS}
-    return None
-
-
-def chain_look_hold_problem(chain):
-    """The reason a chain block's `look_hold` is refused, or None: a value that
-    is neither a boolean nor an object of the four boolean switches, or an
-    explicit `pickup` / `precompensate` on a continuity other than `last_frame`
-    (a guide or last_segment carry is a whole clip, not one keyframe - `true`
-    alone quietly skips those two there). Unresolved references are left to the
-    run."""
-    if "look_hold" not in chain:
-        return None
-    hold = chain["look_hold"]
-    if isinstance(hold, str) and references.is_ref(references.UNRESOLVED, hold):
-        return None
-    expected = (
-        "expected true, false or an object of "
-        + ", ".join(LOOK_HOLD_PARTS)
-        + " booleans"
-    )
-    if isinstance(hold, bool):
-        return None
-    if not isinstance(hold, dict):
-        return f"invalid look_hold {hold!r} - {expected}"
-    unknown = sorted(set(hold) - set(LOOK_HOLD_PARTS))
-    if unknown:
-        return f"look_hold has unknown key(s) {unknown} - {expected}"
-    for part, value in hold.items():
-        if not isinstance(value, bool):
-            return f"look_hold {part} must be true or false, got {value!r}"
-    continuity = chain.get("continuity", "last_frame")
-    if isinstance(continuity, str) and references.is_ref(
-        references.UNRESOLVED, continuity
-    ):
-        return None
-    if continuity != "last_frame":
-        wrong = [p for p in LOOK_HOLD_KEYFRAME_PARTS if hold.get(p)]
-        if wrong:
-            return (
-                f"look_hold {' and '.join(wrong)} need continuity 'last_frame' - "
-                f"the {continuity!r} carry is a whole clip, not one keyframe; "
-                "creep and texture work on any continuity"
-            )
-    return None
-
-
-# The per-segment check and its bounded re-roll (chain_check.py): the fields a
-# `check` object may set (`face` is reserved, null only) and the most re-rolls
-# a checked segment may take. Family-independent
-CHAIN_CHECK_FIELDS = ("jump_ratio_max", "look_ratio_max", "texture_ratio_max", "face")
-CHAIN_RETRIES_MAX = 3
-
-
-def _number_over(value, floor):
-    """Whether `value` is a finite number above `floor` (never a bool), or an
-    unresolved reference, which is left to the run."""
-    if isinstance(value, str):
-        return references.is_ref(references.UNRESOLVED, value)
-    return (
-        not isinstance(value, bool)
-        and isinstance(value, (int, float))
-        and math.isfinite(value)
-        and value > floor
-    )
-
-
-def chain_check_problem(chain):
-    """The reason a chain block's `check` or `retries` is refused, or None.
-    `check` is true (the default ceilings), false, or an object of
-    `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
-    above 1 (it bounds the ratio both ways) or null, `face` null. `retries`
-    is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
-    check on, as with no check nothing fails. Unresolved references are left
-    to the run, whose `ChainConfig` asks this same rule."""
-    check = chain.get("check")
-    expected = "expected true, false or an object of " + ", ".join(CHAIN_CHECK_FIELDS)
-    if isinstance(check, dict):
-        unknown = sorted(set(check) - set(CHAIN_CHECK_FIELDS))
-        if unknown:
-            return f"check has unknown key(s) {unknown} - {expected}"
-        for name in ("jump_ratio_max", "look_ratio_max"):
-            if name in check and not _number_over(check[name], 0):
-                return f"check {name} must be a number above 0, got {check[name]!r}"
-        texture = check.get("texture_ratio_max")
-        if texture is not None and not _number_over(texture, 1):
-            return (
-                "check texture_ratio_max bounds the fine-band ratio both ways, "
-                f"so must be a number above 1 or null, got {texture!r}"
-            )
-        if check.get("face") is not None:
-            return f"check face is reserved and must be null, got {check['face']!r}"
-    elif not (
-        check is None
-        or isinstance(check, bool)
-        or (isinstance(check, str) and _number_over(check, 0))
-    ):
-        return f"invalid check {check!r} - {expected}"
-    retries = chain.get("retries", 0)
-    if isinstance(retries, str) and _number_over(retries, 0):
-        return None
-    whole = isinstance(retries, int) and not isinstance(retries, bool)
-    if not whole or not 0 <= retries <= CHAIN_RETRIES_MAX:
-        return (
-            f"retries must be a whole number between 0 and {CHAIN_RETRIES_MAX}, "
-            f"got {retries!r}"
-        )
-    if retries and (check is None or check is False):
-        return (
-            f"retries {retries} needs check on - a re-roll replaces a segment "
-            "its check failed, and with no check no segment fails"
-        )
-    return None

@@ -68,6 +68,11 @@ from .chain_pick import sharpest_index
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
 from .h3_hold import hold_audio_reference
+from .chain_rules import (
+    chain_check_problem,
+    chain_look_hold_flags,
+    chain_look_hold_problem,
+)
 from .h3_rules import (
     ANCHOR_NONE,
     ANCHOR_SEGMENT_1,
@@ -84,10 +89,7 @@ from .h3_rules import (
     KEYSTONE_SEGMENT_1,
     chain_anchor_problem,
     chain_carry_pick_problem,
-    chain_check_problem,
     chain_keystone_problem,
-    chain_look_hold_flags,
-    chain_look_hold_problem,
     guide_backoff_problems,
     guide_chain_problems,
 )

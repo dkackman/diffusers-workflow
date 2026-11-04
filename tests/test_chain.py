@@ -1547,7 +1547,7 @@ class TestLookHold:
         assert (numpy.asarray(out.frames[0]) == raw).all()
 
     def test_validation_refuses_bad_shapes_and_guide_keyframe_parts(self):
-        from dw.pipeline_processors.h3_rules import chain_look_hold_problem
+        from dw.pipeline_processors.chain_rules import chain_look_hold_problem
 
         assert chain_look_hold_problem({}) is None
         assert chain_look_hold_problem({"look_hold": True}) is None

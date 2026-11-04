@@ -47,6 +47,10 @@ from .adapter_compatibility import (
 )
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
+from .pipeline_processors.chain_rules import (
+    chain_check_problem,
+    chain_look_hold_problem,
+)
 from .pipeline_processors.h3_rules import (
     ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
@@ -63,8 +67,6 @@ from .pipeline_processors.h3_rules import (
     RENDER_GRID,
     chain_anchor_problem,
     chain_carry_pick_problem,
-    chain_check_problem,
-    chain_look_hold_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,

@@ -38,7 +38,10 @@ them as well (dw/pipeline_processors/h3_mask.py): its rules are
 resolve now, they are read here too, the way the guide-frame check reads its
 videos (`dw/guides.py`): the source's and the mask's size and frame count
 against the canvas (`h3_rules.media_problems`, which `Pipeline._with_mask` asks
-again at the call), and a mask with no white pixel in it.
+again at the call), and a mask with no white pixel in it. A `source_video` with
+no mask and no `hold_audio` is the audio pass (#1192), whose rules - no refine
+argument, a `listen_scale` of 1, 0.5 or 0.25 - `mask_problems` owns too; its
+source may be silent, since a soundtrack is what it adds.
 """
 
 from . import references

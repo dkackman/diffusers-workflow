@@ -2371,7 +2371,8 @@ frame count or empty mask there, the way it reads guide videos; a `previous_resu
 checked at the call.
 
 `hold_audio` is still required with `refine_strength`, since the refine holds the
-soundtrack. It is normally the `source_video` itself: a video path (`.mp4`, `.mov`, `.mkv`,
+soundtrack (a `source_video` with neither a mask nor `hold_audio` is the [audio
+pass](#audio-over-a-finished-picture) instead). It is normally the `source_video` itself: a video path (`.mp4`, `.mov`, `.mkv`,
 `.webm`, `.avi`) is held by its own soundtrack, so the edit keeps the take's audio. A video
 with no audio stream is refused. An audio file (`.wav`, `.mp3`, `.flac`, `.ogg`) or an
 earlier step's audio-carrying result works too.
@@ -2381,7 +2382,7 @@ Validation and the call both refuse:
 - `source_video` with `latents`, or on a chained step;
 - both mask kinds, `mask_video` and `mask_image`, on one step;
 - a mask with no `source_video`, or `mask_grow` with no mask;
-- `source_video` with no `refine_strength`, or one outside (0, 1];
+- `source_video` with a mask or `hold_audio` and no `refine_strength`, or one outside (0, 1];
 - `source_video` on a pipeline that is not H3 (`mask_image` there is left alone, since
   inpaint pipelines own that name);
 - a `source_video` whose frame count (and so the step's `num_frames`, inferred or
@@ -2391,6 +2392,39 @@ Validation and the call both refuse:
   meet the family's canvas rules (multiples of 32), which the template's variables
   carry and an inferred size does not check;
 - any of it with `refine_tiles`, which does not combine with a regional edit.
+
+#### Audio over a finished picture
+
+A `source_video` with no mask and no `hold_audio` is an audio pass: the picture is
+finished and only the soundtrack is generated, from the prompt - its soundscape, its music
+and its `<d>` lines. Every video row of the source is held as the exact clean latent at
+every step, pinned clean in the row plan the way a reference row is, so no video row is
+ever stepped. The audio runs the stock audio schedule from full noise, attending to the
+real picture from the first step. The step returns the source's own frames, not a VAE
+round trip of them, under the new track. A silent source is the usual case and is fine.
+
+```json
+{
+    "source_video": "asset:silent_take.mp4",
+    "listen_scale": 1,
+    "prompt": "... overall_soundscape: ... <d>[English] Over here.</d> ...",
+    "num_inference_steps": 12,
+    "output": ["videos", "audio", "sampling_rate"]
+}
+```
+
+Run it without a distillation LoRA, on the dialogue schedule (`num_inference_steps` 12,
+`video_shift` 12, `audio_shift` 3): the turbo LoRA is what makes H3 voices sound
+digital (#984). `listen_scale` (1, 0.5 or 0.25, default 1) encodes the source at that
+fraction of its canvas, area-resampled and snapped to 32 px, which is cheaper per step.
+The audio's length still follows the source's frame count, and the picture returned is the
+full-size source. `width`, `height` and `num_frames` stay the source's, as for an edit.
+
+Validation and the call refuse `refine_strength`, `refine_sigmas` or `refine_tiles` on an
+audio pass (no video row is re-denoised; pass `hold_audio` for a whole-source refine
+instead), a `listen_scale` other than those three, a `listen_scale` on a step that is not
+an audio pass, and an audio pass on a chained step or beside `latents`. A draft template
+is `bench/workflows/add-sound.json`; it is not in the catalog yet.
 
 ### Refining above 768p in tiles
 

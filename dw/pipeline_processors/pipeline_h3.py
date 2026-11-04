@@ -11,7 +11,7 @@ and the rest are still named from there; the rules they apply live in
 from .h3_anchor import anchor_refusal, prepared_anchor
 from .h3_guides import guide_frames_array, guides_refusal, prepared_guide
 from .h3_hold import hold_audio_reference, holds_audio, refines
-from .h3_mask import binarized, edits_regions
+from .h3_mask import binarized, edits_regions, listen_frames, passes_audio
 from .h3_rules import (
     GUIDES_INPUT,
     GUIDE_LIMIT,
@@ -20,7 +20,9 @@ from .h3_rules import (
     LATENT_ANCHOR_STRENGTH_INPUT,
     HELD_AUDIO_OUTPUT,
     HELD_AUDIO_RATE_OUTPUT,
+    HELD_VIDEO_OUTPUT,
     HOLD_AUDIO_INPUT,
+    LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
     REFINE_SIGMAS_INPUT,
@@ -29,6 +31,8 @@ from .h3_rules import (
     REGENERATE_MASK,
     SOURCE_VIDEO_INPUT,
     edits_region,
+    is_audio_pass,
+    listen_canvas,
     anchor_strength_problem,
     guide_noise_problem,
     mask_problems,
@@ -46,6 +50,35 @@ def latent_anchor_source(chain_source, value):
     if isinstance(value, str):
         return f"'{value}'"
     return "the frames given in the step's arguments"
+
+
+def with_audio_pass(pipeline, arguments, where):
+    """An audio pass's arguments (dw/pipeline_processors/h3_mask.py): the
+    full-size source as `HELD_VIDEO_OUTPUT`, asked for beside `videos` so
+    the result plays it in place of the decode, and at a `listen_scale`
+    below 1 the canvas scaled and the source area-resampled onto it. The
+    frame count - and so the audio's length - is the source's either way.
+
+    Raises:
+        ValueError: If this pipeline has no audio-pass blocks
+    """
+    if not passes_audio(pipeline):
+        raise ValueError(
+            f"{where}: a source_video with no mask and no hold_audio is an "
+            f"audio pass, and this pipeline has no block to hold its picture"
+        )
+    source = arguments[SOURCE_VIDEO_INPUT]
+    arguments[HELD_VIDEO_OUTPUT] = source
+    scale = arguments.get(LISTEN_SCALE_INPUT)
+    if scale is not None and scale != 1:
+        width, height = listen_canvas(arguments["width"], arguments["height"], scale)
+        arguments["width"], arguments["height"] = width, height
+        arguments[SOURCE_VIDEO_INPUT] = listen_frames(source, width, height)
+    output = arguments.get("output")
+    names = [output] if isinstance(output, str) else list(output or [])
+    if "videos" in names:
+        arguments["output"] = names + [HELD_VIDEO_OUTPUT]
+    return arguments
 
 
 class H3Arguments:
@@ -211,6 +244,8 @@ class H3Arguments:
         (dw/pipeline_processors/h3_mask.py).
 
         A step without `width`, `height` or `num_frames` renders the source's.
+        An audio pass (no mask, no `hold_audio`) carries the source's own
+        frames for the result (`with_audio_pass`).
 
         Raises:
             ValueError: If this pipeline cannot take a regional edit, the
@@ -278,6 +313,8 @@ class H3Arguments:
             arguments[REGENERATE_MASK] = mask
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
+        if is_audio_pass(arguments):
+            return with_audio_pass(self.pipeline, arguments, where)
         return arguments
 
     def _check_refine(self, arguments):

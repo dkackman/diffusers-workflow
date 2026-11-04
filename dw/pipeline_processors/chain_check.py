@@ -11,7 +11,7 @@ keeps `best_attempt` of what it rendered. Segment 1 has no seam before it
 and is never checked; nor is a seam whose incoming shot is a hard cut.
 
 Measurement and choice only: nothing here renders, and nothing here touches
-the timeline. The chain keys are validated by `h3_rules.chain_check_problem`.
+the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
 """
 
 import math
@@ -69,7 +69,7 @@ class CheckResult:
 def segment_check(value):
     """A chain block's `check` as a SegmentCheck, or None when off: true is
     the defaults, an object overrides the fields it names. The value has
-    passed `h3_rules.chain_check_problem`."""
+    passed `chain_rules.chain_check_problem`."""
     if value is None or value is False:
         return None
     if value is True:

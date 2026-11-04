@@ -15,7 +15,7 @@ from dw.pipeline_processors.chain_check import (
     check_segment,
     segment_check,
 )
-from dw.pipeline_processors.h3_rules import chain_check_problem
+from dw.pipeline_processors.chain_rules import chain_check_problem
 
 
 def noise(seed, size=32):

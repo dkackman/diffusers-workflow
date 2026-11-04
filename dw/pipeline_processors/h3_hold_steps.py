@@ -181,6 +181,32 @@ def encode_audio_span(encoder, components, waveform, num_latents):
     return fit_latents(latents, num_latents, silence[:, middle : middle + 1])
 
 
+def row_timestep_plan(block_state, device, condition_video_timestep):
+    """The row-timestep plan `set_timesteps` builds, over the state's
+    `timesteps` and `audio_timesteps`, with the conditioning video rows at
+    `condition_video_timestep(timestep)` and the reference audio rows clean
+    (1.0) - stock pins the video ones at max(t, keyframe_noise_aug)."""
+    return [
+        tuple(
+            tensor.to(device)
+            for tensor in MiniMaxH3SetTimestepsStep.build_row_timesteps(
+                block_state.video_indices,
+                block_state.audio_indices,
+                block_state.num_condition_video_rows,
+                block_state.num_condition_audio_rows,
+                block_state.text_indices.numel(),
+                float(timestep),
+                float(audio_timestep),
+                condition_video_timestep(float(timestep)),
+                1.0,
+            )
+        )
+        for timestep, audio_timestep in zip(
+            block_state.timesteps, block_state.audio_timesteps
+        )
+    ]
+
+
 @dataclasses.dataclass
 class EncodedAudioReference(MiniMaxH3AudioReference):
     """A `hold_audio` reference carrying `latents`, the hold block's own
@@ -414,25 +440,11 @@ class DwH3RefineScheduleStep(ModularPipelineBlocks):
         components.audio_scheduler.set_timesteps(sigmas=sigmas, device=device)
         block_state.timesteps = components.scheduler.timesteps
         block_state.audio_timesteps = components.audio_scheduler.timesteps
-        block_state.row_timestep_plan = [
-            tuple(
-                tensor.to(device)
-                for tensor in MiniMaxH3SetTimestepsStep.build_row_timesteps(
-                    block_state.video_indices,
-                    block_state.audio_indices,
-                    block_state.num_condition_video_rows,
-                    block_state.num_condition_audio_rows,
-                    block_state.text_indices.numel(),
-                    float(timestep),
-                    float(audio_timestep),
-                    max(float(timestep), components.keyframe_noise_aug),
-                    1.0,
-                )
-            )
-            for timestep, audio_timestep in zip(
-                block_state.timesteps, block_state.audio_timesteps
-            )
-        ]
+        block_state.row_timestep_plan = row_timestep_plan(
+            block_state,
+            device,
+            lambda timestep: max(timestep, components.keyframe_noise_aug),
+        )
 
         # Only the generated rows: FL2VA and Ref2VA conditioning rows lead
         latents = block_state.latents
