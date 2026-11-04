@@ -52,22 +52,22 @@
       "Maybe that is what I was afraid of.",
       "Well. Let's see if the door still sticks."
     ],
-    "crop_verified": false
+    "crop_verified": true
   },
   {
     "name": "s4-montage",
     "crop": [
-      0,
-      0,
-      240,
-      150
+      500,
+      16,
+      160,
+      130
     ],
     "moments": [
       "frame:62",
       "frame:186",
       "frame:434"
     ],
-    "crop_verified": false
+    "crop_verified": true
   },
   {
     "name": "s5-ltx-action",
@@ -82,15 +82,15 @@
       "frame:180",
       "frame:299"
     ],
-    "crop_verified": false
+    "crop_verified": true
   },
   {
     "name": "s6-narration",
     "crop": [
-      0,
-      0,
-      240,
-      150
+      690,
+      340,
+      190,
+      135
     ],
     "moments": [
       "frame:48",
@@ -102,6 +102,6 @@
       "By the time he reached the lamp, the sea had already gone dark.",
       "Then the light turned, and the whole coast could see him."
     ],
-    "crop_verified": false
+    "crop_verified": true
   }
 ]

@@ -72,8 +72,8 @@ def test_every_arm_names_a_scene_and_a_workflow_that_exist():
 
 def test_scenes_are_well_formed():
     for scene in driver.load_scenes(BENCH / "scenes.json").values():
-        x0, y0, x1, y1 = scene.crop
-        assert 0 <= x0 < x1 and 0 <= y0 < y1
+        x, y, width, height = scene.crop  # the media routes' [x, y, w, h]
+        assert x >= 0 and y >= 0 and width >= 128 and height >= 128
         assert len(scene.moments) == 3
         assert all(m.startswith("frame:") for m in scene.moments)
         frames = [int(m.split(":")[1]) for m in scene.moments]
