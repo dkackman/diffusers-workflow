@@ -35,6 +35,7 @@ import copy
 import gc
 import logging
 import math
+import os
 import sys
 from dataclasses import dataclass
 
@@ -404,6 +405,10 @@ def run_chain(pipeline, chain_definition, arguments):
                     _on_timeline_audio(segment_audio, segment, config, segment_rate),
                     segment_rate,
                 )
+                if config.keep_segments:
+                    # The file as written ('-2' deduped on a rerun), which is
+                    # how repair-segment finds a take's own files (#1169)
+                    shots[-1]["segment_file"] = os.path.basename(spill.paths[-1])
             else:
                 frames.extend(kept_frames)
 

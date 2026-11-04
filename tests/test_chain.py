@@ -638,6 +638,26 @@ class TestSaveSegments:
         # cleaned - a cached Result stays retainable
         assert result.frames.cleaned is False
 
+    def test_kept_segment_files_are_named_on_the_take_shots(self, tmp_path):
+        # repair-segment (#1169) finds a take's segment files from its own
+        # shots rather than by globbing names a rerun's '-2' dedupe can mix
+        pipeline = self.make_pipeline(tmp_path)
+        (tmp_path / f"{pipeline.file_prefix}.0.segment-000.mp4").write_bytes(b"")
+
+        result = run_chain(pipeline, self.chain(keep_segments=True), {})
+
+        names = [shot["segment_file"] for shot in result.shots]
+        assert names[0] == f"{pipeline.file_prefix}.0.segment-000-2.mp4"
+        assert names[1:] == [
+            f"{pipeline.file_prefix}.0.segment-{index:03d}.mp4" for index in (1, 2)
+        ]
+        assert all((tmp_path / name).is_file() for name in names)
+
+    def test_segment_files_cleaned_up_are_not_named(self, tmp_path):
+        pipeline = self.make_pipeline(tmp_path)
+        result = run_chain(pipeline, self.chain(), {})
+        assert not any("segment_file" in shot for shot in result.shots)
+
     def test_generated_audio_is_muxed_into_the_segment_files(self, tmp_path):
         import av
 

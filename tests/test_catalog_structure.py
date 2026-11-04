@@ -337,6 +337,8 @@ LEGITIMATE_MENTIONS = {
         "prompt",
         "segment",
     },
+    # a field of the chain block the repaired take was run with
+    "workflows/templates/minimax/repair-segment.json": {"keep_segments"},
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
     # variable of that name
     "workflows/templates/step-caching.json": {"cache"},
@@ -569,8 +571,10 @@ def test_no_stale_entry_in_the_allowlist():
 # the take-list template keeps its own entry. Then to 13_450 (measured
 # 13_432) for `minimax/repair-segment` (#1169, task 14): the catalog's only
 # in-place repair of one chain segment, 25 variables because it carries the
-# chain's own settings by argument.
-COMPACT_BUDGET = 13_450
+# chain's own settings by argument. Then to 13_500 (measured 13_476) for the
+# #1169 review fixes: repair-segment's 'chain_take', and the 'keep_segments'
+# variable four H3 chain templates take so a chain can be repaired later.
+COMPACT_BUDGET = 13_500
 FILTERED_BUDGET = 1_500
 
 

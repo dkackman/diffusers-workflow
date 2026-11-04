@@ -42,6 +42,9 @@ A shot is a dict:
   `crossfade_ms` as it does `seam_fade_ms` (#660). `trimmed_shots` drops every
   seam attribute from a shot its cut falls inside: that seam is not in the
   kept span (#674)
+- `segment_file` - a chain run with `save_segments` and `keep_segments` names
+  each segment's file on its shot, as written (a rerun's '-2' dedupe
+  included), beside the take - how `chain_repair_cut` finds them (#1169)
 
 Every other `AudioVideo` constructor either carries the list (same frames),
 rescales it (`interpolate_frames`), re-measures the sample side for a new
@@ -51,7 +54,9 @@ no shots at all (a decode, a face-track crop, or `window_video`'s one window
 of a longer source, #601), or clips the list to a kept span
 (`trim_video`, via `trimmed_shots(shots, head_trim, keep_frames)`, sample side
 cleared; a clip with no shots carries one spanning the kept frames, #627).
-`tests/test_shots.py` fails on a constructor site nobody decided for.
+`chain_repair_splice` builds its list from the take's: the repaired span
+becomes one `(repaired)` shot and the shot after it starts where the take
+resumes (#1169). `tests/test_shots.py` fails on a constructor site nobody decided for.
 
 `Result.save` keeps each file's shots as plain data in `saved_shots` (path ->
 shots), so a step cache hit's stripped copy still reports them. The manifest

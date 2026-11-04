@@ -93,6 +93,8 @@ EXPECTED_SITES = {
     ("dw/pipeline_processors/chain.py", "inject"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
     ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
+    # the take's shots with the repaired span as one shot of its own
+    ("dw/tasks/chain_repair.py", "chain_repair_splice"): ("populates", 1),
 }
 
 _SHOTS_HELPER_BY_DECISION = {

@@ -120,9 +120,11 @@ def concat_videos(
             between shots - a chain segment repaired in place and spliced
             back between its neighbours (#1169). Each seam is recorded
             without `hard_cut`, so analyze_seams measures its frame jump as
-            it does a chain's own seams, and its audio is butt-joined with no
-            declick fade. A cut device beside it (`seam_fade_ms` above 0,
-            `audio_bleed_ms`) is refused. Default false: every seam is a cut
+            it does a chain's own seams, and its audio gets the default
+            few-ms declick (no `seam_fade_ms` recorded, so seam_hole still
+            measures it); `seam_fade_ms: 0` butt-joins it. A cut device
+            beside it (`seam_fade_ms` above 0, `audio_bleed_ms`) is refused.
+            Default false: every seam is a cut
 
     Returns:
         One AudioVideo; its audio is None when no input video carries any
@@ -234,8 +236,9 @@ def _joined_tracks(
 
 
 def _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms):
-    """The seam fade the joins take: 0 - a plain butt join - for continuous
-    joins, which refuse a cut's devices; the caller's own otherwise."""
+    """The seam fade the joins take: the caller's own - None, the default
+    declick, unless asked - with a cut's devices refused for continuous
+    joins."""
     if not isinstance(continuous_joins, bool):
         raise ValueError(
             f"concat_videos needs 'continuous_joins' as true or false, got "
@@ -255,7 +258,7 @@ def _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms):
             f"'audio_bleed_ms' ({audio_bleed_ms}) cannot be set beside it - a "
             "bleed covers a cut"
         )
-    return 0
+    return seam_fade_ms
 
 
 def _record_seam_fade(shot, applied):

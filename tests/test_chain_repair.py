@@ -8,10 +8,14 @@ import pytest
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.tasks.chain_repair import chain_repair_cut, repair_geometry, segment_files
-from dw.tasks.concat_videos import concat_videos
+from dw.tasks.chain_repair import (
+    chain_repair_cut,
+    chain_repair_splice,
+    repair_geometry,
+    segment_files,
+)
 from dw.tasks.task import _COMMAND_REGISTRY
-from dw.tasks.trim import trim_video
+from dw.tasks.video_utils import load_audio_video
 from dw.task_domains import frames_to_samples
 
 # A 5-segment guide chain at the chained-segments template's defaults: 124
@@ -120,23 +124,29 @@ class TestGeometry:
 
 FPS = 24
 RATE = 48000
+TAKE = "Wf-step.0-0.0.mp4"
 
 
-def write_chain(directory, lengths, base="Wf-step.0", size=(64, 32)):
+def _frames(start, count, size):
+    """Frames whose red channel is their index on the take."""
+    frames = numpy.zeros((count, size[1], size[0], 3), dtype=numpy.uint8)
+    frames[..., 0] = (numpy.arange(start, start + count) % 250)[:, None, None]
+    return frames
+
+
+def write_chain(directory, lengths, base="Wf-step.0", size=(64, 32), suffix=""):
     """Segment files as SegmentSpill names them, each frame's red channel its
-    index on the take and its audio a ramp of the take's sample index."""
+    index on the take and its audio a level of its own."""
     from dw.writers import encode_video
     import torch
 
     paths, start = [], 0
     for index, count in enumerate(lengths):
-        frames = numpy.zeros((count, size[1], size[0], 3), dtype=numpy.uint8)
-        frames[..., 0] = (numpy.arange(start, start + count) % 250)[:, None, None]
         samples = frames_to_samples(count, FPS, RATE)
         audio = numpy.full((1, samples), 0.1 + 0.05 * index, dtype=numpy.float32)
-        path = os.path.join(directory, f"{base}.segment-{index:03d}.mp4")
+        path = os.path.join(directory, f"{base}.segment-{index:03d}{suffix}.mp4")
         encode_video(
-            torch.from_numpy(frames),
+            torch.from_numpy(_frames(start, count, size)),
             fps=FPS,
             output_path=path,
             audio=torch.from_numpy(audio),
@@ -147,90 +157,347 @@ def write_chain(directory, lengths, base="Wf-step.0", size=(64, 32)):
     return paths
 
 
+def write_run(
+    root,
+    lengths,
+    take_frames=None,
+    *,
+    match_audio=False,
+    crossfade_ms=None,
+    manifest=True,
+    suffix="",
+    size=(64, 32),
+):
+    """A chain run as the engine leaves it: segment files and the take in
+    <run>/final, and a manifest whose shots name the segment files.
+
+    `take_frames` below the files' total is a duration_seconds take (cut on
+    replay); `match_audio` lays a 44.1 kHz track under it whole, whose shots
+    carry no sample side; `crossfade_ms` records the chain's blend on every
+    seam."""
+    import json
+
+    import torch
+
+    from dw.writers import encode_video
+
+    final = os.path.join(root, "run", "final")
+    os.makedirs(final, exist_ok=True)
+    paths = write_chain(final, lengths, size=size, suffix=suffix)
+    total = sum(lengths) if take_frames is None else take_frames
+    rate = 44100 if match_audio else RATE
+    noise = numpy.random.default_rng(7).uniform(
+        -0.5, 0.5, (1, frames_to_samples(total, FPS, rate))
+    )
+    take = os.path.join(final, TAKE)
+    encode_video(
+        torch.from_numpy(_frames(0, total, size)),
+        fps=FPS,
+        output_path=take,
+        audio=torch.from_numpy(noise.astype(numpy.float32)),
+        audio_sample_rate=rate,
+    )
+    shots, start = [], 0
+    for index, count in enumerate(lengths):
+        count = min(count, total - start)
+        shot = {
+            "name": f"segment {index + 1}",
+            "start_frame": start,
+            "num_frames": count,
+            "start_sample": None,
+            "num_samples": None,
+            "segment_file": os.path.basename(paths[index]),
+        }
+        if not match_audio:
+            first = frames_to_samples(start, FPS, rate)
+            shot["start_sample"] = first
+            shot["num_samples"] = frames_to_samples(start + count, FPS, rate) - first
+        if index and crossfade_ms:
+            shot["crossfade_ms"] = crossfade_ms
+            shot["trim_frames"] = 22
+        shots.append(shot)
+        start += count
+    if manifest:
+        with open(os.path.join(root, "run", "manifest.json"), "w") as file:
+            json.dump(
+                {
+                    "steps": [
+                        {"step": "step", "files": [f"final/{TAKE}"], "shots": shots}
+                    ]
+                },
+                file,
+            )
+    return {"take": take, "segments": paths, "shots": shots}
+
+
+def stand_in_render(cut, level=0.7):
+    """The render as H3 would return it: the head guide, new white frames,
+    the tail guide, over a track of its own."""
+    new = [Image.new("RGB", cut["head_guide"].frames[0].size, (255, 255, 255))] * (
+        cut["tail_frame"] - cut["keep_start"]
+    )
+    frames = list(cut["head_guide"].frames) + new + list(cut["tail_guide"].frames)
+    samples = frames_to_samples(len(frames), FPS, RATE)
+    return AudioVideo(
+        frames, numpy.full((1, samples), level, dtype=numpy.float32), RATE, fps=FPS
+    )
+
+
+def repaired(run, segment=2, num_frames=107, tail_frames=22):
+    cut = chain_repair_cut(
+        chain_take=run["take"],
+        segment=segment,
+        num_frames=num_frames,
+        tail_frames=tail_frames,
+    )
+    render = stand_in_render(cut)
+    spliced = chain_repair_splice(
+        chain_take=cut["chain_take"],
+        video=render,
+        segment=segment,
+        start_frame=cut["start_frame"],
+        end_frame=cut["end_frame"],
+        keep_start=cut["keep_start"],
+    )
+    return cut, spliced, load_audio_video(run["take"])
+
+
+def red(frame):
+    return numpy.asarray(frame)[10, 10, 0]
+
+
 @pytest.fixture
-def chain(tmp_path):
-    return write_chain(str(tmp_path), [40, 51, 51, 51])
+def run(tmp_path):
+    return write_run(str(tmp_path), [40, 51, 51, 51])
 
 
 class TestSegmentFiles:
-    def test_finds_every_sibling_in_order(self, chain, tmp_path):
-        # Another chain's files, and an unrelated file, beside them
-        write_chain(str(tmp_path), [5], base="Wf-other.0")
-        (tmp_path / "Wf-step.0-0.0.mp4").write_bytes(b"")
-        assert segment_files(chain[2]) == chain
+    def test_the_take_shots_name_the_files(self, tmp_path):
+        # A stale set from another run, under the names the regex matches,
+        # beside the run's own '-2' deduped files the take's shots name
+        made = write_run(str(tmp_path), [40, 51, 51, 51], suffix="-2")
+        write_chain(str(tmp_path / "run" / "final"), [5, 5, 5], size=(32, 16))
+        cut = chain_repair_cut(
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        assert cut["segment_files"] == made["segments"]
+        assert cut["head_guide"].frames[0].size == (64, 32)
 
-    def test_a_file_that_is_no_segment_is_refused(self, tmp_path):
-        path = tmp_path / "take.mp4"
-        path.write_bytes(b"")
-        with pytest.raises(ValueError, match="save_segments and keep_segments"):
-            segment_files(str(path))
+    def test_the_take_is_found_from_a_segment_file(self, run):
+        cut = chain_repair_cut(
+            chain_output=run["segments"][1], segment=2, num_frames=107, tail_frames=22
+        )
+        assert cut["chain_take"] == run["take"]
 
-    def test_a_missing_segment_is_refused(self, chain):
-        os.remove(chain[1])
+    def test_a_segment_file_of_another_take_is_refused(self, run, tmp_path):
+        other = write_chain(str(tmp_path), [5], base="Wf-other.0")
+        with pytest.raises(ValueError, match="not one of"):
+            chain_repair_cut(
+                chain_take=run["take"],
+                chain_output=other[0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
+    def test_neither_input_is_refused(self):
+        with pytest.raises(ValueError, match="chain_take"):
+            chain_repair_cut(segment=2, num_frames=107)
+
+    def test_without_a_manifest_a_segment_file_needs_the_take(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+        with pytest.raises(ValueError, match="chain_take"):
+            chain_repair_cut(
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
+    def test_without_a_manifest_the_siblings_are_found_by_name(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+        cut = chain_repair_cut(
+            chain_take=made["take"],
+            chain_output=made["segments"][2],
+            segment=2,
+            num_frames=107,
+            tail_frames=22,
+        )
+        assert cut["segment_files"] == made["segments"]
+        assert cut["start_frame"] == 40 and cut["end_frame"] == 40 + 51 + 12
+
+    def test_siblings_that_disagree_are_refused(self, tmp_path):
+        # Two runs' files mixed by the flat layout: one is another size
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+        (other,) = write_chain(str(tmp_path), [51], size=(32, 16))
+        os.replace(other, made["segments"][3])
+        with pytest.raises(ValueError, match="disagree"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
+
+    def test_a_missing_segment_is_refused(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+        os.remove(made["segments"][1])
         with pytest.raises(ValueError, match="segment-001 is missing"):
-            segment_files(chain[0])
+            segment_files(made["segments"][0])
+
+    def test_the_neighbours_are_counted_by_their_decode(self, run, monkeypatch):
+        # The header is not read for the neighbours the cut decodes anyway
+        import dw.tasks.chain_repair as chain_repair
+
+        monkeypatch.setattr(
+            chain_repair, "probe_metadata", lambda path: {"frame_count": 999}
+        )
+        cut = chain_repair_cut(
+            chain_take=run["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        assert cut["segment_frames"][0] == 40 and cut["segment_frames"][2] == 51
 
 
 class TestCut:
-    def test_the_cut_and_the_splice(self, chain):
+    def test_the_cut(self, run):
         # 51-frame segments: head 22 + 51 + tail 22 = 95 -> 107, overrun 12
-        cut = chain_repair_cut(chain[0], 2, 107, 22, 22, width=64, height=32)
+        cut = chain_repair_cut(
+            chain_take=run["take"],
+            segment=2,
+            num_frames=107,
+            tail_frames=22,
+            width=64,
+            height=32,
+        )
         assert cut["segments"] == 4
-        assert cut["segment_frames"] == [40, 51, 51, 51]
         assert cut["overrun"] == 12 and cut["tail_frame"] == 85
+        assert cut["start_frame"] == 40 and cut["end_frame"] == 103
+        assert cut["total_frames"] == 193
         assert len(cut["head_guide"].frames) == 22
         assert len(cut["tail_guide"].frames) == 22
         assert cut["head_guide"].audio is not None
         assert cut["tail_guide"].audio is not None
         assert cut["keyframe"] is cut["head_guide"].frames[0]
-        assert cut["before"] == chain[:1]
-        assert len(cut["after"]) == 2
-        assert len(cut["after"][0].frames) == 51 - 12
-        assert cut["after"][1:] == chain[3:]
+        # The head guide is segment 1's last 22 frames, the tail guide
+        # segment 3's from the overrun on
+        assert abs(int(red(cut["head_guide"].frames[0])) - 18) <= 3
+        assert abs(int(red(cut["tail_guide"].frames[0])) - (91 + 12)) <= 3
 
-        # A stand-in render: the head guide, new frames, the tail guide
-        new = [Image.new("RGB", (64, 32), (255, 255, 255))] * cut["keep_frames"]
-        render_frames = (
-            list(cut["head_guide"].frames) + new + list(cut["tail_guide"].frames)
-        )
-        samples = frames_to_samples(len(render_frames), FPS, RATE)
-        render = AudioVideo(
-            render_frames,
-            numpy.zeros((1, samples), dtype=numpy.float32),
-            RATE,
-            fps=FPS,
-        )
-        assert len(render.frames) == 107
-        kept = trim_video(render, cut["keep_start"], cut["keep_frames"])
-        before = concat_videos(cut["before"], fps=FPS, continuous_joins=True)
-        after = concat_videos(cut["after"], fps=FPS, continuous_joins=True)
-        take = concat_videos([before, kept, after], fps=FPS, continuous_joins=True)
-        assert len(take.frames) == sum(cut["segment_frames"])
-        assert not any(shot.get("hard_cut") for shot in take.shots)
-        # The take resumes on segment 3's own frame 12 right after the repair
-        resume = 40 + cut["keep_frames"]
-        red = take.frames[resume].getpixel((10, 10))[0]
-        assert abs(red - (40 + 51 + 12)) <= 3
-
-    def test_a_canvas_other_than_the_chains_is_refused(self, chain):
+    def test_a_canvas_other_than_the_chains_is_refused(self, run):
         with pytest.raises(ValueError, match="chain's canvas"):
-            chain_repair_cut(chain[0], 2, 107, 22, 22, width=960, height=544)
+            chain_repair_cut(
+                chain_take=run["take"],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+                width=960,
+                height=544,
+            )
 
-    def test_the_last_segment_is_refused(self, chain):
+    def test_the_last_segment_is_refused(self, run):
         with pytest.raises(ValueError, match="one-sided repair"):
-            chain_repair_cut(chain[0], 4, 107, 22, 22)
+            chain_repair_cut(
+                chain_take=run["take"], segment=4, num_frames=107, tail_frames=22
+            )
 
     def test_registered(self):
         assert "chain_repair_cut" in _COMMAND_REGISTRY
+        assert "chain_repair_splice" in _COMMAND_REGISTRY
 
 
-TEMPLATE = (
+class TestSplice:
+    """Apart from the repaired span, the output IS the take."""
+
+    def test_the_take_outside_the_span(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
+        cut, spliced, take = repaired(made)
+        assert len(spliced.frames) == len(take.frames) == 193
+        start, end = cut["start_frame"], cut["end_frame"]
+        for index in list(range(start)) + list(range(end, 193)):
+            assert numpy.array_equal(
+                numpy.asarray(spliced.frames[index]), numpy.asarray(take.frames[index])
+            ), index
+        assert all(red(frame) == 255 for frame in spliced.frames[start:end])
+        # Every other seam's crossfaded audio, bit for bit
+        s0 = made["shots"][1]["start_sample"]
+        s1 = made["shots"][2]["start_sample"] + frames_to_samples(12, FPS, RATE)
+        assert spliced.audio.shape == take.audio.shape
+        assert numpy.array_equal(spliced.audio[:, :s0], take.audio[:, :s0])
+        assert numpy.array_equal(spliced.audio[:, s1:], take.audio[:, s1:])
+        assert spliced.sample_rate == take.sample_rate
+
+    def test_the_span_is_the_render_blended_as_the_chain_blended(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
+        cut, spliced, take = repaired(made)
+        s0 = made["shots"][1]["start_sample"]
+        s1 = made["shots"][2]["start_sample"] + frames_to_samples(12, FPS, RATE)
+        window = int(0.075 * RATE)
+        # In from the take's own track, out into it again, the chain's 75 ms
+        assert spliced.audio[0, s0] == pytest.approx(take.audio[0, s0], abs=1e-6)
+        assert numpy.allclose(spliced.audio[:, s0 + window : s1 - window], 0.7)
+        assert not numpy.allclose(spliced.audio[:, s1 - window // 2], 0.7)
+        assert spliced.shots[1]["crossfade_ms"] == 75.0
+        assert spliced.shots[2]["crossfade_ms"] == 75.0
+
+    def test_a_guide_chain_seam_gets_the_declick(self, run):
+        cut, spliced, take = repaired(run)
+        assert spliced.shots[1]["crossfade_ms"] == 3.0
+        assert spliced.shots[2]["crossfade_ms"] == 3.0
+
+    def test_a_duration_take_keeps_its_frame_count(self, tmp_path):
+        # duration_seconds: the spill holds 193 frames, the take 172
+        for segment in (2, 3):
+            made = write_run(str(tmp_path / str(segment)), [40, 51, 51, 51], 172)
+            cut, spliced, take = repaired(made, segment=segment)
+            assert len(take.frames) == 172
+            assert len(spliced.frames) == 172
+            assert spliced.audio.shape == take.audio.shape
+
+    def test_a_match_audio_take_keeps_its_source_track(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], 180, match_audio=True)
+        cut, spliced, take = repaired(made)
+        assert take.sample_rate == 44100
+        assert spliced.sample_rate == 44100
+        assert numpy.array_equal(spliced.audio, take.audio)
+        assert len(spliced.frames) == 180
+
+    def test_the_repaired_seams_are_measured(self, run):
+        from dw.tasks.assess import analyze_seams
+
+        cut, spliced, take = repaired(run)
+        names = [shot["name"] for shot in spliced.shots]
+        assert names == ["segment 1", "segment 2 (repaired)", "segment 3", "segment 4"]
+        assert spliced.shots[1]["start_frame"] == cut["start_frame"]
+        assert spliced.shots[2]["start_frame"] == cut["end_frame"]
+        assert sum(shot["num_frames"] for shot in spliced.shots) == 193
+        assert not any(shot.get("hard_cut") for shot in spliced.shots)
+        assert all(not seam["hard_cut"] for seam in analyze_seams(spliced)["seams"])
+
+    def test_a_render_on_another_canvas_is_refused(self, run):
+        cut = chain_repair_cut(
+            chain_take=run["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        render = stand_in_render(cut)
+        render.frames = [frame.resize((32, 16)) for frame in render.frames]
+        with pytest.raises(ValueError, match="canvas"):
+            chain_repair_splice(
+                chain_take=run["take"],
+                video=render,
+                segment=2,
+                start_frame=cut["start_frame"],
+                end_frame=cut["end_frame"],
+                keep_start=cut["keep_start"],
+            )
+
+
+TEMPLATES = (
     __import__("pathlib").Path(__file__).resolve().parent.parent
     / "workflows"
     / "templates"
     / "minimax"
-    / "repair-segment.json"
 )
+TEMPLATE = TEMPLATES / "repair-segment.json"
 
 
 def template_errors(arguments=None):
@@ -243,6 +510,17 @@ def template_errors(arguments=None):
     return workflow.validation_errors(arguments)
 
 
+def chain_blocks(definition):
+    if isinstance(definition, dict):
+        if isinstance(definition.get("chain"), dict):
+            yield definition["chain"]
+        for value in definition.values():
+            yield from chain_blocks(value)
+    elif isinstance(definition, list):
+        for value in definition:
+            yield from chain_blocks(value)
+
+
 class TestTemplate:
     def test_validates_with_its_defaults(self):
         assert template_errors() == []
@@ -253,7 +531,7 @@ class TestTemplate:
                 {
                     "segment": 3,
                     "num_frames": 192,
-                    "tail_frames": 56,
+                    "tail_frames": 39,
                     "prompt": "A glass figure turns towards the light.",
                     "seed": 7,
                 }
@@ -265,23 +543,55 @@ class TestTemplate:
         errors = template_errors({"segment": 1})
         assert any("segment" in str(error) for error in errors), errors
 
-    def test_the_splice_is_continuous_and_the_guides_hold_audio(self):
+    @pytest.mark.parametrize(
+        "arguments", [{"head_frames": 39}, {"tail_frames": 56}, {"tail_frames": 5}]
+    )
+    def test_holds_past_the_vram_fold_are_refused(self, arguments):
+        errors = template_errors(arguments)
+        assert any(next(iter(arguments)) in str(error) for error in errors), errors
+
+    def test_the_vram_fold_is_an_upper_bound_on_every_allowed_render(self):
         import json
 
-        steps = {s["name"]: s for s in json.loads(TEMPLATE.read_text())["steps"]}
+        definition = json.loads(TEMPLATE.read_text())
+        rate = definition["vram_estimate"]["bytes_per_voxel"]
+        constraints = definition["variable_constraints"]
+        head = constraints["head_frames"]
+        tail = constraints["tail_frames"]
+        assert head["min_frames"] == head["max_frames"] == 22
+        assert (tail["min_frames"], tail["max_frames"]) == (22, 39)
+        frames = constraints["num_frames"]
+        for num_frames in range(frames["min_frames"], frames["max_frames"] + 1, 17):
+            # The t2va rate on the render and on both guides' frames
+            assert rate * num_frames >= 28.71 * (num_frames + 22 + 39), num_frames
+        assert "exact" not in definition["vram_estimate"]["reason"]
+
+    def test_the_segment_bound_says_it_is_no_frame_count(self):
+        import json
+
+        constraints = json.loads(TEMPLATE.read_text())["variable_constraints"]
+        assert "not a frame count" in constraints["segment"]["reason"]
+
+    def test_the_steps_cut_render_and_splice_the_take(self):
+        import json
+
+        definition = json.loads(TEMPLATE.read_text())
+        steps = {s["name"]: s for s in definition["steps"]}
+        assert list(steps) == ["cut", "repair", "splice"]
         assert steps["cut"]["task"]["command"] == "chain_repair_cut"
+        assert steps["cut"]["task"]["arguments"]["chain_take"] == (
+            "variable:chain_take"
+        )
         guides = steps["repair"]["pipeline"]["arguments"]["guides"]
         assert [g["frame"] for g in guides] == [0, "previous_result:cut.tail_frame"]
         assert all(g["audio"] is True for g in guides)
-        for name in ("before", "after", "splice"):
-            arguments = steps[name]["task"]["arguments"]
-            assert steps[name]["task"]["command"] == "concat_videos"
-            assert arguments["continuous_joins"] is True
-        assert steps["splice"]["task"]["arguments"]["videos"] == [
-            "previous_result:before",
-            "previous_result:keep",
-            "previous_result:after",
-        ]
+        splice = steps["splice"]["task"]
+        assert splice["command"] == "chain_repair_splice"
+        assert splice["arguments"]["chain_take"] == "previous_result:cut.chain_take"
+        assert splice["arguments"]["video"] == "previous_result:repair"
+        # No made-up output: path stands in for the caller's take
+        assert definition["variables"]["chain_take"] is None
+        assert definition["variables"]["chain_output"] is None
 
     def test_the_default_render_fits_the_default_chain(self):
         import json
@@ -298,11 +608,30 @@ class TestTemplate:
         assert variables["tail_frames"] > variables["head_frames"]
         assert variables["seed"] is None
 
+    @pytest.mark.parametrize(
+        "name",
+        [
+            "chained-segments.json",
+            "chain-matched-to-audio.json",
+            "chain-matched-and-aligned.json",
+            "chain-video-continuity.json",
+        ],
+    )
+    def test_the_h3_chains_can_keep_their_segments(self, name):
+        import json
 
-def test_the_cut_feeds_the_template_steps_in_a_workflow(chain, tmp_path, monkeypatch):
+        definition = json.loads((TEMPLATES / name).read_text())
+        assert definition["variables"]["keep_segments"] is False
+        (chain,) = list(chain_blocks(definition))
+        assert chain["keep_segments"] == "variable:keep_segments"
+        assert chain["save_segments"] in ("variable:keep_segments", True)
+        assert "repair-segment" in definition["description"]
+
+
+def test_the_cut_feeds_the_splice_in_a_workflow(run, tmp_path, monkeypatch):
     """The template's task steps as a workflow, with a stand-in for the H3
-    render: a record's list and number fields reach trim_video and
-    concat_videos as one value each, and the splice keeps the take's length."""
+    render: the record's fields reach the splice as one value each, and the
+    saved splice keeps the take's length."""
     import av
 
     from dw.workflow import Workflow
@@ -316,7 +645,7 @@ def test_the_cut_feeds_the_template_steps_in_a_workflow(chain, tmp_path, monkeyp
                 "task": {
                     "command": "chain_repair_cut",
                     "arguments": {
-                        "chain_output": chain[0],
+                        "chain_take": run["take"],
                         "segment": 2,
                         "num_frames": 107,
                         "tail_frames": 22,
@@ -324,53 +653,29 @@ def test_the_cut_feeds_the_template_steps_in_a_workflow(chain, tmp_path, monkeyp
                 },
             },
             {
-                # Stands in for the render: its kept span is the head guide's
-                # frames from overrun on (a span of the right shape)
-                "name": "keep",
+                # Stands in for the render: 107 frames of the take with audio
+                "name": "repair",
                 "task": {
                     "command": "trim_video",
                     "arguments": {
-                        "video": "previous_result:cut.head_guide",
-                        "start_frame": "previous_result:cut.overrun",
-                        "num_frames": 10,
+                        "video": run["take"],
+                        "start_frame": 18,
+                        "num_frames": 107,
                         "fps": 24,
-                    },
-                },
-            },
-            {
-                "name": "before",
-                "task": {
-                    "command": "concat_videos",
-                    "arguments": {
-                        "videos": "previous_result:cut.before",
-                        "fps": 24,
-                        "continuous_joins": True,
-                    },
-                },
-            },
-            {
-                "name": "after",
-                "task": {
-                    "command": "concat_videos",
-                    "arguments": {
-                        "videos": "previous_result:cut.after",
-                        "fps": 24,
-                        "continuous_joins": True,
                     },
                 },
             },
             {
                 "name": "splice",
                 "task": {
-                    "command": "concat_videos",
+                    "command": "chain_repair_splice",
                     "arguments": {
-                        "videos": [
-                            "previous_result:before",
-                            "previous_result:keep",
-                            "previous_result:after",
-                        ],
-                        "fps": 24,
-                        "continuous_joins": True,
+                        "chain_take": "previous_result:cut.chain_take",
+                        "video": "previous_result:repair",
+                        "segment": 2,
+                        "start_frame": "previous_result:cut.start_frame",
+                        "end_frame": "previous_result:cut.end_frame",
+                        "keep_start": "previous_result:cut.keep_start",
                     },
                 },
                 "result": {"content_type": "video/mp4", "fps": 24},
@@ -383,5 +688,4 @@ def test_the_cut_feeds_the_template_steps_in_a_workflow(chain, tmp_path, monkeyp
     assert len(saved) == 1, saved
     with av.open(str(saved[0])) as container:
         frames = sum(1 for _ in container.decode(video=0))
-    # segment 1 (40) + the 10-frame stand-in + segments 3 (51 - 12) and 4 (51)
-    assert frames == 40 + 10 + 39 + 51
+    assert frames == 193

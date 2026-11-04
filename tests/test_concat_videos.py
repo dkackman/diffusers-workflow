@@ -1130,13 +1130,30 @@ class TestContinuousJoins:
         assert [shot.get("hard_cut") for shot in result.shots] == [None] * 3
         assert all("seam_fade_ms" not in shot for shot in result.shots)
 
-    def test_continuous_joins_butt_join_the_audio_untouched(self):
+    def test_continuous_joins_keep_the_default_declick(self):
+        result = concat_videos(
+            [
+                audio_video(4, 0.1, sample_rate=8000),
+                audio_video(4, 0.2, sample_rate=8000),
+            ],
+            fps=4,
+            continuous_joins=True,
+        )
+        # The few-ms declick, so the seam does not click - and no
+        # seam_fade_ms recorded, so seam_hole still measures the seam
+        assert result.audio[0, 7999] < 0.1
+        assert result.audio[0, 8000] < 0.2
+        assert numpy.allclose(result.audio[:, :7900], 0.1)
+        assert numpy.allclose(result.audio[:, 8100:], 0.2)
+        assert "seam_fade_ms" not in result.shots[1]
+
+    def test_continuous_joins_take_a_zero_fade_as_a_butt_join(self):
         result = concat_videos(
             [audio_video(4, 0.1), audio_video(4, 0.2)],
             fps=4,
             continuous_joins=True,
+            seam_fade_ms=0,
         )
-        # No declick ramp: every sample keeps its input's level
         assert numpy.allclose(result.audio[:, :100], 0.1)
         assert numpy.allclose(result.audio[:, 100:], 0.2)
 
