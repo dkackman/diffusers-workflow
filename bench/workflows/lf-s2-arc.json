@@ -1,6 +1,6 @@
 {
   "id": "BenchLfS2Arc",
-  "description": "Long-form bench S2 with last_frame continuity and carry_pick: the s2-arc workflow with the guide-only keys (guide_frames, guide_backoff, keystone) removed and chain.carry_pick = {sharpest: carry_pick_n} (default 4). The counter-round last_frame carry_pick arms run here; every other last_frame arm runs the plain s2-arc workflow with continuity=last_frame.",
+  "description": "Long-form bench S2 with last_frame continuity and carry_pick: the s2-arc workflow with the guide-only keys (guide_frames, guide_backoff, keystone) removed and chain.carry_pick = {sharpest: carry_pick_n} (default 4). The counter-round last_frame carry_pick arms run here; every other last_frame arm runs the plain s2-arc workflow with continuity=last_frame. `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations.",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a bronze statue of a seated man on a stone plinth in a sunlit public garden, a red brick wall with ivy, tall cypress trees and a white gazebo behind it. The camera travels in a slow, steady orbit around the statue, arcing to the right at a constant speed and keeping the statue centered, so the brick wall, the cypresses, the gazebo and the garden behind it sweep past and change with the angle. Warm late-afternoon sunlight, leaves stirring gently in a light breeze.\n\noverall_soundscape: Outdoor garden ambience: light breeze in the leaves, distant birdsong, faint far-off traffic.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/arc-statue.jpg",
@@ -24,7 +24,8 @@
     "antiburn_model_name": null,
     "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
     "antiburn_scale": 0.6,
-    "carry_pick_n": 4
+    "carry_pick_n": 4,
+    "duration_seconds": null
   },
   "variable_constraints": {
     "num_frames": {
@@ -168,6 +169,7 @@
         ],
         "chain": {
           "segments": "variable:segments",
+          "duration_seconds": "variable:duration_seconds",
           "continuity": "variable:continuity",
           "anchor": "variable:anchor",
           "segment_argument": "image",

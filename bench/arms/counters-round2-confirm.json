@@ -1,0 +1,100 @@
+[
+  {
+    "name": "ctl-guide-s1-s1166-rerun",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ],
+    "workflow_id_suffix": "-r2"
+  },
+  {
+    "name": "r2-anchor25-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-anchor50-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-keystone-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "keystone": "segment_1"
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-s2-seed2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  }
+]

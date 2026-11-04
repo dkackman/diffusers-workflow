@@ -1,6 +1,6 @@
 {
   "id": "BenchLfS1Static",
-  "description": "Long-form bench S1 with last_frame continuity and carry_pick: the s1-static workflow with the guide-only keys (guide_frames, guide_backoff, keystone) removed and chain.carry_pick = {sharpest: carry_pick_n} (default 4). The counter-round last_frame carry_pick arms run here; every other last_frame arm runs the plain s1-static workflow with continuity=last_frame.",
+  "description": "Long-form bench S1 with last_frame continuity and carry_pick: the s1-static workflow with the guide-only keys (guide_frames, guide_backoff, keystone) removed and chain.carry_pick = {sharpest: carry_pick_n} (default 4). The counter-round last_frame carry_pick arms run here; every other last_frame arm runs the plain s1-static workflow with continuity=last_frame. `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations.",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/static-stripes.jpg",
@@ -24,7 +24,8 @@
     "antiburn_model_name": null,
     "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
     "antiburn_scale": 0.6,
-    "carry_pick_n": 4
+    "carry_pick_n": 4,
+    "duration_seconds": null
   },
   "variable_constraints": {
     "num_frames": {
@@ -168,6 +169,7 @@
         ],
         "chain": {
           "segments": "variable:segments",
+          "duration_seconds": "variable:duration_seconds",
           "continuity": "variable:continuity",
           "anchor": "variable:anchor",
           "segment_argument": "image",
