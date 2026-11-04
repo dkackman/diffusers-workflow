@@ -434,6 +434,7 @@
         "command": "slice_audio",
         "arguments": {
           "audio": "previous_result:music_bed",
+          "sample_rate": "variable:sample_rate",
           "start_frame": "variable:score_start_frame",
           "num_frames": "variable:total_frames",
           "fps": "variable:fps"
