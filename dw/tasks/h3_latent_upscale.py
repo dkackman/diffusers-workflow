@@ -8,7 +8,9 @@ MiniMax-H3 latent upscale and decode.
 it again here. `decode_h3_latents` turns latents back into
 frames through diffusers' own H3 video decode block, so the VAE's
 denormalization, autocast and pixel un-normalization stay diffusers' rather
-than a copy that could drift from it.
+than a copy that could drift from it. `encode_h3_latents` goes the other way:
+a finished take's pixels into one H3 latent, a VAE clip at a time, for a long
+windowed refine (#1199 Task 17 Step 4).
 
 The network was trained behind the ComfyUI node's `(x - mean) / std ...
 x * std + mean` wrapper, and the wrapper is carried here. ComfyUI's H3 VAE
@@ -20,11 +22,21 @@ feeds it a space it never saw, and the decode is garbage (#499, M-F041).
 """
 
 import logging
+import math
 
+import numpy
 import torch
 
-from ..pipeline_processors.h3_rules import H3_FPS
+from ..media_readers import (
+    ShortFrameRange,
+    count_video_frames,
+    read_frame_range,
+    video_shape,
+)
+from ..pipeline_processors.h3_rules import H3_FPS, RENDER_GRID
 from ..result import AudioVideo
+from ..task_domains import whole_number
+from ..variable_constraints import aligned
 from .weights import file_entries
 
 logger = logging.getLogger("dw")
@@ -376,7 +388,7 @@ def _load_decoder(device, model_name):
     return cached_model(("decode_h3_latents", model_name, str(device)), load_decoder)
 
 
-def decode_h3_latents(latents, device="cpu", model_name=None):
+def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
     """Decode MiniMax-H3 video latents into frames.
 
     Runs diffusers' `MiniMaxH3VideoDecodeStep` - latent denormalization, the
@@ -388,6 +400,9 @@ def decode_h3_latents(latents, device="cpu", model_name=None):
         device: Device the VAE runs on
         model_name: The MiniMax-H3 repo whose `vae` subfolder decodes
             (default: MiniMaxAI/MiniMax-H3)
+        num_frames: Keep only the first this many frames - an
+            `encode_h3_latents` step's `source_frames`, so a take padded onto
+            the 17m + 5 grid comes back at its own length
 
     Returns:
         One AudioVideo holding the first video's frames at 24 fps and no
@@ -411,7 +426,212 @@ def decode_h3_latents(latents, device="cpu", model_name=None):
     x = latents.to(device=pipeline._execution_device, dtype=torch.float32)
     videos = pipeline(latents=x, output_type="pil", output="videos")
     frames = list(videos[0])
+    num_frames = whole_number(num_frames, "num_frames", "decode_h3_latents")
+    if num_frames is not None:
+        if num_frames > len(frames):
+            raise ValueError(
+                f"decode_h3_latents: num_frames {num_frames} is more than the "
+                f"{len(frames)} frames the latents decode to"
+            )
+        frames = frames[:num_frames]
     logger.info(
         f"Decoded {len(frames)} frames at {frames[0].size[0]}x{frames[0].size[1]}"
     )
     return AudioVideo(frames, None, None, fps=H3_FPS)
+
+
+# Encode: a finished take into one latent, a VAE clip at a time
+
+
+def encode_take(vae, read, source_frames, pixel_mean, pixel_std, seed, device):
+    """A take of `source_frames` uint8 frames as one normalized H3 video latent,
+    encoded a VAE clip at a time - exactly what diffusers' whole-take
+    `encode_vae_condition` gives for the take padded onto the 17m + 5 grid.
+
+    `read(start, stop)` returns source frames `[start, stop)` as a
+    (n, height, width, 3) uint8 array; it is called once per clip, for at most
+    one clip's frames, so neither the take nor its float32 pixels are ever
+    whole in memory.
+
+    Why it is exact. `AutoencoderKLMiniMaxH3._encode` already cuts the take
+    into `clip_length`-frame clips, encodes each with `_encode_clip` on its
+    own (the encoder is causal within a clip only), concatenates the moments
+    and drops `token_drop` trailing latents once. The padding is the last
+    frame repeated, both onto the grid (`fit_source_frames`) and onto whole
+    clips (`_encode`), so clip i is source frames `17i .. 17i + 16` clamped to
+    the last. The posterior sample's noise is one draw over the whole latent's
+    shape from a CPU generator seeded `seed`, as `DiagonalGaussianDistribution
+    .sample` draws it; it is latent-sized (about 165 MB at 60 s 768p) and is
+    sliced per clip. Everything after the encoder is elementwise. Calls the
+    VAE's private `_encode_clip`, which tests/test_h3_latent_encode.py pins
+    against the public encode.
+
+    Returns:
+        `(latents, num_frames)`: the (1, 24, 5m + 2, h / 16, w / 16) float32
+        CPU latent, and the 17m + 5 frame count it decodes to
+    """
+    from diffusers.models.autoencoders.vae import DiagonalGaussianDistribution
+    from diffusers.models.modeling_utils import get_parameter_dtype
+    from diffusers.utils.torch_utils import randn_tensor
+
+    clip = vae.config.clip_length
+    per_clip = vae.tokens_chunk_size
+    num_frames = aligned(source_frames, RENDER_GRID)
+    clips = math.ceil(num_frames / clip)
+    num_latents = clips * per_clip - vae.config.token_drop
+    first = read(0, min(clip, source_frames))
+    height, width = first.shape[1:3]
+    ratio = vae.spatial_compression_ratio
+    shape = (
+        1,
+        vae.config.latent_channels,
+        num_latents,
+        height // ratio,
+        width // ratio,
+    )
+    noise = randn_tensor(
+        shape, generator=torch.Generator().manual_seed(seed), dtype=torch.float32
+    )
+    mean = torch.tensor(pixel_mean, device=device).view(1, -1, 1, 1, 1)
+    std = torch.tensor(pixel_std, device=device).view(1, -1, 1, 1, 1)
+    latents_mean = torch.tensor(vae.config.latents_mean).view(1, -1, 1, 1, 1)
+    latents_std = torch.tensor(vae.config.latents_std).view(1, -1, 1, 1, 1)
+    encoder_dtype = get_parameter_dtype(vae.encoder)
+    out = torch.empty(shape, dtype=torch.float32)
+
+    for index in range(clips):
+        start = index * clip
+        # The clip's source frames, the last repeated past the take's end
+        lo = min(start, source_frames - 1)
+        hi = min(start + clip, source_frames)
+        block = first if index == 0 else read(lo, max(hi, lo + 1))
+        picks = numpy.clip(numpy.arange(start, start + clip), 0, source_frames - 1)
+        pixels = torch.from_numpy(numpy.ascontiguousarray(block[picks - lo]))
+        del block
+        pixels = pixels.to(device).permute(3, 0, 1, 2)[None]
+        pixels = (pixels.to(torch.float32).div(255.0) - mean) / std
+        with torch.no_grad():
+            moments = vae._encode_clip(pixels.to(encoder_dtype))
+        del pixels
+        a = index * per_clip
+        b = min(a + per_clip, num_latents)
+        posterior = DiagonalGaussianDistribution(moments[:, :, : b - a])
+        sample = posterior.mean + posterior.std * noise[:, :, a:b].to(moments.device)
+        sample = sample.to(torch.float16).float().cpu()
+        out[:, :, a:b] = (sample - latents_mean) / latents_std
+    return out, num_frames
+
+
+def _take_reader(source):
+    """`(read, source_frames, fps, path, (height, width))` for a take: a file
+    read a clip's range at a time (#695), or frames already in memory sliced."""
+    from .video_utils import (
+        VideoFileReference,
+        frames_as_array,
+        is_video_location,
+        local_video_path,
+    )
+
+    path = None
+    if isinstance(source, VideoFileReference):
+        path = source.path
+    elif is_video_location(source):
+        path = local_video_path(source)
+        if path is None:
+            from .video_utils import load_audio_video
+
+            source = load_audio_video(source)
+    if path is not None:
+        shape = video_shape(path)
+        return (
+            lambda start, stop: read_frame_range(path, start, stop),
+            shape["frame_count"],
+            shape["fps"],
+            path,
+            (shape["height"], shape["width"]),
+        )
+    pixels = frames_as_array(source)
+    return (
+        lambda start, stop: pixels[start:stop],
+        len(pixels),
+        getattr(source, "fps", None) or getattr(pixels, "fps", None),
+        None,
+        tuple(pixels.shape[1:3]) if pixels.ndim == 4 else (0, 0),
+    )
+
+
+def _take_problem(source_frames, fps, height, width, multiple):
+    """Why a take cannot be encoded for an H3 refine, or None."""
+    if source_frames < 1:
+        return "encode_h3_latents was given a take with no frames"
+    if fps and abs(fps - H3_FPS) > 0.01:
+        return (
+            f"encode_h3_latents: the take is {fps:g} fps, and H3 refines "
+            f"{H3_FPS} fps - re-time it to {H3_FPS} fps first, or the refine "
+            f"and its held audio run at the wrong speed"
+        )
+    if height % multiple or width % multiple:
+        return (
+            f"encode_h3_latents: the take is {width}x{height}, and an H3 canvas "
+            f"is a multiple of {multiple} on both sides"
+        )
+    return None
+
+
+def encode_h3_latents(source, device="cpu", model_name=None):
+    """Encode a finished take into one MiniMax-H3 video latent, clip by clip.
+
+    The pixels of a take over 15 s do not fit through a `source_video` refine,
+    which encodes the whole take as one float32 tensor (about 18 GB at 60 s,
+    768p). This reads and encodes one 17-frame VAE clip at a time
+    (`encode_take`), and the result is bit-identical to that whole encode.
+
+    Args:
+        source: The take - an `asset:`/`output:` file (read a clip's range
+            at a time) or an earlier step's video, at 24 fps
+        device: Device the VAE runs on
+        model_name: The MiniMax-H3 repo whose `vae` subfolder encodes
+            (default: MiniMaxAI/MiniMax-H3)
+
+    Returns:
+        A dict: `latents`, (1, 24, 5m + 2, h / 16, w / 16), the refine's
+        `latents` argument; `num_frames`, the 17m + 5 count the refine renders
+        (the take padded up with its last frame); and `source_frames`, the
+        take's own count, for `decode_h3_latents`' `num_frames` to trim back to
+    """
+    read, source_frames, fps, path, (height, width) = _take_reader(source)
+    # The canvas multiple of the released H3 (VAE 16x times patch 2)
+    problem = _take_problem(source_frames, fps, height, width, 32)
+    if problem:
+        raise ValueError(problem)
+
+    pipeline = _load_decoder(device, model_name or DEFAULT_H3_REPO)
+
+    def encode(total):
+        return encode_take(
+            pipeline.vae,
+            read,
+            total,
+            pipeline.pixel_mean,
+            pipeline.pixel_std,
+            pipeline.keyframe_encode_seed,
+            pipeline._execution_device,
+        )
+
+    try:
+        latents, num_frames = encode(source_frames)
+    except ShortFrameRange:
+        if path is None:
+            raise
+        # The header over-counted: encode again on a counted total
+        source_frames = count_video_frames(path)
+        latents, num_frames = encode(source_frames)
+    logger.info(
+        f"Encoded a {source_frames}-frame take ({source_frames / H3_FPS:.2f}s) "
+        f"to {latents.shape[2]} latent frames, padded to {num_frames} frames"
+    )
+    return {
+        "latents": latents,
+        "num_frames": num_frames,
+        "source_frames": source_frames,
+    }
