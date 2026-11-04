@@ -2,6 +2,8 @@
 plan, the fuse weights, the windowed denoiser against the stock one, and the
 refusals. dw/pipeline_processors/h3_windows.py."""
 
+import warnings
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -18,8 +20,9 @@ from diffusers.modular_pipelines.minimax_h3.denoise import (  # noqa: E402
 )
 from diffusers.schedulers import MiniMaxH3Scheduler  # noqa: E402
 
-from dw.pipeline_processors import h3_windows  # noqa: E402
+from dw.pipeline_processors import h3_rules, h3_windows  # noqa: E402
 from dw.pipeline_processors.h3_hold import insert_audio_hold  # noqa: E402
+from dw.pipeline_processors.h3_mask import insert_mask_blocks  # noqa: E402
 from dw.pipeline_processors.h3_windows import (  # noqa: E402
     DENOISER,
     ENABLE_ENV_VAR,
@@ -103,6 +106,15 @@ def test_a_regular_overlap_is_a_complementary_linear_ramp():
     first, second = fuse_weights(plan, 10)
     assert first.tolist() == pytest.approx([1, 1, 1, 1, 2 / 3, 1 / 3])
     assert second.tolist() == pytest.approx([1 / 3, 2 / 3, 1, 1, 1, 1])
+
+
+def test_two_windows_weigh_the_literal_ramp_the_blend_test_uses():
+    """The plan the hand-computed blend runs on, by value: 2 shared latents,
+    so the ramp is 1/3, 2/3 - pinned here so the blend test does not only
+    check fuse_weights against itself."""
+    first, second = fuse_weights([(0, 7), (5, 12)], 12)
+    assert first.tolist() == pytest.approx([1, 1, 1, 1, 1, 2 / 3, 1 / 3])
+    assert second.tolist() == pytest.approx([1 / 3, 2 / 3, 1, 1, 1, 1, 1])
 
 
 def test_the_cosine_ramp_is_complementary_too():
@@ -477,11 +489,69 @@ def test_a_valid_call_has_no_problems():
         ({"refine_tiles": {"width": 1344}}, "refine_tiles"),
         ({"latents": None}, "source_video"),
         ({"source_video": "a.mp4", "mask_video": "m.mp4"}, "mask_video"),
+        ({"image": "first.png"}, "image"),
+        ({"last_image": "last.png"}, "last_image"),
+        ({"keyframes": [object()]}, "keyframes"),
+        ({"guides": [object()]}, "guides"),
+        ({"latent_anchor": "take.mp4"}, "latent_anchor"),
+        ({"references": [object()]}, "references"),
+        (
+            {
+                REFINE_WINDOWS_INPUT: {
+                    "frames": 12,
+                    "overlap": 4,
+                    "positions": "rebased",
+                }
+            },
+            "multiple of 5",
+        ),
+        (
+            {
+                REFINE_WINDOWS_INPUT: {
+                    "frames": 15,
+                    "overlap": 5,
+                    "positions": "rebased",
+                },
+                "num_frames": 124,
+            },
+            "multiple of 5",
+        ),
     ],
 )
 def test_a_call_the_windows_cannot_run_is_refused(overrides, match):
     problems = window_problems(refine(**overrides))
     assert problems and any(match in problem for problem in problems), problems
+
+
+def test_rebased_positions_on_the_clip_grid_are_taken():
+    windows = {"frames": 12, "overlap": 2, "positions": "rebased"}
+    arguments = refine(**{REFINE_WINDOWS_INPUT: windows})
+    # Stride 10 and no take length known yet: the stride is on the grid
+    assert window_problems(arguments) == []
+    # 124 frames -> 37 latents: starts 0, 10, 20 and the pulled-back 25
+    assert window_problems({**arguments, "num_frames": 124}) == []
+    # ...and the same read off a 5-d latents tensor
+    latents = torch.zeros(1, 24, 37, 2, 2)
+    assert window_problems({**arguments, "latents": latents}) == []
+    # 39 frames -> 12 latents: one window
+    assert window_problems({**arguments, "num_frames": 39}) == []
+    # 107 frames -> 32 latents: starts 0, 10 and the pulled-back 20
+    assert window_problems({**arguments, "num_frames": 107}) == []
+    # 90 frames -> 27 latents: the pulled-back start is 15
+    assert window_problems({**arguments, "num_frames": 90}) == []
+    # A stride off the grid with true positions is fine
+    assert (
+        window_problems(refine(**{REFINE_WINDOWS_INPUT: {"frames": 12, "overlap": 4}}))
+        == []
+    )
+
+
+def test_the_rebased_rule_also_holds_in_the_loop():
+    state, _ = block_state({"frames": 6, "overlap": 2, "positions": "rebased"})
+    with pytest.raises(ValueError, match="multiple of 5"):
+        DwH3WindowedLoopDenoiser()(
+            SimpleNamespace(transformer=StubTransformer()), state, 0, 0
+        )
 
 
 def test_a_step_cache_is_refused():
@@ -569,13 +639,104 @@ def test_the_run_time_check_refuses_with_the_flag_off():
         Pipeline._check_refine(step, refine())
 
 
-def test_end_to_end_one_window_is_the_plain_refine_of_a_source_video(tiny_h3):
-    """A finished take as pixels: the regional edit's encode with no mask."""
+@pytest.fixture(scope="module")
+def tiny_h3_source():
+    """The tiny graph as the loader finishes it for a `source_video`: the hold,
+    the regional edit's source and blend blocks (h3_mask.py), then the
+    windows - the order `_assemble_loaded` puts them in."""
+    from tests.test_chain_h3_native import _tiny_h3
+
+    pipeline = _tiny_h3()
+    insert_audio_hold(pipeline)
+    assert insert_mask_blocks(pipeline)
+    assert insert_refine_windows(pipeline)
+    return pipeline
+
+
+def source_frames(seed):
     import numpy
 
-    frames = numpy.random.default_rng(5).integers(0, 255, (124, 32, 32, 3), "uint8")
-    plain = tiny_refine(tiny_h3, None, source_video=frames)
-    one = tiny_refine(tiny_h3, {"frames": 40}, source_video=frames)
-    two = tiny_refine(tiny_h3, {"frames": 20, "overlap": 6}, source_video=frames)
+    return numpy.random.default_rng(seed).integers(0, 255, (124, 32, 32, 3), "uint8")
+
+
+def strict_refine(pipeline, windows, source_video, caplog):
+    """`tiny_refine` with an ignored input made an error: diffusers drops an
+    argument no block declares with a warning (both `warnings.warn` and its
+    logger), and a dropped `source_video` would leave nothing to compare."""
+    caplog.clear()
+    with caplog.at_level("WARNING"), warnings.catch_warnings():
+        warnings.filterwarnings("error", message=".*Unexpected input")
+        result = tiny_refine(pipeline, windows, source_video=source_video)
+    unexpected = [r for r in caplog.records if "Unexpected input" in r.getMessage()]
+    assert not unexpected, unexpected[0].getMessage()
+    return result
+
+
+def test_the_source_video_reaches_the_graph(tiny_h3_source, caplog):
+    """The source is encoded, not dropped: another source refines to another
+    take."""
+    plain = strict_refine(tiny_h3_source, None, source_frames(5), caplog)
+    other = strict_refine(tiny_h3_source, None, source_frames(6), caplog)
+    assert not torch.equal(plain, other)
+
+
+def test_a_graph_without_the_source_block_drops_the_source_video(tiny_h3, caplog):
+    """Why the fixture above exists: on the hold-only graph diffusers ignores
+    `source_video`, and the check in `strict_refine` says so."""
+    with pytest.raises((AssertionError, UserWarning), match="Unexpected input"):
+        strict_refine(tiny_h3, None, source_frames(5), caplog)
+
+
+def test_end_to_end_one_window_is_the_plain_refine_of_a_source_video(
+    tiny_h3_source, caplog
+):
+    """A finished take as pixels: the regional edit's encode with no mask, and
+    its blend block in the loop after `update` (a no-op without a mask)."""
+    frames = source_frames(5)
+    plain = strict_refine(tiny_h3_source, None, frames, caplog)
+    one = strict_refine(tiny_h3_source, {"frames": 40}, frames, caplog)
+    two = strict_refine(tiny_h3_source, {"frames": 20, "overlap": 6}, frames, caplog)
     assert torch.equal(plain, one)
+    assert torch.isfinite(two).all()
     assert not torch.equal(plain, two)
+
+
+# 7. The flag: one owner, and the loader gate
+
+
+def test_the_flag_has_one_owner():
+    assert h3_windows.ENABLE_ENV_VAR is h3_rules.REFINE_WINDOWS_ENV_VAR
+    from dw.pipeline_processors import components
+
+    source = Path(components.__file__).read_text()
+    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in source
+
+
+@pytest.mark.parametrize("value, on", [(None, False), ("1", True), ("0", False)])
+def test_the_flag_reads_the_environment(monkeypatch, value, on):
+    if value is None:
+        monkeypatch.delenv(h3_rules.REFINE_WINDOWS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(h3_rules.REFINE_WINDOWS_ENV_VAR, value)
+    assert h3_rules.refine_windows_enabled() is on
+
+
+@pytest.mark.parametrize("value, windowed", [(None, False), ("1", True)])
+def test_the_loader_inserts_the_windows_only_behind_the_flag(
+    monkeypatch, value, windowed
+):
+    from dw.pipeline_processors.components import _assemble_loaded
+
+    if value is None:
+        monkeypatch.delenv(h3_rules.REFINE_WINDOWS_ENV_VAR, raising=False)
+    else:
+        monkeypatch.setenv(h3_rules.REFINE_WINDOWS_ENV_VAR, value)
+    pipeline = minimax.MiniMaxH3Blocks().get_workflow("t2va").init_pipeline()
+    _assemble_loaded("pipeline", type(pipeline), {}, pipeline, {})
+    denoisers = [loop.sub_blocks[DENOISER] for loop in loops(pipeline)]
+    assert denoisers
+    for denoiser in denoisers:
+        assert isinstance(denoiser, DwH3WindowedLoopDenoiser) is windowed
+        if not windowed:
+            assert type(denoiser) is MiniMaxH3LoopDenoiser
+    assert windows_refine(pipeline) is windowed

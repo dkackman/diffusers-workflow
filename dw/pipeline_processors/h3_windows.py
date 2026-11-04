@@ -52,7 +52,6 @@ loader (dw/pipeline_processors/components.py) and the run-time check
 import inspect
 import logging
 import math
-import os
 
 import torch
 from diffusers.modular_pipelines.minimax_h3.denoise import MiniMaxH3LoopDenoiser
@@ -60,29 +59,45 @@ from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
+    GUIDE_LATENTS_PER_CHUNK,
+    GUIDES_INPUT,
     HELD_ROWS,
     HOLD_AUDIO_INPUT,
+    LATENT_ANCHOR_INPUT,
+    MASK_INPUTS,
     REFINE_BEFORE,
     REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
-    MASK_INPUTS,
+    REFINE_WINDOWS_ENV_VAR as ENABLE_ENV_VAR,
+    REFINE_WINDOWS_INPUT,
+    RENDER_GRID,
     SOURCE_VIDEO_INPUT,
+    guide_latent_frames,
 )
 
 logger = logging.getLogger("dw")
 
-REFINE_WINDOWS_INPUT = "experimental_refine_windows"
-ENABLE_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
 # The denoise loop's forward sub-block, which the windowed one replaces
 DENOISER = "denoiser"
 BLENDS = ("pyramid", "cosine")
 POSITIONS = ("true", "rebased")
 _KEYS = ("frames", "overlap", "blend", "positions")
-
-
-def enabled():
-    """Whether the scratch flag is on in this process."""
-    return os.environ.get(ENABLE_ENV_VAR) == "1"
+# The arguments that put rows into the sequence the windows do not hold - a
+# keyframe's or a reference's conditioning rows, a guide's - or that act on
+# the take after the loop. The loop refuses the rows at step 0; these are
+# refused before the call, by name
+CONFLICTS = (
+    "image",
+    "last_image",
+    "keyframes",
+    "references",
+    GUIDES_INPUT,
+    LATENT_ANCHOR_INPUT,
+)
+# H3's clip grid: a 17-frame clip encodes to 5 latents, the first of them one
+# frame. A rebased window's first latent sits at the take's origin, the slot
+# of a one-frame latent, so it must be one - a start on this grid
+CLIP_LATENTS = GUIDE_LATENTS_PER_CHUNK
 
 
 # 1. The plan and the weights - pure, on the latent time grid
@@ -166,6 +181,41 @@ def fuse_weights(plan, num_latent_frames, blend="pyramid"):
     return [weights / total[start:stop] for (start, stop), weights in zip(plan, raw)]
 
 
+def rebase_problem(plan):
+    """Why `positions: "rebased"` cannot move this plan's windows to the
+    take's origin, or None: a window that starts off the clip grid starts on a
+    four-frame latent, and the origin slot is a one-frame latent's."""
+    off = [start for start, _ in plan if start % CLIP_LATENTS]
+    if not off:
+        return None
+    return (
+        f"{REFINE_WINDOWS_INPUT} positions 'rebased' moves each window's first "
+        f"latent to the take's origin, which is a one-frame latent's slot, so "
+        f"every window must start on a multiple of {CLIP_LATENTS} latents (H3's "
+        f"clip grid) - windows start at {', '.join(map(str, off))}; pick frames "
+        f"and overlap so frames - overlap is a multiple of {CLIP_LATENTS} and the "
+        f"last window lands on it, or use positions 'true'"
+    )
+
+
+def _take_latent_frames(arguments):
+    """The take's latent frame count when the call already says it - a 5-d
+    `latents` tensor, or a `num_frames` on the 17m + 5 render grid - or None."""
+    latents = arguments.get("latents")
+    shape = getattr(latents, "shape", None)
+    if shape is not None and len(shape) == 5:
+        return int(shape[2])
+    num_frames = arguments.get("num_frames")
+    if (
+        isinstance(num_frames, int)
+        and not isinstance(num_frames, bool)
+        and num_frames >= RENDER_GRID["remainder"]
+        and (num_frames - RENDER_GRID["remainder"]) % RENDER_GRID["modulus"] == 0
+    ):
+        return guide_latent_frames(num_frames)
+    return None
+
+
 # 2. The rules - what the call needs, checked before it runs
 
 
@@ -183,14 +233,29 @@ def window_problems(arguments, has_cache=False):
     if extra:
         problems.append(f"{name} takes {', '.join(_KEYS)}, not {', '.join(extra)}")
     frames, overlap = settings.get("frames"), settings.get("overlap", 0)
+    planned = False
     try:
         window_plan(max(1, frames if isinstance(frames, int) else 1), frames, overlap)
+        planned = True
     except (TypeError, ValueError) as error:
         problems.append(f"{name}: {error}")
     if settings.get("blend", "pyramid") not in BLENDS:
         problems.append(f"{name} blend is one of {', '.join(BLENDS)}")
-    if settings.get("positions", "true") not in POSITIONS:
+    positions = settings.get("positions", "true")
+    if positions not in POSITIONS:
         problems.append(f"{name} positions is one of {', '.join(POSITIONS)}")
+    elif positions == "rebased" and planned:
+        # The stride decides every start but the pulled-back last; that one
+        # needs the take's length, when the call already says it. The loop
+        # checks the plan it runs either way
+        take = _take_latent_frames(arguments)
+        if take is not None:
+            plan = window_plan(take, frames, overlap)
+        else:
+            plan = [(0, frames), (frames - overlap, 2 * frames - overlap)]
+        problem = rebase_problem(plan)
+        if problem:
+            problems.append(problem)
     if arguments.get(REFINE_STRENGTH_INPUT) is None:
         problems.append(f"{name} windows a refine_strength pass - add one")
     # A take as latents, or as pixels through the regional edit's encode
@@ -204,6 +269,13 @@ def window_problems(arguments, has_cache=False):
     for other in (REFINE_TILES_INPUT, *MASK_INPUTS):
         if arguments.get(other) is not None:
             problems.append(f"{name} does not take {other} yet")
+    for other in CONFLICTS:
+        if arguments.get(other) is not None:
+            problems.append(
+                f"{name} windows a t2va refine whose only audio is the held "
+                f"track and whose only video is the take, and {other} adds rows "
+                f"the windows do not split - drop {other}"
+            )
     if has_cache:
         problems.append(
             f"{name} runs the transformer once per window per step, and a step "
@@ -395,6 +467,9 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
         latents, audio_latents = block_state.latents, block_state.audio_latents
         rebase_from = None
         if settings.get("positions", "true") == "rebased":
+            problem = rebase_problem(plan)
+            if problem:
+                raise ValueError(problem)
             first = fields["video_indices"][0]
             rebase_from = fields["position_ids"][first, 0]
         if i == 0:

@@ -9,6 +9,7 @@ that it imports neither.
 """
 
 import math
+import os
 from array import array
 
 from .. import references
@@ -209,6 +210,19 @@ TILE_OVERLAP_FLOOR = 192
 LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
+
+# The experimental time-windowed refine (#1199 Task 17 Step 4,
+# dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
+# the loader reads before it puts the windowed denoiser in. Here, not in
+# h3_windows.py, because that module imports diffusers and the loader reads the
+# flag on every H3 load
+REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+REFINE_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
+
+
+def refine_windows_enabled():
+    """Whether the windowed refine's scratch flag is on in this process."""
+    return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
 
 
 # The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
