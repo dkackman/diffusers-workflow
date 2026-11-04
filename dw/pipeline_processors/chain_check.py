@@ -22,7 +22,8 @@ import numpy
 # The default ceilings, set from the 99th percentile of each seam measure
 # across the noise-floor runs of S1-S3 (bench/records/noise-floor.md, "Chain
 # check thresholds"; 28 seams of unchecked chains, measured with this
-# module's own arithmetic), doubled for margin and rounded up to half a point:
+# module's own arithmetic). The jump ceiling is about twice its P99 (2.02),
+# so 4.0; the look ceiling is doubled and rounded up to half a point:
 # - jump_ratio: P99 2.02 -> 4.0. Well under `seam_frame_jump`'s own threshold
 #   (25, dw/assessment_rules.py) and the 9.9-20.3 the stage D runs measured
 #   for an intended cut, above a dissolve's 1.8 - a chain seam over it is a

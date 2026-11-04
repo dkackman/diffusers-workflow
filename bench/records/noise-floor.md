@@ -256,7 +256,7 @@ the decoded output, each segment's kept frames against the one before:
 | `look_ratio` | 1.28 | 2.67 | 2.71 | `LOOK_RATIO_MAX` 12 -> 5.5 |
 | `texture_ratio` (either way) | | 2.99 | 3.13 | kept 2.0, provisional |
 
-The margin is a factor of 2 on the P99, rounded up to half a point. 4.0 stays
+The margin is about a factor of 2 on the P99 (jump 2.02 -> 4.0; look 2.67 -> 5.5, rounded up to half a point). 4.0 stays
 below an intended cut's 9.9-20.3 and above a dissolve's 1.8; 5.5 stays well
 under the 19.2 a saturation-1.6 grade reads.
 
