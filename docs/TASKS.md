@@ -719,6 +719,40 @@ to `join_into_song`).
   if it reaches a frame. The shot records are re-measured against the file as
   written, so `media.shots` stays accurate.
 
+### export_timeline
+
+A joined piece as an editable timeline: an OpenTimelineIO `.otioz` bundle that
+DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
+`version.txt` (`1.0.0`), `content.otio` and a `media/` folder; each clip's
+`target_url` is `media/<file>`. The OTIO JSON is written directly, so there is
+no `opentimelineio` dependency. Rates are the exact rational the engine writes
+(23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+
+```json
+{
+    "task": {
+        "command": "export_timeline",
+        "arguments": {
+            "video": "output:<identity>/latest/final/cut.mp4",
+            "name": "episode-1"
+        }
+    },
+    "result": { "content_type": "application/x-otioz" }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
+| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
+| `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
+| `name` | The timeline's name |
+
+By default there is one video track and, when the file has a soundtrack, one
+audio track. Where the shots leave frames uncovered the track carries a gap, so
+clips and gaps add up to the video's length. The concept and schema come from
+leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
+
 ### dissolve_videos
 
 Join videos with a cross-dissolve at every seam, and fade the whole piece in

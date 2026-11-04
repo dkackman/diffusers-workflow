@@ -926,6 +926,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_seams",
         "analyze_sync_drift",
         "analyze_face_drift",
+        "export_timeline",
         "window_video",
         "trim_video",
         "generate_sound_effects",

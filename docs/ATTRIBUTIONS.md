@@ -162,3 +162,10 @@ no code taken) inspired `look_hold`
 grade of a segment's opening to the carried frame, an ease-out of contrast and
 saturation creep, an ease-out of faint texture, and a keyframe pre-compensated for
 the measured boost.
+
+leonardofrito/Directors-Cut (MIT; concept and schema shape, no code taken)
+inspired `export_timeline`
+([dw/tasks/timeline_export.py](../dw/tasks/timeline_export.py);
+[#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
+piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
+editor opens it as a timeline.
