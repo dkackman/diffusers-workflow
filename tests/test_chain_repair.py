@@ -426,6 +426,38 @@ class TestSplice:
         assert numpy.array_equal(spliced.audio[:, :s0], take.audio[:, :s0])
         assert numpy.array_equal(spliced.audio[:, s1:], take.audio[:, s1:])
         assert spliced.sample_rate == take.sample_rate
+        # And its shots: every one outside the repaired pair is the take's,
+        # its seam records kept; no shot names a segment file the splice
+        # output does not have
+        assert len(spliced.shots) == len(take.shots)
+        own = [
+            {k: v for k, v in shot.items() if k != "segment_file"}
+            for shot in take.shots
+        ]
+        for index in (0, 3):
+            assert spliced.shots[index] == own[index], index
+        assert not any("segment_file" in shot for shot in spliced.shots)
+
+    def test_the_repaired_seams_are_recorded_as_the_chain_records_one(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
+        cut, spliced, take = repaired(made)
+        repaired_shot, resumed = spliced.shots[1], spliced.shots[2]
+        # The render's head guide trimmed off before the span, and the take's
+        # own segment 3 head the span replaced
+        assert repaired_shot["trim_frames"] == cut["keep_start"]
+        assert resumed["trim_frames"] == cut["end_frame"] - take.shots[2]["start_frame"]
+        assert repaired_shot["crossfade_ms"] == resumed["crossfade_ms"] == 75.0
+
+    def test_the_untouched_crossfaded_seams_keep_their_record(self, tmp_path):
+        from dw.tasks.assess import analyze_seams
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51, 51], crossfade_ms=75)
+        cut, spliced, take = repaired(made)
+        before = analyze_seams(take)["seams"]
+        after = analyze_seams(spliced)["seams"]
+        assert len(after) == len(before) == 4
+        for index in (2, 3):
+            assert after[index]["crossfade_ms"] == before[index]["crossfade_ms"] == 75
 
     def test_the_span_is_the_render_blended_as_the_chain_blended(self, tmp_path):
         made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
@@ -473,6 +505,30 @@ class TestSplice:
         assert sum(shot["num_frames"] for shot in spliced.shots) == 193
         assert not any(shot.get("hard_cut") for shot in spliced.shots)
         assert all(not seam["hard_cut"] for seam in analyze_seams(spliced)["seams"])
+
+    @pytest.mark.parametrize("match_audio", [False, True])
+    def test_a_take_without_its_shots_is_refused(self, tmp_path, match_audio):
+        # No manifest: whether the track is the chain's or a match_audio one
+        # cannot be told, so the splice does not guess
+        made = write_run(
+            str(tmp_path), [40, 51, 51, 51], match_audio=match_audio, manifest=False
+        )
+        cut = chain_repair_cut(
+            chain_take=made["take"],
+            chain_output=made["segments"][0],
+            segment=2,
+            num_frames=107,
+            tail_frames=22,
+        )
+        with pytest.raises(ValueError, match="chain's own output with its shots"):
+            chain_repair_splice(
+                chain_take=cut["chain_take"],
+                video=stand_in_render(cut),
+                segment=2,
+                start_frame=cut["start_frame"],
+                end_frame=cut["end_frame"],
+                keep_start=cut["keep_start"],
+            )
 
     def test_a_render_on_another_canvas_is_refused(self, run):
         cut = chain_repair_cut(
@@ -626,6 +682,39 @@ class TestTemplate:
         assert chain["keep_segments"] == "variable:keep_segments"
         assert chain["save_segments"] in ("variable:keep_segments", True)
         assert "repair-segment" in definition["description"]
+
+
+@pytest.mark.parametrize("name", ["save_segments", "keep_segments"])
+@pytest.mark.parametrize(
+    "value, valid",
+    [(True, True), ("variable:keep_segments", True), ("false", False)],
+)
+def test_the_segment_flags_take_a_boolean_or_a_variable(name, value, valid):
+    # A literal "false" would read as bool("false") == True
+    import json
+
+    import jsonschema
+
+    schema = json.loads(
+        (TEMPLATES.parent.parent.parent / "dw" / "workflow_schema.json").read_text()
+    )
+
+    def find(node):
+        if isinstance(node, dict):
+            if name in node and isinstance(node[name], dict) and "type" in node[name]:
+                return node[name]
+            for child in node.values():
+                if (found := find(child)) is not None:
+                    return found
+        elif isinstance(node, list):
+            for child in node:
+                if (found := find(child)) is not None:
+                    return found
+        return None
+
+    entry = find(schema)
+    errors = list(jsonschema.Draft7Validator(entry).iter_errors(value))
+    assert (not errors) == valid, errors
 
 
 def test_the_cut_feeds_the_splice_in_a_workflow(run, tmp_path, monkeypatch):

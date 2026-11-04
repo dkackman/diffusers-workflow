@@ -942,7 +942,7 @@ repair sits on the take:
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `chain_take` | One of the two | The chain's final video. Its shots (the run manifest beside it) give each segment's place on the take and name its segment file |
-| `chain_output` | One of the two | One of the chain's segment files. Alone, the take is found through the run manifest that names it. Beside a take whose shots name no files (copied away from its run), the others are found by name beside it, and refused when they disagree in rate or size (two runs mixed in one directory) or leave a gap |
+| `chain_output` | One of the two | One of the chain's segment files. Alone, the take is found through the run manifest that names it. Beside a take whose shots name no files, the others are found by name beside it, and refused when they disagree in rate or size (two runs mixed in one directory) or leave a gap; `chain_repair_splice` still needs the take's shots |
 | `segment` | Yes | The segment to re-render, 1-based. Only 2 to N-1: the first has no segment before it and the last none after it, and are refused |
 | `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames`, rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1 |
 | `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
@@ -986,9 +986,19 @@ whole under the repaired picture. Otherwise the span's audio is the render's
 own, at the take's rate, blended in from the take's track and back into it
 inside the span, over the window the chain blended those seams with (the
 shot's `crossfade_ms`, else the few-ms declick). Its shots are the take's,
+each keeping its records (a chain seam's `crossfade_ms` and `trim_frames`),
 with the span as one `segment k (repaired)` shot and the next shot starting
-where the take resumes, none of them `hard_cut`, so `analyze_seams` measures
-both repaired seams.
+where the take resumes. Those two record their seams as a chain seam is: the
+head frames trimmed (the render's head guide; the take's own head of the
+resumed shot) and the blend applied. None of them is `hard_cut`, so
+`analyze_seams` measures the repaired seams and reads every other seam as the
+take's. No shot names a `segment_file`, so a repaired take cannot be repaired
+again: re-render the chain, or repair the original take.
+
+The take must be the chain's own output with its shots (the run manifest's
+shot list): they tell a `match_audio` track from the chain's own and give each
+seam's blend. A take without them, or whose shots do not place `segment` at
+`start_frame`, is refused rather than guessed at.
 
 ### window_video
 

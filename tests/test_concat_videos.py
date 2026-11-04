@@ -1186,6 +1186,18 @@ class TestContinuousJoins:
                 **extra,
             )
 
+    def test_the_fade_refusal_names_the_declick(self):
+        # Continuous joins declick by default; the refusal must not say they
+        # join with no fade
+        with pytest.raises(ValueError, match="declick") as raised:
+            concat_videos(
+                [audio_video(4, 0.1), audio_video(4, 0.2)],
+                fps=4,
+                continuous_joins=True,
+                seam_fade_ms=50,
+            )
+        assert "no fade" not in str(raised.value)
+
     def test_a_non_boolean_is_refused(self):
         with pytest.raises(ValueError, match="continuous_joins"):
             concat_videos(

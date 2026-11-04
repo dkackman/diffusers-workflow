@@ -466,7 +466,15 @@ def chain_repair_splice(chain_take, video, segment, start_frame, end_frame, keep
         take's track is a match_audio one, kept whole - its audio, blended
         from the take's track and back into it within the span over the
         window the chain blended those seams with. Its shots are the take's,
-        with the span as one `(repaired)` shot.
+        with the span as one `(repaired)` shot and the two seams it draws
+        recorded as a chain seam is; no shot names a `segment_file`, so the
+        output cannot itself be repaired (re-render the chain, or repair the
+        original take).
+
+    Raises:
+        ValueError: when the take carries no shots placing `segment` at
+        `start_frame` - the take must be the chain's own output with its
+        shots, which tell a match_audio track from the chain's own.
     """
     segment = whole_number(segment, "segment", SPLICE, required=True)
     start = whole_number(start_frame, "start_frame", SPLICE, required=True)
@@ -498,7 +506,18 @@ def chain_repair_splice(chain_take, video, segment, start_frame, end_frame, keep
     fps = take.fps or getattr(video, "fps", None)
     shots = take.shots
     if not shots or len(shots) <= segment or shots[segment - 1]["start_frame"] != start:
-        shots = None
+        # Without them the track's kind (the chain's, or a match_audio one
+        # kept whole) and the seams' blends cannot be told, so do not guess
+        raise ValueError(
+            f"{SPLICE}: the take must be the chain's own output with its shots "
+            f"(its manifest's shot list, with segment {segment} starting at "
+            f"frame {start}) - "
+            + (
+                "it has none"
+                if not shots
+                else f"its {len(shots)} shots do not place segment {segment} there"
+            )
+        )
     audio, blends, samples = _spliced_track(
         take, video, fps, shots, segment, start, end, keep_start
     )
@@ -512,15 +531,13 @@ def chain_repair_splice(chain_take, video, segment, start_frame, end_frame, keep
         audio,
         take.sample_rate if audio is not None else None,
         fps=fps,
-        shots=_spliced_shots(shots, segment, start, end, len(frames), blends, samples),
+        shots=_spliced_shots(shots, segment, start, end, keep_start, blends, samples),
     )
 
 
 def _blend_ms(shots, index):
     """The window the chain blended the seam opening shot `index` with: its
     realized crossfade, else the declick a held or butt-joined seam gets."""
-    if shots is None:
-        return DECLICK_MS
     return shots[index].get("crossfade_ms") or DECLICK_MS
 
 
@@ -528,7 +545,7 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
     """(track, (in ms, out ms) or None, (first sample, end sample) or None)."""
     if take.audio is None:
         return None, None, None
-    if shots is not None and all(shot.get("start_sample") is None for shot in shots):
+    if all(shot.get("start_sample") is None for shot in shots):
         # match_audio: the caller's own track, laid under the take whole
         return take.audio, None, None
     if getattr(video, "audio", None) is None:
@@ -537,15 +554,11 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
         )
     rate = take.sample_rate
     track = as_channels_samples(take.audio)
-    if shots is not None:
-        after = shots[segment]
-        first = int(shots[segment - 1]["start_sample"])
-        last = int(after["start_sample"]) + frames_to_samples(
-            end - after["start_frame"], fps, rate
-        )
-    else:
-        first = frames_to_samples(start, fps, rate)
-        last = frames_to_samples(end, fps, rate)
+    after = shots[segment]
+    first = int(shots[segment - 1]["start_sample"])
+    last = int(after["start_sample"]) + frames_to_samples(
+        end - after["start_frame"], fps, rate
+    )
     last = min(last, track.shape[1])
     own = as_channels_samples(video.audio)
     if video.sample_rate != rate:
@@ -575,18 +588,15 @@ def _spliced_track(take, video, fps, shots, segment, start, end, keep_start):
     return audio, tuple(blends), (first, last)
 
 
-def _spliced_shots(shots, segment, start, end, total, blends, samples):
-    """The take's shots with the span as one repaired shot, the shot after it
-    starting where the take resumes."""
+def _spliced_shots(shots, segment, start, end, keep_start, blends, samples):
+    """The take's shots, with the span as one repaired shot and the shot after
+    it starting where the take resumes. Every other shot keeps its records
+    (a chain seam's `crossfade_ms` and `trim_frames` among them, which
+    `analyze_seams` reads); the two seams the splice drew are recorded as the
+    chain records one - the head frames trimmed and the blend applied. No
+    shot names a `segment_file`: the splice output has none."""
     first, last = samples if samples else (None, None)
-    if shots is None:
-        return [
-            shot_record("take", 0, start),
-            shot_record(f"segment {segment} (repaired)", start, end - start),
-            *([shot_record("take", end, total - end)] if end < total else []),
-        ]
-    seam = ("crossfade_ms", "trim_frames", "segment_file")
-    clean = [{k: v for k, v in shot.items() if k not in seam} for shot in shots]
+    clean = [{k: v for k, v in shot.items() if k != "segment_file"} for shot in shots]
     repaired = shot_record(
         f"{shots[segment - 1]['name']} (repaired)",
         start,
@@ -594,20 +604,27 @@ def _spliced_shots(shots, segment, start, end, total, blends, samples):
         first,
         None if first is None else last - first,
     )
+    # The render's head guide, trimmed off before the span
+    repaired["trim_frames"] = keep_start
+    if blends and blends[0]:
+        repaired["crossfade_ms"] = blends[0]
     result = [*clean[: segment - 1], repaired]
     after = clean[segment]
     after_end = after["start_frame"] + after["num_frames"]
     if after_end > end:
-        resumed = {**after, "start_frame": end, "num_frames": after_end - end}
+        resumed = {
+            k: v for k, v in after.items() if k not in ("crossfade_ms", "trim_frames")
+        }
+        resumed.update(start_frame=end, num_frames=after_end - end)
+        # The take's own head of this shot, which the span replaced
+        resumed["trim_frames"] = end - after["start_frame"]
+        if blends and blends[1]:
+            resumed["crossfade_ms"] = blends[1]
         if first is not None:
             resumed["start_sample"] = last
             resumed["num_samples"] = after["start_sample"] + after["num_samples"] - last
         result.append(resumed)
     result.extend(clean[segment + 1 :])
-    if blends:
-        repaired["crossfade_ms"] = blends[0]
-        if after_end > end:
-            result[segment]["crossfade_ms"] = blends[1]
     return result
 
 

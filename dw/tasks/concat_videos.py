@@ -248,7 +248,8 @@ def _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms):
         return seam_fade_ms
     if seam_fade_ms:
         raise ValueError(
-            "concat_videos: 'continuous_joins' joins one take with no fade, so "
+            "concat_videos: 'continuous_joins' joins one take with only the "
+            "default few-ms declick, so "
             f"'seam_fade_ms' ({seam_fade_ms}) cannot be set beside it - a fade "
             "is a cut's device"
         )
