@@ -53,6 +53,7 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     SegmentSpill,
     spilled_frames,
 )
+from .chain_pick import sharpest_index
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
 from .h3_hold import hold_audio_reference
@@ -71,6 +72,7 @@ from .h3_rules import (
     KEYSTONE_NONE,
     KEYSTONE_SEGMENT_1,
     chain_anchor_problem,
+    chain_carry_pick_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
@@ -90,6 +92,13 @@ class LastFrameContinuity:
         self.config = config
 
     def extract(self, artifact):
+        # With carry_pick, the sharpest of the last N frames; `picked_back`
+        # is how many frames after it the segment drops (0 = the last frame)
+        self.picked_back = 0
+        if self.config.carry_pick:
+            frames = frames_as_pil_list(artifact)
+            self.picked_back = sharpest_index(frames, self.config.carry_pick)
+            return frames[len(frames) - 1 - self.picked_back]
         return extract_frame(artifact, -1)
 
     def inject(self, arguments, carry, segment_argument):
@@ -345,15 +354,24 @@ def run_chain(pipeline, chain_definition, arguments):
                     segment_audio, len(segment_frames), config.fps, segment_rate
                 )
 
-            if config.tail_trim and segment.index < len(config.plan) - 1:
+            tail_trim = config.tail_trim + getattr(continuity, "picked_back", 0)
+            if config.carry_pick and segment.index < len(config.plan) - 1:
+                emit_log(
+                    f"Chain seam {segment.index + 1}/{len(config.plan) - 1}: "
+                    f"carry_pick took frame {len(segment_frames) - tail_trim} of "
+                    f"{len(segment_frames)} (sharpest of the last "
+                    f"{config.carry_pick}), dropping {tail_trim} after it"
+                )
+            if tail_trim and segment.index < len(config.plan) - 1:
                 # The carry is already taken; the tail it backed off from is
-                # replaced by the next segment's fresh take (#1189)
-                segment_frames = segment_frames[: -config.tail_trim]
+                # replaced by the next segment's fresh take (#1189), and a
+                # picked frame ends its segment (#1032)
+                segment_frames = segment_frames[:-tail_trim]
                 if segment_audio is not None:
                     segment_audio = segment_audio[
                         :,
                         : segment_audio.shape[1]
-                        - frames_to_samples(config.tail_trim, config.fps, segment_rate),
+                        - frames_to_samples(tail_trim, config.fps, segment_rate),
                     ]
 
             kept_frames = segment_frames[segment.head_trim :]
@@ -585,6 +603,13 @@ class ChainConfig:
         if problem:
             raise ValueError(f"Chain {problem}")
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
+
+        # The sharpest of the last N frames as the keyframe (#1032)
+        problem = chain_carry_pick_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        pick = chain_definition.get("carry_pick")
+        self.carry_pick = int(pick["sharpest"]) if pick else 0
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

@@ -359,6 +359,19 @@
                     "description": "Keyframe source for a guide chain on MiniMax-H3 fl2va. 'segment_1' sets every later segment's keyframe (the 'segment_argument' image) to segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain; the guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Needs continuity 'guide': on 'last_frame' the keyframe is the only carry and is refused. 'none' (the default) leaves the keyframe as it is; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
                     "default": "none"
                 },
+                "carry_pick": {
+                    "description": "Continuity 'last_frame' only, any model family: pick the next segment's keyframe as the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma; ties go to the latest) instead of always the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame, so motion continues from it; the last segment keeps its tail, and the job log names the picked frame per seam. {'sharpest': N} with N a whole number from 1 to 8 (1 is the last frame); anything else, or any continuity but 'last_frame', is refused naming the allowed values.",
+                    "type": "object",
+                    "properties": {
+                        "sharpest": {
+                            "type": ["integer", "string"],
+                            "minimum": 1,
+                            "maximum": 8
+                        }
+                    },
+                    "required": ["sharpest"],
+                    "additionalProperties": false
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",

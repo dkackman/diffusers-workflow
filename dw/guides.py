@@ -62,6 +62,7 @@ from .pipeline_processors.h3_rules import (
     anchor_strength_problem,
     RENDER_GRID,
     chain_anchor_problem,
+    chain_carry_pick_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
@@ -393,6 +394,14 @@ def anchor_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(base + ("chain", "anchor_strength")),
+                    "message": f"{problem}{where}",
+                }
+            )
+        problem = chain_carry_pick_problem(chain)
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", "carry_pick")),
                     "message": f"{problem}{where}",
                 }
             )

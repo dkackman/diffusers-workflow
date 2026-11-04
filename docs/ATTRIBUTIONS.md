@@ -148,3 +148,9 @@ concepts only), inspired `keystone`
 ([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
 frame 0 as every later segment's keyframe, pulling the chain back toward its
 clean start.
+
+harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
+([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);
+[#1032](https://github.com/dkackman/diffusers-workflow/issues/1032)): picking the
+sharpest of a segment's last frames as the next keyframe rather than always the
+last, and ending the segment there.

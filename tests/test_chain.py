@@ -1350,3 +1350,91 @@ class TestChainPromptsMustBeAList:
         action = SimpleNamespace(pipeline_definition={"chain": {"prompts": "abc"}})
         with pytest.raises(ValueError, match="one prompt per segment"):
             resolve_chain_prompts(action, {})
+
+
+class TestCarryPick:
+    """carry_pick (#1032): the sharpest of the last N frames is the keyframe,
+    and the segment is trimmed after it."""
+
+    def output(self, arguments, index):
+        # frame 6 of 8 is the sharp one; the rest are flat
+        frames = []
+        for f in range(8):
+            if f == 6:
+                image = Image.new("RGB", (16, 16), (0, 0, 0))
+                for x in range(0, 16, 2):
+                    for y in range(0, 16, 2):
+                        image.putpixel((x, y), (255, 255, 255))
+            else:
+                image = Image.new("RGB", (16, 16), (100, f, index))
+            frames.append(image)
+        return SimpleNamespace(frames=[frames])
+
+    def chain(self, **extra):
+        return {"segments": 2, "trim_frames": 0, "fps": 4, **extra}
+
+    def test_a_blurred_last_frame_is_replaced_by_the_sharp_one_before_it(self):
+        pipeline = FakePipeline(self.output)
+        run_chain(pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8})
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (255, 255, 255)
+
+    def test_window_one_is_the_last_frame(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline, self.chain(carry_pick={"sharpest": 1}), {"num_frames": 8}
+        )
+        assert pipeline.calls[1]["image"].getpixel((0, 0)) == (100, 7, 0)
+        assert len(result.frames) == 16
+
+    def test_the_segment_is_trimmed_after_the_picked_frame(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8}
+        )
+        # frame 6 is one back from the end: segment 1 keeps frames 0..6
+        assert [s["num_frames"] for s in result.shots] == [7, 8]
+        assert len(result.frames) == 15
+        assert result.frames[6].getpixel((0, 0)) == (255, 255, 255)
+
+    def test_the_pick_is_logged_per_seam(self):
+        pipeline = FakePipeline(self.output)
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(
+                pipeline, self.chain(carry_pick={"sharpest": 3}), {"num_frames": 8}
+            )
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("carry_pick" in n and "frame 7" in n for n in notes)
+
+    def test_the_last_segment_keeps_its_tail(self):
+        pipeline = FakePipeline(self.output)
+        result = run_chain(
+            pipeline,
+            {"segments": 3, "trim_frames": 0, "fps": 4, "carry_pick": {"sharpest": 3}},
+            {"num_frames": 8},
+        )
+        assert [s["num_frames"] for s in result.shots] == [7, 7, 8]
+
+    def test_it_is_refused_off_last_frame_naming_the_allowed_values(self):
+        chain = self.chain(carry_pick={"sharpest": 3}, continuity="guide")
+        with pytest.raises(ValueError, match="last_frame"):
+            ChainConfig(chain, {"num_frames": 8})
+
+    def test_it_is_refused_out_of_range_naming_the_range(self):
+        with pytest.raises(ValueError, match="1 and 8"):
+            ChainConfig(self.chain(carry_pick={"sharpest": 9}), {"num_frames": 8})
+
+    def test_validation_wires_the_rule(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "carry_pick": {"sharpest": 99}},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("carry_pick" in e["message"] for e in anchor_errors(definition))
