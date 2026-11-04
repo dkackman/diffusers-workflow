@@ -12,11 +12,27 @@ import driver  # noqa: E402
 
 def test_load_arms_reads_every_field(tmp_path):
     path = tmp_path / "arms.json"
-    path.write_text(json.dumps([{"name": "a", "scene": "s", "workflow": "w.json",
-                                 "arguments": {"prompt": "x"}, "seed": 7}]))
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "a",
+                    "scene": "s",
+                    "workflow": "w.json",
+                    "arguments": {"prompt": "x"},
+                    "seed": 7,
+                }
+            ]
+        )
+    )
     (arm,) = driver.load_arms(str(path))
     assert (arm.name, arm.scene, arm.workflow, arm.arguments, arm.seed) == (
-        "a", "s", "w.json", {"prompt": "x"}, 7)
+        "a",
+        "s",
+        "w.json",
+        {"prompt": "x"},
+        7,
+    )
 
 
 def test_submit_carries_seed_and_names_the_arm(monkeypatch, tmp_path):
@@ -40,21 +56,33 @@ def test_submit_carries_seed_and_names_the_arm(monkeypatch, tmp_path):
 
 def test_measure_calls_compare_with_the_scene_crop_and_texture_bands(monkeypatch):
     calls = []
-    cell = lambda fine, mid, coarse=4.0: {
-        "texture": {"luma": {"fine": fine, "mid": mid, "coarse": coarse}}}
+
+    def cell(fine, mid, coarse=4.0):
+        return {"texture": {"luma": {"fine": fine, "mid": mid, "coarse": coarse}}}
 
     def fake(method, path, server, token, payload=None, params=None):
         calls.append((method, path, payload, params))
         if path.endswith("/assess"):
-            return {"probe": "analyze_seams", "seams": [
-                {"jump_ratio": 2.0, "look_ratio": 1.0, "level_step_db": -3.0},
-                {"jump_ratio": 4.0, "look_ratio": 3.0, "level_step_db": 1.0}]}
-        return {"texture": [{"cells": [cell(10.0, 20.0), cell(8.0, 20.0), cell(5.0, 30.0)]}]}
+            return {
+                "probe": "analyze_seams",
+                "seams": [
+                    {"jump_ratio": 2.0, "look_ratio": 1.0, "level_step_db": -3.0},
+                    {"jump_ratio": 4.0, "look_ratio": 3.0, "level_step_db": 1.0},
+                ],
+            }
+        return {
+            "texture": [{"cells": [cell(10.0, 20.0), cell(8.0, 20.0), cell(5.0, 30.0)]}]
+        }
 
     monkeypatch.setattr(driver, "http", fake)
     scene = driver.Scene("s", [1, 2, 64, 64], ["frame:1", "frame:50", "frame:99"])
-    job = {"id": "j", "manifest": [{"files": ["wf/v1/out.mp4"], "subfolder": "final"}],
-           "output_kinds": {"wf/v1/out.mp4": "video"}, "started_at": 0, "finished_at": 120}
+    job = {
+        "id": "j",
+        "manifest": [{"files": ["wf/v1/out.mp4"], "subfolder": "final"}],
+        "output_kinds": {"wf/v1/out.mp4": "video"},
+        "started_at": 0,
+        "finished_at": 120,
+    }
     m = driver.measure(job, scene, "http://h", "tok")
 
     assess = next(c for c in calls if c[1].endswith("/assess"))
@@ -74,7 +102,8 @@ def test_measure_calls_compare_with_the_scene_crop_and_texture_bands(monkeypatch
 
 
 def _texture_measure(monkeypatch, first, last):
-    cell = lambda v: {"texture": {"luma": {"fine": v, "mid": 1.0, "coarse": 1.0}}}
+    def cell(v):
+        return {"texture": {"luma": {"fine": v, "mid": 1.0, "coarse": 1.0}}}
 
     def fake(method, path, server, token, payload=None, params=None):
         if path.endswith("/assess"):
@@ -83,8 +112,10 @@ def _texture_measure(monkeypatch, first, last):
 
     monkeypatch.setattr(driver, "http", fake)
     scene = driver.Scene("s", None, ["frame:1", "frame:2"])
-    job = {"manifest": [{"files": ["o.mp4"], "subfolder": "final"}],
-           "output_kinds": {"o.mp4": "video"}}
+    job = {
+        "manifest": [{"files": ["o.mp4"], "subfolder": "final"}],
+        "output_kinds": {"o.mp4": "video"},
+    }
     return driver.measure(job, scene, "http://h", "tok")
 
 
@@ -98,7 +129,10 @@ def test_texture_drift_is_two_sided(monkeypatch):
 
 
 def test_run_arms_writes_each_record_as_it_lands(monkeypatch, tmp_path):
-    arms = [driver.Arm("a", "s", "w.json", {}, 1), driver.Arm("b", "s", "w.json", {}, 2)]
+    arms = [
+        driver.Arm("a", "s", "w.json", {}, 1),
+        driver.Arm("b", "s", "w.json", {}, 2),
+    ]
     monkeypatch.setattr(driver, "submit", lambda arm, *a: f"id-{arm.name}")
     out = tmp_path / "sub" / "rec.json"
     seen = {}
@@ -120,16 +154,33 @@ def test_run_arms_writes_each_record_as_it_lands(monkeypatch, tmp_path):
 
 def test_load_arms_reads_optional_suffix_and_moments(tmp_path):
     path = tmp_path / "arms.json"
-    path.write_text(json.dumps([{"name": "a", "scene": "s", "workflow": "w.json", "seed": 7,
-                                 "workflow_id_suffix": "-noise-b", "moments": ["frame:1"]}]))
+    path.write_text(
+        json.dumps(
+            [
+                {
+                    "name": "a",
+                    "scene": "s",
+                    "workflow": "w.json",
+                    "seed": 7,
+                    "workflow_id_suffix": "-noise-b",
+                    "moments": ["frame:1"],
+                }
+            ]
+        )
+    )
     (arm,) = driver.load_arms(str(path))
     assert arm.workflow_id_suffix == "-noise-b" and arm.moments == ["frame:1"]
 
 
 def test_submit_suffixes_the_workflow_id(monkeypatch, tmp_path):
     seen = {}
-    monkeypatch.setattr(driver, "http", lambda m, p, s, t, payload=None, params=None:
-                        seen.update(payload=payload) or {"id": "j"})
+    monkeypatch.setattr(
+        driver,
+        "http",
+        lambda m, p, s, t, payload=None, params=None: (
+            seen.update(payload=payload) or {"id": "j"}
+        ),
+    )
     monkeypatch.setattr(driver, "HERE", tmp_path)
     (tmp_path / "workflows").mkdir()
     (tmp_path / "workflows" / "w.json").write_text('{"id": "Wf", "steps": []}')

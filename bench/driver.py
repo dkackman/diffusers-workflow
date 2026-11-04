@@ -17,7 +17,6 @@ from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
 sys.path.insert(0, str(HERE))
-from verdict import noise_floor, verdict  # noqa: E402
 
 DEFAULT_SERVER = "http://127.0.0.1:18766"
 DEFAULT_TOKEN_FILE = "~/.dw-bench-token"
@@ -104,7 +103,9 @@ def health(server, token):
 def submit(arm, server, token, workspace=None):
     workflow = json.loads((HERE / "workflows" / arm.workflow).read_text())
     if arm.workflow_id_suffix:
-        workflow["id"] = workflow.get("id", Path(arm.workflow).stem) + arm.workflow_id_suffix
+        workflow["id"] = (
+            workflow.get("id", Path(arm.workflow).stem) + arm.workflow_id_suffix
+        )
     payload = {
         "workflow": workflow,
         "arguments": {**arm.arguments, "seed": arm.seed},
@@ -123,7 +124,9 @@ def wait(job_id, server, token, timeout_s, poll_s=15):
         if job.get("status") in TERMINAL:
             return job
         if time.monotonic() >= deadline:
-            raise TimeoutError(f"job {job_id} still {job.get('status')} after {timeout_s}s")
+            raise TimeoutError(
+                f"job {job_id} still {job.get('status')} after {timeout_s}s"
+            )
         time.sleep(poll_s)
 
 
@@ -160,16 +163,24 @@ def measure(job, scene, server, token, workspace=None, moments=None):
     params = {"probe": "analyze_seams"}
     if workspace:
         params["workspace"] = workspace
-    seams = http(
-        "GET", f"/api/gallery/{urllib.parse.quote(name, safe='/')}/assess",
-        server, token, params=params,
-    ).get("seams") or []
+    seams = (
+        http(
+            "GET",
+            f"/api/gallery/{urllib.parse.quote(name, safe='/')}/assess",
+            server,
+            token,
+            params=params,
+        ).get("seams")
+        or []
+    )
     out = {}
     _stats(out, [s.get("jump_ratio") for s in seams], "seam_jump_mean", "seam_jump_max")
     _stats(out, [s.get("look_ratio") for s in seams], "seam_look_mean", "seam_look_max")
     _stats(
-        out, [abs(s["level_step_db"]) for s in seams if s.get("level_step_db") is not None],
-        "seam_level_step_db_mean", "seam_level_step_db_max",
+        out,
+        [abs(s["level_step_db"]) for s in seams if s.get("level_step_db") is not None],
+        "seam_level_step_db_mean",
+        "seam_level_step_db_max",
     )
     payload = {
         "names": [name],
@@ -180,7 +191,11 @@ def measure(job, scene, server, token, workspace=None, moments=None):
         "texture_bands": True,
     }
     compared = http(
-        "POST", "/api/gallery/compare", server, token, payload,
+        "POST",
+        "/api/gallery/compare",
+        server,
+        token,
+        payload,
         {"workspace": workspace} if workspace else None,
     )
     row = (compared.get("texture") or [{}])[0]
@@ -198,7 +213,9 @@ def measure(job, scene, server, token, workspace=None, moments=None):
     return out
 
 
-def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None, out_path=None):
+def run_arms(
+    arms, scenes, server, token, do_measure, timeout_s, workspace=None, out_path=None
+):
     ids = {arm.name: submit(arm, server, token, workspace) for arm in arms}
     records = []
 
@@ -208,8 +225,12 @@ def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None,
             Path(out_path).write_text(json.dumps(records, indent=2))
 
     for arm in arms:
-        record = {"arm": arm.name, "scene": arm.scene, "seed": arm.seed,
-                  "job_id": ids[arm.name]}
+        record = {
+            "arm": arm.name,
+            "scene": arm.scene,
+            "seed": arm.seed,
+            "job_id": ids[arm.name],
+        }
         try:
             job = wait(ids[arm.name], server, token, timeout_s)
             record["status"] = job.get("status")
@@ -217,7 +238,9 @@ def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None,
             if job.get("status") == "succeeded":
                 record["output"] = output_name(job)
                 if do_measure:
-                    record["measures"] = measure(job, scenes[arm.scene], server, token, workspace, arm.moments)
+                    record["measures"] = measure(
+                        job, scenes[arm.scene], server, token, workspace, arm.moments
+                    )
         except Exception as exc:  # one arm's failure must not lose the others
             record.setdefault("status", "error")
             record["error"] = f"{type(exc).__name__}: {exc}"
@@ -234,7 +257,11 @@ def report(records):
     for r in records:
         m = r.get("measures", {})
         cells = [f"{m[k]:.3f}" if k in m else "" for k in keys]
-        lines.append(f"| {r['arm']} | {r['scene']} | {r['seed']} | {r['status']} | " + " | ".join(cells) + " |")
+        lines.append(
+            f"| {r['arm']} | {r['scene']} | {r['seed']} | {r['status']} | "
+            + " | ".join(cells)
+            + " |"
+        )
     return "\n".join(lines)
 
 
@@ -253,7 +280,9 @@ def _token(args):
 
 def main(argv=None):
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--server", default=os.environ.get("BENCH_SERVER", DEFAULT_SERVER))
+    parser.add_argument(
+        "--server", default=os.environ.get("BENCH_SERVER", DEFAULT_SERVER)
+    )
     parser.add_argument("--token-file")
     parser.add_argument("--workspace")
     sub = parser.add_subparsers(dest="command", required=True)
@@ -274,8 +303,14 @@ def main(argv=None):
         return 0
     token = _token(args)
     records = run_arms(
-        load_arms(args.arms), load_scenes(args.scenes) if args.measure else {},
-        args.server, token, args.measure, args.timeout, args.workspace, args.out,
+        load_arms(args.arms),
+        load_scenes(args.scenes) if args.measure else {},
+        args.server,
+        token,
+        args.measure,
+        args.timeout,
+        args.workspace,
+        args.out,
     )
     if not args.out:
         print(json.dumps(records, indent=2))

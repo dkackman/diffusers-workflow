@@ -181,7 +181,9 @@ class H3Arguments:
         where = f"Step '{self.name}': {LATENT_ANCHOR_INPUT}"
         problem = None if strength is None else anchor_strength_problem(strength)
         if problem:
-            raise ValueError(f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT}: {problem}")
+            raise ValueError(
+                f"Step '{self.name}': {LATENT_ANCHOR_STRENGTH_INPUT}: {problem}"
+            )
         refusal = anchor_refusal(self.pipeline)
         if refusal:
             raise ValueError(f"{where}: {refusal}")

@@ -61,7 +61,10 @@ class TestMatchChannelStatistics:
 
     def test_strength_one_is_todays_full_match(self):
         x = synthetic_latent()
-        mean_a, std_a = torch.tensor([0.5, -1.0, 2.0, 0.0]), torch.tensor([1.0, 2.0, 3.0, 4.0])
+        mean_a, std_a = (
+            torch.tensor([0.5, -1.0, 2.0, 0.0]),
+            torch.tensor([1.0, 2.0, 3.0, 4.0]),
+        )
         out = match_channel_statistics(x, mean_a, std_a, strength=1.0)
         assert torch.equal(out, match_channel_statistics(x, mean_a, std_a))
 
@@ -72,7 +75,10 @@ class TestMatchChannelStatistics:
 
     def test_half_strength_moves_each_channel_halfway(self):
         x = synthetic_latent()
-        mean_a, std_a = torch.tensor([0.5, -1.0, 2.0, 0.0]), torch.tensor([1.0, 2.0, 3.0, 4.0])
+        mean_a, std_a = (
+            torch.tensor([0.5, -1.0, 2.0, 0.0]),
+            torch.tensor([1.0, 2.0, 3.0, 4.0]),
+        )
         full = match_channel_statistics(x, mean_a, std_a)
         half = match_channel_statistics(x, mean_a, std_a, strength=0.5)
         assert torch.allclose(half, x + 0.5 * (full - x), atol=1e-5)
@@ -163,7 +169,9 @@ def test_a_strength_argument_without_an_anchor_is_refused():
 
 
 def test_a_strength_argument_out_of_range_is_refused():
-    (error,) = anchor_errors(definition(latent_anchor="c.mp4", latent_anchor_strength=2))
+    (error,) = anchor_errors(
+        definition(latent_anchor="c.mp4", latent_anchor_strength=2)
+    )
     assert "[0, 1]" in error["message"]
 
 
@@ -473,7 +481,9 @@ class TestStrengthStep:
         state.set("width", 32)
         _, state = DwH3LatentAnchorStep()(None, state)
         full = match_channel_statistics(latents, *channel_statistics(anchor_latent))
-        assert torch.allclose(state.get("latents"), latents + 0.5 * (full - latents), atol=1e-5)
+        assert torch.allclose(
+            state.get("latents"), latents + 0.5 * (full - latents), atol=1e-5
+        )
 
 
 class TestStep:

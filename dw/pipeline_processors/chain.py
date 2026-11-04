@@ -523,9 +523,11 @@ class ChainConfig:
         self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
         # How far each later segment's match goes (#1190); None is the full one
         self.anchor_strength = chain_definition.get("anchor_strength")
-        problem = anchor_strength_problem(self.anchor_strength) if (
-            self.anchor_strength is not None
-        ) else None
+        problem = (
+            anchor_strength_problem(self.anchor_strength)
+            if (self.anchor_strength is not None)
+            else None
+        )
         if problem:
             raise ValueError(f"Chain {problem}")
         if self.anchor_strength is not None:

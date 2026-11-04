@@ -12,7 +12,14 @@ sys.path.insert(0, str(BENCH))
 import driver  # noqa: E402
 
 WORKFLOWS = sorted((BENCH / "workflows").glob("s*.json"))
-IDS = ["s1-static", "s2-arc", "s3-dialogue-walk", "s4-montage", "s5-ltx-action", "s6-narration"]
+IDS = [
+    "s1-static",
+    "s2-arc",
+    "s3-dialogue-walk",
+    "s4-montage",
+    "s5-ltx-action",
+    "s6-narration",
+]
 
 
 def _errors(path):
@@ -36,9 +43,19 @@ def test_chain_workflows_expose_the_arm_knobs(path):
     variables = json.loads(path.read_text(encoding="utf-8"))["variables"]
     assert "seed" in variables
     if path.stem in ("s1-static", "s2-arc", "s3-dialogue-walk"):
-        for knob in ("continuity", "guide_frames", "segments", "anchor", "guide_noise",
-                     "width", "height", "num_inference_steps", "weights_dtype",
-                     "lora_model_name", "attention_backend"):
+        for knob in (
+            "continuity",
+            "guide_frames",
+            "segments",
+            "anchor",
+            "guide_noise",
+            "width",
+            "height",
+            "num_inference_steps",
+            "weights_dtype",
+            "lora_model_name",
+            "attention_backend",
+        ):
             assert knob in variables, knob
 
 
