@@ -299,7 +299,7 @@
             ]
         },
         "chain": {
-            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with exactly one of 'segments', 'match_audio' or 'duration_seconds'.",
+            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with one of 'segments', 'match_audio' or 'duration_seconds' ('duration_seconds' overrides 'segments' when both are given).",
             "type": "object",
             "properties": {
                 "segments": {
@@ -311,7 +311,7 @@
                     "minimum": 1
                 },
                 "duration_seconds": {
-                    "description": "Ask for the chain by its length: the segment count and the last segment's frame snap are derived from this many seconds at the chain's frame rate, and the stitched video and its generated audio are trimmed to exactly this length. Needs 'num_frames' in the step's arguments and a frame rate ('fps' on the chain or a 'frame_rate' argument). Not with 'guide_backoff' or 'carry_pick', which drop frames the up-front plan cannot count. Given beside 'segments', exactly one of the two must resolve to a value: a variable left null counts as absent, so a template can offer both. Accepts a 'variable:' reference.",
+                    "description": "Ask for the chain by its length: the segment count and the last segment's frame snap are derived from this many seconds at the chain's frame rate, and the stitched video and its generated audio are trimmed to exactly this length. Needs 'num_frames' in the step's arguments and a frame rate ('fps' on the chain or a 'frame_rate' argument). Not with 'guide_backoff' or 'carry_pick', which drop frames the up-front plan cannot count. Given beside 'segments', the duration wins and 'segments' is ignored (the run logs it), so a template can offer both with a default segment count. Not with 'match_audio'. Accepts a 'variable:' reference.",
                     "type": [
                         "number",
                         "string",

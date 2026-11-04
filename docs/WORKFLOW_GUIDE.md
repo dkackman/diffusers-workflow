@@ -2461,7 +2461,7 @@ joined into a single file:
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
   the soundtrack has no seams at all. Requires
-  `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`,
+  `num_frames` (the per-segment length) and a frame rate. One of `segments`,
   `match_audio` or `duration_seconds` must be given.
 - `duration_seconds` — instead of a count, ask for the chain by its length: the plan
   covers `round(duration_seconds * fps)` frames (the same planner `match_audio` uses,
@@ -2470,9 +2470,10 @@ joined into a single file:
   records included. Needs `num_frames` in the step's arguments and a frame rate (chain
   `fps` or a `frame_rate` argument). Refused with `guide_backoff` and `carry_pick`,
   which drop frames the up-front plan cannot count. A cost estimate scales by the
-  segment count it implies. In the chained templates it is a variable defaulting to
-  null (a null variable drops the key): set `duration_seconds` and set `segments` to
-  null; with both set the chain is refused.
+  segment count it implies. It overrides `segments` when both resolve (the run logs
+  that `segments` was ignored), so the chained templates, whose `duration_seconds`
+  variable defaults to null (a null variable drops the key), take just
+  `duration_seconds=20`. It is refused with `match_audio`.
 - `continuity` — how continuity carries across segments. `last_frame` (the default)
   extracts each segment's last frame and passes it to the next segment - single-frame
   conditioning, which carries pose and colour. `last_segment` carries the previous

@@ -43,10 +43,12 @@ def test_duration_plans_whole_segments_and_trims_to_the_asked_length():
 def test_exactly_one_of_segments_match_audio_duration():
     with pytest.raises(ValueError, match="exactly one of"):
         ChainConfig({"fps": 4}, {"num_frames": 8})
-    with pytest.raises(ValueError, match="exactly one of"):
-        ChainConfig(chain(segments=2), {"num_frames": 8})
+    # The duration wins over a segment count (R18); the run says so
+    assert len(ChainConfig(chain(segments=2), {"num_frames": 8}).plan) == 3
     with pytest.raises(ValueError, match="exactly one of"):
         ChainConfig(chain(match_audio=True), {"num_frames": 8})
+    with pytest.raises(ValueError, match="exactly one of"):
+        ChainConfig(chain(match_audio=True, segments=2), {"num_frames": 8})
     # A null duration is absent
     assert len(ChainConfig(chain(duration_seconds=None, segments=2), {}).plan) == 2
 
@@ -93,6 +95,8 @@ def test_chain_segment_count_is_pure_and_shared():
     assert chain_segment_count({"match_audio": True}, {}) is None
     assert chain_segment_count({"segments": "variable:x"}, {}) is None
     assert chain_segment_count(chain(duration_seconds=None, segments=2), {}) == 2
+    # The duration wins when both resolve
+    assert chain_segment_count(chain(segments=2), {"num_frames": 8}) == 3
 
 
 def _definition(segments, duration):
@@ -203,3 +207,42 @@ def test_a_template_estimate_scales_by_the_implied_segment_count(family):
     chain, arguments = _resolved(definition, segments=None, duration_seconds=20)
     assert factor == pytest.approx(chain_segment_count(chain, arguments) / 3)
     assert any(axis.startswith("segments") for axis in axes)
+
+
+def test_duration_overrides_the_templates_default_segments(monkeypatch):
+    from dw.pipeline_processors import chain as chain_module
+
+    logged = []
+    monkeypatch.setattr(
+        chain_module, "emit_log", lambda message, **data: logged.append(message)
+    )
+    definition = _template("minimax")
+    chain_block, arguments = _resolved(definition, duration_seconds=20)
+    # Only the duration was passed; segments is still the template's 3
+    assert chain_block["segments"] == 3
+
+    config = ChainConfig(chain_block, arguments)
+    assert config.total_frames == 480
+    assert len(config.plan) == chain_segment_count(chain_block, arguments) > 3
+    produced = sum(s.num_frames - s.head_trim for s in config.plan)
+    assert produced >= 480
+    assert any("segments" in line and "ignored" in line for line in logged)
+
+    ask = {"variables": {**definition["variables"], "duration_seconds": 20}}
+    factor, axes, _ = _driver_scaling(definition, ask, {})
+    assert factor == pytest.approx(len(config.plan) / 3)
+    assert any(axis.startswith("segments") for axis in axes)
+
+
+def test_a_spilled_duration_chain_trims_frames_and_audio(tmp_path):
+    # A rate the segment files' AAC track can be written at
+    pipeline = FakePipeline(
+        lambda arguments, index: modular_output(arguments, index, sample_rate=8000),
+        output_dir=str(tmp_path),
+        file_prefix="wf-step",
+    )
+    result = run_chain(pipeline, chain(save_segments=True), {"num_frames": 8})
+
+    assert sum(len(chunk) for chunk in result.frames) == 18
+    assert result.audio.shape[1] == frames_to_samples(18, 4, 8000) == 36000
+    result.frames.cleanup()

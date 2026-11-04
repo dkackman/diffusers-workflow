@@ -205,8 +205,8 @@ def _decode_segment(path):
 def spilled_frames(config, spill):
     """A spilled chain's frames, replayed lazily from its segment files.
 
-    match_audio and duration_seconds overshoot by design - the tail trim happens as the lazy
-    frames replay, so the files themselves stay whole."""
+    match_audio and duration_seconds overshoot by design - the tail trim happens
+    as the lazy frames replay, so the files themselves stay whole."""
     return SegmentedFrames(
         spill.paths,
         config.total_frames,

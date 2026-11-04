@@ -616,10 +616,18 @@ class ChainConfig:
         segments = chain_definition.get("segments", None)
         match_audio = bool(chain_definition.get("match_audio", False))
         duration = chain_definition.get("duration_seconds", None)
-        if (segments is not None) + match_audio + (duration is not None) != 1:
+        # A resolved duration wins over a segment count: a template carries a
+        # default `segments`, and asking for seconds must not need it nulled
+        counted = segments is not None or duration is not None
+        if counted == match_audio:
             raise ValueError(
                 "A chain needs exactly one of 'segments', 'match_audio' or "
                 "'duration_seconds'"
+            )
+        if segments is not None and duration is not None:
+            emit_log(
+                f"Chain 'segments' ({segments}) ignored: 'duration_seconds' "
+                f"({float(duration):g}) sets the segment count"
             )
 
         self.continuity = chain_definition.get("continuity", "last_frame")
@@ -842,15 +850,15 @@ def _duration_plan(chain_definition, arguments):
 def chain_segment_count(chain_definition, arguments):
     """How many segments a chain block runs, or None when it cannot be told
     from the block and the step's arguments alone (`match_audio`, an
-    unresolved reference, a missing frame rate or `num_frames`, or both
-    `segments` and `duration_seconds` given). Pure: the run's `ChainConfig`
+    unresolved reference, or a missing frame rate or `num_frames`). A
+    `duration_seconds` wins over `segments`. Pure: the run's `ChainConfig`
     and the cost estimate both ask it."""
     segments = chain_definition.get("segments", None)
     duration = chain_definition.get("duration_seconds", None)
-    if chain_definition.get("match_audio") or (segments is None) == (duration is None):
+    if chain_definition.get("match_audio") or (segments is None and duration is None):
         return None
     try:
-        if segments is not None:
+        if duration is None:
             return int(segments)
         frame_snap = chain_definition.get("frame_snap", None)
         definition = {**chain_definition}
