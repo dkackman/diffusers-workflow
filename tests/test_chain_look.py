@@ -1,8 +1,10 @@
 """look_hold (#1191): pixel corrections on a chain segment's frames."""
 
 import numpy
+import pytest
 
 from dw.pipeline_processors.chain_look import (
+    LookHold,
     ease_creep,
     ease_texture,
     look,
@@ -93,6 +95,32 @@ def test_texture_ease_leaves_edges_alone():
     ).all()
 
 
+@pytest.mark.parametrize("height,width", [(512, 512), (1088, 1920)])
+def test_texture_ease_leaves_edges_alone_at_full_resolution(height, width):
+    rng = numpy.random.default_rng(0)
+    mid = width // 2
+    field = numpy.full((height, width, 3), 128.0)
+    field[:, mid:] = 200.0
+    noisy = field.copy()
+    noisy[:, : mid - 4] += rng.normal(0, 25, (height, mid - 4, 1))
+    noisy[:, mid + 4 :] += rng.normal(0, 25, (height, width - mid - 4, 1))
+    frame = numpy.clip(noisy, 0, 255).astype(numpy.uint8)
+    eased = ease_texture(clip_of(frame, 3), 0.0)
+    band = slice(mid - 4, mid + 4)
+    change = numpy.abs(eased[-1][:, band].astype(int) - frame[:, band].astype(int))
+    assert change.max() <= 1
+    assert texture(eased[-1]) < texture(frame)  # the flat-field noise still drops
+
+
+def test_texture_ease_leaves_the_keyframe_copy_alone():
+    rng = numpy.random.default_rng(1)
+    frame = numpy.clip(128 + rng.normal(0, 25, (H, W, 3)), 0, 255).astype(numpy.uint8)
+    frames = clip_of(frame, 4)
+    eased = ease_texture(frames, 0.0)
+    assert (eased[0] == frames[0]).all()
+    assert (eased[-1] != frames[-1]).any()
+
+
 def test_texture_ease_leaves_a_smooth_shot_alone():
     frames = clip_of(gradient())
     assert (ease_texture(frames, texture(gradient())) == frames).all()
@@ -111,3 +139,21 @@ def test_precompensate_divides_and_clamps():
     big = precompensate(frame, (9.0, 9.0))
     capped = precompensate(frame, (1.25, 1.25))
     assert (big == capped).all()
+
+
+def test_a_cut_opening_does_not_move_the_boost():
+    from PIL import Image
+
+    hold = LookHold(
+        dict.fromkeys(("pickup", "creep", "texture", "precompensate"), True)
+    )
+    carry = Image.fromarray(gradient())
+    hold.correct([carry] * 3, None, True)
+    hold.feed(carry)
+    cut = Image.fromarray((gradient() * 0.3).astype(numpy.uint8))
+    hold.correct([carry, cut, cut], carry, False)
+    assert hold.boost() == (1.0, 1.0)
+    drift = Image.fromarray(gradient(1.2))
+    hold.feed(carry)
+    hold.correct([carry, drift, drift], carry, False)
+    assert hold.boost()[0] > 1.1

@@ -1467,13 +1467,66 @@ class TestLookHold:
         return {"segments": 3, "trim_frames": 0, "fps": 4, **extra}
 
     def test_look_hold_off_is_todays_chain(self):
-        plain = FakePipeline(self.output)
-        off = FakePipeline(self.output)
-        a = run_chain(plain, self.chain(), {})
-        b = run_chain(off, self.chain(look_hold=False), {})
-        assert [numpy.asarray(f).tolist() for f in a.frames] == [
-            numpy.asarray(f).tolist() for f in b.frames
-        ]
+        off_flags = {
+            "pickup": False,
+            "creep": False,
+            "texture": False,
+            "precompensate": False,
+        }
+        runs = []
+        for extra in ({}, {"look_hold": False}, {"look_hold": off_flags}):
+            pipeline = FakePipeline(self.audio_output)
+            out = run_chain(pipeline, self.chain(**extra), {})
+            runs.append((pipeline, out))
+        base_pipeline, base = runs[0]
+        for pipeline, out in runs[1:]:
+            assert [numpy.asarray(f).tolist() for f in out.frames] == [
+                numpy.asarray(f).tolist() for f in base.frames
+            ]
+            assert torch.equal(torch.as_tensor(out.audio), torch.as_tensor(base.audio))
+            fed = [numpy.asarray(c["image"]).tolist() for c in pipeline.calls[1:]]
+            assert fed == [
+                numpy.asarray(c["image"]).tolist() for c in base_pipeline.calls[1:]
+            ]
+
+    def audio_output(self, arguments, index):
+        frames = self.output(arguments, index).frames[0]
+        audio = torch.full((1, 2, 100), float(index + 1))
+        return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+    def boosted_output(self, arguments, index):
+        """Every segment opens brighter and more contrasty than its keyframe."""
+        fed = arguments.get("image")
+        base = numpy.asarray(fed).astype(float) if fed is not None else None
+        if base is None:
+            ramp = numpy.tile(numpy.linspace(90, 170, 16), (16, 1))
+            base = numpy.stack([ramp, ramp * 0.8 + 10, ramp * 0.6 + 20], axis=-1)
+        mean = base.mean()
+        boosted = numpy.clip(mean + 8 + (base - mean) * 1.2, 0, 255).astype(numpy.uint8)
+        image = Image.fromarray(boosted)
+        frames = [image.copy() for _ in range(4)]
+        if fed is not None:
+            frames[0] = fed
+        return SimpleNamespace(frames=[frames])
+
+    def test_precompensate_feeds_a_flatter_keyframe_and_pickup_keeps_the_raw_carry(
+        self,
+    ):
+        from dw.pipeline_processors.chain_look import look
+
+        pipeline = FakePipeline(self.boosted_output)
+        out = run_chain(pipeline, self.chain(segments=4, look_hold=True), {})
+        fed = [c.get("image") for c in pipeline.calls]
+        # segment 2 is fed segment 1's carry untouched: no boost measured yet
+        assert (numpy.asarray(fed[1]) == numpy.asarray(out.frames[3])).all()
+        # segment 3 is fed a keyframe flatter than the raw carry it was cut from
+        raw_carry_2 = numpy.asarray(out.frames[7])  # segment 2's last frame
+        assert look(numpy.asarray(fed[2]))[0] < look(raw_carry_2)[0]
+        # pickup grades segment 3's opening toward that raw carry, not the fed one
+        opening = numpy.asarray(out.frames[9])  # segment 3, frame 1
+        to_raw = abs(look(opening)[0] - look(raw_carry_2)[0])
+        to_fed = abs(look(opening)[0] - look(numpy.asarray(fed[2]))[0])
+        assert to_raw < to_fed
 
     def test_look_hold_pulls_a_later_segment_onto_the_carried_frame(self):
         pipeline = FakePipeline(self.output)

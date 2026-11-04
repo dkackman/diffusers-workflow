@@ -23,7 +23,7 @@ CUT_JUMP = (
 )
 LUT_SIZE = 1024
 TEXTURE_AMPLITUDE = 0.12  # detail stronger than this (in luma) is structure
-TEXTURE_GRADIENT = 0.03  # a blurred-luma step stronger than this is an edge
+TEXTURE_GRADIENT = 0.03  # edge threshold on blurred luma, as at a 3 px box
 BOOST_MAX = 1.25  # precompensate clamps each gain to [1, BOOST_MAX]
 _EPS = 1e-4
 
@@ -95,14 +95,20 @@ def _apply_lut(channel, lut):
     return numpy.interp(channel, numpy.linspace(0.0, 1.0, LUT_SIZE), lut)
 
 
+def is_cut(opening_tone, reference_tone):
+    """True when an opening's tone is past CUT_JUMP from the reference's."""
+    gap = numpy.abs(opening_tone - reference_tone).mean(axis=1).max()
+    return float(gap) > CUT_JUMP
+
+
 def pickup_grade(frames, carried):
     """Match frame 1 to the carried frame by quantile LUT, and carry the same
     mapping to the last frame, interpolating the LUT per frame between.
 
     Frame 0 is the keyframe copy and stays as it is. Returned unchanged when
-    there are under two frames after it is set aside, when a frame is flat, or
-    when the opening differs from the carried frame by more than CUT_JUMP (a
-    cut, not drift).
+    there are under two frames (frame 0 plus one more), when a frame is flat,
+    or when the opening differs from the carried frame by more than CUT_JUMP
+    (a cut, not drift).
     """
     frames = numpy.asarray(frames)
     count = len(frames)
@@ -113,7 +119,7 @@ def pickup_grade(frames, carried):
     for each in (carried_tone, first_tone, last_tone):
         if each[0, -1] - each[0, 0] < FLAT_SPREAD:
             return frames
-    if float(numpy.abs(first_tone - carried_tone).mean(axis=1).max()) > CUT_JUMP:
+    if is_cut(first_tone, carried_tone):
         return frames
 
     first_luts = [_lut(first_tone[c], carried_tone[c]) for c in range(3)]
@@ -176,14 +182,16 @@ def _scaled(frame, contrast, chroma):
 def _detail(luma):
     """(luma - its box blur, mask of faint detail in flat areas). The blur
     radius is about height / 64; edges and strong detail fall outside the
-    mask."""
+    mask. A blurred step's gradient falls as 1 / (2 radius + 1), so the edge
+    test scales it back to the 3 px box TEXTURE_GRADIENT was set at: the mask
+    reads the same at any resolution."""
     radius = max(1, luma.shape[0] // 64)
     tensor = torch.from_numpy(luma)[None, None]
     padded = torch.nn.functional.pad(tensor, (radius,) * 4, mode="replicate")
     blurred = torch.nn.functional.avg_pool2d(padded, 2 * radius + 1, stride=1)[0, 0]
     blurred = blurred.numpy()
     gy, gx = numpy.gradient(blurred)
-    flat = numpy.hypot(gx, gy) < TEXTURE_GRADIENT
+    flat = numpy.hypot(gx, gy) * (2 * radius + 1) < TEXTURE_GRADIENT * 3
     detail = luma - blurred
     return detail, flat & (numpy.abs(detail) < TEXTURE_AMPLITUDE)
 
@@ -229,18 +237,20 @@ def _cut_for(frame, limit, max_cut):
 def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5):
     """Subtract a fraction (at most max_cut) of the masked faint detail at
     whichever end exceeds the scene's texture by more than the tolerance,
-    interpolating the fraction linearly across the shot."""
+    interpolating the fraction linearly across the shot. Frame 0 is the keyframe
+    copy and stays as it is; the ends are frame 1 and the last."""
     frames = numpy.asarray(frames)
     count = len(frames)
     if count < 2:
         return frames
     limit = scene_texture + tolerance
-    ends = (_cut_for(frames[0], limit, max_cut), _cut_for(frames[-1], limit, max_cut))
+    ends = (_cut_for(frames[1], limit, max_cut), _cut_for(frames[-1], limit, max_cut))
     if not any(ends):
         return frames
     out = frames.copy()
-    for index in range(count):
-        cut = ends[0] + (ends[1] - ends[0]) * index / (count - 1)
+    for index in range(1, count):
+        weight = (index - 1) / (count - 2) if count > 2 else 0.0
+        cut = ends[0] + (ends[1] - ends[0]) * weight
         if cut > 0:
             out[index] = _eased(frames[index], cut)
     return out
@@ -265,6 +275,7 @@ class LookHold:
         self.scene_texture = None
         self._ratios = []
         self._fed = None
+        self._fed_tone = None
 
     def boost(self):
         if not self._ratios:
@@ -279,7 +290,7 @@ class LookHold:
         if first:
             self.scene_look, self.scene_texture = look(opening), scene_texture(stack)
             return frames
-        if self._fed is not None:
+        if self._fed is not None and not is_cut(tone(opening), self._fed_tone):
             rendered = look(opening)
             if min(self._fed) > _EPS:
                 self._ratios.append([r / f for r, f in zip(rendered, self._fed)])
@@ -297,5 +308,6 @@ class LookHold:
         if self.flags["precompensate"]:
             pixels = numpy.asarray(carry.convert("RGB"))
             carry = Image.fromarray(precompensate(pixels, self.boost()))
-        self._fed = look(numpy.asarray(carry.convert("RGB")))
+        pixels = numpy.asarray(carry.convert("RGB"))
+        self._fed, self._fed_tone = look(pixels), tone(pixels)
         return carry
