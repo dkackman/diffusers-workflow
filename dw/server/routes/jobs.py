@@ -32,6 +32,7 @@ from ..api_models import (
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
 from ...plan import build_plan, gate_warnings
+from ...presets import apply_presets
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
 from ...variables import set_variables
@@ -368,8 +369,10 @@ def get_job_workflow(request: Request, job_id: str):
                 name: arguments[name] for name in arguments if name in variables
             }
             # Fold through the owner, so a value is validated and coerced to
-            # the default's type exactly as it was when the run started
+            # the default's type exactly as it was when the run started -
+            # the chosen preset bundle first, as Workflow._fold applies it
             try:
+                apply_presets(definition, declared, variables)
                 set_variables(declared, variables)
                 folded = list(declared)
             except (SecurityError, TypeError, ValueError) as exc:

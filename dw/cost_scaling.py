@@ -20,6 +20,7 @@ import json
 import math
 
 from . import references
+from .presets import effective_variables
 
 # The basis an estimate quotes its minutes on
 UNKNOWN = "unknown"
@@ -269,7 +270,9 @@ def _driver_scaling(definition, expanded, list_entries):
     for every template: its name goes in `unscaled`, and the figure is kept
     but flagged (#866, Q4).
     """
-    defaults = definition.get("variables") or {}
+    # the defaults the curated cost was measured at, the default preset
+    # bundle among them
+    defaults = effective_variables(definition)
     effective = expanded.get("variables") or {}
     factor = 1.0
     axes = []
@@ -351,7 +354,9 @@ def _scaled(price, scaling):
 def _entry_cost_field_shifted(definition, expanded):
     """Whether any declared list driver carries a per-entry cost field outside
     the values the default entries had."""
-    defaults = definition.get("variables") or {}
+    # the defaults the curated cost was measured at, the default preset
+    # bundle among them
+    defaults = effective_variables(definition)
     effective = expanded.get("variables") or {}
     return any(
         isinstance(defaults.get(name), list)

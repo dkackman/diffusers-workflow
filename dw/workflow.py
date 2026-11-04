@@ -318,7 +318,9 @@ class Workflow:
         os.makedirs(target, exist_ok=True)
         return target
 
-    def _fold(self, definition, arguments, *, fold_arguments, constrain):
+    def _fold(
+        self, definition, arguments, *, fold_arguments, constrain, strict_presets=True
+    ):
         """Stage one of preparing a definition, shared by validation, the
         run and the record: constants realized, the caller's `arguments`
         folded in when `fold_arguments`, list entries' own references
@@ -330,6 +332,13 @@ class Workflow:
 
         Raises ConstantError for a 'constant:' variable default that fails
         to resolve, naming the variable.
+
+        The chosen preset bundle (dw/presets.py) is applied whatever
+        `fold_arguments` is - with no usable arguments, the default bundle -
+        since a bundle is part of what the declared defaults mean.
+        `strict_presets` false (validation) leaves a bundle value that will
+        not coerce at its default rather than raising; `preset_errors`
+        reports it.
         """
         variables = definition.get("variables")
         if not isinstance(variables, dict):
@@ -351,10 +360,17 @@ class Workflow:
                     realize_constants(value)
             except (ValueError, InvalidInputError, UntrustedWorkflowError) as e:
                 raise ConstantError(f"variables.{name}", str(e)) from e
+        # the chosen bundle first, so the caller's own values land over it;
+        # with no usable arguments that is the selector's default bundle
+        apply_presets(
+            definition,
+            arguments if fold_arguments else {},
+            variables,
+            strict=strict_presets,
+        )
         if fold_arguments:
             # set variable values from the arguments passed to the workflow;
             # these may come from the command line or from a parent workflow
-            apply_presets(definition, arguments, variables)
             set_variables(arguments, variables)
         # an entry of a list-valued variable may name another variable;
         # resolve those before anything inside it is realized, so a
@@ -407,6 +423,7 @@ class Workflow:
                 fold_arguments=bool(arguments)
                 and not argument_errors(definition, arguments),
                 constrain=snap_constraints,
+                strict_presets=False,
             )
             source_indices = []
             expanded = self._expand(definition, variables, source_indices)

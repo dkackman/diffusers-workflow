@@ -32,6 +32,7 @@ import json
 import logging
 
 from ..host_memory_projection import projected_mb, releases_between_iterations
+from ..presets import effective_variables
 from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
@@ -61,9 +62,8 @@ def memory_key(definition, arguments=None):
     references a variable it doesn't declare."""
     if not isinstance(definition, dict):
         return None
-    variables = definition.get("variables")
-    variables = dict(variables) if isinstance(variables, dict) else {}
-    variables.update(arguments or {})
+    # the chosen preset bundle included, as the run folds it
+    variables = effective_variables(definition, arguments)
     # Deep substitution, not `_found`'s: `weights_dtype` sits inside a
     # quantization config rather than being one
     try:

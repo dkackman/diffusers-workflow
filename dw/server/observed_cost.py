@@ -41,6 +41,8 @@ import json
 import logging
 import time
 
+from ..presets import effective_variables
+
 logger = logging.getLogger("dw")
 
 COST_DRIVERS_KEY = "cost_drivers"
@@ -84,10 +86,10 @@ def _bucket_key(definition, arguments):
     variables = definition.get("variables") or {}
     drivers = declared_drivers(definition)
     if drivers:
-        return tuple(
-            (name, _comparable(arguments.get(name, variables.get(name))))
-            for name in sorted(drivers)
-        )
+        # the chosen preset bundle included: a driver a bundle moves buckets
+        # on the value the run used
+        values = effective_variables(definition, arguments)
+        return tuple((name, _comparable(values.get(name))) for name in sorted(drivers))
     if _is_task_only(definition):
         # No pipeline loads, so a task's inputs (an audio file, a list of
         # lines) are data rather than a size; with nothing declared to
@@ -244,7 +246,6 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
     runs = len(cold) + len(warm) + unclassified
     if not runs:
         return None
-    variables = definition.get("variables") or {}
     drivers = declared_drivers(definition)
     observed = {
         "device": device,
@@ -261,10 +262,8 @@ def observed_for(definition, rows, device=None, device_name=None, arguments=None
         # The *effective* driver values - the caller's where they supplied
         # one, else the stored default - so the block says which run it is a
         # figure for rather than always describing the defaults
-        effective = {
-            name: (arguments or {}).get(name, variables.get(name))
-            for name in sorted(drivers)
-        }
+        values = effective_variables(definition, arguments)
+        effective = {name: values.get(name) for name in sorted(drivers)}
         observed["drivers"] = {
             name: len(value) if isinstance(value, list) else value
             for name, value in effective.items()

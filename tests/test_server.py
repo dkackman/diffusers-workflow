@@ -6757,3 +6757,21 @@ def test_a_validator_failure_is_logged_once_by_the_validate_route(
     assert response.status_code == 200
     records = [r for r in caplog.records if r.levelno >= logging.ERROR]
     assert len(records) == 1, [r.getMessage() for r in records]
+
+
+def test_unrealized_job_workflow_folds_the_chosen_preset(server):
+    """The fallback fold applies the bundle the recorded selector chose, as
+    the run did (presets)."""
+    workflow = valid_workflow()
+    workflow["variables"].update({"tier": "standard", "steps": 20})
+    workflow["presets"] = {"tier": {"draft": {"steps": 4}, "standard": {"steps": 12}}}
+    with server(success_script) as client:
+        submitted = client.post(
+            "/api/jobs", json={"workflow": workflow, "arguments": {"tier": "draft"}}
+        ).json()
+        wait_for_status(client, submitted["id"], TERMINAL_STATES)
+        client.app.state.job_manager.jobs.pop(submitted["id"])
+        body = client.get(f"/api/jobs/{submitted['id']}/workflow").json()
+
+    assert body["realized"] is False
+    assert body["definition"]["variables"]["steps"] == 4

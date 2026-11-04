@@ -373,12 +373,29 @@ dial. The shape is `{selector: {value: {variable: value}}}`:
 
 The chosen bundle (the caller's value for the selector, else its default) sets
 every variable the caller did not pass; an explicit argument always wins, so
-`tier=draft num_inference_steps=30` runs 30 steps on the draft canvas. The
-estimate, `variable_constraints` and substitution all see the bundle's values.
-Validation refuses a bundle key that is no declared variable, a selector whose
-default is no bundle name, and a caller value for the selector outside the
-bundle names (at `arguments.<selector>`, naming the allowed ones). Bundle values
-are validated like caller values.
+`tier=draft num_inference_steps=30` runs 30 steps on the draft canvas. With no
+arguments - or when a bad argument leaves them all unfolded - the default
+bundle applies, so a run with no arguments and one passing the selector's
+default are the same run, with the same fingerprint.
+
+Everything that judges or prices a run sees the bundle's values: validation,
+substitution, the estimate (the curated `cost` counts as measured at the
+default bundle), the fingerprint, the VRAM projection, the host-RAM
+projection, the observed-cost buckets, `variable_constraints` and the
+argument warnings. A bundle value is rounded by a
+`snap: "up"` rule, with the same warning a caller's value draws.
+
+Validation checks every bundle, not only the chosen one, and reports each
+problem where it was written:
+
+- a bundle key that is no declared variable, a bundle value that will not
+  coerce to its default's type or fails string validation, or one outside a
+  `variable_constraints` rule, at `presets.<selector>.<value>.<variable>`;
+- a selector that is not a declared variable, at `presets.<selector>`;
+- a selector whose default is not a string (bundle names are JSON keys, so a
+  number can never match one) or names no bundle, at `variables.<selector>`;
+- a caller value for the selector outside the bundle names, at
+  `arguments.<selector>`, naming the allowed ones.
 
 ### What a variable is allowed to be
 

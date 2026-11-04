@@ -48,6 +48,7 @@ import math
 import numbers
 
 from . import references
+from .presets import PRESETS_KEY, bundle_sources, coerced_bundles, effective_variables
 
 logger = logging.getLogger("dw")
 
@@ -292,19 +293,25 @@ def constraint_errors(definition, arguments=None, supplied=()):
     """Every declared constraint a value breaks, as [{path, message}].
 
     A value the caller supplied is reported at `arguments.<name>`, where they
-    wrote it; a stored default at `variables.<name>`. A constraint that
+    wrote it; a stored default at `variables.<name>`; a preset bundle's value
+    at `presets.<selector>.<value>.<name>` - every bundle, chosen or not. A constraint that
     declares `snap: "up"` and can reach a legal value is a warning rather
     than an error - the run will round it, and saying so is the point.
     """
     constraints = declared_constraints(definition)
     if not constraints:
         return []
-    variables = definition.get("variables") or {}
-    values = {**variables, **(arguments or {})}
+    # What the run uses: the chosen preset bundle under the arguments. A
+    # value the chosen bundle set is left to the every-bundle pass below,
+    # so it is reported once, where its author wrote it
+    values = effective_variables(definition, arguments)
+    from_bundle = bundle_sources(definition, arguments)
     errors = []
     for name in sorted(constraints):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in values:
+            continue
+        if name in from_bundle:
             continue
         message = refusal(name, values[name], constraint)
         if message is None:
@@ -314,6 +321,8 @@ def constraint_errors(definition, arguments=None, supplied=()):
         where = "arguments" if name in (supplied or ()) else "variables"
         errors.append({"path": f"{where}.{name}", "message": message})
     for variable, index, name, entry in entry_targets(definition, values):
+        if variable in from_bundle:
+            continue
         message = refusal(name, entry[name], constraints[name])
         if message is None:
             continue
@@ -321,6 +330,26 @@ def constraint_errors(definition, arguments=None, supplied=()):
         errors.append(
             {"path": f"{where}.{variable}[{index}].{name}", "message": message}
         )
+    # Every bundle, chosen or not: a bundle is a default the author wrote,
+    # so one outside a rule is as wrong as a default outside it would be
+    for selector, label, bundle in coerced_bundles(definition):
+        where = f"{PRESETS_KEY}.{selector}.{label}"
+        for name in sorted(bundle):
+            constraint = constraints.get(name)
+            if not isinstance(constraint, dict):
+                continue
+            message = refusal(name, bundle[name], constraint)
+            if message is not None:
+                errors.append({"path": f"{where}.{name}", "message": message})
+        for variable, index, name, entry in entry_targets(definition, bundle):
+            message = refusal(name, entry[name], constraints[name])
+            if message is not None:
+                errors.append(
+                    {
+                        "path": f"{where}.{variable}[{index}].{name}",
+                        "message": message,
+                    }
+                )
     return errors
 
 
@@ -335,7 +364,8 @@ def constraint_warnings(definition, arguments=None):
     constraints = declared_constraints(definition)
     if not constraints:
         return []
-    values = {**(definition.get("variables") or {}), **(arguments or {})}
+    # the chosen preset bundle's values round as a caller's would
+    values = effective_variables(definition, arguments)
     notices = []
     for name in sorted(constraints):
         constraint = constraints[name]

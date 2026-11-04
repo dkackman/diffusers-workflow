@@ -450,8 +450,11 @@ def entry_field_warnings(definition, arguments=None):
         return []
     variables = copy.deepcopy(variables)
     supplied = set()
-    if arguments and not argument_errors(definition, arguments):
-        apply_presets(definition, arguments, variables)
+    good = bool(arguments) and not argument_errors(definition, arguments)
+    # the chosen bundle - the default one when no argument folds - as
+    # Workflow._fold applies it
+    apply_presets(definition, arguments if good else {}, variables, strict=False)
+    if good:
         set_variables(arguments, variables)
         supplied = set(arguments)
     warnings = []

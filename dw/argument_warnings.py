@@ -8,6 +8,7 @@ Best effort and advisory: nothing here refuses a workflow.
 
 from . import references
 from .introspection import CLASS_NAME_PATTERN, unknown_call_arguments
+from .presets import effective_variables
 from .variables import undeclared_variable_references
 
 
@@ -164,7 +165,8 @@ def workflow_argument_warnings(workflow_definition, arguments=None):
     same values `constraint_warnings` checks a constraint against.
     """
     warnings = []
-    values = {**(workflow_definition.get("variables") or {}), **(arguments or {})}
+    # the chosen preset bundle included, as the run folds it
+    values = effective_variables(workflow_definition, arguments)
     declared = sorted(workflow_definition.get("variables") or {})
     for path, name in undeclared_variable_references(workflow_definition):
         hint = (

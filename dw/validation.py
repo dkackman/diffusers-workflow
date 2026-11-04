@@ -901,9 +901,12 @@ def undeclared_variable_errors(workflow, arguments=None):
     definition = copy.deepcopy(workflow.workflow_definition)
     variables = definition.get("variables")
     supplied = set()
-    if isinstance(variables, dict) and arguments:
-        if not argument_errors(definition, arguments):
-            apply_presets(definition, arguments, variables)
+    if isinstance(variables, dict):
+        good = bool(arguments) and not argument_errors(definition, arguments)
+        # the chosen bundle - the default one when no argument folds - as
+        # Workflow._fold applies it
+        apply_presets(definition, arguments if good else {}, variables, strict=False)
+        if good:
             set_variables(arguments, variables)
             supplied = set(arguments)
     declared = sorted(variables or {})
