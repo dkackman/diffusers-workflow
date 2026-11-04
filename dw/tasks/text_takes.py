@@ -27,6 +27,25 @@ logger = logging.getLogger("dw")
 _SENTENCE_END = re.compile(r"(?<=[.!?…])[\"'”’)\]]*\s+")
 
 
+# A period after one of these, or after a single capital letter (an initial),
+# is not the end of a sentence
+_ABBREVIATIONS = frozenset(
+    "mr mrs ms dr prof st sr jr vs etc e.g i.e mt no fig".split()
+)
+
+
+def _is_abbreviation(before):
+    """Whether the text before a boundary ends in an abbreviation or initial."""
+    tokens = before.rstrip().rsplit(None, 1)
+    token = tokens[-1] if tokens else ""
+    if not token.endswith("."):
+        return False
+    word = token[:-1].lstrip("\"'“‘([").lower()
+    return word in _ABBREVIATIONS or (
+        len(word) == 1 and word.isalpha() and token[-2].isupper()
+    )
+
+
 def _words_allowed(max_seconds, words_per_second):
     for name, value in (
         ("max_seconds", max_seconds),
@@ -46,6 +65,8 @@ def _sentences(text):
     """The sentences of the text, each with its whitespace collapsed."""
     parts, start = [], 0
     for match in _SENTENCE_END.finditer(text):
+        if _is_abbreviation(text[start : match.start()]):
+            continue
         # Keep the closing quote with the sentence it closes
         parts.append(text[start : match.start() + len(match.group().rstrip())])
         start = match.end()
@@ -116,9 +137,10 @@ def split_takes(text, max_seconds=60.0, words_per_second=2.5):
 def split_takes_task(text, max_seconds=60.0, words_per_second=2.5):
     """Task command: split a text into takes, answered as a JSON document.
 
-    The takes are a `for_each` list (`templates/narration-long`): the engine
-    expands `for_each` before a run, so run this first - `templates/split-takes`
-    - and pass its `takes` in.
+    The takes are a `for_each` list (`templates/narration-from-takes`): a
+    `for_each` list cannot come from a step of the same workflow, so
+    `templates/narration-long` runs this and hands the takes to a child
+    workflow, which expands its own `for_each`.
 
     Args:
         text: The text to speak

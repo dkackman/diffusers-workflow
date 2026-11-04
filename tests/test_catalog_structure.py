@@ -558,8 +558,10 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 13_150 for `narration-long`, `split-takes` and `minimax/music-long`
 # (long-form media, task 22, 2026-11-03), measured at 13_112: three new
 # entries, the catalog's only long narration, its text splitter and its
-# multi-section music, with no cost blocks yet.
-COMPACT_BUDGET = 13_150
+# multi-section music, with no cost blocks yet. Then to 13_250 (measured
+# 13_236) for `narration-from-takes`: `narration-long` now takes plain text and
+# the take-list template keeps its own entry.
+COMPACT_BUDGET = 13_250
 FILTERED_BUDGET = 1_500
 
 

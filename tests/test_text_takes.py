@@ -82,3 +82,117 @@ def test_the_registered_task_answers_the_takes():
 
     out = split_takes_task(TEXT, max_seconds=10)
     assert out["count"] == len(out["takes"]) > 1
+
+
+def test_abbreviations_are_not_sentence_ends():
+    takes = split_takes("Hi there now. Dr. Smith went home. Mr. Lee left.", 3, 1)
+    assert all(not t.endswith(("Dr.", "Mr.")) for t in takes)
+    takes = split_takes("see e.g. this one. Next.", 3, 1)
+    assert all(not t.endswith("e.g.") for t in takes)
+
+
+def test_an_initial_is_not_a_sentence_end():
+    from dw.tasks.text_takes import _sentences
+
+    assert _sentences("J. R. Smith spoke.") == ["J. R. Smith spoke."]
+    assert _sentences("It ended. Then J. Smith spoke.") == [
+        "It ended.",
+        "Then J. Smith spoke.",
+    ]
+
+
+def test_narration_long_validates_and_names_its_child():
+    import json
+    from pathlib import Path
+
+    from dw.workflow import Workflow
+
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    path = root / "narration-long.json"
+    definition = json.loads(path.read_text())
+    assert Workflow(definition, str(root), str(path)).validation_errors() == []
+    child = definition["steps"][1]["workflow"]
+    assert child["path"] == "./narration-from-takes.json"
+    assert child["arguments"]["takes"] == "previous_result:split.takes"
+    assert (root / "narration-from-takes.json").exists()
+
+
+def test_a_child_receives_the_parents_takes(tmp_path):
+    import json
+
+    from dw.workflow import Workflow
+
+    child = {
+        "id": "child",
+        "variables": {"takes": ["x"]},
+        "steps": [
+            {
+                "name": "each",
+                "for_each": "variable:takes",
+                "task": {
+                    "command": "split_takes",
+                    "arguments": {"text": "item:"},
+                },
+                "result": {"content_type": "application/json", "save": False},
+            }
+        ],
+    }
+    (tmp_path / "child.json").write_text(json.dumps(child))
+    parent = {
+        "id": "parent",
+        "variables": {"text": "One short. Two short. Three short."},
+        "steps": [
+            {
+                "name": "split",
+                "task": {
+                    "command": "split_takes",
+                    "arguments": {
+                        "text": "variable:text",
+                        "max_seconds": 2,
+                        "words_per_second": 1,
+                    },
+                },
+                "result": {"content_type": "application/json", "save": False},
+            },
+            {
+                "name": "run",
+                "workflow": {
+                    "path": "./child.json",
+                    "arguments": {"takes": "previous_result:split.takes"},
+                },
+                "result": {"content_type": "application/json", "save": False},
+            },
+        ],
+    }
+    workflow = Workflow(parent, str(tmp_path), str(tmp_path / "parent.json"))
+    assert workflow.validation_errors() == []
+    seen = []
+    from dw.workflow import Workflow as W
+
+    original = W.run
+
+    def spy(self, arguments, *a, **k):
+        seen.append(arguments)
+        return original(self, arguments, *a, **k)
+
+    from unittest.mock import patch
+
+    with patch.object(W, "run", spy):
+        workflow.run({})
+    child_args = [s for s in seen if isinstance(s, dict) and "takes" in s]
+    assert child_args[0]["takes"] == ["One short.", "Two short.", "Three short."]
+
+
+def test_music_long_refuses_a_section_over_300_seconds():
+    import json
+    from pathlib import Path
+
+    from dw.workflow import Workflow
+
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    path = root / "minimax" / "music-long.json"
+    definition = json.loads(path.read_text())
+    assert Workflow(definition, str(path.parent), str(path)).validation_errors() == []
+    definition["variables"]["sections"][0]["audio_duration"] = 301
+    errors = Workflow(definition, str(path.parent), str(path)).validation_errors()
+    assert any("300" in json.dumps(e) for e in errors), errors

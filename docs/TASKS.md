@@ -3069,8 +3069,9 @@ It answers `{takes, count, words}`. A take ends at a sentence boundary; a
 sentence that alone is over the limit is cut at its last comma that fits, else
 at a word, and the run warns. The takes rejoin to the text, modulo whitespace.
 The engine expands `for_each` before a run, so the list cannot feed a
-`for_each` in the same workflow: run `templates/split-takes`, then pass its
-`takes` to `templates/narration-long`. Refused: empty text, a limit that is not
+`for_each` in the same workflow. `templates/narration-long` takes the plain
+text, runs this task, and hands the takes to `templates/narration-from-takes`
+as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
 above zero.
 
 ## Extracting Sections

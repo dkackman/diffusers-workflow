@@ -1,6 +1,6 @@
 {
   "id": "MiniMaxMusicLong",
-  "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its length, faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (empty for an instrumental), 'seconds' the length kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). Cost grows with the sum of the sections' 'audio_duration'.",
+  "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its length, faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (empty for an instrumental), 'seconds' the length kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). The joined length is the sum of the sections' 'seconds' minus one crossfade per join. Cost grows with the sum of the sections' 'audio_duration'.",
   "cost_drivers": [
     "sections"
   ],
@@ -26,6 +26,12 @@
     "seed": null
   },
   "seed": "variable:seed",
+  "variable_constraints": {
+    "audio_duration": {
+      "max_frames": 300,
+      "reason": "Music 3 is practical to about 300 s; a section's generation ceiling over that is refused before the model loads (max_frames is the constraint block's plain upper bound, not a frame count here)"
+    }
+  },
   "steps": [
     {
       "name": "generate_section",

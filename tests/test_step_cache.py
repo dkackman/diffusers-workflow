@@ -683,6 +683,7 @@ TEMPLATE_PIPELINE_KEYS = {
         "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "generate-speech.json": {},
+    "narration-from-takes.json": {},
     "narration-long.json": {},
     "split-takes.json": {},
     "image-edit.json": {
