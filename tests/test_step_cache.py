@@ -809,6 +809,9 @@ TEMPLATE_PIPELINE_KEYS = {
     "minimax/chained-segments.json": {
         "chained_keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
+    "minimax/repair-segment.json": {
+        "repair": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
+    },
     "minimax/composable-references.json": {
         "video_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },

@@ -2631,6 +2631,20 @@ See [workflows/templates/ltx2/chained-segments.json](../workflows/templates/ltx2
 [workflows/templates/minimax/chain-matched-to-audio.json](../workflows/templates/minimax/chain-matched-to-audio.json)
 (audio-matched lip-sync of arbitrary length).
 
+One bad segment of a finished H3 chain can be re-rendered in place instead of
+re-rolling the chain, when the chain kept its segment files (`save_segments` and
+`keep_segments`):
+[workflows/templates/minimax/repair-segment.json](../workflows/templates/minimax/repair-segment.json)
+renders segment k once with segment k-1's last frames as a guide at frame 0 and segment
+k+1's frames as a guide ending at the render's end, both holding their audio, then trims
+the guides off and splices the result between its neighbours. The take keeps its frame
+count; the new frames also replace the first 12 frames of segment k+1 (the 17-frame
+grid's remainder, [`chain_repair_cut`](TASKS.md#chain_repair_cut)). The splice is a
+`concat_videos` with `continuous_joins`, so `analyze_seams` checks both repaired seams as
+it checks a chain's own. Interior segments only: the first and the last need a
+one-sided repair. The chain's settings (canvas, steps, LoRA, counters) are passed to it
+as arguments, and the seed is new by default.
+
 #### Checking each segment: `check` and `retries`
 
 With `check` on, each segment after the first is measured before anything of it reaches

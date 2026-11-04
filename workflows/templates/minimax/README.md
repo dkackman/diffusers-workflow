@@ -162,6 +162,7 @@ segments means half the compounding.
 | [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
 | [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
+| [repair-segment.json](repair-segment.json) | Re-rendering one interior segment of a finished chain (run with `save_segments` + `keep_segments`) between its neighbours, held to both by guides with their audio, and splicing it back with continuous joins |
 
 ## Going long: cuts (digital shorts)
 

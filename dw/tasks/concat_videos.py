@@ -44,6 +44,7 @@ def concat_videos(
     match_levels=None,
     match_levels_dbfs=None,
     sample_rate=None,
+    continuous_joins=False,
 ):
     """Concatenate a list of videos into a single AudioVideo.
 
@@ -115,6 +116,13 @@ def concat_videos(
             highest rate among the inputs is chosen and the rest are
             resampled up to it, with a warning naming which. Give this to pin
             the target instead (#108)
+        continuous_joins: The joins continue one take rather than cut
+            between shots - a chain segment repaired in place and spliced
+            back between its neighbours (#1169). Each seam is recorded
+            without `hard_cut`, so analyze_seams measures its frame jump as
+            it does a chain's own seams, and its audio is butt-joined with no
+            declick fade. A cut device beside it (`seam_fade_ms` above 0,
+            `audio_bleed_ms`) is refused. Default false: every seam is a cut
 
     Returns:
         One AudioVideo; its audio is None when no input video carries any
@@ -122,6 +130,7 @@ def concat_videos(
     if not isinstance(videos, list) or not videos:
         raise ValueError("concat_videos needs a non-empty list of videos")
 
+    seam_fade_ms = _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms)
     _warn_bleed_without_seam(videos, audio_bleed_ms)
     names, videos, clips, waveforms, sample_rate = _prepare_inputs(
         videos, match_levels, match_levels_dbfs, sample_rate
@@ -139,6 +148,7 @@ def concat_videos(
         audio_bleed_ms,
         audio_bleed_gain_db,
         seam_fade_ms,
+        continuous_joins,
     )
 
     _warn_fps_override(videos, names, fps)
@@ -159,6 +169,7 @@ def _joined_tracks(
     audio_bleed_ms,
     audio_bleed_gain_db,
     seam_fade_ms,
+    continuous_joins=False,
 ):
     """The prepared inputs joined end to end, as (frames, audio, shots):
     each video's frames after its head trim, its soundtrack joined at the
@@ -189,6 +200,7 @@ def _joined_tracks(
                 len(frames) - start_frame,
                 start_sample if has_audio else None,
                 sample_rate,
+                hard_cut=not continuous_joins,
             )
         )
 
@@ -219,6 +231,31 @@ def _joined_tracks(
             _record_seam_fade(shots[first_shot[index]], applied)
         audio_native_rate = getattr(video, "sample_rate", None)
     return frames, audio, shots
+
+
+def _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms):
+    """The seam fade the joins take: 0 - a plain butt join - for continuous
+    joins, which refuse a cut's devices; the caller's own otherwise."""
+    if not isinstance(continuous_joins, bool):
+        raise ValueError(
+            f"concat_videos needs 'continuous_joins' as true or false, got "
+            f"{continuous_joins!r}"
+        )
+    if not continuous_joins:
+        return seam_fade_ms
+    if seam_fade_ms:
+        raise ValueError(
+            "concat_videos: 'continuous_joins' joins one take with no fade, so "
+            f"'seam_fade_ms' ({seam_fade_ms}) cannot be set beside it - a fade "
+            "is a cut's device"
+        )
+    if audio_bleed_ms:
+        raise ValueError(
+            "concat_videos: 'continuous_joins' joins one take, so "
+            f"'audio_bleed_ms' ({audio_bleed_ms}) cannot be set beside it - a "
+            "bleed covers a cut"
+        )
+    return 0
 
 
 def _record_seam_fade(shot, applied):
@@ -368,7 +405,15 @@ def _silence_channels(waveforms):
 
 
 def _shot_records_for(
-    video, name, index, head_trim, start_frame, frame_count, start_sample, sample_rate
+    video,
+    name,
+    index,
+    head_trim,
+    start_frame,
+    frame_count,
+    start_sample,
+    sample_rate,
+    hard_cut=True,
 ):
     """The shot records one input contributes to the joined picture."""
     inner = getattr(video, "shots", None)
@@ -382,7 +427,7 @@ def _shot_records_for(
         )
     else:
         video_shots = [shot_record(name, start_frame, frame_count, start_sample or 0)]
-    if index and video_shots:
+    if index and video_shots and hard_cut:
         # Every seam this step draws is a cut it chose to make, unlike a
         # chain's inner segments (continuity is expected there) - marking
         # it lets analyze_seams tell the two apart (#466)

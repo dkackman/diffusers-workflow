@@ -627,6 +627,7 @@ workflow guide).
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
+| `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, as a chain segment repaired in place and spliced back (`chain_repair_cut`). Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio is butt-joined with no declick fade. Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
 
 Shots an earlier run wrote are joined by path or URL without regenerating them.
 A file's track, and a `previous_result:` shot's, is fitted to its frames'
@@ -912,6 +913,55 @@ to the span and re-based to `0`, their sample side cleared; a clip with none
 comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
 shortened or padded), as are a `num_frames` of `0` or less and a negative
 `start_frame`; `validate_workflow` catches these on literal values.
+
+### chain_repair_cut
+
+The pieces that re-render one segment of a finished chain in place (#1169),
+for [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json).
+A chain run with `save_segments` and `keep_segments` leaves each segment as a
+playable mp4 beside the take; this command finds them from any one of them,
+counts their frames, and cuts what a repair render of segment `k` needs:
+
+```json
+{
+    "task": {
+        "command": "chain_repair_cut",
+        "arguments": {
+            "chain_output": "output:minimax/MiniMaxH3I2VChained/latest/final/MiniMaxH3I2VChained-chained_keyframe_to_video_audio.0.segment-000.mp4",
+            "segment": 3,
+            "num_frames": 175,
+            "head_frames": 22,
+            "tail_frames": 39
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `chain_output` | Yes | Any one of the chain's segment files (`<prefix>.<n>.segment-NNN.mp4`); the others are found beside it, and a gap in their numbering is refused |
+| `segment` | Yes | The segment to re-render, 1-based. Only 2 to N-1: the first has no segment before it and the last none after it, and are refused |
+| `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames`, rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1 |
+| `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
+| `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
+| `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
+
+It returns a record for later steps (`previous_result:cut.<field>`):
+`head_guide` and `tail_guide` (clips with their audio, for two `guides`
+entries with `"audio": true`), `keyframe` (the head guide's first frame, the
+fl2va keyframe a guide chain gives its own segments), `tail_frame` (where the
+tail guide is placed: `num_frames - tail_frames`, always on 17j), `keep_start`
+and `keep_frames` (the render span to keep, between the guides), `before`
+(segment files 1 to k-1) and `after` (segment k+1 from `overrun` on, then the
+files after it), with `overrun`, `segment_frames` and `total_frames`.
+
+The frames between the two guides number 12 more than a multiple of 17
+(17n + 5 less two 17m + 5 guides), and an interior segment of a 17n + 5 chain
+with a 22- or 39-frame carry is a multiple of 17, so the new frames replace
+segment k and the first `overrun` frames of segment k+1 (12 at the smallest
+render). The tail guide is segment k+1 from `overrun` on, and `after` takes
+segment k+1 back from the same frame, so `before`, the kept span and `after`
+come to the take's own frame count exactly.
 
 ### window_video
 

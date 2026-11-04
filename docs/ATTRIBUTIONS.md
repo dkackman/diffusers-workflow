@@ -132,7 +132,13 @@ segment's per-channel mean and standard deviation before decode
 [dw/pipeline_processors/h3_anchor.py](../dw/pipeline_processors/h3_anchor.py);
 [#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
 diagnosis it answers, colour and contrast drifting from segment to segment of
-an H3 chain, was described by Lumifel and by roycho87 (NerdNotes).
+an H3 chain, was described by Lumifel and by roycho87 (NerdNotes). It also
+inspired repairing one segment of a finished chain in place, held to both of its
+neighbours, and its rules: no tail hold on the last segment, a new seed for the
+re-render, and the chain's own text encoder, length and sizes kept
+([templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json),
+[dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
 ### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
 
@@ -147,7 +153,11 @@ same suite's idea of a first-segment keyframe, and NerdNotes' (no licence, so
 concepts only), inspired `keystone`
 ([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
 frame 0 as every later segment's keyframe, pulling the chain back toward its
-clean start.
+clean start. Its Anchoring node, a source's head held in a shot's last frames
+with its audio, gave the repair's tail hold and the rule that the tail hold
+outnumbers the head (39 frames against 22 in
+[templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
 
 harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
 ([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);

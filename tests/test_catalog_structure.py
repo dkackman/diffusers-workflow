@@ -306,8 +306,9 @@ LEGITIMATE_MENTIONS = {
     "workflows/templates/assemble-and-score.json": {"video"},
     # the name of the sub-workflow step that makes the clip
     "workflows/templates/best-of-n-to-video.json": {"video"},
-    # attribute_voices' argument, fed the transcript rather than passed
-    "workflows/templates/attribute-lines.json": {"lines"},
+    # attribute_voices' argument, fed the transcript rather than passed; and
+    # 'segment', a value of 'timestamps' (repair-segment's variable)
+    "workflows/templates/attribute-lines.json": {"lines", "segment"},
     # the argument the composed image-to-video workflow receives
     "workflows/templates/compose-workflows.json": {"image"},
     # a 'result' field, and the point is that this workflow omits it
@@ -329,8 +330,13 @@ LEGITIMATE_MENTIONS = {
     # pair_audio's 'fit' argument and its value 'video', and the per-entry
     # 'num_frames' of a shot
     "workflows/templates/minimax/music-video.json": {"fit", "num_frames", "video"},
-    # fields of the plan's entries, which music-video's shots then take
-    "workflows/templates/minimax/music-video-cuts.json": {"num_frames", "prompt"},
+    # fields of the plan's entries, which music-video's shots then take; and
+    # 'segment', a value of 'timestamps' (repair-segment's variable)
+    "workflows/templates/minimax/music-video-cuts.json": {
+        "num_frames",
+        "prompt",
+        "segment",
+    },
     # the pipeline's 'cache' block it writes inline, not the H3 templates'
     # variable of that name
     "workflows/templates/step-caching.json": {"cache"},
@@ -560,8 +566,11 @@ def test_no_stale_entry_in_the_allowlist():
 # entries, the catalog's only long narration, its text splitter and its
 # multi-section music, with no cost blocks yet. Then to 13_250 (measured
 # 13_236) for `narration-from-takes`: `narration-long` now takes plain text and
-# the take-list template keeps its own entry.
-COMPACT_BUDGET = 13_250
+# the take-list template keeps its own entry. Then to 13_450 (measured
+# 13_432) for `minimax/repair-segment` (#1169, task 14): the catalog's only
+# in-place repair of one chain segment, 25 variables because it carries the
+# chain's own settings by argument.
+COMPACT_BUDGET = 13_450
 FILTERED_BUDGET = 1_500
 
 
