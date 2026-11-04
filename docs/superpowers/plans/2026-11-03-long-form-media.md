@@ -433,7 +433,10 @@ So the spikes test the handoff and the blended refine first, and the anchors las
   - no keystone or capstone yet.
 
   Render S1 and S2 at about 40 s, and compare against the best chain and against Step 4's refined chain. Record feasibility, VRAM, wall time, the handoff's extra cost, and the measures.
-- [ ] **Step 6: The anchors as a second arm.** Only if Step 5 works: add the keystone and the capstone (window 1's finished frame 0 into every window's first slot; window 1's last single-frame latent tacked past each window's end from `capstone_step`), and measure the burn on S1 and S2 at about 40 s and at two minutes.
+- [ ] **Step 6: The anchors as a second arm.** Only if Step 5 works:
+  - **Window 1 must run to full steps first.** Window 1 runs to the LAST step before any other window starts. That is the only way to get clean anchors. Its finished frame 0 (keystone) and its last single-frame latent (capstone) are harvested, then window 1 rewinds to its switch-step state. An anchor taken from a partly denoised window carries noise into every later window. The tip was relayed by Don from the same commenter, and it matches the reference node, which finishes window 1 even when `finished_handoff` is off.
+  - Add the keystone (into every later window's first slot) and the capstone (tacked past each later window's end from `capstone_step`, then cut off).
+  - Measure the burn on S1 and S2 at about 40 s and at two minutes.
 - [ ] **Step 7: Verdicts for #1188 and the windowed refine.** A win becomes a follow-up feature filed at hand-off; a loss or an infeasible spike closes with the record. Record the verdicts in `structural.md` for Don, who answers the #1188 commenter himself.
 - [ ] **Step 8: Commit the record.**
 
