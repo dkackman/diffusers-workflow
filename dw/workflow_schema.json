@@ -372,6 +372,17 @@
                     "required": ["sharpest"],
                     "additionalProperties": false
                 },
+                "look_hold": {
+                    "description": "Hold a long chain's look to its first segment with pixel-domain corrections applied to each later segment's decoded frames before its carry is taken, so the carried keyframe and the stitched video are the corrected frames (any model family; segment 1 is the reference and is left as rendered). 'pickup' grades the segment's opening to the carried frame by quantile LUT and carries the mapping to its last frame; 'creep' eases a rise in contrast or saturation back to segment 1's by the last frame, never brightening or touching a darker or paler shot; 'texture' eases faint texture (not edges) back to segment 1's, by at most half; 'precompensate' divides the carried keyframe's contrast and saturation by the boost measured so far (the running mean of rendered opening over fed keyframe, clamped to 1..1.25). true turns all four on; an object picks. 'pickup' and 'precompensate' work on one carried keyframe, so need continuity 'last_frame' (true alone skips them on a guide or last_segment chain, an explicit true there is refused). Absent or false = off, and the chain is unchanged.",
+                    "type": ["boolean", "object", "string"],
+                    "properties": {
+                        "pickup": {"type": "boolean"},
+                        "creep": {"type": "boolean"},
+                        "texture": {"type": "boolean"},
+                        "precompensate": {"type": "boolean"}
+                    },
+                    "additionalProperties": false
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",

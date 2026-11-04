@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from types import SimpleNamespace
 from unittest.mock import patch
 
+import numpy
 import pytest
 import torch
 from PIL import Image
@@ -1448,3 +1449,77 @@ class TestCarryPick:
             ]
         }
         assert any("carry_pick" in e["message"] for e in anchor_errors(definition))
+
+
+class TestLookHold:
+    """look_hold (#1191): off is today's chain; on, the carry is the corrected
+    frame and the stitched video is made of corrected frames."""
+
+    def output(self, arguments, index):
+        # each segment renders one shade brighter than the last, flat but not
+        # flat enough to skip the grade
+        ramp = [[(40 + 12 * x + 20 * index,) * 3 for x in range(16)]] * 16
+        image = Image.new("RGB", (16, 16))
+        image.putdata([p for row in ramp for p in row])
+        return SimpleNamespace(frames=[[image.copy() for _ in range(4)]])
+
+    def chain(self, **extra):
+        return {"segments": 3, "trim_frames": 0, "fps": 4, **extra}
+
+    def test_look_hold_off_is_todays_chain(self):
+        plain = FakePipeline(self.output)
+        off = FakePipeline(self.output)
+        a = run_chain(plain, self.chain(), {})
+        b = run_chain(off, self.chain(look_hold=False), {})
+        assert [numpy.asarray(f).tolist() for f in a.frames] == [
+            numpy.asarray(f).tolist() for f in b.frames
+        ]
+
+    def test_look_hold_pulls_a_later_segment_onto_the_carried_frame(self):
+        pipeline = FakePipeline(self.output)
+        out = run_chain(pipeline, self.chain(look_hold={"pickup": True}), {})
+        first_last = numpy.asarray(out.frames[3]).astype(int)
+        carried = numpy.asarray(pipeline.calls[1]["image"]).astype(int)
+        # segment 2's opening (frame 1 of it) now sits on the carried tone
+        opening = numpy.asarray(out.frames[5]).astype(int)
+        assert abs(opening.mean() - carried.mean()) < abs(
+            numpy.asarray(self.output({}, 1).frames[0][1]).astype(int).mean()
+            - carried.mean()
+        )
+        assert first_last.shape == opening.shape
+
+    def test_segment_one_is_left_as_rendered(self):
+        out = run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
+        raw = numpy.asarray(self.output({}, 0).frames[0][0])
+        assert (numpy.asarray(out.frames[0]) == raw).all()
+
+    def test_validation_refuses_bad_shapes_and_guide_keyframe_parts(self):
+        from dw.pipeline_processors.h3_rules import chain_look_hold_problem
+
+        assert chain_look_hold_problem({}) is None
+        assert chain_look_hold_problem({"look_hold": True}) is None
+        assert chain_look_hold_problem({"look_hold": {"creep": True}}) is None
+        assert "unknown" in chain_look_hold_problem({"look_hold": {"gloss": True}})
+        assert chain_look_hold_problem({"look_hold": "yes"})
+        assert chain_look_hold_problem({"look_hold": {"creep": 1}})
+        guide = {"continuity": "guide"}
+        assert chain_look_hold_problem({**guide, "look_hold": True}) is None
+        assert chain_look_hold_problem({**guide, "look_hold": {"pickup": True}})
+        with pytest.raises(ValueError, match="look_hold"):
+            ChainConfig(self.chain(look_hold=3), {})
+
+    def test_validate_names_a_bad_look_hold(self):
+        from dw.guides import anchor_errors
+
+        definition = {
+            "steps": [
+                {
+                    "name": "s",
+                    "pipeline": {
+                        "chain": {"segments": 2, "look_hold": "nope"},
+                        "arguments": {},
+                    },
+                }
+            ]
+        }
+        assert any("look_hold" in e["message"] for e in anchor_errors(definition))

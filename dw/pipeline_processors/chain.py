@@ -29,6 +29,7 @@ The chain runs inside one cartesian iteration, so it composes with
 previous_result fan-out: three keyframes in, three chained videos out.
 """
 
+import copy
 import gc
 import logging
 import math
@@ -53,6 +54,7 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     SegmentSpill,
     spilled_frames,
 )
+from .chain_look import LookHold
 from .chain_pick import sharpest_index
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
@@ -74,6 +76,8 @@ from .h3_rules import (
     chain_anchor_problem,
     chain_carry_pick_problem,
     chain_keystone_problem,
+    chain_look_hold_flags,
+    chain_look_hold_problem,
     guide_backoff_problems,
     guide_chain_problems,
 )
@@ -296,6 +300,10 @@ def run_chain(pipeline, chain_definition, arguments):
     audio = None  # joined generated audio, (channels, samples) float32
     audio_rate = None
     carry = None
+    # The corrected frames' look-hold state, and the last carry before any
+    # pre-compensation (what a later segment's opening is graded to)
+    hold = LookHold(config.look_hold) if config.look_hold else None
+    raw_carry = None
     # Segment 1's decoded frames, the latent anchor of every later segment
     # under `anchor: "segment_1"` (#1166) - the same frame objects the output
     # holds, so keeping them costs no copy on an unspilled chain
@@ -336,7 +344,11 @@ def run_chain(pipeline, chain_definition, arguments):
             output = pipeline._run_once(segment_arguments)
             artifact = _single_artifact(output)
 
+            if hold is not None:
+                artifact = _look_held(artifact, hold, raw_carry, segment.index == 0)
             carry = continuity.extract(artifact)
+            if hold is not None and config.continuity == "last_frame":
+                raw_carry, carry = carry, hold.feed(carry)
             segment_frames = frames_as_pil_list(artifact)
             if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
                 anchor_frames = segment_frames
@@ -425,6 +437,19 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.latent_anchor_source = None
 
     return _stitched(config, spill, frames, audio, audio_rate, shots)
+
+
+def _look_held(artifact, hold, raw_carry, first):
+    """The segment with its frames look-corrected (#1191), audio untouched -
+    the corrected frames are what the carry is taken from and what the
+    stitched video is made of."""
+    frames = hold.correct(frames_as_pil_list(artifact), raw_carry, first)
+    if isinstance(artifact, AudioVideo):
+        # A shallow copy with the new frames: audio, rate and shots as they were
+        held = copy.copy(artifact)
+        held.frames = frames
+        return held
+    return frames
 
 
 def _stitched(config, spill, frames, audio, audio_rate, shots):
@@ -613,6 +638,12 @@ class ChainConfig:
             raise ValueError(f"Chain {problem}")
         pick = chain_definition.get("carry_pick")
         self.carry_pick = int(pick["sharpest"]) if pick else 0
+
+        # Pixel corrections on each segment before its carry (#1191)
+        problem = chain_look_hold_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.look_hold = chain_look_hold_flags(chain_definition)
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

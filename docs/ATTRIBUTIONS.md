@@ -154,3 +154,11 @@ harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
 [#1032](https://github.com/dkackman/diffusers-workflow/issues/1032)): picking the
 sharpest of a segment's last frames as the next keyframe rather than always the
 last, and ending the segment there.
+
+Smite79/MiniMax-H3-LongVideos (a custom no-redistribution licence; concepts only,
+no code taken) inspired `look_hold`
+([dw/pipeline_processors/chain_look.py](../dw/pipeline_processors/chain_look.py);
+[#1191](https://github.com/dkackman/diffusers-workflow/issues/1191)): a quantile
+grade of a segment's opening to the carried frame, an ease-out of contrast and
+saturation creep, an ease-out of faint texture, and a keyframe pre-compensated for
+the measured boost.

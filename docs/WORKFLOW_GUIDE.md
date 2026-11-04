@@ -1861,10 +1861,39 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
 | `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` is refused (the plan covers the track up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
+| `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
 | `num_frames` | must exceed P, or the chain cannot progress |
 | `guide_noise` | rides on the step's arguments to every segment, so segments 2+ noise the carried guide (above) |
+
+#### Holding a chain's look in pixels: `look_hold`
+
+`latent_anchor` works inside the H3 latent; `look_hold` works on the decoded frames, so it suits any
+family. Each segment after the first is corrected before its carry is taken, so the
+carried keyframe and the stitched video are the corrected frames (applied once, not
+again to the stitched output). Segment 1 is the reference and is left as rendered.
+`"look_hold": true` turns all four on; an object turns on the ones it names:
+
+- `pickup`: matches the segment's opening (frame 1; frame 0 is the keyframe copy) to
+  the carried frame by a per-channel quantile map on YCbCr, carries the same map to the
+  last frame and blends it per frame. Skipped on a flat frame, and on a jump too large
+  to be drift (a cut).
+- `creep`: when the last frame's contrast or saturation exceeds segment 1's by more
+  than 0.03, scales both down by a factor running from 1 at the first frame to the
+  needed gain at the last. Gains are at most 1: a darker or paler shot is untouched.
+- `texture`: when either end's faint texture (the flat-area detail, not edges)
+  exceeds the roughest of segment 1's first, middle and last frames by more than 0.03,
+  subtracts up to half of it, easing in across the shot.
+- `precompensate`: divides the carried keyframe's contrast and saturation by the
+  boost measured so far (the running mean of the rendered opening's look over the fed
+  keyframe's, each clamped to 1..1.25), so a model that boosts its own keyframe lands
+  back on the look.
+
+`pickup` and `precompensate` act on one carried keyframe, so they need continuity
+`last_frame`; the carried frame of a guide chain is a whole guide clip and is left
+alone. Absent or `false`, the chain is unchanged bit for bit. Concepts from
+Smite79/MiniMax-H3-LongVideos ([ATTRIBUTIONS](ATTRIBUTIONS.md)).
 
 #### Anchoring a chain's colour: `latent_anchor` and `anchor: "segment_1"`
 
