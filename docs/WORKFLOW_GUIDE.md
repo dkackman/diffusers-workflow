@@ -1858,6 +1858,7 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
 | where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
+| `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
 | `num_frames` | must exceed P, or the chain cannot progress |
@@ -2441,6 +2442,7 @@ joined into a single file:
   next as a held frame-0 guide (see *H3: holding a clip with `guides`*, *Chaining with a
   guide*).
 - `guide_frames` — with `guide`, how many frames the guide carries: 22 (default) or 39.
+- `guide_backoff` — with `guide`, a multiple of 17 (default 0): carry the frames that many before each segment's end and drop that tail at assembly. Not with `match_audio`.
 - `anchor` — `none` (default) or `segment_1` (MiniMax-H3 `t2va`/`fl2va`, with
   `last_frame` or `guide` continuity): every segment after the first is rescaled to
   segment 1's per-channel latent statistics before decode, holding the chain's colour

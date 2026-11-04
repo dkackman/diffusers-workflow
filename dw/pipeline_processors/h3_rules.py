@@ -549,6 +549,8 @@ def guide_frame_problem(frame):
 GUIDE_CONTINUITY = "guide"
 GUIDE_CHAIN_FRAMES = (22, 39)
 GUIDE_CHAIN_DEFAULT = 22
+# guide_backoff (#1189) moves the carry back whole 17-frame blocks
+GUIDE_BACKOFF_BLOCK = 17
 # Where a guide chain runs is where `guides` runs (dw/guides.py); the run and
 # validate lead their refusal with this rule
 GUIDE_CHAIN_RULE = (
@@ -669,6 +671,52 @@ def guide_chain_problems(chain):
             )
         )
     return problems
+
+
+def guide_backoff_problems(chain):
+    """[(key, message)] for a chain block's `guide_backoff` (#1189): a whole
+    number of 17-frame blocks, on a guide-continuity chain, planned from a
+    segment count - a `match_audio` plan counts every segment's new frames from
+    its head trim alone. An unresolved reference is left to the run."""
+    if "guide_backoff" not in chain:
+        return []
+    backoff = chain["guide_backoff"]
+    if isinstance(backoff, str) and references.is_ref(references.UNRESOLVED, backoff):
+        return []
+    block = GUIDE_BACKOFF_BLOCK
+    if (
+        isinstance(backoff, bool)
+        or not isinstance(backoff, int)
+        or backoff < 0
+        or backoff % block
+    ):
+        return [
+            (
+                "guide_backoff",
+                f"guide_backoff must be a multiple of {block} frames (whole "
+                f"latent blocks), got {backoff!r}",
+            )
+        ]
+    if backoff == 0:
+        return []
+    if chain.get("continuity", "last_frame") != GUIDE_CONTINUITY:
+        return [
+            (
+                "guide_backoff",
+                "guide_backoff is a guide continuity setting - set continuity "
+                "'guide' or drop guide_backoff",
+            )
+        ]
+    if chain.get("match_audio"):
+        return [
+            (
+                "guide_backoff",
+                "guide_backoff does not combine with match_audio: the plan "
+                "covers the track from each segment's head trim alone, and "
+                "backing off drops more frames per segment - use 'segments'",
+            )
+        ]
+    return []
 
 
 def guide_end_problem(frame, length, num_frames):

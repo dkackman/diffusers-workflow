@@ -921,6 +921,102 @@ class TestGuideContinuity:
         assert result.frames[124].getpixel((0, 0)) == (50, guide_frames, 7)
         assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
 
+    def test_backoff_carries_the_frames_one_block_before_the_end(self):
+        pipeline = FakePipeline(self.output)
+
+        run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        guide = pipeline.calls[1]["guides"][0]
+        got = [frame.getpixel((0, 0)) for frame in guide["video"].frames]
+        assert got == [(0, f, 7) for f in range(85, 107)]
+        samples = frames_to_samples(22, self.FPS, self.RATE)
+        assert guide["video"].audio.shape[-1] == samples
+
+    def test_backoff_trims_every_segment_but_the_last(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        assert len(result.frames) == 124 + 2 * (124 - 22) - 2 * 17
+        # segment 1 ends 17 frames short, the last segment keeps its tail
+        assert result.frames[106].getpixel((0, 0)) == (0, 106, 7)
+        assert result.frames[107].getpixel((0, 0)) == (50, 22, 7)
+        assert result.frames[-1].getpixel((0, 0)) == (100, 123, 7)
+        assert [s["num_frames"] for s in result.shots] == [107, 85, 102]
+        assert [s["start_frame"] for s in result.shots] == [0, 107, 192]
+
+    def test_backoff_slices_the_held_audio_to_the_same_span(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(guide_frames=22, guide_backoff=17),
+            self.arguments(),
+        )
+
+        per_frame = frames_to_samples(1, self.FPS, self.RATE)
+        # the held span is 22 frames of segment 1's audio (value 1.0), taken
+        # before the tail, so it is all segment 1's
+        held = pipeline.calls[1]["guides"][0]["video"].audio
+        assert held.shape[-1] == frames_to_samples(22, self.FPS, self.RATE)
+        assert bool((held == 1.0).all())
+        # picture and track stay the same length
+        total = result.audio.shape[-1]
+        assert abs(
+            total - frames_to_samples(len(result.frames), self.FPS, self.RATE)
+        ) <= (3 * per_frame)
+        assert [s["num_samples"] for s in result.shots][-1] > 0
+
+    def test_backoff_zero_is_todays_chain(self):
+        plain = run_chain(FakePipeline(self.output), self.chain(), self.arguments())
+        zero = run_chain(
+            FakePipeline(self.output), self.chain(guide_backoff=0), self.arguments()
+        )
+
+        assert [f.getpixel((0, 0)) for f in zero.frames] == [
+            f.getpixel((0, 0)) for f in plain.frames
+        ]
+        assert zero.shots == plain.shots
+
+    def test_backoff_must_be_a_multiple_of_17(self):
+        with pytest.raises(ValueError, match="17"):
+            ChainConfig(self.chain(guide_backoff=10), self.arguments())
+
+    def test_backoff_needs_guide_continuity(self):
+        chain = self.chain(guide_backoff=17, continuity="last_frame")
+        with pytest.raises(ValueError, match="guide_backoff"):
+            ChainConfig(chain, self.arguments())
+
+    def test_backoff_is_refused_with_match_audio(self):
+        audio = torch.zeros(1, 2, int(256 / self.FPS * self.RATE))
+        chain = {
+            "match_audio": True,
+            "continuity": "guide",
+            "guide_backoff": 17,
+            "fps": self.FPS,
+            "frame_snap": MINIMAX_SNAP,
+        }
+        arguments = {
+            "num_frames": 124,
+            "references": [FakeAudioReference(audio, self.RATE)],
+        }
+        with pytest.raises(ValueError, match="match_audio"):
+            ChainConfig(chain, arguments)
+
+    def test_backoff_tail_trim_is_on_the_config(self):
+        config = ChainConfig(self.chain(guide_backoff=17), self.arguments())
+
+        assert config.tail_trim == 17
+        assert ChainConfig(self.chain(), self.arguments()).tail_trim == 0
+
     def test_the_guide_is_appended_to_the_segments_own_guides(self):
         pipeline = FakePipeline(self.output)
         own = {"video": "clip.mp4", "frame": 17}

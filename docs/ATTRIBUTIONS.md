@@ -133,3 +133,13 @@ segment's per-channel mean and standard deviation before decode
 [#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
 diagnosis it answers, colour and contrast drifting from segment to segment of
 an H3 chain, was described by Lumifel and by roycho87 (NerdNotes).
+
+### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
+
+A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
+concept was taken, together with seitanism's context hold. It inspired
+`guide_backoff`
+([dw/pipeline_processors/chain.py](../dw/pipeline_processors/chain.py);
+[#1189](https://github.com/dkackman/diffusers-workflow/issues/1189)): handing the
+next segment the frames one block before the end and dropping the previous
+segment's last block at assembly, so the join lands inside the held copy.

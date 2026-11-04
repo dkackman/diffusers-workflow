@@ -69,6 +69,7 @@ from .h3_rules import (
     LATENT_ANCHOR_STRENGTH_INPUT,
     anchor_strength_problem,
     chain_anchor_problem,
+    guide_backoff_problems,
     guide_chain_problems,
 )
 
@@ -164,7 +165,17 @@ class GuideContinuity:
 
     def extract(self, artifact):
         count = self.config.guide_frames
-        frames = frames_as_pil_list(artifact)[-count:]
+        # With backoff the held span ends one block early; the segment's tail
+        # past it is dropped at assembly, so the join lands inside the copy
+        back = self.config.guide_backoff
+        all_frames = frames_as_pil_list(artifact)
+        end = len(all_frames) - back
+        if end < count:
+            raise ValueError(
+                f"A guide chain with guide_backoff {back} needs segments of at "
+                f"least {count + back} frames, and this one made {len(all_frames)}"
+            )
+        frames = all_frames[end - count : end]
         if not self.config.carry_audio:
             return _SegmentCarry(frames, None, None)
 
@@ -180,7 +191,10 @@ class GuideContinuity:
                 "on the chain or a 'frame_rate' pipeline argument"
             )
         samples = frames_to_samples(count, self.config.fps, sample_rate)
-        return _SegmentCarry(frames, audio[:, -samples:], sample_rate)
+        stop = audio.shape[1] - frames_to_samples(back, self.config.fps, sample_rate)
+        return _SegmentCarry(
+            frames, audio[:, max(stop - samples, 0) : stop], sample_rate
+        )
 
     def inject(self, arguments, carry, segment_argument):
         if carry.audio is not None:
@@ -313,6 +327,17 @@ def run_chain(pipeline, chain_definition, arguments):
                 segment_audio = fit_codec_padding(
                     segment_audio, len(segment_frames), config.fps, segment_rate
                 )
+
+            if config.tail_trim and segment.index < len(config.plan) - 1:
+                # The carry is already taken; the tail it backed off from is
+                # replaced by the next segment's fresh take (#1189)
+                segment_frames = segment_frames[: -config.tail_trim]
+                if segment_audio is not None:
+                    segment_audio = segment_audio[
+                        :,
+                        : segment_audio.shape[1]
+                        - frames_to_samples(config.tail_trim, config.fps, segment_rate),
+                    ]
 
             kept_frames = segment_frames[segment.head_trim :]
             start_sample = audio.shape[1] if audio is not None else 0
@@ -548,6 +573,12 @@ class ChainConfig:
         # held soundtrack has nothing to crossfade
         self.guide_frames = None
         self.guide_holds_audio = False
+        # Frames dropped from the tail of every segment but the last (#1189)
+        self.guide_backoff = 0
+        self.tail_trim = 0
+        problems = guide_backoff_problems(chain_definition)
+        if problems:
+            raise ValueError("; ".join(f"Chain {message}" for _, message in problems))
         head_trim = self.trim_frames
         if self.continuity == GUIDE_CONTINUITY:
             problems = guide_chain_problems(chain_definition)
@@ -559,6 +590,8 @@ class ChainConfig:
                 "guide_frames", GUIDE_CHAIN_DEFAULT
             )
             head_trim = self.guide_frames
+            self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
+            self.tail_trim = self.guide_backoff
             if self.carry_audio:
                 self.guide_holds_audio = True
                 self.crossfade_ms = 0.0
@@ -586,10 +619,18 @@ class ChainConfig:
             num_frames = arguments.get("num_frames", None)
             if num_frames is not None:
                 validate_frame_snap(int(num_frames), self.frame_snap)
-                if self.guide_frames is not None and int(num_frames) <= head_trim:
+                if (
+                    self.guide_frames is not None
+                    and int(num_frames) <= head_trim + self.tail_trim
+                ):
                     raise ValueError(
                         f"Segments of {num_frames} frames cannot progress past "
                         f"a {head_trim}-frame guide"
+                        + (
+                            f" and a {self.tail_trim}-frame back-off"
+                            if self.tail_trim
+                            else ""
+                        )
                     )
             self.plan = [
                 Segment(

@@ -340,6 +340,14 @@
                     ],
                     "default": 22
                 },
+                "guide_backoff": {
+                    "description": "'guide' only - frames, a multiple of 17, to back the carry off from the end of each segment: the next segment is guided by the frames that many before the end, and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Not with 'match_audio'. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "default": 0
+                },
                 "anchor": {
                     "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
                     "default": "none"

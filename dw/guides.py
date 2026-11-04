@@ -62,6 +62,7 @@ from .pipeline_processors.h3_rules import (
     anchor_strength_problem,
     RENDER_GRID,
     chain_anchor_problem,
+    guide_backoff_problems,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
@@ -265,6 +266,13 @@ def guide_chain_errors(workflow_definition, source_indices=None):
                 }
             )
             continue
+        for key, message in guide_backoff_problems(chain):
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", key)),
+                    "message": message,
+                }
+            )
         if continuity != GUIDE_CONTINUITY:
             continue
         problem = _takes_guides_problem(pipeline, pipeline.get("arguments"))
