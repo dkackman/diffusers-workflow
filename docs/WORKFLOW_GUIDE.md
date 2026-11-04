@@ -1858,9 +1858,9 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 | `guide_frames` | 22 (default) or 39 - a whole-latent guide length; anything else is refused |
 | where | MiniMax-H3 `t2va` or `fl2va`; refused on `ref2va`, with `references`, or on a non-H3 step - guides stay off ref2va |
 | `carry_frames` | refused - the carry is always the last `guide_frames` frames |
-| `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` |
+| `guide_backoff` | 0 (default) or a multiple of 17: the carry is the `guide_frames` frames that many before the segment's end (audio sliced the same span), and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Frames drop by the back-off per seam (3 x 124 at P = 22 and 17 is 294). Needs `num_frames` above P + back-off. Refused off `guide` continuity and with `match_audio` or `duration_seconds` |
 | `keystone` | `none` (default) or `segment_1`: on `fl2va`, every later segment's keyframe is segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain. The guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Refused on `last_frame` (there the keyframe is the only carry), and any other value is refused naming the two |
-| `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` is refused (the plan covers the track up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
+| `carry_pick` | `{"sharpest": N}`, N from 1 to 8, with `last_frame` continuity on any model family: the next segment's keyframe is the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma, ties to the latest) instead of the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame so motion continues from it (the last segment keeps its tail), and the job log names the pick per seam. Absent = the last frame; other continuities or other values are refused naming the allowed ones; `match_audio` and `duration_seconds` are refused (the plan covers the length up front and the pick drops frames per seam, so the video would fall short - use `segments`); and when `num_frames` is known N must be less than `num_frames` minus `trim_frames`, or the pick could empty a segment |
 | `look_hold` | `true` or `{"pickup", "creep", "texture", "precompensate"}` booleans, any model family: pixel corrections on each later segment's frames before its carry is taken (below). On a guide chain `pickup` and `precompensate` do not apply (the carried guide is a whole clip, left alone); an explicit `true` for either there is refused, and `true` alone runs `creep` and `texture` only |
 | `trim_frames` | ignored (the trim is P), with a note in the job log |
 | `crossfade_ms` | ignored when `carry_audio` is true: the guide held the audio, so the seam is joined with only a declick |
@@ -2461,8 +2461,18 @@ joined into a single file:
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
   the soundtrack has no seams at all. Requires
-  `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`
-  or `match_audio` must be given.
+  `num_frames` (the per-segment length) and a frame rate. Exactly one of `segments`,
+  `match_audio` or `duration_seconds` must be given.
+- `duration_seconds` — instead of a count, ask for the chain by its length: the plan
+  covers `round(duration_seconds * fps)` frames (the same planner `match_audio` uses,
+  so the last segment shrinks to what remains, snapped by `frame_snap`), and the
+  stitched video and its generated audio are both trimmed to exactly that length, shot
+  records included. Needs `num_frames` in the step's arguments and a frame rate (chain
+  `fps` or a `frame_rate` argument). Refused with `guide_backoff` and `carry_pick`,
+  which drop frames the up-front plan cannot count. A cost estimate scales by the
+  segment count it implies. In the chained templates it is a variable defaulting to
+  null (a null variable drops the key): set `duration_seconds` and set `segments` to
+  null; with both set the chain is refused.
 - `continuity` — how continuity carries across segments. `last_frame` (the default)
   extracts each segment's last frame and passes it to the next segment - single-frame
   conditioning, which carries pose and colour. `last_segment` carries the previous

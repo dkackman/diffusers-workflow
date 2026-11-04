@@ -675,12 +675,12 @@ def chain_carry_pick_problem(chain, num_frames=None):
             f"carry_pick needs continuity 'last_frame' - the other modes carry "
             f"more than one frame; got {continuity!r}"
         )
-    if chain.get("match_audio"):
+    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
         return (
-            "carry_pick does not combine with match_audio: the plan covers the "
-            "track up front and the pick drops up to "
+            "carry_pick does not combine with match_audio or duration_seconds: "
+            "the plan covers the length up front and the pick drops up to "
             f"{CARRY_PICK_MAX - 1} more frames per seam, leaving the video "
-            "shorter than the track - use 'segments'"
+            "shorter than asked - use 'segments'"
         )
     trim = chain.get("trim_frames", 1)
     if (
@@ -779,7 +779,7 @@ def guide_chain_problems(chain):
 def guide_backoff_problems(chain):
     """[(key, message)] for a chain block's `guide_backoff` (#1189): a whole
     number of 17-frame blocks, on a guide-continuity chain, planned from a
-    segment count - a `match_audio` plan counts every segment's new frames from
+    segment count - a `match_audio` or `duration_seconds` plan counts every segment's new frames from
     its head trim alone. An unresolved reference is left to the run."""
     if "guide_backoff" not in chain:
         return []
@@ -810,13 +810,14 @@ def guide_backoff_problems(chain):
                 "'guide' or drop guide_backoff",
             )
         ]
-    if chain.get("match_audio"):
+    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
         return [
             (
                 "guide_backoff",
-                "guide_backoff does not combine with match_audio: the plan "
-                "covers the track from each segment's head trim alone, and "
-                "backing off drops more frames per segment - use 'segments'",
+                "guide_backoff does not combine with match_audio or "
+                "duration_seconds: the plan covers the length from each "
+                "segment's head trim alone, and backing off drops more frames "
+                "per segment - use 'segments'",
             )
         ]
     return []

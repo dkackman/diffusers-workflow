@@ -299,7 +299,7 @@
             ]
         },
         "chain": {
-            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with exactly one of 'segments' or 'match_audio'.",
+            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with exactly one of 'segments', 'match_audio' or 'duration_seconds'.",
             "type": "object",
             "properties": {
                 "segments": {
@@ -309,6 +309,15 @@
                         "string"
                     ],
                     "minimum": 1
+                },
+                "duration_seconds": {
+                    "description": "Ask for the chain by its length: the segment count and the last segment's frame snap are derived from this many seconds at the chain's frame rate, and the stitched video and its generated audio are trimmed to exactly this length. Needs 'num_frames' in the step's arguments and a frame rate ('fps' on the chain or a 'frame_rate' argument). Not with 'guide_backoff' or 'carry_pick', which drop frames the up-front plan cannot count. Given beside 'segments', exactly one of the two must resolve to a value: a variable left null counts as absent, so a template can offer both. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string",
+                        "null"
+                    ],
+                    "exclusiveMinimum": 0
                 },
                 "match_audio": {
                     "description": "Derive the segment count from the duration of this step's hold_audio track, or else its one audio reference, slicing it into frame-aligned per-segment chunks (each segment's hold_audio, or its audio reference); the final video is muxed with the original, unsliced audio track.",
@@ -341,7 +350,7 @@
                     "default": 22
                 },
                 "guide_backoff": {
-                    "description": "'guide' only - frames, a multiple of 17, to back the carry off from the end of each segment: the next segment is guided by the frames that many before the end, and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Not with 'match_audio'. Accepts a 'variable:' reference.",
+                    "description": "'guide' only - frames, a multiple of 17, to back the carry off from the end of each segment: the next segment is guided by the frames that many before the end, and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Not with 'match_audio' or 'duration_seconds'. Accepts a 'variable:' reference.",
                     "type": [
                         "integer",
                         "string"
@@ -485,7 +494,7 @@
                     "default": false
                 }
             },
-            "oneOf": [
+            "anyOf": [
                 {
                     "required": [
                         "segments"
@@ -495,8 +504,29 @@
                     "required": [
                         "match_audio"
                     ]
+                },
+                {
+                    "required": [
+                        "duration_seconds"
+                    ]
                 }
             ],
+            "not": {
+                "anyOf": [
+                    {
+                        "required": [
+                            "segments",
+                            "match_audio"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "duration_seconds",
+                            "match_audio"
+                        ]
+                    }
+                ]
+            },
             "additionalProperties": false
         },
         "pipeline": {

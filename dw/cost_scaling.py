@@ -19,6 +19,8 @@ declaration, and the defaults its own `variables`.
 import json
 import math
 
+from . import references
+
 # The basis an estimate quotes its minutes on
 UNKNOWN = "unknown"
 CATALOG = "catalog"
@@ -216,6 +218,45 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
     return factor, f"frames {_shown(now)} vs {_shown(was)} over {name}"
 
 
+# The declared drivers that set how many segments a chain runs; the count
+# itself is the chain's own to tell (`chain_segment_count`), so a figure
+# measured per segment scales by it
+CHAIN_LENGTH_DRIVERS = ("segments", "duration_seconds")
+
+
+def _resolved(value, variables):
+    """`value` with a `variable:` reference read from `variables`."""
+    name = references.ref_name(references.VARIABLE, value)
+    return variables.get(name) if name is not None else value
+
+
+def _chain_blocks(node):
+    """Every (chain block, arguments) pair under `node`: a dict holding a
+    `chain` beside its `arguments`."""
+    if isinstance(node, dict):
+        if isinstance(node.get("chain"), dict):
+            yield node["chain"], node.get("arguments") or {}
+        for value in node.values():
+            yield from _chain_blocks(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _chain_blocks(value)
+
+
+def _chain_segments(definition, variables):
+    """The segments the workflow's chain runs at `variables`, or None when
+    there is no single chain or its count cannot be told."""
+    from .pipeline_processors.chain import chain_segment_count
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return None
+    chain, arguments = blocks[0]
+    chain = {key: _resolved(value, variables) for key, value in chain.items()}
+    arguments = {key: _resolved(value, variables) for key, value in arguments.items()}
+    return chain_segment_count(chain, arguments)
+
+
 def _driver_scaling(definition, expanded, list_entries):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -235,8 +276,12 @@ def _driver_scaling(definition, expanded, list_entries):
     at_default = {}
     running = {}
     unscaled = []
+    chain_drivers = []
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
+        if name in CHAIN_LENGTH_DRIVERS:
+            chain_drivers.append(name)
+            continue
         if isinstance(default_value, list):
             frames = _list_frames_scaling(
                 name, default_value, effective.get(name), list_entries
@@ -259,7 +304,22 @@ def _driver_scaling(definition, expanded, list_entries):
     scaled = scale_curated(factor, at_default, running)
     if scaled is None:
         return None
-    return scaled[0], scaled[1] + axes, unscaled
+    factor, scaled_axes = scaled
+    scaled_axes = scaled_axes + axes
+    if chain_drivers:
+        was = _chain_segments(definition, defaults)
+        now = _chain_segments(definition, effective)
+        if was and now:
+            if was != now:
+                factor *= now / was
+                scaled_axes.append(f"segments {now} vs {was}")
+        elif any(
+            _driver_comparable(effective.get(name))
+            != _driver_comparable(defaults.get(name))
+            for name in chain_drivers
+        ):
+            unscaled.extend(chain_drivers)
+    return factor, scaled_axes, unscaled
 
 
 def _scaled(price, scaling):

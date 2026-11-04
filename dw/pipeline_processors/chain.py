@@ -16,8 +16,10 @@ Three ways to carry continuity:
   and trimmed off it again, so the next segment continues the motion itself.
   MiniMax-H3 t2va and fl2va only: guides stay off ref2va
 
-Two ways to specify the length:
+Three ways to specify the length:
 - segments: N - run the pipeline N times as configured
+- duration_seconds: S - plan the segments that cover S seconds at the chain's
+  frame rate, then trim the picture and the generated audio to exactly S
 - match_audio: true - derive the total frame count from the step's
   `hold_audio` track, or else its one audio reference, slice that audio into
   frame-aligned per-segment chunks, and mux the final video with the original,
@@ -472,7 +474,19 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
             shots=_trimmed_shots(shots, config.total_frames),
         )
 
-    if audio is None:
+    if config.duration_seconds is not None:
+        # The plan overshoots by design; the picture and the generated audio
+        # are cut to the asked length together
+        if spill is None:
+            frames = frames[: config.total_frames]
+        if audio is not None:
+            audio = audio[
+                :, : frames_to_samples(config.total_frames, config.fps, audio_rate)
+            ]
+        shots = _trimmed_shots(
+            shots, config.total_frames, audio.shape[1] if audio is not None else None
+        )
+    elif audio is None:
         shots = without_samples(shots)
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
 
@@ -572,19 +586,24 @@ def _check_guide_chain(pipeline, arguments, chain_definition, config):
         )
 
 
-def _trimmed_shots(shots, total_frames):
-    """A match_audio chain's shots, cut where its overshooting picture is.
+def _trimmed_shots(shots, total_frames, total_samples=None):
+    """A length-planned chain's shots, cut where its overshooting picture is.
 
-    The soundtrack is the caller's own, laid under whole rather than built
-    segment by segment, so no shot has a stretch of it to measure: the sample
-    side is cleared, not derived.
+    A match_audio soundtrack is the caller's own, laid under whole rather than
+    built segment by segment, so no shot has a stretch of it to measure: the
+    sample side is cleared, not derived. A duration_seconds chain's generated
+    audio is cut to `total_samples`, and each shot's stretch of it with it.
     """
     trimmed = []
-    for shot in without_samples(shots):
+    for shot in shots if total_samples is not None else without_samples(shots):
         if shot["start_frame"] >= total_frames:
             break
         end = min(shot["start_frame"] + shot["num_frames"], total_frames)
-        trimmed.append({**shot, "num_frames": end - shot["start_frame"]})
+        cut = {**shot, "num_frames": end - shot["start_frame"]}
+        if total_samples is not None:
+            start = min(shot["start_sample"], total_samples)
+            cut["num_samples"] = min(shot["num_samples"], total_samples - start)
+        trimmed.append(cut)
     return trimmed
 
 
@@ -596,8 +615,12 @@ class ChainConfig:
     ):
         segments = chain_definition.get("segments", None)
         match_audio = bool(chain_definition.get("match_audio", False))
-        if (segments is not None) == match_audio:
-            raise ValueError("A chain needs exactly one of 'segments' or 'match_audio'")
+        duration = chain_definition.get("duration_seconds", None)
+        if (segments is not None) + match_audio + (duration is not None) != 1:
+            raise ValueError(
+                "A chain needs exactly one of 'segments', 'match_audio' or "
+                "'duration_seconds'"
+            )
 
         self.continuity = chain_definition.get("continuity", "last_frame")
         if self.continuity not in CONTINUITY_MODES:
@@ -694,9 +717,16 @@ class ChainConfig:
         self.audio_reference = None
         self.holds_audio = False
         self.total_frames = None
+        self.duration_seconds = float(duration) if duration is not None else None
 
         if match_audio:
             self._plan_from_audio(arguments, base_dir)
+        elif duration is not None:
+            self.total_frames, self.plan = _duration_plan(chain_definition, arguments)
+            logger.info(
+                f"Chaining to {float(duration):g}s: {self.total_frames} frames "
+                f"across {len(self.plan)} segments"
+            )
         else:
             segments = int(segments)
             if not 1 <= segments <= MAX_SEGMENTS:
@@ -769,6 +799,66 @@ class ChainConfig:
             f"Chaining to match {duration:.2f}s of audio: {self.total_frames} "
             f"frames across {len(self.plan)} segments"
         )
+
+
+def _head_trim(chain_definition):
+    """Head frames each segment after the first drops: the guide a `guide`
+    chain laid in, else `trim_frames`."""
+    if chain_definition.get("continuity", "last_frame") == GUIDE_CONTINUITY:
+        return int(chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT))
+    return int(chain_definition.get("trim_frames", 1))
+
+
+def _duration_plan(chain_definition, arguments):
+    """(total_frames, plan) for a `duration_seconds` chain - the same plan a
+    `match_audio` chain makes from a track, from the asked length instead."""
+    duration = float(chain_definition["duration_seconds"])
+    if not math.isfinite(duration) or duration <= 0:
+        raise ValueError(
+            f"Chain 'duration_seconds' must be greater than 0, got {duration:g}"
+        )
+    fps = _resolve_fps(chain_definition, arguments)
+    if fps is None:
+        raise ValueError(
+            "A duration_seconds chain needs the frame rate - set 'fps' on the "
+            "chain or a 'frame_rate' pipeline argument"
+        )
+    num_frames = arguments.get("num_frames", None)
+    if num_frames is None:
+        raise ValueError(
+            "A duration_seconds chain needs 'num_frames' in the step's arguments "
+            "as the per-segment length"
+        )
+    total_frames = max(1, round(duration * fps))
+    plan = plan_segments(
+        total_frames,
+        int(num_frames),
+        _head_trim(chain_definition),
+        chain_definition.get("frame_snap", None),
+    )
+    return total_frames, plan
+
+
+def chain_segment_count(chain_definition, arguments):
+    """How many segments a chain block runs, or None when it cannot be told
+    from the block and the step's arguments alone (`match_audio`, an
+    unresolved reference, a missing frame rate or `num_frames`, or both
+    `segments` and `duration_seconds` given). Pure: the run's `ChainConfig`
+    and the cost estimate both ask it."""
+    segments = chain_definition.get("segments", None)
+    duration = chain_definition.get("duration_seconds", None)
+    if chain_definition.get("match_audio") or (segments is None) == (duration is None):
+        return None
+    try:
+        if segments is not None:
+            return int(segments)
+        frame_snap = chain_definition.get("frame_snap", None)
+        definition = {**chain_definition}
+        if not isinstance(frame_snap, dict):
+            definition.pop("frame_snap", None)
+        return len(_duration_plan(definition, arguments)[1])
+    except (TypeError, ValueError):
+        return None
 
 
 def plan_segments(total_frames, segment_frames, trim_frames, frame_snap=None):
