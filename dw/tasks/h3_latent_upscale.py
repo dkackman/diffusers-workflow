@@ -389,6 +389,34 @@ def _load_decoder(device, model_name):
     return cached_model(("decode_h3_latents", model_name, str(device)), load_decoder)
 
 
+def decoded_frame_count(num_latents, clip_length=17, token_drop=3, temporal_ratio=4):
+    """How many frames `AutoencoderKLMiniMaxH3._decode` returns for
+    `num_latents` latent frames - for any count, not only the 5m + 2 grid.
+
+    `_decode` re-adds `token_drop` tokens, pads them up to whole chunks of
+    `ceil(clip_length / ratio)` tokens, decodes all but the last chunk (each
+    gives `clip_length` frames) plus the final overlap of
+    `token_overlap * ratio - frame_pre_padding` frames, and cuts back the
+    pixel frames the padded tokens produced. tests/test_h3_latent_encode.py
+    drives the real `_decode` with a stub clip decoder and pins this to it."""
+    chunk = math.ceil(clip_length / temporal_ratio)
+    pre_padding = (-clip_length) % temporal_ratio
+    overlap_tokens = (-token_drop) % chunk
+    tokens = num_latents + token_drop
+    pad = (-tokens) % chunk
+    chunks = (tokens + pad) // chunk - int(token_drop > 0)
+    if chunks < 1:
+        return 0
+    frames = chunks * (chunk * temporal_ratio - pre_padding)
+    if token_drop > 0:
+        frames += max(overlap_tokens * temporal_ratio - pre_padding, 0)
+    intra_tail = clip_length % temporal_ratio
+    for k in range(pad):
+        at_end = intra_tail and (num_latents + k) % chunk == 0
+        frames -= intra_tail if at_end else temporal_ratio
+    return frames
+
+
 def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
     """Decode MiniMax-H3 video latents into frames.
 
@@ -425,8 +453,7 @@ def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
         )
     num_frames = whole_number(num_frames, "num_frames", "decode_h3_latents")
     if num_frames is not None:
-        # The 5m + 2 latent grid decodes to 17m + 5 frames
-        decodable = 17 * ((latents.shape[2] - 2) // 5) + 5
+        decodable = decoded_frame_count(latents.shape[2])
         if num_frames > decodable:
             raise ValueError(
                 f"decode_h3_latents: num_frames {num_frames} is more than the "

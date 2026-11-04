@@ -314,6 +314,97 @@ def test_the_decode_checks_its_count_before_decoding(monkeypatch):
         decode_h3_latents(latents, num_frames=40)
 
 
+@pytest.mark.parametrize("count", range(3, 80))
+def test_decoded_frame_count_equals_the_real_decode(monkeypatch, count):
+    from dw.tasks.h3_latent_upscale import decoded_frame_count
+
+    vae = tiny_vae()
+    ratio = vae.temporal_compression_ratio
+
+    def stub(z):
+        return torch.zeros(1, 3, z.shape[2] * ratio, 1, 1)
+
+    monkeypatch.setattr(vae, "_decode_clip", stub)
+    z = torch.zeros(1, 24, count, 1, 1)
+    assert decoded_frame_count(count) == vae._decode(z).shape[2]
+
+
+def test_a_valid_count_on_a_non_grid_latent_is_accepted(monkeypatch):
+    from PIL import Image
+
+    class FakePipeline:
+        _execution_device = torch.device("cpu")
+
+        def __call__(self, **kwargs):
+            return [[Image.new("RGB", (16, 16))] * 26]
+
+    monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: FakePipeline())
+    latents = torch.randn(1, 24, 8, 2, 4)  # 8 latents decode to 26 frames
+    assert len(decode_h3_latents(latents, num_frames=24).frames) == 24
+
+
+# 3c. The bound paths
+
+
+def test_no_usable_duration_still_applies_the_frame_cap(monkeypatch, tmp_path):
+    path = _fake_header(monkeypatch, tmp_path, hlu.MAX_TAKE_FRAMES + 1, seconds=None)
+    with pytest.raises(ValueError, match="longest take"):
+        encode_h3_latents(path)
+
+
+@pytest.mark.parametrize("fps", [0, None])
+def test_a_zero_or_missing_fps_skips_the_duration_check_but_keeps_the_cap(fps):
+    from dw.tasks.h3_latent_upscale import bounded_take_frames
+
+    assert bounded_take_frames(500, "x.mp4", fps) == 500
+    with pytest.raises(ValueError, match="longest take"):
+        bounded_take_frames(hlu.MAX_TAKE_FRAMES + 1, "x.mp4", fps)
+
+
+def test_the_retry_recount_is_bounded_too(monkeypatch, tmp_path):
+    from dw.tasks.h3_latent_upscale import ShortFrameRange
+
+    path = _fake_header(monkeypatch, tmp_path, 100, seconds=None)
+    monkeypatch.setattr(
+        hlu,
+        "_take_reader",
+        lambda s: (None, 100, 24.0, path, (64, 64)),
+    )
+    monkeypatch.setattr(hlu, "_load_decoder", lambda d, n: SimpleNamespaceVae())
+    calls = []
+
+    def enc(*a, **k):
+        calls.append(1)
+        raise ShortFrameRange("x", 0, 1, 0)
+
+    monkeypatch.setattr(hlu, "encode_take", enc)
+    monkeypatch.setattr(hlu, "count_video_frames", lambda p: hlu.MAX_TAKE_FRAMES + 1)
+    with pytest.raises(ValueError, match="longest take"):
+        encode_h3_latents(path)
+    assert len(calls) == 1
+
+
+class SimpleNamespaceVae:
+    vae = pixel_mean = pixel_std = keyframe_encode_seed = None
+    _execution_device = torch.device("cpu")
+
+
+def test_an_in_memory_take_over_the_cap_is_refused_before_allocation(monkeypatch):
+    def no_alloc(*a, **k):
+        raise AssertionError("allocated")
+
+    monkeypatch.setattr(hlu, "_load_decoder", no_alloc)
+    monkeypatch.setattr(torch, "empty", no_alloc)
+    monkeypatch.setattr(hlu, "encode_take", no_alloc)
+    monkeypatch.setattr(
+        hlu,
+        "_take_reader",
+        lambda s: (None, hlu.MAX_TAKE_FRAMES + 1, 24.0, None, (64, 64)),
+    )
+    with pytest.raises(ValueError, match="longest take"):
+        encode_h3_latents(object())
+
+
 # 5. Registration
 
 
