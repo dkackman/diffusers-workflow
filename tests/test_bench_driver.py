@@ -116,3 +116,37 @@ def test_run_arms_writes_each_record_as_it_lands(monkeypatch, tmp_path):
     saved = json.loads(out.read_text())
     assert [r["arm"] for r in saved] == ["a", "b"]
     assert "poll died" in saved[1]["error"] and records == saved
+
+
+def test_load_arms_reads_optional_suffix_and_moments(tmp_path):
+    path = tmp_path / "arms.json"
+    path.write_text(json.dumps([{"name": "a", "scene": "s", "workflow": "w.json", "seed": 7,
+                                 "workflow_id_suffix": "-noise-b", "moments": ["frame:1"]}]))
+    (arm,) = driver.load_arms(str(path))
+    assert arm.workflow_id_suffix == "-noise-b" and arm.moments == ["frame:1"]
+
+
+def test_submit_suffixes_the_workflow_id(monkeypatch, tmp_path):
+    seen = {}
+    monkeypatch.setattr(driver, "http", lambda m, p, s, t, payload=None, params=None:
+                        seen.update(payload=payload) or {"id": "j"})
+    monkeypatch.setattr(driver, "HERE", tmp_path)
+    (tmp_path / "workflows").mkdir()
+    (tmp_path / "workflows" / "w.json").write_text('{"id": "Wf", "steps": []}')
+    arm = driver.Arm("a", "s", "w.json", {}, 1, workflow_id_suffix="-noise-b")
+    driver.submit(arm, "http://h", "tok")
+    assert seen["payload"]["workflow"]["id"] == "Wf-noise-b"
+
+
+def test_measure_uses_the_arm_moments_override(monkeypatch):
+    calls = []
+
+    def fake(method, path, server, token, payload=None, params=None):
+        calls.append(payload)
+        return {"seams": []} if path.endswith("/assess") else {"texture": []}
+
+    monkeypatch.setattr(driver, "http", fake)
+    scene = driver.Scene("s", [0, 0, 8, 8], ["frame:1", "frame:2"])
+    job = {"id": "j", "manifest": [{"files": ["o.mp4"], "subfolder": "final"}]}
+    driver.measure(job, scene, "http://h", "tok", moments=["frame:9"])
+    assert calls[-1]["at"] == ["frame:9"]

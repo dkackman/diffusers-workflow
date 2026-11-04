@@ -32,6 +32,8 @@ class Arm:
     workflow: str  # path under bench/workflows/
     arguments: dict
     seed: int
+    workflow_id_suffix: str = ""  # distinct inline id forces a step-cache miss
+    moments: list | None = None  # overrides the scene's moments for this arm
 
 
 @dataclass
@@ -53,6 +55,8 @@ def load_arms(path):
             workflow=a["workflow"],
             arguments=a.get("arguments") or {},
             seed=a["seed"],
+            workflow_id_suffix=a.get("workflow_id_suffix", ""),
+            moments=a.get("moments"),
         )
         for a in data
     ]
@@ -99,6 +103,8 @@ def health(server, token):
 
 def submit(arm, server, token, workspace=None):
     workflow = json.loads((HERE / "workflows" / arm.workflow).read_text())
+    if arm.workflow_id_suffix:
+        workflow["id"] = workflow.get("id", Path(arm.workflow).stem) + arm.workflow_id_suffix
     payload = {
         "workflow": workflow,
         "arguments": {**arm.arguments, "seed": arm.seed},
@@ -149,7 +155,7 @@ def _stats(out, values, name_mean, name_max):
         out[name_max] = max(values)
 
 
-def measure(job, scene, server, token, workspace=None):
+def measure(job, scene, server, token, workspace=None, moments=None):
     name = output_name(job)
     params = {"probe": "analyze_seams"}
     if workspace:
@@ -169,7 +175,7 @@ def measure(job, scene, server, token, workspace=None):
         "names": [name],
         "max_dimension": 384,
         "max_total_bytes": MAX_COMPARE_BYTES,
-        "at": scene.moments,
+        "at": moments or scene.moments,
         "crop": scene.crop,
         "texture_bands": True,
     }
@@ -211,7 +217,7 @@ def run_arms(arms, scenes, server, token, do_measure, timeout_s, workspace=None,
             if job.get("status") == "succeeded":
                 record["output"] = output_name(job)
                 if do_measure:
-                    record["measures"] = measure(job, scenes[arm.scene], server, token, workspace)
+                    record["measures"] = measure(job, scenes[arm.scene], server, token, workspace, arm.moments)
         except Exception as exc:  # one arm's failure must not lose the others
             record.setdefault("status", "error")
             record["error"] = f"{type(exc).__name__}: {exc}"

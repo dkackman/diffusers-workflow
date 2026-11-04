@@ -1,0 +1,92 @@
+[
+  {
+    "name": "noise-a-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  },
+  {
+    "name": "noise-a-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  },
+  {
+    "name": "noise-a-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  },
+  {
+    "name": "noise-a-s4",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s4",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  },
+  {
+    "name": "noise-a-s5",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s5",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  },
+  {
+    "name": "noise-a-s6",
+    "scene": "s6-narration",
+    "workflow": "s6-narration.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "noise-b-s6",
+    "scene": "s6-narration",
+    "workflow": "s6-narration.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-noise-b"
+  }
+]
