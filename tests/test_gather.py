@@ -106,18 +106,23 @@ class TestGatherImages:
 
         assert "No images found" in str(exc_info.value)
 
-    def test_gather_images_local_path_in_urls(self, tmp_path):
+    def test_gather_images_local_path_in_urls(self, tmp_path, monkeypatch):
         """A urls entry that is a local path - what an 'asset:' or 'output:'
         reference resolves to - loads from disk rather than going to the
         URL fetcher, the way gather_videos already treats its urls."""
         path = tmp_path / "monarch.png"
         Image.new("RGB", (40, 30)).save(path)
 
-        with patch("dw.tasks.gather.safe_get") as mock_fetch:
-            images = gather_images(urls=[str(path)])
+        import dw.tasks.gather as gather_module
+
+        fetched = []
+        monkeypatch.setattr(
+            gather_module, "safe_get", lambda *a, **k: fetched.append(a)
+        )
+        images = gather_images(urls=[str(path)])
 
         assert [img.size for img in images] == [(40, 30)]
-        mock_fetch.assert_not_called()
+        assert fetched == []
 
     def test_gather_images_asset_reference_in_urls(self, tmp_path, monkeypatch):
         """'urls': ['asset:uploads/monarch.png'] realizes to the asset's path

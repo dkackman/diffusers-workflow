@@ -957,36 +957,43 @@ def validate_workflow(
         answer["checked_arguments"] = sorted(request.arguments)
     answer["plan"] = admission.plan
     if answer["plan"]:
-        # What host RAM this run is projected to hold at its peak, and
-        # from what (#869); no key when there is no figure
-        host_memory = host_memory_block(admission.host_ram_need)
-        if host_memory:
-            answer["plan"]["host_memory"] = host_memory
-        # cached_steps is 0 both when nothing hit and when the probe ran
-        # against the wrong workspace's output root (#184) - echoing
-        # what it was actually probed against turns the second case
-        # from a silent miss into something a caller can read. By name:
-        # the output root's absolute path told a caller nothing more, and
-        # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
-        answer["plan"]["workspace"] = workspace.name
-        answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
-        # A model_name the hub says does not exist fails the run at that
-        # step, so it fails validation here, where it costs nothing
-        missing = missing_repo_errors(answer["plan"]["downloads_required"])
-        if missing:
-            answer["valid"] = False
-            answer["errors"] = missing
-            answer["error"] = format_validation_errors(missing)
-        answer["warnings"] += _inherited_cost_warnings(answer["plan"]["estimate"])
-        if catalog_name:
-            answer["warnings"] += _host_memory_warnings(
-                state,
-                catalog_name,
-                admission.workflow.workflow_definition,
-                answer["plan"]["list_entries"],
-                workspace=workspace.name if source.writable else None,
-            )
+        _annotate_plan(state, answer, admission, workspace, source, catalog_name)
     return answer
+
+
+def _annotate_plan(state, answer, admission, workspace, source, catalog_name):
+    """Fill a valid answer's plan: host memory, the workspace probed, the
+    download gate, a model the hub says does not exist (which makes the
+    answer invalid), inherited cost and host-memory warnings."""
+    # What host RAM this run is projected to hold at its peak, and
+    # from what (#869); no key when there is no figure
+    host_memory = host_memory_block(admission.host_ram_need)
+    if host_memory:
+        answer["plan"]["host_memory"] = host_memory
+    # cached_steps is 0 both when nothing hit and when the probe ran
+    # against the wrong workspace's output root (#184) - echoing
+    # what it was actually probed against turns the second case
+    # from a silent miss into something a caller can read. By name:
+    # the output root's absolute path told a caller nothing more, and
+    # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
+    answer["plan"]["workspace"] = workspace.name
+    answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
+    # A model_name the hub says does not exist fails the run at that
+    # step, so it fails validation here, where it costs nothing
+    missing = missing_repo_errors(answer["plan"]["downloads_required"])
+    if missing:
+        answer["valid"] = False
+        answer["errors"] = missing
+        answer["error"] = format_validation_errors(missing)
+    answer["warnings"] += _inherited_cost_warnings(answer["plan"]["estimate"])
+    if catalog_name:
+        answer["warnings"] += _host_memory_warnings(
+            state,
+            catalog_name,
+            admission.workflow.workflow_definition,
+            answer["plan"]["list_entries"],
+            workspace=workspace.name if source.writable else None,
+        )
 
 
 def _inherited_cost_warnings(estimate):

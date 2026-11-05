@@ -251,7 +251,10 @@ test('validation flags a signature typo through the real server', async ({
   page,
 }) => {
   test.setTimeout(90_000)
-  // through the same origin the UI uses - schema-valid, signature-wrong
+  // through the same origin the UI uses - schema-valid, signature-wrong.
+  // sizes=false keeps the hub out of it: 'x' is no model repo, and a
+  // validate that asks the hub refuses it (not_found), which is not what
+  // this test is about
   const broken = {
     id: 'typo_check',
     steps: [
@@ -265,7 +268,7 @@ test('validation flags a signature typo through the real server', async ({
       },
     ],
   }
-  const response = await page.request.post('/api/validate', {
+  const response = await page.request.post('/api/validate?sizes=false', {
     data: { workflow: broken },
     timeout: 60_000,
   })
