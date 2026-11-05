@@ -15,7 +15,9 @@ loss), `counters-round2-long.json` (2 two-minute takes) and
 takes at eight moments, with every seam). All 16 succeeded. The results and
 the **summary table Tasks 15 and 20 build from** are at the end, under
 [Round 2 results](#round-2-results) and [Defaults by shot
-type](#defaults-by-shot-type).
+type](#defaults-by-shot-type). Every verdict was re-scored on 2026-11-05
+under ruling R35 (same-seed reruns are not noise-free, and segment-1 drift
+labels): see [Re-scored under R35](#re-scored-under-r35-2026-11-05).
 
 ## How the verdicts are read
 
@@ -596,3 +598,356 @@ as" (the recommendation) unless Don overrules it in `for-don.md`.
 | static, longer than about 30 s | Cut it into shots of about 30 s or less. The chain gets no counter beyond the static row. | two-minute takes `8d1614ced27a` (control), `107859a31bc1` (anchor 0.5) | **Settled:** no counter set tested gives a usable two-minute static take (the control burns, anchor 0.5 dissolves the face). This is the drift gap that opens the design's second group. |
 | **moving camera** (arc, dolly; S2) | `continuity: guide`, no counters. Never `last_frame` with `look_hold` or `carry_pick`. | guide controls `dedd341c9108`, `01146e925c94`; every round-1 S2 arm; look_hold motion loss `242358078691`, `a3d6a044fd6b` | **Settled.** Every guide counter loses seam look; both last_frame counters hold the camera back, on both seeds for look_hold. |
 | **dialogue walk** (speaking subject in motion; S3) | `continuity: guide`, no counters. | guide controls `c0b92d0d0cd4`, `64b4a78c74a2`; every round-1 S3 arm | **Settled.** Every counter is inside S3's wide floor or loses, and none looks better. |
+
+## Re-scored under R35 (2026-11-05)
+
+Everything above is kept as it was written. This section re-reads every
+round-1 and round-2 verdict under ruling R35, which supersedes R26:
+
+- **The floor.** Same-seed reruns are not noise-free. The floor is
+  `combined_floor(seed floor, rerun_gap(pairs))` (`bench/verdict.py`): the
+  larger, per measure, of the two-seed floor above and the same-seed rerun
+  gap of the 8 round-2 combination pairs that two drivers both ran. A read
+  across continuities takes the larger of the two continuities' floors. For
+  the rerun gap and the floors per scene, see `noise-floor.md`, *Correction
+  (2026-11-05, ruling R35)*. On every scene the seam floors are now jump
+  0.124 (S3 0.332), look 0.438, look max 0.790, and level step 6.2 dB mean
+  and 8.8 dB max. The S1 guide fine-texture floor stays 0.081.
+- **The labels.** `bench/segment1.py` hashes segment 1 of each record's
+  output (decoded video frames 0-59 and AAC frames 0-129) and labels it
+  `clean` (the canonical fingerprint for its scene and seed) or `drifted`.
+  The canonical entries are in `bench/records/segment1-canonical.json`,
+  taken from cold-loaded jobs where one exists (S1 and S2 at seed 1166, S1
+  at seed 2), and otherwise from the agreeing majority. The fingerprints
+  are in `bench/records/segment1-fingerprints.json`. They were taken on lem,
+  read-only, with lem's ffmpeg 7.0.2. The video halves match the
+  nondeterminism report's (`d59a1259`, `ed5094c1`). The audio halves differ
+  from the report's because a Mac ffmpeg decodes AAC differently.
+- **Confounded.** A row is confounded when its two sides open on different
+  segment-1 outputs: one drifted and one clean, or two different
+  alternates. Under R35 a confounded verdict is re-scored, and re-run only
+  if the re-score flips it.
+- **Marks.**
+  - *unchanged*: the same verdict in both columns, with every measure on
+    the same side of the floor.
+  - *weakened*: the same verdict, but some measure that was past the floor
+    is now inside it.
+  - **flipped**: the verdict changes in either column (all measures, or
+    picture only).
+
+  A flip of a row is not always a flip of the call that row fed. The calls
+  are under [Calls under R35](#calls-under-r35).
+
+### Segment-1 labels (rounds 1 and 2)
+
+`batch 1` is the first, overwritten driver run of the round-2 combinations
+(`counters-round2-combos-batch1.json`), measured again for the rerun gap.
+
+| arm | job | key | segment 1 | label |
+|---|---|---|---|---|
+| ctl-guide-s1-s1166 | `b40e855eb553` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| ctl-guide-s1-s2 | `894911aed6c7` | s1-static@2 | `f47df963/f88334a9` | clean |
+| ctl-lastframe-s1-s1166 | `3a73cb0f5d28` | s1-static@1166 | `56e0831e/ac39b399` | drifted |
+| ctl-lastframe-s1-s2 | `f053abe1ce5f` | s1-static@2 | `4302cf65/03cb1fa0` | drifted |
+| ctl-guide-s2-s1166 | `dedd341c9108` | s2-arc@1166 | `ed5094c1/0a819c94` | clean |
+| ctl-guide-s2-s2 | `01146e925c94` | s2-arc@2 | `14a80618/b4d1d486` | clean |
+| ctl-lastframe-s2-s1166 | `b235c35b72c1` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| ctl-lastframe-s2-s2 | `765fc66286bd` | s2-arc@2 | `130afe0c/f90613fc` | drifted |
+| ctl-guide-s3-s1166 | `c0b92d0d0cd4` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| ctl-guide-s3-s2 | `64b4a78c74a2` | s3-dialogue-walk@2 | `31765efa/48363338` | clean |
+| r1-anchor25-s1 | `0a40c41af97c` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r1-anchor50-s1 | `fa17a2c51e33` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r1-anchor75-s1 | `f17bce198a2d` | s1-static@1166 | `56e0831e/ac39b399` | drifted |
+| r1-backoff17-s1 | `c594521e59d1` | s1-static@1166 | `fe993ff4/fb5cdcbf` | drifted |
+| r1-keystone-s1 | `1e1b6116ce26` | s1-static@1166 | `fe993ff4/fb5cdcbf` | drifted |
+| r1-lookhold-s1 | `751b43732fb9` | s1-static@1166 | `fe993ff4/fb5cdcbf` | drifted |
+| r1-antiburn-s1 | `049d652e1648` | s1-static@1166+lora | `a76a366c/ff5c4416` | clean |
+| r1-lf-carrypick-s1 | `ae932366ea0e` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r1-lf-lookhold-s1 | `be3f574df3db` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r1-anchor25-s2 | `4350da6ac745` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-anchor50-s2 | `3408f7cf9fa9` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-anchor75-s2 | `6fb052f46229` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-backoff17-s2 | `ea394296a02d` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-keystone-s2 | `f774bdbcc1cc` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-lookhold-s2 | `64dc87a2ed3a` | s2-arc@1166 | `57cbd211/a1d44644` | drifted |
+| r1-antiburn-s2 | `9124d417577d` | s2-arc@1166+lora | `c7b4068d/33f00579` | clean |
+| r1-lf-carrypick-s2 | `9713480482bc` | s2-arc@1166 | `e6e70a03/0a819c94` | drifted |
+| r1-lf-lookhold-s2 | `242358078691` | s2-arc@1166 | `ed5094c1/0a819c94` | clean |
+| r1-anchor25-s3 | `7c1aa8f8b38d` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-anchor50-s3 | `fef6b9aea7c9` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-anchor75-s3 | `fbf286d9f192` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-backoff17-s3 | `5873332b54fc` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-keystone-s3 | `a2bd5e2545db` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-lookhold-s3 | `a9a134a9acf8` | s3-dialogue-walk@1166 | `289012f1/d21b04b0` | clean |
+| r1-antiburn-s3 | `c50ec5961418` | s3-dialogue-walk@1166+lora | `bfcb3f23/949a7e65` | clean |
+| ctl-guide-s1-s1166-rerun | `fd34bc937628` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r2-anchor25-s1-seed2 | `93dd359dc11e` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-anchor50-s1-seed2 | `075ed6de83f7` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-keystone-s1-seed2 | `ab59d503fd4d` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-lf-lookhold-s1-seed2 | `b7ca6da7d075` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-lf-lookhold-s2-seed2 | `a3d6a044fd6b` | s2-arc@2 | `6fbb63c2/f6555387` | drifted |
+| r2-anchor25-keystone-s1-s1166 | `8accd0c37f91` | s1-static@1166 | `abd3dabc/d5900069` | drifted |
+| r2-anchor50-keystone-s1-s1166 | `e5c7b013538f` | s1-static@1166 | `cd167eee/d5900069` | drifted |
+| r2-lf-lookhold-anchor25-s1-s1166 | `835379468ec3` | s1-static@1166 | `cd167eee/d5900069` | drifted |
+| r2-lf-lookhold-anchor50-s1-s1166 | `d8b17df7dfb9` | s1-static@1166 | `df2c8907/6b31365e` | drifted |
+| r2-anchor25-keystone-s1-s2 | `e34a5aebaab4` | s1-static@2 | `40991534/43283722` | drifted |
+| r2-anchor50-keystone-s1-s2 | `08e32162985c` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-lf-lookhold-anchor25-s1-s2 | `41355297a083` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-lf-lookhold-anchor50-s1-s2 | `c8bfadf286ce` | s1-static@2 | `f47df963/f88334a9` | clean |
+| r2-anchor25-keystone-s1-s1166 | `7c1c1fb14c8c` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r2-anchor50-keystone-s1-s1166 | `9331f354cc4b` | s1-static@1166 | `abd3dabc/d5900069` | drifted |
+| r2-lf-lookhold-anchor25-s1-s1166 | `8010fb212bb3` | s1-static@1166 | `abd3dabc/d5900069` | drifted |
+| r2-lf-lookhold-anchor50-s1-s1166 | `a58834fed81a` | s1-static@1166 | `abd3dabc/d5900069` | drifted |
+| r2-anchor25-keystone-s1-s2 | `36c91319afbc` | s1-static@2 | `86544f72/4c5a2d39` | drifted |
+| r2-anchor50-keystone-s1-s2 | `5a60b829547e` | s1-static@2 | `86544f72/4c5a2d39` | drifted |
+| r2-lf-lookhold-anchor25-s1-s2 | `2059d7bcf69b` | s1-static@2 | `86544f72/4c5a2d39` | drifted |
+| r2-lf-lookhold-anchor50-s1-s2 | `daa36f09dc3f` | s1-static@2 | `86544f72/4c5a2d39` | drifted |
+| ctl-guide-s1-120s | `8d1614ced27a` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r2-anchor50-s1-120s | `107859a31bc1` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+
+Summary:
+
+- **S1, seed 1166.** Clean: the guide control and its rerun, anchor 0.25,
+  anchor 0.5, both lf arms, both 120 s takes, and batch 1's anchor
+  0.25 + keystone. Drifted:
+  - anchor 0.75 and the last_frame control (`56e0831e`);
+  - backoff, keystone and guide look_hold (`fe993ff4`);
+  - all four recorded combinations, and three of batch 1's
+    (`abd3dabc`, `cd167eee`, `df2c8907`).
+- **S1, seed 2.** Clean: the guide control, all four round-2 confirms, and
+  the three combinations run after the reboot. Drifted: the last_frame
+  control (`4302cf65`), anchor 0.25 + keystone (`40991534`), and all four
+  of batch 1's (`86544f72`).
+- **S2, seed 1166.** Clean: the guide control, last_frame + look_hold, and
+  the anti-burn LoRA run. Drifted: the last_frame control and **all six
+  round-1 guide arms**, which share `57cbd211`; last_frame + carry_pick
+  (`e6e70a03`).
+- **S2, seed 2.** Clean: the guide control. Drifted: the last_frame control
+  (`130afe0c`) and the round-2 last_frame + look_hold diagnostic
+  (`6fbb63c2`).
+- **S3.** Every round-1 record is clean.
+- **Anti-burn LoRA arms.** Each is a cold load, labelled against its own
+  `+lora` entry (the LoRA changes segment 1 by design).
+
+### Verdicts re-scored
+
+Every row of the round-1 tables, the continuity table, the seed-2
+confirmation table and the combinations table, plus the round-2 S2
+diagnostic and batch 1's clean anchor 0.25 + keystone (the only clean
+seed-1166 combination). The primary measures are those in *How the
+verdicts are read*. Italic names in the last two columns are measures
+where the arm is better.
+
+| round | arm | against | segment 1 (arm / against) | verdict before | verdict under R35 | mark | now inside the floor | past the floor under R35 (worse; _better_) |
+|---|---|---|---|---|---|---|---|---|
+| 1 | r1-anchor25-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: wins | **flipped** | jump, jump max, level, level max, _look_, _look max_ | -; _tex fine_, _tex mid_ |
+| 1 | r1-anchor50-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | jump max, level, level max, _look_, _look max_ | jump, tex coarse; _tex fine_, _tex mid_ |
+| 1 | r1-anchor75-s1 | ctl-guide-s1-s1166 | drifted `56e0831e` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | look, level max | jump, jump max, look max, level, tex coarse; _tex fine_, _tex mid_ |
+| 1 | r1-backoff17-s1 | ctl-guide-s1-s1166 | drifted `fe993ff4` / clean (**confounded**) | tex fine: mixed | tex fine: tie | **flipped** | look max, level, level max | -; - |
+| 1 | r1-keystone-s1 | ctl-guide-s1-s1166 | drifted `fe993ff4` / clean (**confounded**) | tex fine: mixed | tex fine: mixed (pic wins) | **flipped** | jump max, level max, _look max_ | level; _tex fine_, _tex mid_ |
+| 1 | r1-lookhold-s1 | ctl-guide-s1-s1166 | drifted `fe993ff4` / clean (**confounded**) | tex fine: mixed | tex fine: tie | **flipped** | jump max, level, level max, _look_, _tex coarse_ | -; - |
+| 1 | r1-antiburn-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump max_, _level max_ | look, look max, tex coarse; _jump_, _tex fine_, _tex mid_ |
+| 1 | r1-lf-carrypick-s1 | ctl-lastframe-s1-s1166 | clean / drifted `56e0831e` (**confounded**) | tex fine: mixed (pic wins) | tex fine: tie | **flipped** | level, level max, _jump_, _jump max_, _look max_, _tex fine_, _tex coarse_ | -; - |
+| 1 | r1-lf-lookhold-s1 | ctl-lastframe-s1-s1166 | clean / drifted `56e0831e` (**confounded**) | tex fine: mixed (pic wins) | tex fine: wins | **flipped** | level, _jump max_, _level max_, _tex coarse_ | -; _jump_, _look_, _look max_, _tex fine_ |
+| 1 | r1-anchor25-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: mixed | look: loses / jump: mixed | unchanged | - | look, look max; _jump_, _jump max_, _tex fine_, _tex mid_ |
+| 1 | r1-anchor50-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: loses | look: loses / jump: loses | weakened | jump max | jump, look, look max; - |
+| 1 | r1-anchor75-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: loses | look: loses / jump: loses | unchanged | - | jump, jump max, look, look max; _tex fine_ |
+| 1 | r1-backoff17-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: mixed | look: mixed / jump: mixed | **flipped** | look | look max; - |
+| 1 | r1-keystone-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: mixed | look: tie / jump: tie | **flipped** | look, look max | -; - |
+| 1 | r1-lookhold-s2 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: loses / jump: mixed | look: mixed / jump: mixed | **flipped** | look | look max; - |
+| 1 | r1-antiburn-s2 | ctl-guide-s2-s1166 | clean / clean | look: loses / jump: mixed | look: tie / jump: tie | **flipped** | look, look max, _jump_, _jump max_ | -; - |
+| 1 | r1-lf-carrypick-s2 | ctl-lastframe-s2-s1166 | drifted `e6e70a03` / drifted `57cbd211` (**confounded**) | look: mixed / jump: loses | look: tie / jump: tie | **flipped** | jump, _look_, _look max_ | -; _tex fine_, _tex mid_, _tex coarse_ |
+| 1 | r1-lf-lookhold-s2 | ctl-lastframe-s2-s1166 | clean / drifted `57cbd211` (**confounded**) | look: wins / jump: tie | look: wins / jump: tie | unchanged | - | -; _look_, _look max_, _tex fine_, _tex mid_, _tex coarse_ |
+| 1 | r1-anchor25-s3 | ctl-guide-s3-s1166 | clean / clean | jump: mixed / look: mixed / tex fine: mixed | jump: mixed / look: mixed / tex fine: mixed | weakened | jump max, look max | tex coarse; - |
+| 1 | r1-anchor50-s3 | ctl-guide-s3-s1166 | clean / clean | jump: mixed / look: mixed / tex fine: mixed | jump: mixed / look: mixed / tex fine: mixed | weakened | jump max, look max, level | tex coarse; - |
+| 1 | r1-anchor75-s3 | ctl-guide-s3-s1166 | clean / clean | jump: mixed / look: loses / tex fine: mixed | jump: mixed / look: loses / tex fine: mixed | unchanged | - | jump max, look, look max, tex coarse; - |
+| 1 | r1-backoff17-s3 | ctl-guide-s3-s1166 | clean / clean | jump: mixed / look: mixed / tex fine: loses | jump: mixed / look: mixed / tex fine: loses | weakened | jump max, level | tex fine, tex mid; _tex coarse_ |
+| 1 | r1-keystone-s3 | ctl-guide-s3-s1166 | clean / clean | jump: mixed / look: mixed / tex fine: mixed | jump: tie / look: tie / tex fine: tie | **flipped** | jump max, look max, level | -; - |
+| 1 | r1-lookhold-s3 | ctl-guide-s3-s1166 | clean / clean | jump: tie / look: tie / tex fine: tie | jump: tie / look: tie / tex fine: tie | weakened | _look max_ | -; - |
+| 1 | r1-antiburn-s3 | ctl-guide-s3-s1166 | clean / clean | jump: loses / look: mixed / tex fine: loses | jump: loses / look: mixed / tex fine: loses | weakened | look max, level | jump, jump max, tex fine, tex mid, tex coarse; - |
+| 1 | ctl-lastframe-s1-s1166 | ctl-guide-s1-s1166 | drifted `56e0831e` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | jump max, _look_, _look max_, _level_, _level max_ | jump, tex mid; - |
+| 1 | ctl-lastframe-s2-s1166 | ctl-guide-s2-s1166 | drifted `57cbd211` / clean (**confounded**) | look: mixed / jump: mixed | look: mixed / jump: mixed | weakened | level, _jump_, _jump max_ | tex mid, tex coarse; - |
+| 1 | r1-lf-carrypick-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | jump max, _look_, _look max_, _level max_ | jump, tex mid; _tex coarse_ |
+| 1 | r1-lf-lookhold-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump_, _jump max_, _level_ | tex mid; _look_, _look max_, _level max_, _tex coarse_ |
+| 1 | r1-lf-carrypick-s2 | ctl-guide-s2-s1166 | drifted `e6e70a03` / clean (**confounded**) | look: wins / jump: tie | look: tie / jump: tie | **flipped** | _jump max_, _look_, _look max_ | -; _tex fine_ |
+| 1 | r1-lf-lookhold-s2 | ctl-guide-s2-s1166 | clean / clean | look: wins / jump: tie | look: wins / jump: tie | weakened | _jump max_ | -; _look_, _look max_, _tex fine_, _tex mid_ |
+| 2 | r1-anchor25-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: wins | **flipped** | jump, jump max, level max, _look_, _look max_ | -; _tex fine_, _tex mid_ |
+| 2 | r2-anchor25-s1-seed2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _look max_ | tex coarse; _tex fine_ |
+| 2 | r1-anchor50-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | jump max, level max, _look_, _look max_ | jump, tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor50-s1-seed2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | jump, jump max, _look max_ | tex coarse; _tex fine_ |
+| 2 | r1-keystone-s1 | ctl-guide-s1-s1166 | drifted `fe993ff4` / clean (**confounded**) | tex fine: mixed | tex fine: mixed (pic wins) | **flipped** | jump max, level max, _look max_ | level; _tex fine_, _tex mid_ |
+| 2 | r2-keystone-s1-seed2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: tie | **flipped** | look max | -; - |
+| 2 | r1-lf-lookhold-s1 | ctl-lastframe-s1-s1166 | clean / drifted `56e0831e` (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump max_ | -; _jump_, _look_, _look max_, _tex fine_ |
+| 2 | r2-lf-lookhold-s1-seed2 | ctl-lastframe-s1-s2 | clean / drifted `4302cf65` (**confounded**) | tex fine: wins | tex fine: tie | **flipped** | _jump max_, _look max_, _tex fine_ | -; _jump_, _look_ |
+| 2 | r1-lf-lookhold-s1 | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump_, _jump max_ | tex mid; _look_, _look max_, _level max_, _tex coarse_ |
+| 2 | r2-lf-lookhold-s1-seed2 | ctl-guide-s1-s2 | clean / clean | tex fine: loses | tex fine: loses | weakened | jump max | tex fine, tex mid; _look_, _look max_, _level max_ |
+| 2 | r2-anchor25-keystone-s1-s1166 | ctl-guide-s1-s1166 | drifted `abd3dabc` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | jump max, _look_, _look max_ | tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor25-keystone-s1-s1166 | r1-anchor25-s1 | drifted `abd3dabc` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | _look max_, _level max_ | tex coarse; - |
+| 2 | r2-anchor25-keystone-s1-s2 | ctl-guide-s1-s2 | drifted `40991534` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | jump max, level max, _look max_ | level, tex coarse; _tex fine_ |
+| 2 | r2-anchor25-keystone-s1-s2 | r2-anchor25-s1-seed2 | drifted `40991534` / clean (**confounded**) | tex fine: mixed | tex fine: mixed (pic tie) | **flipped** | jump max | level max; - |
+| 2 | r2-anchor50-keystone-s1-s1166 | ctl-guide-s1-s1166 | drifted `cd167eee` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | look max | jump, jump max, look, tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor50-keystone-s1-s1166 | r1-anchor50-s1 | drifted `cd167eee` / clean (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | jump max, _level max_ | jump, look, look max, tex coarse; _level_ |
+| 2 | r2-anchor50-keystone-s1-s2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | look, look max, level max | jump, jump max, tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor50-keystone-s1-s2 | r2-anchor50-s1-seed2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | level max | jump, jump max, look, look max, tex coarse; - |
+| 2 | r2-lf-lookhold-anchor25-s1-s1166 | ctl-lastframe-s1-s1166 | drifted `cd167eee` / drifted `56e0831e` (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump max_ | -; _jump_, _look_, _look max_, _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s1166 | ctl-guide-s1-s1166 | drifted `cd167eee` / clean (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump_, _level max_ | -; _look_, _look max_, _tex fine_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s1166 | r1-anchor25-s1 | drifted `cd167eee` / clean (**confounded**) | tex fine: tie | tex fine: tie | weakened | _jump max_ | -; _jump_, _look_, _look max_, _level_, _level max_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s1166 | r1-lf-lookhold-s1 | drifted `cd167eee` / clean (**confounded**) | tex fine: mixed | tex fine: wins | **flipped** | jump max, _look max_ | -; _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s2 | ctl-lastframe-s1-s2 | clean / drifted `4302cf65` (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump max_ | -; _jump_, _look_, _look max_, _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump max_ | tex mid; _look_, _look max_, _level max_, _tex fine_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s2 | r2-anchor25-s1-seed2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump_, _jump max_, _look_ | tex mid; _look max_, _level_, _level max_, _tex coarse_ |
+| 2 | r2-lf-lookhold-anchor25-s1-s2 | r2-lf-lookhold-s1-seed2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump_, _jump max_, _look max_ | tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s1166 | ctl-lastframe-s1-s1166 | drifted `df2c8907` / drifted `56e0831e` (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump max_, _look max_ | -; _jump_, _look_, _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s1166 | ctl-guide-s1-s1166 | drifted `df2c8907` / clean (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump_ | -; _look_, _look max_, _level max_, _tex fine_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s1166 | r1-anchor50-s1 | drifted `df2c8907` / clean (**confounded**) | tex fine: wins | tex fine: wins | weakened | _jump max_, _look max_ | -; _jump_, _level_, _level max_, _tex fine_, _tex coarse_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s1166 | r1-lf-lookhold-s1 | drifted `df2c8907` / clean (**confounded**) | tex fine: mixed | tex fine: wins | **flipped** | jump max, look max, _jump_ | -; _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s2 | ctl-lastframe-s1-s2 | clean / drifted `4302cf65` (**confounded**) | tex fine: mixed | tex fine: mixed | weakened | _jump max_, _look max_ | tex coarse; _jump_, _look_, _tex fine_, _tex mid_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s2 | ctl-guide-s1-s2 | clean / clean | tex fine: mixed | tex fine: mixed | unchanged | - | tex mid, tex coarse; _look_, _look max_, _level max_, _tex fine_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s2 | r2-anchor50-s1-seed2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | _jump max_, _look_, _look max_ | tex mid, tex coarse; _jump_, _level max_ |
+| 2 | r2-lf-lookhold-anchor50-s1-s2 | r2-lf-lookhold-s1-seed2 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | look max, _jump_, _jump max_, _level max_ | tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor25-keystone-s1-s1166, batch 1 (`7c1c1fb14c8c`) | ctl-guide-s1-s1166 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | look max | jump, jump max, tex coarse; _tex fine_, _tex mid_ |
+| 2 | r2-anchor25-keystone-s1-s1166, batch 1 (`7c1c1fb14c8c`) | r1-anchor25-s1 | clean / clean | tex fine: mixed | tex fine: mixed | weakened | jump, look, look max, _level max_ | jump max, tex coarse; _level_, _tex fine_ |
+| 2 | r2-lf-lookhold-s2-seed2 | ctl-lastframe-s2-s2 | drifted `6fbb63c2` / drifted `130afe0c` (**confounded**) | look: wins / jump: tie | look: wins / jump: tie | unchanged | - | -; _look_, _look max_, _tex fine_, _tex mid_, _tex coarse_ |
+
+Count: 68 rows. 6 unchanged, 42 weakened, 20 flipped. 15 of the flips are
+on confounded rows. The 5 clean flips (anchor 0.25 on both readings, and
+keystone at S3, at S1 seed 2, and anti-burn at S2) are final under the
+floor: a same-seed rerun cannot settle them.
+
+### Calls under R35
+
+- **S2 has no candidate: weakened, not flipped.** No S2 arm wins a primary
+  under R35, so there is still no candidate. What changes is the reason.
+  - Anchor 0.25, 0.5 and 0.75 still lose seam look by 0.75-2.2, past the
+    0.438 floor.
+  - Backoff and guide look_hold move from *loses* to *mixed*. Their
+    seam-look means are inside the floor, and only look max is worse past
+    it (2.61 and 2.97 against 1.74, floor 0.79).
+  - Keystone moves to *tie* on both primaries.
+  - Anti-burn is clean on both sides and also ties on the numbers; by eye
+    it is broken.
+
+  So "every guide counter loses seam look" holds for the anchor only. All
+  six guide arms ran in one drifted worker state (`57cbd211`) against a
+  clean control, but no flip makes any of them a win, and the eye notes
+  saw no improvement. No rerun is needed for the call. The guide and
+  last_frame S2 settings in *Defaults by shot type* stand.
+- **Round-1 S1 anchor 0.75: unchanged call (not carried), weakened row.**
+  This row is confounded: the arm opens on `56e0831e` and the control is
+  clean. It is still *mixed*, with jump, jump max, look max, level and
+  coarse texture worse past the floor. Only the seam-look cost is now inside
+  it. Identity drift by eye stands. No rerun.
+- **Round-1 S1 backoff 17: unchanged call (cut).** The row flips from *mixed*
+  to *tie* (confounded, `fe993ff4`). The costs fall inside the floor, but
+  the texture gain is still inside it too (0.462 against 0.536, floor
+  0.081). S3 is clean and still loses texture (0.337 against 0.067, floor
+  0.226). On S2 the row moves from *loses* to *mixed*. Backoff wins nowhere.
+- **Round-1 S1 keystone: unchanged call (cut).** The 1166 row flips on
+  picture only, from *mixed* to *wins* (confounded, `fe993ff4`), because its
+  jump max cost is now inside the floor. The cut rested on seed 2, and seed
+  2 is clean on both sides and now a plain *tie* (0.448 against 0.455).
+  A winner must hold on both seeds, so the call does not move. S3 (clean)
+  is now *tie* on every primary, and S2 is *tie* as well.
+  - **Keystone with anchor 0.25: weakened.** Batch 1's clean 1166 run
+    (`7c1c1fb14c8c`) reads better than the recorded drifted one. Its
+    texture beats anchor 0.25 alone by 0.084, past the 0.081 floor by
+    0.003, but jump max and coarse texture are worse past the floor
+    (*mixed*). Its seam look is 1.53, about the control's 1.46, not the 1.09
+    the drifted record showed. So "keystone adds nothing to anchor 0.25"
+    becomes "a texture gain at the edge of the floor, paid for in seams".
+    The cut stands.
+- **Round-1 S1 guide look_hold: unchanged call (cut).** The row flips from
+  *mixed* to *tie* (confounded). On S2 it moves from *loses* to *mixed* on
+  look max, and on S3 it is still a tie.
+- **The last_frame controls: all four are drifted.** S1 at 1166 is
+  `56e0831e`, S1 at seed 2 is `4302cf65`, S2 at 1166 is `57cbd211`, and S2
+  at seed 2 is `130afe0c`. Every row read against one is confounded:
+  - **last_frame + look_hold, S1, against its own control: undetermined.**
+    At 1166 the row goes from *mixed* to *wins*, because the level cost is
+    now inside the floor. At seed 2 it goes from *wins* to *tie*: texture
+    is 0.550 against 0.605, inside the new 0.068 floor. So the claim "a
+    strict win against the last_frame control on both seeds" no longer
+    holds as measured, and only clean controls can settle it. The call in
+    *Defaults by shot type* (a knob, not the default) does not rest on this
+    claim. It rests on the reads against guide, which are clean and
+    unchanged (*mixed* at 1166 on mid texture, *loses* at seed 2), and on
+    the S2 motion loss by eye. **The call stands.**
+  - **last_frame + carry_pick, S1: flipped toward the cut.** It goes from
+    *mixed* (picture *wins*) to *tie*. The cut stands.
+  - **Continuity, last_frame against guide (the controls): unchanged.** On
+    S1, last_frame's seam-look and level advantages are now inside the
+    floor. It is still worse past the floor on jump and mid texture. On S2,
+    its jump advantage is now inside the floor, and its mid and coarse
+    texture costs remain. last_frame is still not better than guide as the
+    default.
+  - **S2 last_frame arms.** carry_pick flips to *tie* on both primaries.
+    look_hold is unchanged (*wins* look), and so is the seed-2 diagnostic.
+    Both were rejected by eye for holding the camera back, and that stands.
+  - **The lf + look_hold + anchor set: unchanged against guide.** It beats
+    the guide control on texture and seam look on all four runs. Against
+    look_hold alone, both 1166 rows (confounded) flip from *mixed* to
+    *wins*, while seed 2 (clean) is still *mixed*. It stays Don's call and
+    not the default.
+- **Anchor 0.25 (the static default): strengthened.** Both sides are clean
+  on both seeds. At 1166 the row flips from *mixed* to a strict *wins*: the
+  jump cost (0.928 against 0.854) is inside the 0.124 floor. At seed 2 the
+  row is still *mixed*, on coarse texture only (0.031 against 0.008, floor
+  0.010).
+- **Anchor 0.5: weakened.** The seed-2 jump cost (0.904 against 0.796) is
+  now inside the floor, so the jump cost repeats at 1166 only. Coarse
+  texture is still worse past the floor on both seeds. The recommendation
+  of 0.25 over 0.5 still stands on three points:
+  - the face dissolves at two minutes (clean, `107859a31bc1`);
+  - 0.5's texture lead over 0.25 at seed 2 is inside the floor;
+  - the coarse-texture cost.
+- **Anti-burn LoRA: unchanged call (cut).** On S2 it flips to *tie* (both
+  sides clean). It still loses S3 (clean), and by eye it blurs every scene.
+- **S3: unchanged (no counters).** Every record is clean. Keystone moves
+  from *mixed* to *tie*, and nothing wins.
+- **Two-minute takes: unchanged.** Both are clean (`d59a1259`) and are read
+  against each other.
+- **The level-step question: nearly moot.** With a 6.2/8.8 dB floor, only
+  two re-scored rows still differ between the all-measures and the
+  picture-only column:
+  - r1-keystone-s1 (level 14.6 against 7.7 dB);
+  - anchor 0.25 + keystone at seed 2 against anchor 0.25 alone (level
+    max).
+
+  Neither decides a call, so the recommendation to read S1 and S2 on
+  picture changes nothing.
+
+### Reruns
+
+**Minimum set: 2 runs.** These are the only call that is undetermined
+(last_frame + look_hold against its own control) and the only control
+reads R35 cannot score:
+
+1. `ctl-lastframe-s1-s1166` (`bench/arms/counters-controls.json`)
+2. `ctl-lastframe-s1-s2`
+
+How to run them:
+- Give each a fresh `workflow_id_suffix` (for example `-r35`) so the step
+  cache cannot serve it.
+- Run each as the first job after a model load (a fresh bench server, or a
+  canary control just before), and confirm `clean` with `bench/segment1.py`
+  before reading it.
+- They take about 9 minutes each, plus about 2 minutes of load.
+
+These two runs re-score, against a clean control, every row now read
+against a drifted one:
+- r1-lf-lookhold-s1 and r2-lf-lookhold-s1-seed2 (the undetermined claim);
+- r1-lf-carrypick-s1;
+- the four lf combinations against the last_frame control;
+- the S1 continuity row.
+
+**Not needed for any call** (a confounded row flipped, but the call it fed
+is decided elsewhere):
+- r1-keystone-s1 (picture *wins*; the cut rests on the clean seed-2 tie);
+- r1-backoff17-s1 and r1-lookhold-s1 (to *tie*; cut);
+- r1-backoff17-s2, r1-keystone-s2 and r1-lookhold-s2 (no S2 win either
+  way);
+- r1-lf-carrypick-s2 and the S2 last_frame controls (rejected by eye);
+- r2-anchor25-keystone-s1-s2 (picture *tie* against anchor alone; cut).
+
+A clean rerun of r1-keystone-s1 is the cheapest to add (one run) if the
+seed-1166 keystone row should read clean as well.

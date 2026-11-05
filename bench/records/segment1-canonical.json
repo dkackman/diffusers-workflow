@@ -1,0 +1,47 @@
+{
+  "s1-static@1166": {
+    "fingerprint": "d59a1259/b2c2c63e",
+    "source": "cold load",
+    "jobs": ["0a40c41af97c", "ae932366ea0e", "fd34bc937628"]
+  },
+  "s1-static@2": {
+    "fingerprint": "f47df963/f88334a9",
+    "source": "cold load",
+    "jobs": ["08e32162985c"]
+  },
+  "s2-arc@1166": {
+    "fingerprint": "ed5094c1/0a819c94",
+    "source": "cold load",
+    "jobs": ["dedd341c9108", "242358078691"]
+  },
+  "s2-arc@2": {
+    "fingerprint": "14a80618/b4d1d486",
+    "source": "consensus, no cold load recorded: two workers agree",
+    "jobs": ["911cf038e1d1", "01146e925c94"]
+  },
+  "s3-dialogue-walk@1166": {
+    "fingerprint": "289012f1/d21b04b0",
+    "source": "consensus, no cold load recorded: 8 of 9 runs agree",
+    "jobs": ["3c76d1966485", "c0b92d0d0cd4"]
+  },
+  "s3-dialogue-walk@2": {
+    "fingerprint": "31765efa/48363338",
+    "source": "consensus, no cold load recorded: two runs agree",
+    "jobs": ["f93a17539b2a", "64b4a78c74a2"]
+  },
+  "s1-static@1166+lora": {
+    "fingerprint": "a76a366c/ff5c4416",
+    "source": "cold load (a LoRA change reloads the pipeline); one run",
+    "jobs": ["049d652e1648"]
+  },
+  "s2-arc@1166+lora": {
+    "fingerprint": "c7b4068d/33f00579",
+    "source": "cold load (a LoRA change reloads the pipeline); one run",
+    "jobs": ["9124d417577d"]
+  },
+  "s3-dialogue-walk@1166+lora": {
+    "fingerprint": "bfcb3f23/949a7e65",
+    "source": "cold load (a LoRA change reloads the pipeline); one run",
+    "jobs": ["c50ec5961418"]
+  }
+}

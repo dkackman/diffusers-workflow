@@ -8,9 +8,80 @@ for a measure is the absolute difference of the two runs (`bench/verdict.py`
 `bench/records/cheap-checks.json` (6 runs). Every measure is lower-is-better;
 `texture_*_seg_last` is `|ln(last/first)|` of the crop's band energy.
 
+## Correction (2026-11-05, ruling R35): the floor is not zero
+
+The zero same-seed floor below is **retracted**. Each scene's pair here
+happened to agree, but same-seed runs on the bench server do not always
+reproduce (`.superpowers/sdd/2026-11-03-long-form-media/nondeterminism-report.md`):
+
+- A worker that has run several jobs can move segment 1 into an alternate
+  output, which repeats bit for bit until the next model load. Every cold
+  load gave the canonical segment 1. `bench/segment1.py` labels a record
+  `clean` or `drifted` by hashing its segment 1 against
+  `bench/records/segment1-canonical.json`.
+- One-off departures also start at segment 2 inside a single call
+  (`cheap-a-s1`, `ctl-guide-s1-s1166-rerun`).
+- S3's two runs here differ for the same reason (noise-b-s3 opens on a
+  drifted segment 1), not because of the spoken lines.
+
+Ruling R35 sets the verdict floor to `combined_floor(seed floor,
+rerun_gap(pairs))` (`bench/verdict.py`): the larger, per measure, of the
+seed floor (`noise_floor(control@1166, control@2)`) and the same-seed rerun
+gap.
+
+**Same-seed rerun gap.** These are the 8 round-2 combination pairs that
+two drivers both ran (same arguments, same seed, S1). For each measure the
+gap is the largest `|a - b|` over the pairs. The first batch's records were
+overwritten, so its outputs were measured again with the driver's own
+`measure` (`bench/records/counters-round2-combos-batch1.json`); the second
+batch is `counters-round2-combos.json`. By `bench/segment1.py`, all 8 pairs
+already differ in segment 1: 4 are a drifted run against a clean one, and
+4 are two different alternates. The gap is therefore the size of a
+worker-state drift. The one-off segment-2 departure is the guide control's
+rerun, below.
+
+| pair (S1) | jump | jump max | look | look max | level dB | level dB max | tex fine | tex mid | tex coarse |
+|---|---|---|---|---|---|---|---|---|---|
+| anchor25+keystone @1166 | 0.094 | 0.430 | 0.438 | 0.790 | 6.204 | 1.760 | 0.026 | 0.009 | 0.005 |
+| anchor50+keystone @1166 | 0.124 | 0.330 | 0.200 | 0.590 | 5.350 | 1.660 | 0.022 | 0.009 | 0.002 |
+| lf+look_hold+anchor25 @1166 | 0.006 | 0.030 | 0.002 | 0.080 | 2.722 | 1.590 | 0.033 | 0.020 | 0.007 |
+| lf+look_hold+anchor50 @1166 | 0.004 | 0.060 | 0.022 | 0.010 | 0.546 | 1.620 | 0.031 | 0.030 | 0.009 |
+| anchor25+keystone @2 | 0.060 | 0.010 | 0.044 | 0.140 | 1.812 | 8.800 | 0.012 | 0.024 | 0.002 |
+| anchor50+keystone @2 | 0.124 | 0.190 | 0.006 | 0.190 | 2.698 | 0.410 | 0.009 | 0.018 | 0.004 |
+| lf+look_hold+anchor25 @2 | 0.070 | 0.150 | 0.006 | 0.170 | 0.874 | 1.880 | 0.068 | 0.013 | 0.000 |
+| lf+look_hold+anchor50 @2 | 0.060 | 0.070 | 0.046 | 0.070 | 0.476 | 0.420 | 0.026 | 0.031 | 0.010 |
+| **rerun gap (max)** | **0.124** | **0.430** | **0.438** | **0.790** | **6.204** | **8.800** | **0.068** | **0.031** | **0.010** |
+
+The guide control's own rerun (`b40e855eb553` against `fd34bc937628`:
+look 0.192, level 3.96/3.65 dB, fine texture 0.016) is inside every
+column, so a 9th pair would change nothing. R35's working values (seam look
+under 0.2 and level step under 4 dB are noise) came from that one pair. The
+8 pairs put the gap at about twice that: **seam look under 0.44 and level
+step under 6.2 dB (mean) or 8.8 dB (max) are noise.** Texture is the
+exception: its rerun gap (0.068 fine) stays under the S1 guide seed floor,
+which stays **0.081**.
+
+**The floors verdicts now read** (`combined_floor(seed floor, rerun gap)`;
+the seed floor is from `counters-controls.json`; a read across continuities
+takes the larger of the two rows):
+
+| scene, continuity | jump | jump max | look | look max | level dB | level dB max | tex fine | tex mid | tex coarse |
+|---|---|---|---|---|---|---|---|---|---|
+| S1 guide | 0.124 | 0.430 | 0.438 | 0.790 | 6.204 | 8.800 | 0.081 | 0.032 | 0.010 |
+| S1 last_frame | 0.124 | 0.430 | 0.438 | 0.790 | 6.204 | 8.800 | 0.068 | 0.087 | 0.010 |
+| S2 guide | 0.124 | 0.430 | 0.438 | 0.790 | 6.204 | 8.800 | 0.605 | 1.210 | 1.660 |
+| S2 last_frame | 0.124 | 0.430 | 0.438 | 0.790 | 6.204 | 8.800 | 0.170 | 0.066 | 0.214 |
+| S3 guide | 0.332 | 0.430 | 0.438 | 0.790 | 6.204 | 8.800 | 0.226 | 0.112 | 0.111 |
+
+The gap was measured on S1 only. It is applied to every scene because it
+is the only same-seed measurement there is. The re-scored counter verdicts
+are in `counters.md`, under *Re-scored under R35*.
+
 ## Reading the floor
 
-- **The engine is deterministic for a seeded run.** S1, S2, S4, S5 and S6 give
+- *(Retracted 2026-11-05, see the correction above: same-seed runs are not
+  always reproducible, and a matching pair does not show that they are.)*
+  **The engine is deterministic for a seeded run.** S1, S2, S4, S5 and S6 give
   bit-identical picture measures across the two runs, so their floor is exactly
   0 on every seam and texture measure (S5 and S6 differ by 0.005-0.02 dB in the
   seam level step, an audio-encode wobble). Only S3, whose picture follows a
