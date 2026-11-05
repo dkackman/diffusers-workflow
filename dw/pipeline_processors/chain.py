@@ -610,7 +610,8 @@ def _checked_attempt(
         if kept_index == number:
             best, best_index = attempt, number
         del attempt
-        if results[-1].passed:
+        # A texture-only failure is recorded and warned, never re-rolled (R38)
+        if not results[-1].rerolls:
             break
     return best, {
         "attempts": len(results),
@@ -638,11 +639,18 @@ def _record_check(shot, segment, config, checked):
         shot["seed"] = checked.get("seed")
     if result.passed:
         return
+    # Texture alone ends the loop on attempt 1 without trying the budget
+    exhausted = result.rerolls
     shot["check_failed"] = list(result.failed)
     emit_warning(
         f"Chain segment {segment.index + 1}/{len(config.plan)} failed its check "
-        f"on every attempt ({_failures(result)}); kept attempt {kept + 1} of "
-        f"{checked['attempts']}, the closest",
+        + (
+            f"on every attempt ({_failures(result)}); kept attempt {kept + 1} of "
+            f"{checked['attempts']}, the closest"
+            if exhausted
+            else f"({_failures(result)}); texture drift is not re-rolled, "
+            "a fresh seed inherits the carry"
+        ),
         kind="chain_check_failed",
         segment=segment.index + 1,
         measures=list(result.failed),

@@ -1709,6 +1709,40 @@ class TestCheckAndReroll:
         assert warn.call_args.kwargs["kind"] == "chain_check_failed"
         assert warn.call_args.kwargs["kept_attempt"] == 2
 
+    def test_texture_alone_warns_and_records_without_a_reroll(self):
+        # Texture drift is in the carry; a fresh seed inherits it (R38)
+        pipeline = FakePipeline(self.output_for(self.seeds(0, 0)))
+        with (
+            patch(
+                "dw.pipeline_processors.chain_check._texture_ratio", return_value=5.0
+            ),
+            patch("dw.pipeline_processors.chain.emit_warning") as warn,
+        ):
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+        assert len(pipeline.calls) == 2
+        assert out.shots[1]["attempts"] == 1
+        assert out.shots[1]["check_failed"] == ["texture_ratio"]
+        assert warn.call_count == 1
+        assert warn.call_args.kwargs["kind"] == "chain_check_failed"
+
+    def test_texture_with_a_jump_still_rerolls(self):
+        pipeline = FakePipeline(self.output_for(self.seeds(16, 0)))
+        with (
+            patch(
+                "dw.pipeline_processors.chain_check._texture_ratio", return_value=5.0
+            ),
+            patch("dw.pipeline_processors.chain.emit_warning"),
+        ):
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=2), self.arguments()
+            )
+        # The re-roll fixes the jump and keeps failing texture: no third render
+        assert len(pipeline.calls) == 3
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["check_failed"] == ["texture_ratio"]
+
     def test_retries_zero_never_rerolls(self):
         pipeline = FakePipeline(self.output_for(self.seeds(16)))
         with patch("dw.pipeline_processors.chain.emit_warning") as warn:

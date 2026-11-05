@@ -2703,7 +2703,11 @@ fresh generator, so the step's own generator - and every later segment - runs as
 would have. A workflow that names no seed draws one before the run and records it, so a
 re-roll is repeatable from the manifest. The first attempt that passes is kept. When all
 `1 + retries` fail, the chain keeps the one with the fewest failed measures, then the
-lowest `jump_ratio`, and finishes - it never restructures the run. The kept attempt's
+lowest `jump_ratio`, and finishes - it never restructures the run. `texture_ratio` is
+warn-only: texture drift is in the carry, so a fresh seed from the same carry inherits
+it. A segment that fails only on texture is kept as rendered, recorded in `check_failed`
+and warned, and not re-rolled; one that also fails another measure re-rolls as above,
+and choosing the kept attempt still counts every failed measure. The kept attempt's
 frames and audio are the ones stitched, and the seam is crossfaded against them.
 
 Each shot of a checked chain records `attempts`; a re-rolled one records the `seed` its

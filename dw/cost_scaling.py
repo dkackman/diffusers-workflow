@@ -280,7 +280,9 @@ def _worst_case_retries(definition, variables):
     each later segment may render 1 + retries times, so N segments cost up
     to 1 + (N - 1)(1 + retries) renders where the curated figure, measured
     without re-rolls, paid N. `retries` is flagged unscaled when the segment
-    count cannot be told; with no re-rolls nothing moves."""
+    count cannot be told; with no re-rolls nothing moves. The quote cannot
+    tell a texture failure (warn-only, never re-rolled) from a jump, look or
+    cut one, so it still assumes the worst: every segment re-rolls."""
     retries = _chain_retries(definition, variables)
     segments = _chain_segments(definition, variables) if retries else None
     if not retries:

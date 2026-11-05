@@ -53,6 +53,11 @@ CUT_RATIO_MAX = 4.0
 # The measures a check can fail, in the order a failure names them
 MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio")
 
+# Measures that warn and record but never re-roll a segment (ruling R38):
+# texture drift is in the carry, so a fresh seed from the same carry inherits
+# it (bench/records/check.md). The others a new seed can fix
+WARN_ONLY = ("texture_ratio",)
+
 # Frames of a segment, evenly spaced, its fine-band texture is the mean of
 TEXTURE_SAMPLES = 4
 
@@ -78,6 +83,11 @@ class CheckResult:
     passed: bool
     measures: dict
     failed: list = field(default_factory=list)
+
+    @property
+    def rerolls(self):
+        """Whether a re-roll could help: a failed measure that is not warn-only."""
+        return any(name not in WARN_ONLY for name in self.failed)
 
 
 def segment_check(value):
