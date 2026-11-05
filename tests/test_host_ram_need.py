@@ -563,7 +563,9 @@ class TestDispatchWorkerReading:
 
         asked = []
         monkeypatch.setattr(
-            dispatch, "committed_rss_mb", lambda pid: asked.append(pid) or 43000.0
+            dispatch,
+            "committed_rss_mb",
+            lambda pid, device=True: asked.append((pid, device)) or 43000.0,
         )
 
         class Manager:
@@ -574,12 +576,14 @@ class TestDispatchWorkerReading:
             manager = Manager()
 
         assert dispatch._worker_rss_mb(Slot()) == 43000.0
-        assert asked == [4242]
+        assert asked == [(4242, False)]
 
     def test_a_slot_without_a_worker_is_no_reading(self, monkeypatch):
         from dw.server import dispatch
 
-        monkeypatch.setattr(dispatch, "committed_rss_mb", lambda pid: 1 / 0)
+        monkeypatch.setattr(
+            dispatch, "committed_rss_mb", lambda pid, device=True: 1 / 0
+        )
 
         class Manager:
             def pid(self):
@@ -593,3 +597,48 @@ class TestDispatchWorkerReading:
 
         assert dispatch._worker_rss_mb(Slot()) is None
         assert dispatch._worker_rss_mb(NoPid()) is None
+
+
+class TestDispatchNeverReadsSmaps:
+    def _proc(self, tmp_path, monkeypatch):
+        from dw import host_memory
+
+        status = tmp_path / "status"
+        status.write_text("RssAnon:\t2048 kB\nRssFile:\t999 kB\nRssShmem:\t1024 kB\n")
+        monkeypatch.setattr(host_memory, "_has_proc", lambda: True)
+        monkeypatch.setattr(
+            host_memory,
+            "_proc_path",
+            lambda pid, name: str(status) if name == "status" else 1 / 0,
+        )
+        monkeypatch.setattr(host_memory, "device_mapped_mb", lambda *a, **k: 1 / 0)
+
+    def _slot(self, last_memory):
+        class Manager:
+            def pid(self):
+                return 4242
+
+        class Slot:
+            manager = Manager()
+
+        slot = Slot()
+        slot.last_memory = last_memory
+        return slot
+
+    def test_adds_the_last_reported_device_figure(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        report = {
+            "host_memory_committed_mb": 10.0,
+            "host_memory_rss_anon_mb": 4.0,
+            "host_memory_rss_shmem_mb": 1.0,
+        }
+        assert dispatch._worker_rss_mb(self._slot(report)) == 3.0 + 5.0
+
+    def test_no_report_falls_back_to_status_only(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        assert dispatch._worker_rss_mb(self._slot(None)) == 3.0
+        assert dispatch._worker_rss_mb(self._slot({})) == 3.0

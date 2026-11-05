@@ -280,7 +280,10 @@ def committed_mb(status_path="/proc/self/status", smaps_path="/proc/self/smaps")
     cache, left out.
 
     None where it cannot be read: not Linux, a status without RssAnon, or a
-    failed read. `smaps_path` None reads no device mappings (0.0)."""
+    failed read.
+
+    `smaps_path` None reads no device mappings and the term is DROPPED: the
+    result is RssAnon + RssShmem alone, short by the driver's pinned pages."""
     split = rss_split_mb(status_path)
     device = device_mapped_mb(smaps_path) if smaps_path else 0.0
     return _committed_from(split, device)
@@ -295,7 +298,7 @@ def _proc_path(pid, name):
     return f"/proc/{pid}/{name}"
 
 
-def committed_rss_mb(pid, status_path=None, smaps_path=None):
+def committed_rss_mb(pid, status_path=None, smaps_path=None, device=True):
     """What another process - a server's worker - has committed in host RAM,
     in MB, as `committed_mb` reads it: its mapped checkpoint pages left out,
     page cache that MemAvailable already counts as free and that a second
@@ -306,15 +309,32 @@ def committed_rss_mb(pid, status_path=None, smaps_path=None):
     recorded a committed peak. On Linux, a failed read or a status without
     RssAnon is None, not the whole RSS: the gate subtracts this reading from
     a running job's peak and credits it for the idle worker, so a larger
-    figure would under-charge, and None charges the whole peak."""
+    figure would under-charge, and None charges the whole peak.
+
+    `device=False` reads status alone, no smaps (RssAnon + RssShmem, without
+    the driver's pinned pages): for a caller holding a lock, which adds the
+    term from the worker's own report (`device_term_mb`)."""
     if status_path is None:
         if not isinstance(pid, int) or pid <= 0:
             return None
         if not _has_proc():
             return process_rss_mb(pid)
         status_path = _proc_path(pid, "status")
-        smaps_path = _proc_path(pid, "smaps")
+        smaps_path = _proc_path(pid, "smaps") if device else None
     return committed_mb(status_path, smaps_path)
+
+
+def device_term_mb(report):
+    """The driver-pinned part of a worker's last memory report (committed -
+    anon - shmem, from `host_memory_fields`), or None with no usable report."""
+    try:
+        committed = report["host_memory_committed_mb"]
+        anon = report["host_memory_rss_anon_mb"]
+    except (KeyError, TypeError):
+        return None
+    if committed is None or anon is None:
+        return None
+    return max(0.0, committed - anon - (report.get("host_memory_rss_shmem_mb") or 0.0))
 
 
 def host_memory_fields():

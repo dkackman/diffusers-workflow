@@ -1093,3 +1093,7 @@ more exposed than that.
 
 Running on another machine - token, firewall, systemd unit, the browser,
 `--mcp`, and beyond the LAN - is [REMOTE.md](REMOTE.md).
+
+### Host-RAM gate: mixed bases
+
+The RSS peak a job records is job-scoped growth over the run's baseline; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.
