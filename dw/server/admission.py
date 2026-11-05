@@ -36,7 +36,6 @@ from ..runs import (
     resolve_output_reference,
 )
 from ..validation import WARNING, run_checks, to_warnings
-from ..variables import argument_errors
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
 from .host_ram_need import projected_peak
@@ -189,35 +188,31 @@ def admit(
                 capacity_label=capacity_label,
             )
             admission.errors = candidate.validation_errors(context=context)
+            # validation_errors reports the caller's own bad arguments (an
+            # unknown name, a value that will not coerce) beside the
+            # document's errors (#976), so validate and submit refuse alike;
+            # these are those, the context's one memoized list
+            refused = {
+                (e.get("path"), e.get("message")) for e in context.argument_errors
+            }
         except Exception as e:
             raise _validator_failure(e) from e
         admission.vram_need = _vram_need(candidate, context, arguments)
-        if admission.errors:
-            # Every error comes back at once (#976): the caller's own bad
-            # arguments (an unknown name) are reported beside the
-            # document's errors, not only after they are fixed
-            try:
-                known = {(e.get("path"), e.get("message")) for e in admission.errors}
-                admission.errors += [
-                    e
-                    for e in argument_errors(candidate.workflow_definition, arguments)
-                    if (e.get("path"), e.get("message")) not in known
-                ]
-            except Exception:
-                logger.debug("argument_errors skipped beside a failed document")
-            # The warnings walk the steps array, which a definition failing
-            # the schema may not have
+        # Only the document's own errors stop the warnings, which walk the
+        # steps array a definition failing the schema may not have
+        if any(
+            (e.get("path"), e.get("message")) not in refused for e in admission.errors
+        ):
             admission.schema_errors = True
             return admission
 
         definition = candidate.workflow_definition
-        # The arguments checked the way the run would check them: an
-        # undeclared name, a value that will not coerce, a reference that
-        # names nothing in this workspace. A raise here is the checks
-        # failing, not the Workflow failing to construct - validate answers
-        # it as a validator failure, as it does one from validation_errors
+        # A reference the arguments make that names nothing in this
+        # workspace - the bad names and values themselves validation_errors
+        # already refused. A raise here is the check failing, not the
+        # Workflow failing to construct - validate answers it as a validator
+        # failure, as it does one from validation_errors
         try:
-            admission.errors = argument_errors(definition, arguments)
             admission.errors += argument_reference_errors(
                 definition,
                 arguments,

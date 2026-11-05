@@ -173,6 +173,7 @@ class ValidationContext:
         self._expanded = expanded
         self._source_indices = source_indices
         self._probes = {}
+        self._argument_errors = None
 
     def _expansion(self):
         if self._expanded is None and self._expand is not None:
@@ -198,6 +199,16 @@ class ValidationContext:
     def supplied(self):
         """The names of the variables the caller supplied."""
         return set(self.arguments or {})
+
+    @property
+    def argument_errors(self):
+        """What `set_variables` - the coercion a run applies - refuses in
+        the caller's arguments (`dw.variables.argument_errors`), memoized:
+        workflow_errors reports them and admit() tells them apart from the
+        definition's own errors by this same list. Each read is a copy."""
+        if self._argument_errors is None:
+            self._argument_errors = argument_errors(self.definition, self.arguments)
+        return copy.deepcopy(self._argument_errors)
 
     def probe(self, path):
         """`probe_metadata(path)`, memoized by real path for this context
@@ -316,7 +327,7 @@ def _task_errors(context):
     )
     if context.arguments is None:
         errors = [e for e in errors if "variable" not in e]
-    elif argument_errors(context.definition, context.arguments):
+    elif context.argument_errors:
         # A bad argument leaves every argument unfolded, so a variable the
         # caller did supply still reads as null here (#972). The argument
         # error is the one to say; drop the finding for a supplied name
@@ -846,6 +857,12 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
     Past the gates (schema, 'constraint:' references, the expansion)
     every check in `ERROR_CHECKS` runs, in order; one that raises is an
     internal error rather than a lost verdict (B10).
+
+    The caller's own arguments are then checked by `argument_errors` -
+    `set_variables`' coercion, the one a run applies, so validate and
+    submit refuse the same argument with the same message - and reported
+    after the definition's errors, whether or not a gate stopped them
+    (#976). A raise there is validation failing, not a finding.
     """
     if context is None:
         context = workflow_context(workflow, arguments, composing)
@@ -856,6 +873,18 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
             "validation_errors was given a context and different "
             "arguments or composing - pass one or the other"
         )
+    errors = _definition_errors(workflow, context)
+    known = {(e.get("path"), e.get("message")) for e in errors}
+    return errors + [
+        e
+        for e in context.argument_errors
+        if (e.get("path"), e.get("message")) not in known
+    ]
+
+
+def _definition_errors(workflow, context):
+    """workflow_errors' gates and its ERROR_CHECKS - everything but the
+    caller's arguments' own refusals."""
     errors = validate_data_all(workflow.workflow_definition, load_schema("workflow"))
     # Only once the shape is known good: the checks walk the steps
     # array and a definition that fails the schema may have no such
