@@ -47,7 +47,11 @@ from .h3_rules import (
     HOLD_BLOCK,
     LAYOUT_STEP,
     REFINE_WINDOWS_ENV_VAR,
+    GUIDE_FRAMES_PER_CHUNK,
+    GUIDE_LATENTS_PER_CHUNK,
+    H3_FPS,
     guide_frame_problem,
+    guide_latent_frames,
     refine_windows_enabled,
     snap_guide_length,
 )
@@ -233,7 +237,9 @@ def prepared_guide(where, index, guide, base_dir):
         raise ValueError(
             f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
         )
-    unknown = sorted(set(guide) - {"video", "frame", "audio", *CAPSTONE_KEYS})
+    unknown = sorted(
+        set(guide) - {"video", "frame", "audio", *CAPSTONE_KEYS, *LATENT_KEYS}
+    )
     if unknown:
         raise ValueError(
             f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
@@ -286,13 +292,105 @@ def prepared_guide(where, index, guide, base_dir):
             f"to the first {length}"
         )
         frames = frames[:length]
+    carried = _carried_latents(f"{where}[{index}]", guide, frames.shape[0])
     return {
         "video": frames,
         "frame": guide.get("frame"),
         "audio": audio,
         "sample_rate": sample_rate,
         **capstone,
+        **carried,
     }
+
+
+# The experimental latent carry's guide keys (#1150; chain_rules
+# CHAIN_LATENT_CARRY): the guide's own latents, (1, C, T, h, w) in the space
+# the pipeline's encode gives, and its audio latents, (channels, n, C) rows of
+# the target audio from the guide's first frame - taken by the layout in place
+# of encoding `video` and `audio`
+LATENT_KEYS = ("latents", "audio_latents")
+# H3's audio latent rate (diffusers' MINIMAX_H3_AUDIO_LATENTS_PER_SECOND)
+H3_AUDIO_LATENTS_PER_SECOND = 40
+
+
+def _carried_latents(where, guide, num_frames):
+    """A guide's latent-carry keys, checked: {} for a pixel guide. A scratch
+    spike, refused unless REFINE_WINDOWS_ENV_VAR is on."""
+    given = {key: guide[key] for key in LATENT_KEYS if guide.get(key) is not None}
+    if not given:
+        return {}
+    if not refine_windows_enabled():
+        raise ValueError(
+            f"{where}: {', '.join(given)} is an experimental latent carry, off "
+            f"unless {REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    if guide.get(CAPSTONE_PAST_END) or guide.get(CAPSTONE_GATE) is not None:
+        raise ValueError(f"{where}: a capstone guide carries no latents")
+    if guide.get("audio"):
+        raise ValueError(
+            f"{where}: 'audio' true encodes the guide's soundtrack, and a latent "
+            "guide carries its audio as 'audio_latents' - drop one"
+        )
+    latents = given.get("latents")
+    if latents is not None:
+        expected = guide_latent_frames(num_frames)
+        if not isinstance(latents, torch.Tensor) or latents.ndim != 5:
+            raise ValueError(
+                f"{where}: 'latents' is a (1, C, T, h, w) tensor, got "
+                f"{getattr(latents, 'shape', type(latents).__name__)}"
+            )
+        if latents.shape[2] != expected:
+            raise ValueError(
+                f"{where}: a {num_frames}-frame guide encodes to {expected} latent "
+                f"frames, and its 'latents' hold {latents.shape[2]}"
+            )
+    rows = given.get("audio_latents")
+    if rows is not None and (not isinstance(rows, torch.Tensor) or rows.ndim != 3):
+        raise ValueError(
+            f"{where}: 'audio_latents' is a (channels, n, C) tensor, got "
+            f"{getattr(rows, 'shape', type(rows).__name__)}"
+        )
+    return given
+
+
+def latent_guide_tail(latents, audio_latents, num_frames, count, back, fps=H3_FPS):
+    """(video, audio): the latents of a finished segment's last `count`
+    frames before its last `back`, the span a guide chain's pixel guide is cut
+    from (chain.GuideContinuity) - `latents[:, :, a : a + guide_latent_frames
+    (count)]`, and the audio latents of the same span as `(channels, n, C)`
+    rows (None without `audio_latents`).
+
+    `latents` is the segment's `(1, C, T, h, w)` output, T = 5m + 2 for its
+    `num_frames` = 17m + 5. The VAE encodes 17-frame clips each on its own
+    (clip i is latents 5i..5i+4, the encoder causal within a clip only), so
+    a span starting on a clip boundary, frame 17j, is latents from 5j on -
+    the same layout the pixel guide's own encode gives. A start off a clip
+    is refused. `audio_latents` is the segment's `(channels, C, N)` output,
+    N = round(num_frames * 40 / 24); the span is the round(count * 40 / 24)
+    latents that end at the span's last frame (the pixel guide's audio is
+    cut back from that end too), so its first latent can sit up to half a
+    latent (12.5 ms) off the span's first frame."""
+    start = num_frames - back - count
+    if start < 0 or start % GUIDE_FRAMES_PER_CHUNK:
+        raise ValueError(
+            f"A latent carry cuts a {count}-frame tail {back} frames before the "
+            f"end of {num_frames}, starting at frame {start}, which is not on a "
+            f"{GUIDE_FRAMES_PER_CHUNK}-frame VAE clip"
+        )
+    if latents.shape[2] != guide_latent_frames(num_frames):
+        raise ValueError(
+            f"A latent carry needs the segment's {guide_latent_frames(num_frames)} "
+            f"latent frames for its {num_frames} frames, and got {latents.shape[2]}"
+        )
+    first = start // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK
+    video = latents[:, :, first : first + guide_latent_frames(count)]
+    if audio_latents is None:
+        return video, None
+    # h3_guide_steps.guide_audio_latents, which imports diffusers to load
+    rows = int(round(count * H3_AUDIO_LATENTS_PER_SECOND / fps))
+    end = int(round((num_frames - back) * H3_AUDIO_LATENTS_PER_SECOND / fps))
+    audio = audio_latents[:, :, max(end - rows, 0) : end].permute(0, 2, 1)
+    return video, audio
 
 
 # The experimental late capstone's guide keys (#1187; h3_windows.py)

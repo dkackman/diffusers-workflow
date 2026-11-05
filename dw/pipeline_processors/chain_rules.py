@@ -192,3 +192,68 @@ def chain_capstone_problem(chain, num_frames=None):
             f"{num_frames} frames"
         )
     return None
+
+
+# The experimental latent carry (#1150 stage A, the latent-carry arm of #1044;
+# #1199 Task 17 Step 2): a guide chain hands each segment's own final latents,
+# the tail its guide would have decoded and re-encoded, to the next segment as
+# that guide's condition rows (h3_guides.latent_guide_tail). A scratch spike
+# behind the windowed refine's flag (h3_rules), MiniMax-H3 guide chains only
+CHAIN_LATENT_CARRY = "experimental_latent_carry"
+
+
+def chain_latent_carry_problem(chain, guide_noise=None):
+    """The reason a chain block's `experimental_latent_carry` is refused, or
+    None: the flag off; a value that is not true or false; a continuity other
+    than `guide` (the latents replace a guide's encode, and only a guide chain
+    has one); a `look_hold`, which corrects the decoded frames the carry would
+    no longer read; `match_audio`, whose held track is what the guide's audio
+    would be (the spike carries generated audio latents only); or the step's
+    nonzero `guide_noise`, which noises pixels that are never encoded. False,
+    null and absent are off. Unresolved references are left to the run."""
+    carry = chain.get(CHAIN_LATENT_CARRY)
+    if carry is None or carry is False:
+        return None
+    from .h3_rules import (
+        GUIDE_CONTINUITY,
+        REFINE_WINDOWS_ENV_VAR,
+        refine_windows_enabled,
+    )
+
+    if isinstance(carry, str) and references.is_ref(references.UNRESOLVED, carry):
+        return None
+    if not refine_windows_enabled():
+        return (
+            f"{CHAIN_LATENT_CARRY} is a scratch spike, off unless "
+            f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    if carry is not True:
+        return f"{CHAIN_LATENT_CARRY} is true or false, got {carry!r}"
+    continuity = chain.get("continuity", "last_frame")
+    unresolved = isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    )
+    if not unresolved and continuity != GUIDE_CONTINUITY:
+        return (
+            f"{CHAIN_LATENT_CARRY} carries a guide's latents, so it needs "
+            f"continuity 'guide', got {continuity!r}"
+        )
+    if chain_look_hold_flags(chain):
+        return (
+            f"{CHAIN_LATENT_CARRY} does not combine with look_hold: the hold "
+            "corrects the decoded frames, and the carry hands on the latents "
+            "the correction never reaches"
+        )
+    if chain.get("match_audio") is True:
+        return (
+            f"{CHAIN_LATENT_CARRY} does not combine with match_audio: the "
+            "guide's audio would be the held track, and the spike carries "
+            "generated audio latents only"
+        )
+    if _number_over(guide_noise, 0) and not isinstance(guide_noise, str):
+        return (
+            f"{CHAIN_LATENT_CARRY} does not combine with guide_noise "
+            f"{guide_noise}: the noise goes on a guide's pixels before their "
+            "encode, and a latent guide is never encoded"
+        )
+    return None

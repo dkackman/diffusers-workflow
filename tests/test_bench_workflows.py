@@ -97,10 +97,14 @@ ARM_FILES = sorted((BENCH / "arms").glob("*.json"))
 
 
 @pytest.mark.parametrize("path", ARM_FILES, ids=lambda p: p.stem)
-def test_every_arm_file_loads_and_each_arm_validates(path):
+def test_every_arm_file_loads_and_each_arm_validates(path, monkeypatch):
     """Each arm names a scene and workflow that exist, passes only variables
-    its workflow declares, and validates with those arguments."""
+    its workflow declares, and validates with those arguments - on the bench
+    server's settings, which turn the experimental spikes' flag on."""
+    from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
     from dw.workflow import Workflow
+
+    monkeypatch.setenv(REFINE_WINDOWS_ENV_VAR, "1")
 
     scenes = driver.load_scenes(BENCH / "scenes.json")
     arms = driver.load_arms(path)

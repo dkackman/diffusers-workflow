@@ -280,6 +280,49 @@ def noised_guide_pixels(pixels, strength, seed):
     return (pixels.to(torch.float32) + noise * amplitudes * 255.0).clamp(0.0, 255.0)
 
 
+def carried_guide_latents(index, guide, laid, guide_noise):
+    """A latent-carry guide's own `latents` (#1150), checked against the
+    canvas, as the float32 CPU tensor an encode gives - in place of
+    encoding its frames. `guide_noise` noises pixels, so it is refused."""
+    latents = guide["latents"]
+    if guide_noise:
+        raise ValueError(
+            f"guides[{index}]: guide_noise noises a guide's pixels before their "
+            f"encode, and this guide carries latents, which are never encoded"
+        )
+    canvas = (laid["latent_height"], laid["latent_width"])
+    if tuple(latents.shape[3:]) != canvas:
+        raise ValueError(
+            f"guides[{index}]: its latents are {tuple(latents.shape[3:])} cells, "
+            f"and the canvas is {canvas}"
+        )
+    logger.info(
+        f"Guide {index}: {latents.shape[2]} latent frames carried as latents "
+        f"(no encode)"
+    )
+    return latents.to("cpu", torch.float32)
+
+
+def carried_guide_audio(components, guide, start, count):
+    """A latent-carry guide's `audio_latents` (#1150), `(channels, n, C)`, as
+    the `(channels * count, C)` rows the layout takes - its first `count`, in
+    place of encoding its soundtrack."""
+    carried = guide["audio_latents"]
+    channels, width = components.audio_channels, components.audio_latent_channels
+    if carried.shape[0] != channels or carried.shape[2] != width:
+        raise ValueError(
+            f"A latent guide's audio latents are {tuple(carried.shape)}, and the "
+            f"pipeline takes ({channels}, n, {width})"
+        )
+    if carried.shape[1] < count:
+        raise ValueError(
+            f"A latent guide holds {count} audio latents from latent {start}, "
+            f"and carries {carried.shape[1]}"
+        )
+    logger.info(f"Guide audio: {count} audio latents carried as latents (no encode)")
+    return carried[:, :count].to("cpu", torch.float32).reshape(-1, width)
+
+
 class DwH3GuideLayoutStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -420,14 +463,13 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             )
             if problem:
                 raise ValueError(f"guides[{index}]: {problem}")
-            pixels = fit_guide_frames(frames, laid["height"], laid["width"])
-            pixels = torch.from_numpy(np.ascontiguousarray(pixels))
-            if guide_noise:
-                pixels = noised_guide_pixels(
-                    pixels, guide_noise, components.keyframe_encode_seed + index
+            if guide.get("latents") is not None:
+                # The experimental latent carry (#1150): no encode at all
+                encoded = carried_guide_latents(index, guide, laid, guide_noise)
+            else:
+                encoded = self._encoded_guide(
+                    components, index, frames, laid, guide_noise, device
                 )
-                logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
-            encoded = self._encode_pixels(components, pixels, device)
             latents.append(encoded)
             positions.append(
                 guide_position_ids(
@@ -451,6 +493,18 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             )
         return latents, positions
 
+    def _encoded_guide(self, components, index, frames, laid, guide_noise, device):
+        """One guide's frames, fitted to the canvas, noised under
+        `guide_noise`, and VAE-encoded."""
+        pixels = fit_guide_frames(frames, laid["height"], laid["width"])
+        pixels = torch.from_numpy(np.ascontiguousarray(pixels))
+        if guide_noise:
+            pixels = noised_guide_pixels(
+                pixels, guide_noise, components.keyframe_encode_seed + index
+            )
+            logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
+        return self._encode_pixels(components, pixels, device)
+
     @staticmethod
     def _encode_pixels(components, pixels, device):
         """One guide's `(n, h, w, 3)` pixels VAE-encoded the way a keyframe
@@ -473,7 +527,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         `DwH3GuideAudioStep`."""
         audio_rows, audio_positions = [], []
         for index, guide in enumerate(guides):
-            if guide.get("audio") is None:
+            if guide.get("audio") is None and guide.get("audio_latents") is None:
                 continue
             rows, start, count = self._guide_audio(
                 components, guide, laid["num_audio_latents"]
@@ -509,6 +563,9 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         latents_per_second = MINIMAX_H3_AUDIO_LATENTS_PER_SECOND
         start, _, count = guide_audio_span(frame, length, fps, latents_per_second)
         count = min(count, num_audio_latents - start)
+        if guide.get("audio_latents") is not None:
+            # The experimental latent carry (#1150): no encode at all
+            return carried_guide_audio(components, guide, start, count), start, count
         original = h3_hold_steps.as_channels_samples(guide["audio"])
         rate = guide.get("sample_rate") or vae_rate
         # The guide's span only, on the VAE's rate and channels the way a

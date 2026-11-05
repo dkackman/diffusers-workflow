@@ -32,6 +32,11 @@ guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
 other than guide or last_frame, or carried into `references`
 (`chain_anchor_problem`, shared with the run).
 
+The experimental latent carry (#1150; `experimental_latent_carry`) is refused
+there too, by `chain_latent_carry_problem` (shared with the run): the flag
+off, a continuity other than guide, a look_hold, match_audio or the step's
+nonzero `guide_noise`.
+
 Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
 that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
 one on a step the guides step rule refuses. `guide_noise_warnings` says when it
@@ -48,7 +53,9 @@ from .adapter_compatibility import (
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.chain_rules import (
+    CHAIN_LATENT_CARRY,
     chain_check_problem,
+    chain_latent_carry_problem,
     chain_look_hold_problem,
 )
 from .pipeline_processors.h3_rules import (
@@ -427,6 +434,17 @@ def anchor_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(base + ("chain", "keystone")),
+                    "message": f"{problem}{where}",
+                }
+            )
+        problem = chain_latent_carry_problem(
+            chain,
+            arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
+        )
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", CHAIN_LATENT_CARRY)),
                     "message": f"{problem}{where}",
                 }
             )

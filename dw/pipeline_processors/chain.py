@@ -67,12 +67,14 @@ from .chain_check import (
 from .chain_look import LookHold
 from .chain_pick import sharpest_index
 from .h3_anchor import anchor_refusal
-from .h3_guides import guides_refusal
+from .h3_guides import guides_refusal, latent_guide_tail
 from .h3_hold import hold_audio_reference
 from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
+    CHAIN_LATENT_CARRY,
     chain_capstone_problem,
+    chain_latent_carry_problem,
     chain_check_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
@@ -85,6 +87,7 @@ from .h3_rules import (
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
+    GUIDE_NOISE_INPUT,
     HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
@@ -229,6 +232,15 @@ class GuideContinuity:
         )
 
     def inject(self, arguments, carry, segment_argument, keystone=None):
+        if carry.latents is not None:
+            # The experimental latent carry (#1150): the tail's own latents
+            # stand in for encoding its frames and audio; the frames stay for
+            # the length check and the keyframe below
+            guide = {"video": carry.frames, "frame": 0, "latents": carry.latents}
+            if carry.audio_latents is not None:
+                guide["audio_latents"] = carry.audio_latents
+            self._lay_in(arguments, guide, carry, segment_argument, keystone)
+            return
         if carry.audio is not None:
             video = AudioVideo(
                 carry.frames,
@@ -239,6 +251,10 @@ class GuideContinuity:
         else:
             video = carry.frames
         guide = {"video": video, "frame": 0, "audio": carry.audio is not None}
+        self._lay_in(arguments, guide, carry, segment_argument, keystone)
+
+    @staticmethod
+    def _lay_in(arguments, guide, carry, segment_argument, keystone):
         # A copy: iteration arguments share nested values
         arguments[GUIDES_INPUT] = list(arguments.get(GUIDES_INPUT) or []) + [guide]
         # fl2va's keyframe - t2va passes none, and gets none
@@ -268,6 +284,10 @@ class _SegmentCarry:
     frames: list
     audio: object  # (channels, samples) numpy, or None
     sample_rate: int
+    # The experimental latent carry (#1150): the frames' own latents and
+    # audio latents rows, or None (h3_guides.latent_guide_tail)
+    latents: object = None
+    audio_latents: object = None
 
 
 @dataclass
@@ -306,6 +326,12 @@ def run_chain(pipeline, chain_definition, arguments):
         _check_guide_chain(pipeline, arguments, chain_definition, config)
     if config.anchor == ANCHOR_SEGMENT_1:
         _check_anchor_chain(pipeline, arguments)
+    if config.latent_carry and arguments.get(HOLD_AUDIO_INPUT) is not None:
+        raise ValueError(
+            f"Chain {CHAIN_LATENT_CARRY} does not combine with hold_audio: the "
+            "guide's audio would be the held track, and the spike carries "
+            "generated audio latents only"
+        )
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -507,6 +533,10 @@ def _render_attempt(
     if segment.index > 0 and state.capstone_frame is not None:
         _add_capstone(segment_arguments, state.capstone_frame, config.capstone)
     seed = _reseeded(segment_arguments, state.seed, number) if number else None
+    if config.latent_carry:
+        segment_arguments["output"] = _with_latent_outputs(
+            segment_arguments.get("output")
+        )
 
     # The denoise counter restarts for every segment - without this the
     # bar rewinds to zero with nothing saying why
@@ -518,6 +548,7 @@ def _render_attempt(
         "segment 1" if segment.index > 0 and state.anchor_frames is not None else None
     )
     output = pipeline._run_once(segment_arguments)
+    taken = _taken_latents(output) if config.latent_carry else None
     artifact = _single_artifact(output)
     del output
 
@@ -530,6 +561,8 @@ def _render_attempt(
     if hold is not None and config.continuity == "last_frame":
         raw_carry, carry = carry, hold.feed(carry)
     rendered = frames_as_pil_list(artifact)
+    if taken is not None:
+        carry = _with_latent_tail(carry, taken, config, len(rendered))
     segment_audio, segment_rate = _generated_audio(artifact)
     # A segment's own generated audio can run a codec-padding sliver
     # short of the frames it was asked for - the same gap #197 fixed for
@@ -771,6 +804,51 @@ def _add_capstone(segment_arguments, frame, capstone):
     ) + [guide]
 
 
+# The outputs a latent-carry segment adds to its call (#1150): diffusers'
+# H3 after-denoise leaves the target's own latents in the state, unpacked
+LATENT_OUTPUTS = ("latents", "audio_latents")
+
+
+def _with_latent_outputs(output):
+    """A segment's `output` names with the latents asked for too: the step's
+    own (a string is one name; none is the chain's videos, audio and rate)."""
+    names = [output] if isinstance(output, str) else list(output or [])
+    if not names:
+        names = ["videos", "audio", "sampling_rate"]
+    return names + [name for name in LATENT_OUTPUTS if name not in names]
+
+
+def _taken_latents(output):
+    """(latents, audio_latents) taken off a latent-carry segment's output, on
+    the CPU, before the one video is picked out of it; audio_latents None
+    when the segment made no audio."""
+    latents = output.pop("latents", None) if isinstance(output, dict) else None
+    if not isinstance(latents, torch.Tensor):
+        raise ValueError(
+            f"Chain {CHAIN_LATENT_CARRY} hands on each segment's latents, and "
+            "this segment returned none - it needs a MiniMax-H3 pipeline"
+        )
+    audio = output.pop("audio_latents", None)
+    return latents.detach().cpu(), (
+        audio.detach().cpu() if isinstance(audio, torch.Tensor) else None
+    )
+
+
+def _with_latent_tail(carry, taken, config, num_frames):
+    """The guide carry with the same span's own latents on it (#1150): the
+    video tail, and the audio rows when the chain carries audio."""
+    latents, audio = taken
+    video, audio_rows = latent_guide_tail(
+        latents,
+        audio if config.carry_audio else None,
+        num_frames,
+        config.guide_frames,
+        config.guide_backoff,
+    )
+    carry.latents, carry.audio_latents = video, audio_rows
+    return carry
+
+
 def _segment_arguments(
     arguments, config, segment, continuity, carry, anchor_frames=None, keystone=None
 ):
@@ -949,6 +1027,15 @@ class ChainConfig:
             "enter_below_sigma": float(capstone["enter_below_sigma"]),
             "from_end": int(capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)),
         }
+
+        # The previous segment's own latents as its guide (#1150), a spike
+        problem = chain_latent_carry_problem(
+            chain_definition,
+            arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
+        )
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
 
         # The sharpest of the last N frames as the keyframe (#1032)
         problem = chain_carry_pick_problem(

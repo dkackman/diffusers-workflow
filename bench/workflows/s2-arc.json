@@ -1,6 +1,6 @@
 {
   "id": "BenchS2Arc",
-  "description": "Long-form bench S2 (arc): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A). Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs). `capstone` (null by default) is the experimental late capstone (#1187, chain key experimental_capstone; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server).",
+  "description": "Long-form bench S2 (arc): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A). Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs). `capstone` (null by default) is the experimental late capstone (#1187, chain key experimental_capstone; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server). `latent_carry` (null by default) is the experimental latent carry (#1150, chain key experimental_latent_carry; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server): each guide takes the previous segment's own tail latents instead of re-encoding its decoded frames.",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a bronze statue of a seated man on a stone plinth in a sunlit public garden, a red brick wall with ivy, tall cypress trees and a white gazebo behind it. The camera travels in a slow, steady orbit around the statue, arcing to the right at a constant speed and keeping the statue centered, so the brick wall, the cypresses, the gazebo and the garden behind it sweep past and change with the angle. Warm late-afternoon sunlight, leaves stirring gently in a light breeze.\n\noverall_soundscape: Outdoor garden ambience: light breeze in the leaves, distant birdsong, faint far-off traffic.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/arc-statue.jpg",
@@ -31,7 +31,8 @@
     "check": false,
     "retries": 0,
     "keep_segments": false,
-    "capstone": null
+    "capstone": null,
+    "latent_carry": null
   },
   "variable_constraints": {
     "num_frames": {
@@ -192,6 +193,7 @@
           "retries": "variable:retries",
           "save_segments": "variable:keep_segments",
           "keep_segments": "variable:keep_segments",
+          "experimental_latent_carry": "variable:latent_carry",
           "experimental_capstone": "variable:capstone"
         },
         "scheduler": {

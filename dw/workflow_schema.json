@@ -394,6 +394,10 @@
                     "required": ["enter_below_sigma"],
                     "additionalProperties": false
                 },
+                "experimental_latent_carry": {
+                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold, match_audio or a nonzero guide_noise. False or null is off.",
+                    "type": ["boolean", "string", "null"]
+                },
                 "carry_pick": {
                     "description": "Continuity 'last_frame' only, any model family: pick the next segment's keyframe as the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma; ties go to the latest) instead of always the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame, so motion continues from it; the last segment keeps its tail, and the job log names the picked frame per seam. {'sharpest': N} with N a whole number from 1 to 8 (1 is the last frame); anything else, or any continuity but 'last_frame', is refused naming the allowed values.",
                     "type": "object",
