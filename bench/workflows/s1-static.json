@@ -1,6 +1,6 @@
 {
   "id": "BenchS1Static",
-  "description": "Long-form bench S1 (static): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A). Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs). `latent_carry` (null by default) is the experimental latent carry (#1150, chain key experimental_latent_carry; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server): each guide takes the previous segment's own tail latents instead of re-encoding its decoded frames. `tst` (null by default) is the experimental TST temporal-attention correction (#1196, H3 call argument experimental_tst {tau, per_head}; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 and attention_backend null - it runs on dense attention).",
+  "description": "Long-form bench S1 (static): the #1175 control (arm A), reproduced exactly - same workflow, prompt, still, seed 1166 and arguments as probe-1166's drift-chain. #1175 drift probe: templates/minimax/chained-segments as shipped (turbo-4step-keyframe, fl2va) with guide continuity, plus two probe variables: `anchor` (chain.anchor, arm C) and `guide_noise` (H3 call argument, arm B; null is dropped before the call, so the default is today's call). Defaults are the control (arm A). Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs). `latent_carry` (null by default) is the experimental latent carry (#1150, chain key experimental_latent_carry; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server): each guide takes the previous segment's own tail latents instead of re-encoding its decoded frames. `tst` (null by default) is the experimental TST temporal-attention correction (#1196, H3 call argument experimental_tst {tau, per_head}; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 and attention_backend null - it runs on dense attention). `selflift` (null by default) is the experimental SelfLift (#1195, H3 call argument experimental_selflift {lift_step, start_scale 0.5, upsample?}; needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 and a width and height that are multiples of 64, e.g. 1024x576): the first lift_step evaluations at half canvas, then lifted to full size inside the same schedule.",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/static-stripes.jpg",
@@ -32,7 +32,8 @@
     "retries": 0,
     "keep_segments": false,
     "latent_carry": null,
-    "tst": null
+    "tst": null,
+    "selflift": null
   },
   "variable_constraints": {
     "num_frames": {
@@ -210,6 +211,7 @@
           "num_inference_steps": "variable:num_inference_steps",
           "guide_noise": "variable:guide_noise",
           "experimental_tst": "variable:tst",
+          "experimental_selflift": "variable:selflift",
           "output": [
             "videos",
             "audio",

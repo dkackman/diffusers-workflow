@@ -225,6 +225,12 @@ def refine_windows_enabled():
     return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
 
 
+# The experimental SelfLift (#1195, #1199 Task 19; h3_selflift.py): the early
+# steps of one schedule on a smaller canvas, lifted to the call's canvas mid
+# schedule. Behind REFINE_WINDOWS_ENV_VAR, the long-form spikes' one flag
+SELFLIFT_INPUT = "experimental_selflift"
+
+
 # The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
 LATENT_ANCHOR_INPUT = "latent_anchor"
 # How far the match goes (#1190): 1 (default) is the full per-channel match, 0

@@ -48,6 +48,7 @@ from .guides import (
     guide_noise_errors,
     guide_noise_warnings,
     guides_errors,
+    selflift_errors,
 )
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
@@ -509,6 +510,12 @@ ERROR_CHECKS = [
     Check(
         "guide_noise",
         lambda c: guide_noise_errors(c.expanded, c.source_indices),
+    ),
+    # An experimental_selflift with the flag off, off H3 t2va/fl2va, or on a
+    # call it cannot lift (#1195)
+    Check(
+        "selflift",
+        lambda c: selflift_errors(c.expanded, c.source_indices),
     ),
     # The experimental TST correction (#1196): the flag off, off H3, a bad
     # value, or a transformer on dw's 'sparse' backend

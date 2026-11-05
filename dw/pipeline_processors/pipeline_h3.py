@@ -383,6 +383,28 @@ class H3Arguments:
                 raise ValueError(f"Step '{self.name}': {refusal}")
         return arguments, settings
 
+    def _check_selflift(self, arguments):
+        """Refuse an `experimental_selflift` this call cannot run, before the
+        call (h3_selflift.py, #1195).
+
+        Raises:
+            ValueError: If the flag is off, the graph has no lift, or the call
+                is one the lift refuses
+        """
+        from .h3_rules import SELFLIFT_INPUT
+
+        if arguments.get(SELFLIFT_INPUT) is None:
+            return
+        from .h3_selflift import selflift_refusal
+
+        refusal = selflift_refusal(
+            self.pipeline,
+            arguments,
+            has_cache=self.configuration.get("cache") is not None,
+        )
+        if refusal is not None:
+            raise ValueError(f"Step '{self.name}': {refusal}")
+
     def _check_refine(self, arguments):
         """Refuse a `refine_strength` the H3 refine block cannot run, before the
         call (dw/pipeline_processors/h3_hold.py).

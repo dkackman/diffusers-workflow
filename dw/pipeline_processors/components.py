@@ -817,6 +817,10 @@ def _assemble_loaded(
             from .h3_windows import insert_refine_windows
 
             insert_refine_windows(component)
+            # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
+            from .h3_selflift import insert_selflift
+
+            insert_selflift(component)
 
 
 def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):

@@ -528,6 +528,59 @@ def guide_noise_warnings(workflow_definition, source_indices=None):
     return warnings
 
 
+def selflift_errors(workflow_definition, source_indices=None):
+    """Every `experimental_selflift` refused before the run, as
+    [{path, message}] (#1195; dw/pipeline_processors/h3_selflift.py): the
+    flag off, a step that is not H3 t2va/fl2va, a step `cache` or a chain
+    capstone, and the call rules the run asks too (`selflift_problems`)."""
+    from .pipeline_processors.h3_rules import (
+        REFINE_WINDOWS_ENV_VAR,
+        SELFLIFT_INPUT,
+        refine_windows_enabled,
+    )
+    from .pipeline_processors.h3_selflift import selflift_problems
+
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if not isinstance(arguments, dict) or arguments.get(SELFLIFT_INPUT) is None:
+            continue
+        path = render_path(("steps", source, "pipeline", "arguments", SELFLIFT_INPUT))
+        if not refine_windows_enabled():
+            problems = [
+                f"{SELFLIFT_INPUT} is a scratch spike, off unless "
+                f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+            ]
+        else:
+            configuration = pipeline.get("configuration")
+            cached = (
+                isinstance(configuration, dict)
+                and configuration.get("cache") is not None
+            )
+            chain = pipeline.get("chain")
+            problems = [
+                problem
+                for problem in [
+                    _takes_guides_problem(pipeline, arguments, SELFLIFT_INPUT)
+                ]
+                if problem
+            ]
+            if (
+                isinstance(chain, dict)
+                and chain.get("experimental_capstone") is not None
+            ):
+                problems.append(
+                    f"{SELFLIFT_INPUT} does not combine with a chain's "
+                    f"experimental_capstone: its gated rows are row ranges of "
+                    f"the full canvas's layout"
+                )
+            problems += selflift_problems(arguments, has_cache=cached)
+        errors += [{"path": path, "message": f"{p}{where}"} for p in problems]
+    return errors
+
+
 __all__ = [
     "anchor_errors",
     "guide_chain_errors",
@@ -535,4 +588,5 @@ __all__ = [
     "guide_noise_errors",
     "guide_noise_warnings",
     "guides_errors",
+    "selflift_errors",
 ]

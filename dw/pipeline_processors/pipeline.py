@@ -645,6 +645,7 @@ class Pipeline(H3Arguments):
         """Call the pipeline with optional attention backend and cache contexts."""
         arguments = self._with_step_callback(arguments)
         self._check_refine(arguments)
+        self._check_selflift(arguments)
         arguments = self._with_mask(arguments)
         arguments = self._with_held_audio(arguments)
         arguments = self._with_guides(arguments)
