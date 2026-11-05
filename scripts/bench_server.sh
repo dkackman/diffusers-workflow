@@ -35,6 +35,21 @@ cmd_deploy() {
     if [ ! -d "$TREE" ]; then
         git -C "$MAIN" worktree add --detach "$TREE" "origin/$branch"
     else
+        # Bench agents write records in the tree on lem, then commit the same
+        # files from their checkout. An untracked file the target commit also
+        # carries blocks the checkout: drop it when it matches byte for byte
+        # (ignoring whitespace-only reformatting), refuse when it differs.
+        local f
+        while IFS= read -r f; do
+            if git -C "$TREE" cat-file -e "origin/$branch:$f" 2>/dev/null; then
+                if git -C "$TREE" show "origin/$branch:$f" | diff -qw - "$TREE/$f" >/dev/null; then
+                    rm -- "$TREE/$f"
+                else
+                    echo "untracked $f differs from origin/$branch; move it aside first" >&2
+                    return 1
+                fi
+            fi
+        done < <(git -C "$TREE" ls-files --others --exclude-standard)
         git -C "$TREE" checkout --detach "origin/$branch"
     fi
     git -C "$TREE" log -1 --format='deployed %h %s'
