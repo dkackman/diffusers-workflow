@@ -28,7 +28,7 @@
                     "component_type": "MarigoldNormalsPipeline"
                 },
                 "from_pretrained_arguments": {
-                    "model_name": "prs-eth/marigold-normals-lcm-v1-0",
+                    "model_name": "prs-eth/marigold-normals-v1-1",
                     "torch_dtype": "torch.float16",
                     "variant": "fp16"
                 },

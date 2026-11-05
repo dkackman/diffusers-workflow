@@ -908,7 +908,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "sub-workflow.json": {},
     "surface-normals.json": {
-        "normals": "5f0d7e4762dd0483a2bdc767b3bff57502323ff231940cb817634b38d1709b64"
+        "normals": "e4236b2218a4e793c2c09489b9d6bd188c3038f6c7e8c8a016e49413db8c0fc1"
     },
     "text-to-image.json": {
         "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"
