@@ -8,6 +8,7 @@ import pytest
 from PIL import Image
 
 from dw.pipeline_processors.chain_check import (
+    CUT_RATIO_MAX,
     JUMP_RATIO_MAX,
     LOOK_RATIO_MAX,
     TEXTURE_RATIO_MAX,
@@ -239,3 +240,42 @@ def test_the_estimate_is_unchanged_with_no_check_or_no_retries():
     assert _minutes(3, None, None)["minutes"] == pytest.approx(30)
     assert _minutes(3, True, 0)["minutes"] == pytest.approx(30)
     assert _minutes(5, True, 0)["minutes"] == pytest.approx(50)
+
+
+def test_a_cut_inside_the_segment_fails_on_cut_ratio():
+    # Seamless at the seam, then a cut to another picture two frames in
+    before = frames_of(noise(1))
+    after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
+
+    result = check_segment(before, after, before, SegmentCheck())
+
+    assert result.failed == ["cut_ratio"]
+    assert result.measures["jump_ratio"] == 0
+    assert result.measures["cut_ratio"] > CUT_RATIO_MAX
+
+
+def test_steady_motion_inside_the_segment_passes_cut_ratio():
+    # The same step every frame: the largest is the typical one
+    rng = numpy.random.default_rng(3)
+    base = rng.integers(0, 200, (32, 32, 3)).astype(numpy.int16)
+    after = [
+        Image.fromarray(numpy.clip(base + 4 * n, 0, 255).astype(numpy.uint8))
+        for n in range(12)
+    ]
+
+    result = check_segment(after[:1] * 4, after, after, SegmentCheck())
+
+    assert "cut_ratio" not in result.failed
+    assert result.measures["cut_ratio"] <= 1.5
+
+
+def test_cut_ratio_null_skips_it():
+    before = frames_of(noise(1))
+    after = frames_of(noise(1), 2) + frames_of(noise(7), 10)
+
+    check = segment_check({"cut_ratio_max": None})
+    result = check_segment(before, after, before, check)
+
+    assert result.passed
+    assert chain_check_problem({"check": {"cut_ratio_max": 0}})
+    assert chain_check_problem({"check": {"cut_ratio_max": None}}) is None

@@ -75,7 +75,13 @@ def chain_look_hold_problem(chain):
 # The per-segment check and its bounded re-roll (chain_check.py): the fields a
 # `check` object may set (`face` is reserved, null only) and the most re-rolls
 # a checked segment may take. Family-independent
-CHAIN_CHECK_FIELDS = ("jump_ratio_max", "look_ratio_max", "texture_ratio_max", "face")
+CHAIN_CHECK_FIELDS = (
+    "jump_ratio_max",
+    "look_ratio_max",
+    "texture_ratio_max",
+    "cut_ratio_max",
+    "face",
+)
 CHAIN_RETRIES_MAX = 3
 
 
@@ -115,6 +121,9 @@ def chain_check_problem(chain):
                 "check texture_ratio_max bounds the fine-band ratio both ways, "
                 f"so must be a number above 1 or null, got {texture!r}"
             )
+        cut = check.get("cut_ratio_max")
+        if cut is not None and not _number_over(cut, 0):
+            return f"check cut_ratio_max must be a number above 0 or null, got {cut!r}"
         if check.get("face") is not None:
             return f"check face is reserved and must be null, got {check['face']!r}"
     elif not (

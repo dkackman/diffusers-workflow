@@ -42,9 +42,16 @@ import numpy
 JUMP_RATIO_MAX = 4.0
 LOOK_RATIO_MAX = 5.5
 TEXTURE_RATIO_MAX = 2.0
+# - cut_ratio: the largest frame step inside the segment over its own typical
+#   step - a seam nobody marked. The seam measures above miss a segment that
+#   cuts away a few frames after its seam (bench/records/check.md: an S3 re-roll
+#   cut to another scene 2 frames in and passed). 282 segments of 47 bench
+#   takes read P50 1.22, P99 2.62, max 2.98 (bench/cuts.py); the two cuts in
+#   that take read 4.16 and 17.2. The seam's own ceiling, 4.0, sits between
+CUT_RATIO_MAX = 4.0
 
 # The measures a check can fail, in the order a failure names them
-MEASURES = ("jump_ratio", "look_ratio", "texture_ratio")
+MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio")
 
 # Frames of a segment, evenly spaced, its fine-band texture is the mean of
 TEXTURE_SAMPLES = 4
@@ -62,6 +69,7 @@ class SegmentCheck:
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
     texture_ratio_max: float | None = TEXTURE_RATIO_MAX
+    cut_ratio_max: float | None = CUT_RATIO_MAX
     face: None = None
 
 
@@ -85,9 +93,9 @@ def segment_check(value):
         for name in ("jump_ratio_max", "look_ratio_max")
         if name in value
     }
-    if "texture_ratio_max" in value:
-        texture = value["texture_ratio_max"]
-        fields["texture_ratio_max"] = None if texture is None else float(texture)
+    for name in ("texture_ratio_max", "cut_ratio_max"):
+        if name in value:
+            fields[name] = None if value[name] is None else float(value[name])
     return SegmentCheck(**fields)
 
 
@@ -125,6 +133,7 @@ def check_segment(previous_frames, frames, segment_1_frames, check, hard_cut=Fal
         "look_ratio": seam["look_ratio"],
         "look_ratio_measure": seam["look_ratio_measure"],
         "texture_ratio": _texture_ratio(frames, segment_1_frames),
+        "cut_ratio": _cut_ratio(after_thumbs),
     }
     failed = []
     if _over(measures["jump_ratio"], check.jump_ratio_max):
@@ -138,6 +147,10 @@ def check_segment(previous_frames, frames, segment_1_frames, check, hard_cut=Fal
         and max(texture, 1 / texture if texture else math.inf) > check.texture_ratio_max
     ):
         failed.append("texture_ratio")
+    if check.cut_ratio_max is not None and _over(
+        measures["cut_ratio"], check.cut_ratio_max
+    ):
+        failed.append("cut_ratio")
     return CheckResult(not failed, measures, failed)
 
 
@@ -156,6 +169,21 @@ def best_attempt(results):
 def reroll_seed(seed, attempt):
     """The seed attempt `attempt` of a segment runs at (0 is the first)."""
     return seed + attempt * REROLL_PRIME
+
+
+def _cut_ratio(thumbs):
+    """The largest frame step inside a segment over its own typical step,
+    floored as a seam's is - `_seam_video`'s arithmetic on a seam inside the
+    segment - or None for fewer than three frames."""
+    from ..tasks.assess import TYPICAL_DELTA_FLOOR, TYPICAL_DELTA_PERCENTILE
+
+    if thumbs.shape[0] < 3:
+        return None
+    deltas = numpy.abs(numpy.diff(thumbs.astype(numpy.int16), axis=0)).mean(axis=(1, 2))
+    typical = max(
+        TYPICAL_DELTA_FLOOR, float(numpy.percentile(deltas, TYPICAL_DELTA_PERCENTILE))
+    )
+    return round(float(deltas.max()) / typical, 2)
 
 
 def _over(value, ceiling):
