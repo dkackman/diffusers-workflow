@@ -954,6 +954,50 @@ is decided elsewhere):
 A clean rerun of r1-keystone-s1 is the cheapest to add (one run) if the
 seed-1166 keystone row should read clean as well.
 
+### Clean last_frame controls (2026-11-05)
+
+The minimum set ran (`bench/arms/lastframe-ctl-clean-rerun.json`,
+`bench/records/lastframe-ctl-clean-rerun.json`), each the first job after a
+bench server restart on cuda:0 alone, with a fresh workflow-id suffix. Both
+are **clean** by `bench/segment1.py`:
+
+| arm | job | segment 1 | jump | jump max | look | look max | level dB | level dB max | tex fine | tex mid | tex coarse |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| ctl-lastframe-s1-s1166-clean | `88250351f1fe` | `d59a1259/b2c2c63e` clean | 1.036 | 1.190 | 1.254 | 1.730 | 4.508 | 9.350 | 0.522 | 0.342 | 0.002 |
+| ctl-lastframe-s1-s2-clean | `194ee59b559d` | `f47df963/f88334a9` clean | 1.072 | 1.270 | 1.340 | 1.760 | 4.698 | 13.860 | 0.593 | 0.448 | 0.011 |
+
+Against the drifted originals the clean controls moved fine texture by
+0.047 (1166) and 0.012 (seed 2), inside the rerun gap. The S1 last_frame
+floor, `combined_floor(noise_floor(clean 1166, clean 2), rerun gap)`, is
+jump 0.124, jump max 0.430, look 0.438, look max 0.790, level 6.204 / 8.800
+dB, tex fine **0.071**, tex mid 0.106, tex coarse 0.010.
+
+| arm | against (clean) | tex fine arm / ctl | verdict (all) | verdict (picture) | past the floor (worse; _better_) |
+|---|---|---|---|---|---|
+| r1-lf-lookhold-s1 | ctl-lastframe-s1-s1166-clean | 0.491 / 0.522 | tie | tie | -; _jump, look_ |
+| r2-lf-lookhold-s1-seed2 | ctl-lastframe-s1-s2-clean | 0.550 / 0.593 | tie | tie | -; _jump, look_ |
+| r1-lf-carrypick-s1 | ctl-lastframe-s1-s1166-clean | 0.533 / 0.522 | tie | tie | -; - |
+| r2-lf-lookhold-anchor25-s1-s1166 (drifted `cd167eee`) | ctl-lastframe-s1-s1166-clean | 0.331 / 0.522 | wins | wins | -; _jump, look, look max, tex fine, tex mid_ |
+| r2-lf-lookhold-anchor50-s1-s1166 (drifted `df2c8907`) | ctl-lastframe-s1-s1166-clean | 0.183 / 0.522 | wins | wins | -; _jump, look, tex fine, tex mid_ |
+| r2-lf-lookhold-anchor25-s1-s2 | ctl-lastframe-s1-s2-clean | 0.297 / 0.593 | wins | wins | -; _jump, jump max, look, look max, tex fine, tex mid_ |
+| r2-lf-lookhold-anchor50-s1-s2 | ctl-lastframe-s1-s2-clean | 0.236 / 0.593 | mixed | mixed | tex coarse; _jump, look, level max, tex fine, tex mid_ |
+| continuity: ctl-lastframe-s1-s1166-clean | ctl-guide-s1-s1166 (cross floor, tex fine 0.081) | 0.522 / 0.536 | mixed | mixed | jump, tex mid; _tex coarse_ |
+| continuity: ctl-lastframe-s1-s2-clean | ctl-guide-s1-s2 (cross floor) | 0.593 / 0.455 | loses | loses | jump, tex fine, tex mid; - |
+
+- **"last_frame + look_hold beats its own control on both seeds": settled,
+  no.** On the primary (fine texture) it is a **tie on both seeds** (gains
+  0.031 and 0.043 against a 0.071 floor). What it does beat, past the floor
+  on both seeds, is seam jump and seam look mean: look_hold smooths the
+  last_frame hand-over, not the burn. The call in *Defaults by shot type*
+  (a knob, not the default) stands, now with clean evidence.
+- **last_frame + carry_pick, S1: tie, clean on both sides.** The cut stands.
+- **The lf + look_hold + anchor set** beats the clean last_frame control on
+  texture at both seeds (*wins* three of four; anchor 0.5 at seed 2 is
+  *mixed* on coarse texture). The anchor carries the gain, as against guide.
+  Still Don's call, not the default.
+- **Continuity (last_frame against guide), clean on both sides:** *mixed* at
+  1166 and *loses* at seed 2. Guide stays the default.
+
 ## Round 3 (2 min), 2026-11-05
 
 Round 3 asks one question: does Don's static default (guide, `anchor:
