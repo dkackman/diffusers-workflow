@@ -1,0 +1,56 @@
+[
+  {
+    "arm": "t17-s1-6seg-r020",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "2bf137970ed6",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-105022-10306151/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s2-r020",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "f632dc4da8b0",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-110808-51bf7745/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s3-r020",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "7e896973847a",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-112555-69142e2e/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s1-6seg-r040",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "54465529d877",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-114345-ccefdb91/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s2-r040",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "c5885e47a386",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-120133-e1907f67/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s3-r040",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "8327447967bb",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-121921-ce582f81/final/BenchRefineWindows-mux.3-0.0.mp4"
+  }
+]

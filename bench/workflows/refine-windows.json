@@ -41,7 +41,8 @@
         "arguments": {
           "source": "variable:source"
         }
-      }
+      },
+      "release_models": true
     },
     {
       "name": "refine",
@@ -191,7 +192,8 @@
           "latents": "previous_result:refine.latents",
           "num_frames": "previous_result:encode.source_frames"
         }
-      }
+      },
+      "release_models": true
     },
     {
       "name": "mux",

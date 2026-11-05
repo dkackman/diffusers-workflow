@@ -1,0 +1,38 @@
+[
+  {
+    "arm": "t17-s1-6seg-r030",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "c9bf009ba8ab",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-093739-08736f1c/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s1-6seg-r030-rebased",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "c0caed31ae06",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-095727-35da065f/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s2-r030",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "7fb00bb6d34e",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-101422-4c02b956/final/BenchRefineWindows-mux.3-0.0.mp4"
+  },
+  {
+    "arm": "t17-s3-r030",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "a55b3c6f83a2",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-103223-22014f33/final/BenchRefineWindows-mux.3-0.0.mp4"
+  }
+]
