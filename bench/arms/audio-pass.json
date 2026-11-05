@@ -1,0 +1,184 @@
+[
+  {
+    "name": "ap-s4-cold_open-ls1",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@cold_open.2-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames a living room set: a sagging olive-green couch centre frame in front of a brick wall with a window onto a painted city backdrop. A heavyset man in his mid 40s with a shaved head, in an open gray flannel shirt, sits at the right end of the couch reading a magazine and does not look up. A wiry man in his early 30s with short curly dark hair, in a mustard-yellow sweater vest, strides in from frame left holding an empty ice cream carton, stops beside the couch and turns it upside down to show it is empty. The wiry man (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, says <d>[English] Okay. Who finished the pistachio?</d> The heavyset man keeps reading. A live studio audience laughs warmly as the carton turns over. The camera holds a static wide shot throughout.\n\noverall_soundscape: A bright, close television-studio room tone. Quick footsteps on a hollow stage floor as the wiry man enters, the papery rattle of the empty carton as it turns over, a soft page turn from the couch, and a warm burst of live studio-audience laughter that begins as the carton flips and settles under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-deflect-ls1",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@deflect.3-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames a heavyset man in his mid 40s with a shaved head, calm and heavy-lidded, in an open gray flannel shirt, seated at the end of an olive-green couch in front of a brick wall, reading a magazine held just below the frame line. He does not look up. The man (S1), a flat, low, unhurried male baritone voice, completely unbothered, says <d>[English] Technically? The freezer has a defrost cycle.</d> On the last word he turns a page. A live studio audience laughs as the line lands. The camera holds a static close-up throughout.\n\noverall_soundscape: A bright, close television-studio room tone. A soft page turn, the faint creak of couch springs, and a rolling wave of live studio-audience laughter that starts on the last word of the line and carries under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-react-ls1",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@react.4-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames a wiry man in his early 30s with short curly dark hair and expressive eyebrows, in a mustard-yellow sweater vest, standing beside a couch in front of a brick wall, an empty ice cream carton raised in one hand at head height. The man (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, cracking upward on the last word, says <d>[English] The defrost cycle used a spoon?</d> He shakes the empty carton once on the word spoon. A live studio audience erupts in a big laugh as the line lands. The camera holds a static close-up throughout.\n\noverall_soundscape: A bright, close television-studio room tone. The hollow papery rattle of the empty carton as it shakes, and a big rising wave of live studio-audience laughter that breaks on the word spoon and rolls under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-button-ls1",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@button.5-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames a heavyset man in his mid 40s with a shaved head, calm and heavy-lidded, in an open gray flannel shirt, seated at the end of an olive-green couch in front of a brick wall, a magazine closed in his lap. He looks up, holds a beat of eye contact just past the lens, and gives one slow shrug. The man (S1), a flat, low, unhurried male baritone voice, perfectly deadpan, says <d>[English] I don't know its life.</d> He goes back to the magazine. A live studio audience gives a big laugh with scattered applause. The camera holds a static close-up throughout.\n\noverall_soundscape: A bright, close television-studio room tone. The soft slap of the magazine reopening, a couch-spring creak under the shrug, and a big wave of live studio-audience laughter with a few claps in it that breaks after the line and rolls under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-cold_open-ls050",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@cold_open.2-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames a living room set: a sagging olive-green couch centre frame in front of a brick wall with a window onto a painted city backdrop. A heavyset man in his mid 40s with a shaved head, in an open gray flannel shirt, sits at the right end of the couch reading a magazine and does not look up. A wiry man in his early 30s with short curly dark hair, in a mustard-yellow sweater vest, strides in from frame left holding an empty ice cream carton, stops beside the couch and turns it upside down to show it is empty. The wiry man (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, says <d>[English] Okay. Who finished the pistachio?</d> The heavyset man keeps reading. A live studio audience laughs warmly as the carton turns over. The camera holds a static wide shot throughout.\n\noverall_soundscape: A bright, close television-studio room tone. Quick footsteps on a hollow stage floor as the wiry man enters, the papery rattle of the empty carton as it turns over, a soft page turn from the couch, and a warm burst of live studio-audience laughter that begins as the carton flips and settles under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 0.5
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-cold_open-ls025",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@cold_open.2-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames a living room set: a sagging olive-green couch centre frame in front of a brick wall with a window onto a painted city backdrop. A heavyset man in his mid 40s with a shaved head, in an open gray flannel shirt, sits at the right end of the couch reading a magazine and does not look up. A wiry man in his early 30s with short curly dark hair, in a mustard-yellow sweater vest, strides in from frame left holding an empty ice cream carton, stops beside the couch and turns it upside down to show it is empty. The wiry man (S1), a fast, nasal, high-pitched male tenor voice, tight with disbelief, says <d>[English] Okay. Who finished the pistachio?</d> The heavyset man keeps reading. A live studio audience laughs warmly as the carton turns over. The camera holds a static wide shot throughout.\n\noverall_soundscape: A bright, close television-studio room tone. Quick footsteps on a hollow stage floor as the wiry man enters, the papery rattle of the empty carton as it turns over, a soft page turn from the couch, and a warm burst of live studio-audience laughter that begins as the carton flips and settles under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 0.25
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s4-cold_open-foley-ls1",
+    "scene": "s4-montage",
+    "workflow": "add-sound.json",
+    "arguments": {
+      "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@cold_open.2-0.0.mp4",
+      "prompt": "integrated_multimodal_description: The target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A wide shot frames a living room set: a sagging olive-green couch centre frame in front of a brick wall. A heavyset man with a shaved head sits at the right end of the couch reading a magazine. A wiry man with curly dark hair, in a mustard-yellow sweater vest, strides in from frame left holding an empty ice cream carton, stops beside the couch and turns it upside down. Nobody speaks. The camera holds a static wide shot throughout.\n\noverall_soundscape: A bright, close television-studio room tone. Quick footsteps on a hollow stage floor, the papery rattle of the empty carton as it turns over, a soft page turn from the couch, and a warm burst of live studio-audience laughter that begins as the carton flips and settles under the end of the shot.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s3-seg1-same-line-ls1",
+    "scene": "s3-dialogue-walk",
+    "workflow": "add-sound-span.json",
+    "arguments": {
+      "source_video": "output:BenchS3DialogueWalk/20261104-035218-d2733a3a/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "start_frame": 0,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  },
+  {
+    "name": "ap-s3-seg1-new-line-ls1",
+    "scene": "s3-dialogue-walk",
+    "workflow": "add-sound-span.json",
+    "arguments": {
+      "source_video": "output:BenchS3DialogueWalk/20261104-035218-d2733a3a/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "start_frame": 0,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I swore I would never set foot on this street again.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "num_frames": 124,
+      "width": 960,
+      "height": 544,
+      "listen_scale": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ap",
+    "moments": [
+      "frame:12",
+      "frame:62",
+      "frame:118"
+    ]
+  }
+]
