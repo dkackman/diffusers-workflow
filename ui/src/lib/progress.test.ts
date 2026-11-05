@@ -45,6 +45,56 @@ describe('stepProgress', () => {
     expect(progress.denoise).toEqual({ step: 4, total_steps: 25 })
   })
 
+  it('shows a download the loading phase is waiting on', () => {
+    const progress = stepProgress([
+      event('step_start', { step: 'gen' }),
+      event('phase', { phase: 'loading', detail: 'acme/model' }),
+      event('download_progress', {
+        repo_id: 'acme/model',
+        downloaded_bytes: 3 * 1024 ** 3,
+        bytes_per_second: 40 * 1024 ** 2,
+      }),
+      event('download_progress', {
+        repo_id: 'acme/model',
+        downloaded_bytes: 4 * 1024 ** 3,
+        bytes_per_second: 38 * 1024 ** 2,
+      }),
+    ])
+    // Still the loading phase - only the text says what it waits on
+    expect(progress.phase).toBe('loading')
+    expect(progress.label).toBe('downloading acme/model: 4.00 GB, 38.0 MB/s')
+  })
+
+  it('says how long a stalled download has been flat', () => {
+    const progress = stepProgress([
+      event('step_start', { step: 'gen' }),
+      event('phase', { phase: 'loading', detail: 'acme/model' }),
+      event('download_progress', {
+        repo_id: 'acme/model',
+        downloaded_bytes: 4 * 1024 ** 3,
+        bytes_per_second: 0,
+        seconds_since_bytes_changed: 45.2,
+      }),
+    ])
+    expect(progress.label).toBe(
+      'downloading acme/model: 4.00 GB, no bytes for 45s',
+    )
+  })
+
+  it('drops the download once the next phase begins', () => {
+    const progress = stepProgress([
+      event('step_start', { step: 'gen' }),
+      event('phase', { phase: 'loading', detail: 'acme/model' }),
+      event('download_progress', {
+        repo_id: 'acme/model',
+        downloaded_bytes: 4 * 1024 ** 3,
+        bytes_per_second: 38 * 1024 ** 2,
+      }),
+      event('phase', { phase: 'generating', detail: 'acme/model' }),
+    ])
+    expect(progress.label).toBe('generating acme/model')
+  })
+
   it('reports nothing before the first step starts', () => {
     const progress = stepProgress([event('workflow_start', { steps: ['gen'] })])
     expect(progress).toEqual({ phase: null, label: null, denoise: null })
