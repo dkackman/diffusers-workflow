@@ -18,6 +18,8 @@ the **summary table Tasks 15 and 20 build from** are at the end, under
 type](#defaults-by-shot-type). Every verdict was re-scored on 2026-11-05
 under ruling R35 (same-seed reruns are not noise-free, and segment-1 drift
 labels): see [Re-scored under R35](#re-scored-under-r35-2026-11-05).
+Round 3 (anchor 0.25 at two minutes) is at the end, under [Round 3 (2
+min)](#round-3-2-min-2026-11-05).
 
 ## How the verdicts are read
 
@@ -951,3 +953,172 @@ is decided elsewhere):
 
 A clean rerun of r1-keystone-s1 is the cheapest to add (one run) if the
 seed-1166 keystone row should read clean as well.
+
+## Round 3 (2 min), 2026-11-05
+
+Round 3 asks one question: does Don's static default (guide, `anchor:
+segment_1`, `anchor_strength: 0.25`) hold at two minutes? Two S1 runs, both
+seed 1166, 120 s, 2880 frames, on cuda:0
+(`bench/arms/counters-round3-long.json`, `bench/records/counters-round3-long.json`):
+
+- `r3-anchor25-s1-120s` (`25f6bd1da507`): guide + anchor 0.25. 28 seams.
+- `r3-lf-lookhold-anchor25-s1-120s` (`9877bbfd85a8`): last_frame + look_hold +
+  anchor 0.25 (the static alternative set). 23 seams (last_frame segments
+  are about 5.1 s, not 4.25 s).
+
+The control is round 2's `ctl-guide-s1-120s` (`8d1614ced27a`), with
+`r2-anchor50-s1-120s` (`107859a31bc1`) beside it. The eight-moment texture
+and per-seam pass is `bench/records/counters-round3-long-moments.json`. It
+was taken in-process on lem with the deployed `dw.media_compare.compare`
+and `dw.server.assess.assess` (the code behind the compare and assess
+routes), not through the server. It reproduces round 2's moments record
+and the driver's measures exactly.
+
+### Segment-1 labels
+
+| arm | job | key | segment 1 | label |
+|---|---|---|---|---|
+| r3-anchor25-s1-120s | `25f6bd1da507` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r3-lf-lookhold-anchor25-s1-120s | `9877bbfd85a8` | s1-static@1166 | `91deb574/008eae4c` | **drifted** (a new alternate) |
+| ctl-guide-s1-120s | `8d1614ced27a` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+| r2-anchor50-s1-120s | `107859a31bc1` | s1-static@1166 | `d59a1259/b2c2c63e` | clean |
+
+So anchor 0.25 against the control is a clean read. Every read of the
+last_frame run is confounded.
+
+### Floor
+
+`combined_floor(seed floor, rerun gap)`, the R35 S1 guide row: jump
+0.124/0.430, look 0.438/0.790, level 6.2/8.8 dB, texture 0.081/0.032/0.010.
+For reads against the last_frame run, the S1 last_frame seed floor is
+folded in as well, which only lifts mid texture to 0.087. These are
+6-segment floors. **There is no two-minute floor**, and every two-minute
+run is a single seed.
+
+### Texture over time
+
+Drift against frame 62 on the S1 crop `[0,0,240,150]` (the circle and the
+top of the stripes), `|ln(band / band@62)|`:
+
+| frame (s) | 300 (12.5) | 583 (24.3) | 1000 (41.7) | 1501 (62.5) | 2000 (83.3) | 2500 (104.2) | 2868 (119.5) |
+|---|---|---|---|---|---|---|---|
+| control fine | 0.180 | 0.536 | 1.108 | 1.399 | 1.646 | 1.658 | 1.706 |
+| **anchor 0.25 fine** | 0.153 | 0.367 | 0.497 | 0.771 | 0.931 | 1.012 | 1.108 |
+| lf + look_hold + anchor 0.25 fine | 0.144 | 0.253 | 0.478 | 0.575 | 0.408 | 0.697 | 0.930 |
+| anchor 0.5 fine | 0.137 | 0.270 | 0.360 | 0.602 | 0.737 | 0.759 | 1.067 |
+| control mid | 0.045 | 0.176 | 0.406 | 0.716 | 1.071 | 1.156 | 1.171 |
+| **anchor 0.25 mid** | 0.046 | 0.124 | 0.179 | 0.271 | 0.319 | 0.356 | 0.430 |
+| lf + look_hold + anchor 0.25 mid | 0.072 | 0.185 | 0.251 | 0.368 | 0.351 | 0.411 | 0.637 |
+| anchor 0.5 mid | 0.038 | 0.116 | 0.162 | 0.227 | 0.307 | 0.273 | 0.462 |
+
+On the numbers, anchor 0.25 both **delays and reduces** the burn:
+
+- **Delay.** The control reaches 0.54 fine drift at 24 s (segment 6). Anchor
+  0.25 reaches the same level between 42 and 62 s (segments 10-14), so it
+  roughly doubles the clean length.
+- **Reduction.** It ends at 1.11 fine and 0.43 mid, against the control's 1.71
+  and 1.17. Mid stays at about a third of the control's from 42 s on.
+- **Against 0.5.** On fine texture, 0.25 runs 0.1-0.2 above 0.5 from 24 to
+  104 s. At the end the two are inside the floor (1.108 against 1.067).
+  Mid texture is close all the way.
+
+### Seams
+
+By stretch of the take (`analyze_seams`, every seam, mean (max)):
+
+| seconds | control jump | anchor 0.25 jump | lf+lh+a0.25 jump | control look | anchor 0.25 look | lf+lh+a0.25 look |
+|---|---|---|---|---|---|---|
+| 0-25 | 0.85 (0.97) | 0.93 (1.15) | 0.72 (0.78) | 1.46 (2.13) | 1.13 (1.98) | 0.71 (0.83) |
+| 25-60 | 1.17 (1.64) | 0.88 (1.29) | 0.83 (0.99) | 1.88 (2.61) | 0.78 (2.37) | 0.77 (1.03) |
+| 60-95 | 1.29 (1.94) | 0.80 (0.96) | 1.33 (**4.24**) | 1.71 (3.75) | 0.68 (1.53) | 1.53 (**6.36**) |
+| 95-120 | 2.06 (**6.56**) | 1.26 (1.86) | 1.09 (1.27) | 4.12 (**11.51**) | 1.81 (2.70) | 2.00 (4.71) |
+
+- Anchor 0.25's worst seam is the very last one, at 119.9 s (jump 1.86, look
+  2.70). It never passes the chain check's 4.0.
+- The last_frame run is the best set to about 60 s. Then it has one hard
+  seam at 76.3 s (jump 4.24, look 6.36), and its look degrades through the
+  last 25 s.
+- Level step: anchor 0.25 is 5.8 dB mean (24.3 max) against the control's
+  5.9 (36.5); last_frame is 5.5 (15.0). Every level mean is inside the
+  6.2 dB floor. Anchor 0.25's loud steps come in the first minute (12.2 and
+  9.9 dB means), as on every S1 guide arm.
+
+### Verdicts (`verdict()`, primary `texture_fine_seg_last`)
+
+| read | verdict (all / picture) | past the floor |
+|---|---|---|
+| anchor 0.25 vs control (clean, clean) | **wins / wins** | better on all 8 picture measures and on level max; level mean inside |
+| lf+lh+a0.25 vs control (drifted, clean) | wins / wins (confounded) | better on all 8 picture measures and on level max |
+| lf+lh+a0.25 vs anchor 0.25 (drifted, clean) | mixed / mixed (confounded) | fine better (0.930 vs 1.108); **worse** jump max (+2.38), look max (+3.66), mid (+0.21), coarse (+0.05) |
+| anchor 0.25 vs anchor 0.5 (clean, clean) | tie / tie | only coarse texture better (0.019 vs 0.089) |
+
+**Motion.** S1 is locked off, and the only motion measure the bench takes is
+the within-segment frame delta at each seam (`typical_delta`). It is 2.0-2.4 on
+every run, with no stall and no surge. By eye the last_frame run's subject
+turns her head at 83 s; the guide runs stay frontal.
+
+### Eye check: face and backdrop
+
+Face crops (`crop=240:240:360:30`) at 24/42/52/62/83/104/112/119.5 s, and
+full frames at the same moments:
+
+- **Control:** as in round 2. The backdrop crusts from 24 s and the face
+  cracks from 42 s. From 83 s she is a mottled mosaic, though still the
+  same person.
+- **Anchor 0.25:** clean at 24 s. At 42 s the backdrop is visibly crusting
+  (the stripes and the circle). The face is waxy, with heavy blush, but holds.
+  At 52 s it softens, and at 62 s it is pale and flattened. From 83 s it is
+  washed out, and by 104-120 s it is a pale mask, with a white patch over the
+  forehead and faint features. **This is the anchor 0.5 failure, about 20 s
+  later and milder**: the eyes, nose and mouth are still there at 120 s,
+  where 0.5's eyes had gone by 62-83 s. The backdrop is a full mosaic by
+  62 s. The texture number after about 60 s is part blur (#1175 trap),
+  as with 0.5.
+- **last_frame + look_hold + anchor 0.25:** the best face hold of any
+  two-minute run. The face is natural to 62 s and still present at 83 s
+  (head turned). It smears from 104 s and is dissolving into crust at
+  120 s. The backdrop burns like anchor 0.25's. It opens on a drifted segment 1
+  (the woman at 24 s is visibly a different take from the guide runs').
+
+Export for Don (the last 20 s of each, 100-120 s, re-encoded with x264 at
+CRF 16): `~/Desktop/dw-bench-r3/` on the Mac:
+`r3-guide-anchor25-last20s.mp4`, `r3-lastframe-lookhold-anchor25-last20s.mp4`
+and `r2-guide-control-last20s.mp4`.
+
+### The call
+
+- **Guide + anchor 0.25 still beats the guide control at two minutes.** This
+  is a strict *wins* on a clean read, with every picture measure better by
+  3-23x its floor, and the margin grows with length. The burn is delayed, not
+  removed:
+  - visible backdrop crust from segment 10 (about 42 s);
+  - the face softens from segment 13 (52 s);
+  - the face is washed out from segment 20 (83 s).
+
+  The control burns from segment 6 (24 s).
+- **The static default stands, and so does the cut rule.** A two-minute
+  static take is still not usable on any arm. Anchor 0.25 moves the usable
+  length from about 30 s to about 35-40 s at best, which is not enough to
+  change "cut static shots at about 30 s (6-8 segments)". The bench's
+  conclusion is unchanged: the long take needs the second group (#1150,
+  #1044, #1030) or the per-segment check and re-roll.
+- **0.25 is better than 0.5 at length.** The numbers tie (coarse aside), but
+  by eye 0.25 keeps the face about 20 s longer and never loses the eyes. This
+  confirms the round-2 recommendation.
+- **last_frame + look_hold + anchor 0.25 against guide + anchor 0.25: not
+  settled, and confounded.** It holds the face longer and ends lower on fine
+  texture. It is worse past the floor on mid and coarse texture and on the
+  worst seam (4.24 jump at 76 s, past the 4.0 check). It is also 21 min
+  faster (48 against 69 min). It opens on a drifted segment 1 (`91deb574`), so
+  none of these reads is clean, and the mid-texture cost repeats round 2's
+  on both seeds. The *Defaults by shot type* row (a knob, not the default)
+  stands.
+- **Minimum clean rerun: one run.** Run `r3-lf-lookhold-anchor25-s1-120s` with
+  a fresh `workflow_id_suffix`, as the first job after a cold model load, and
+  confirm it `clean` (`d59a1259`) with `bench/segment1.py` before reading it.
+  This takes about 48 min plus the load. No rerun is needed for the anchor 0.25
+  call. Both sides are clean, and every margin is far past the 6-segment
+  floor. A seed-2 two-minute pair would give the first two-minute floor if
+  one is wanted.
+- **Cost:** anchor 0.25 took 69 min, against the control's 52 min (+32%).
+  Round 2's anchor 0.5 took 68 min.
