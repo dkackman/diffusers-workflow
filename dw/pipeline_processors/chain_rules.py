@@ -202,14 +202,15 @@ def chain_capstone_problem(chain, num_frames=None):
 CHAIN_LATENT_CARRY = "experimental_latent_carry"
 
 
-def chain_latent_carry_problem(chain, guide_noise=None):
+def chain_latent_carry_problem(chain, guide_noise=None, hold_audio=None):
     """The reason a chain block's `experimental_latent_carry` is refused, or
     None: the flag off; a value that is not true or false; a continuity other
     than `guide` (the latents replace a guide's encode, and only a guide chain
     has one); a `look_hold`, which corrects the decoded frames the carry would
     no longer read; `match_audio`, whose held track is what the guide's audio
     would be (the spike carries generated audio latents only); or the step's
-    nonzero `guide_noise`, which noises pixels that are never encoded. False,
+    nonzero `guide_noise`, which noises pixels that are never encoded; or a
+    step `hold_audio`, the track the guide's audio would be. False,
     null and absent are off. Unresolved references are left to the run."""
     carry = chain.get(CHAIN_LATENT_CARRY)
     if carry is None or carry is False:
@@ -247,6 +248,15 @@ def chain_latent_carry_problem(chain, guide_noise=None):
     if chain.get("match_audio") is True:
         return (
             f"{CHAIN_LATENT_CARRY} does not combine with match_audio: the "
+            "guide's audio would be the held track, and the spike carries "
+            "generated audio latents only"
+        )
+    if hold_audio is not None and not (
+        isinstance(hold_audio, str)
+        and references.is_ref(references.UNRESOLVED, hold_audio)
+    ):
+        return (
+            f"{CHAIN_LATENT_CARRY} does not combine with hold_audio: the "
             "guide's audio would be the held track, and the spike carries "
             "generated audio latents only"
         )

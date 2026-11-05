@@ -440,6 +440,7 @@ def anchor_errors(workflow_definition, source_indices=None):
         problem = chain_latent_carry_problem(
             chain,
             arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
+            arguments.get("hold_audio") if isinstance(arguments, dict) else None,
         )
         if problem:
             errors.append(

@@ -195,6 +195,7 @@ def h3_workflow(chain=None, arguments=None):
             "match_audio",
         ),
         ({}, {"guide_noise": 0.4}, "guide_noise"),
+        ({}, {"hold_audio": "asset:track.wav"}, "hold_audio"),
         ({CHAIN_LATENT_CARRY: "yes"}, None, "true or false"),
     ],
 )
@@ -289,6 +290,30 @@ def test_a_backed_off_tail_is_the_latents_before_the_back_off(flag_on):
     assert torch.equal(
         guide["audio_latents"],
         previous["audio_latents"][:, :, end - 37 : end].permute(0, 2, 1),
+    )
+
+
+def test_the_carried_tails_own_only_their_tail_storage(flag_on):
+    pipeline, outputs, _ = run_latent_chain()
+    (guide,) = pipeline.calls[1]["guides"]
+    for key in ("latents", "audio_latents"):
+        tensor = guide[key]
+        assert (
+            tensor.untyped_storage().nbytes() == tensor.numel() * tensor.element_size()
+        )
+    assert guide["latents"].untyped_storage().nbytes() < (
+        outputs.kept[0]["latents"].untyped_storage().nbytes()
+    )
+
+
+def test_the_audio_latent_rate_is_diffusers_own():
+    constants = pytest.importorskip(
+        "diffusers.modular_pipelines.minimax_h3.modular_pipeline",
+        reason="diffusers' H3 pipeline is not importable here",
+    )
+    assert (
+        h3_guides.H3_AUDIO_LATENTS_PER_SECOND
+        == constants.MINIMAX_H3_AUDIO_LATENTS_PER_SECOND
     )
 
 

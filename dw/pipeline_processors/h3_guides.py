@@ -368,8 +368,8 @@ def latent_guide_tail(latents, audio_latents, num_frames, count, back, fps=H3_FP
     is refused. `audio_latents` is the segment's `(channels, C, N)` output,
     N = round(num_frames * 40 / 24); the span is the round(count * 40 / 24)
     latents that end at the span's last frame (the pixel guide's audio is
-    cut back from that end too), so its first latent can sit up to half a
-    latent (12.5 ms) off the span's first frame."""
+    cut back from that end too), so its first latent can sit up to two thirds
+    of a latent (about 16.7 ms) off the span's first frame (the two roundings)."""
     start = num_frames - back - count
     if start < 0 or start % GUIDE_FRAMES_PER_CHUNK:
         raise ValueError(
@@ -383,13 +383,13 @@ def latent_guide_tail(latents, audio_latents, num_frames, count, back, fps=H3_FP
             f"latent frames for its {num_frames} frames, and got {latents.shape[2]}"
         )
     first = start // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK
-    video = latents[:, :, first : first + guide_latent_frames(count)]
+    video = latents[:, :, first : first + guide_latent_frames(count)].clone()
     if audio_latents is None:
         return video, None
     # h3_guide_steps.guide_audio_latents, which imports diffusers to load
     rows = int(round(count * H3_AUDIO_LATENTS_PER_SECOND / fps))
     end = int(round((num_frames - back) * H3_AUDIO_LATENTS_PER_SECOND / fps))
-    audio = audio_latents[:, :, max(end - rows, 0) : end].permute(0, 2, 1)
+    audio = audio_latents[:, :, max(end - rows, 0) : end].clone().permute(0, 2, 1)
     return video, audio
 
 

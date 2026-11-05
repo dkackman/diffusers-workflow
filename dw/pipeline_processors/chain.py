@@ -326,12 +326,6 @@ def run_chain(pipeline, chain_definition, arguments):
         _check_guide_chain(pipeline, arguments, chain_definition, config)
     if config.anchor == ANCHOR_SEGMENT_1:
         _check_anchor_chain(pipeline, arguments)
-    if config.latent_carry and arguments.get(HOLD_AUDIO_INPUT) is not None:
-        raise ValueError(
-            f"Chain {CHAIN_LATENT_CARRY} does not combine with hold_audio: the "
-            "guide's audio would be the held track, and the spike carries "
-            "generated audio latents only"
-        )
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -1032,6 +1026,7 @@ class ChainConfig:
         problem = chain_latent_carry_problem(
             chain_definition,
             arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
+            arguments.get(HOLD_AUDIO_INPUT) if isinstance(arguments, dict) else None,
         )
         if problem:
             raise ValueError(f"Chain {problem}")
