@@ -10,7 +10,7 @@ running jobs (#869; the figure is `dw/server/host_ram_need.py`'s, the
 comparison `pool.host_ram_wait`).
 """
 
-from ..host_memory import host_memory_stats, process_rss_mb
+from ..host_memory import committed_rss_mb, host_memory_stats
 from . import pool
 from .job_record import QUEUED
 
@@ -35,10 +35,11 @@ class _HostReading:
 
 
 def _worker_rss_mb(slot):
-    """What `slot`'s worker holds in host RAM now, or None (not running, or
-    unreadable)."""
+    """What `slot`'s worker has committed in host RAM now, or None (not
+    running, or unreadable) - its mapped checkpoint pages left out, on the
+    same basis as the committed peaks a need is projected from."""
     pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
-    return process_rss_mb(pid) if pid is not None else None
+    return committed_rss_mb(pid) if pid is not None else None
 
 
 class Dispatcher:

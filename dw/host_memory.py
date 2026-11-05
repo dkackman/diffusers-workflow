@@ -25,6 +25,7 @@ __all__ = [
     "release_host_caches",
     "pinned_host_memory_fields",
     "process_rss_mb",
+    "committed_rss_mb",
     "rss_split_mb",
 ]
 
@@ -209,6 +210,19 @@ def rss_split_mb(status_path="/proc/self/status"):
     except (OSError, ValueError):
         return {}
     return split
+
+
+def committed_rss_mb(pid, status_path=None):
+    """What another process - a server's worker - has committed in host RAM
+    (RssAnon), in MB, leaving out the checkpoint pages it maps (RssFile):
+    page cache that MemAvailable already counts as free and that a second
+    worker mapping the same weights shares (#869). Where the split can't be
+    read (not Linux), its whole RSS, as `process_rss_mb` reads it."""
+    path = status_path or (
+        f"/proc/{pid}/status" if isinstance(pid, int) and pid > 0 else None
+    )
+    anon = rss_split_mb(path).get("anon_mb") if path else None
+    return anon if anon is not None else process_rss_mb(pid)
 
 
 def host_memory_fields():

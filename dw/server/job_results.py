@@ -144,6 +144,14 @@ def record_run_memory(job, info, slot, record_memory):
         job.host_memory_job_peak_rss_mb = max(
             job_peak, job.host_memory_job_peak_rss_mb or 0
         )
+    # The committed part of that: RSS counts the checkpoint pages a worker
+    # maps, page cache the host-RAM gate must not charge again (#869). A
+    # max over the run's readings - RssAnon has no high-water mark
+    anon = info.get("host_memory_rss_anon_mb")
+    if anon is not None:
+        job.host_memory_job_peak_anon_mb = max(
+            anon, getattr(job, "host_memory_job_peak_anon_mb", None) or 0
+        )
 
 
 def consume_results(job, manager, slot, output_dir, record_memory):

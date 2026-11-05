@@ -390,3 +390,67 @@ class TestValidateRoute:
             "basis": "observed",
             "runs": 1,
         }
+
+
+class TestCommittedPeak:
+    """A worker's RSS counts the checkpoint pages it maps (RssFile) - page
+    cache the kernel can drop and a second worker mapping the same weights
+    shares, which MemAvailable already counts as free. An H3 chain peaked at
+    ~122 GB RSS with ~43 GB of it committed (RssAnon), so the gate held every
+    queued H3 job for a figure three times what it would take."""
+
+    def test_the_committed_peak_is_the_need(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        job = recorded_job("a", definition, 122000)
+        job.host_memory_job_peak_anon_mb = 43000
+        history.record(job)
+
+        assert projected_peak(definition, {}, history) == (43000, "observed", 1)
+
+    def test_runs_that_measured_it_supersede_rss_only_rows(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+        job = recorded_job("new", definition, 120000)
+        job.host_memory_job_peak_anon_mb = 44000
+        history.record(job)
+
+        assert history.peaks_for_key(memory_key(definition)) == [44000]
+
+    def test_rss_only_history_still_answers(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+
+        assert history.peaks_for_key(memory_key(definition)) == [122000]
+
+
+class TestRecordRunMemory:
+    def test_the_committed_peak_is_the_largest_anon_reading(self):
+        from dw.server.job_results import record_run_memory
+
+        class Slot:
+            last_memory = None
+
+        job = recorded_job("a", template(), None)
+        for anon in (5000, 43000, 30000):
+            record_run_memory(
+                job, {"host_memory_rss_anon_mb": anon}, Slot(), lambda info, slot: None
+            )
+
+        assert job.host_memory_job_peak_anon_mb == 43000
+
+
+class TestWorkerCommittedRss:
+    def test_a_workers_committed_rss_leaves_out_its_mapped_files(self, tmp_path):
+        from dw.host_memory import committed_rss_mb
+
+        status = tmp_path / "status"
+        status.write_text(
+            "VmRSS:\t108026044 kB\nRssAnon:\t42561384 kB\nRssFile:\t64928348 kB\n"
+        )
+
+        assert committed_rss_mb(None, status_path=str(status)) == pytest.approx(
+            42561384 / 1024
+        )
