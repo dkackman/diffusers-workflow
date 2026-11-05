@@ -44,7 +44,7 @@
         "sparse_tau": 0.5,
         "sparse_topk": 0.15,
         "cache": null,
-        "listen_scale": 1
+        "listen_scale": 1.0
     },
     "variable_constraints": {
         "num_frames": {
