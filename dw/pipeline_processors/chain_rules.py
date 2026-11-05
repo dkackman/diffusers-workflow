@@ -158,10 +158,11 @@ CHAIN_CAPSTONE_FIELDS = ("enter_below_sigma", "from_end")
 CHAIN_CAPSTONE_FROM_END = 5
 
 
-def chain_capstone_problem(chain):
+def chain_capstone_problem(chain, num_frames=None):
     """The reason a chain block's `experimental_capstone` is refused, or None:
     the flag off, unknown keys, a gate not in (0, 1], a `from_end` not a whole
-    number from 1. Unresolved references are left to the run."""
+    number from 1, or past segment 1's `num_frames` when that is known.
+    Unresolved references are left to the run."""
     capstone = chain.get(CHAIN_CAPSTONE)
     if capstone is None:
         return None
@@ -185,4 +186,9 @@ def chain_capstone_problem(chain):
         return None
     if isinstance(back, bool) or not isinstance(back, int) or back < 1:
         return f"{CHAIN_CAPSTONE} from_end is a whole number from 1, got {back!r}"
+    if isinstance(num_frames, int) and back > num_frames:
+        return (
+            f"{CHAIN_CAPSTONE} from_end {back} is past the segment's "
+            f"{num_frames} frames"
+        )
     return None

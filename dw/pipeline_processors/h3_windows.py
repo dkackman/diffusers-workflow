@@ -782,6 +782,8 @@ def streamed_decode(vae, z, finish, piece_clips=DECODE_PIECE_CLIPS):
     does: the padding depends only on the latent count modulo the clip, and
     every piece starts on a clip.
 
+    A VAE with `token_drop` 0 has no overlap to join: it decodes whole.
+
     Raises:
         ValueError: If `piece_clips` is not a whole number of 1 or more
     """
@@ -791,6 +793,11 @@ def streamed_decode(vae, z, finish, piece_clips=DECODE_PIECE_CLIPS):
         raise ValueError(f"piece_clips is 1 or more, got {piece_clips}")
     clip = vae.tokens_chunk_size
     overlap = vae.token_overlap
+    if overlap < 1:
+        # No `token_drop`: clips do not overlap, so there is no tail to hold
+        # back and the stock whole decode is already the right one
+        finish(vae.decode(z, return_dict=False)[0])
+        return
     # Frames each clip contributes before the next clip's cross-fade
     clip_frames = clip * vae.temporal_compression_ratio - vae.frame_pre_padding
     total = z.shape[2]

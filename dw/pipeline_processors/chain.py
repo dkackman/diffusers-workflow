@@ -746,6 +746,11 @@ def _from_segment_1(config, rendered):
     """What later segments take from segment 1's frames as rendered: its
     frames as the latent anchor, its frame 0 as the keystone (#1187) and its
     late capstone frame (the experimental capstone) - each None when off."""
+    if config.capstone and config.capstone["from_end"] > len(rendered):
+        raise ValueError(
+            f"Chain {CHAIN_CAPSTONE} from_end {config.capstone['from_end']} is "
+            f"past segment 1's {len(rendered)} frames"
+        )
     return (
         rendered if config.anchor == ANCHOR_SEGMENT_1 else None,
         rendered[0] if config.keystone == KEYSTONE_SEGMENT_1 else None,

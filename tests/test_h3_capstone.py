@@ -214,6 +214,29 @@ def test_a_bad_chain_key_is_refused(flag_on, value, match):
     assert match in chain_capstone_problem({"experimental_capstone": value})
 
 
+def test_a_from_end_past_the_segment_is_refused(flag_on):
+    chain = {"experimental_capstone": {"enter_below_sigma": 0.5, "from_end": 30}}
+    problem = chain_capstone_problem(chain, num_frames=25)
+    assert "from_end 30" in problem and "25 frames" in problem
+    assert chain_capstone_problem(chain, num_frames=30) is None
+
+
+def test_a_from_end_past_the_rendered_frames_is_a_clear_error():
+    from dw.pipeline_processors.chain import _from_segment_1
+
+    config = type(
+        "C",
+        (),
+        {
+            "anchor": None,
+            "keystone": None,
+            "capstone": {"enter_below_sigma": 0.5, "from_end": 30},
+        },
+    )()
+    with pytest.raises(ValueError, match="from_end 30.*25 frames"):
+        _from_segment_1(config, ["f"] * 25)
+
+
 def test_a_good_chain_key_passes(flag_on):
     assert chain_capstone_problem({}) is None
     assert (

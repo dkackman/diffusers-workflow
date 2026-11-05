@@ -2688,6 +2688,9 @@ state:
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 4 | above the ceiling; `null` skips it |
 
+A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
+`check: {"cut_ratio_max": null}` to turn that measure off.
+
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
 it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
 99th percentile of the bench's unchecked S1-S3 chains (`bench/records/noise-floor.md`);

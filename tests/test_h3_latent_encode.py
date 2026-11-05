@@ -541,3 +541,16 @@ def test_decode_h3_latents_decodes_through_the_streamed_block(monkeypatch):
     with pytest.raises(RuntimeError, match="stop at the load"):
         decode_h3_latents(torch.randn(1, 24, 12, 2, 4))
     assert seen["block"] is DwH3StreamedVideoDecodeStep
+
+
+def test_a_vae_without_token_drop_decodes_whole():
+    """No `token_drop` leaves no overlap tail to hold back; the stream must
+    fall back to the stock decode rather than decode wrongly."""
+    vae = tiny_vae()
+    vae.token_overlap = 0
+    z = torch.randn(1, 24, 10, 2, 4, generator=torch.Generator().manual_seed(9))
+    with torch.no_grad():
+        whole = vae.decode(z, return_dict=False)[0]
+    runs = _streamed(vae, z, 1)
+    assert len(runs) == 1
+    assert torch.equal(runs[0], whole)
