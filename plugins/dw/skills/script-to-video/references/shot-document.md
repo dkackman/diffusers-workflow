@@ -98,6 +98,51 @@ document, saved with `save_prompt("lighthouse/shots", ...)`:
 ]
 ```
 
+## Scenes: length and continuity
+
+A scene is one place and one continuous moment, and may hold several shots.
+A piece longer than one clip is planned per scene before any shot is
+compiled; the `long-form` skill is the playbook for that plan. Save the plan
+beside the shots as `<project>/scenes`, an array of scene objects in source
+order:
+
+| Key | Holds |
+| --- | --- |
+| `id` | `s1`, `s2`, ... |
+| `shots` | the `id`s of the shots in this scene, in order |
+| `length_seconds` | the scene's target length from the story (a number), not from the model |
+| `continuity` | `one_clip`, `cuts`, `chain` or `bridge`: how the scene is rendered |
+
+`continuity` is the rendering shape in `long-form`'s *Per scene* table:
+
+- `one_clip`: the scene fits one clip of its family (14.4 s on H3, about
+  17 s on LTX-2.5 at 768). It holds one shot.
+- `cuts`: the scene changes place, time or angle, or a beat allows a cut.
+  Each shot renders fresh and the cut joins them; the shots' own `join`
+  keys say how.
+- `chain`: one action, line or camera move must cross the ceiling unbroken.
+  The scene is one shot whose `duration` is `length_seconds`, rendered as a
+  chain; its `move` sets the chain's `shot` preset (`long-form`, *Per
+  chain*).
+- `bridge`: a cut must land on a fixed frame (a first-and-last-frame or
+  last-frame-only shot).
+
+Prefer `cuts`: a cut resets drift and costs nothing at the seam. Choose
+`chain` only for what must be unbroken. The sum of the scenes'
+`length_seconds` is the piece's length, and the plan's cost is quoted from
+it before anything renders.
+
+```json
+[
+  {"id": "s1", "shots": ["01", "02"], "length_seconds": 9.0,
+   "continuity": "cuts"},
+  {"id": "s2", "shots": ["03"], "length_seconds": 40.0,
+   "continuity": "chain"}
+]
+```
+
+A changed `length_seconds` or `continuity` changes every shot in that scene.
+
 ## Recompiling only what changed
 
 1. Edit the shot object, then `save_prompt` the whole `<project>/shots`.

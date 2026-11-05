@@ -56,12 +56,15 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
 - **Repairing the user's footage** (deblur, decompression, colorize, a
   2x upscale or refine of their clip, a small smeared face, a long clip
   window by window): read `references/repair.md` first.
-- **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
-  on all of it, not one frame; `clip` extends an existing clip (`width`/
-  `height` matched, shorter than `num_frames`; clip_frames unused) instead
-  of generating; `templates/ltx2/chained-segments` re-runs per segment on
-  the previous last frame and stitches. Both are dw's own recipes (Lightricks
-  added a chunked one 2026-09-29); one 401-frame pass reaches 17 seconds first.
+- **Longer than one clip** (one 401-frame pass reaches about 17 s at 768):
+  read the `long-form` skill first for the scene's shape (cuts, a chain or a
+  bridge); its chain verdicts are H3's until LTX parity is measured. LTX's
+  own: `templates/ltx2/extend-clip` continues an opening conditioned on all
+  of it, not one frame; `clip` extends an existing clip (`width`/`height`
+  matched, shorter than `num_frames`; clip_frames unused) instead of
+  generating; `templates/ltx2/chained-segments` re-runs per segment on the
+  previous last frame and stitches. Both are dw's own recipes (Lightricks
+  added a chunked one 2026-09-29).
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first. Other

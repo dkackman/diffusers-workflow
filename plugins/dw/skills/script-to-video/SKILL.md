@@ -24,7 +24,7 @@ does not parse screenplay formats.
 The unit that matters is *shots*, not lines or scenes: one scene may be
 several shots, and a `dw:minimax-h3` shot runs 5.17 to 14.4 seconds (the
 `17*n+5` frame grid, 124 to 345 frames). For each shot, name it, note
-which character(s) appear, what happens, and roughly how long it runs.
+who appears, what happens, and how long it runs.
 
 Fill in this shape before writing any prompt:
 
@@ -49,8 +49,9 @@ Fill in this shape before writing any prompt:
   `cinematography`, never invented) and `duration` (seconds); `null` leaves
   an axis to the model.
 
-Save the list as `<project>/shots` in the prompt library, one compiled
-`<project>/shot-NN` per shot: `references/shot-document.md`.
+Save the list as `<project>/shots`, a compiled `<project>/shot-NN` per
+shot, and a scene longer than one clip in `<project>/scenes`
+(`long-form`): `references/shot-document.md`.
 
 Whatever the user supplied is locked; copy it, don't improve it. A field
 they left blank stays blank - ask, or mark it unspecified - and you invent

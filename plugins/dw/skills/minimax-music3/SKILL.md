@@ -70,7 +70,8 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
   `duration_seconds` lands within 0.2 s of its ceiling reads as cut
   off rather than finished.
 - The engine caps a track at 9000 frames at 25 frames per second, 360 seconds.
-  MiniMax supports five minutes; stay at or under 300.
+  MiniMax supports five minutes; stay at or under 300. Music longer than one
+  track: `templates/minimax/music-long`, per `long-form/references/audio.md`.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
   truncation. A 250-450 word caption is nowhere near it; a pasted pile of
   example captions is.

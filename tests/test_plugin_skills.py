@@ -1589,6 +1589,12 @@ def _fenced_json(text):
 
 
 CINEMATOGRAPHY_KEYS = ("shot_size", "move", "lens", "light", "duration")
+SCENE_KEYS = ("id", "shots", "length_seconds", "continuity")
+
+
+def _is_scene_list(block):
+    """`<project>/scenes` (#1199 Task 25) is the shot document's other array."""
+    return all(isinstance(item, dict) and "length_seconds" in item for item in block)
 
 
 class TestShotDocumentShape:
@@ -1599,7 +1605,11 @@ class TestShotDocumentShape:
     def test_example_shot_and_two_shot_array_carry_every_key(self):
         blocks = _fenced_json(_read(SHOT_DOCUMENT))
         objects = [block for block in blocks if isinstance(block, dict)]
-        arrays = [block for block in blocks if isinstance(block, list)]
+        arrays = [
+            block
+            for block in blocks
+            if isinstance(block, list) and not _is_scene_list(block)
+        ]
         assert objects and any(len(array) == 2 for array in arrays)
         for shot in objects + [shot for array in arrays for shot in array]:
             for key in SHOT_KEYS:
@@ -1805,3 +1815,89 @@ class TestLongFormSkill:
         text = self._text()
         for idea in ("keystone", "backoff", "sharpest", "guide `look_hold`"):
             assert idea in text, idea
+
+
+LONG_FORM_LEVERS = os.path.join(LONG_FORM_DIR, "references", "levers.md")
+H3_CHAINS = os.path.join(os.path.dirname(H3_SKILL), "references", "chains.md")
+STORYBOARD_SKILL = os.path.join(PLUGIN_DIR, "skills", "storyboard", "SKILL.md")
+MUSIC3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+class TestLongFormPointers:
+    """#1199 Task 25: the planning skills carry a scene's length and
+    continuity, and the family skills hand anything longer than one clip to
+    the `long-form` playbook instead of restating it."""
+
+    def test_the_shot_document_plans_length_and_continuity_per_scene(self):
+        text = _flat(_read(SHOT_DOCUMENT))
+        assert "<project>/scenes" in text
+        assert "`length_seconds`" in text and "`continuity`" in text
+        for shape in ("`one_clip`", "`cuts`", "`chain`", "`bridge`"):
+            assert shape in text, shape
+        assert "`long-form`" in text
+        scenes = [
+            block
+            for block in _fenced_json(_read(SHOT_DOCUMENT))
+            if isinstance(block, list) and _is_scene_list(block)
+        ]
+        assert scenes, "the shot document shows a worked `<project>/scenes`"
+        shapes = {"one_clip", "cuts", "chain", "bridge"}
+        for scene in scenes[0]:
+            assert set(scene) == set(SCENE_KEYS), scene
+            assert isinstance(scene["length_seconds"], (int, float))
+            assert scene["continuity"] in shapes, scene
+
+    @pytest.mark.parametrize(
+        "path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"]
+    )
+    def test_a_video_family_hands_longer_than_one_clip_to_long_form(self, path):
+        body = _flat(skill_body(path))
+        assert "**Longer than one clip" in body
+        assert "the `long-form` skill first" in body
+
+    @pytest.mark.parametrize(
+        "path",
+        [STORYBOARD_SKILL, SCRIPT_SKILL, SERIES_SKILL],
+        ids=["storyboard", "script-to-video", "series-episodes"],
+    )
+    def test_a_planning_skill_points_a_long_scene_to_long_form(self, path):
+        assert "`long-form`" in skill_body(path)
+
+    def test_music_over_one_track_points_to_the_long_form_audio_recipes(self):
+        body = _flat(skill_body(MUSIC3_SKILL))
+        assert "`long-form/references/audio.md`" in body
+
+    def test_the_community_drift_notes_moved_into_the_playbook(self):
+        chains = _read(H3_CHAINS)
+        assert "NerdNotes" not in chains
+        assert "`long-form`" in chains
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert "NerdNotes" in levers
+        for claim in (
+            "half-static",
+            "segments 3-6",
+            "masked area",
+            "Whole-frame averages",
+            "#1033",
+        ):
+            assert claim in levers, claim
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            H3_SKILL,
+            LTX_SKILL,
+            STORYBOARD_SKILL,
+            SCRIPT_SKILL,
+            SERIES_SKILL,
+            MUSIC3_SKILL,
+        ],
+        ids=lambda p: os.path.basename(os.path.dirname(p)),
+    )
+    def test_every_touched_skill_holds_its_budget(self, path):
+        size = len(skill_body(path).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"

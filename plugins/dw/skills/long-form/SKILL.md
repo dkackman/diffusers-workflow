@@ -35,7 +35,8 @@ Each rule names its bench record (`bench/records/<name>.md` in the repo;
 Split the piece into scenes the way a storyboard would. A scene is one place
 and one continuous moment. Give each scene a target length from the story,
 not from the model; the model ceiling only decides how the scene is rendered.
-Record per scene `length_seconds` and `continuity` in the shot document.
+Record per scene `length_seconds` and `continuity` in the shot document's
+`<project>/scenes` (`script-to-video/references/shot-document.md`).
 
 ## 2. Per scene: the rendering shape
 

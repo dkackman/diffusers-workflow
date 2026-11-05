@@ -81,16 +81,47 @@ Each of these is *pending measurement* until its record lands.
 
 ## Community reports on drift
 
-These are reports from other users (roycho87/NerdNotes, collecting Banodoco
-and r/StableDiffusion threads), not dw measurements. Where the bench has
-checked a report, its status is given.
+These are reports from other users (roycho87/NerdNotes,
+`20261102/h3_latents_and_degradation.md`, collecting Banodoco and
+r/StableDiffusion threads), paraphrased. They moved here from the
+`minimax-h3` skill's chain notes. Each one is marked *community*, and where
+the bench has checked it, its status follows: a **default** is built into
+`shot`, a **knob** is offered only on request, **cut** means measured and
+dropped, and **unmeasured** means no bench verdict yet.
 
-- *Community:* static shots drift worst. **Measured:** S1 burns from 24 s
-  without the anchor (`counters.md`).
-- *Community:* a hard cut or a new angle resets drift, and people report
-  about 30 s of clean chain. **Measured:** the 30 s static cut rule
-  (`counters.md`).
-- *Community:* speed LoRAs add crunch over a long chain. Unmeasured; the
-  speed tiers are *pending measurement*.
-- *Community:* colour matching fixes colour but not texture. Unmeasured
-  alone. The seam grade above is the nearest measured lever.
+- *Community:* static and half-static shots drift worst. On a moving shot the
+  background keeps being replaced; on a locked-off shot the drift is mostly
+  darkening and colour rather than texture. **Default**, in part. S1 static
+  burns from 24 s without the anchor, so `shot: static` carries the anchor
+  (`bench/records/counters.md`, *Round 3*). The bench saw texture burn on the
+  static shot too, not only colour: the wall and stripes crawl and the face
+  hardens by frame 583 (*Eye notes (S1)*). The moving arc drifts as well, as
+  a blown-out, invented sky by its last segment (*Eye notes (S2)*). Half-static
+  shots were not benched; treat one as moving until #1200 classifies it.
+- *Community:* a hard cut or a new angle resets drift. People describe about
+  30 s of clean chain with good setups, with drift usually showing around
+  segments 3-6. **Default:** cut static takes at about 30 s. The anchor's
+  gain holds to 6-8 segments, 25-33 s, and turns into a different failure
+  past that (`counters.md`, *Two minutes*; *Round 3* confirms it at anchor
+  0.25). A seam where the chain resets on its own shows as a visible jump,
+  not a cure (seam 26 of the round-2 two-minute control). The cut itself is `minimax-h3`'s
+  `references/cuts.md`.
+- *Community:* speed LoRAs add crunch over a long chain. **Unmeasured.** The
+  bench ran every arm on the 4-step turbo LoRA, the template default, so it
+  has no arm without it. The speed tiers are *pending measurement*
+  (`quality-and-speed.md`); the 4-step default is unchanged until they land.
+- *Community:* measure drift on a patch the subject never enters, against
+  segment 1 at the same frames. Whole-frame averages let changes cancel out.
+  **Default** method: the bench measures texture on the scene crop against
+  frame 62, and that is the playbook's judge step
+  (`compare_outputs(texture_bands=true)` on the patch, and
+  `assess_output(probe="analyze_seams")` for each seam's `jump_ratio`).
+  Low texture can be blur, so read it with the eye (`counters.md`, the
+  anti-burn LoRA and anchor 0.5 rows).
+- *Community:* colour matching fixes colour but not texture, and matching to
+  a frame with different content makes it worse; match on a masked area or a
+  similar frame. **Knob.** The engine version is the seam grade
+  (#1033/#1067), `look_hold`'s pickup on `last_frame`. Measured inside the
+  last_frame `look_hold` rows, it steadies colour at the seams and leaves the
+  burn (`counters.md`, *Verdict per idea*). It is never a default, and never
+  on a camera move.
