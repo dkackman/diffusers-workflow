@@ -317,13 +317,19 @@ peak (`host_ram_need`; see
 [Host-memory history](WORKSPACES.md#host-memory-history)). When it fits a
 free card, dispatch also checks host RAM: available is `MemAvailable` less
 what each running job's projected peak still has to add beyond its worker's
-resident size now (nothing for a running job with no figure), and the job is
-held while its peak exceeds available plus the resident size of the idle
-worker it would reuse. Backfill applies. A job is never held when no other
+committed memory now (nothing for a running job with no figure), and the job is
+held while its peak exceeds available plus the committed memory of the idle
+worker it would reuse. Committed is RssAnon + RssShmem + the pages of the
+worker's `/dev/nvidia*` mappings (the driver's pinned host memory, which Linux
+files under RssFile); the rest of RssFile, the checkpoint pages a worker
+mmaps, is page cache that `MemAvailable` already counts as free. Two workers
+loading different checkpoints evict and re-read each other's pages - a
+slowdown, not an OOM. Every peak is taken with a margin of 10%, at least 2 GB,
+since a peak recorded at phase boundaries is a lower bound. Backfill applies. A job is never held when no other
 job is running, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil), and with one card the gate is never exercised. A held
 job is re-checked every 10 s. The hold emits one `queue_wait` event (message
-`waiting for host RAM: needs ~N GB, ~M GB free`; not a `warning`), and job
+`waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
 detail and summaries carry `waiting_for` - that message - only while held.
 The gate never refuses a submit; it only delays a start, and the OOM ranking
 is the backstop for a wrong projection.
@@ -571,9 +577,10 @@ The editor's forms come from these; they are just as usable from scripts:
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false; and
   `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
-  peak - `basis` is `observed` (the largest job peak RSS of this machine's
-  successful runs with the same memory key) or `fit` (the list-run projection
-  from the workflow's own history), and the key is absent when there is no
+  peak - `basis` is `observed` (the largest committed job peak of this
+  machine's successful runs with the same memory key, or the largest job peak
+  RSS where none measured it) or `fit` (the list-run projection from the
+  workflow's own history, on the same basis), and the key is absent when there is no
   figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 

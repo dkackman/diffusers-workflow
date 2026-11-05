@@ -31,6 +31,22 @@ CEILING_FRACTION = 0.9
 
 _RELEASE_FLAGS = ("release_pipeline", "release_models")
 
+# A row's peak, on the two bases a run may have recorded: the committed peak
+# (RssAnon + RssShmem + the driver's pinned pages, #869) and the job-scoped
+# RSS growth, which counts the checkpoint pages a worker maps
+COMMITTED_PEAK = "host_memory_job_peak_committed_mb"
+RSS_PEAK = "host_memory_job_peak_rss_mb"
+
+
+def peak_field(rows):
+    """The basis a projection from `rows` reads: the committed peak once any
+    row recorded it, else RSS. One basis per projection - an RSS row in a
+    committed fit would count a run's mapped checkpoint pages, ~80 GB of
+    page cache on an H3 run, as memory it holds (#869)."""
+    if any(isinstance(row.get(COMMITTED_PEAK), (int, float)) for row in rows):
+        return COMMITTED_PEAK
+    return RSS_PEAK
+
 
 def releases_between_iterations(definition):
     """Whether every `for_each` step in this workflow drops its pipeline (or
@@ -102,12 +118,13 @@ def _row_count(row, list_entries, variables):
     return max(counts) if counts else None
 
 
-def _peak_by_count(rows, list_entries, variables):
+def _peak_by_count(rows, list_entries, variables, field=RSS_PEAK):
     """This workflow's history grouped by list length, each count's peak
-    reduced to its median - the input a fixed+marginal fit reads."""
+    (`field`'s) reduced to its median - the input a fixed+marginal fit
+    reads."""
     by_count = {}
     for row in rows:
-        peak = row.get("host_memory_job_peak_rss_mb")
+        peak = row.get(field)
         count = _row_count(row, list_entries, variables)
         if isinstance(peak, (int, float)) and count:
             by_count.setdefault(count, []).append(peak)
@@ -149,7 +166,13 @@ def _fit_peak_model(medians):
 
 
 def _already_survived(
-    rows, list_entries, requested, projected_mb, variables, released=False
+    rows,
+    list_entries,
+    requested,
+    projected_mb,
+    variables,
+    released=False,
+    field=RSS_PEAK,
 ):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
@@ -171,7 +194,7 @@ def _already_survived(
     place.
     """
     for row in rows:
-        peak = row.get("host_memory_job_peak_rss_mb")
+        peak = row.get(field)
         if not isinstance(peak, (int, float)) or peak < projected_mb:
             continue
         if released:
@@ -186,8 +209,9 @@ def _projection(definition, list_entries, rows):
     """The projected peak and how it was reached, or None when there is no
     list, no history, or nothing seedable to project for.
 
-    Returns `(projected_mb, shape, requested, released, variables)` - the
-    figure and the words `host_memory_warnings` quotes it in.
+    Returns `(projected_mb, shape, requested, released, variables, field)` -
+    the figure, the words `host_memory_warnings` quotes it in, and the
+    basis it was read on (`peak_field`).
     """
     requested = _requested_count(list_entries)
     if requested is None or not rows:
@@ -197,7 +221,8 @@ def _projection(definition, list_entries, rows):
         # the failure mode this module projects for doesn't apply to it
         return None
     variables = definition.get("variables") or {}
-    peaks = [row.get("host_memory_job_peak_rss_mb") for row in rows]
+    field = peak_field(rows)
+    peaks = [row.get(field) for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]
     if not peaks:
         # Cold start: history exists for this workflow, but no run of it
@@ -208,7 +233,7 @@ def _projection(definition, list_entries, rows):
         projected = max(peaks)
         shape = f"~{round(projected)} MB, the largest single iteration observed"
     else:
-        medians = _peak_by_count(rows, list_entries, variables)
+        medians = _peak_by_count(rows, list_entries, variables, field)
         if not medians:
             return None
         base, slope, low_count, high_count = _fit_peak_model(medians)
@@ -224,7 +249,7 @@ def _projection(definition, list_entries, rows):
                 f"~{round(projected)} MB at {requested} entries, "
                 f"extrapolated from runs of {low_count} and {high_count} entries"
             )
-    return projected, shape, requested, released, variables
+    return projected, shape, requested, released, variables, field
 
 
 def projected_mb(definition, list_entries, rows):
@@ -232,13 +257,12 @@ def projected_mb(definition, list_entries, rows):
     peak, or None - the figure `host_memory_warnings` compares with the
     ceiling, for a caller that wants the number rather than a warning
     (`dw/server/host_ram_need.py`, #869). `runs` counts the rows that
-    reported a peak."""
+    reported a peak on the basis the projection read (`peak_field`)."""
     projection = _projection(definition, list_entries, rows)
     if projection is None:
         return None
-    runs = sum(
-        isinstance(row.get("host_memory_job_peak_rss_mb"), (int, float)) for row in rows
-    )
+    field = projection[-1]
+    runs = sum(isinstance(row.get(field), (int, float)) for row in rows)
     return {"projected_mb": projection[0], "runs": runs}
 
 
@@ -261,10 +285,12 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     projection = _projection(definition, list_entries, rows)
     if projection is None:
         return []
-    projected, shape, requested, released, variables = projection
+    projected, shape, requested, released, variables, field = projection
     if projected <= ceiling_mb:
         return []
-    if _already_survived(rows, list_entries, requested, projected, variables, released):
+    if _already_survived(
+        rows, list_entries, requested, projected, variables, released, field
+    ):
         return []
     return [
         f"Projected host memory for this run ({shape}) exceeds this "

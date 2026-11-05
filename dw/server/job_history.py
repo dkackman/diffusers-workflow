@@ -78,10 +78,13 @@ _ADDED_COLUMNS = (
     # it caused no growth (#272). NULL for a row predating the column and
     # for any run that never got a memory_info message at all
     ("host_memory_job_peak_rss_mb", "REAL"),
-    # The largest committed (RssAnon) reading of the run - its RSS without
-    # the mapped checkpoint pages, which are page cache (#869). NULL for a
-    # row predating the column and where the platform has no split
-    ("host_memory_job_peak_anon_mb", "REAL"),
+    # The largest committed reading of the run (RssAnon + RssShmem + the
+    # driver's pinned pages, host_memory.committed_mb) - its RSS without the
+    # mapped checkpoint pages, which are page cache (#869). An absolute
+    # process reading, where host_memory_job_peak_rss_mb is job-scoped
+    # growth. NULL for a row predating the column and where the platform
+    # has no split
+    ("host_memory_job_peak_committed_mb", "REAL"),
     # The card the job ran on - "cuda:1 NVIDIA GeForce RTX 3090" (#462).
     # NULL for a row predating the column: which card that was is not
     # known, and guessing would mislabel a box whose card has been swapped
@@ -154,8 +157,8 @@ _RECORDED = (
         lambda job: getattr(job, "host_memory_job_peak_rss_mb", None),
     ),
     (
-        "host_memory_job_peak_anon_mb",
-        lambda job: getattr(job, "host_memory_job_peak_anon_mb", None),
+        "host_memory_job_peak_committed_mb",
+        lambda job: getattr(job, "host_memory_job_peak_committed_mb", None),
     ),
     ("run_version", lambda job: getattr(job, "run_version", None)),
     ("device", lambda job: getattr(job, "device", None)),
@@ -276,17 +279,21 @@ class JobHistory:
         Committed is RSS without the checkpoint pages the worker maps: those
         are page cache, which MemAvailable already counts as free and a
         second worker mapping the same weights shares - an H3 run's ~122 GB
-        RSS is ~43 GB committed. Once any run of the key measured it, only
-        those runs answer; a key with RSS-only history answers with RSS, the
-        larger figure, until one does."""
+        RSS is ~43 GB committed. Two workers mapping *different* checkpoints
+        compete for that page cache and evict and re-read each other's
+        pages: a slowdown, not an OOM, so it is not charged. Once any run of
+        the key measured it, only those runs answer; a key with RSS-only
+        history answers with RSS, the larger figure, until one does - the
+        bases are never mixed in one answer (the RSS peak is job-scoped
+        growth, the committed one an absolute process reading)."""
         with self._lock, self._connect() as connection:
             rows = connection.execute(
                 "SELECT host_memory_job_peak_rss_mb AS peak,"
-                " host_memory_job_peak_anon_mb AS anon FROM jobs WHERE status = ?"
+                " host_memory_job_peak_committed_mb AS committed FROM jobs WHERE status = ?"
                 " AND memory_key = ? AND host_memory_job_peak_rss_mb IS NOT NULL",
                 (SUCCEEDED, key),
             ).fetchall()
-        committed = [row["anon"] for row in rows if row["anon"] is not None]
+        committed = [row["committed"] for row in rows if row["committed"] is not None]
         return committed or [row["peak"] for row in rows]
 
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
@@ -417,7 +424,8 @@ class JobHistory:
                 "SELECT workflow_name, workspace, started_at, finished_at,"
                 " arguments, manifest, INSTR(COALESCE(events, ''), ?) > 0,"
                 " COALESCE(json_array_length(COALESCE(events, '[]')), 0) >= ?,"
-                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb, device,"
+                " host_memory_peak_rss_mb, host_memory_job_peak_rss_mb,"
+                " host_memory_job_peak_committed_mb, device,"
                 " device_ordinal, device_card FROM jobs WHERE status = ? AND workflow_name IS NOT NULL"
                 " AND started_at IS NOT NULL AND finished_at IS NOT NULL",
                 (LOADING_MARKER, EVENT_CAP, SUCCEEDED),
@@ -434,6 +442,7 @@ class JobHistory:
             at_cap,
             peak_rss_mb,
             job_peak_rss_mb,
+            job_peak_committed_mb,
             device,
             ordinal,
             card,
@@ -450,6 +459,7 @@ class JobHistory:
                     "events_at_cap": bool(at_cap),
                     "host_memory_peak_rss_mb": peak_rss_mb,
                     "host_memory_job_peak_rss_mb": job_peak_rss_mb,
+                    "host_memory_job_peak_committed_mb": job_peak_committed_mb,
                     "device": device,
                     "device_ordinal": ordinal,
                     "device_card": card,

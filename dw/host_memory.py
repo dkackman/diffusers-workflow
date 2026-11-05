@@ -26,6 +26,8 @@ __all__ = [
     "pinned_host_memory_fields",
     "process_rss_mb",
     "committed_rss_mb",
+    "committed_mb",
+    "device_mapped_mb",
     "rss_split_mb",
 ]
 
@@ -187,19 +189,23 @@ FIELD_NAMES = {
 SPLIT_FIELD_NAMES = {
     "anon_mb": "host_memory_rss_anon_mb",
     "file_mb": "host_memory_rss_file_mb",
+    "shmem_mb": "host_memory_rss_shmem_mb",
+    "committed_mb": "host_memory_committed_mb",
 }
 
 
 def rss_split_mb(status_path="/proc/self/status"):
     """This process's resident set split into `anon_mb` (heap and tensors the
-    process owns - committed memory) and `file_mb` (pages of mapped files,
-    such as memory-mapped safetensors, which the kernel can drop and re-read).
-    Only Linux says; elsewhere, or on a kernel without the split, {}.
+    process owns - committed memory), `file_mb` (pages of mapped files, such
+    as memory-mapped safetensors, which the kernel can drop and re-read) and
+    `shmem_mb` (shared memory and MAP_SHARED anonymous pages, which the
+    kernel can only swap). Only Linux says; elsewhere, or on a kernel without
+    the split, {}.
 
-    `rss_mb` is the sum of the two, so a loader that starts mapping the
+    `rss_mb` is the sum of the three, so a loader that starts mapping the
     checkpoint instead of copying it raises `rss_mb` and the peak by the size
     of the weights while committed memory does not move (#709)."""
-    wanted = {"RssAnon:": "anon_mb", "RssFile:": "file_mb"}
+    wanted = {"RssAnon:": "anon_mb", "RssFile:": "file_mb", "RssShmem:": "shmem_mb"}
     split = {}
     try:
         with open(status_path, "r") as f:
@@ -212,17 +218,103 @@ def rss_split_mb(status_path="/proc/self/status"):
     return split
 
 
-def committed_rss_mb(pid, status_path=None):
-    """What another process - a server's worker - has committed in host RAM
-    (RssAnon), in MB, leaving out the checkpoint pages it maps (RssFile):
+# The mappings of the NVIDIA driver's device files. Pinned host memory the
+# driver hands out (cudaHostAlloc - torch's pinned cache, group offload's
+# stream staging) is mapped into the process through /dev/nvidiactl, and the
+# kernel files those pages under RssFile, not RssAnon or RssShmem, though no
+# file backs them and the kernel cannot drop them
+_DEVICE_MAPPING_PREFIX = "/dev/nvidia"
+
+
+def device_mapped_mb(smaps_path="/proc/self/smaps"):
+    """The resident pages of this process's /dev/nvidia* mappings, in MB:
+    pinned host memory the NVIDIA driver mapped in, which RssFile counts
+    beside the checkpoint pages but which, unlike them, is committed (#869).
+    0.0 with no such mapping; None where smaps cannot be read (not Linux, or
+    the process is gone).
+
+    Measured on lem (2026-11-05) on the bench server's H3 worker, pid
+    224454: RssAnon 3,119,024 kB + RssFile 211,752 kB + RssShmem 16,120 kB
+    = VmRSS exactly, with VmPin and VmLck 0. Grouping /proc/<pid>/smaps by
+    mapping, the /dev/nvidiactl and /dev/nvidia-uvm mappings held 64,784 kB
+    of Rss with Anonymous 0, and RssFile was those plus the shared
+    libraries' 146,952 kB of file pages - the driver's pages land in
+    RssFile. The /dev/zero shared mappings (16,128 kB) are RssShmem. The
+    worker's payload carried no host_pinned_* figure at the time (torch's
+    pinned cache held nothing), so the driver mapping is read here, not
+    torch's own count."""
+    total_kb = 0
+    device = False
+    try:
+        with open(smaps_path, "r") as f:
+            for line in f:
+                head, _, rest = line.partition(" ")
+                if "-" in head and not head.endswith(":"):
+                    # A mapping's header: "start-end perms offset dev inode path"
+                    fields = rest.split(None, 4)
+                    path = fields[4].strip() if len(fields) > 4 else ""
+                    device = path.startswith(_DEVICE_MAPPING_PREFIX)
+                elif device and head == "Rss:":
+                    total_kb += int(rest.split()[0])
+    except (OSError, ValueError, IndexError):
+        return None
+    return total_kb / 1024.0
+
+
+def _committed_from(split, device_mb):
+    """RssAnon + RssShmem + the driver's pinned pages, or None without an
+    RssAnon reading or a device reading - a part missing would under-charge."""
+    anon = split.get("anon_mb")
+    if anon is None or device_mb is None:
+        return None
+    return anon + split.get("shmem_mb", 0.0) + device_mb
+
+
+def committed_mb(status_path="/proc/self/status", smaps_path="/proc/self/smaps"):
+    """What a process has committed in host RAM, in MB: memory the kernel
+    cannot reclaim by dropping pages, so MemAvailable does not count it as
+    free (#869). RssAnon (heap and tensors) + RssShmem (shared memory, which
+    MemAvailable leaves out) + the pages of its /dev/nvidia* mappings (the
+    driver's pinned host memory, filed under RssFile; `device_mapped_mb`).
+    The rest of RssFile - the checkpoint pages a worker mmaps - is page
+    cache, left out.
+
+    None where it cannot be read: not Linux, a status without RssAnon, or a
+    failed read. `smaps_path` None reads no device mappings (0.0)."""
+    split = rss_split_mb(status_path)
+    device = device_mapped_mb(smaps_path) if smaps_path else 0.0
+    return _committed_from(split, device)
+
+
+def _has_proc():
+    """Whether this platform has a /proc to read another process from."""
+    return os.path.isdir("/proc/self")
+
+
+def _proc_path(pid, name):
+    return f"/proc/{pid}/{name}"
+
+
+def committed_rss_mb(pid, status_path=None, smaps_path=None):
+    """What another process - a server's worker - has committed in host RAM,
+    in MB, as `committed_mb` reads it: its mapped checkpoint pages left out,
     page cache that MemAvailable already counts as free and that a second
-    worker mapping the same weights shares (#869). Where the split can't be
-    read (not Linux), its whole RSS, as `process_rss_mb` reads it."""
-    path = status_path or (
-        f"/proc/{pid}/status" if isinstance(pid, int) and pid > 0 else None
-    )
-    anon = rss_split_mb(path).get("anon_mb") if path else None
-    return anon if anon is not None else process_rss_mb(pid)
+    worker mapping the same weights shares (#869).
+
+    Where there is no /proc (macOS), its whole RSS, as `process_rss_mb`
+    reads it - the peaks it is compared with are RSS there too, since no run
+    recorded a committed peak. On Linux, a failed read or a status without
+    RssAnon is None, not the whole RSS: the gate subtracts this reading from
+    a running job's peak and credits it for the idle worker, so a larger
+    figure would under-charge, and None charges the whole peak."""
+    if status_path is None:
+        if not isinstance(pid, int) or pid <= 0:
+            return None
+        if not _has_proc():
+            return process_rss_mb(pid)
+        status_path = _proc_path(pid, "status")
+        smaps_path = _proc_path(pid, "smaps")
+    return committed_mb(status_path, smaps_path)
 
 
 def host_memory_fields():
@@ -234,8 +326,14 @@ def host_memory_fields():
     fields = {
         FIELD_NAMES[key]: value for key, value in stats.items() if value is not None
     }
-    for key, value in rss_split_mb().items():
+    split = rss_split_mb()
+    for key, value in split.items():
         fields[SPLIT_FIELD_NAMES[key]] = value
+    # What the host-RAM gate charges a run (#869); read only where the split
+    # is, so a platform without /proc sends neither
+    committed = _committed_from(split, device_mapped_mb()) if split else None
+    if committed is not None:
+        fields[SPLIT_FIELD_NAMES["committed_mb"]] = committed
     return fields
 
 

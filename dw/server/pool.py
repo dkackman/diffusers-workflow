@@ -233,6 +233,22 @@ def dispatch_need(slots, need):
 # ---------------------------------------------------------------- host RAM
 
 
+# The share of a projected peak the gate keeps free above it, and its floor.
+# A recorded committed peak is the largest of readings taken at phase
+# boundaries (dw/worker.py's _on_event), not a high-water mark - committed
+# memory has none to read - so a transient between two boundaries (a
+# component's weights staged before its old copy is freed) is not in it and
+# the peak is a lower bound. The RSS peak it replaced hid this: ru_maxrss
+# counted ~80 GB of checkpoint page cache on an H3 run (#869)
+HOST_RAM_MARGIN_FRACTION = 0.10
+HOST_RAM_MARGIN_MIN_MB = 2048
+
+
+def with_margin(peak_mb):
+    """`peak_mb` with the gate's margin over it."""
+    return peak_mb + max(peak_mb * HOST_RAM_MARGIN_FRACTION, HOST_RAM_MARGIN_MIN_MB)
+
+
 def host_ram_wait(need_mb, available_mb, running, idle_rss_mb=None):
     """Why a job projected to peak at `need_mb` of host RAM must wait to
     start now, or None when it may start (#869).
@@ -246,18 +262,24 @@ def host_ram_wait(need_mb, available_mb, running, idle_rss_mb=None):
     with no figure is charged nothing more, and an unread RSS is a worker
     holding nothing yet.
 
+    Every projected peak - the job's and each running job's - is taken with
+    its margin (`with_margin`): the recorded peaks are lower bounds.
+
     Never a wait with no other job running, so a job waits only for jobs
     that will finish; never without a figure for the job or a reading of
     the host."""
     if need_mb is None or available_mb is None or not running:
         return None
     growth = sum(
-        max(0.0, peak - (rss or 0.0)) for peak, rss in running if peak is not None
+        max(0.0, with_margin(peak) - (rss or 0.0))
+        for peak, rss in running
+        if peak is not None
     )
     free = max(0.0, available_mb - growth + (idle_rss_mb or 0.0))
-    if need_mb <= free:
+    needed = with_margin(need_mb)
+    if needed <= free:
         return None
     return (
-        f"waiting for host RAM: needs ~{need_mb / 1024:.0f} GB, "
+        f"waiting for host RAM: needs ~{needed / 1024:.0f} GB with its margin, "
         f"~{free / 1024:.0f} GB free"
     )
