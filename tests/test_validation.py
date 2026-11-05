@@ -203,6 +203,7 @@ ERROR_ORDER = [
     "guide_chain",
     "latent_anchor",
     "guide_noise",
+    "experimental_tst",
     "task_signatures",
     "task_remote_code",
     "component_types",

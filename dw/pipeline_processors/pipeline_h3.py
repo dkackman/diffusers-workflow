@@ -359,6 +359,30 @@ class H3Arguments:
             return with_audio_pass(self.pipeline, arguments, where, fps)
         return arguments
 
+    def _take_tst(self, arguments):
+        """`experimental_tst` off the call: (the arguments without it, the
+        settings `h3_tst.tst_call` installs, or None). Null or false is no TST.
+
+        Raises:
+            ValueError: If the flag is off, the value is not a TST object, or
+                this pipeline has no dense H3 transformer
+        """
+        from .h3_tst import TST_INPUT, tst_refusal, tst_settings
+
+        if TST_INPUT not in arguments:
+            return arguments, None
+        arguments = dict(arguments)
+        value = arguments.pop(TST_INPUT)
+        try:
+            settings = tst_settings(value)
+        except ValueError as e:
+            raise ValueError(f"Step '{self.name}': {e}") from e
+        if settings is not None:
+            refusal = tst_refusal(self.pipeline, self.configuration)
+            if refusal:
+                raise ValueError(f"Step '{self.name}': {refusal}")
+        return arguments, settings
+
     def _check_refine(self, arguments):
         """Refuse a `refine_strength` the H3 refine block cannot run, before the
         call (dw/pipeline_processors/h3_hold.py).
