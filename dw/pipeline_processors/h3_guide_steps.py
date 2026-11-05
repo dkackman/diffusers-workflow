@@ -47,6 +47,9 @@ from PIL import Image
 
 from . import h3_hold_steps
 from .h3_rules import (
+    CAPSTONE_GATE,
+    CAPSTONE_PAST_END,
+    GATED_GUIDE_ROWS,
     GUIDE_AUDIO_ROWS,
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
@@ -103,6 +106,18 @@ def guide_position_ids(target_time, frame_grid, latent_index, num_latent_frames)
     positions[:, :, 0] = times[:, None]
     positions[:, :, 1:] = frame_grid[None]
     return positions.reshape(-1, 3)
+
+
+def gated_guide_rows(guides, positions, keyframe_rows):
+    """[(first row, row count, sigma)] in `latents` for each guide with a
+    capstone gate (#1187), or None. The guide rows follow the keyframe rows in
+    guide order (`splice_guide_rows`)."""
+    gates, start = [], keyframe_rows
+    for guide, rows in zip(guides, positions):
+        if guide.get(CAPSTONE_GATE) is not None:
+            gates.append((start, rows.shape[0], guide[CAPSTONE_GATE]))
+        start += rows.shape[0]
+    return gates or None
 
 
 def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
@@ -327,6 +342,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         return list(self._layout.intermediate_outputs) + [
             OutputParam("condition_latents", type_hint=list),
             OutputParam(GUIDE_AUDIO_ROWS, type_hint=torch.Tensor),
+            OutputParam(GATED_GUIDE_ROWS, type_hint=list),
         ]
 
     @torch.no_grad()
@@ -368,6 +384,10 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             state.set(name, value.to(device))
         state.set("num_condition_video_rows", layout[5])
         state.set("num_condition_audio_rows", num_audio_rows)
+        state.set(
+            GATED_GUIDE_ROWS,
+            gated_guide_rows(guides, positions, laid["num_condition_video_rows"]),
+        )
         # Keyframes first, then guides: the order the rows were laid out in
         state.set("condition_latents", list(laid["condition_latents"] or []) + latents)
         return components, state
@@ -384,14 +404,19 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         E(clean) + (E(noisy) - E(clean)), is E(noisy) under one seed, so the
         clean encode is never run.) 0 leaves today's latent exactly."""
         device = components._execution_device
+        # One latent more than the render: a capstone sits there (#1187)
         target_time = before_denoise._temporal_position_grid(
-            laid["num_latent_frames"], float(num_text)
+            laid["num_latent_frames"] + 1, float(num_text)
         )
         latents, positions = [], []
         for index, guide in enumerate(guides):
             frame, frames = guide["frame"], guide["video"]
-            problem = guide_frame_problem(frame) or guide_end_problem(
-                frame, frames.shape[0], laid["num_frames"]
+            past_end = guide.get(CAPSTONE_PAST_END)
+            problem = (
+                None
+                if past_end
+                else guide_frame_problem(frame)
+                or guide_end_problem(frame, frames.shape[0], laid["num_frames"])
             )
             if problem:
                 raise ValueError(f"guides[{index}]: {problem}")
@@ -408,13 +433,21 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
                 guide_position_ids(
                     target_time,
                     frame_grid,
-                    frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK,
+                    laid["num_latent_frames"]
+                    if past_end
+                    else frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK,
                     encoded.shape[2],
                 )
             )
             logger.info(
-                f"Guide {index}: {frames.shape[0]} frames at frame {frame} "
-                f"({encoded.shape[2]} latent frames)"
+                f"Guide {index}: {frames.shape[0]} frames "
+                + ("one latent past the end" if past_end else f"at frame {frame}")
+                + f" ({encoded.shape[2]} latent frames)"
+                + (
+                    f", entering below sigma {guide[CAPSTONE_GATE]}"
+                    if guide.get(CAPSTONE_GATE) is not None
+                    else ""
+                )
             )
         return latents, positions
 

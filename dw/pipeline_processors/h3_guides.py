@@ -38,13 +38,17 @@ from ..events import emit_warning
 from ..tasks.video_utils import load_audio_video
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
+    CAPSTONE_GATE,
+    CAPSTONE_PAST_END,
     GUIDE_AUDIO_BLOCK,
     GUIDE_CONDITION_BLOCK,
     GUIDE_LATENTS_BLOCK,
     HOLD_BEFORE,
     HOLD_BLOCK,
     LAYOUT_STEP,
+    REFINE_WINDOWS_ENV_VAR,
     guide_frame_problem,
+    refine_windows_enabled,
     snap_guide_length,
 )
 
@@ -229,15 +233,21 @@ def prepared_guide(where, index, guide, base_dir):
         raise ValueError(
             f"{where}[{index}] must be {{video, frame}}, got {type(guide).__name__}"
         )
-    unknown = sorted(set(guide) - {"video", "frame", "audio"})
+    unknown = sorted(set(guide) - {"video", "frame", "audio", *CAPSTONE_KEYS})
     if unknown:
         raise ValueError(
             f"{where}[{index}] has unknown key(s) {unknown} - a guide is "
             f"{{video, frame}}, with an optional 'audio'"
         )
-    if "video" not in guide or "frame" not in guide:
+    capstone = _capstone(f"{where}[{index}]", guide)
+    if capstone.get(CAPSTONE_PAST_END):
+        if "video" not in guide:
+            raise ValueError(f"{where}[{index}] needs 'video'")
+    elif "video" not in guide or "frame" not in guide:
         raise ValueError(f"{where}[{index}] needs both 'video' and 'frame'")
-    problem = guide_frame_problem(guide["frame"])
+    problem = (
+        None if capstone.get(CAPSTONE_PAST_END) else guide_frame_problem(guide["frame"])
+    )
     if problem:
         raise ValueError(f"{where}[{index}]: {problem}")
     with_audio = guide.get("audio", False)
@@ -262,6 +272,12 @@ def prepared_guide(where, index, guide, base_dir):
         audio, sample_rate = guide_audio_waveform(video) if with_audio else (None, None)
     except ValueError as error:
         raise ValueError(f"{where}[{index}]: {error}") from error
+    if capstone.get(CAPSTONE_PAST_END) and (frames.shape[0] != 1 or with_audio):
+        raise ValueError(
+            f"{where}[{index}]: a '{CAPSTONE_PAST_END}' guide is one frame with no "
+            f"audio - one latent past the render's end - got {frames.shape[0]} "
+            f"frame(s)" + (" and audio" if with_audio else "")
+        )
     length = snap_guide_length(frames.shape[0])
     if length != frames.shape[0]:
         emit_warning(
@@ -272,9 +288,45 @@ def prepared_guide(where, index, guide, base_dir):
         frames = frames[:length]
     return {
         "video": frames,
-        "frame": guide["frame"],
+        "frame": guide.get("frame"),
         "audio": audio,
         "sample_rate": sample_rate,
+        **capstone,
+    }
+
+
+# The experimental late capstone's guide keys (#1187; h3_windows.py)
+CAPSTONE_KEYS = (CAPSTONE_PAST_END, CAPSTONE_GATE)
+
+
+def _capstone(where, guide):
+    """A guide's capstone keys, checked: {} for a plain guide. Both keys are
+    a scratch spike, refused unless REFINE_WINDOWS_ENV_VAR is on, since the
+    gate is run by the windowed denoiser that flag puts in."""
+    given = {key: guide[key] for key in CAPSTONE_KEYS if key in guide}
+    if not given:
+        return {}
+    if not refine_windows_enabled():
+        raise ValueError(
+            f"{where}: {', '.join(given)} is an experimental capstone, off unless "
+            f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    past_end = given.get(CAPSTONE_PAST_END, False)
+    if not isinstance(past_end, bool):
+        raise ValueError(f"{where}: '{CAPSTONE_PAST_END}' must be true or false")
+    gate = given.get(CAPSTONE_GATE)
+    if gate is not None and (
+        isinstance(gate, bool)
+        or not isinstance(gate, (int, float))
+        or not 0 < gate <= 1
+    ):
+        raise ValueError(
+            f"{where}: '{CAPSTONE_GATE}' is a sigma in (0, 1] - the row enters the "
+            f"forward once the step's sigma falls below it - got {gate!r}"
+        )
+    return {
+        CAPSTONE_PAST_END: past_end,
+        CAPSTONE_GATE: None if gate is None else float(gate),
     }
 
 

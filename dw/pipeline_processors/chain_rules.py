@@ -147,3 +147,42 @@ def chain_check_problem(chain):
             "its check failed, and with no check no segment fails"
         )
     return None
+
+
+# The experimental late capstone (#1187, #1199 Task 14 Step 4): segment 1's
+# frame `from_end` frames before its end, put one latent past every later
+# segment's end as a guide that enters the forward below `enter_below_sigma`.
+# A scratch spike behind the windowed refine's flag (h3_rules), MiniMax-H3 only
+CHAIN_CAPSTONE = "experimental_capstone"
+CHAIN_CAPSTONE_FIELDS = ("enter_below_sigma", "from_end")
+CHAIN_CAPSTONE_FROM_END = 5
+
+
+def chain_capstone_problem(chain):
+    """The reason a chain block's `experimental_capstone` is refused, or None:
+    the flag off, unknown keys, a gate not in (0, 1], a `from_end` not a whole
+    number from 1. Unresolved references are left to the run."""
+    capstone = chain.get(CHAIN_CAPSTONE)
+    if capstone is None:
+        return None
+    from .h3_rules import REFINE_WINDOWS_ENV_VAR, refine_windows_enabled
+
+    if not refine_windows_enabled():
+        return (
+            f"{CHAIN_CAPSTONE} is a scratch spike, off unless "
+            f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    if not isinstance(capstone, dict) or "enter_below_sigma" not in capstone:
+        return f"{CHAIN_CAPSTONE} is {{enter_below_sigma, from_end?}}, got {capstone!r}"
+    unknown = sorted(set(capstone) - set(CHAIN_CAPSTONE_FIELDS))
+    if unknown:
+        return f"{CHAIN_CAPSTONE} has unknown key(s) {unknown}"
+    gate = capstone["enter_below_sigma"]
+    if not _number_over(gate, 0) or (not isinstance(gate, str) and gate > 1):
+        return f"{CHAIN_CAPSTONE} enter_below_sigma is a sigma in (0, 1], got {gate!r}"
+    back = capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)
+    if isinstance(back, str) and _number_over(back, 0):
+        return None
+    if isinstance(back, bool) or not isinstance(back, int) or back < 1:
+        return f"{CHAIN_CAPSTONE} from_end is a whole number from 1, got {back!r}"
+    return None

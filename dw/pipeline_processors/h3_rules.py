@@ -474,6 +474,13 @@ GUIDE_LATENTS_BLOCK = "dw_guide_latents"
 # the state key the layout leaves them under (#649)
 GUIDE_AUDIO_BLOCK = "dw_guide_audio"
 GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
+# The experimental late capstone (#1187, #1199 Task 14 Step 4; h3_windows.py):
+# a guide's keys for a one-frame row timed one latent past the render's end,
+# held out of the forward until sigma falls below its gate, and the state key
+# the layout leaves the gated rows under. Behind REFINE_WINDOWS_ENV_VAR
+CAPSTONE_PAST_END = "past_end"
+CAPSTONE_GATE = "enter_below_sigma"
+GATED_GUIDE_ROWS = "dw_gated_guide_rows"
 
 # Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
 # guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put

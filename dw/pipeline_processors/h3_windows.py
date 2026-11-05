@@ -84,6 +84,7 @@ from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .h3_hold import core_denoise_sequences
 from .h3_rules import (
+    GATED_GUIDE_ROWS,
     GUIDE_LATENTS_PER_CHUNK,
     GUIDES_INPUT,
     HELD_ROWS,
@@ -564,6 +565,42 @@ def window_inputs(fields, plan_entry, window_rows_, rebase_from=None):
     }, (unique_timesteps, timestep_indices[sequence])
 
 
+# 4. The late capstone's gate (#1187, #1199 Task 14 Step 4): EXPERIMENTAL.
+# A guide row marked `enter_below_sigma` is held out of the forward while the
+# step's sigma is at or above its gate - the sequence is the rest, as a window
+# is - and joins it once sigma falls below. H3's timesteps are 1 - sigma.
+
+
+def gated_out_rows(gates, t, device=None):
+    """The `latents` rows a step leaves out of its forward - every gated
+    guide's rows while the step's sigma (1 - t) is at or above its gate - or
+    None when it leaves none out."""
+    sigma = 1.0 - float(t)
+    rows = [
+        torch.arange(start, start + count, device=device)
+        for start, count, gate in gates or ()
+        if sigma >= gate
+    ]
+    return torch.cat(rows) if rows else None
+
+
+def without_rows(fields, num_video_rows, num_audio_rows, rows):
+    """`window_rows`' `(video, audio, sequence)` for the whole packed
+    sequence less the video rows `rows`."""
+    device = fields["video_indices"].device
+    keep = torch.ones(num_video_rows, dtype=torch.bool, device=device)
+    keep[rows] = False
+    sequence = torch.ones(
+        fields["position_ids"].shape[0], dtype=torch.bool, device=device
+    )
+    sequence[fields["video_indices"][rows]] = False
+    return (
+        keep.nonzero().squeeze(1),
+        torch.arange(num_audio_rows, device=device),
+        sequence.nonzero().squeeze(1),
+    )
+
+
 class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
     model_name = "minimax-h3"
 
@@ -591,14 +628,51 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             InputParam(name="num_condition_video_rows", type_hint=int, default=0),
             InputParam(name="num_condition_audio_rows", type_hint=int, default=0),
             InputParam(name=HELD_ROWS, type_hint=int, default=0),
+            InputParam(name=GATED_GUIDE_ROWS, type_hint=list, default=None),
         ]
 
     @torch.no_grad()
     def __call__(self, components, block_state, i, t):
         settings = getattr(block_state, REFINE_WINDOWS_INPUT, None)
-        if settings is None:
+        if settings is not None:
+            return self._windowed(components, block_state, i, settings)
+        rows = gated_out_rows(
+            getattr(block_state, GATED_GUIDE_ROWS, None), t, block_state.latents.device
+        )
+        if rows is None:
             return super().__call__(components, block_state, i, t)
-        return self._windowed(components, block_state, i, settings)
+        return self._gated(components, block_state, i, rows)
+
+    def _gated(self, components, block_state, i, rows):
+        """The stock forward over every row but the gated-out `rows`, whose
+        prediction is zero - condition rows are never stepped."""
+        transformer = getattr(components, self.transformer_name)
+        accepted = inspect.signature(transformer.forward).parameters
+        latents, audio_latents = block_state.latents, block_state.audio_latents
+        kept = without_rows(
+            block_state.denoiser_input_fields,
+            latents.shape[0],
+            audio_latents.shape[0],
+            rows,
+        )
+        layout, (timestep, timestep_indices) = window_inputs(
+            block_state.denoiser_input_fields, block_state.row_timestep_plan[i], kept
+        )
+        video = kept[0]
+        noise_pred, block_state.audio_noise_pred = transformer(
+            hidden_states=latents[video][None],
+            audio_hidden_states=audio_latents[None],
+            encoder_hidden_states=block_state.prompt_embeds,
+            timestep=timestep,
+            timestep_indices=timestep_indices,
+            attention_kwargs=block_state.attention_kwargs,
+            return_dict=False,
+            **{k: v for k, v in layout.items() if k in accepted},
+        )
+        full = noise_pred.new_zeros((1, latents.shape[0], noise_pred.shape[-1]))
+        full[0, video] = noise_pred[0]
+        block_state.noise_pred = full
+        return components, block_state
 
     def _check_rows(self, block_state):
         audio_rows = block_state.audio_latents.shape[0]

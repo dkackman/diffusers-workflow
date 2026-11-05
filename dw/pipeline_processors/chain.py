@@ -70,6 +70,9 @@ from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
 from .h3_hold import hold_audio_reference
 from .chain_rules import (
+    CHAIN_CAPSTONE,
+    CHAIN_CAPSTONE_FROM_END,
+    chain_capstone_problem,
     chain_check_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
@@ -324,6 +327,8 @@ def run_chain(pipeline, chain_definition, arguments):
     # Segment 1's frame 0 alone, the keyframe of every later segment under
     # `keystone: "segment_1"` (#1187)
     keystone_frame = None
+    # Segment 1's capstone frame, under the experimental capstone (#1187)
+    capstone_frame = None
     # One shot per segment, measured as the picture and track grow (#378);
     # the frames are counted rather than read off `frames`, which a spilled
     # chain never fills
@@ -344,7 +349,13 @@ def run_chain(pipeline, chain_definition, arguments):
                 + (f": {segment.num_frames} frames" if segment.num_frames else "")
             )
             state = _ChainState(
-                carry, raw_carry, hold, anchor_frames, keystone_frame, seed
+                carry,
+                raw_carry,
+                hold,
+                anchor_frames,
+                keystone_frame,
+                seed,
+                capstone_frame,
             )
             if config.check is not None and segment.index > 0:
                 attempt, checked = _checked_attempt(
@@ -367,10 +378,10 @@ def run_chain(pipeline, chain_definition, arguments):
             # look-hold state, its frames and its audio
             carry, raw_carry = attempt.carry, attempt.raw_carry
             hold = attempt.hold
-            if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
-                anchor_frames = attempt.rendered
-            if config.keystone == KEYSTONE_SEGMENT_1 and segment.index == 0:
-                keystone_frame = attempt.rendered[0]
+            if segment.index == 0:
+                anchor_frames, keystone_frame, capstone_frame = _from_segment_1(
+                    config, attempt.rendered
+                )
             if config.check is not None:
                 previous_kept = attempt.kept
                 if segment.index == 0:
@@ -458,6 +469,7 @@ class _ChainState:
     anchor_frames: list
     keystone_frame: object
     seed: int  # None when the step passes neither a generator nor a seed
+    capstone_frame: object = None
 
 
 @dataclass
@@ -492,6 +504,8 @@ def _render_attempt(
         state.anchor_frames,
         state.keystone_frame,
     )
+    if segment.index > 0 and state.capstone_frame is not None:
+        _add_capstone(segment_arguments, state.capstone_frame, config.capstone)
     seed = _reseeded(segment_arguments, state.seed, number) if number else None
 
     # The denoise counter restarts for every segment - without this the
@@ -720,6 +734,30 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
 
 
+def _from_segment_1(config, rendered):
+    """What later segments take from segment 1's frames as rendered: its
+    frames as the latent anchor, its frame 0 as the keystone (#1187) and its
+    late capstone frame (the experimental capstone) - each None when off."""
+    return (
+        rendered if config.anchor == ANCHOR_SEGMENT_1 else None,
+        rendered[0] if config.keystone == KEYSTONE_SEGMENT_1 else None,
+        rendered[-config.capstone["from_end"]] if config.capstone else None,
+    )
+
+
+def _add_capstone(segment_arguments, frame, capstone):
+    """Put segment 1's capstone frame one latent past this segment's end, as
+    a guide that enters the forward below its sigma gate (#1187, h3_windows)."""
+    guide = {
+        "video": [frame],
+        "past_end": True,
+        "enter_below_sigma": capstone["enter_below_sigma"],
+    }
+    segment_arguments[GUIDES_INPUT] = list(
+        segment_arguments.get(GUIDES_INPUT) or []
+    ) + [guide]
+
+
 def _segment_arguments(
     arguments, config, segment, continuity, carry, anchor_frames=None, keystone=None
 ):
@@ -888,6 +926,16 @@ class ChainConfig:
         if problem:
             raise ValueError(f"Chain {problem}")
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
+
+        # Segment 1's late frame past every later segment's end (#1187), a spike
+        problem = chain_capstone_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        capstone = chain_definition.get(CHAIN_CAPSTONE)
+        self.capstone = capstone and {
+            "enter_below_sigma": float(capstone["enter_below_sigma"]),
+            "from_end": int(capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)),
+        }
 
         # The sharpest of the last N frames as the keyframe (#1032)
         problem = chain_carry_pick_problem(
