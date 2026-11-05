@@ -1,0 +1,60 @@
+{
+  "id": "BenchS6MusicLong",
+  "summary": "About 335 s of music in four sections, through templates/minimax/music-long.",
+  "description": "Long-form bench S6 (long music over 5 minutes): composes templates/minimax/music-long by its catalog name with four 85 s sections (each generated at a 128 s ceiling, 1.5 x seconds per the Music 3 skill), so the joined piece is about 335 s, past one Music 3 track's 300 s. Every caption repeats the same style tags, key and tempo. What to read: key, tempo, instrumentation and mix at each of the three crossfades (music-long's description says continuity is not guaranteed), and the level step at each join.",
+  "variables": {
+    "sections": [
+      {
+        "name": "verse_1",
+        "caption": "slow cinematic folk, solo fingerpicked acoustic guitar, low cello, soft brushed snare, warm intimate male baritone vocal, D minor, 72 BPM, close dry mix, a sparse opening, guitar and voice only, the cello entering late",
+        "lyrics": "[intro]\n[verse]\nOne hundred stairs and twelve more still\nIron worn smooth beneath my heel\nMy father climbed them, so will I\nI light the lamp against the sky",
+        "seconds": 85,
+        "audio_duration": 128
+      },
+      {
+        "name": "chorus_1",
+        "caption": "slow cinematic folk, solo fingerpicked acoustic guitar, low cello, soft brushed snare, warm intimate male baritone vocal, D minor, 72 BPM, close dry mix, the band fills in, brushed snare steady, the cello carrying the melody under the voice",
+        "lyrics": "[chorus]\nTurn, light, turn across the water\nEvery eight seconds, find them there\nTurn, light, turn for someone's daughter\nSomeone's son out in the air",
+        "seconds": 85,
+        "audio_duration": 128
+      },
+      {
+        "name": "verse_2",
+        "caption": "slow cinematic folk, solo fingerpicked acoustic guitar, low cello, soft brushed snare, warm intimate male baritone vocal, D minor, 72 BPM, close dry mix, the storm verse, the snare busier, the cello low and urgent, the voice strained",
+        "lyrics": "[verse]\nThe wind came first across the point\nIt shook the bolt in every joint\nA lantern swinging, small and low\nI counted forty, let it go",
+        "seconds": 85,
+        "audio_duration": 128
+      },
+      {
+        "name": "chorus_2",
+        "caption": "slow cinematic folk, solo fingerpicked acoustic guitar, low cello, soft brushed snare, warm intimate male baritone vocal, D minor, 72 BPM, close dry mix, the last chorus then a quiet outro, the band drops away to guitar and cello, a soft ending",
+        "lyrics": "[chorus]\nTurn, light, turn across the water\nEvery eight seconds, bring them home\n[outro]\nBread and honey on the stair\nI never asked who left them there",
+        "seconds": 85,
+        "audio_duration": 128
+      }
+    ],
+    "crossfade_ms": 1500,
+    "section_fade_out_ms": 400,
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "piece",
+      "workflow": {
+        "path": "templates/minimax/music-long",
+        "arguments": {
+          "sections": "variable:sections",
+          "crossfade_ms": "variable:crossfade_ms",
+          "section_fade_out_ms": "variable:section_fade_out_ms",
+          "seed": "variable:seed"
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

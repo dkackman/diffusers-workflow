@@ -3153,8 +3153,8 @@ joined (`templates/narration-long`).
 | `words_per_second` | No | The rate that turns the limit into a word count (default 2.5; written dialogue measured 2.5 to 4 words a second as filling a clip) |
 
 It answers `{takes, count, words}`. A take ends at a sentence boundary; a
-sentence that alone is over the limit is cut at its last comma that fits, else
-at a word, and the run warns. The takes rejoin to the text, modulo whitespace.
+sentence that alone is over the limit is cut at its last comma before the
+limit, else (no comma) at the word boundary nearest the limit, and the run warns. The takes rejoin to the text, modulo whitespace.
 The engine expands `for_each` before a run, so the list cannot feed a
 `for_each` in the same workflow. `templates/narration-long` takes the plain
 text, runs this task, and hands the takes to `templates/narration-from-takes`

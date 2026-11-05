@@ -1,0 +1,38 @@
+{
+  "id": "BenchS6NarrationLong",
+  "summary": "About four minutes of narration from one text, through templates/narration-long.",
+  "description": "Long-form bench S6 (long narration over 3 minutes): composes templates/narration-long by its catalog name, so the bench runs the template as shipped. The text is about 590 words (about 240 s at the template's 2.5 words a second), with an abbreviation (Dr.) and long comma-heavy sentences so split_takes' sentence and comma rules are exercised. The voice is the synthetic narrator clip narrator-reference-s6.json writes, kept as asset:bench/narrator.wav. What to read: the level step and the pause at each take join, voice drift between takes, and check-script on the joined file against 'text'.",
+  "variables": {
+    "text": "The keeper climbed the stairs every evening, long before the storm. There were one hundred and twelve of them, iron and worn smooth in the middle, and he knew each one by the sound it made under his boots. His father had climbed them before him, and his grandfather before that, and none of them had ever missed a night. By the time he reached the lamp, the sea had already gone dark. He trimmed the wick, wiped the salt from the glass, and wound the clockwork that turned the great lens, and then he sat down on the wooden stool to wait. Then the light turned, and the whole coast could see him.\n\nOn the night the storm came in, the wind arrived first. It came across the water low and fast, flattening the grass on the headland and rattling the door at the foot of the tower until the bolt shook in its housing. The keeper heard it before he felt it. He set down his tea, buttoned his coat to the collar, and went to the window that faced the open sea. Out past the point, where the shelf of rock ran under the surface like the back of some sleeping animal, the waves had begun to break white.\n\nDr. Alder had warned him about the glass. It was old, the doctor said, older than the town, and a pane that has stood a hundred winters does not always stand the hundred and first. The keeper had nodded politely and done nothing, because there was nothing to be done. There was no new glass to be had, not on that coast, not that year, and the light would turn whether he worried about it or not.\n\nAt a little after midnight he saw the ship. It was a fishing boat, by the shape of it, small and low in the water, and it was running for the harbour with the wind behind it. He watched it the way you watch a child on a high wall, without breathing, as if your attention alone could hold it up. Twice the boat vanished into the trough of a wave and twice it came back, a little closer each time, its single lantern swinging like a pendulum.\n\nThe third time it did not come back for a long while. The keeper stood with both hands flat against the cold glass and counted, the way his father had taught him, one, and two, and three, all the way to forty. At forty-one the lantern rose again out of the dark, further north than before, and he understood that the boat had lost its line and was drifting toward the rocks.\n\nSo he did the only thing a keeper can do. He went to the lamp and turned up the flame as high as it would go, until the room was so bright he had to shield his eyes, and he stood beside it while it turned. Every eight seconds the beam swept across the water, and every eight seconds it found the boat, and every eight seconds the boat turned a little further south, toward the harbour mouth and away from the stones.\n\nIn the morning the storm was gone and the sea was flat and grey and ordinary. A man came up from the harbour with a loaf of bread and a jar of honey and left them on the bottom step without knocking. The keeper found them when he came down to sleep. He did not need to ask who they were from.",
+    "max_seconds": 60,
+    "words_per_second": 2.5,
+    "reference_audio": "asset:bench/narrator.wav",
+    "reference_text": "The tide comes in twice a day, and the lamp has to be ready for both.",
+    "gap_seconds": 0.3,
+    "crossfade_ms": 30,
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "narration",
+      "workflow": {
+        "path": "templates/narration-long",
+        "arguments": {
+          "text": "variable:text",
+          "max_seconds": "variable:max_seconds",
+          "words_per_second": "variable:words_per_second",
+          "reference_audio": "variable:reference_audio",
+          "reference_text": "variable:reference_text",
+          "seed": "variable:seed",
+          "gap_seconds": "variable:gap_seconds",
+          "crossfade_ms": "variable:crossfade_ms"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

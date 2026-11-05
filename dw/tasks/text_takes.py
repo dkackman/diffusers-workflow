@@ -8,8 +8,9 @@ take under one voice and seed and joined (`templates/narration-long`).
 Where a text is cut decides whether the join can be heard. A cut between two
 sentences lands on a pause the speaker would have made anyway; a cut inside one
 puts a breath where there is none. So takes end at sentence boundaries, and only
-a sentence that alone is over the limit is cut inside - at its last comma that
-fits, else at a word.
+a sentence that alone is over the limit is cut inside - at its last comma
+(or semicolon, colon or dash) before the limit, else, with no such mark, at the
+word boundary nearest the limit that does not pass it.
 
 The limit is a duration turned into words with `words_per_second`, an estimate
 (written dialogue measured 2.5-4 words/s as filling a clip) - the first take of
@@ -76,7 +77,9 @@ def _sentences(text):
 
 def _cut_long(sentence, limit):
     """A sentence over the limit as pieces within it: cut after the last comma
-    that fits, else at the limit."""
+    (; : or dash) before the limit, else - no such mark - at the word boundary
+    nearest the limit that does not pass it, so a piece is exactly `limit`
+    words."""
     pieces, words = [], sentence.split()
     while len(words) > limit:
         cut = limit
@@ -98,6 +101,11 @@ def split_takes(text, max_seconds=60.0, words_per_second=2.5):
         max_seconds: The longest a take may run. For `voice-clone` this is the
             ~95 s shared context less the reference clip, so 60 leaves room
         words_per_second: The speaking rate used to turn the limit into words
+
+    Takes end at sentence boundaries. A sentence that alone is over the
+    limit is cut at its last comma before the limit; with no such comma, at
+    the word boundary nearest the limit (the limit's own word count), and the
+    run warns.
 
     Returns:
         A list of takes, in order. Joined with a space they read as the text,

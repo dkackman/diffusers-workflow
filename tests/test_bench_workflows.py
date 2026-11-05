@@ -97,14 +97,20 @@ ARM_FILES = sorted((BENCH / "arms").glob("*.json"))
 
 
 @pytest.mark.parametrize("path", ARM_FILES, ids=lambda p: p.stem)
-def test_every_arm_file_loads_and_each_arm_validates(path, monkeypatch):
+def test_every_arm_file_loads_and_each_arm_validates(path, monkeypatch, tmp_path):
     """Each arm names a scene and workflow that exist, passes only variables
     its workflow declares, and validates with those arguments - on the bench
-    server's settings, which turn the experimental spikes' flag on."""
+    server's settings, which turn the experimental spikes' flag on and put
+    the catalog on the search path (an arm composing a template by its
+    catalog name resolves it there, and opens it under an output dir)."""
+    from dw.library import LIBRARY_PATH_ENV_VARS, WORKFLOWS_KIND
     from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
     from dw.workflow import Workflow
 
     monkeypatch.setenv(REFINE_WINDOWS_ENV_VAR, "1")
+    monkeypatch.setenv(
+        LIBRARY_PATH_ENV_VARS[WORKFLOWS_KIND], str(BENCH.parent / "workflows")
+    )
 
     scenes = driver.load_scenes(BENCH / "scenes.json")
     arms = driver.load_arms(path)
@@ -117,9 +123,9 @@ def test_every_arm_file_loads_and_each_arm_validates(path, monkeypatch):
         definition = json.loads(workflow_path.read_text(encoding="utf-8"))
         undeclared = set(arm.arguments) - set(definition["variables"])
         assert not undeclared, (arm.name, sorted(undeclared))
-        errors = Workflow(definition, None, str(workflow_path)).validation_errors(
-            arguments=dict(arm.arguments)
-        )
+        errors = Workflow(
+            definition, str(tmp_path), str(workflow_path)
+        ).validation_errors(arguments=dict(arm.arguments))
         assert errors == [], (arm.name, errors)
 
 

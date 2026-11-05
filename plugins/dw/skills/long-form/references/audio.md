@@ -26,6 +26,7 @@ boundaries and joined.
 - **Consent.** Clone only a voice the user has the right to use. There is no
   default voice.
 - The 0.3 s gap is a first guess, not a measured pause. Tune it by ear.
+  The S6 bench round (over 3 minutes) is *pending measurement*.
 
 ## Music longer than one Music 3 track
 
@@ -40,6 +41,11 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   instrumentation and mix can change at a seam. Repeat the same style tags in
   every caption, describe the same band in each, and listen at the joins. A
   crossfade hides a change of sound, not a change of tempo.
+- **Joins are not on the beat.** Music 3 takes no audio to continue from,
+  and no task trims a section at a beat (`analyze_beats` only reports
+  them), so each section is cut at its `seconds`. End each section's lyrics
+  on a phrase end and let the crossfade cover the rest.
+- The S6 bench round (over 5 minutes) is *pending measurement*.
 - The caption format belongs to the `minimax-music3` skill.
 
 ## A bed under cut scenes

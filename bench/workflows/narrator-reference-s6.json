@@ -1,0 +1,26 @@
+{
+  "id": "BenchS6NarratorReference",
+  "summary": "A synthetic narrator clip for the S6 long-narration arms.",
+  "description": "Long-form bench S6 (long narration), preparation: Audio8-TTS speaks 'reference_text' in its own default voice, about 5 s, so the narration-long arms have a reference voice to clone. The voice is synthetic, so no person's consent is at issue; no cast voice clip is on the bench host. Keep the output as the asset 'bench/narrator.wav' (keep_output) before running bench/arms/audio-long.json (this one is bench/arms/audio-long-prep.json, run first: the driver submits a file's arms together, and a missing asset is refused at submit), which read it as asset:bench/narrator.wav with this same 'reference_text'.",
+  "variables": {
+    "reference_text": "The tide comes in twice a day, and the lamp has to be ready for both.",
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "narrator",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:reference_text",
+          "model_name": "Edge0/Audio8-TTS-Realistic-0.6b"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ]
+}
