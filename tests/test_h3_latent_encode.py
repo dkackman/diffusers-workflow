@@ -435,3 +435,109 @@ def test_a_source_outside_the_roots_is_refused_at_validate(tmp_path):
     }
     errors = location_errors(workflow, base_dir=str(tmp_path))
     assert any("source" in e["path"] for e in errors), errors
+
+
+# 6. The streamed decode: a piece of the take at a time, the same frames
+
+
+def _streamed(vae, z, piece_clips):
+    from dw.pipeline_processors.h3_windows import streamed_decode
+
+    runs = []
+    with torch.no_grad():
+        streamed_decode(vae, z, runs.append, piece_clips)
+    return runs
+
+
+@pytest.mark.parametrize("piece_clips", [1, 2, 3])
+@pytest.mark.parametrize("count", [3, 7, 8, 12, 13, 17, 22, 26, 27, 37, 42])
+def test_the_streamed_decode_equals_the_whole_decode(piece_clips, count):
+    vae = tiny_vae()
+    z = torch.randn(1, 24, count, 2, 4, generator=torch.Generator().manual_seed(7))
+    with torch.no_grad():
+        whole = vae.decode(z, return_dict=False)[0]
+    runs = _streamed(vae, z, piece_clips)
+    assert torch.equal(torch.cat(runs, dim=2), whole)
+
+
+def test_a_long_take_decodes_in_several_pieces():
+    vae = tiny_vae()
+    z = torch.randn(1, 24, 37, 2, 4, generator=torch.Generator().manual_seed(8))
+    # 37 latents are 7 clips: pieces of 2 clips run 2 + 2 + 2 + the last
+    assert len(_streamed(vae, z, 2)) == 4
+
+
+def test_each_piece_goes_through_the_vaes_own_decode(monkeypatch):
+    """`decode` is where on-demand placement and offload hooks sit, so the
+    pieces must not reach past it to the clip decoder."""
+    vae = tiny_vae()
+    calls = []
+    real = vae.decode
+
+    def spy(z, return_dict=True):
+        calls.append(z.shape[2])
+        return real(z, return_dict=return_dict)
+
+    monkeypatch.setattr(vae, "decode", spy)
+    z = torch.randn(1, 24, 22, 2, 4)
+    _streamed(vae, z, 1)
+    # Each piece is one clip of 5 latents plus the 2 its last clip also reads
+    assert calls[:-1] == [7] * (len(calls) - 1)
+    assert sum(1 for _ in calls) > 1
+
+
+@pytest.mark.parametrize("piece_clips", [0, -1, 1.5, True, None])
+def test_a_piece_size_that_is_not_a_whole_count_is_refused(piece_clips):
+    from dw.pipeline_processors.h3_windows import streamed_decode
+
+    with pytest.raises(ValueError, match="piece_clips"):
+        streamed_decode(tiny_vae(), torch.zeros(1, 24, 7, 2, 4), print, piece_clips)
+
+
+def _decode_pipeline(block, vae):
+    pipeline = block.init_pipeline()
+    pipeline.update_components(vae=vae)
+    return pipeline
+
+
+@pytest.mark.parametrize("output_type", ["pil", "np"])
+def test_the_streamed_block_gives_the_stock_blocks_frames(output_type):
+    from diffusers.modular_pipelines.minimax_h3.decoders import (
+        MiniMaxH3VideoDecodeStep,
+    )
+
+    from dw.pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
+
+    vae = tiny_vae()
+    latents = torch.randn(1, 24, 27, 2, 4, generator=torch.Generator().manual_seed(9))
+    streamed = DwH3StreamedVideoDecodeStep()
+    streamed.piece_clips = 1
+    stock = _decode_pipeline(MiniMaxH3VideoDecodeStep(), vae)(
+        latents=latents, output_type=output_type, output="videos"
+    )
+    ours = _decode_pipeline(streamed, vae)(
+        latents=latents, output_type=output_type, output="videos"
+    )
+    if output_type == "np":
+        assert ours.shape == stock.shape
+        assert numpy.array_equal(ours, stock)
+    else:
+        assert len(ours) == len(stock) == 1
+        assert len(ours[0]) == len(stock[0])
+        for mine, theirs in zip(ours[0], stock[0]):
+            assert numpy.array_equal(numpy.asarray(mine), numpy.asarray(theirs))
+
+
+def test_decode_h3_latents_decodes_through_the_streamed_block(monkeypatch):
+    from dw.pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
+
+    seen = {}
+
+    def init_pipeline(self, *args, **kwargs):
+        seen["block"] = type(self)
+        raise RuntimeError("stop at the load")
+
+    monkeypatch.setattr(DwH3StreamedVideoDecodeStep, "init_pipeline", init_pipeline)
+    with pytest.raises(RuntimeError, match="stop at the load"):
+        decode_h3_latents(torch.randn(1, 24, 12, 2, 4))
+    assert seen["block"] is DwH3StreamedVideoDecodeStep

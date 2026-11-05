@@ -14,6 +14,9 @@ from diffusers.modular_pipelines.minimax_h3.before_denoise import (  # noqa: E40
     MiniMaxH3PrepareLayoutStep,
     MiniMaxH3SetTimestepsStep,
 )
+from diffusers.modular_pipelines.minimax_h3.decoders import (  # noqa: E402
+    MiniMaxH3VideoDecodeStep,
+)
 from diffusers.modular_pipelines.minimax_h3.denoise import (  # noqa: E402
     MiniMaxH3LoopDenoiser,
     MiniMaxH3LoopSchedulerStep,
@@ -866,3 +869,10 @@ def test_the_loader_inserts_the_windows_only_behind_the_flag(
         if not windowed:
             assert type(block) is MiniMaxH3PrepareLayoutStep
     assert windows_refine(pipeline) is windowed
+    # A long take's decode too: a piece at a time behind the flag, stock without
+    decodes = h3_windows.video_decode_steps(pipeline)
+    assert decodes
+    for block in decodes:
+        assert isinstance(block, h3_windows.DwH3StreamedVideoDecodeStep) is windowed
+        if not windowed:
+            assert type(block) is MiniMaxH3VideoDecodeStep

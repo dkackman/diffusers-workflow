@@ -373,15 +373,16 @@ def _latent_stats(device):
 
 
 def _load_decoder(device, model_name):
-    from diffusers.modular_pipelines.minimax_h3.decoders import MiniMaxH3VideoDecodeStep
-
+    # The stock video decode, a piece of the take at a time: the same frames,
+    # without the whole take's pixels on the device (a long take's do not fit)
+    from ..pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
     from .model_cache import cached_model
 
     def load_decoder():
         # The block's own pipeline, holding only the components it expects:
         # the VAE from the repo's `vae` subfolder, and the video processor
         # the block configures itself
-        pipeline = MiniMaxH3VideoDecodeStep().init_pipeline(model_name)
+        pipeline = DwH3StreamedVideoDecodeStep().init_pipeline(model_name)
         pipeline.load_components(names=["vae"], torch_dtype=torch.float32)
         logger.info(f"Loading MiniMax-H3 video VAE from {model_name} to {device}")
         return pipeline.to(device)
