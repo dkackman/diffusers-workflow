@@ -95,3 +95,49 @@ check on leaves the render alone.
   jump, look and cut drive a re-roll), or re-roll on texture only when the
   previous segment passed it. That is a change of the check's policy, so it
   is for the controller to rule on.
+
+## `cut_ratio` on the GPU (2026-11-05, deploy `155ae56c`)
+
+Arms `bench/arms/check-cut-ratio.json`, record `check-cut-ratio.json`: the
+`chk-s3-seg4-broken` arm again (new workflow id suffix, so no step-cache
+hit), and the same arm at `retries: 3`.
+
+| arm | job | card | retries | wall | segment 1 |
+|---|---|---|---|---|---|
+| chk-s3-seg4-broken-cut | `6668a913863c` | cuda:1 | 1 | 15.9 min | `24b18bc0/d21b04b0`, identical to the original run `fdea6eba4a33` |
+| chk-s3-seg4-broken-r3 | `ccce7adc9aaf` | cuda:0 | 3 | 23.7 min | `806ef3ca/3ba72965`, drifted (the card had just run the 120 s refine) |
+
+Both differ from the S3 canonical segment 1 (`289012f1`); the original check
+arm did too, so the rerun is read against the original, which it matches.
+
+**`cut_ratio` catches the cut 26 frames in.** On the rerun:
+
+- attempt 1 of segment 4 fails on look 15.1 *and* cut 5.92;
+- attempt 2 (seed 1001169), the one that passed before, now fails on
+  **`cut_ratio 4.15`** (the offline `bench/cuts.py` read 4.16), is kept as
+  the closest, and the run record's segment 4 shot carries `attempts: 2`,
+  `seed: 1001169`, `check_failed: ["cut_ratio"]`;
+- segment 5's cut back to the street fails on `cut_ratio 17.25` on both
+  attempts (kept attempt 1, `check_failed: ["cut_ratio"]`);
+- the job carries one `chain_check_failed` warning per segment, naming the
+  measure and value: "Chain segment 4/6 failed its check on every attempt
+  (cut_ratio 4.15); kept attempt 2 of 2, the closest" (and 5/6 at 17.25).
+
+So all three broken renders are now caught, and segments 1-3 and 6 still
+pass (no false positive). The margin is thin, as predicted: 4.15 against a
+4.0 ceiling, because the harbour's fast pan lifts the segment's own typical
+step.
+
+**The retry budget does not find a clean attempt, here or at `retries: 3`.**
+Segment 4's prompt asks for the cut, so every seed renders it: attempts 1-3
+read cut 5.26 (+ look 15.26), 4.48, 5.21 (+ look 13.96), and attempt 4 failed
+too (the log names only the measures that trigger a re-roll); kept attempt 2
+at 4.48. Segment 5 opens on the kept harbour tail, so every seed breaks:
+attempts 1-3 read cut 7.47, look 6.84, cut 7.91, attempt 4 failed; kept
+attempt 1. The budget is
+spent (+3 segments, +8 min against `retries: 1`) and the take is flagged,
+which is what the check can do: a re-roll fixes a seed's accident, not a
+prompt that asks for the break, and not a carry that already holds it
+(`repair.md`, Step 3). (The `retries: 3` run is drifted at segment 1, so
+its numbers are not comparable to the rerun's; its attempt 2 at the same
+seed reads 4.48, not 4.15.)

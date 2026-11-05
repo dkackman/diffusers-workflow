@@ -132,3 +132,57 @@ and 2, gates 0.9 (the last two of H3's four turbo forwards, sigma 0.857 and
 0.667) and 0.7 (the last only), about 18 min each, read against
 `ctl-guide-s2-*` (`counters-controls.json`) under the S2 guide floor, by
 eye for the arc. Build it only if it wins S2.
+
+### The capstone gate: run (2026-11-05, deploy `155ae56c`)
+
+Arms `bench/arms/capstone.json` (S2, 10 segments, 41 s, guide) plus one fresh
+seed-2 control, `bench/arms/capstone-controls.json`; records `capstone.json`
+and `capstone-controls.json`. The 10-segment controls are the guide runs at
+the same shape: seed 1166 `chk-s2-fp` (`604e115324b7`, deploy `082e93ce`,
+equal to the noise-floor runs to the third decimal), seed 2
+`ctl10-guide-s2-s2` (`87038dfc0892`, this deploy), which reproduces round
+1's `control-s2-seed2` exactly. (`ctl-guide-s2-*` in `counters-controls.json`
+are 6-segment takes and do not match the arms' shape.)
+
+**Labels** (`bench/segment1.py`): all four capstone arms and both controls
+are **clean** (S2@1166 `ed5094c1/0a819c94`, S2@2 `14a80618/b4d1d486`), so
+every read below is clean against clean.
+
+**Floor:** `combined_floor()` S2 guide row (jump 0.124/0.430, look
+0.438/0.790, level 6.2/8.8 dB, texture 0.605/1.210/1.660).
+
+| arm | jump mean / max | look mean / max | level dB mean / max | tex fine / mid / coarse | wall | verdict |
+|---|---|---|---|---|---|---|
+| control @1166 | 1.194 / 2.09 | 1.284 / 2.71 | 2.04 / 5.54 | 3.558 / 2.864 / 1.975 | 18.2 | |
+| cap 0.9 @1166 | 1.291 / 1.85 | 1.656 / **4.52** | 2.53 / 5.25 | 3.372 / 2.664 / 2.193 | 20.6 | no gain; look max **worse** by 1.81 |
+| cap 0.7 @1166 | 1.207 / 1.95 | 1.099 / 2.36 | 2.03 / 7.26 | 3.310 / 2.468 / 2.018 | 18.4 | **tie** on every measure |
+| control @2 | 1.163 / 1.83 | 1.211 / 1.77 | 6.85 / 24.46 | 3.386 / 3.378 / 2.906 | 17.8 | |
+| cap 0.9 @2 | 1.197 / 1.70 | 1.380 / 2.16 | 7.22 / **35.91** | 3.452 / 3.320 / 2.874 | 18.4 | no gain; level max **worse** by 11.5 dB |
+| cap 0.7 @2 | 1.234 / 1.72 | 1.429 / 2.12 | 6.11 / 33.00 | 3.652 / 3.526 / 3.504 | 18.3 | **tie** on every measure |
+
+(`verdict()` with primary fine texture, look or jump: 0.9 reads `mixed`
+at both seeds, a tie on the primary with one measure worse past the floor;
+0.7 reads `tie`.)
+
+**By eye** (control | 0.9 | 0.7 at 2.5, 20 and 41 s): segment 1 is identical,
+as it must be. At 41 s, seed 1166, the control's sky is blown to white while
+both capstone takes keep a blue sky with clouds, which is the failure the
+capstone targets, partly held. It does not hold the scene: in all three takes
+the seated statue has become a standing figure seen from behind, and the 0.7
+take still invents palms. At seed 2 the three end on three different gardens,
+and 0.7's sky is pale. The texture numbers agree: no arm moves fine/mid/coarse
+drift past the S2 floor, which is wide (0.6/1.2/1.7) because S2's seeds
+disagree so much.
+
+**Cost:** one gated row past the end, in the last one or two of four
+forwards. Wall time +0.2 to +2.4 min on about 18 min, inside the S2 runs'
+own spread (17.8-20.0 min): unmeasurable.
+
+**Verdict: the late capstone does not win S2 at either gate.** Neither gate
+beats the control past the floor on drift or seams at either seed. 0.9 (the
+last two forwards) is worse past the floor on one seam measure at each seed
+(look max at 1166, level max at 2); 0.7 (the last forward) ties everything.
+The one visible gain, a sky held blue at seed 1166, does not reach the
+numbers and does not repeat at seed 2. Under the plan's rule ("build it only
+if it wins S2"), it is not built: the spike (`45115d6a`) stays behind the
+experimental flag, and S2 keeps "no counter" in the defaults.

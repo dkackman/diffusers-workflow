@@ -110,29 +110,61 @@ past the floor. Nothing was worse past the floor on any arm.
   float32 decodes. The windowed denoise itself is small (one 40-latent window
   at a time).
 
-### The 120 s question (S1, `r3-anchor25-s1-120s`): blocked
+### 120 s (S1, `r3-anchor25-s1-120s`)
 
-**The question.** Does the refine undo the burn from about 42 s on?
+Run 2026-11-05 on the bench server at `155ae56c` (streamed decode deployed):
+`t17-s1-120s-r030-rebased` (`2f6c0073d2f0`, cuda:0), 0.3, `{42, 12}`
+rebased, over `r3-anchor25-s1-120s` (`25f6bd1da507`, clean). Arms
+`bench/arms/t17-refine-120s.json`; records `t17-refine-120s.json` and
+`t17-pairs-120s.json` (`refine_pairs.py` at the round-3 moments 62, 300,
+583, 1000, 1501, 2000, 2500, 2868). The refined take is a fresh decode, so it
+has no segment-1 label of its own; its source is clean. Floor: the S1 guide
+row, as above (no two-minute floor exists).
 
-The run is blocked, but the 26 s data already answer the question in kind.
-At every strength the refine leaves texture drift against segment 1 inside
-the floor, and by eye it keeps the crust. A low-sigma refine (0.2-0.4)
-re-denoises from a burned picture and keeps its structure. At 0.4 the PSNR
-against the burned source is still about 27 dB. So the expectation at 120 s is
-seam smoothing only. The burn after 42 s is the latent carry family's problem
-(#1150, #1044, #1030), not this pass's.
+| measure | source | refined | verdict |
+|---|---|---|---|
+| seam jump mean / max | 0.943 / 1.86 | **0.734** / 1.93 | mean **wins** (0.21 > 0.124); max tie |
+| seam look mean / max | 1.032 / 2.70 | 1.156 / 2.96 | tie (inside 0.438 / 0.790) |
+| level dB mean / max | 5.83 / 24.3 | 5.96 / 24.9 | tie (held track, re-encode) |
+| tex fine / mid / coarse @2868 | 1.108 / 0.430 / 0.019 | 1.093 / 0.406 / 0.004 | tie |
+| face fine @2868 | 0.040 | 0.086 | tie |
+| motion | 0.636 | 0.528 | -17% |
+| PSNR vs source | | 31.1 @62 -> 26.0 @1000 -> 23.5-24.2 from 2000 | |
 
-**Why it is blocked.** A 120 s take cannot be decoded on a 24 GB card by the
-stock video decode. The decode keeps every clip on the device, concatenates
-them, and converts the whole take to float32. At 960x544 that is about
-9 + 9 + 18 GB, and `decode_h3_latents` uses a float32 VAE. The fix is
-`fb6a9e11` (`streamed_decode`), which is bit-identical to the whole decode.
-The bench server still runs 082e93ce, so the fix is not deployed. Once it is,
-run `t17-s1-120s-r030-rebased` with `source:
-output:BenchS1Static/20261104-233558-8c6ae697/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4`,
-`window_frames 42`, `window_overlap 12`, `window_positions rebased`, and the
-S1 prompt. Measure it with `refine_pairs.py` at the round-3 moments (62, 300,
-583, 1000, 1501, 2000, 2500, 2868). It should take about 40 min.
+- **Does it move the burn from about 42 s on? No.** The fine drift series
+  against frame 62 runs 0.497 / 0.771 / 0.931 / 1.012 / 1.108 (source) and
+  0.539 / 0.838 / 0.949 / 1.003 / 1.093 (refined) at 42 / 62 / 83 / 104 /
+  119.5 s: inside the floor at every moment, mid likewise. By eye (stills at
+  65, 70, 75 and 110 s, and the export) the two sides are the same picture:
+  the same mosaic crust on the stripes and circle, the same pale, flattened
+  face and white forehead patch at 110 s. The PSNR falls from 31 to about
+  24 dB as the burn grows, so the refine re-renders the burned crust more
+  freely, but it re-renders it as crust.
+- **Do the seams win as at 26 s? Partly.** Jump mean wins past the floor
+  over the whole take (0.94 -> 0.73), and by stretch it holds through 95 s
+  (0-25 s 0.93 -> 0.53, 25-60 s 0.88 -> 0.55, 60-95 s 0.80 -> 0.56, max
+  0.96 -> 0.75 there). In the last 25 s, where the source is most burned, it
+  no longer helps: jump 1.26 -> 1.41 and look 1.81 -> 2.10 mean, 2.70 -> 2.96
+  max, both inside the floor. Look ties overall, where at 26 s it tied too
+  (S1). Nothing is worse past the floor.
+- **Motion** falls 17%, as at 26 s (-17 to -19%), so the drop does not grow
+  with length: it is the same shimmer removal, still owed an eye check.
+- **Cost.** 71.5 min for 2 min of take, **about 36 min per minute**, not
+  the 20 projected: encode 10.7 min; refine 33.3 min (load 2.0, encode 0.7,
+  denoise 23.3 = 4 passes of 5.8 min over 28 windows, as projected, and its
+  own decode 7.3); `decode_h3_latents` 27.1 min; mux 0.3. The two decodes
+  are 34 min, half the job: dropping the step's redundant internal decode
+  saves 7, and the float32 streamed decode is the next cost to look at.
+- **Peak VRAM** (nvidia-smi at 1 s, cuda:0, `~/t17-120s-vram.csv` on lem):
+  **16,519 MiB (16.1 GiB)**, during the refine's load; denoise 12.1 GB,
+  decode 14.5 GB. The streamed decode takes the 120 s job well under the
+  22.9-23.5 GB the 26 s jobs read with the whole-take decode.
+- **Export** for Don: `~/Desktop/dw-bench-t17/t17-s1-120s-anchor25_LEFT-source_RIGHT-refine030-rebased-60-80s.mp4`
+  (60-80 s, the burn region, x264 CRF 16, refined track).
+
+**Verdict at 120 s:** the windowed refine is a seam pass at length too (jump
+wins to 95 s), it does not touch the burn, and it costs about 36 min per
+minute of take, half of it decode.
 
 ### Failures on the way, and their causes
 
@@ -160,14 +192,14 @@ S1 prompt. Measure it with `refine_pairs.py` at the round-3 moments (62, 300,
 - the default is `refine_strength` 0.3, with `{frames: 40-42, overlap: 12}`
   windows and `rebased` positions past 15 s;
 - it never lost a measure, and it costs about 40 min per minute of take at
-  26 s, falling toward about 20 min per minute at length;
+  26 s and about 36 min per minute at 120 s (half of it decode);
 - **it is not a burn fix**: drift against segment 1 is unchanged on every
   scene and strength.
 
 Promoting it out of the experimental flag needs four things, as Step 4's "if
 it wins" says:
 
-- the 120 s confirmation;
+- the 120 s confirmation (done: seams yes to 95 s, burn untouched; see *120 s*);
 - an eye check of S1's motion drop;
 - dropping the step's redundant internal decode when `videos` is not in the
   output;
@@ -181,5 +213,6 @@ refined (held) track.
 
 - `t17-s2-guide_LEFT-source_RIGHT-refine030-20s.mp4`: S2 at 0.3.
 - `t17-s1-6seg-anchor25_LEFT-source_RIGHT-refine030-rebased-20s.mp4`: S1 at
-  6 segments, 0.3 rebased. This stands in for the 120 s pair, which is blocked
-  until the decode fix is deployed.
+  6 segments, 0.3 rebased.
+- `t17-s1-120s-anchor25_LEFT-source_RIGHT-refine030-rebased-60-80s.mp4`: S1
+  at 120 s, 0.3 rebased, 60-80 s (the burn region).
