@@ -183,6 +183,7 @@ def test_a_valid_call_has_no_problems(flag_on):
         ({SELFLIFT_INPUT: {"lift_step": 2, "upsample": "bicubic"}}, "upsample"),
         ({SELFLIFT_INPUT: {"lift_step": 4}}, "no evaluation on the full canvas"),
         ({"height": 544, "width": 960}, "multiple of 64"),
+        ({"guide_noise": 0.4}, "pooling a noised guide row"),
         ({"latents": "previous_result:x"}, "latents"),
         ({"refine_strength": 0.3}, "refine_strength"),
         ({"source_video": "asset:take.mp4"}, "source_video"),
@@ -489,6 +490,53 @@ def test_end_to_end_a_canvas_that_does_not_halve_is_refused_in_the_loop(tiny_h3)
             output="latents",
             **{SELFLIFT_INPUT: {"lift_step": 1}},
         )
+
+
+def test_the_64_px_rule_holds_for_sizes_that_come_from_variables(flag_on):
+    from dw.validation import workflow_errors
+    from dw.workflow import Workflow
+
+    definition = {
+        "id": "SelfLift",
+        "variables": {"w": 960, "h": 544},
+        **h3_workflow({"width": "variable:w", "height": "variable:h"}),
+    }
+    workflow = Workflow(definition, None, "selflift.json")
+    errors = workflow_errors(workflow)
+    messages = [e["message"] for e in errors if SELFLIFT_INPUT in e["path"]]
+    assert len(messages) == 1 and "height" in messages[0] and "544" in messages[0]
+    # the caller's value is what is judged, not the declared default
+    errors = workflow_errors(workflow, {"w": 1000, "h": 576})
+    assert any("width" in e["message"] and "1000" in e["message"] for e in errors)
+    assert not workflow_errors(workflow, {"w": 1024, "h": 576})
+
+
+def test_end_to_end_the_block_with_no_selflift_argument_is_the_stock_graph(tiny_h3):
+    from dw.pipeline_processors.h3_guides import insert_guides
+    from tests.test_chain_h3_native import _tiny_h3
+
+    plain = _tiny_h3()
+    insert_guides(plain)
+    insert_audio_hold(plain)
+    without, without_calls = render(plain)
+    with_block, with_calls = render(tiny_h3)
+    assert torch.equal(without, with_block)
+    assert [c["rows"] for c in with_calls] == [c["rows"] for c in without_calls]
+
+
+def test_end_to_end_selflift_composes_with_the_sparse_backend(tiny_h3):
+    from contextlib import ExitStack
+
+    from dw.sparse_attention import install_sparse_for_call
+
+    configuration = {"attention_backend": "sparse"}
+    with ExitStack() as stack:
+        install_sparse_for_call(tiny_h3, configuration, stack, "clip")
+        sparse, _ = render(tiny_h3)
+        lifted, calls = render(tiny_h3, {"lift_step": 2, "start_scale": 0.5})
+    assert [c["rows"] for c in calls] == [HALF_ROWS] * 2 + [FULL_ROWS]
+    assert lifted.shape == sparse.shape and torch.isfinite(lifted).all()
+    assert not torch.equal(lifted, sparse)
 
 
 def test_the_saved_fraction_is_the_small_forwards_share():

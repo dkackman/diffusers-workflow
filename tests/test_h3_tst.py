@@ -355,6 +355,45 @@ def test_the_processors_are_restored_when_the_call_raises(flag_on):
     assert not transformer._forward_pre_hooks
 
 
+def test_the_step_ramp_follows_h3s_evaluation_count(flag_on):
+    """H3's num_inference_steps N counts sigma grid points: N - 1 evaluations.
+    At N = 5 the four steps weigh 1, .75, .25, 0 - the reference's ramp."""
+    transformer = tiny_transformer()
+    with tst_call(TinyPipeline(transformer), TstSettings(0.2, True), 5, "clip"):
+        state = transformer._dw_tst_state
+        assert state.total_steps == 4
+        weights = [step_weight(i, state.total_steps) for i in range(4)]
+    assert weights == pytest.approx([1.0, 0.75, 0.25, 0.0])
+
+
+def test_no_step_count_uses_the_pipelines_default_so_the_ramp_still_applies(flag_on):
+    transformer = tiny_transformer()
+    with tst_call(TinyPipeline(transformer), TstSettings(0.2, True), None, "clip"):
+        total = transformer._dw_tst_state.total_steps
+    assert total == h3_tst.DEFAULT_STEPS - 1 > 1
+    assert step_weight(total - 1, total) == pytest.approx(0.0)
+    assert step_weight(0, total) == pytest.approx(1.0)
+
+
+def test_a_failed_install_partway_is_still_restored(flag_on, monkeypatch):
+    transformer = tiny_transformer()
+    before = stock_processors(transformer)
+    blocks = list(transformer.transformer_blocks)
+    real = blocks[1].attn.set_processor
+
+    def boom(processor):
+        monkeypatch.setattr(blocks[1].attn, "set_processor", real)
+        raise RuntimeError("second block")
+
+    monkeypatch.setattr(blocks[1].attn, "set_processor", boom)
+    with pytest.raises(RuntimeError, match="second block"):
+        with tst_call(TinyPipeline(transformer), TstSettings(0.2, True), 4, "clip"):
+            pass  # pragma: no cover
+    assert stock_processors(transformer) == before
+    assert not hasattr(transformer, "_dw_tst_state")
+    assert not transformer._forward_pre_hooks
+
+
 def test_no_diffusers_attention_global_is_touched(flag_on):
     from diffusers.models.attention_dispatch import _AttentionBackendRegistry
 

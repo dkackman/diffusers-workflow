@@ -53,6 +53,9 @@ Feasibility, read off diffusers' H3 blocks (no diffusers change needed):
   f x f blocks. Both terms are Gaussian; the first has variance 1/f^2 and is
   constant on a block, the second has variance 1 - 1/f^2 and sums to zero on
   a block, so E is unit-variance i.i.d. noise again and f pool(E) = eps.
+  "Unit i.i.d." holds only as far as the model's implied eps (denoised minus
+  the last velocity) is itself unit noise: an approximation, close at the
+  lift's sigma of about 0.86, not exact.
   The half canvas starts from that same draw, f pool(N) (unit variance), so
   with no denoising a lift at sigma 1 gives N back exactly. No extra random
   draw, so a seed reproduces.
@@ -200,6 +203,11 @@ def selflift_problems(arguments, has_cache=False):
                 f"from a take or pins rows by the full canvas's layout - drop "
                 f"{other}"
             )
+    if arguments.get("guide_noise") is not None:
+        problems.append(
+            f"{name} does not combine with guide_noise: pooling a noised "
+            f"guide row breaks its noise level - drop guide_noise"
+        )
     if has_cache:
         problems.append(
             f"{name} changes the sequence mid schedule, and a step cache would "
@@ -299,7 +307,12 @@ def lift(latents, velocity, sigma, noise, factor, mode="bilinear"):
     """The small canvas's latents at `sigma`, lifted to the full canvas at
     the same sigma: `(1 - sigma) up(x0) + sigma E`. `velocity` is the last
     (data-ward) prediction, `noise` the call's full-canvas draw. All
-    (1, C, F, h, w) small or (1, C, F, H, W) full; float32."""
+    (1, C, F, h, w) small or (1, C, F, H, W) full; float32.
+
+    With `mode` bilinear, pool(up(x0)) is not x0 (the interpolation mixes
+    neighbouring blocks), so the low band shifts slightly; nearest is exact.
+    E is unit i.i.d. only as far as the model's implied eps is unit noise:
+    an approximation, close at sigma about 0.86."""
     latents, velocity = latents.float(), velocity.float()
     denoised = latents + sigma * velocity
     trajectory_noise = denoised - velocity

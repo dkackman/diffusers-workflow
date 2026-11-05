@@ -57,8 +57,35 @@ processor's own `_attention_backend`. Nothing here calls
 (the a9a1298c leak): the processors and hooks are the only state, and they come
 off with the call.
 
+Under torch.compile the step index is a Python int the compiled forward
+specialises on, so each step recompiles, up to the compile cache limit.
+
 Imports diffusers only inside the processor's call, so validation can import
 this module.
+
+The ported formula and schedules (lytang63/temporal-state-transport):
+
+    MIT License
+
+    Copyright (c) 2025 TST Authors
+
+    Permission is hereby granted, free of charge, to any person obtaining a
+    copy of this software and associated documentation files (the "Software"),
+    to deal in the Software without restriction, including without limitation
+    the rights to use, copy, modify, merge, publish, distribute, sublicense,
+    and/or sell copies of the Software, and to permit persons to whom the
+    Software is furnished to do so, subject to the following conditions:
+
+    The above copyright notice and this permission notice shall be included in
+    all copies or substantial portions of the Software.
+
+    THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+    IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
+    FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
+    AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
+    LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING
+    FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER
+    DEALINGS IN THE SOFTWARE.
 """
 
 import logging
@@ -528,6 +555,8 @@ class TstH3AttnProcessor:
 
 def _install(component, settings, total_steps):
     state = _TstState(settings=settings, total_steps=max(1, int(total_steps or 1)))
+    # First, so a raise partway through still leaves `_uninstall` its record
+    component._dw_tst_state = state
     blocks = list(component.transformer_blocks)
     for index, block in enumerate(blocks):
         state.originals.append(block.attn.processor)
@@ -538,7 +567,6 @@ def _install(component, settings, total_steps):
         component.register_forward_pre_hook(_pre_hook, with_kwargs=True),
         component.register_forward_hook(_post_hook, always_call=True),
     ]
-    component._dw_tst_state = state
     return state
 
 
@@ -582,11 +610,30 @@ def _report(label, settings, states):
     )
 
 
+# H3's `num_inference_steps` default (diffusers' input template), used when a
+# call names none
+DEFAULT_STEPS = 50
+
+
+def _evaluations(num_inference_steps):
+    """The transformer evaluations a call runs. H3's `num_inference_steps` N
+    counts sigma grid points (MiniMaxH3Scheduler), so it drives N - 1; a call
+    that names none (or not a whole number) runs the default."""
+    steps = num_inference_steps
+    if isinstance(steps, bool) or not isinstance(steps, int) or steps < 2:
+        steps = DEFAULT_STEPS
+    return steps - 1
+
+
 @contextmanager
 def tst_call(pipeline, settings, num_inference_steps, label):
     """Put the TST processor on every block of the pipeline's H3 transformers
     for one call, and the originals back when it ends - also when it raises.
-    The call's gains are reported once, when it completes.
+    The call's gains are reported once, when it completes. The step ramp
+    spans the call's N - 1 evaluations (`_evaluations`).
+
+    Under torch.compile the step index is a Python int the compiled forward
+    specialises on, so each step recompiles - up to the compile cache limit.
 
     Raises:
         ValueError: If the pipeline has no H3 transformer or runs sparse
@@ -598,7 +645,7 @@ def tst_call(pipeline, settings, num_inference_steps, label):
     try:
         for _, component in _h3_transformers(pipeline):
             installed.append(component)
-            _install(component, settings, num_inference_steps)
+            _install(component, settings, _evaluations(num_inference_steps))
         states = [component._dw_tst_state for component in installed]
         yield states
     finally:
