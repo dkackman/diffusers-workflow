@@ -44,8 +44,8 @@ LOOK_RATIO_MAX = 5.5
 TEXTURE_RATIO_MAX = 2.0
 # - cut_ratio: the largest frame step inside the segment over its own typical
 #   step - a seam nobody marked. The seam measures above miss a segment that
-#   cuts away a few frames after its seam (bench/records/check.md: an S3 re-roll
-#   cut to another scene 2 frames in and passed). 282 segments of 47 bench
+#   cuts away inside itself (bench/records/check.md: an S3 re-roll cut to
+#   another scene 26 frames past its seam and passed). 282 segments of 47 bench
 #   takes read P50 1.22, P99 2.62, max 2.98 (bench/cuts.py); the two cuts in
 #   that take read 4.16 and 17.2. The seam's own ceiling, 4.0, sits between
 CUT_RATIO_MAX = 4.0

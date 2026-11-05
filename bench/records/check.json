@@ -1,0 +1,65 @@
+[
+  {
+    "arm": "chk-s3-seg4-broken",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "fdea6eba4a33",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS3DialogueWalk-chk/20261105-082441-006f3a57/final/BenchS3DialogueWalk-chk-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.208,
+      "seam_jump_max": 1.93,
+      "seam_look_mean": 1.528,
+      "seam_look_max": 2.58,
+      "seam_level_step_db_mean": 3.658,
+      "seam_level_step_db_max": 8.81,
+      "texture_fine_seg_last": 0.7031227143207547,
+      "texture_mid_seg_last": 0.04337474109546959,
+      "texture_coarse_seg_last": 0.027532089161735367,
+      "wall_minutes": 14.436770510673522
+    }
+  },
+  {
+    "arm": "chk-s1-fp",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "7b76a3796335",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static-chk/20261105-083907-e3122505/final/BenchS1Static-chk-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.9300000000000002,
+      "seam_jump_max": 1.09,
+      "seam_look_mean": 1.531111111111111,
+      "seam_look_max": 2.61,
+      "seam_level_step_db_mean": 9.856666666666667,
+      "seam_level_step_db_max": 36.56,
+      "texture_fine_seg_last": 1.1178899576395858,
+      "texture_mid_seg_last": 0.40150993772889665,
+      "texture_coarse_seg_last": 0.04875222289931379,
+      "wall_minutes": 20.60774208307266
+    }
+  },
+  {
+    "arm": "chk-s2-fp",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "604e115324b7",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-chk/20261105-085942-e44e2973/final/BenchS2Arc-chk-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.1944444444444444,
+      "seam_jump_max": 2.09,
+      "seam_look_mean": 1.2844444444444445,
+      "seam_look_max": 2.71,
+      "seam_level_step_db_mean": 2.035555555555556,
+      "seam_level_step_db_max": 5.54,
+      "texture_fine_seg_last": 3.5575967638583803,
+      "texture_mid_seg_last": 2.8636397627256116,
+      "texture_coarse_seg_last": 1.9746980403751424,
+      "wall_minutes": 18.167179222901662
+    }
+  }
+]

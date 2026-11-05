@@ -1,6 +1,6 @@
 {
   "id": "BenchS3DialogueWalk",
-  "description": "Long-form bench S3 (dialogue walk): templates/minimax/chained-segments with continuity 'guide' and carry_audio, six segments, a cast portrait (asset:bench/walker.png) and one short spoken line per segment through `prompts`. Each line is sized to a segment (see plugins/dw/skills/minimax-h3/references/dialogue.md). `anchor` and `guide_noise` are the drift-probe knobs; their defaults are today's call. Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations.",
+  "description": "Long-form bench S3 (dialogue walk): templates/minimax/chained-segments with continuity 'guide' and carry_audio, six segments, a cast portrait (asset:bench/walker.png) and one short spoken line per segment through `prompts`. Each line is sized to a segment (see plugins/dw/skills/minimax-h3/references/dialogue.md). `anchor` and `guide_noise` are the drift-probe knobs; their defaults are today's call. Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs).",
   "variables": {
     "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She walks toward the camera down the cobblestone street, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
     "image": "asset:bench/walker.png",
@@ -35,7 +35,10 @@
     "antiburn_model_name": null,
     "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
     "antiburn_scale": 0.6,
-    "duration_seconds": null
+    "duration_seconds": null,
+    "check": false,
+    "retries": 0,
+    "keep_segments": false
   },
   "variable_constraints": {
     "num_frames": {
@@ -193,7 +196,11 @@
           "anchor_strength": "variable:anchor_strength",
           "guide_backoff": "variable:guide_backoff",
           "keystone": "variable:keystone",
-          "look_hold": "variable:look_hold"
+          "look_hold": "variable:look_hold",
+          "check": "variable:check",
+          "retries": "variable:retries",
+          "save_segments": "variable:keep_segments",
+          "keep_segments": "variable:keep_segments"
         },
         "scheduler": {
           "shift": "variable:video_shift"

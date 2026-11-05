@@ -2,7 +2,7 @@
 
 The chain check (dw/pipeline_processors/chain_check.py) measures a segment at
 its seam: the one frame step across it and a LOOK_WINDOW of frames either
-side. A segment that cuts to another scene a few frames after its seam passes
+side. A segment that cuts to another scene inside itself, past those windows, passes
 it. This reads a finished take and its shots and reports, per segment, the
 largest single-frame step inside the segment against the segment's own typical
 step (`analyze_seams`' arithmetic: the 90th percentile, floored at
