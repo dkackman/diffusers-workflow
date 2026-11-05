@@ -116,6 +116,23 @@ never runs, and the web UI draws a chained step as its segments.
 - The `controlnet` template passes Canny's thresholds beside `image`, where
   the detector reads them.
 
+**Fixes found on the templates** (#1201)
+
+- `validate_workflow` refuses a `model_name` the hub says does not exist,
+  at `model_name`, instead of passing it to fail mid-run. An offline or
+  timed-out lookup stays unknown, and `sizes=false` skips the hub.
+- `gather_images` loads an `asset:` or `output:` entry in `urls` from disk,
+  the way `gather_videos` already did; a URL with a scheme still goes
+  through the outbound fetcher, so `file://` stays refused.
+- Marigold depth and normals predictions save as images (depth under its
+  Spectral colour map, normals as RGB), and the step progress wrapper
+  passes a pipeline's own `progress_bar` keywords through.
+  `templates/surface-normals` names `prs-eth/marigold-normals-v1-1`; the
+  repo it named never existed.
+- The MMAudio sound-effects decoder no longer fails to build with "Tensor
+  on device cpu is not on the expected device meta!" when transformers'
+  meta-init patch is live.
+
 **Skills**
 
 - `minimax-h3`: splitting a short line into two `<d>` blocks removes the
@@ -130,6 +147,8 @@ never runs, and the web UI draws a chained step as its segments.
 
 - A chained step draws its segments: the count when the definition gives
   it, what each seam carries, and the running segment while the job runs.
+- The job page shows a model download's progress while a load pulls a
+  repo: the bytes so far and the rate, or how long no bytes have come.
 - A workspace named in the URL that the cached listing lacks is refetched
   once before the UI decides it is gone.
 - Every guide had an accuracy and concision pass, with page screenshots in
