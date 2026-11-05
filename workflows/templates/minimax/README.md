@@ -158,7 +158,7 @@ segments means half the compounding.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `last_frame` continuity, trimmed seams, crossfaded audio |
+| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `guide` continuity by default (voice and motion carry across the seam) with `shot` presets; `continuity: last_frame` gives trimmed seams and crossfaded audio |
 | [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
 | [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |

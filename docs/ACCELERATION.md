@@ -347,4 +347,5 @@ Apple Silicon has narrower acceleration support than CUDA:
 - Ops the MPS backend lacks run on the CPU with `PYTORCH_ENABLE_MPS_FALLBACK=1` (set by the `fp4-fp8-for-torch-mps` package install.sh adds), and dw logs torch's warning when one does. Without it they raise.
 - Memory figures are real: allocated, driver-reserved, and Metal's recommended working set as the total. `vram_estimate` checks a Mac against that total; the per-voxel figures were calibrated on CUDA.
 - Cost estimates on a Mac are the CUDA figures (`basis: "other_device"`) until the Mac's own runs build observed history; expect them to be optimistic.
+- A 24 GB Mac (17.8 GB recommended working set) is refused at the `minimax/chained-segments` defaults under either continuity (about 18.3 GB projected with a guide, 18.0 GB without). `num_frames` cannot be lowered (the template accepts 124 and up), so lower the canvas: 768x448 passes under guide (`Workflow.validation_errors`); 864x480 passes only under `last_frame`.
 - Offloading gains less than on CUDA, since unified memory is already shared between CPU and GPU.

@@ -96,3 +96,45 @@ def test_description_states_the_rules():
         "Guide is the default",
     ):
         assert phrase in description, phrase
+
+
+def test_cost_row_is_the_guide_figure():
+    # The seam A/B at this template's shape (3 x 124) measured guide at 13.5 min
+    # against last_frame's 9.6 (docs/proposals/complete/h3-guides-complete.md).
+    definition = json.loads(TEMPLATE.read_text())
+    assert [row["minutes"] for row in definition["cost"]] == [13.5]
+    assert "h3-guides-complete" in definition["description"]
+
+
+def test_cost_drivers_bucket_continuity_shot_and_anchor():
+    drivers = json.loads(TEMPLATE.read_text())["cost_drivers"]
+    for name in ("continuity", "shot", "anchor"):
+        assert name in drivers, name
+
+
+def test_summary_says_guide_not_last_frame():
+    summary = json.loads(TEMPLATE.read_text())["summary"]
+    assert "guide" in summary.lower()
+    assert "last frame" not in summary
+
+
+def test_readme_does_not_call_the_example_last_frame():
+    readme = (TEMPLATE.parent / "README.md").read_text()
+    row = next(x for x in readme.splitlines() if "[chained-segments.json]" in x)
+    assert "`last_frame`" not in row
+
+
+def test_turning_the_anchor_off_on_a_static_shot_is_refused_as_documented():
+    errors = _workflow().validation_errors({"shot": "static", "anchor": "none"})
+    messages = " ".join(e["message"] for e in errors)
+    assert "anchor_strength needs anchor 'segment_1'" in messages
+    # the advice the description gives: null the strength, or use shot moving
+    description = json.loads(TEMPLATE.read_text())["description"]
+    assert "anchor_strength: null" in description
+    assert "shot: moving" in description
+    for arguments in (
+        {"shot": "static", "anchor": "none", "anchor_strength": None},
+        {"shot": "moving"},
+    ):
+        errors = _workflow().validation_errors(arguments)
+        assert not any("anchor_strength needs" in e["message"] for e in errors)
