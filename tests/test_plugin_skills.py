@@ -154,6 +154,7 @@ SKILL_TASKS = {
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
     "script-to-video": ["concat_videos", "get_first_frame", "get_last_frame"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
+    "long-form": ["pair_audio", "export_timeline", "split_takes", "find_loop_bed"],
 }
 
 
@@ -1718,3 +1719,89 @@ class TestSitcomAssembly:
             assert f"| `{name}` |" in section, name
         flat = " ".join(text.split())
         assert "planned `start_frame` and `cut_frames`" in flat
+
+
+LONG_FORM_DIR = os.path.join(PLUGIN_DIR, "skills", "long-form")
+LONG_FORM_SKILL = os.path.join(LONG_FORM_DIR, "SKILL.md")
+CHAINED_SEGMENTS = os.path.join(
+    REPO_ROOT, "workflows", "templates", "minimax", "chained-segments.json"
+)
+
+
+def test_long_form_skill_is_named_in_the_readme_and_claude_md():
+    """The long-form playbook (#1199 Task 24) is a cross-cutting skill like
+    storyboard: it ships, and the two documents that enumerate skills name it."""
+    assert LONG_FORM_SKILL in SKILLS
+    for document in (
+        os.path.join(PLUGIN_DIR, "README.md"),
+        os.path.join(REPO_ROOT, "CLAUDE.md"),
+    ):
+        assert "`long-form`" in open(document, encoding="utf-8").read(), document
+
+
+class TestLongFormSkill:
+    """The playbook's settled rules are the template's and the bench's; the
+    open questions stay marked until a record settles them."""
+
+    def _text(self):
+        return " ".join(skill_text(LONG_FORM_SKILL).split())
+
+    def test_the_shot_presets_are_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        presets = spec["presets"]["shot"]
+        assert presets["static"] == {
+            "continuity": "guide",
+            "anchor": "segment_1",
+            "anchor_strength": 0.25,
+        }
+        assert presets["moving"] == {"continuity": "guide"}
+        assert presets["dialogue"] == {"continuity": "guide"}
+        assert spec["variables"]["continuity"] == "guide"
+        text = self._text()
+        for shot in ("static", "moving", "dialogue"):
+            assert f"`shot: {shot}`" in text, shot
+        assert "`anchor_strength` 0.25" in text
+
+    def test_the_cost_row_is_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        (row,) = spec["cost"]
+        assert f"{row['minutes']} min" in self._text()
+
+    def test_the_check_ceilings_are_the_engine_s(self):
+        from dw.pipeline_processors import chain_check
+
+        text = self._text()
+        assert '`"check": {"cut_ratio_max": null}`' in text
+        assert "warn-only" in text
+        for name, ceiling in (
+            ("jump_ratio", chain_check.JUMP_RATIO_MAX),
+            ("look_ratio", chain_check.LOOK_RATIO_MAX),
+            ("cut_ratio", chain_check.CUT_RATIO_MAX),
+            ("texture_ratio", chain_check.TEXTURE_RATIO_MAX),
+        ):
+            assert f"`{name}` (ceiling {ceiling:g})" in text, name
+
+    def test_every_rule_cites_the_bench(self):
+        text = self._text()
+        for record in (
+            "counters.md",
+            "check.md",
+            "repair.md",
+            "structural.md",
+            "noise-floor.md",
+            "determinism.md",
+        ):
+            assert f"bench/records/{record}" in text, record
+
+    def test_the_open_questions_are_marked_pending(self):
+        text = self._text()
+        assert text.count("pending measurement") >= 5
+        for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
+            assert topic in text.lower(), topic
+
+    def test_the_cut_ideas_are_named_so_they_are_not_re_proposed(self):
+        text = self._text()
+        for idea in ("keystone", "backoff", "sharpest", "guide `look_hold`"):
+            assert idea in text, idea
