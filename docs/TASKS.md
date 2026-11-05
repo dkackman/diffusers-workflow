@@ -2575,6 +2575,10 @@ Load images from URLs and/or a file glob:
 
 Returns a list of images that can be referenced by later steps with `previous_result:`.
 
+A `urls` entry may also be an `asset:` or `output:` reference (or a local path):
+it loads from disk under the same read policy as a `glob` match, so a template
+whose `urls` is `["variable:image_url"]` takes an uploaded image as well as a URL.
+
 ### gather_videos
 
 As `gather_images` (`glob`, `urls`), for video files. Each video is one
