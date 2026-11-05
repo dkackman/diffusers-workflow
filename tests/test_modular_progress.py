@@ -441,3 +441,27 @@ def test_a_loop_the_decode_does_not_follow_reports_no_decoding():
     so the end of each tile's loop is not 'decoding'."""
     assert _phases_of_a_loop(decode_follows=True) == ["decoding"]
     assert _phases_of_a_loop(decode_follows=False) == []
+
+
+class FakeMarigoldPipeline:
+    """Marigold's own `progress_bar` takes `desc` and `leave` and its loop
+    passes them, with no step callback - so the wrapper must forward them or
+    the call fails before the first step."""
+
+    def __init__(self):
+        self.bar_arguments = []
+
+    def progress_bar(self, iterable=None, total=None, desc=None, leave=True):
+        self.bar_arguments.append((desc, leave))
+        return tqdm(iterable, total=total, desc=desc, leave=leave, disable=True)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        for _ in self.progress_bar(range(3), leave=False, desc="Diffusion steps..."):
+            pass
+        return FakeOutput()
+
+
+def test_a_bar_s_own_keywords_reach_the_pipeline_s_bar():
+    fake = FakeMarigoldPipeline()
+    assert _steps(_events(fake)) == [(1, 3), (2, 3), (3, 3)]
+    assert fake.bar_arguments == [("Diffusion steps...", False)]

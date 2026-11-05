@@ -145,11 +145,14 @@ def reported_progress_bars(pipeline):
         # through again rather than a bound copy of it being frozen on
         patched.append((holder, original, "progress_bar" in vars(holder)))
 
-        def reporting(iterable=None, total=None, _original=original):
+        def reporting(iterable=None, total=None, _original=original, **kwargs):
             # The denoise bar opening is where a modular pipeline's encode
             # ends - it has no step callback to hang a forward hook off
             mark("denoise_started")
-            bar = _original(iterable=iterable, total=total)
+            # A pipeline's own progress_bar may take more than the base
+            # class's two - Marigold's takes desc= and leave= and its loop
+            # passes them - so whatever else the caller gave goes through
+            bar = _original(iterable=iterable, total=total, **kwargs)
             if total is None and iterable is not None:
                 # An iterated bar's total is the length of what it iterates,
                 # when that can be known at all
