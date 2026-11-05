@@ -515,8 +515,11 @@ The editor's forms come from these; they are just as usable from scripts:
   a 403 partway into a run, #186). `access_blocked` is `null` when there is
   no file to probe or the probe itself fails for an unrelated reason (e.g.
   offline) - "unknown" is not "not blocked". `validate_workflow`'s
-  `warnings` carries one line per entry with `access_blocked: true`. Each
-  `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
+  `warnings` carries one line per entry with `access_blocked: true`. A repo
+  the hub answers does not exist (a misspelled `model_name`, or a private
+  repo this token cannot see) carries `not_found: true`, and validation
+  fails on it with an error at `model_name`; an unanswered lookup leaves the
+  key out. Each `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
   access_blocked: null}`, since a direct file URL is never gated.
   A task that fetches one file rather than a whole repo is listed as a file
   entry, `{repo, filename, revision, gb, gated, access_blocked}`: `revision`

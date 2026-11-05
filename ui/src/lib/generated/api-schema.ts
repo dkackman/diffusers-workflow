@@ -3469,6 +3469,11 @@ export interface components {
             gated: boolean | ("auto" | "manual") | null;
             /** Gb */
             gb: number | null;
+            /**
+             * Not Found
+             * @description True when the hub answered that the repo does not exist (or is private to this token); validation then fails on it.
+             */
+            not_found?: boolean;
             /** Repo */
             repo: string | null;
             /**

@@ -75,6 +75,24 @@ def _isolate_device_capacity(monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _offline_hub_lookups(monkeypatch):
+    """The pre-flight's hub lookups answer as an offline box would.
+
+    A test that validates a workflow with a placeholder model_name ('m',
+    'org/model') otherwise asks the real hub about it, which answers that no
+    such repo exists - and a repo the hub says is missing fails validation.
+    A test that wants a particular hub answer patches over this one.
+    """
+    import dw.plan_downloads
+
+    def offline(*args, **kwargs):
+        raise OSError("hub lookups are offline in the test suite")
+
+    monkeypatch.setattr(dw.plan_downloads, "model_info", offline)
+    monkeypatch.setattr(dw.plan_downloads, "get_hf_file_metadata", offline)
+
+
+@pytest.fixture(autouse=True)
 def _clear_task_model_cache():
     """Ensure dw.tasks.model_cache is empty at the start of every test.
 

@@ -12,6 +12,7 @@ from dw.plan import (
     PLACEMENT_RESULT_KEYS,
     build_plan,
     gate_warnings,
+    missing_repo_errors,
 )
 from dw.cost_scaling import scale_curated
 from dw.validation import unseeded_cache_warnings
@@ -2070,6 +2071,41 @@ class TestDownloadsRequired:
             }
         ]
 
+    def test_a_repo_the_hub_does_not_have_is_not_found(self, plan, monkeypatch):
+        """A misspelled model_name answers 401 RepositoryNotFound: the entry
+        says so, where an unanswered lookup stays all-null."""
+        import httpx
+        import dw.plan_downloads
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        response = httpx.Response(401, request=httpx.Request("GET", "https://hf.co/x"))
+
+        def boom(*a, **k):
+            raise RepositoryNotFoundError("no such repo", response=response)
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
+        assert plan(lookup_sizes=True)["downloads_required"] == [
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+                "not_found": True,
+            }
+        ]
+
+    def test_an_unanswered_lookup_is_not_not_found(self, plan, monkeypatch):
+        """Offline is a state, not an error - only the hub's own answer
+        marks a repo missing."""
+        import dw.plan_downloads
+
+        def offline(*a, **k):
+            raise OSError("network unreachable")
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", offline)
+        [entry] = plan(lookup_sizes=True)["downloads_required"]
+        assert "not_found" not in entry
+
     def test_a_gated_repo_with_no_probeable_file_is_unknown(self, plan, monkeypatch):
         import dw.plan_downloads
 
@@ -2176,6 +2212,29 @@ class TestGateWarnings:
             {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}
         ]
         assert gate_warnings(required) == []
+
+
+class TestMissingRepoErrors:
+    def test_a_missing_repo_is_an_error(self):
+        required = [
+            {"repo": "org/real", "gb": 1.0, "gated": False, "access_blocked": False},
+            {
+                "repo": "org/typo",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+                "not_found": True,
+            },
+        ]
+        [error] = missing_repo_errors(required)
+        assert error["path"] == "model_name"
+        assert "'org/typo'" in error["message"]
+
+    def test_unknown_is_not_an_error(self):
+        required = [
+            {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}
+        ]
+        assert missing_repo_errors(required) == []
 
 
 class TestCachedSteps:

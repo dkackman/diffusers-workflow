@@ -5497,6 +5497,32 @@ class TestValidatePlan:
         gate_warnings = [w for w in result["warnings"] if "huggingface.co/m" in w]
         assert len(gate_warnings) == 1
 
+    def test_a_model_the_hub_does_not_have_fails_validation(self, server, monkeypatch):
+        """A misspelled model_name (surface-normals named a repo that never
+        existed) failed mid-run after validate_workflow had passed."""
+        import httpx
+        import dw.plan_downloads
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        monkeypatch.setattr(
+            dw.plan_downloads, "scan_models", lambda cache_dir=None: {"repos": []}
+        )
+        response = httpx.Response(401, request=httpx.Request("GET", "https://hf.co/x"))
+
+        def boom(*a, **k):
+            raise RepositoryNotFoundError("no such repo", response=response)
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
+        with server(success_script) as client:
+            result = client.post(
+                "/api/validate",
+                json={"workflow": video_workflow("missing", with_cost=True)},
+            ).json()
+        assert result["valid"] is False
+        assert result["plan"]["downloads_required"][0]["not_found"] is True
+        assert [e["path"] for e in result["errors"]] == ["model_name"]
+        assert "'m'" in result["error"]
+
     def test_the_estimate_quotes_this_box_s_own_history(self, server, monkeypatch):
         """#154: `basis: unknown` has to mean nobody has a number. A stored
         workflow this server has finished eleven times is priced from those

@@ -3927,6 +3927,11 @@
             ],
             "title": "Gb"
           },
+          "not_found": {
+            "description": "True when the hub answered that the repo does not exist (or is private to this token); validation then fails on it.",
+            "title": "Not Found",
+            "type": "boolean"
+          },
           "repo": {
             "anyOf": [
               {

@@ -31,7 +31,7 @@ from ..api_models import (
 )
 from ...events import select_kinds
 from ...host_memory_projection import CEILING_FRACTION, host_memory_warnings
-from ...plan import build_plan, gate_warnings
+from ...plan import build_plan, gate_warnings, missing_repo_errors
 from ...schema import format_validation_errors
 from ...security import SecurityError, validate_path
 from ...variables import set_variables
@@ -970,6 +970,13 @@ def validate_workflow(
         # disclosed the server's home (GHSA-9wg7-95xv-qqcr)
         answer["plan"]["workspace"] = workspace.name
         answer["warnings"] += gate_warnings(answer["plan"]["downloads_required"])
+        # A model_name the hub says does not exist fails the run at that
+        # step, so it fails validation here, where it costs nothing
+        missing = missing_repo_errors(answer["plan"]["downloads_required"])
+        if missing:
+            answer["valid"] = False
+            answer["errors"] = missing
+            answer["error"] = format_validation_errors(missing)
         answer["warnings"] += _inherited_cost_warnings(answer["plan"]["estimate"])
         if catalog_name:
             answer["warnings"] += _host_memory_warnings(
