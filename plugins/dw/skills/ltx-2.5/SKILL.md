@@ -58,7 +58,10 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   window by window): read `references/repair.md` first.
 - **Longer than one clip** (one 401-frame pass reaches about 17 s at 768):
   read the `long-form` skill first for the scene's shape (cuts, a chain or a
-  bridge); its chain verdicts are H3's until LTX parity is measured. LTX's
+  bridge). LTX parity is measured (`bench/records/ltx.md`): `last_frame`
+  is the default; cap a take at about 15-20 s, then cut to a fresh still;
+  extend-clip is a knob at about 2.1x wall, for a subject that stays in
+  frame; `look_hold` is undecided (Don). LTX's
   own: `templates/ltx2/extend-clip` continues an opening conditioned on all
   of it, not one frame; `clip` extends an existing clip (`width`/`height`
   matched, shorter than `num_frames`; clip_frames unused) instead of
