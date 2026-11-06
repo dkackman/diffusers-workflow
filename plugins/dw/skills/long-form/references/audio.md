@@ -25,8 +25,18 @@ A longer narration is cut into takes at sentence boundaries and joined.
   the voice drifts between takes, lower `max_seconds`. A join is also where a
   level step shows, so read `get_gallery_metadata`'s levels before relying on
   the file.
-- **Consent.** Clone only a voice the user has the right to use. There is no
-  default voice.
+- **Consent.** Clone only a voice the user has the right to use. The
+  templates have no default reference: `reference_audio` and
+  `reference_text` are required.
+- **No voice from the user? Make one.** Audio8-TTS speaks in its own voice
+  when it is given no reference. Speak a 5-10 s line with
+  `templates/generate-speech` (`model_name` `Edge0/Audio8-TTS-Realistic-0.6b`),
+  keep it as an asset, and pass it with its exact text as the reference. A
+  synthetic voice needs no one's consent. The bench's `bench/narrator.wav`
+  was made this way (`bench/workflows/narrator-reference-s6.json`). Do not
+  speak the takes without a reference: the bench measured voice drift only
+  for takes cloned from one reference, and nothing else ties the takes'
+  voices together.
 - The 0.3 s gap is a first guess, not a measured pause. Tune it by ear.
   The S6 bench round measured no voice drift between takes and join level
   steps inside the in-take spread. At the 37 s default, a 594-word text came

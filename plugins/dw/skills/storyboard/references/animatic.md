@@ -18,10 +18,21 @@ sizes.
 once for a whole read; it is a scratch voice for timing, not the final
 performance. Keep the wav as an asset.
 
+A read longer than about 40 s of speech is a narration in takes under one
+cloned voice: `long-form`'s `references/audio.md`, *Narration longer than
+one take*, which also says how to make a reference voice when the user has
+none. For a voice in step with the boards, pass one take per board (each at
+most about 111 words, 37 s) to `templates/narration-from-takes`, and plan
+each board's duration as its words / 3.0 s plus `gap_seconds` (the voice's
+measured rate), then retime by ear in step 5.
+
 ## 3. A music bed
 
-`templates/minimax/music` makes a track from a prompt and lyrics (instrumental
-if the lyrics are empty), by `dw:minimax-music3`'s rules. Make it at least
+`templates/minimax/music` makes a track from a prompt and lyrics, by
+`dw:minimax-music3`'s rules. Empty lyrics are refused at run time: an
+instrumental is a tag-only body (`[intro]`, `[instrumental]`, `[outro]`, one
+per line), and a bed past about 90 s is `templates/minimax/music-long`
+sections (`long-form`'s `references/audio.md`). Make it at least
 as long as the animatic: `animatic` trims a longer track and pads a shorter
 one with silence, either way with a warning. To lay voice and bed together,
 mix them first with `mix_audio` into one asset.
@@ -41,7 +52,12 @@ validate_workflow(name="templates/animatic", arguments={
 `durations` is a list with one duration per board, in seconds, as long as
 `boards`; repeat the number to hold every board alike. Each board gets
 `max(1, round(duration * fps))` frames, at most 600 seconds and 36000 frames
-in total. The output's audio is the soundtrack trimmed or padded to the
+in total. The limit that bites first is memory, and it is checked only when
+the run starts, not at validation: all the frames held at once must fit in
+4 GiB (frames x width x height x 3 bytes). At 1344x768 and 24 fps that is
+about 58 s, so a 5-minute animatic at 1344x768 failed. A board holds still,
+so a long animatic lowers `fps`: 4 fps holds 5 minutes at 1344x768. The
+output's audio is the soundtrack trimmed or padded to the
 clip's length. A voice line only lines up with its board if the soundtrack
 was cut to the same durations: the template does not time boards to audio.
 Read the finished clip with `get_output_frames`.

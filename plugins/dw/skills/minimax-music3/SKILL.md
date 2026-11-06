@@ -35,7 +35,8 @@ shapes; do not author a new workflow until the shape decision below fails.
   check the `vocals` stem of `separate_stems` with `analyze_audio` against
   the mix, never a transcript of the mix - Whisper invents words on music.
 - **A score under a film or a cuts piece**: an instrumental generated to a
-  ceiling comfortably longer than the cut, trimmed and faded with
+  ceiling comfortably longer than the cut (a cut past about 90 s:
+  `music-long` sections, as `long-form` says), trimmed and faded with
   `templates/audio-trim-fade`, then mixed under the picture as
   `templates/assemble-and-score` does with `pair_audio`. Each H3 shot should
   have written `non_diegetic_music: N/A` so the two scores don't fight. A

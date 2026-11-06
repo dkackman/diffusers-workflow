@@ -81,6 +81,13 @@ Two rules that bite:
   83 s it is a mask. Without the anchor, the burn starts at 24 s
   (`bench/records/counters.md`, *Round 3*). No tested counter makes a
   two-minute static take usable.
+- **A take of any shot type drifts past about 35 s.** A 90 s
+  `shot: dialogue` walk was clean to 35 s; from 45 s the face changed
+  and by 60 s the picture was oversaturated and painterly. The check
+  passed every seam, because the drift is in the carry
+  (`bench/records/drill.md`, ask 1). Before quoting a longer "single
+  take", say it will not hold, and offer chains of 35 s or less joined
+  by cuts (the *Cuts* row above; `minimax-h3` has the cut rules).
 
 The classification of the vocabulary's other moves is #1200. Until then,
 treat any move other than `static` as moving.
@@ -115,7 +122,10 @@ the one break a repair cannot fix.
   tone under dialogue gaps, `find_loop_bed` picks a window worth looping.
 - Across chain seams, the voice carries in the guide.
 - For music longer than one Music 3 track (300 s practical), use
-  `templates/minimax/music-long`.
+  `templates/minimax/music-long`. The lyric, not the ceiling, sets a
+  track's length, so a score past about 90 s is `music-long` sections
+  too: tag-only instrumental bodies asked for 280 s and 300 s came back
+  91 s (13 tags) and 62 s (9 tags) (`bench/records/drill.md`).
 - For narration longer than one TTS take (about 40 s of speech), use
   `templates/narration-long`, or `split_takes` and then
   `templates/narration-from-takes` to edit the takes first.
@@ -136,6 +146,9 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
 
 1. `validate_workflow` with the arguments. Quote `plan.estimate`. A checked
    chain quotes its worst case: 1 + (N - 1)(1 + `retries`) segment renders.
+   A saved copy has no `cost` row of its own (its estimate comes back
+   `basis: unknown`), so validate the template with the same arguments and
+   scale that figure by the worst case over N.
    Get the go-ahead, then `run_workflow` with `acknowledged_cost`.
 2. `wait_for_job`, then `get_job`. Each entry carries `subfolder`: `final`
    is the take or the cut, and `intermediate` is the scratch. Kept segment
