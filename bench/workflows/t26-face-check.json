@@ -4,7 +4,8 @@
   "description": "Task 26 (#1193) follow-up: analyze_face_drift of 'video' (an output: reference) against 'reference', so a clip already rendered can be scored against a second face - claim 2's clips against the unmentioned stranger portrait, to see whether his face blended into hers.",
   "variables": {
     "video": "output:BenchT26Ref2VA/latest/final/BenchT26Ref2VA-clip.0-0.0.mp4",
-    "reference": "asset:bench/t26-stranger.jpg"
+    "reference": "asset:bench/t26-stranger.jpg",
+    "seed": 0
   },
   "steps": [
     {
