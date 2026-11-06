@@ -72,6 +72,9 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 - The engine caps a track at 9000 frames at 25 frames per second, 360 seconds.
   MiniMax supports five minutes; stay at or under 300. Music longer than one
   track: `templates/minimax/music-long`, per `long-form/references/audio.md`.
+- The lyric sets the length: Music 3 ends a track once its lyric is sung,
+  whatever the ceiling. Write enough lines for the seconds wanted; a 4-line
+  lyric came back 27-70 s for 85 s asked.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
   truncation. A 250-450 word caption is nowhere near it; a pasted pile of
   example captions is.

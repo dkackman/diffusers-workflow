@@ -117,6 +117,11 @@ def slice_past_end_warnings(
         task_args = task.get("arguments")
         if not isinstance(task_args, dict):
             continue
+        # A slice that stops at the end of its source pads nothing - it
+        # keeps a short source at its own length - so there is no silence
+        # to warn about
+        if task_args.get("past_end") == "stop":
+            continue
 
         path = resolve_probe_path(task_args.get("audio"), base_dir, "an audio argument")
         if path is None:

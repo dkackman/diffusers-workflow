@@ -37,13 +37,18 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
 
 - Set `audio_duration` to 1.5 x `seconds`. The ceiling is not a target, and
   the engine does no arithmetic, so write both.
+- **The lyric sets a section's length.** Music 3 ends a section when its
+  lyric is sung: a 4-line lyric came back 27-70 s for 85 s asked. Write
+  enough lines for each `seconds`. A section that still ends early is kept at
+  its own length, so the joins stay music to music, and the run warns
+  `joined_short` with the piece's real length against the one asked.
 - **Continuity between sections is not guaranteed.** Key, tempo,
   instrumentation and mix can change at a seam. Repeat the same style tags in
   every caption, describe the same band in each, and listen at the joins. A
   crossfade hides a change of sound, not a change of tempo.
 - **Joins are not on the beat.** Music 3 takes no audio to continue from,
   and no task trims a section at a beat (`analyze_beats` only reports
-  them), so each section is cut at its `seconds`. End each section's lyrics
+  them), so each section is cut at its `seconds` or its own end. End each section's lyrics
   on a phrase end and let the crossfade cover the rest.
 - The S6 bench round (over 5 minutes) is *pending measurement*.
 - The caption format belongs to the `minimax-music3` skill.

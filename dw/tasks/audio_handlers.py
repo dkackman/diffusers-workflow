@@ -21,6 +21,7 @@ from ..task_domains import (
     NON_POSITIVE,
     POSITIVE,
     SEED,
+    SLICE_PAST_END_CHOICES,
     slice_audio_errors,
 )
 
@@ -74,6 +75,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
         "sample_rate": POSITIVE,
     },
     whole_numbers=("start_frame", "num_frames", "lead_frames"),
+    choices={"past_end": SLICE_PAST_END_CHOICES},
     static_check=slice_audio_errors,
 )
 def _handle_slice_audio(task, arguments, previous_pipelines):

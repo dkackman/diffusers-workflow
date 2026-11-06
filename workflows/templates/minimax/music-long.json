@@ -1,6 +1,6 @@
 {
   "id": "MiniMaxMusicLong",
-  "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its length, faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (empty for an instrumental), 'seconds' the length kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). The joined length is the sum of the sections' 'seconds' minus one crossfade per join. Cost grows with the sum of the sections' 'audio_duration'.",
+  "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its 'seconds' (or kept at its own length when Music 3 ends it early, so a join never meets silence), faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (empty for an instrumental), 'seconds' the most of it kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The lyric, not 'audio_duration', sets how long a section runs: Music 3 ends a section when its lyric is sung, so write enough lyric lines for the 'seconds' asked (a 4-line lyric came back 27-70 s for 85 s asked). The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). The joined length is at most the sum of the sections' 'seconds' minus one crossfade per join; a section that ended early makes the piece that much shorter, and the run warns ('joined_short') with the real total against the asked one. Cost grows with the sum of the sections' 'audio_duration'.",
   "cost_drivers": [
     "sections"
   ],
@@ -9,14 +9,14 @@
       {
         "name": "intro",
         "caption": "warm acoustic folk, fingerpicked guitar, soft brushed drums, intimate male vocal, 90 BPM",
-        "lyrics": "[verse]\nMorning comes in slow across the field\nEverything I carried finally healed",
+        "lyrics": "[verse]\nMorning comes in slow across the field\nEverything I carried finally healed\nDust upon the window, light upon the floor\nI don't need the reasons that I needed before",
         "seconds": 30,
         "audio_duration": 45
       },
       {
         "name": "chorus",
         "caption": "warm acoustic folk, fingerpicked guitar, soft brushed drums, intimate male vocal, 90 BPM, a lift into the chorus",
-        "lyrics": "[chorus]\nLet it rise, let it rise\nGold along the skyline",
+        "lyrics": "[chorus]\nLet it rise, let it rise\nGold along the skyline\nLet it rise, let it rise\nEvery road is mine tonight",
         "seconds": 30,
         "audio_duration": 45
       }
@@ -71,7 +71,8 @@
           "audio": "previous_result:generate_section",
           "sample_rate": 44100,
           "start_seconds": 0,
-          "duration_seconds": "item:seconds"
+          "duration_seconds": "item:seconds",
+          "past_end": "stop"
         }
       },
       "result": {

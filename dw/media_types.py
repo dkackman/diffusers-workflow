@@ -146,7 +146,7 @@ class AudioTrack:
     still wins over the one carried here.
     """
 
-    def __init__(self, audio, sample_rate, source_mean_dbfs=None):
+    def __init__(self, audio, sample_rate, source_mean_dbfs=None, asked_seconds=None):
         """
         Args:
             audio: The waveform, shaped (channels, samples)
@@ -155,10 +155,16 @@ class AudioTrack:
                 taken from, when a task (slice_audio) measured one before
                 cutting it down - lets a save skip the near-silent warning
                 for a slice whose source was already this quiet (#309)
+            asked_seconds: The length a slice was asked for when it kept a
+                shorter source at its own length (slice_audio's
+                `past_end: "stop"`); fade_audio carries it on, and
+                crossfade_audio reads it to say how far a joined piece fell
+                short of what its sections asked for
         """
         self.audio = audio
         self.sample_rate = sample_rate
         self.source_mean_dbfs = source_mean_dbfs
+        self.asked_seconds = asked_seconds
 
 
 class Selected:

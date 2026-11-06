@@ -123,6 +123,9 @@ TASK_ARGUMENT_DOMAINS = RegistryTable("domains")
 # into the model's frame (#602)
 FIT_MODES = ("letterbox", "stretch", "crop")
 JOIN_WINDOWS_CURVES = ("cosine", "smoothstep", "linear")
+# What slice_audio does with a slice reaching past the end of its source:
+# zero-pad it to the length asked (the default) or stop at the end
+SLICE_PAST_END_CHOICES = ("pad", "stop")
 # Declared on each registration (`register_command(choices=...)`)
 TASK_ARGUMENT_CHOICES = RegistryTable("choices")
 # command -> its cross-argument check, `arguments -> [(argument, message)]`
@@ -543,9 +546,17 @@ def slice_lead_problem(start_frame, lead_frames, start_seconds, duration_seconds
 
 
 def slice_audio_errors(arguments):
-    """[(argument, message)] for the slice_audio lead rule a literal workflow
-    can break before it runs. A value that is not a literal number (a
-    reference, a string) is unknown and says nothing."""
+    """[(argument, message)] for the slice_audio rules a literal workflow
+    can break before it runs: an unknown `past_end`, and the lead rule. A
+    value that is not a literal number (a reference, a string) is unknown and
+    says nothing."""
+    choices = choice_errors("slice_audio", arguments)
+    problem = _slice_lead_literal_problem(arguments)
+    return choices + ([] if problem is None else [("lead_frames", problem)])
+
+
+def _slice_lead_literal_problem(arguments):
+    """The lead-rule sentence for slice_audio_errors, or None."""
 
     def literal(name):
         value = arguments.get(name)
@@ -555,17 +566,16 @@ def slice_audio_errors(arguments):
 
     lead_frames = literal("lead_frames")
     if lead_frames is None or lead_frames < 0 or lead_frames != int(lead_frames):
-        return []
+        return None
     for name in ("start_frame", "start_seconds", "duration_seconds"):
         if arguments.get(name) is not None and literal(name) is None:
-            return []
-    problem = slice_lead_problem(
+            return None
+    return slice_lead_problem(
         literal("start_frame"),
         lead_frames,
         literal("start_seconds"),
         literal("duration_seconds"),
     )
-    return [] if problem is None else [("lead_frames", problem)]
 
 
 def window_video_errors(arguments, command="window_video"):

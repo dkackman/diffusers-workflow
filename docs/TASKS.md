@@ -1484,7 +1484,11 @@ Either half of a pair may be left out: an omitted start begins at the head, an
 omitted duration runs to the end. A slice past the end of the track is
 zero-padded to the length asked for, and more than a few milliseconds of
 padding warns `slice_past_end`; to fill a cut longer than the recording, build
-a bed with [`loop_audio`](#loop_audio) and slice that.
+a bed with [`loop_audio`](#loop_audio) and slice that. `past_end: "stop"` cuts
+at the end instead, keeping a short source at its own length: a joined piece
+whose sections may come back short (`templates/minimax/music-long`) wants
+that, and [`crossfade_audio`](#crossfade_audio) then warns `joined_short` with
+the real and the asked total.
 
 **Audio inputs.** In every audio task, `audio` (and each entry of `audios`)
 takes the path or URL of an audio file, or of a video file whose soundtrack is
@@ -1514,6 +1518,7 @@ needed only for a bare waveform, and given, it wins.
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
+| `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
 
 ### gain_audio
 
@@ -1551,7 +1556,10 @@ with no duration runs to the end of the track.
 ### crossfade_audio
 
 Join audio tracks with an equal-power crossfade. Each seam overlaps the two
-tracks by the fade window:
+tracks by the fade window. When a track was sliced with `past_end: "stop"` and
+kept shorter than asked (through a `fade_audio` too), the join warns
+`joined_short`: the joined length against the length the tracks asked for,
+and each short track's kept and asked seconds:
 
 ```json
 {

@@ -23,6 +23,7 @@ from ..dsp import (
 from ..events import emit_log, emit_warning
 from ..media_types import AudioTrack, warn_on_rate_override
 from ..task_domains import (
+    SLICE_PAST_END_CHOICES,
     as_number,
     check_arguments,
     frames_to_samples,
@@ -100,7 +101,13 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
-def as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=None):
+def as_track(
+    waveform,
+    sample_rate,
+    command="an audio task",
+    source_mean_dbfs=None,
+    asked_seconds=None,
+):
     """An audio task's return value: the waveform with the rate it is at.
 
     Every one of these commands already knows the rate - it was given, or it
@@ -127,7 +134,10 @@ def as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=No
             f"written"
         )
     return AudioTrack(
-        numpy.ascontiguousarray(waveform), rate, source_mean_dbfs=source_mean_dbfs
+        numpy.ascontiguousarray(waveform),
+        rate,
+        source_mean_dbfs=source_mean_dbfs,
+        asked_seconds=asked_seconds,
     )
 
 
@@ -140,6 +150,7 @@ def slice_audio(
     fps=None,
     sample_rate=None,
     lead_frames=0,
+    past_end="pad",
 ):
     """Task command: cut a slice out of an audio track.
 
@@ -159,6 +170,16 @@ def slice_audio(
     reported as a 'slice_past_end' warning on the job. To fill a cut longer
     than the recording, make a bed with the 'loop_audio' task first
     ('target_frames' + 'fps' matches one exactly) and slice that.
+
+    'past_end' "stop" asks for the other answer: a slice reaching past the end
+    is cut at the end, so a source shorter than the slice is kept at its own
+    length with no padding (logged, not warned - it is what was asked for). A
+    joined piece built from sections that may come back short wants this:
+    padding would put silence at every join. The returned track carries the
+    length asked for as `asked_seconds`, which fade_audio passes on and
+    crossfade_audio reads to warn when the joined piece is shorter than its
+    sections asked for. A slice that starts at or past the end has nothing
+    to keep and is refused.
 
     Either half of a pair may be left out: with no start the slice begins at the
     head of the track, and with no duration it runs to the end of it. A workflow
@@ -203,6 +224,11 @@ def slice_audio(
         sample_rate=sample_rate,
         lead_frames=lead_frames,
     )
+    if past_end not in SLICE_PAST_END_CHOICES:
+        raise ValueError(
+            f"slice_audio needs 'past_end' as one of "
+            f"{list(SLICE_PAST_END_CHOICES)}, got {past_end!r}"
+        )
     problem = slice_lead_problem(
         start_frame, lead_frames, start_seconds, duration_seconds
     )
@@ -232,6 +258,10 @@ def slice_audio(
         )
     start, length = region
 
+    asked_seconds = None
+    if past_end == "stop":
+        asked_seconds = length / float(sample_rate)
+        length = _stop_at_the_end(total, start, length, sample_rate)
     _warn_on_slice_past_end(total, start, length, sample_rate)
     _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
     if start:
@@ -253,7 +283,30 @@ def slice_audio(
         sample_rate,
         "slice_audio",
         source_mean_dbfs=source_mean_dbfs,
+        asked_seconds=asked_seconds,
     )
+
+
+def _stop_at_the_end(total, start, length, sample_rate):
+    """A `past_end: "stop"` slice's length: cut at the end of the source
+    rather than padded past it, and logged when that keeps it short."""
+    if start >= total:
+        raise ValueError(
+            f"slice_audio starts {start / float(sample_rate):.2f} s in, at or "
+            f"past the end of a {total / float(sample_rate):.2f} s source, so "
+            f"with 'past_end' \"stop\" there is nothing to keep"
+        )
+    kept = min(length, total - start)
+    if kept < length:
+        emit_log(
+            f"slice_audio: the source ends {kept / float(sample_rate):.2f} s "
+            f"in, so it is kept at that length of the "
+            f"{length / float(sample_rate):.2f} s asked ('past_end' \"stop\")",
+            command="slice_audio",
+            seconds=round(kept / float(sample_rate), 3),
+            asked_seconds=round(length / float(sample_rate), 3),
+        )
+    return kept
 
 
 def gain_audio(
@@ -614,7 +667,56 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     waveforms, sample_rate = _load_tracks_matching_rate(
         audios, sample_rate, "crossfade_audio"
     )
-    return as_track(crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate)
+    joined = crossfade_concat(waveforms, sample_rate, crossfade_ms)
+    _warn_on_joined_short(audios, waveforms, joined, sample_rate)
+    return as_track(joined, sample_rate)
+
+
+# A shortfall under this is the rounding of sample-aligned slices, not a
+# piece that came out shorter than it was written
+JOINED_SHORT_WARN_SECONDS = 0.05
+
+
+def _warn_on_joined_short(audios, waveforms, joined, sample_rate):
+    """Say when a joined piece is shorter than its tracks asked for.
+
+    A track that a slice kept at its own length (`past_end: "stop"`) carries
+    the length it was asked for. The shortfall is the sum of each such
+    track's asked less kept length; the overlaps are the same either way, so
+    the asked total is the joined length plus that sum. emit_warning rather
+    than a log: the piece is shorter than the caller wrote it, and a caller
+    reading the job over the API or MCP sees the warnings list and nothing
+    else (#82).
+    """
+    short, shortfall = {}, 0.0
+    for name, audio, waveform in zip(_track_names(audios), audios, waveforms):
+        asked = getattr(audio, "asked_seconds", None)
+        if asked is None:
+            continue
+        kept = waveform.shape[1] / float(sample_rate)
+        if asked - kept > 0:
+            shortfall += asked - kept
+            short[name] = [round(kept, 3), round(asked, 3)]
+    if shortfall < JOINED_SHORT_WARN_SECONDS:
+        return
+    real = joined.shape[1] / float(sample_rate)
+    asked_total = real + shortfall
+    emit_warning(
+        f"crossfade_audio: the joined track is {real:.2f} s, {shortfall:.2f} s "
+        f"short of the {asked_total:.2f} s its tracks asked for, because "
+        f"{len(short)} of them ended early and were kept at their own length ("
+        + ", ".join(
+            f"{name}: {kept:.2f} of {asked:.2f} s"
+            for name, (kept, asked) in short.items()
+        )
+        + "). Each join is still sound to sound; to reach the asked length, "
+        "regenerate the short tracks with more material in them.",
+        kind="joined_short",
+        command="crossfade_audio",
+        seconds=round(real, 3),
+        asked_seconds=round(asked_total, 3),
+        short_tracks=short,
+    )
 
 
 # #306: templates/assemble-and-score and templates/dissolve-between-shots
@@ -848,7 +950,15 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
             fade_in_ms=round(fade_in / sample_rate * 1000, 1),
             fade_out_ms=round(fade_out / sample_rate * 1000, 1),
         )
-    return as_track(faded, sample_rate, "fade_audio")
+    # A slice that kept a short source at its own length says what it was
+    # asked for; a fade does not change that, so crossfade_audio can still
+    # tell a short piece from a long one after it
+    return as_track(
+        faded,
+        sample_rate,
+        "fade_audio",
+        asked_seconds=getattr(audio, "asked_seconds", None),
+    )
 
 
 def waveform_and_rate(audio, sample_rate, command):
