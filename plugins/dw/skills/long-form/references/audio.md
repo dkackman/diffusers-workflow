@@ -51,11 +51,21 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
 
 - Set `audio_duration` to 1.5 x `seconds`. The ceiling is not a target, and
   the engine does no arithmetic, so write both.
-- **The lyric sets a section's length.** Music 3 ends a section when its
-  lyric is sung: a 4-line lyric came back 27-70 s for 85 s asked. Write
-  enough lines for each `seconds`. A section that still ends early is kept at
-  its own length, so the joins stay music to music, and the run warns
-  `joined_short` with the piece's real length against the one asked.
+- **The lyric sets a section's length, both ways.** Music 3 ends a section
+  when its lyric is sung, and one that runs past `seconds` is cut there. On
+  the S6 bench (85 s sections of slow folk at 72 BPM, two draws each,
+  `bench/records/audio.md`), a 4-line lyric of 24-27 words came back
+  27-70 s, ending early. 48 and 62 words (8 and 10 lines) were sung whole
+  inside 85 s on both draws. 67 and 71 words (10 lines each) lost their last
+  lines on one draw of two. **Size a section at about 0.7 words a second of
+  `seconds`**: 55-62 words, about 8 lines, for 85 s. Split a longer lyric
+  into two sections, or give it more `seconds`. Validation warns
+  `text_may_overrun` past 0.73 words a second (62 in 85 s); a `[tag]` is not
+  a word. The rate was measured at 85 s, and a short section spends more of
+  its time on an intro and an outro, so stay under it there.
+- A section that still ends early is kept at its own length, so the joins
+  stay music to music, and the run warns `joined_short` with the piece's
+  real length against the one asked.
 - **A section that runs long is cut at its quietest point** in the last
   `section_end_snap_seconds` (8, about two bars at 72 BPM) before `seconds`:
   in a song, usually a phrase gap or a bar break. What it held past the cut,

@@ -60,7 +60,7 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 - `audio_duration` is a ceiling, not a target: the language model stops when
   the song ends, and generation is cut at the ceiling if it hasn't. Default
   60 seconds. Ask for more than the piece needs and trim; the run's time
-  follows the length generated, so the margin is free.
+  follows the length generated; the quote assumes the whole ceiling.
   The consequence to size by: the arc the caption describes stretches to fill
   its given budget, so a ceiling set at the intended length isn't a
   piece that ends early with room to spare - it's the same piece stretched
@@ -75,7 +75,8 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
   track: `templates/minimax/music-long`, per `long-form/references/audio.md`.
 - The lyric sets the length: Music 3 ends a track once its lyric is sung,
   whatever the ceiling. Write enough lines for the seconds wanted; a 4-line
-  lyric came back 27-70 s for 85 s asked.
+  lyric came back 27-70 s for 85 s asked. A `music-long` section is cut at
+  its `seconds`: size it per `long-form/references/audio.md`.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
   truncation. A 250-450 word caption is nowhere near it; a pasted pile of
   example captions is.
