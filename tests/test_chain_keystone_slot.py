@@ -219,3 +219,49 @@ def test_selflift_refuses_a_gated_slot(monkeypatch):
         ]
     }
     assert any(CHAIN_KEYSTONE_SLOT in e["message"] for e in selflift_errors(definition))
+
+
+# 3. A match_audio plan's shortened last segment
+
+
+def matched_chain(slot, total_frames, num_frames=175):
+    """A guide chain matched to a track `total_frames` long at the shape's
+    rate, segments of `num_frames`, the keystone at `slot`."""
+    import torch
+
+    from tests.test_chain import FakeAudioReference, FakeImageReference
+
+    shape = GuideShape()
+    definition = chain(
+        match_audio=True, segment_argument="references", **{CHAIN_KEYSTONE_SLOT: slot}
+    )
+    definition.pop("segments")
+    samples = round(total_frames / shape.FPS * shape.RATE)
+    arguments = shape.arguments(
+        num_frames=num_frames,
+        image=solid_frame((1, 2, 3)),
+        references=[
+            FakeImageReference(solid_frame((9, 9, 9))),
+            FakeAudioReference(torch.zeros(2, samples), shape.RATE),
+        ],
+    )
+    return definition, arguments
+
+
+def test_a_frame_slot_past_the_shortened_last_segment_is_refused_up_front(flag_on):
+    # 175-frame segments over 205 frames: the last needs 52 and snaps up to
+    # the 124 minimum, which frame 136 is past - refused before segment 1
+    # renders, not when the last segment reaches the pipeline
+    definition, arguments = matched_chain({"frame": 136}, 205)
+
+    with pytest.raises(ValueError, match="frame 136 is past segment 2's 124"):
+        ChainConfig(definition, arguments)
+
+
+def test_a_frame_slot_inside_every_planned_segment_is_kept(flag_on):
+    definition, arguments = matched_chain({"frame": 102}, 205)
+
+    config = ChainConfig(definition, arguments)
+
+    assert [s.num_frames for s in config.plan] == [175, 124]
+    assert config.keystone_slot["frame"] == 102

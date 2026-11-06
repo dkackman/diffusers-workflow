@@ -26,6 +26,7 @@ from .chain_rules import (
     chain_latent_carry_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
+    keystone_slot_plan_problem,
 )
 from .h3_hold import hold_audio_reference
 from .h3_rules import (
@@ -127,6 +128,12 @@ class ChainConfig:
 
         if match_audio:
             self._plan_from_audio(arguments, base_dir)
+            # Only a matched chain renders its shortened last segment at its
+            # planned length (chain._segment_arguments), so only its plan can
+            # leave a frame slot past a segment's end
+            _raise_chain_problem(
+                keystone_slot_plan_problem(self.keystone_slot, self.plan)
+            )
         elif duration is not None:
             self.total_frames, self.plan = _duration_plan(chain_definition, arguments)
             logger.info(

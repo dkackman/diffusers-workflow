@@ -360,6 +360,28 @@ def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
     return None
 
 
+def keystone_slot_plan_problem(slot, plan):
+    """The reason a checked frame slot (`chain_keystone_slot`) does not fit a
+    planned later segment, or None. A match_audio chain renders its last
+    segment only as long as the track has left (snapped up to a length the
+    pipeline takes), which `chain_keystone_slot_problem` cannot know from
+    the step's `num_frames` - so the run asks again of the plan before
+    segment 1 renders, rather than failing on the last segment after every
+    earlier one has."""
+    if not isinstance(slot, dict):
+        return None
+    frame = slot["frame"]
+    for segment in plan[1:]:
+        if segment.num_frames is not None and frame >= segment.num_frames:
+            return (
+                f"{CHAIN_KEYSTONE_SLOT} frame {frame} is past segment "
+                f"{segment.index + 1}'s {segment.num_frames} frames - the "
+                f"matched audio leaves the last segment that short; move the "
+                f"slot below {segment.num_frames} or use 'last'"
+            )
+    return None
+
+
 def _last_slot_problem(chain, arguments):
     if arguments is None:
         return None
