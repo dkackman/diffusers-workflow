@@ -52,11 +52,11 @@ validate_workflow(name="templates/animatic", arguments={
 `durations` is a list with one duration per board, in seconds, as long as
 `boards`; repeat the number to hold every board alike. Each board gets
 `max(1, round(duration * fps))` frames, at most 600 seconds and 36000 frames
-in total. The limit that bites first is memory, and it is checked only when
-the run starts, not at validation: all the frames held at once must fit in
-4 GiB (frames x width x height x 3 bytes). At 1344x768 and 24 fps that is
-about 58 s, so a 5-minute animatic at 1344x768 failed. A board holds still,
-so a long animatic lowers `fps`: 4 fps holds 5 minutes at 1344x768. The
+in total. The limit that bites first is memory: all the frames held at once
+must fit in 4 GiB (frames x width x height x 3 bytes). At 1344x768 and 24
+fps that is about 57 s. `validate_workflow` refuses an animatic of asset
+boards past it, naming the `fps` that fits. A board holds still, so a long
+animatic lowers `fps`: 4 fps holds 5 minutes at 1344x768. The
 output's audio is the soundtrack trimmed or padded to the
 clip's length. A voice line only lines up with its board if the soundtrack
 was cut to the same durations: the template does not time boards to audio.

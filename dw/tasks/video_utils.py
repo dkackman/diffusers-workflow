@@ -41,8 +41,9 @@ from ..task_domains import (
 from ..task_problems import (  # noqa: F401
     MAX_STILLS_FPS,
     MAX_STILLS_SECONDS,
+    stills_frame_counts,
+    stills_memory_problem,
     stills_to_video_problems,
-    MAX_STILLS_BYTES,
 )
 
 logger = logging.getLogger("dw")
@@ -322,16 +323,12 @@ def stills_to_video(images, durations, fps=24):
             f"{first[0]}x{first[1]} and {other[0]}x{other[1]} - resize them "
             "to match first"
         )
-    counts = [max(1, round(float(s) * fps)) for s in seconds]
+    counts = stills_frame_counts(seconds, fps)
     width, height = stills[0].size
-    needed = sum(counts) * height * width * 3
-    if needed > MAX_STILLS_BYTES:
-        raise ValueError(
-            f"stills_to_video would hold {sum(counts)} frames of "
-            f"{width}x{height} ({needed / 1024**3:.1f} GiB), over the "
-            f"{MAX_STILLS_BYTES / 1024**3:g} GiB limit - shorten 'durations', "
-            "lower 'fps', or use smaller images"
-        )
+    # The rule validate applies when the stills are files (#1199)
+    too_big = stills_memory_problem(seconds, fps, width, height)
+    if too_big:
+        raise ValueError(too_big)
     frames = numpy.empty((sum(counts), height, width, 3), dtype=numpy.uint8)
     shots, start = [], 0
     for index, (still, count) in enumerate(zip(stills, counts), start=1):

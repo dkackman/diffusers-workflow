@@ -198,6 +198,7 @@ ERROR_ORDER = [
     "script_shot_names",
     "window_count",
     "video_sizes",
+    "stills_memory",
     "select",
     "chain_prompts",
     "guide_chain",

@@ -79,12 +79,55 @@ def ingredients_grid_errors(arguments):
 # stills_to_video's ceilings, read by the command and by its static check. The
 # seconds and frame caps bound the length of the clip; they do not bound its
 # memory, which also depends on the stills' size. The clip is held as uint8
-# frames, so the command refuses a clip over MAX_STILLS_BYTES before it
-# allocates (the size is only known at run time)
+# frames, so a clip over MAX_STILLS_BYTES is refused before it allocates -
+# by the command, and at validate when every still is a file whose header
+# gives its size (stills_memory_problem, dw/video_size_errors.py)
 MAX_STILLS_FPS = 120
 MAX_STILLS_SECONDS = 600
 MAX_STILLS_FRAMES = 36000
 MAX_STILLS_BYTES = 4 * 1024**3
+
+
+def stills_frame_counts(seconds, fps):
+    """The frames each still is held for: `max(1, round(seconds * fps))`."""
+    return [max(1, round(float(s) * fps)) for s in seconds]
+
+
+def stills_memory_problem(seconds, fps, width, height):
+    """The refusal for stills held `seconds` each at `fps` and `width`x`height`
+    whose uint8 frames pass MAX_STILLS_BYTES, or None when they fit.
+
+    Names the budget, what the clip would take, and the fix: the highest
+    whole `fps` these durations fit at (a board holds still, so a low rate
+    loses nothing), smaller stills, or a split into parts joined afterwards.
+    """
+    frame_bytes = width * height * 3
+    frames = sum(stills_frame_counts(seconds, fps))
+    needed = frames * frame_bytes
+    if needed <= MAX_STILLS_BYTES:
+        return None
+    budget_frames = MAX_STILLS_BYTES // frame_bytes
+    fitting = next(
+        (
+            rate
+            for rate in range(int(fps), 0, -1)
+            if sum(stills_frame_counts(seconds, rate)) <= budget_frames
+        ),
+        None,
+    )
+    lower = (
+        f"lower 'fps' to {fitting} or below (a board holds still), "
+        if fitting is not None and fitting < fps
+        else ""
+    )
+    return (
+        f"stills_to_video would hold {frames} frames of {width}x{height} "
+        f"({needed / 1024**3:.1f} GiB), over the {MAX_STILLS_BYTES / 1024**3:g} "
+        f"GiB in-memory frame budget, which holds {budget_frames} frames at "
+        f"that size ({int(budget_frames // fps)} s at {fps:g} fps) - {lower}use "
+        "smaller images, or split the stills into parts that fit and join the "
+        "clips with concat_videos"
+    )
 
 
 def stills_to_video_problems(durations, fps, count=None):

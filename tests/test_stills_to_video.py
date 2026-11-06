@@ -184,15 +184,102 @@ class TestHandlerLoadsLocations:
 
 class TestByteBudget:
     def test_over_budget_refused_before_allocating(self, monkeypatch):
-        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 1000)
+        monkeypatch.setattr("dw.task_problems.MAX_STILLS_BYTES", 1000)
         with pytest.raises(ValueError) as error:
             stills_to_video([still(16, 16)], [1], fps=24)
         message = str(error.value)
-        assert "durations" in message and "fps" in message and "16x16" in message
+        assert "fps" in message and "16x16" in message and "split" in message
 
     def test_within_budget_passes(self, monkeypatch):
-        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 4 * 16 * 16 * 3)
+        monkeypatch.setattr("dw.task_problems.MAX_STILLS_BYTES", 4 * 16 * 16 * 3)
         assert len(stills_to_video([still(16, 16)], [1], fps=4).frames) == 4
+
+    def test_the_message_names_budget_size_and_the_fps_that_fits(self):
+        # The #1199 drill's animatic: 12 boards, about 304 s at 24 fps, at
+        # 1344x768 - 7290 frames, 21 GiB against the 4 GiB budget
+        from dw.task_problems import stills_memory_problem
+
+        seconds = [304 / 12] * 12
+        message = stills_memory_problem(seconds, 24, 1344, 768)
+        assert "4 GiB" in message and "21.0 GiB" in message
+        assert "1344x768" in message and "7296 frames" in message
+        # 1387 frames fit: 57 s at 24 fps, 4 fps for the whole 304 s
+        assert "57 s at 24 fps" in message
+        assert "'fps' to 4" in message
+        assert "split" in message
+        assert stills_memory_problem(seconds, 4, 1344, 768) is None
+
+
+def _boards(monkeypatch, tmp_path, count, size=(1344, 768)):
+    asset_dir = tmp_path / "assets"
+    asset_dir.mkdir()
+    for index in range(count):
+        still(*size).save(asset_dir / f"board-{index}.jpg")
+    monkeypatch.setenv("DW_ASSET_DIR", str(asset_dir))
+    return [f"asset:board-{index}.jpg" for index in range(count)]
+
+
+def _animatic_errors(tmp_path, arguments):
+    import os
+
+    from dw.workflow import workflow_from_file
+
+    template = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "workflows",
+        "templates",
+        "animatic.json",
+    )
+    workflow = workflow_from_file(template, str(tmp_path / "out"))
+    return [e for e in workflow.validation_errors(arguments) if "GiB" in e["message"]]
+
+
+class TestByteBudgetAtValidate:
+    """The frame count is the durations and fps the caller passes, and the
+    size is the boards' own header - both known before the run, so an
+    animatic over the budget is refused at validate, not ~1 s into the run
+    (#1199, job f4ff0c77d018)."""
+
+    def test_over_budget_animatic_is_refused(self, monkeypatch, tmp_path):
+        boards = _boards(monkeypatch, tmp_path, 2)
+        errors = _animatic_errors(
+            tmp_path, {"boards": boards, "durations": [30, 30], "fps": 24}
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.images"
+        message = errors[0]["message"]
+        assert "4 GiB" in message and "1344x768" in message
+        assert "1440 frames" in message and "'fps'" in message
+
+    def test_the_same_boards_at_4_fps_validate(self, monkeypatch, tmp_path):
+        boards = _boards(monkeypatch, tmp_path, 2)
+        assert (
+            _animatic_errors(
+                tmp_path, {"boards": boards, "durations": [30, 30], "fps": 4}
+            )
+            == []
+        )
+
+    def test_a_board_from_an_earlier_step_is_left_to_the_run(self):
+        from dw.video_size_errors import stills_memory_errors
+
+        definition = {
+            "id": "a",
+            "steps": [
+                {
+                    "name": "stills",
+                    "task": {
+                        "command": "stills_to_video",
+                        "arguments": {
+                            "images": ["previous_result:draw"],
+                            "durations": [600],
+                            "fps": 120,
+                        },
+                    },
+                }
+            ],
+        }
+        assert stills_memory_errors(definition) == []
 
     def test_many_tiny_durations_cap_the_frame_count(self):
         from dw.task_problems import MAX_STILLS_FRAMES, stills_to_video_problems

@@ -98,7 +98,7 @@ from .variables import (
     undeclared_variable_references,
 )
 from .video_extensions import video_extension_errors, video_into_image_errors
-from .video_size_errors import video_size_errors
+from .video_size_errors import stills_memory_errors, video_size_errors
 from .window_count_errors import window_count_errors
 from .vram_estimate import vram_estimate_errors
 from .vram_inheritance import inherited_vram_warnings
@@ -492,6 +492,12 @@ ERROR_CHECKS = [
         lambda c: video_size_errors(
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
+    ),
+    # A stills_to_video clip past the in-memory frame budget, when the
+    # durations, fps and stills are all known (dw/video_size_errors.py, #1199)
+    Check(
+        "stills_memory",
+        lambda c: stills_memory_errors(c.expanded, c.source_indices, c.base_dir),
     ),
     # A select step whose rule is misspelled, or whose threshold/index does
     # not match its rule (select_errors, above)

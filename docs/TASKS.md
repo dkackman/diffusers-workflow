@@ -590,9 +590,13 @@ with no track), and its `shots` record where each still starts.
 
 Refused: stills of different sizes (naming both); a non-positive duration; an
 `fps` out of range; a duration count that does not match a literal image list;
-a total over 600 seconds or 36000 frames; and, at run time before allocating,
-a clip over 4 GiB of uint8 frames (frames x width x height x 3). All but the
-last are caught by `validate_workflow`.
+a total over 600 seconds or 36000 frames; and, before allocating, a clip over
+the 4 GiB in-memory frame budget (frames x width x height x 3 uint8 bytes),
+naming the highest `fps` that fits, smaller images, or a split joined with
+`concat_videos`. All are caught by `validate_workflow` when the values are
+literal; the budget needs every still to be a file (`asset:`, `output:`, a
+path) whose header gives its size, so stills from an earlier step are
+checked when the run starts.
 
 ### concat_videos
 
