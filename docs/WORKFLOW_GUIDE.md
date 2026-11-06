@@ -2449,8 +2449,16 @@ A source with neither is refused.
 Validation and the call refuse `refine_strength`, `refine_sigmas` or `refine_tiles` on an
 audio pass (no video row is re-denoised; pass `hold_audio` for a whole-source refine
 instead), a `listen_scale` other than those three, a `listen_scale` on a step that is not
-an audio pass (on any pipeline, H3 or not), and an audio pass on a chained step or beside `latents`. A draft template
-is `bench/workflows/add-sound.json`; it is not in the catalog yet.
+an audio pass (on any pipeline, H3 or not), and an audio pass on a chained step or beside `latents`. The template
+is `templates/minimax/add-sound`.
+
+What it is for, by ear (Don, 2026-11-06, `bench/records/audio.md`): at `listen_scale` 1 a
+line the source's picture was generated with lands on the mouth ("very good lip sync").
+At 0.5 lip sync is still acceptable, about 23% faster: the fastest scale that holds it.
+At 0.25 lip sync is lost, so use it only for a clip with no on-screen speech. It is not a
+re-voice: the picture is the source's own pixels, so a new or regenerated line over an
+on-screen speaker has no mouth drawn for it and plays as dubbed voice-over. Use it to
+sound a silent clip, or to replace an off-screen or voice-over line.
 
 ### Refining above 768p in tiles
 

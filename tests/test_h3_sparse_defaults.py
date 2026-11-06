@@ -27,10 +27,11 @@ H3 = sorted(
 )
 
 
-def test_twenty_two_h3_templates():
+def test_twenty_three_h3_templates():
     # 20 since minimax/regional-edit (#1078), 21 since minimax/face-repair
-    # (#1099), 22 since minimax/repair-segment (#1169)
-    assert len(H3) == 22
+    # (#1099), 22 since minimax/repair-segment (#1169), 23 since
+    # minimax/add-sound (#1192)
+    assert len(H3) == 23
 
 
 @pytest.mark.parametrize("path", H3)

@@ -22,6 +22,20 @@ to a first-pass stall. They also put the line 0.7-0.9 s earlier than the line in
 source picture, so lip sync needs Don's eye before either becomes a default. Same seed
 throughout, one draw per arm.
 
+### Don's ear (2026-11-06)
+
+- **ls1 (A): pass**, "very good lip sync". Shipped at ls1 as
+  `templates/minimax/add-sound`.
+- **ls0.5 (B1): ok**, lip sync acceptable. A speed setting (about 23% faster with a
+  normal first pass), and the fastest scale that keeps lip sync.
+- **ls0.25 (B2): fails lip sync.** Kept as a knob, for a clip with no on-screen speech.
+- **S3 re-voice (C), same line and new line: sounds dubbed.** "The c plays do not
+  have lip sync at all. The character does not appear to be speaking and the dialog
+  seems like voice over." The picture is the source's own pixels, so a new or
+  regenerated line has no mouth drawn for it. The pass sounds a silent clip whose
+  speech, if any, was generated with that picture; it is not a re-voice for an
+  on-screen speaker, only for an off-screen or voice-over line.
+
 Note: the S4 "silent" shots are not silent. Each S4 source shot carries its own H3
 track at about -23 LUFS with its line spoken. The pass replaced that track.
 

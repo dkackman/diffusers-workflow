@@ -76,6 +76,12 @@ EXPECTED_SHAPES = {
         "shot",
         ["has-audio", "needs-input-media"],
     ),
+    # #1192: the clip it sounds is input media, though 'source_video' is its
+    # only media argument (regional-edit also has a 'mask_image')
+    "workflows/templates/minimax/add-sound.json": (
+        "shot",
+        ["has-audio", "needs-input-media"],
+    ),
     "workflows/templates/minimax/dialogue-short.json": (
         "sequence",
         ["has-audio", "identity-referenced"],
@@ -581,7 +587,10 @@ def test_no_stale_entry_in_the_allowlist():
 # (#1199): `minimax/repair-segment`'s measured 8.1 min, and
 # `narration-from-takes`' per-take rows on CUDA and MPS, which
 # `narration-long` now carries rolled up from its child.
-COMPACT_BUDGET = 13_700
+# Then to 13_900 (measured 13_836) for `minimax/add-sound` (#1192, task 21):
+# one new entry, the catalog's only audio pass over a finished picture (new
+# sound under the clip's own frames), with its cost block.
+COMPACT_BUDGET = 13_900
 FILTERED_BUDGET = 1_500
 
 

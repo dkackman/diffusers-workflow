@@ -62,6 +62,8 @@ _MEDIA_ARGUMENTS = frozenset(
         "video",
         "audio",
         "mask_image",
+        # An H3 step's take to edit or sound (#1192: add-sound has no other)
+        "source_video",
         "urls",
         "videos",
         "clip",

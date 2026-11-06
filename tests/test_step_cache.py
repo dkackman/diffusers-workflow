@@ -797,6 +797,10 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/upscale-clip.json": {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
     },
+    # The audio pass loads no turbo LoRA, so its H3 key is its own (#1192)
+    "minimax/add-sound.json": {
+        "sound": "93827335f8bc9c15474c40054579240687ef3afa8217d1af13d09b6e952b685b"
+    },
     "minimax/chain-matched-and-aligned.json": {
         "audio_aligned_chained_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },

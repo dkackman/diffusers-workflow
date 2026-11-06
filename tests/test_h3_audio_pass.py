@@ -599,38 +599,72 @@ class TestHeldVideos:
         assert artifacts == frames
 
 
-# The draft template
+# The template (#1192): the bench draft at bench/workflows/add-sound.json,
+# promoted once Don's ear passed it at listen_scale 1 (2026-11-06)
 
 
+TEMPLATE = ROOT / "workflows" / "templates" / "minimax" / "add-sound.json"
 DRAFT = ROOT / "bench" / "workflows" / "add-sound.json"
 
 
-class TestDraftTemplate:
+class TestAddSoundTemplate:
     def definition(self):
-        return json.loads(DRAFT.read_text(encoding="utf-8"))
+        return json.loads(TEMPLATE.read_text(encoding="utf-8"))
 
-    def test_it_is_not_in_the_catalog(self):
-        assert not (
-            ROOT / "workflows" / "templates" / "minimax" / "add-sound.json"
-        ).exists()
-
-    def test_it_validates(self):
+    @pytest.mark.parametrize("path", [TEMPLATE, DRAFT])
+    def test_it_validates(self, path):
         from dw.workflow import Workflow
 
-        assert Workflow(self.definition(), None, str(DRAFT)).validation_errors({}) == []
+        definition = json.loads(path.read_text(encoding="utf-8"))
+        assert Workflow(definition, None, str(path)).validation_errors({}) == []
+
+    @pytest.mark.parametrize("scale", [1.0, 0.5, 0.25])
+    def test_every_listen_scale_validates(self, scale):
+        from dw.workflow import Workflow
+
+        workflow = Workflow(self.definition(), None, str(TEMPLATE))
+        assert workflow.validation_errors({"listen_scale": scale}) == []
 
     def test_it_runs_without_a_distillation_lora_on_the_dialogue_schedule(self):
         variables = self.definition()["variables"]
         assert variables["lora_model_name"] is None
         assert variables["num_inference_steps"] == 12
         assert (variables["video_shift"], variables["audio_shift"]) == (12.0, 3.0)
-        assert variables["listen_scale"] == 1
+
+    def test_it_ships_at_listen_scale_1(self):
+        # The only scale Don's ear passed outright ("very good lip sync")
+        assert self.definition()["variables"]["listen_scale"] == 1.0
 
     def test_it_is_an_audio_pass(self):
         step = self.definition()["steps"][0]["pipeline"]["arguments"]
-        assert "source_video" in step
+        assert step["source_video"] == "variable:source_video"
+        assert step["listen_scale"] == "variable:listen_scale"
         for name in ("hold_audio", "mask_image", "mask_video", "refine_strength"):
             assert name not in step
+
+    def test_it_runs_the_drafts_step(self):
+        # Promoted as measured: the step Don listened to, unchanged
+        draft = json.loads(DRAFT.read_text(encoding="utf-8"))
+        (shipped,) = self.definition()["steps"]
+        (measured,) = draft["steps"]
+        assert shipped["pipeline"] == measured["pipeline"]
+
+    def test_the_description_says_where_lip_sync_holds(self):
+        description = self.definition()["description"]
+        # 0.5 is the fastest scale that keeps lip sync; 0.25 loses it
+        assert "'listen_scale' 0.5" in description
+        assert "fastest" in description
+        assert "0.25 loses lip sync" in description
+        # and a new line over an on-screen speaker reads as voice-over
+        assert "not a re-voice" in description
+        assert "voice-over" in description
+
+    def test_it_quotes_the_measured_cost(self):
+        (entry,) = self.definition()["cost"]
+        assert (entry["device"], entry["name"]) == ("cuda", "RTX 3090")
+        # bench/records/audio.md: 188 s warm at listen_scale 1
+        assert entry["minutes"] == 3.1
+        assert "listen_scale" in self.definition()["cost_drivers"]
 
 
 # The source's own frame rate (R25): conditioning is retimed to H3's 24 fps,
