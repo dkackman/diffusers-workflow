@@ -3,6 +3,7 @@
 #   ssh lem 'bash ~/dw-bench/scripts/bench_server.sh {start|stop|status|deploy <branch>}'
 # Port 8766, card cuda:1, workspace ~/bench-workspace. The main server (8765) is untouched.
 # Token: $BENCH_TOKEN, else the file ~/.dw-bench-token. Cards: $BENCH_DEVICES (default cuda:1).
+# MCP: BENCH_MCP=1 mounts /mcp (the cold-session drill).
 set -euo pipefail
 
 MAIN="$HOME/diffusers-workflow"
@@ -60,7 +61,9 @@ cmd_start() {
     local tok; tok="$(token)"
     mkdir -p "$HOME/bench-workspace"
     cd "$TREE"
-    nohup "$MAIN/venv/bin/python" -m dw.serve --host 0.0.0.0 --port "$PORT" \
+    local mcp=()
+    [ -n "${BENCH_MCP:-}" ] && mcp=(--mcp)  # mounts /mcp for a cold-session drill
+    nohup "$MAIN/venv/bin/python" -m dw.serve --host 0.0.0.0 --port "$PORT" "${mcp[@]}" \
         --devices "${BENCH_DEVICES:-cuda:1}" --token "$tok" \
         --workspace "$HOME/bench-workspace" --examples-dir "$TREE/workflows" \
         > "$LOG" 2>&1 &
