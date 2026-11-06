@@ -696,11 +696,56 @@ control is plain keystone `c4ec5a055464` (seed 1166).
   keystone as the static long-take default if Don accepts the pose loop.
   If he does not, plain keystone stays, and the slot work closes. It is not
   promotable until two things are settled:
-  - **The prompt confound.** The later-segment prompt names `<Picture 2>` at
-    5.17 s, the last frame. One arm without that clause, at seed 1166, says
-    whether the slot alone holds.
+  - **The prompt confound: settled.** The slot alone holds. Without the
+    clause naming `<Picture 2>` at 5.17 s, both seeds hold the crust, the
+    face and the pose return the same way. See *Confirm without the Picture 2
+    clause* below.
   - **A moving scene.** The slot pins every segment's last frame to segment
     1's, so it cannot work on S2's arc as it stands. It is static only.
+
+### Confirm without the Picture 2 clause
+
+Arms `bench/arms/keystone-last-noprompt.json`, record
+`keystone-last-noprompt.json`. Same as slot last, but the later-segment
+prompt drops the clause that names `<Picture 2>` at the last frame.
+
+- **It holds.** The slot alone keeps the crust down for two minutes, with no
+  pop, on both seeds. The clause was not doing the work.
+  - Seed 1166 (`f55bd445faa5`): segment means 1.10-1.46x, 1.25x at the end.
+    The prompted take was 1.11-1.46x, 1.23x.
+  - Seed 2 (`00ed8fb067ca`): 1.12-1.40x, 1.31x at the end. The prompted
+    take was 1.16-1.40x, 1.37x.
+- **The pose loop stays too.** The clause did not cause it. The slot does.
+  The last frame of each segment sits 4.0 (s1166) and 4.1 (s2) from
+  segment 1's frame 0, against 11.3 and 13.2 mid-segment. The prompted takes
+  were 4.1 and 4.1, against 13.4 and 14.4. Motion falls to 0.12 and 0.11 at
+  the last frame, from 1.6 and 2.0 mid-segment. The seam step is 2.3 (max
+  2.7 and 3.4) against a p99 of 2.8 and 4.3. No snap.
+- **The face** matches the prompted take at 60 s and 120 s on seed 1166:
+  sharp, natural, the same person. The eyes go bluer and the skin warmer
+  than segment 1, as in the prompted takes. No burn, no hair drift.
+- **The backdrop** is segment 1's flat painted wall at every 10 s mark on
+  both seeds, with sharp circle and square edges.
+- The look ratio is a little lower than the prompted takes (1.50 and 1.36
+  against 1.61 and 1.59). Neither is worse than its control past the
+  floor. Wall is about 5 min shorter; that is run-to-run, not the clause.
+
+| arm | job | control | jump | jump max | look | look max | tex fine | tex mid | tex coarse | wall min | verdict (picture) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| slot last, no clause, 1166 | `f55bd445faa5` | `c4ec5a055464` | **0.689** | 1.17 | 1.496 | 2.30 | **0.085** | **0.005** | 0.006 | 57.4 | **wins** |
+| slot last, no clause, seed 2 | `00ed8fb067ca` | `e4c7c19a99cd`* | **0.632** | 0.84 | 1.357 | 2.02 | 0.130 | 0.008 | 0.003 | 56.9 | wins by eye |
+
+\* As above, seed 2 is read against keystone + anchor 0.25.
+
+| take | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 | 110 | end | pops (s, render frame, crust before -> after) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| slot last, no clause, 1166 `f55bd445faa5` | 0.91 | 1.28 | 1.27 | 1.21 | 1.41 | 1.40 | 1.27 | 1.38 | 1.37 | 1.27 | 1.38 | 1.46 | 1.25 | none |
+| slot last, no clause, s2 `00ed8fb067ca` | 0.91 | 1.31 | 1.29 | 1.15 | 1.33 | 1.29 | 1.26 | 1.30 | 1.40 | 1.33 | 1.34 | 1.35 | 1.31 | none |
+
+- find.py flags three dips of 0.12-0.17x per take at render 107-121. The
+  prompted takes have one to three of the same. Each is a segment's own
+  ease into the return pose, not a pop: the level falls by 0.1-0.2x, not
+  back to 1x.
 
 ### Measures
 
