@@ -1,0 +1,16 @@
+[
+  {
+    "name": "s6-music-snap8-335s-s1166",
+    "scene": "s6-narration",
+    "workflow": "music-long-s6-full.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "s6-music-snap8-335s-s1167",
+    "scene": "s6-narration",
+    "workflow": "music-long-s6-full.json",
+    "arguments": {},
+    "seed": 1167
+  }
+]
