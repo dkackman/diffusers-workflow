@@ -103,6 +103,10 @@
         "cache": null
     },
     "variable_constraints": {
+        "song_lyrics": {
+            "min_length": 1,
+            "reason": "Music 3 has no instrumental flag and refuses an empty lyric at run time, after the model has loaded. For an instrumental send a tag-only body instead, one tag per line - for example \"[intro]\\n[instrumental]\\n[solo]\\n[outro]\" - and say instrumental in the caption, naming the instrument carrying the lead"
+        },
         "num_frames": {
             "modulus": 17,
             "remainder": 5,

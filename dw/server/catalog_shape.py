@@ -410,6 +410,11 @@ def terse_constraint(rule):
     if not isinstance(rule, dict):
         return rule
     parts = []
+    minimum = rule.get("min_length")
+    if minimum == 1:
+        parts.append("non-empty")
+    elif minimum is not None:
+        parts.append(f"{minimum}+ chars")
     if rule.get("modulus"):
         parts.append(f"{rule['modulus']}*n+{rule.get('remainder', 0)}")
     low, high = rule.get("min_frames"), rule.get("max_frames")

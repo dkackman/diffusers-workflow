@@ -24,6 +24,12 @@
         "audio_duration": 120,
         "seed": null
     },
+    "variable_constraints": {
+        "lyrics": {
+            "min_length": 1,
+            "reason": "Music 3 has no instrumental flag and refuses an empty lyric at run time, after the model has loaded. For an instrumental send a tag-only body instead, one tag per line - for example \"[intro]\\n[instrumental]\\n[solo]\\n[outro]\" - and say instrumental in the caption, naming the instrument carrying the lead"
+        }
+    },
     "seed": "variable:seed",
     "steps": [
         {

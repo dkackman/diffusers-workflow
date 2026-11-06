@@ -424,6 +424,12 @@ it is refused. The bounds are checked against the value the run will use, so
 they hold for the rounded number: on the rule above `108` is accepted (it
 becomes `124`) and `346` is refused (it would become `362`).
 
+A string value takes `min_length` instead: the fewest characters it may have
+once surrounding whitespace is dropped, a null counting as empty. Music 3
+refuses an empty lyric only after the model has loaded, so its templates
+declare `"lyrics": {"min_length": 1, "reason": "..."}`, and the `reason`
+says what to send instead (a tag-only body for an instrumental).
+
 The rule is checked at validation (`POST /api/validate`, `validate_workflow` and
 the pre-queue check refuse a bad value at `arguments.<name>` or
 `variables.<name>`), again at run time before anything loads (for a value the

@@ -574,7 +574,10 @@ def test_no_stale_entry_in_the_allowlist():
 # chain's own settings by argument. Then to 13_500 (measured 13_476) for the
 # #1169 review fixes: repair-segment's 'chain_take', and the 'keep_segments'
 # variable four H3 chain templates take so a chain can be repaired later.
-COMPACT_BUDGET = 13_500
+# Then to 13_550 (measured 13_514) for the Music 3 lyric rule (#1199 drill):
+# `lyrics`/`song_lyrics` "non-empty" on the three Music 3 templates, since an
+# empty lyric passed validation and failed after the model loaded.
+COMPACT_BUDGET = 13_550
 FILTERED_BUDGET = 1_500
 
 

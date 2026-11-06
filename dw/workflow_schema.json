@@ -153,6 +153,11 @@
                     "type": "integer",
                     "minimum": 1
                 },
+                "min_length": {
+                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped (a null counts as empty), so 1 refuses an empty string. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one.",
+                    "type": "integer",
+                    "minimum": 1
+                },
                 "snap": {
                     "description": "What to do with a value the rule refuses. 'up' rounds to the next value the rule accepts, and warns that it did; absent, the value is refused.",
                     "enum": [

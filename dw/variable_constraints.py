@@ -56,6 +56,11 @@ CONSTRAINTS_KEY = "variable_constraints"
 # The fields a `frame_snap` block carries, which are the fields a constraint
 # is checked on - the rest of a constraint says what to do about a violation
 SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
+# A string value's rule: its length once surrounding whitespace is dropped.
+# A Music 3 `lyrics: ""` passed validation and failed at run time - the
+# pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
+# the template's own `reason` says (#1199)
+MIN_LENGTH = "min_length"
 
 
 def declared_constraints(definition):
@@ -215,12 +220,31 @@ def snapped(value, constraint):
     return target
 
 
+def _length_violations(value, constraint):
+    """Why a string value breaks a `min_length` rule, as phrases.
+
+    A null counts as empty: a pipeline handed None for its lyric fails the
+    same way as one handed "". Anything else that is not a string (a list, a
+    number) is not this rule's to judge.
+    """
+    minimum = constraint.get(MIN_LENGTH)
+    if minimum is None or not (value is None or isinstance(value, str)):
+        return []
+    if len((value or "").strip()) >= minimum:
+        return []
+    if minimum == 1:
+        return ["must not be empty"]
+    return [f"must be at least {minimum} characters"]
+
+
 def violations(value, constraint):
     """Why `value` breaks `constraint`, as phrases, or [] when it does not.
 
     Judged on the value the run would use, so a constraint that rounds is
     only ever refused for a bound the rounded number still breaks.
     """
+    if constraint.get(MIN_LENGTH) is not None:
+        return _length_violations(value, constraint)
     number = effective(value, constraint)
     if number is None:
         return []
@@ -242,6 +266,11 @@ def _accepted(constraint):
     """The rule as a phrase a consumer can act on, which is the half of #96
     that stops the next caller picking 61: the range and the step, together."""
     parts = []
+    minimum = constraint.get(MIN_LENGTH)
+    if minimum == 1:
+        parts.append("a non-empty string")
+    elif minimum is not None:
+        parts.append(f"a string of at least {minimum} characters")
     low, high = constraint.get("min_frames"), constraint.get("max_frames")
     if low is not None and high is not None:
         parts.append(f"{low} to {high}")
@@ -264,8 +293,9 @@ def refusal(name, value, constraint):
     because = f" - {reason}" if reason else ""
     target = snapped(value, constraint)
     rounding = f" (rounds up to {target})" if target is not None else ""
+    shown = repr(value) if value is None or isinstance(value, str) else value
     return (
-        f"'{name}' is {value}{rounding}, which this workflow does not "
+        f"'{name}' is {shown}{rounding}, which this workflow does not "
         f"accept: {'; '.join(problems)}. Accepted: {_accepted(constraint)}{because}. "
         f"The rule is declared on the workflow, so it is checked before "
         f"anything loads rather than after the weights are in memory"
