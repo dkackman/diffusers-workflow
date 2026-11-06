@@ -30,7 +30,10 @@ def _errors(path):
 
 
 def test_the_six_scene_workflows_exist():
-    assert [p.stem for p in WORKFLOWS] == IDS
+    # a scene's variants (s5-ltx-extend, ...) may sit beside it; each is
+    # still validated below, but the six scenes themselves must all be here
+    stems = {p.stem for p in WORKFLOWS}
+    assert [i for i in IDS if i not in stems] == []
 
 
 @pytest.mark.parametrize("path", WORKFLOWS, ids=lambda p: p.stem)
