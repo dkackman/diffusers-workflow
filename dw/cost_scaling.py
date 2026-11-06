@@ -322,6 +322,33 @@ def _worst_case_retries(definition, variables):
     )
 
 
+def _declared_axis_scaling(name, default_value, value, list_entries, proportional):
+    """A list driver's summed fields, or a `scales_with` scalar, as
+    (factor, axes), or None when one moved in a way nothing can scale.
+
+    A list sums its entries' `num_frames` and every `scales_with` field
+    (`_list_frames_scaling`); a scalar `scales_with` driver scales by its
+    own ratio to the default (#1199)."""
+    if not isinstance(default_value, list):
+        if _driver_comparable(value) == _driver_comparable(default_value):
+            return 1.0, []
+        was, now = _positive(default_value), _positive(value)
+        if was is None or now is None:
+            return None
+        return now / was, [f"{name} {_shown(now)} vs {_shown(was)}"]
+    factor = 1.0
+    axes = []
+    fields = [FRAMES_DRIVER] + [f for f in proportional if f != FRAMES_DRIVER]
+    for field in fields:
+        summed = _list_frames_scaling(name, default_value, value, list_entries, field)
+        if summed is None:
+            return None
+        factor *= summed[0]
+        if summed[1]:
+            axes.append(summed[1])
+    return factor, axes
+
+
 def _driver_scaling(definition, expanded, list_entries):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
@@ -350,42 +377,20 @@ def _driver_scaling(definition, expanded, list_entries):
         if name in CHAIN_LENGTH_DRIVERS:
             chain_drivers.append(name)
             continue
-        if isinstance(default_value, list):
-            frames = _list_frames_scaling(
-                name, default_value, effective.get(name), list_entries
+        if isinstance(default_value, list) or name in proportional:
+            moved = _declared_axis_scaling(
+                name, default_value, effective.get(name), list_entries, proportional
             )
-            if frames is None:
+            if moved is None:
                 return None
-            factor *= frames[0]
-            if frames[1]:
-                axes.append(frames[1])
-            for field in proportional:
-                if field == FRAMES_DRIVER:
-                    continue
-                summed = _list_frames_scaling(
-                    name, default_value, effective.get(name), list_entries, field
-                )
-                if summed is None:
-                    return None
-                factor *= summed[0]
-                if summed[1]:
-                    axes.append(summed[1])
+            factor *= moved[0]
+            axes.extend(moved[1])
             continue
         if name in list_entries:
             continue
         if name in SCALABLE_DRIVERS:
             at_default[name] = default_value
             running[name] = effective.get(name)
-        elif name in proportional:
-            if _driver_comparable(effective.get(name)) == _driver_comparable(
-                default_value
-            ):
-                continue
-            was, now = _positive(default_value), _positive(effective.get(name))
-            if was is None or now is None:
-                return None
-            factor *= now / was
-            axes.append(f"{name} {_shown(now)} vs {_shown(was)}")
         elif _driver_comparable(effective.get(name)) != _driver_comparable(
             default_value
         ):
