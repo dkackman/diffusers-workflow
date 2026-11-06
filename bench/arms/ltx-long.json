@@ -1,0 +1,142 @@
+[
+  {
+    "name": "ltx-ctl-s1166-rerun",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-mps-r"
+  },
+  {
+    "name": "ltx-ctl-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 2,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-extend",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-extend.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-lookhold",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "look_hold": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-carrypick4",
+    "scene": "s5-ltx-action",
+    "workflow": "lf-s5-ltx-action.json",
+    "arguments": {
+      "carry_pick_n": 4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-check-r1",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "check": true,
+      "retries": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps-chk"
+  },
+  {
+    "name": "ltx-ctl-36s",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "duration_seconds": 36
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:430",
+      "frame:850"
+    ]
+  },
+  {
+    "name": "ltx-extend-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-extend.json",
+    "arguments": {},
+    "seed": 2,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-lookhold-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "look_hold": true
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-carrypick4-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "lf-s5-ltx-action.json",
+    "arguments": {
+      "carry_pick_n": 4
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-mps"
+  },
+  {
+    "name": "ltx-check-r1-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "check": true,
+      "retries": 1
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-mps-chk"
+  },
+  {
+    "name": "ltx-ctl-36s-s2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "duration_seconds": 36
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:430",
+      "frame:850"
+    ]
+  },
+  {
+    "name": "ltx-lookhold-36s",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {
+      "duration_seconds": 36,
+      "look_hold": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:430",
+      "frame:850"
+    ]
+  }
+]
