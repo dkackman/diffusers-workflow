@@ -1,0 +1,58 @@
+[
+  {
+    "name": "ltx-arc-ctl-s1166",
+    "scene": "s2-arc",
+    "workflow": "ltx-arc.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:180",
+      "frame:299"
+    ]
+  },
+  {
+    "name": "ltx-arc-lookhold-s1166",
+    "scene": "s2-arc",
+    "workflow": "ltx-arc.json",
+    "arguments": {
+      "look_hold": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:180",
+      "frame:299"
+    ]
+  },
+  {
+    "name": "ltx-arc-ctl-s2",
+    "scene": "s2-arc",
+    "workflow": "ltx-arc.json",
+    "arguments": {},
+    "seed": 2,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:180",
+      "frame:299"
+    ]
+  },
+  {
+    "name": "ltx-arc-lookhold-s2",
+    "scene": "s2-arc",
+    "workflow": "ltx-arc.json",
+    "arguments": {
+      "look_hold": true
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-mps",
+    "moments": [
+      "frame:60",
+      "frame:180",
+      "frame:299"
+    ]
+  }
+]
