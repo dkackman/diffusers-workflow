@@ -32,8 +32,8 @@ A longer narration is cut into takes at sentence boundaries and joined.
   when it is given no reference. Speak a 5-10 s line with
   `templates/generate-speech` (`model_name` `Edge0/Audio8-TTS-Realistic-0.6b`),
   keep it as an asset, and pass it with its exact text as the reference. A
-  synthetic voice needs no one's consent. The bench's `bench/narrator.wav`
-  was made this way (`bench/workflows/narrator-reference-s6.json`). Do not
+  synthetic voice needs no one's consent. The bench made its narrator
+  reference this way (`bench/workflows/narrator-reference-s6.json`). Do not
   speak the takes without a reference: the bench measured voice drift only
   for takes cloned from one reference, and nothing else ties the takes'
   voices together.
