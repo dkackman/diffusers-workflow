@@ -412,6 +412,110 @@ narration job.
 3. Size the lyric per section: here the 8- and 10-line choruses filled 61-107 s,
    while 8 verse lines plus 2 more ran to 104-128 s.
 
+### Music with the 8 s end snap
+
+2026-11-06. Arms `bench/arms/music-snap.json`, record `music-snap.json` (the "wrote
+no video" text is the driver's). Same workflow and seeds as the no-snap takes
+above, after d1d19120 (`slice_audio` `end_snap_seconds`, `slice_dropped_loud_tail`;
+music-long `section_end_snap_seconds` 8). Jobs `2179e0c0c9df` (s1166) and
+`d51816c55389` (s1167).
+
+**Verdict: the cut is fixed, the level step is not.**
+
+- **The cut is fixed.** All six cuts moved 0.6-7.0 s back to a quiet window. None
+  lands mid-word: each falls after a line's last word or before the next onset.
+- **The level step is not fixed.** Four of six joins still drop 7.3-9.7 dB, the same
+  as the no-snap takes' 7.4-8.9 dB. The step is the next section's sparse intro, and
+  a cut point cannot change that. The one join that improved (s1166 verse_2, -9.4 to
+  -1.1 dB) did so because its cut moved 7 s back into a quiet passage.
+- **The lyric is still lost.** The snap keeps nothing more. The overrun is lyric
+  length, as before. s1166 verse_1 still loses "The only work that matters here" and
+  the pre-chorus. s1167 verse_2 now drops "Somewhere a light they understand" whole,
+  where the no-snap take cut it mid-line.
+- **The warning is right on all six cuts.** Each dropped tail is music still playing,
+  0.2-2.1 dB from the kept part's level.
+
+The generation is the same draw as the no-snap takes: same pass counts per section,
+and the first 70 s of each file are sample-identical to `ae2e1373cff6` and
+`f83cf3566727`. So the no-snap file is the source up to 83.5 s of each section, and
+the two can be compared cut for cut.
+
+| run (job) | file s | sections kept s (moved back) | I LUFS / LRA | true peak dBFS |
+|---|---|---|---|---|
+| s1166 (`2179e0c0c9df`) | 308.76 (was 319.18) | 82.17 (2.83), 84.36 (0.64), 78.05 (6.95), 68.69 (`joined_short`) | -18.2 / 11.9 | -2.3 |
+| s1167 (`d51816c55389`) | 297.71 (was 311.45) | 78.94 (6.06), 81.00 (4.00), 81.32 (3.68), 60.95 (`joined_short`) | -17.3 / 10.4 | -2.1 |
+
+**Cuts.** The window level is the quietest 0.2 s RMS window, as the job log
+reports it. The section mean is the kept RMS from the warning. Words are from
+whisper-small with word timestamps, run on the no-snap file over the 20 s before the
+cut (up to 8 s after it where the source reaches that far).
+
+| run, section | cut s (source) | window dBFS / section mean / delta dB | what is around the cut | mid-word? |
+|---|---|---|---|---|
+| s1166 verse_1 | 82.17 | -51.1 / -18.6 / -32.5 | "...I wipe it clear" ends at 81.2; the next onset is 0.15 s after the cut | no, a gap between lines |
+| s1166 chorus_1 | 84.36 | -43.8 / -18.1 / -25.7 | band only; "...find them there" ends at 74.9 | no, a gap in the band |
+| s1166 verse_2 | 78.05 | -30.3 / -20.3 / -10.0 | the bridge is complete by 74.3. The band keeps going at about -30 dBFS, with guitar plucks at -21 every 0.7 s. The cut falls between plucks, 0.85 s before the bridge repeat ("Somewhere...") comes in | no, but it is not a gap either: the band is playing |
+| s1167 verse_1 | 78.94 | -35.9 / -21.1 / -14.8 | the pre-chorus "...comes to the door" ends at 77.9 | no, after the line |
+| s1167 chorus_1 | 81.00 | -37.9 / -15.0 / -22.9 | "...I'm turning for you" ends at 79.1; band after that | no, a gap in the band |
+| s1167 verse_2 | 81.32 | -31.8 / -17.5 / -14.3 | "Somewhere a sail, somewhere a hand" is sung. The last line's "Somewhere" starts 0.1-0.2 s after the cut (onset at -9.5 dBFS) | no, between lines; the last line is dropped |
+
+Whisper places s1166 verse_2's "Somewhere" across the cut (from 244.25 s in the
+no-snap file). A 50 ms level profile puts the voice's onset at 245.9 s, after the cut
+at 245.05 s, so whisper's start time is early. Whisper run on the new files' last
+8 s before each cut hears no partial word. The one exception is s1166 chorus_1, where
+it hallucinates on band-only audio.
+
+**Joins** (the same method as the no-snap table above: 5 s before the crossfade
+against 5 s after it. The same script reproduces that table's no-snap steps
+exactly):
+
+| run | crossfade s (file) | level step dB | no-snap step dB | in-section floor median / p90 / max |
+|---|---|---|---|---|
+| s1166 join 1 (verse_1 into chorus_1) | 80.67-82.17 | -9.7 | -8.8 | 2.0 / 5.5 / 9.1 |
+| s1166 join 2 (chorus_1 into verse_2) | 163.53-165.03 | -7.4 | -8.9 | |
+| s1166 join 3 (verse_2 into chorus_2) | 240.08-241.58 | **-1.1** | -9.4 | |
+| s1167 join 1 | 77.44-78.94 | -1.5 | -0.8 | 1.3 / 4.6 / 7.3 |
+| s1167 join 2 | 156.94-158.44 | -9.4 | -7.8 | |
+| s1167 join 3 | 236.76-238.26 | -7.3 | -7.4 | |
+
+(The floors are from this script, the same on the snap and no-snap files. The table
+above used a different window, which gave 2.4/6.9/12.7 and 1.8/4.3/6.3.) Moving the
+cut a few seconds earlier moves it from one point in a full band to another. Each
+following section still opens like a new song, so the step stays. s1166 join 3 is
+flat only because verse_2's band thins to -30 dBFS in its last 7 s.
+
+**Silence:** silencedetect at -50 dBFS/0.5 s finds nothing in either file. At
+-40 dBFS/0.2 s it finds only the lead-in, the same in-section dips as the no-snap
+takes (s1166 at 43-46, 192-193 and 284 s; s1167 one 0.83 s dip at 21.3 s, which is
+also in `f83cf3566727` and is not a join), and each file's last 1-2 s of decay. No
+hole is at a join.
+
+**Warnings (GET /api/jobs/<id>):** each job has three `slice_dropped_loud_tail`
+(one per snapped section) and one `joined_short`.
+
+| run, section | dropped s | dropped / kept RMS dBFS | right? |
+|---|---|---|---|
+| s1166 verse_1 | 45.99 | -17.8 / -18.6 | yes: a lyric line and the pre-chorus are lost |
+| s1166 chorus_1 | 16.81 | -16.8 / -18.1 | yes: music is playing. Up to 85 s that is band only |
+| s1166 verse_2 | 29.60 | -19.2 / -20.3 | yes: a bridge repeat is lost |
+| s1167 verse_1 | 49.22 | -21.3 / -21.1 | yes: music is playing. The lyric is complete |
+| s1167 chorus_1 | 6.34 | -17.1 / -15.0 | yes: band only, which includes the section's own ending |
+| s1167 verse_2 | 46.84 | -15.9 / -17.5 | yes: "Somewhere a light they understand" is lost |
+
+The server keeps no intermediate files, so whatever lies past 85 s of source cannot
+be heard. "Right" means the claim that the tail is still playing. `joined_short`
+names the three snapped sections apart from the one that ended early (chorus_2,
+68.69 / 60.95 s), and the shortfall is 26.74 / 37.79 s against 335.5. One wording
+nit: the warning says the slice "cut it mid-signal at 82.17 s" even when the snap
+moved that cut to a -51 dBFS gap. The tail was mid-signal; the cut was not.
+
+**What is left for the level step** (not made here): the step is in the generation,
+not the cut. Only verse_1's caption asks for a sparse opening, yet Music 3 opens
+every section like a new song. The levers are a caption that asks the next section
+to open at full band (untested), a `match_levels` or a short gain ramp across each
+join, or a shorter lyric, so each section ends on its own decay before 85 s. The record's fix option 3 (size the lyric per section) is the one
+that also stops the lyric loss.
+
 ### Outputs (mini-ai `~/bench-workspace/outputs/`)
 
 | arm | job | file |
@@ -421,3 +525,5 @@ narration job.
 | s6-music-full-335s-xf3000-s1166 | `ef47c7b6684d` | `BenchS6MusicLongFull/20261106-040613-0ce22d5b/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
 | s6-narr-long-t37-wps3-s1166 | `847ccb839875` | `BenchS6NarrationLong-t37/20261106-044527-c46db14f/final/BenchS6NarrationLong-t37-narration.0-0.0.wav` |
 | s6-narr-long-t37-wps3-s1167 | `4467e6380276` | `BenchS6NarrationLong-t37/20261106-044934-a03a36cc/final/BenchS6NarrationLong-t37-narration.0-0.0.wav` |
+| s6-music-snap8-335s-s1166 | `2179e0c0c9df` | `BenchS6MusicLongFull/20261106-081846-f8973042/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
+| s6-music-snap8-335s-s1167 | `d51816c55389` | `BenchS6MusicLongFull/20261106-085848-655afa0d/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
