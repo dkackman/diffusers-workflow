@@ -1807,9 +1807,25 @@ class TestLongFormSkill:
 
     def test_the_open_questions_are_marked_pending(self):
         text = self._text()
-        assert text.count("pending measurement") >= 5
+        assert "pending measurement" in text
         for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
             assert topic in text.lower(), topic
+
+    def test_the_measured_levers_carry_their_verdicts(self):
+        """The structural levers, the keystone and LTX parity were measured
+        (bench/records/structural.md, repair.md, ltx.md): each names its
+        verdict rather than reading as pending."""
+        text = " ".join(self._text().split())
+        for verdict in (
+            "not a burn fix",  # windowed refine
+            "not a default",  # latent carry
+            "does not win",  # late capstone
+            "the default waits on Don",  # keystone
+            "stays the `templates/ltx2/chained-segments` default",
+            "Cap an LTX-2.5 chain at about 15-20 s",
+        ):
+            assert verdict in text, verdict
+        assert "experimental_keystone_slot" not in text
 
     def test_the_cut_ideas_are_named_so_they_are_not_re_proposed(self):
         text = self._text()
