@@ -42,6 +42,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
+- **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
+  `listen_scale` 0.5 is the fastest that keeps lip sync. Never re-voice an
+  on-screen speaker: it plays as voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
