@@ -17,10 +17,9 @@ import pytest
 import torch
 from PIL import Image
 
-from dw.pipeline_processors.chain import (
-    ChainConfig,
+from dw.pipeline_processors.chain import ChainConfig, run_chain
+from dw.pipeline_processors.chain_config import (
     plan_segments,
-    run_chain,
     snap_frames,
     validate_frame_snap,
 )

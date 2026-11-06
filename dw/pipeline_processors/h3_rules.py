@@ -585,9 +585,9 @@ GUIDE_CHAIN_RULE = (
     "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay off ref2va"
 )
 
-# Every chain continuity mode, in the order chain.py registers its classes
+# Every chain continuity mode, in the order chain_continuity.py registers its classes
 # (`CONTINUITY_MODES`, zipped strictly against these). Kept here so validation
-# (dw/guides.py) reads the same names without importing chain.py
+# (dw/guides.py) reads the same names without importing chain_continuity.py
 CHAIN_CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
 
 # The latent statistics anchor (#1166): `latent_anchor` is video frames whose

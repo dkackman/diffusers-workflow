@@ -90,7 +90,7 @@ EXPECTED_SITES = {
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     # a guide chain's carried tail - a conditioning input, not a joined output
-    ("dw/pipeline_processors/chain.py", "inject"): ("none", 1),
+    ("dw/pipeline_processors/chain_continuity.py", "inject"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
     ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
     # the take's shots with the repaired span as one shot of its own

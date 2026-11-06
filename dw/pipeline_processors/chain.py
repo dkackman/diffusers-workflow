@@ -34,12 +34,9 @@ previous_result fan-out: three keyframes in, three chained videos out.
 import copy
 import gc
 import logging
-import math
 import os
-import sys
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
-import numpy
 import torch
 
 from .. import empty_device_cache
@@ -47,10 +44,10 @@ from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
 from ..events import emit_log, emit_warning
 from ..shots import shot_record, without_samples
-from ..dsp import as_channels_samples, slice_samples
+from ..dsp import slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
-from ..tasks.video_utils import extract_frame, frames_as_pil_list
+from ..tasks.video_utils import frames_as_pil_list
 from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-exported
     SavedFrames,
     SegmentedFrames,
@@ -61,246 +58,26 @@ from .chain_check import (
     best_attempt,
     check_segment,
     reroll_seed,
-    segment_check,
     texture_samples,
 )
+from .chain_config import ChainConfig
+from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
-from .chain_pick import sharpest_index
 from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal, latent_guide_tail
-from .h3_hold import hold_audio_reference
-from .chain_rules import (
-    CHAIN_CAPSTONE,
-    CHAIN_CAPSTONE_FROM_END,
-    CHAIN_LATENT_CARRY,
-    chain_capstone_problem,
-    chain_keystone_slot,
-    chain_keystone_slot_problem,
-    place_keystone,
-    chain_latent_carry_problem,
-    chain_check_problem,
-    chain_look_hold_flags,
-    chain_look_hold_problem,
-)
+from .chain_rules import CHAIN_CAPSTONE, CHAIN_LATENT_CARRY, place_keystone
 from .h3_rules import (
-    ANCHOR_NONE,
     ANCHOR_SEGMENT_1,
-    CHAIN_CONTINUITY_MODES,
     GUIDES_INPUT,
-    GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
-    GUIDE_NOISE_INPUT,
     HOLD_AUDIO_INPUT,
     LATENT_ANCHOR_INPUT,
     LATENT_ANCHOR_STRENGTH_INPUT,
-    anchor_strength_problem,
-    KEYSTONE_NONE,
     KEYSTONE_SEGMENT_1,
-    chain_anchor_problem,
-    chain_carry_pick_problem,
-    chain_keystone_problem,
-    guide_backoff_problems,
-    guide_chain_problems,
 )
 
 logger = logging.getLogger("dw")
-
-# A runaway segment count is a configuration error - kept in the spirit of
-# previous_results.MAX_ITERATIONS
-MAX_SEGMENTS = 1000
-
-
-class LastFrameContinuity:
-    """Carry the last frame of each segment into the next as its keyframe."""
-
-    def __init__(self, config):
-        self.config = config
-
-    def extract(self, artifact):
-        # With carry_pick, the sharpest of the last N frames; `picked_back`
-        # is how many frames after it the segment drops (0 = the last frame)
-        self.picked_back = 0
-        if self.config.carry_pick:
-            frames = frames_as_pil_list(artifact)
-            self.picked_back = sharpest_index(frames, self.config.carry_pick)
-            return frames[len(frames) - 1 - self.picked_back]
-        return extract_frame(artifact, -1)
-
-    def inject(self, arguments, carry, segment_argument):
-        target = arguments.get(segment_argument)
-        if isinstance(target, list):
-            # A references list - the carry frame is appended as an image
-            # reference alongside the workflow's own references
-            arguments[segment_argument] = _with_carry_reference(target, carry)
-        else:
-            arguments[segment_argument] = carry
-
-
-class LastSegmentContinuity:
-    """Carry the whole previous segment into the next as a video reference.
-
-    A still frame carries pose and colour and nothing else. A reference-
-    conditioned pipeline (MiniMax H3's ref2va) can take the previous segment
-    itself - its frames and the soundtrack generated with them - which carries
-    motion, camera and voice across the seam instead of just appearance.
-
-    Only the tail of the segment is worth carrying: 'carry_frames' bounds it,
-    and the soundtrack is cut to the same span so the reference's own audio and
-    video stay aligned. The generated media is already at the pipeline's own
-    rates, so the reference declares no rate of its own and nothing is
-    resampled on the way back in.
-    """
-
-    def __init__(self, config):
-        self.config = config
-
-    def extract(self, artifact):
-        frames = frames_as_pil_list(artifact)
-        audio, sample_rate = _generated_audio(artifact)
-
-        carry_frames = self.config.carry_frames
-        if carry_frames is not None and carry_frames < len(frames):
-            if audio is not None:
-                if self.config.fps is None:
-                    raise ValueError(
-                        "Trimming a last_segment carry needs the frame rate - "
-                        "set 'fps' on the chain or a 'frame_rate' pipeline argument"
-                    )
-                samples = frames_to_samples(carry_frames, self.config.fps, sample_rate)
-                audio = audio[:, -samples:]
-            frames = frames[-carry_frames:]
-
-        if not self.config.carry_audio:
-            audio, sample_rate = None, None
-
-        return _SegmentCarry(frames, audio, sample_rate)
-
-    def inject(self, arguments, carry, segment_argument):
-        target = arguments.get(segment_argument)
-        if not isinstance(target, list):
-            raise ValueError(
-                f"The 'last_segment' continuity carries a video reference, so "
-                f"'{segment_argument}' must be a references list, not a "
-                f"{type(target).__name__}"
-            )
-        arguments[segment_argument] = _with_carry_video(target, carry)
-
-
-class GuideContinuity:
-    """Lay the previous segment's tail into the next as a frame-0 H3 guide.
-
-    The next segment renders its first guide_frames frames over the carried
-    ones and goes on from there, so motion, camera and (with carry_audio, the
-    held soundtrack) voice continue through the seam; those frames are the
-    previous segment's again, and are trimmed at assembly. On fl2va the
-    keyframe is the guide's first frame - the previous segment's frame
-    -guide_frames - so the keyframe and the guide agree.
-    """
-
-    def __init__(self, config):
-        self.config = config
-
-    def extract(self, artifact):
-        count = self.config.guide_frames
-        # With backoff the held span ends one block early; the segment's tail
-        # past it is dropped at assembly, so the join lands inside the copy
-        back = self.config.guide_backoff
-        all_frames = frames_as_pil_list(artifact)
-        end = len(all_frames) - back
-        if end < count:
-            raise ValueError(
-                f"A guide chain with guide_backoff {back} needs segments of at "
-                f"least {count + back} frames, and this one made {len(all_frames)}"
-            )
-        frames = all_frames[end - count : end]
-        if not self.config.carry_audio:
-            return _SegmentCarry(frames, None, None)
-
-        audio, sample_rate = _generated_audio(artifact)
-        if audio is None:
-            raise ValueError(
-                "A guide chain with carry_audio holds the previous segment's "
-                "audio, and this segment generated none - set carry_audio false"
-            )
-        if self.config.fps is None:
-            raise ValueError(
-                "Holding a guide chain's audio needs the frame rate - set 'fps' "
-                "on the chain or a 'frame_rate' pipeline argument"
-            )
-        samples = frames_to_samples(count, self.config.fps, sample_rate)
-        stop = audio.shape[1] - frames_to_samples(back, self.config.fps, sample_rate)
-        return _SegmentCarry(
-            frames, audio[:, max(stop - samples, 0) : stop], sample_rate
-        )
-
-    def inject(self, arguments, carry, segment_argument, keystone=None):
-        if carry.latents is not None:
-            # The experimental latent carry (#1150): the tail's own latents
-            # stand in for encoding its frames and audio; the frames stay for
-            # the length check and the keyframe below
-            guide = {"video": carry.frames, "frame": 0, "latents": carry.latents}
-            if carry.audio_latents is not None:
-                guide["audio_latents"] = carry.audio_latents
-            self._lay_in(arguments, guide, carry, segment_argument, keystone)
-            return
-        if carry.audio is not None:
-            video = AudioVideo(
-                carry.frames,
-                torch.from_numpy(numpy.ascontiguousarray(carry.audio)),
-                carry.sample_rate,
-                fps=self.config.fps,
-            )
-        else:
-            video = carry.frames
-        guide = {"video": video, "frame": 0, "audio": carry.audio is not None}
-        self._lay_in(arguments, guide, carry, segment_argument, keystone)
-
-    @staticmethod
-    def _lay_in(arguments, guide, carry, segment_argument, keystone):
-        # A copy: iteration arguments share nested values
-        arguments[GUIDES_INPUT] = list(arguments.get(GUIDES_INPUT) or []) + [guide]
-        # fl2va's keyframe - t2va passes none, and gets none
-        if arguments.get(segment_argument) is not None:
-            # A keystone (#1187) is segment 1's frame 0 in place of the guide's
-            arguments[segment_argument] = (
-                keystone if keystone is not None else carry.frames[0]
-            )
-
-
-# The names are h3_rules.CHAIN_CONTINUITY_MODES, which validation reads too;
-# strict, so a class added here without its name there fails at import
-CONTINUITY_MODES = dict(
-    zip(
-        CHAIN_CONTINUITY_MODES,
-        (LastFrameContinuity, LastSegmentContinuity, GuideContinuity),
-        strict=True,
-    )
-)
-
-
-@dataclass
-class _SegmentCarry:
-    """The part of a finished segment a last_segment or guide chain
-    conditions on."""
-
-    frames: list
-    audio: object  # (channels, samples) numpy, or None
-    sample_rate: int
-    # The experimental latent carry (#1150): the frames' own latents and
-    # audio latents rows, or None (h3_guides.latent_guide_tail)
-    latents: object = None
-    audio_latents: object = None
-
-
-@dataclass
-class Segment:
-    """One planned pipeline invocation of a chain."""
-
-    index: int
-    num_frames: int  # frames this segment generates; None - use the step's own
-    audio_start_frame: int  # generation-timeline frame its audio slice starts at
-    head_trim: int  # frames dropped from its head on the output timeline
 
 
 def run_chain(pipeline, chain_definition, arguments):
@@ -335,9 +112,7 @@ def run_chain(pipeline, chain_definition, arguments):
     # finished segments behind as playable files
     spill = SegmentSpill(pipeline, config) if config.save_segments else None
 
-    frames = []  # PIL frames on the output timeline (unspilled chains)
-    audio = None  # joined generated audio, (channels, samples) float32
-    audio_rate = None
+    timeline = _Timeline()
     carry = None
     # The corrected frames' look-hold state, and the last carry before any
     # pre-compensation (what a later segment's opening is graded to)
@@ -352,11 +127,6 @@ def run_chain(pipeline, chain_definition, arguments):
     keystone_frame = None
     # Segment 1's capstone frame, under the experimental capstone (#1187)
     capstone_frame = None
-    # One shot per segment, measured as the picture and track grow (#378);
-    # the frames are counted rather than read off `frames`, which a spilled
-    # chain never fills
-    shots = []
-    frame_count = 0
 
     # The step's seed, which a re-roll offsets (chain_check.reroll_seed); the
     # previous segment's kept frames, which a check measures the seam
@@ -409,65 +179,13 @@ def run_chain(pipeline, chain_definition, arguments):
                 previous_kept = attempt.kept
                 if segment.index == 0:
                     segment_1_texture = texture_samples(attempt.kept)
-            segment_audio, segment_rate = attempt.audio, attempt.rate
-
-            tail_trim = attempt.tail_trim
-            if config.carry_pick and segment.index < len(config.plan) - 1:
-                emit_log(
-                    f"Chain seam {segment.index + 1}/{len(config.plan) - 1}: "
-                    f"carry_pick took frame {len(attempt.rendered) - tail_trim} of "
-                    f"{len(attempt.rendered)} (sharpest of the last "
-                    f"{config.carry_pick}), dropping {tail_trim} after it"
-                )
-
-            kept_frames = attempt.kept
-            start_sample = audio.shape[1] if audio is not None else 0
-            shots.append(
-                shot_record(
-                    f"segment {segment.index + 1}",
-                    frame_count,
-                    len(kept_frames),
-                    start_sample,
-                )
-            )
-            if config.check is not None:
-                _record_check(shots[-1], segment, config, checked)
-            frame_count += len(kept_frames)
-            if spill is not None:
-                spill.write(
-                    kept_frames,
-                    _on_timeline_audio(segment_audio, segment, config, segment_rate),
-                    segment_rate,
-                )
-                if config.keep_segments:
-                    # The file as written ('-2' deduped on a rerun), which is
-                    # how repair-segment finds a take's own files (#1169)
-                    shots[-1]["segment_file"] = os.path.basename(spill.paths[-1])
-            else:
-                frames.extend(kept_frames)
-
-            if config.source_audio is None and segment_audio is not None:
-                applied = {}
-                audio, audio_rate = _joined_audio(
-                    audio,
-                    audio_rate,
-                    segment_audio,
-                    segment_rate,
-                    segment,
-                    config,
-                    applied,
-                )
-                if segment.index > 0:
-                    _record_seam(shots[-1], segment, config, applied)
-
-            shots[-1]["num_samples"] = (
-                audio.shape[1] if audio is not None else 0
-            ) - start_sample
+            _log_carry_pick(config, segment, attempt)
+            _lay_down(timeline, config, segment, attempt, checked, spill)
 
             # The segment's raw output is finished with - the frames live on
             # (in RAM or on disk) and the carry frame is extracted. Free it
             # before the next segment needs the accelerator.
-            del attempt, segment_audio, kept_frames
+            del attempt
             gc.collect()
             empty_device_cache()
     finally:
@@ -476,7 +194,89 @@ def run_chain(pipeline, chain_definition, arguments):
         pipeline.segment_label = None
         pipeline.latent_anchor_source = None
 
-    return _stitched(config, spill, frames, audio, audio_rate, shots)
+    return _stitched(
+        config,
+        spill,
+        timeline.frames,
+        timeline.audio,
+        timeline.audio_rate,
+        timeline.shots,
+    )
+
+
+@dataclass
+class _Timeline:
+    """The chain's output as it grows: the frames on the output timeline
+    (an unspilled chain's), the joined generated audio, (channels, samples)
+    float32, and its rate, and one shot per segment, measured as the picture
+    and track grow (#378). The frames are counted rather than read off
+    `frames`, which a spilled chain never fills."""
+
+    frames: list = field(default_factory=list)
+    audio: object = None
+    audio_rate: int = None
+    shots: list = field(default_factory=list)
+    frame_count: int = 0
+
+
+def _log_carry_pick(config, segment, attempt):
+    """Say in the job log which frame carry_pick took at a seam."""
+    tail_trim = attempt.tail_trim
+    if config.carry_pick and segment.index < len(config.plan) - 1:
+        emit_log(
+            f"Chain seam {segment.index + 1}/{len(config.plan) - 1}: "
+            f"carry_pick took frame {len(attempt.rendered) - tail_trim} of "
+            f"{len(attempt.rendered)} (sharpest of the last "
+            f"{config.carry_pick}), dropping {tail_trim} after it"
+        )
+
+
+def _lay_down(timeline, config, segment, attempt, checked, spill):
+    """Commit a kept attempt to the timeline: its shot, its frames (to the
+    spill when there is one) and its generated audio, joined on the seam."""
+    kept_frames = attempt.kept
+    segment_audio, segment_rate = attempt.audio, attempt.rate
+    audio = timeline.audio
+    start_sample = audio.shape[1] if audio is not None else 0
+    shot = shot_record(
+        f"segment {segment.index + 1}",
+        timeline.frame_count,
+        len(kept_frames),
+        start_sample,
+    )
+    timeline.shots.append(shot)
+    if config.check is not None:
+        _record_check(shot, segment, config, checked)
+    timeline.frame_count += len(kept_frames)
+    if spill is not None:
+        spill.write(
+            kept_frames,
+            _on_timeline_audio(segment_audio, segment, config, segment_rate),
+            segment_rate,
+        )
+        if config.keep_segments:
+            # The file as written ('-2' deduped on a rerun), which is how
+            # repair-segment finds a take's own files (#1169)
+            shot["segment_file"] = os.path.basename(spill.paths[-1])
+    else:
+        timeline.frames.extend(kept_frames)
+
+    if config.source_audio is None and segment_audio is not None:
+        applied = {}
+        timeline.audio, timeline.audio_rate = _joined_audio(
+            audio,
+            timeline.audio_rate,
+            segment_audio,
+            segment_rate,
+            segment,
+            config,
+            applied,
+        )
+        if segment.index > 0:
+            _record_seam(shot, segment, config, applied)
+
+    audio = timeline.audio
+    shot["num_samples"] = (audio.shape[1] if audio is not None else 0) - start_sample
 
 
 @dataclass
@@ -966,442 +766,6 @@ def _trimmed_shots(shots, total_frames, total_samples=None):
     return trimmed
 
 
-def _argument(arguments, name):
-    """`arguments[name]` when the step's arguments are a dict, else None."""
-    return arguments.get(name) if isinstance(arguments, dict) else None
-
-
-def _raise_chain_problem(problem):
-    """Refuse a chain setting on its one problem, if it has one."""
-    if problem:
-        raise ValueError(f"Chain {problem}")
-
-
-def _raise_chain_problems(problems):
-    """Refuse a chain setting on all its (field, message) problems at once."""
-    if problems:
-        raise ValueError("; ".join(f"Chain {message}" for _, message in problems))
-
-
-def _chain_length(chain_definition):
-    """(segments, match_audio, duration_seconds), refused unless the chain
-    asks for its length exactly one way."""
-    segments = chain_definition.get("segments", None)
-    match_audio = bool(chain_definition.get("match_audio", False))
-    duration = chain_definition.get("duration_seconds", None)
-    # A resolved duration wins over a segment count: a template carries a
-    # default `segments`, and asking for seconds must not need it nulled
-    counted = segments is not None or duration is not None
-    if counted == match_audio:
-        raise ValueError(
-            "A chain needs exactly one of 'segments', 'match_audio' or "
-            "'duration_seconds'"
-        )
-    if segments is not None and duration is not None:
-        emit_log(
-            f"Chain 'segments' ({segments}) ignored: 'duration_seconds' "
-            f"({float(duration):g}) sets the segment count"
-        )
-    return segments, match_audio, duration
-
-
-class ChainConfig:
-    """Validated chain settings plus the planned segments for one run."""
-
-    def __init__(
-        self, chain_definition, arguments, resolved_prompts=None, base_dir=None
-    ):
-        segments, match_audio, duration = _chain_length(chain_definition)
-        self._read_continuity(chain_definition)
-        self._read_experiments(chain_definition, arguments)
-        self._read_carry(chain_definition)
-        head_trim = self._read_guide(chain_definition)
-        self.head_trim = head_trim
-        self.prompts = resolved_prompts or chain_definition.get("prompts", None)
-        self.fps = _resolve_fps(chain_definition, arguments)
-        self.frame_snap = chain_definition.get("frame_snap", None)
-        self.save_segments = bool(chain_definition.get("save_segments", False))
-        self.keep_segments = bool(chain_definition.get("keep_segments", False))
-
-        self.source_audio = None
-        self.source_rate = None
-        self.audio_reference = None
-        self.holds_audio = False
-        self.total_frames = None
-        self.duration_seconds = float(duration) if duration is not None else None
-
-        if match_audio:
-            self._plan_from_audio(arguments, base_dir)
-        elif duration is not None:
-            self.total_frames, self.plan = _duration_plan(chain_definition, arguments)
-            logger.info(
-                f"Chaining to {float(duration):g}s: {self.total_frames} frames "
-                f"across {len(self.plan)} segments"
-            )
-        else:
-            self._plan_from_segments(segments, arguments, head_trim)
-
-    def _read_continuity(self, chain_definition):
-        self.continuity = chain_definition.get("continuity", "last_frame")
-        if self.continuity not in CONTINUITY_MODES:
-            known = ", ".join(sorted(CONTINUITY_MODES))
-            raise ValueError(
-                f"Unknown chain continuity '{self.continuity}' - expected one of {known}"
-            )
-
-    def _read_experiments(self, chain_definition, arguments):
-        """The anchor, keystone, capstone, latent carry, carry pick, look hold
-        and per-segment check, each refused on its first problem, in order."""
-        # Segment 1 as every later segment's latent statistics anchor (#1166)
-        _raise_chain_problem(chain_anchor_problem(chain_definition))
-        self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
-        # How far each later segment's match goes (#1190); None is the full one
-        self.anchor_strength = chain_definition.get("anchor_strength")
-        if self.anchor_strength is not None:
-            _raise_chain_problem(anchor_strength_problem(self.anchor_strength))
-            self.anchor_strength = float(self.anchor_strength)
-
-        # Segment 1's frame 0 as every later keyframe (#1187)
-        _raise_chain_problem(chain_keystone_problem(chain_definition))
-        self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
-        # Where the keystone sits in each later segment, a spike
-        _raise_chain_problem(
-            chain_keystone_slot_problem(
-                chain_definition,
-                _argument(arguments, "num_frames"),
-                arguments if isinstance(arguments, dict) else None,
-            )
-        )
-        self.keystone_slot = chain_keystone_slot(chain_definition)
-
-        # Segment 1's late frame past every later segment's end (#1187), a spike
-        _raise_chain_problem(chain_capstone_problem(chain_definition))
-        capstone = chain_definition.get(CHAIN_CAPSTONE)
-        self.capstone = capstone and {
-            "enter_below_sigma": float(capstone["enter_below_sigma"]),
-            "from_end": int(capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)),
-        }
-
-        # The previous segment's own latents as its guide (#1150), a spike
-        _raise_chain_problem(
-            chain_latent_carry_problem(
-                chain_definition,
-                _argument(arguments, GUIDE_NOISE_INPUT),
-                _argument(arguments, HOLD_AUDIO_INPUT),
-            )
-        )
-        self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
-
-        # The sharpest of the last N frames as the keyframe (#1032)
-        _raise_chain_problem(
-            chain_carry_pick_problem(
-                chain_definition, _argument(arguments, "num_frames")
-            )
-        )
-        pick = chain_definition.get("carry_pick")
-        self.carry_pick = int(pick["sharpest"]) if pick else 0
-
-        # Pixel corrections on each segment before its carry (#1191)
-        _raise_chain_problem(chain_look_hold_problem(chain_definition))
-        self.look_hold = chain_look_hold_flags(chain_definition)
-
-        # The per-segment check and its re-roll budget; absent is off and 0
-        _raise_chain_problem(chain_check_problem(chain_definition))
-        self.check = segment_check(chain_definition.get("check"))
-        self.retries = int(chain_definition.get("retries", 0)) if self.check else 0
-
-    def _read_carry(self, chain_definition):
-        self.segment_argument = chain_definition.get("segment_argument", "image")
-        self.carry_frames = chain_definition.get("carry_frames", None)
-        if self.carry_frames is not None:
-            self.carry_frames = int(self.carry_frames)
-            if self.carry_frames < 1:
-                raise ValueError(
-                    f"Chain 'carry_frames' must be at least 1, got {self.carry_frames}"
-                )
-        self.carry_audio = bool(chain_definition.get("carry_audio", True))
-        self.trim_frames = int(chain_definition.get("trim_frames", 1))
-        self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
-
-    def _read_guide(self, chain_definition):
-        """The guide chain's settings; returns the head trim every later
-        segment drops - the guide it laid in, or trim_frames off a guide."""
-        # A guide chain trims the guide it laid in, not trim_frames, and a
-        # held soundtrack has nothing to crossfade
-        self.guide_frames = None
-        self.guide_holds_audio = False
-        # Frames dropped from the tail of every segment but the last (#1189)
-        self.guide_backoff = 0
-        self.tail_trim = 0
-        _raise_chain_problems(guide_backoff_problems(chain_definition))
-        if self.continuity != GUIDE_CONTINUITY:
-            return self.trim_frames
-        _raise_chain_problems(guide_chain_problems(chain_definition))
-        self.guide_frames = chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT)
-        self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
-        self.tail_trim = self.guide_backoff
-        if self.carry_audio:
-            self.guide_holds_audio = True
-            self.crossfade_ms = 0.0
-        return self.guide_frames
-
-    def _plan_from_segments(self, segments, arguments, head_trim):
-        """The plan for a chain asked for by its segment count."""
-        segments = int(segments)
-        if not 1 <= segments <= MAX_SEGMENTS:
-            raise ValueError(
-                f"Chain 'segments' must be between 1 and {MAX_SEGMENTS}, got {segments}"
-            )
-        num_frames = arguments.get("num_frames", None)
-        if num_frames is not None:
-            validate_frame_snap(int(num_frames), self.frame_snap)
-            if (
-                self.guide_frames is not None
-                and int(num_frames) <= head_trim + self.tail_trim
-            ):
-                raise ValueError(
-                    f"Segments of {num_frames} frames cannot progress past "
-                    f"a {head_trim}-frame guide"
-                    + (
-                        f" and a {self.tail_trim}-frame back-off"
-                        if self.tail_trim
-                        else ""
-                    )
-                )
-        self.plan = [
-            Segment(
-                index,
-                int(num_frames) if num_frames is not None else None,
-                0,
-                head_trim if index > 0 else 0,
-            )
-            for index in range(segments)
-        ]
-
-    def _plan_from_audio(self, arguments, base_dir=None):
-        """Derive the segment plan from the matched track's duration - the
-        step's `hold_audio` when it names one, else its audio reference."""
-        if self.fps is None:
-            raise ValueError(
-                "A match_audio chain needs the frame rate - set 'fps' on the "
-                "chain or a 'frame_rate' pipeline argument"
-            )
-
-        num_frames = arguments.get("num_frames", None)
-        if num_frames is None:
-            raise ValueError(
-                "A match_audio chain needs 'num_frames' in the step's arguments "
-                "as the per-segment length"
-            )
-
-        held = arguments.get(HOLD_AUDIO_INPUT)
-        if held is not None:
-            # Read once here, sliced per segment - each slice is a reference
-            # already built, which the segment's own hold takes as it is
-            reference = hold_audio_reference(held, base_dir)
-            self.holds_audio = True
-        else:
-            reference = _find_audio_reference(arguments)
-        self.audio_reference = reference
-        self.source_audio = as_channels_samples(reference.audio)
-        self.source_rate = reference.sample_rate
-        if self.source_rate is None:
-            raise ValueError("The chain's matched audio has no sample rate")
-
-        total_samples = self.source_audio.shape[1]
-        self.total_frames = max(1, round(total_samples / self.source_rate * self.fps))
-        self.plan = plan_segments(
-            self.total_frames, int(num_frames), self.head_trim, self.frame_snap
-        )
-        duration = total_samples / self.source_rate
-        logger.info(
-            f"Chaining to match {duration:.2f}s of audio: {self.total_frames} "
-            f"frames across {len(self.plan)} segments"
-        )
-
-
-def _head_trim(chain_definition):
-    """Head frames each segment after the first drops: the guide a `guide`
-    chain laid in, else `trim_frames`."""
-    if chain_definition.get("continuity", "last_frame") == GUIDE_CONTINUITY:
-        return int(chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT))
-    return int(chain_definition.get("trim_frames", 1))
-
-
-def _duration_plan(chain_definition, arguments):
-    """(total_frames, plan) for a `duration_seconds` chain - the same plan a
-    `match_audio` chain makes from a track, from the asked length instead."""
-    duration = float(chain_definition["duration_seconds"])
-    if not math.isfinite(duration) or duration <= 0:
-        raise ValueError(
-            f"Chain 'duration_seconds' must be greater than 0, got {duration:g}"
-        )
-    fps = _resolve_fps(chain_definition, arguments)
-    if fps is None:
-        raise ValueError(
-            "A duration_seconds chain needs the frame rate - set 'fps' on the "
-            "chain or a 'frame_rate' pipeline argument"
-        )
-    num_frames = arguments.get("num_frames", None)
-    if num_frames is None:
-        raise ValueError(
-            "A duration_seconds chain needs 'num_frames' in the step's arguments "
-            "as the per-segment length"
-        )
-    total_frames = max(1, round(duration * fps))
-    plan = plan_segments(
-        total_frames,
-        int(num_frames),
-        _head_trim(chain_definition),
-        chain_definition.get("frame_snap", None),
-    )
-    return total_frames, plan
-
-
-def chain_segment_count(chain_definition, arguments):
-    """How many segments a chain block runs, or None when it cannot be told
-    from the block and the step's arguments alone (`match_audio`, an
-    unresolved reference, or a missing frame rate or `num_frames`). A
-    `duration_seconds` wins over `segments`. Pure: the run's `ChainConfig`
-    and the cost estimate both ask it."""
-    segments = chain_definition.get("segments", None)
-    duration = chain_definition.get("duration_seconds", None)
-    if chain_definition.get("match_audio") or (segments is None and duration is None):
-        return None
-    try:
-        if duration is None:
-            return int(segments)
-        frame_snap = chain_definition.get("frame_snap", None)
-        definition = {**chain_definition}
-        if not isinstance(frame_snap, dict):
-            definition.pop("frame_snap", None)
-        return len(_duration_plan(definition, arguments)[1])
-    except (TypeError, ValueError):
-        return None
-
-
-def plan_segments(total_frames, segment_frames, trim_frames, frame_snap=None):
-    """Plan the segments that cover a total frame count.
-
-    Every segment generates segment_frames frames except possibly the last,
-    which shrinks to what remains - snapped up to a count the pipeline accepts.
-    Each segment after the first has trim_frames dropped from its head, so it
-    contributes segment_frames - trim_frames new frames to the output.
-
-    Args:
-        total_frames: Frames the stitched output must cover
-        segment_frames: Frames a full segment generates
-        trim_frames: Head frames dropped from every segment after the first
-        frame_snap: Optional dict with modulus/remainder and min/max_frames
-            describing the counts the pipeline accepts
-
-    Returns:
-        List of Segment
-    """
-    if segment_frames <= trim_frames:
-        raise ValueError(
-            f"Segments of {segment_frames} frames cannot progress past a head "
-            f"trim of {trim_frames} frames"
-        )
-    validate_frame_snap(segment_frames, frame_snap)
-
-    plan = []
-    covered = 0
-    while covered < total_frames:
-        if len(plan) >= MAX_SEGMENTS:
-            raise ValueError(f"Chain would exceed {MAX_SEGMENTS} segments")
-
-        head_trim = trim_frames if plan else 0
-        needed = (total_frames - covered) + head_trim
-        if needed >= segment_frames:
-            num_frames = segment_frames
-        else:
-            # The last segment generates only what remains, snapped up to a
-            # count the pipeline accepts; the overshoot is trimmed at the end
-            num_frames = snap_frames(needed, frame_snap)
-
-        plan.append(Segment(len(plan), num_frames, covered - head_trim, head_trim))
-        covered += num_frames - head_trim
-
-    return plan
-
-
-def snap_frames(count, frame_snap):
-    """The smallest frame count the pipeline accepts that covers count."""
-    if not frame_snap:
-        return count
-
-    modulus = frame_snap["modulus"]
-    remainder = frame_snap["remainder"]
-    target = max(count, frame_snap.get("min_frames", 1))
-
-    steps = max(0, math.ceil((target - remainder) / modulus))
-    snapped = steps * modulus + remainder
-    while snapped < target:
-        snapped += modulus
-
-    max_frames = frame_snap.get("max_frames", None)
-    if max_frames is not None and snapped > max_frames:
-        raise ValueError(
-            f"Cannot snap {count} frames into the pipeline's accepted range - "
-            f"the next valid count {snapped} exceeds max_frames {max_frames}"
-        )
-    return snapped
-
-
-def validate_frame_snap(num_frames, frame_snap):
-    """Check a configured num_frames against the pipeline's constraint."""
-    if not frame_snap:
-        return
-
-    modulus = frame_snap["modulus"]
-    remainder = frame_snap["remainder"]
-    problems = []
-    if (num_frames - remainder) % modulus != 0:
-        problems.append(f"counts must be {modulus}*n+{remainder}")
-    min_frames = frame_snap.get("min_frames", None)
-    if min_frames is not None and num_frames < min_frames:
-        problems.append(f"at least {min_frames}")
-    max_frames = frame_snap.get("max_frames", None)
-    if max_frames is not None and num_frames > max_frames:
-        problems.append(f"at most {max_frames}")
-
-    if problems:
-        raise ValueError(
-            f"num_frames {num_frames} does not satisfy the pipeline's frame "
-            f"constraint: {'; '.join(problems)}"
-        )
-
-
-def _resolve_fps(chain_definition, arguments):
-    """The frame rate used for audio math - explicit, or the pipeline's own."""
-    fps = chain_definition.get("fps", arguments.get("frame_rate", None))
-    return float(fps) if fps is not None else None
-
-
-def _find_audio_reference(arguments):
-    """The single audio reference a match_audio chain with no `hold_audio`
-    slices per segment."""
-    references = arguments.get("references", None)
-    if not isinstance(references, list):
-        raise ValueError(
-            "A match_audio chain needs a 'hold_audio' track, or a 'references' "
-            "argument holding the audio reference to match"
-        )
-
-    audio_references = [
-        reference
-        for reference in references
-        if getattr(reference, "kind", None) == "audio"
-    ]
-    if len(audio_references) != 1:
-        raise ValueError(
-            f"A match_audio chain needs exactly one audio reference, "
-            f"found {len(audio_references)}"
-        )
-    return audio_references[0]
-
-
 def _audio_slice(config, segment):
     """The segment's piece of the matched track, as a new reference of the
     matched one's type - the original is never touched."""
@@ -1424,66 +788,6 @@ def _sliced_references(config, segment, references):
         sliced if reference is config.audio_reference else reference
         for reference in references
     ]
-
-
-def _with_carry_reference(references, carry):
-    """A copy of a references list with the carry frame appended as an image
-    reference of the same type the workflow already uses."""
-    image_reference = next(
-        (
-            reference
-            for reference in references
-            if getattr(reference, "kind", None) == "image"
-        ),
-        None,
-    )
-    if image_reference is None:
-        raise ValueError(
-            "Cannot carry a frame into a references list that has no image "
-            "reference to model the new one on"
-        )
-    return list(references) + [type(image_reference)(image=carry)]
-
-
-def _with_carry_video(references, carry):
-    """A copy of a references list with the carry segment appended as a video
-    reference of the same family the workflow already uses."""
-    reference_type = _video_reference_type(references)
-    arguments = {"frames": carry.frames}
-    if carry.audio is not None:
-        arguments["audio"] = torch.from_numpy(carry.audio)
-        arguments["sample_rate"] = carry.sample_rate
-    return list(references) + [reference_type(**arguments)]
-
-
-def _video_reference_type(references):
-    """The video reference class of the family the workflow's references come from.
-
-    A workflow that already passes a video reference names the class outright.
-    Otherwise it is the video-kind class living beside the references it does
-    pass - the chain never imports a pipeline's reference types itself, the way
-    _with_carry_reference models its carry on the list it was given.
-    """
-    if not references:
-        raise ValueError(
-            "Cannot carry a segment into an empty references list - a "
-            "last_segment chain needs the workflow's own references to model "
-            "the carry on"
-        )
-
-    for reference in references:
-        if getattr(reference, "kind", None) == "video":
-            return type(reference)
-
-    module = sys.modules.get(type(references[0]).__module__, None)
-    for candidate in vars(module).values() if module else ():
-        if isinstance(candidate, type) and getattr(candidate, "kind", None) == "video":
-            return candidate
-
-    raise ValueError(
-        f"Cannot carry a segment as a video reference - no video reference type "
-        f"found alongside {type(references[0]).__name__}"
-    )
 
 
 def _single_artifact(output):
@@ -1512,13 +816,6 @@ def _is_video_artifact(artifact):
     if isinstance(artifact, list) and artifact:
         return not isinstance(artifact[0], str)
     return hasattr(artifact, "ndim") and artifact.ndim >= 3
-
-
-def _generated_audio(artifact):
-    """The audio generated with a segment, as (channels, samples) numpy."""
-    if isinstance(artifact, AudioVideo) and artifact.audio is not None:
-        return as_channels_samples(artifact.audio), artifact.sample_rate
-    return None, None
 
 
 def _on_timeline_audio(segment_audio, segment, config, segment_rate):

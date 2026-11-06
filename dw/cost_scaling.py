@@ -269,7 +269,7 @@ def _chain_blocks(node):
 def _chain_segments(definition, variables):
     """The segments the workflow's chain runs at `variables`, or None when
     there is no single chain or its count cannot be told."""
-    from .pipeline_processors.chain import chain_segment_count
+    from .pipeline_processors.chain_config import chain_segment_count
 
     blocks = list(_chain_blocks(definition.get("steps")))
     if len(blocks) != 1:

@@ -2,7 +2,7 @@
 per-segment check with its bounded re-roll (dw/pipeline_processors/chain_check.py).
 
 Torch-free, so validation (dw/guides.py) reads them without loading a model,
-and the run (`ChainConfig` in dw/pipeline_processors/chain.py) asks the same
+and the run (`ChainConfig` in dw/pipeline_processors/chain_config.py) asks the same
 rules. Moved out of dw/pipeline_processors/h3_rules.py, which holds H3's own
 rules, when that module reached the size ceiling (#1192).
 """

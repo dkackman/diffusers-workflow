@@ -3,11 +3,8 @@
 import pytest
 
 from dw.cost_scaling import _driver_scaling
-from dw.pipeline_processors.chain import (
-    ChainConfig,
-    chain_segment_count,
-    run_chain,
-)
+from dw.pipeline_processors.chain import ChainConfig, run_chain
+from dw.pipeline_processors.chain_config import chain_segment_count
 from dw.task_domains import frames_to_samples
 
 from tests.test_chain import MINIMAX_SNAP, FakePipeline, modular_output
@@ -210,7 +207,7 @@ def test_a_template_estimate_scales_by_the_implied_segment_count(family):
 
 
 def test_duration_overrides_the_templates_default_segments(monkeypatch):
-    from dw.pipeline_processors import chain as chain_module
+    from dw.pipeline_processors import chain_config as chain_module
 
     logged = []
     monkeypatch.setattr(

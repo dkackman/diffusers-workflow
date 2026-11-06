@@ -199,7 +199,7 @@ class TestThroughTheWorkflow:
 
 
 class TestOwnGuidesPlusTheChain:
-    """The chain adds a guide of its own at frame 0 (chain.py GuideContinuity),
+    """The chain adds a guide of its own at frame 0 (chain_continuity.py GuideContinuity),
     so a step's written guides have one fewer slot than GUIDE_LIMIT."""
 
     @staticmethod
