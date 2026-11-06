@@ -174,3 +174,41 @@ Contact sheets at 0.5, 4.9, 5.2, 9.9, 10.2 and 14.9 s (the seams sit at
   sea; by 30 s they cross the whole frame. The rider changes: seed 1166's
   loses the black helmet and the box changes shape; look_hold 36 s swaps him
   for a man in a hat on a green moped at 29.8 s.
+
+## Second reading: S5's own seed floor (2026-11-06)
+
+The verdicts above use the bench-wide floor (S1-S3 seed floors and the lem
+rerun gap). The counter round's rule is the scene's own floor,
+`combined_floor(noise_floor(control@1166, control@2), rerun_gap)`, picture
+measures only. On mini-ai that is, for S5 at 15 s (rerun gap 0, bit-identical
+rerun):
+
+| jump | jump max | look | look max | tex fine | tex mid | tex coarse |
+|---|---|---|---|---|---|---|
+| 0.045 | 0.190 | 0.045 | 0.160 | 0.396 | 0.511 | 0.440 |
+
+and for the 36 s pair: jump 0.066, jump max 0.160, look 0.024, look max 0.200,
+fine 0.752, mid 1.429, coarse 1.509.
+
+Under it (primaries seam jump mean and seam look mean, as for S2):
+
+| arm | seed 1166 | seed 2 |
+|---|---|---|
+| look_hold | wins both, nothing worse | wins both, nothing worse |
+| extend | jump mixed, look loses (look mean and max worse) | mixed (look max 1.92 vs 1.72) |
+| carry_pick 4 | wins both | jump loses (mean and max) |
+| check r1 | tie (bit-identical) | tie (bit-identical) |
+| look_hold 36 s | mixed: look max 2.84 vs 1.92, the moped swap seam | - |
+
+So look_hold passes the strict rule on both seeds under the scene floor; the
+seed-2 fine-texture "mixed" above comes from S1's 0.081 floor on a crop that
+is sky (`noise-floor.md`: S5's fine band is a weak signal). The two-seed
+floor is thin (seam look 0.045). Nothing else changes: extend and carry_pick
+still fail on picture by eye, and the gain is still not visible at 15 s.
+
+A ready change for Don's yes: `ltx2/chained-segments` gains a `look_hold`
+variable (default true) wired to `chain.look_hold`, with two tests in
+`tests/test_catalog_structure.py` (`..._holds_the_look_by_default`,
+`..._look_hold_false_is_the_plain_chain`); the full suite passed with it
+(the one failure, minimax/chained-segments' description check, is from
+uncommitted skill edits in the working tree, not from this change).
