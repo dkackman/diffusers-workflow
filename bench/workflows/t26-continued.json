@@ -1,0 +1,532 @@
+{
+  "id": "BenchT26Continued",
+  "summary": "A two-segment Ref2VA take: segment 2 with and without the portrait, for #1193.",
+  "description": "Task 26 (#1193) claim 4: on a continued shot, leave the portrait out when the carried tail already shows the person. templates/minimax/chain-video-continuity cannot drop a reference after segment 1 (its references are the same on every segment), so this builds its seam by hand from the same ref2va step: segment 1 from the portrait, its last 48 frames (the template's carry_frames) (frames and audio, trim_video) as a video reference, and segment 2 twice at the same seed - 'seg2_portrait' with the portrait and the tail (the template's behaviour), 'seg2_carry_only' with the tail alone. analyze_face_drift scores each segment against the portrait. No audio reference: the claim is about the picture.",
+  "variables": {
+    "seg1_prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> walking alone toward the camera down a quiet cobblestone street at golden hour.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, newly animated to walk.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium shot at eye level frames <Subject 1> from the knees up, centred, as she walks slowly toward the camera down an empty cobblestone street lined with pale shopfronts, her hands in her coat pockets, glancing up at the street lamps as she goes. Low golden sunlight comes from behind her and rims her hair. The camera tracks backward at her pace, keeping her the same size in frame, as one continuous take.\n\noverall_soundscape:\nHer footsteps on the cobblestones, a light breeze, faint distant street ambience.\n\nnon_diegetic_music:\nNone.",
+    "seg2_portrait_prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n<Video 1> is the preceding part of this same take, ending on <Subject 1> mid-stride.\n\nsummary:\n[video continuation + reference generation] The target video continues an unbroken take of <Subject 1> walking alone toward the camera down the cobblestone street, picking up from the state, framing and motion of <Video 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, continuing to walk.\n<Video 1>: reference - the framing, camera motion, lighting and her position and stride continue from its last frame.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium shot at eye level frames <Subject 1> from the knees up, centred, as she keeps walking slowly toward the camera down the empty cobblestone street, her hands in her coat pockets, glancing up at the street lamps as she goes. Low golden sunlight comes from behind her and rims her hair. The camera keeps tracking backward at her pace, and the take continues without a break from <Video 1>.\n\noverall_soundscape:\nHer footsteps on the cobblestones, a light breeze, faint distant street ambience.\n\nnon_diegetic_music:\nNone.",
+    "seg2_carry_prompt": "subject_definitions:\n<Subject 1> is the woman in <Video 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n<Video 1> is the preceding part of this same take, ending on <Subject 1> mid-stride.\n\nsummary:\n[video continuation] The target video continues an unbroken take of <Subject 1> walking alone toward the camera down the cobblestone street, picking up from the state, framing and motion of <Video 1>.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions as <Video 1> shows them are kept, continuing to walk.\n<Video 1>: reference - the framing, camera motion, lighting and her position and stride continue from its last frame.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A medium shot at eye level frames <Subject 1> from the knees up, centred, as she keeps walking slowly toward the camera down the empty cobblestone street, her hands in her coat pockets, glancing up at the street lamps as she goes. Low golden sunlight comes from behind her and rims her hair. The camera keeps tracking backward at her pace, and the take continues without a break from <Video 1>.\n\noverall_soundscape:\nHer footsteps on the cobblestones, a light breeze, faint distant street ambience.\n\nnon_diegetic_music:\nNone.",
+    "picture": "asset:bench/walker.png",
+    "num_frames": 124,
+    "width": 960,
+    "height": 544,
+    "num_inference_steps": 9,
+    "video_shift": 12.0,
+    "audio_shift": 3.0,
+    "lora_scale": 1.0,
+    "lora_alpha": null,
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+    "lora_adapter_name": "turbo",
+    "weights_dtype": "{int4}",
+    "attention_backend": "sparse",
+    "sparse_tau": 0.5,
+    "sparse_topk": 0.15,
+    "cache": null,
+    "seed": 1001
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "seg1",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:seg1_prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:picture"
+            }
+          ],
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "seg1"
+      }
+    },
+    {
+      "name": "carry",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg1",
+          "start_frame": 76,
+          "num_frames": 48
+        }
+      }
+    },
+    {
+      "name": "seg2_portrait",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:seg2_portrait_prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:picture"
+            },
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+              "from_previous_result": "carry"
+            }
+          ],
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "seg2_portrait"
+      }
+    },
+    {
+      "name": "seg2_carry_only",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:seg2_carry_prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3VideoReference",
+              "from_previous_result": "carry"
+            }
+          ],
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "seg2_carry_only"
+      }
+    },
+    {
+      "name": "face_seg1",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:seg1",
+          "reference": "variable:picture",
+          "samples_per_shot": 16
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "face_seg1"
+      }
+    },
+    {
+      "name": "face_seg2_portrait",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:seg2_portrait",
+          "reference": "variable:picture",
+          "samples_per_shot": 16
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "face_seg2_portrait"
+      }
+    },
+    {
+      "name": "face_seg2_carry_only",
+      "task": {
+        "command": "analyze_face_drift",
+        "arguments": {
+          "video": "previous_result:seg2_carry_only",
+          "reference": "variable:picture",
+          "samples_per_shot": 16
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "subfolder": "intermediate",
+        "file_base_name": "face_seg2_carry_only"
+      }
+    }
+  ]
+}

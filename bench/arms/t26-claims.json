@@ -1,0 +1,181 @@
+[
+  {
+    "name": "c1-line-plain-s2002",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman alone in a small kitchen, speaking to the camera.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her thirties with short dark hair, in a plain white sleeveless T-shirt, standing alone behind a bare wooden kitchen counter and facing the camera. The counter is empty and the pale wall behind her is plain. She looks at the lens and, in a warm, clear female voice, says <d>[English] My brother Daniel borrowed my red raincoat last winter, and he still hasn't given it back.</d> Then she shrugs and folds her arms. The camera does not move.\n\noverall_soundscape:\nA quiet kitchen room tone.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c1-line-sentence-s1001",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman alone in a small kitchen, speaking to the camera.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her thirties with short dark hair, in a plain white sleeveless T-shirt, standing alone behind a bare wooden kitchen counter and facing the camera. The counter is empty and the pale wall behind her is plain. She looks at the lens and, in a warm, clear female voice, says <d>[English] My brother Daniel borrowed my red raincoat last winter, and he still hasn't given it back.</d> Then she shrugs and folds her arms. The camera does not move. Spoken words are only heard: the shot shows what it describes, not what anyone talks about.\n\noverall_soundscape:\nA quiet kitchen room tone.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c1-line-sentence-s2002",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman alone in a small kitchen, speaking to the camera.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her thirties with short dark hair, in a plain white sleeveless T-shirt, standing alone behind a bare wooden kitchen counter and facing the camera. The counter is empty and the pale wall behind her is plain. She looks at the lens and, in a warm, clear female voice, says <d>[English] My brother Daniel borrowed my red raincoat last winter, and he still hasn't given it back.</d> Then she shrugs and folds her arms. The camera does not move. Spoken words are only heard: the shot shows what it describes, not what anyone talks about.\n\noverall_soundscape:\nA quiet kitchen room tone.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c5-hum-s1001",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nThe steady low hum of the refrigerator and the buzz of the fluorescent strip light overhead run under everything. Rain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c5-hum-s2002",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nThe steady low hum of the refrigerator and the buzz of the fluorescent strip light overhead run under everything. Rain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c5-nohum-s1001",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nRain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c5-nohum-s2002",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nRain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c5-nohum-nomusicline-s1001",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nRain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once."
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c5-nohum-nomusicline-s2002",
+    "scene": "t26",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman reading at a kitchen table late at night while rain falls outside.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her forties with greying hair tied back, in a navy cardigan, sitting at a wooden kitchen table at night with a paperback and a white mug in front of her. A dark window behind her is streaked with rain. She reads, turns a page, lifts the mug, sips and sets it down again. The camera does not move.\n\noverall_soundscape:\nRain pattering steadily against the dark window, a paperback page turning now and then, a ceramic mug set down softly on the wooden table once."
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c2-unmentioned-s1001",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> sitting on a wooden park bench in autumn, reading a paperback, then looking up and smiling.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, newly posed seated on the bench.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames <Subject 1> sitting on a wooden park bench under trees with yellow and orange leaves, a paperback open in her hands. Soft overcast daylight. She turns a page, then looks up from the book toward the path in front of her and smiles. Leaves drift down behind her. The camera does not move.\n\noverall_soundscape:\nLight wind in the trees, dry leaves skittering across the path, a page turning, distant birds.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png",
+      "picture_2": "asset:bench/t26-stranger.jpg"
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c2-unmentioned-s2002",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> sitting on a wooden park bench in autumn, reading a paperback, then looking up and smiling.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, newly posed seated on the bench.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames <Subject 1> sitting on a wooden park bench under trees with yellow and orange leaves, a paperback open in her hands. Soft overcast daylight. She turns a page, then looks up from the book toward the path in front of her and smiles. Leaves drift down behind her. The camera does not move.\n\noverall_soundscape:\nLight wind in the trees, dry leaves skittering across the path, a page turning, distant birds.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png",
+      "picture_2": "asset:bench/t26-stranger.jpg"
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c2-control-s1001",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> sitting on a wooden park bench in autumn, reading a paperback, then looking up and smiling.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, newly posed seated on the bench.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames <Subject 1> sitting on a wooden park bench under trees with yellow and orange leaves, a paperback open in her hands. Soft overcast daylight. She turns a page, then looks up from the book toward the path in front of her and smiles. Leaves drift down behind her. The camera does not move.\n\noverall_soundscape:\nLight wind in the trees, dry leaves skittering across the path, a page turning, distant birds.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png",
+      "picture_2": null
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c2-control-s2002",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair, a long olive double-breasted coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> sitting on a wooden park bench in autumn, reading a paperback, then looking up and smiling.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - her face, hair, coat and proportions from <Picture 1> are kept, newly posed seated on the bench.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium-wide shot at eye level frames <Subject 1> sitting on a wooden park bench under trees with yellow and orange leaves, a paperback open in her hands. Soft overcast daylight. She turns a page, then looks up from the book toward the path in front of her and smiles. Leaves drift down behind her. The camera does not move.\n\noverall_soundscape:\nLight wind in the trees, dry leaves skittering across the path, a page turning, distant birds.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png",
+      "picture_2": null
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c3-fullbody-s1001",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair. In this video she wears a bright red knitted turtleneck sweater and light blue jeans, and no coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a bright kitchen in the morning, pouring coffee from a glass carafe into a white mug and taking a sip.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - her face and hair from <Picture 1> are kept. Her clothing is not taken from <Picture 1>: she wears the bright red knitted turtleneck sweater and light blue jeans described here, and no coat.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot at eye level frames <Subject 1> from the waist up, standing at a white kitchen counter in a bright kitchen with morning sun coming through a window to the left. She wears a bright red knitted turtleneck sweater and light blue jeans. She lifts a glass carafe of coffee, pours it into a white mug, sets the carafe down, and takes a slow sip, smiling. The camera does not move.\n\noverall_soundscape:\nCoffee pouring into the mug, the carafe set down on the counter, a quiet morning kitchen, birds faintly outside.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png"
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c3-fullbody-s2002",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair. In this video she wears a bright red knitted turtleneck sweater and light blue jeans, and no coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a bright kitchen in the morning, pouring coffee from a glass carafe into a white mug and taking a sip.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - her face and hair from <Picture 1> are kept. Her clothing is not taken from <Picture 1>: she wears the bright red knitted turtleneck sweater and light blue jeans described here, and no coat.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot at eye level frames <Subject 1> from the waist up, standing at a white kitchen counter in a bright kitchen with morning sun coming through a window to the left. She wears a bright red knitted turtleneck sweater and light blue jeans. She lifts a glass carafe of coffee, pours it into a white mug, sets the carafe down, and takes a slow sip, smiling. The camera does not move.\n\noverall_soundscape:\nCoffee pouring into the mug, the carafe set down on the counter, a quiet morning kitchen, birds faintly outside.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/walker.png"
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c3-facecrop-s1001",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair. In this video she wears a bright red knitted turtleneck sweater and light blue jeans, and no coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a bright kitchen in the morning, pouring coffee from a glass carafe into a white mug and taking a sip.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - her face and hair from <Picture 1> are kept. Her clothing is not taken from <Picture 1>: she wears the bright red knitted turtleneck sweater and light blue jeans described here, and no coat.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot at eye level frames <Subject 1> from the waist up, standing at a white kitchen counter in a bright kitchen with morning sun coming through a window to the left. She wears a bright red knitted turtleneck sweater and light blue jeans. She lifts a glass carafe of coffee, pours it into a white mug, sets the carafe down, and takes a slow sip, smiling. The camera does not move.\n\noverall_soundscape:\nCoffee pouring into the mug, the carafe set down on the counter, a quiet morning kitchen, birds faintly outside.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/t26-walker-face.png"
+    },
+    "seed": 1001
+  },
+  {
+    "name": "c3-facecrop-s2002",
+    "scene": "t26",
+    "workflow": "t26-ref2va.json",
+    "arguments": {
+      "prompt": "subject_definitions:\n<Subject 1> is the woman in <Picture 1>: early thirties, shoulder-length dark hair. In this video she wears a bright red knitted turtleneck sweater and light blue jeans, and no coat.\n\nsummary:\n[reference generation] The target video shows <Subject 1> in a bright kitchen in the morning, pouring coffee from a glass carafe into a white mug and taking a sip.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): partially_preserved - her face and hair from <Picture 1> are kept. Her clothing is not taken from <Picture 1>: she wears the bright red knitted turtleneck sweater and light blue jeans described here, and no coat.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot at eye level frames <Subject 1> from the waist up, standing at a white kitchen counter in a bright kitchen with morning sun coming through a window to the left. She wears a bright red knitted turtleneck sweater and light blue jeans. She lifts a glass carafe of coffee, pours it into a white mug, sets the carafe down, and takes a slow sip, smiling. The camera does not move.\n\noverall_soundscape:\nCoffee pouring into the mug, the carafe set down on the counter, a quiet morning kitchen, birds faintly outside.\n\nnon_diegetic_music:\nNone.",
+      "picture_1": "asset:bench/t26-walker-face.png"
+    },
+    "seed": 2002
+  },
+  {
+    "name": "c4-continued-s1001",
+    "scene": "t26",
+    "workflow": "t26-continued.json",
+    "arguments": {},
+    "seed": 1001
+  },
+  {
+    "name": "c4-continued-s2002",
+    "scene": "t26",
+    "workflow": "t26-continued.json",
+    "arguments": {},
+    "seed": 2002
+  }
+]
