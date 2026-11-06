@@ -10,13 +10,12 @@ receives, not what one helper returns.
 """
 
 import copy
-from unittest.mock import patch
-
 from PIL import Image
 
 from dw.step_value_checks import null_media_errors
 from dw.workflow import Workflow
 from dw.workflow_run import prepare_definition
+from dw import arguments
 from dw.arguments import realize_args
 
 
@@ -84,29 +83,34 @@ class TestItemFieldsLoadUnderTheMemberKey:
         loaded = steps["use@a"]["task"]["arguments"]["image"]
         assert isinstance(loaded, Image.Image)
 
-    def test_item_video_reaches_the_video_loader_as_the_file(self, tmp_path):
+    def test_item_video_reaches_the_video_loader_as_the_file(
+        self, tmp_path, monkeypatch
+    ):
         # The #1199 drill: the entry's 'video' must not be decoded by the
         # variables pass - the member's 'video' argument loads the file
         video = tmp_path / "clip.mp4"
         video.write_bytes(b"placeholder")
-        with patch(
-            "dw.arguments.fetch_video_with_context",
-            side_effect=lambda v, base_dir, k, with_audio=False: ("loaded", v),
-        ) as fetch:
-            steps = run_steps(
-                keep(
-                    {
-                        "id": "t",
-                        "variables": {"entries": [{"name": "a", "video": str(video)}]},
-                        "steps": [task_step("use", {"video": "item:video"})],
-                    }
-                ),
-                tmp_path,
-            )
+        calls = []
+
+        def fetch(value, base_dir, key, with_audio=False):
+            calls.append(value)
+            return ("loaded", value)
+
+        monkeypatch.setattr(arguments, "fetch_video_with_context", fetch)
+        steps = run_steps(
+            keep(
+                {
+                    "id": "t",
+                    "variables": {"entries": [{"name": "a", "video": str(video)}]},
+                    "steps": [task_step("use", {"video": "item:video"})],
+                }
+            ),
+            tmp_path,
+        )
 
         assert steps["use@a"]["task"]["arguments"]["video"] == ("loaded", str(video))
         # Once, by the steps pass - never by the variables pass as well
-        assert fetch.call_count == 1
+        assert calls == [str(video)]
 
     def test_an_entry_field_under_a_non_media_key_stays_a_path(self, tmp_path):
         # A field named 'image' read into an argument that is not media-named
