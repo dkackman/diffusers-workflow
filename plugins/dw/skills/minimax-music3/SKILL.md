@@ -58,8 +58,9 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 ## Hard rules
 
 - `audio_duration` is a ceiling, not a target: the language model stops when
-  the song ends, and generation is cut at the ceiling if it hasn't. Default
-  60 seconds. Ask for more than the piece needs and trim; the run's time
+  the song ends, and generation is cut at the ceiling if it hasn't. The
+  pipeline's default is 60 seconds; the templates set 120 s (`music`),
+  30 s (`music-video`) and 45 s a section (`music-long`). Ask for more than the piece needs and trim; the run's time
   follows the length generated; the quote assumes the whole ceiling.
   The consequence to size by: the arc the caption describes stretches to fill
   its given budget, so a ceiling set at the intended length isn't a

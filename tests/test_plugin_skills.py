@@ -1194,7 +1194,26 @@ class TestMiniMaxMusic3Skill:
         assert encoders._MAX_PROMPT_TOKENS == 5000 and "5,000 tokens" in text
         # the ceiling semantics: the language model may stop earlier
         assert re.search(r'"audio_duration",\s*default=60.0', source)
-        assert "Default\n  60 seconds" in text or "Default 60 seconds" in text
+        flat = " ".join(text.split())
+        assert "pipeline's default is 60 seconds" in flat
+        # each template's own ceiling, as the skill states it
+        for template, stated in (
+            ("music", "120 s (`music`)"),
+            ("music-video", "30 s (`music-video`)"),
+        ):
+            with open(
+                os.path.join(REPO_ROOT, "workflows", "templates", "minimax", f"{template}.json"),
+                encoding="utf-8",
+            ) as handle:
+                default = json.load(handle)["variables"]["audio_duration"]
+            assert stated.startswith(f"{default} s") and stated in flat, template
+        with open(
+            os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"),
+            encoding="utf-8",
+        ) as handle:
+            sections = json.load(handle)["variables"]["sections"]
+        assert {section["audio_duration"] for section in sections} == {45}
+        assert "45 s a section (`music-long`)" in flat
         assert "ceiling, not a target" in text
         # a tag line keeps only its leading bracketed tags, lower-cased
         assert "_LEADING_TAGS_RE" in source and hasattr(encoders, "_normalize_lyrics")
