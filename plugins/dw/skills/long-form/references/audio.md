@@ -29,7 +29,8 @@ A longer narration is cut into takes at sentence boundaries and joined.
   default voice.
 - The 0.3 s gap is a first guess, not a measured pause. Tune it by ear.
   The S6 bench round measured no voice drift between takes and join level
-  steps inside the in-take spread.
+  steps inside the in-take spread. At the 37 s default, a 594-word text came
+  back as 7 takes, 201-203 s, every word spoken on both seeds.
 
 ## Music longer than one Music 3 track
 
@@ -45,6 +46,11 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   enough lines for each `seconds`. A section that still ends early is kept at
   its own length, so the joins stay music to music, and the run warns
   `joined_short` with the piece's real length against the one asked.
+- **A section that runs long is cut at `seconds`, wherever that falls.**
+  A 10-line verse ran to about the 128 s ceiling, and the cut at 85 s
+  dropped its last three lines in one draw and landed on the last line in
+  another, with no warning. Put the lines that must be heard first, and
+  listen to the last seconds before each join.
 - **Continuity between sections is not guaranteed.** Key, tempo,
   instrumentation and mix can change at a seam. Repeat the same style tags in
   every caption, describe the same band in each, and listen at the joins. A
@@ -53,7 +59,9 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   and no task trims a section at a beat (`analyze_beats` only reports
   them), so each section is cut at its `seconds` or its own end. End each section's lyrics
   on a phrase end and let the crossfade cover the rest.
-- The S6 bench round (over 5 minutes) is *pending measurement*.
+- The S6 bench round: four 85 s sections joined to 311-319 s with no
+  silent hole, the outro a real ending. Five of six joins drop 7-9 dB into the next
+  section's own intro, and key and tempo moved between sections.
 - The caption format belongs to the `minimax-music3` skill.
 
 ## A bed under cut scenes

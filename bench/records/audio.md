@@ -249,3 +249,175 @@ Sources: S4 shots
 S3 take
 `BenchS3DialogueWalk/20261104-035218-d2733a3a/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4`
 (frames 0-123).
+
+## S6 rerun (fixed templates, mini-ai)
+
+2026-11-05. Bench server mini-ai:8766 (Apple M5 Pro, **MPS**, not lem's CUDA; the
+server's worktree at `47a9e025`), after 237ee307 (music-long keeps a short section's
+own length, `slice_audio` `past_end` "stop", `joined_short`) and 50e036fe
+(narration-long defaults to 37 s takes at 3.0 words a second, paragraph-break
+preference). Arms `bench/arms/audio-long-2.json`, record `audio-long-2.json` (the
+"wrote no video" text is the driver's, as before). Same method as the first round,
+run locally on the Mac on copies of the outputs. One draw per arm.
+
+**Verdict: Task 22's gate passes on both halves.**
+
+- **Narration, over 3 minutes and word-complete: passes.** Both seeds come back as
+  7 takes, 202.9 s and 201.4 s. All 14 takes are word-complete under whisper-small
+  and whisper-base, apart from spelling and homophones (pane/pain, harbour/harbor,
+  toward/towards). Five of the six joins land on a paragraph break. The join level
+  steps (-1.3 to +1.5 dB) sit inside the in-take spread. ECAPA finds no voice drift.
+  So 37 s at 3.0 words a second holds on a second seed, where the first round had
+  only one seed at 45.
+- **Music, over 5 minutes and continuous: passes.** The pieces are 319.2 s and
+  311.5 s at xf1500, and 314.7 s at xf3000. There is no silence of 0.5 s at -50 dBFS
+  anywhere. Every join is music into music, and the outro is the song's own ending
+  (the last lyric line, then a decay), not a cut.
+- **Remaining defect (music):** a section that runs *longer* than `seconds` is cut
+  at 85 s wherever that falls, and nothing warns unless the dropped remainder is
+  under 5% of the slice. With 10-12 lines, three of the four sections in each draw
+  ran past 85 s. The pass counts put the verses at about the 128 s ceiling. In
+  s1166 the cut drops verse_1's last three lines. In s1167 the cut lands on
+  verse_2's last line. Five of the six joins also drop 7-9 dB, as a section cut
+  mid-song runs into the next section's quiet intro. That is inside the in-section
+  maximum (6.3-12.7 dB), but well above its median (1.8-2.4 dB).
+
+### Narration t37 (`max_seconds` 37, `words_per_second` 3.0)
+
+`split_takes` gives 7 takes: 103, 109, 77, 88, 72, 83, 62 words. Take 1 ends
+mid-paragraph ("...on the wooden stool to wait."). Paragraph 1 is 113 words, over
+the 111-word limit, so its last sentence ("Then the light turned...") opens take 2,
+and only a sentence pause leads into paragraph 2. The other five joins are paragraph
+breaks: the preference worked wherever the limit allowed it.
+
+| run (job) | file s | take s (words a second, by take length) | words heard / expected, small and base |
+|---|---|---|---|
+| t37 s1166 (`847ccb839875`) | 202.9 | 34.2, 36.7, 26.5, 29.8, 26.7, 29.1, 20.0 (2.70-3.10) | all 7 complete. small: pane/pain, lantern/"lanterns". base: pane/pain, its/it's, harbour/harbor |
+| t37 s1167 (`4467e6380276`) | 201.4 | 34.2, 36.7, 26.6, 29.8, 26.4, 27.6, 20.3 (2.73-3.05) | all 7 complete. small: pane/pain, lantern/"lanterns", toward/towards. base: turned/turn, pane/pain, harbour/harbor (x2) |
+| *first round:* t45 s1166 (`111a5623cba0`) | 198.0 | 6 takes | all complete |
+| *first round:* t60 s1166 / s1167 | 179.7 / 178.3 | 5 takes | 2 of 5 takes lose words in each |
+
+The longest take is 36.7 s of file (109 words), and it is complete on both seeds.
+The voice still speaks at about 3.0 words a second on MPS.
+
+**Joins** (found by the inserted digital silence, |sample| <= 2 LSB; pause is the
+quiet run at -45 dBFS in 20 ms windows; the level step compares 5 s of speech on each
+side):
+
+| run | join at s | digital gap s | pause s | level step dB |
+|---|---|---|---|---|
+| t37 s1166 | 34.1 / 70.7 / 97.2 / 127.0 / 153.7 / 182.8 | 0.24-0.28 | 0.48 / 0.46 / 0.44 / 0.42 / 0.44 / 0.36 | +1.3 / -0.3 / -0.5 / +0.5 / -0.8 / +1.5 |
+| t37 s1167 | 34.0 / 70.7 / 97.3 / 127.0 / 153.4 / 181.0 | 0.24-0.27 | 0.44 / 0.44 / 0.42 / 0.38 / 0.42 / 0.44 | +0.1 / +0.3 / +0.7 / -1.3 / +0.1 / +1.4 |
+
+- Floor: in-take sentence pauses have a median of 0.60 s and 0.56 s (p90 0.78 and
+  0.84 s). In-take 5 s level steps have a median of 0.7-0.8 dB, p90 1.6-1.8 dB and
+  max 3.0-3.6 dB. Each file is -24.2 and -24.0 LUFS, true peak -4.5 and -4.9 dBFS,
+  with no clipping.
+- The bench still runs `gap_seconds` 0.3, so every join (0.36-0.48 s) is shorter
+  than the median sentence pause, as in the first round. The 0.45 recommendation
+  stands for Don's ear.
+
+**Voice drift (ECAPA cosine):**
+
+| run | take vs reference | adjacent takes | halves within one take (floor) |
+|---|---|---|---|
+| t37 s1166 | 0.81-0.86 | 0.91-0.96 | 0.91-0.95 |
+| t37 s1167 | 0.81-0.86 | 0.90-0.96 | 0.90-0.95 |
+
+The same take across the two seeds scores 0.97-0.98. The lowest adjacent pair is
+the last join both times (0.91 and 0.90), against the shortest take. That is at the
+within-take floor, so there is no measured drift.
+
+### Music, 10-12 lyric lines a section (`bench/workflows/music-long-s6-full.json`)
+
+| run (job) | file s | sections kept s | I LUFS / LRA | true peak dBFS |
+|---|---|---|---|---|
+| s1166 xf1500 (`ae2e1373cff6`) | 319.18 | 85, 85, 85, 68.69 (`joined_short`) | -18.2 / 11.9 | -2.0 |
+| s1167 xf1500 (`f83cf3566727`) | 311.45 | 85, 85 (of 87.34; `slice_trimmed_tail` warned), 85, 60.95 (`joined_short`) | -17.3 / 10.4 | -2.0 |
+| s1166 xf3000 (`ef47c7b6684d`) | 314.68 | as s1166 | -18.2 / 11.8 | -2.1 |
+
+**Generated lengths:** the server keeps no intermediate file, so the lengths past
+85 s are inferred. Each section's denoise passes are a multiple of 30 (30 steps
+times about 4.2 s chunks), which fits all three known lengths (60.95, 68.69 and
+87.34 s). On that model: verse_1 is 31 chunks in both draws (about 125-128 s, the
+ceiling). chorus_1 is 25 chunks at s1166 (about 100-107 s). verse_2 is 26 chunks at
+s1166 (about 104-112 s) and 31 at s1167 (about 125-128 s). chorus_2 ended early in
+both draws (68.69 and 60.95 s). So the longer lyric overshoots in the verses
+(8 verse lines plus a 2-line pre-chorus or bridge) and undershoots in the last
+chorus.
+
+**Silence:** silencedetect at -50 dBFS/0.5 s finds nothing in any piece. At
+-40 dBFS/0.2 s it finds only the 0.28-0.33 s lead-in at 0 s, three 0.27-0.33 s dips
+inside s1166's verse_1 (43-46 s, between phrases), one 0.27 s dip at 82.0 s, single
+0.24 s dips at 196 s and 294 s, and each piece's last 1-2 s of decay. These are not
+holes.
+
+**Joins** (the level step compares the 5 s before the crossfade with the 5 s after
+it; in-section floor = |5 s step| every 5 s inside sections):
+
+| run | crossfade s | level step dB | in-section floor median / p90 / max |
+|---|---|---|---|
+| s1166 xf1500 | 83.5-85 / 167-168.5 / 250.5-252 | -8.8 / -8.9 / -9.4 | 2.4 / 6.9 / 12.7 |
+| s1167 xf1500 | 83.5-85 / 167-168.5 / 250.5-252 | -0.8 / -7.8 / -7.4 | 1.8 / 4.3 / 6.3 |
+| s1166 xf3000 | 82-85 / 164-167 / 246-249 | -10.2 / -4.7 / -7.2 | 2.4 / 6.9 / 12.7 |
+
+The negative steps are a full band cut at 85 s running into the next section's own
+sparse intro. Each section opens like a new song. The one flat join (s1167, 85 s)
+is verse_1's instrumental tail into chorus_1's opening.
+
+**What is sung at each cut** (whisper-small with word timestamps over the 20 s
+before each crossfade; sung-lyric ASR is lossy, so read it as where the voice is,
+not as a lyric check):
+
+| run | section, cut at | last words heard before the cut | cut verdict |
+|---|---|---|---|
+| s1166 | verse_1, 85 | "Salt on the glass, I wipe it clear" ends at 80.8 | **lyric lost:** "The only work that matters here" and the 2-line pre-chorus are never sung |
+| s1166 | chorus_1, 168.5 | "Every eight seconds, find them there" ends at 157.7 | complete; about 9 s of band after it, then cut mid-music |
+| s1166 | verse_2, 252 | bridge sung by 240.2, then a repeat "Somewhere I'll save, somewhere I'll..." at 249.4 | **cut mid-phrase** (a repeated line, level -20 to -25 dB up to the cut) |
+| s1167 | verse_1, 85 | pre-chorus "...comes to the door" ends at 77.5 | complete; band tail cut |
+| s1167 | chorus_1, 168.5 | post-chorus repeat "...I'm turning for you" ends at 162.0 | complete. The dropped 2.34 s tail is band only, more than 6 s after the last word: **no phrase cut**, but the section's own ending is replaced by the 400 ms fade |
+| s1167 | verse_2, 252 | "Somewhere a sail / a hand / a light..." at 241.8-249.8; "they understand" heard inside the crossfade (250.5-252) | **last line lands on the cut** |
+| both | chorus_2, end | "One hundred stairs and twelve more still" ends at 315.6 / 308.8; level -33, then -54 dBFS within 1 s | **a real ending:** the lyric's last line, then a decay |
+
+**Tempo** (`analyze_beats` per section, crossfades excluded; 72 BPM asked): only 4
+of 8 xf1500 sections give an onset pulse. s1166 chorus_1 and verse_2 read 84.5 and
+87.0 BPM (the same as the first round's s1166 sections 2 and 3). s1167 chorus_1 and
+verse_2 read 92.3 and 77.9 BPM. The rest fall back to loudness peaks (83-140 BPM,
+unreliable). Steering to 72 changes nothing. Music 3 does not hold 72, and the tempo
+moves between sections by 3-14 BPM where it can be read.
+
+**Key** (a whole-section chroma against Krumhansl profiles: crude, indicative only;
+D minor asked). s1166 reads F major/D minor (the relative pair), Bb major/G minor,
+D major, then D major/minor. s1167 reads F major, D major/B minor, C major (0.90),
+then A major (0.80). The clearest key change at a seam is s1167's last join: the
+10 s before it reads C major (0.95), and the 10 s after it reads A major (0.81).
+That goes to the ear.
+
+**xf3000 against xf1500:** the sections are sample-identical (the first 80 s differ
+by 0.0), so only the joins differ. The file is 4.5 s shorter. The steps are -10.2 /
+-4.7 / -7.2 dB against -8.8 / -8.9 / -9.4. A longer fade does not hide a band
+dropping to an intro, and the intro still arrives.
+
+**Wall time on MPS:** 40.2, 39.1 and 39.2 min per music job (four sections, encode
+174-375 s and denoise 168-345 s per section, 0.4 s a pass). 4.1 and 3.8 min per
+narration job.
+
+**Fix options for the long-section cut** (not made here):
+1. Give `audio_duration` less headroom than 1.5x (for example 1.1x), so a long
+   lyric is squeezed rather than overrun. That is untested, and Music 3 may then
+   end sections early again.
+2. Have `slice_audio` (or music-long) warn when the dropped remainder of a
+   `past_end` "stop" slice is loud. The current warning only covers remainders
+   under 5% of the slice and 10 s, so a 40 s overrun is silent.
+3. Size the lyric per section: here the 8- and 10-line choruses filled 61-107 s,
+   while 8 verse lines plus 2 more ran to 104-128 s.
+
+### Outputs (mini-ai `~/bench-workspace/outputs/`)
+
+| arm | job | file |
+|---|---|---|
+| s6-music-full-335s-s1166 | `ae2e1373cff6` | `BenchS6MusicLongFull/20261106-024659-f8973042/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
+| s6-music-full-335s-s1167 | `f83cf3566727` | `BenchS6MusicLongFull/20261106-032709-655afa0d/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
+| s6-music-full-335s-xf3000-s1166 | `ef47c7b6684d` | `BenchS6MusicLongFull/20261106-040613-0ce22d5b/final/BenchS6MusicLongFull-piece.0-0.0.mp3` |
+| s6-narr-long-t37-wps3-s1166 | `847ccb839875` | `BenchS6NarrationLong-t37/20261106-044527-c46db14f/final/BenchS6NarrationLong-t37-narration.0-0.0.wav` |
+| s6-narr-long-t37-wps3-s1167 | `4467e6380276` | `BenchS6NarrationLong-t37/20261106-044934-a03a36cc/final/BenchS6NarrationLong-t37-narration.0-0.0.wav` |
