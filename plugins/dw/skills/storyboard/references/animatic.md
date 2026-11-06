@@ -29,8 +29,8 @@ measured rate), then retime by ear in step 5.
 ## 3. A music bed
 
 `templates/minimax/music` makes a track from a prompt and lyrics, by
-`dw:minimax-music3`'s rules. Empty lyrics are refused at run time: an
-instrumental is a tag-only body (`[intro]`, `[instrumental]`, `[outro]`, one
+`dw:minimax-music3`'s rules. Empty lyrics are refused by `validate_workflow`
+(`lyrics` has a `min_length`): an instrumental is a tag-only body (`[intro]`, `[instrumental]`, `[outro]`, one
 per line), and a bed past about 90 s is `templates/minimax/music-long`
 sections (`long-form`'s `references/audio.md`). Make it at least
 as long as the animatic: `animatic` trims a longer track and pads a shorter
