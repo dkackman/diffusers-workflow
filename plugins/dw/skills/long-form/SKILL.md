@@ -64,6 +64,13 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
   guide, `anchor: segment_1`, `anchor_strength` 0.25. It beat the guide
   control on two seeds and at two minutes (`bench/records/counters.md`,
   *Round 3*). Don ruled it the static default (`bench/records/for-don.md`).
+- **`shot: static_long`** (a static take past about 30 s): guide,
+  `keystone: segment_1`, `keystone_slot: last`. Backdrop and face held for
+  two minutes on two seeds, no pop; the subject eases back to the opening
+  pose every 4.25 s, at about +17% wall. Don ruled slot `last` the static
+  long-take default: not a loop (`bench/records/structural.md`, *Keystone
+  slot*). `keystone_slot: first` (plain keystone, a mid-shot pop) and
+  `keystone: none` stay knobs. Never use it on a moving shot.
 - **`shot: moving`** (the default; any camera move): guide, no counters.
   Every counter lost seam look on the arc.
 - **`shot: dialogue`** (a speaking subject in motion): guide, no counters.
@@ -76,17 +83,12 @@ Two rules that bite:
   camera move.** It froze the orbit on seed 1166 and held it back on seed 2. The
   "wins" were a camera that moved less (`bench/records/counters.md`,
   *Eye notes (S2)*).
-- **Cut static takes longer than about 30 s into shots.** With anchor 0.25
-  the backdrop crusts from about 42 s, the face softens from 52 s, it is
-  washed out by 83 s, and a mask by about 104 s. Without the anchor, the
-  burn starts at 24 s (`bench/records/counters.md`, *Round 3*). One
-  exception is under review: the chain key `keystone: segment_1` (guide
-  only) resets the burn on static two-minute takes, at both seeds, with a
-  visible mid-shot pop at an unpredictable time
-  (`bench/records/structural.md`, *Keystone confirmation*). It is the
-  leading candidate for static takes past 30 s; the default waits on Don.
-  Until he rules, cut at about 30 s. Never use it on a moving shot.
-- **An H3 take of any shot type drifts past about 35 s.** A 90 s
+- **A static take past about 30 s is `shot: static_long`, not `static`.**
+  With anchor 0.25 the backdrop crusts from about 42 s, the face softens
+  from 52 s, and it is a mask by about 104 s; without the anchor the burn
+  starts at 24 s (`bench/records/counters.md`, *Round 3*). `static_long`
+  is measured to 120 s; past that, cut into shots.
+- **An H3 take of any other shot type drifts past about 35 s.** A 90 s
   `shot: dialogue` walk was clean to 35 s; from 45 s the face changed
   and by 60 s the picture was oversaturated and painterly. The check
   passed every seam, because the drift is in the carry

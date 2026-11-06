@@ -22,8 +22,13 @@ def _chain(arguments=None):
     return expanded["steps"][0]["pipeline"]["chain"]
 
 
-def test_template_validates_for_every_shot():
-    for shot in ("static", "moving", "dialogue"):
+SHOTS = ("static", "static_long", "moving", "dialogue")
+
+
+def test_template_validates_for_every_shot(monkeypatch):
+    # on a normal server: no shot needs the windowed refine's scratch flag
+    monkeypatch.delenv("DW_EXPERIMENTAL_REFINE_WINDOWS", raising=False)
+    for shot in SHOTS:
         assert _workflow().validation_errors({"shot": shot}) == []
     assert _workflow().validation_errors({}) == []
 
@@ -33,6 +38,37 @@ def test_shot_static_applies_the_anchor_at_a_quarter_on_guide():
     assert chain["continuity"] == "guide"
     assert chain["anchor"] == "segment_1"
     assert chain["anchor_strength"] == 0.25
+
+
+def test_shot_static_long_is_the_keystone_at_the_last_slot():
+    """Don's call 2026-11-06 (bench/records/structural.md, *Keystone slot*):
+    slot "last" is the static default past about 30 s - not a loop."""
+    chain = _chain({"shot": "static_long"})
+    assert chain["continuity"] == "guide"
+    assert chain["keystone"] == "segment_1"
+    assert chain["keystone_slot"] == "last"
+    assert chain["anchor"] == "none"
+    assert chain.get("anchor_strength") is None
+
+
+def test_plain_keystone_and_no_keystone_stay_reachable():
+    plain = _chain({"shot": "static_long", "keystone_slot": "first"})
+    assert (plain["keystone"], plain["keystone_slot"]) == ("segment_1", "first")
+    off = _chain({"shot": "static_long", "keystone": "none", "keystone_slot": None})
+    assert off["keystone"] == "none" and off.get("keystone_slot") is None
+    assert (
+        _workflow().validation_errors(
+            {"shot": "static_long", "keystone": "none", "keystone_slot": None}
+        )
+        == []
+    )
+
+
+def test_the_keystone_is_off_on_every_other_shot():
+    for shot in ("static", "moving", "dialogue"):
+        chain = _chain({"shot": shot})
+        assert chain.get("keystone") in (None, "none"), shot
+        assert chain.get("keystone_slot") is None, shot
 
 
 def test_shot_moving_is_guide_with_no_counters():
@@ -68,7 +104,7 @@ def test_default_is_guide_with_no_counters():
     assert chain["guide_frames"] == 22
     assert chain["anchor"] == "none"
     assert chain.get("anchor_strength") is None
-    for shot in ("static", "moving", "dialogue"):
+    for shot in SHOTS:
         assert _chain({"shot": shot})["continuity"] == "guide"
     assert json.loads(TEMPLATE.read_text())["variables"]["continuity"] == "guide"
 
@@ -80,6 +116,8 @@ def test_continuity_last_frame_is_still_the_old_chain_block():
     before = old.expanded_definition({})["steps"][0]["pipeline"]["chain"]
     chain = _chain({"continuity": "last_frame"})
     assert chain.pop("anchor") == "none"
+    assert chain.pop("keystone") == "none"
+    assert chain.pop("keystone_slot", None) is None
     assert chain == before
 
 
@@ -87,9 +125,11 @@ def test_description_states_the_rules():
     description = json.loads(TEMPLATE.read_text())["description"]
     for phrase in (
         "static",
+        "static_long",
         "moving",
         "dialogue",
         "30 s",
+        "keystone_slot",
         "look_hold",
         "carry_pick",
         "camera move",
@@ -108,7 +148,7 @@ def test_cost_row_is_the_guide_figure():
 
 def test_cost_drivers_bucket_continuity_shot_and_anchor():
     drivers = json.loads(TEMPLATE.read_text())["cost_drivers"]
-    for name in ("continuity", "shot", "anchor"):
+    for name in ("continuity", "shot", "anchor", "keystone_slot"):
         assert name in drivers, name
 
 

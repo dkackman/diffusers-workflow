@@ -17,6 +17,7 @@ Unless a row says otherwise, these are H3 chains at the template defaults:
 | 2-minute take, guide, no counter | 52 min | `bench/records/counters.md`, *Round 3* |
 | 2-minute take, `shot: static` (anchor 0.25) | 69 min (+32%) | same |
 | 2-minute take, last_frame + `look_hold` + anchor 0.25 (a knob) | 48 min | same |
+| 2-minute take, `shot: static_long` (keystone slot `last`) | 57-62 min | `bench/records/structural.md`, *Keystone slot*; plain keystone 53 min |
 | `templates/minimax/repair-segment`, one segment | 8.1 min | `bench/records/repair.md` |
 
 - **Per output minute.** From the two-minute walls, that is about 26 min per
@@ -63,12 +64,11 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
   the arc (`bench/records/counters.md`).
 - **Re-rolling texture drift.** The re-roll inherits the carry
   (`bench/records/check.md`).
-- **A longer static chain.** Cut at about 30 s. A two-minute static take is
-  unusable on every counter in `bench/records/counters.md` (*Round 3*). The
-  exception under review is `keystone: segment_1`: it resets the burn at two
-  minutes on both seeds, at no wall cost, with a visible mid-shot pop
-  (`bench/records/structural.md`, *Keystone confirmation*). Until Don rules
-  on it, cut at about 30 s (`levers.md`, *Under review*).
+- **A longer static chain on `shot: static`.** Cut at about 30 s, or use
+  `shot: static_long`. A two-minute static take is unusable on every counter
+  in `bench/records/counters.md` (*Round 3*); keystone slot `last` holds it
+  for two minutes on both seeds, with the pose easing back every 4.25 s
+  (`bench/records/structural.md`, *Keystone slot*; `levers.md`).
 
 ## Apple Silicon
 

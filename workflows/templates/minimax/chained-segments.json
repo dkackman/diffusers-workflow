@@ -1,6 +1,6 @@
 {
     "id": "MiniMaxH3I2VChained",
-    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The default is a 'guide' chain: each segment's last `guide_frames` frames (22 or 39, default 22) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again, so motion and voice carry across the seam and 'trim_frames' and the crossfade do not apply (the run logs that). Guide is the default because the counter round measured it best for every shot type (bench/records/counters.md); guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode. Set `continuity` to 'last_frame' for the uncommon case - no voice to carry, or a deliberate fresh-keyframe look: each segment's final frame becomes the next segment's keyframe, and then 'frame_snap' keeps every segment a length the model accepts, 'trim_frames' drops the duplicated keyframe at each seam, and a crossfade over the generated audio hides the joins. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. To ask for a length instead of a count, set `duration_seconds`; it overrides `segments` (the run logs that `segments` was ignored), and the plan derives the segments and the video and audio are trimmed to exactly that length (not with a guide back-off or carry_pick). 'keep_segments' (default false) saves each segment as a playable mp4 beside the take and keeps it, naming it on the take's shots - what 'repair-segment' needs to re-render one segment in place later. 'shot' picks the drift counters measured for a kind of shot (bench/records/counters.md), through 'presets'; any variable you pass still wins. 'moving' (the default) is guide with no counters. 'static' (locked-off camera, subject in front) applies continuity 'guide' with anchor 'segment_1' at anchor_strength 0.25. 'dialogue' (a speaking subject in motion) is guide with no counters. To turn the anchor off on a static shot, pass `anchor_strength: null` as well (the bundle's 0.25 survives and a strength with no anchor is refused), or use `shot: moving`. The cost row is the guide chain at 3 x 124 frames, 13.5 min (the seam A/B, C-F311, docs/proposals/complete/h3-guides-complete.md); last_frame measured 9.6. A static take longer than about 30 s should be cut into shots of 30 s or less: the measured drift builds past that and no tested counter holds a longer take. Never use 'last_frame' with 'look_hold' or 'carry_pick' on an H3 camera move: it froze the camera on an orbit (an LTX chain is not held back, so templates/ltx2/chained-segments holds the look by default).",
+    "description": "Getting past the model's fixed clip length by running one pipeline repeatedly and stitching the output. The default is a 'guide' chain: each segment's last `guide_frames` frames (22 or 39, default 22) and their audio are laid into the next at frame 0 as an H3 guide, the next keyframe is the guide's first frame, and the guide is trimmed off again, so motion and voice carry across the seam and 'trim_frames' and the crossfade do not apply (the run logs that). Guide is the default because the counter round measured it best for every shot type (bench/records/counters.md); guides are t2va/fl2va only, so the ref2va chains have no 'guide' mode. Set `continuity` to 'last_frame' for the uncommon case - no voice to carry, or a deliberate fresh-keyframe look: each segment's final frame becomes the next segment's keyframe, and then 'frame_snap' keeps every segment a length the model accepts, 'trim_frames' drops the duplicated keyframe at each seam, and a crossfade over the generated audio hides the joins. `prompt` is used for every segment, so a spoken line in it repeats in each one; pass `prompts`, one prompt per segment, to give each its own. To ask for a length instead of a count, set `duration_seconds`; it overrides `segments` (the run logs that `segments` was ignored), and the plan derives the segments and the video and audio are trimmed to exactly that length (not with a guide back-off or carry_pick). 'keep_segments' (default false) saves each segment as a playable mp4 beside the take and keeps it, naming it on the take's shots - what 'repair-segment' needs to re-render one segment in place later. 'shot' picks the drift counters measured for a kind of shot (bench/records/counters.md), through 'presets'; any variable you pass still wins. 'moving' (the default) is guide with no counters. 'static' (locked-off camera, subject in front) applies continuity 'guide' with anchor 'segment_1' at anchor_strength 0.25. 'dialogue' (a speaking subject in motion) is guide with no counters. 'static_long' (a static take past about 30 s) is guide with keystone 'segment_1' at keystone_slot 'last': segment 1's opening frame is every later segment's last image, which held the backdrop and the face for two minutes on two seeds where 'static' crusts from about 42 s; its price is the subject easing back to the opening pose at the end of each segment, about every 4.25 s, and about +9 min (+17%) wall on a two-minute take (bench/records/structural.md, *Keystone slot*). Pass `keystone_slot: first` for plain keystone (backdrop resets in a mid-shot pop) or `keystone: none` with `keystone_slot: null` for none; never use it on a moving shot. To turn the anchor off on a static shot, pass `anchor_strength: null` as well (the bundle's 0.25 survives and a strength with no anchor is refused), or use `shot: moving`. The cost row is the guide chain at 3 x 124 frames, 13.5 min (the seam A/B, C-F311, docs/proposals/complete/h3-guides-complete.md); last_frame measured 9.6. A static take longer than about 30 s is `shot: static_long`, measured to two minutes; on 'static' the drift builds past 30 s and the take should be cut into shots of 30 s or less. Never use 'last_frame' with 'look_hold' or 'carry_pick' on an H3 camera move: it froze the camera on an orbit (an LTX chain is not held back, so templates/ltx2/chained-segments holds the look by default).",
     "summary": "A long H3 clip from a still, chained with guide continuity by default and shot-type presets.",
     "cost": [
         {
@@ -25,6 +25,7 @@
         "continuity",
         "shot",
         "anchor",
+        "keystone_slot",
         "segments",
         "duration_seconds",
         "num_frames",
@@ -51,6 +52,8 @@
         "guide_frames": 22,
         "anchor": "none",
         "anchor_strength": null,
+        "keystone": "none",
+        "keystone_slot": null,
         "width": 960,
         "height": 544,
         "num_inference_steps": 5,
@@ -74,6 +77,11 @@
                 "continuity": "guide",
                 "anchor": "segment_1",
                 "anchor_strength": 0.25
+            },
+            "static_long": {
+                "continuity": "guide",
+                "keystone": "segment_1",
+                "keystone_slot": "last"
             },
             "moving": {
                 "continuity": "guide"
@@ -227,6 +235,8 @@
                     "guide_frames": "variable:guide_frames",
                     "anchor": "variable:anchor",
                     "anchor_strength": "variable:anchor_strength",
+                    "keystone": "variable:keystone",
+                    "keystone_slot": "variable:keystone_slot",
                     "segment_argument": "image",
                     "trim_frames": 2,
                     "crossfade_ms": 80,

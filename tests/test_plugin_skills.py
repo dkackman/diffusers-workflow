@@ -1202,13 +1202,17 @@ class TestMiniMaxMusic3Skill:
             ("music-video", "30 s (`music-video`)"),
         ):
             with open(
-                os.path.join(REPO_ROOT, "workflows", "templates", "minimax", f"{template}.json"),
+                os.path.join(
+                    REPO_ROOT, "workflows", "templates", "minimax", f"{template}.json"
+                ),
                 encoding="utf-8",
             ) as handle:
                 default = json.load(handle)["variables"]["audio_duration"]
             assert stated.startswith(f"{default} s") and stated in flat, template
         with open(
-            os.path.join(REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"),
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+            ),
             encoding="utf-8",
         ) as handle:
             sections = json.load(handle)["variables"]["sections"]
@@ -1784,11 +1788,16 @@ class TestLongFormSkill:
             "anchor": "segment_1",
             "anchor_strength": 0.25,
         }
+        assert presets["static_long"] == {
+            "continuity": "guide",
+            "keystone": "segment_1",
+            "keystone_slot": "last",
+        }
         assert presets["moving"] == {"continuity": "guide"}
         assert presets["dialogue"] == {"continuity": "guide"}
         assert spec["variables"]["continuity"] == "guide"
         text = self._text()
-        for shot in ("static", "moving", "dialogue"):
+        for shot in ("static", "static_long", "moving", "dialogue"):
             assert f"`shot: {shot}`" in text, shot
         assert "`anchor_strength` 0.25" in text
 
@@ -1839,7 +1848,7 @@ class TestLongFormSkill:
             "not a burn fix",  # windowed refine
             "not a default",  # latent carry
             "does not win",  # late capstone
-            "the default waits on Don",  # keystone
+            "Don ruled slot `last` the static long-take default",  # keystone
             "stays the `templates/ltx2/chained-segments` default",
             "Cap an LTX-2.5 chain at about 15-20 s",
         ):

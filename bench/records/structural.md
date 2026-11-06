@@ -656,6 +656,12 @@ control is plain keystone `c4ec5a055464` (seed 1166).
 
 ### Verdict
 
+- **Don's call (2026-11-06): not a loop; slot last is the static default.**
+  `keystone_slot` is a stable chain key (`experimental_keystone_slot` is
+  refused naming it), and `templates/minimax/chained-segments` carries it as
+  `shot: static_long` (guide, keystone `segment_1`, slot `last`) for static
+  takes past about 30 s. Plain keystone (`keystone_slot: first`) and no
+  keystone stay knobs; moving shots are unchanged.
 - **Slot "last" holds the crust down for the whole two minutes, with no pop,
   on both seeds.** Each segment's crust stays at 1.1-1.5x segment 1 (find.py's
   backdrop measure), against plain keystone's sawtooth of 1.0-6.3x. The face

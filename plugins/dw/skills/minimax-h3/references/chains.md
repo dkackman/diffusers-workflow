@@ -39,6 +39,6 @@ claim 4), and not a rule:
   shot's first segment for a second figure before chaining it.
 
 Everything else about drift on a long take is the `long-form` skill's: the
-`shot` preset per shot type, the per-segment check, the 30 s static cut rule,
+`shot` preset per shot type (`static_long` past 30 s), the per-segment check,
 how to measure drift, and the community reports with the bench's verdict on
 each (`long-form/references/levers.md`).

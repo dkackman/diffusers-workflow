@@ -30,7 +30,8 @@ Each segment after the first is measured before it is kept:
 - **Why texture is warn-only.** Texture drift is in the carry. A re-roll
   renders from the same carry and inherits it, so at `retries: 1` it only
   doubles the cost (ruling R38). A texture warning late in a static take is
-  the 30 s cut rule talking: cut the scene into shots.
+  the 30 s cut rule talking: cut the scene into shots, or render it as
+  `shot: static_long`.
 - **No false positives.** Jump and look gave none on 22 good seams. The
   highest reads were about half the ceilings (`check.md`).
 - **Turning on the check costs nothing extra.** With `retries: 0` the take

@@ -27,6 +27,7 @@ read under the noise floor in `bench/records/noise-floor.md`, *Correction
 | Shot | Build | Record |
 | --- | --- | --- |
 | `shot: static` | guide, `anchor: segment_1`, `anchor_strength` 0.25 | `counters.md`, *Round 3*: wins on every picture measure at 120 s, by 3-23x the floor; Don's call in `for-don.md` |
+| `shot: static_long` | guide, `keystone: segment_1`, `keystone_slot: last` | `structural.md`, *Keystone slot*: holds the backdrop at 1.1-1.5x segment 1 for 120 s on two seeds, no pop; Don's call (2026-11-06): not a loop |
 | `shot: moving` | guide, no counters | `counters.md`: every guide counter loses seam look on S2 |
 | `shot: dialogue` | guide, no counters | `counters.md`: every counter ties or loses on S3 |
 
@@ -61,26 +62,30 @@ Offer these only when the user asks, and say why each is not a default.
 - **The seam grade** (#1033/#1067) is `look_hold`'s pickup part. It runs
   only on `last_frame`, so it was measured inside that row.
 
-## Under review: the keystone on a long static take
+## The keystone on a long static take
 
-**`keystone: segment_1`** (#1187; a guide chain key, not a `shot` preset)
-makes every later segment's keyframe segment 1's frame 0. At 26 s it ties,
-and with anchor 0.5 it makes every seam worse (round 1). At two minutes it is
-the only lever that resets the burn (`bench/records/structural.md`,
-*Keystone confirmation*):
+**`keystone: segment_1`** (#1187; a guide chain key) pins every later segment
+to segment 1's frame 0. **`keystone_slot`** says where: `first` (plain
+keystone, the keyframe) or `last` (the fl2va last image). At 26 s plain
+keystone ties, and with anchor 0.5 it makes every seam worse (round 1). At
+two minutes (`bench/records/structural.md`, *Keystone confirmation*,
+*Keystone slot*):
 
-- it resets on both seeds, with or without the anchor, and costs no wall
-  time; no take without it ever comes back clean;
-- each reset is a visible pop mid-segment at an unpredictable time
-  (39-111 s), where only the backdrop texture snaps clean;
-- between resets the crust grows back, so the take is still crusted for
-  40-60% of its length. It is a large improvement on the burn, not a clean
-  take.
+- **Plain keystone** resets the burn on both seeds, with or without the
+  anchor, at no wall cost. Each reset is a visible pop mid-segment at an
+  unpredictable time (39-111 s), and the crust grows back between resets:
+  crusted for 40-60% of the take. A knob: `keystone_slot: first`.
+- **Slot `last`** holds the crust at 1.1-1.5x segment 1 for the whole two
+  minutes on both seeds, with no pop, and the best two-minute face. Its price
+  is the subject easing back to the opening pose at each segment's end
+  (every 4.25 s), and about +9 min (+17%) wall. Don's call (2026-11-06): not
+  a loop, so it is the static long-take default, as `shot: static_long`.
+- The frame slots (`{"frame": 34}`, gated or not) snap the pose or flash
+  segment 1's frame: cut.
 
-It is the leading candidate for static takes past about 30 s. The default is
-undecided pending Don's call on the pop. Until then, cut static takes at about
-30 s, and offer the keystone only as a knob with the pop named. Never use it on
-a moving shot: it lost the look on S2's arc in round 1.
+Static shots only: slot `last` pins every segment's end to segment 1's
+pose, and plain keystone lost the look on S2's arc in round 1. Never use
+either on a moving shot.
 
 ## Measured and cut: do not re-propose
 
@@ -129,7 +134,8 @@ dropped, and **unmeasured** means no bench verdict yet.
   shots were not benched; treat one as moving until #1200 classifies it.
 - *Community:* a hard cut or a new angle resets drift. People describe about
   30 s of clean chain with good setups, with drift usually showing around
-  segments 3-6. **Default:** cut static takes at about 30 s. The anchor's
+  segments 3-6. **Default:** past about 30 s a static take is `shot:
+  static_long`; cut anything else at about 30 s. The anchor's
   gain holds to 6-8 segments, 25-33 s, and turns into a different failure
   past that (`counters.md`, *Two minutes*; *Round 3* confirms it at anchor
   0.25). A seam where the chain resets on its own shows as a visible jump,
