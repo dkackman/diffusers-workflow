@@ -64,7 +64,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
 
 @register_command(
     "slice_audio",
-    implementation="dw.tasks.audio_utils.slice_audio",
+    implementation="dw.tasks.audio_slice.slice_audio",
     domains={
         "start_seconds": NON_NEGATIVE,
         "duration_seconds": POSITIVE,
@@ -82,7 +82,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
 def _handle_slice_audio(task, arguments, previous_pipelines):
     """Cut a time- or frame-aligned slice out of an audio track"""
     logger.debug("Slicing audio")
-    from .audio_utils import slice_audio
+    from .audio_slice import slice_audio
 
     return slice_audio(**arguments)
 

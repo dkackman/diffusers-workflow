@@ -30,7 +30,7 @@ from dw.task_domains import (
     select_rule_problems,
     slice_padding,
 )
-from dw.tasks.audio_utils import slice_audio
+from dw.tasks.audio_slice import slice_audio
 from dw.tasks.dissolve_videos import dissolve_videos
 from dw.tasks.select import select
 from dw.tasks.video_utils import check_same_frame_size

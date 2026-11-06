@@ -39,7 +39,7 @@ from dw.shots import (
     name_unsaved_shots,
     step_shots,
 )
-from dw.tasks.audio_utils import slice_audio
+from dw.tasks.audio_slice import slice_audio
 from dw.task_domains import frames_to_samples
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos

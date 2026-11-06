@@ -19,7 +19,8 @@ import numpy
 import pytest
 
 from dw.events import RunContext, activate_context, deactivate_context
-from dw.tasks.audio_utils import crossfade_audio, fade_audio, slice_audio
+from dw.tasks.audio_slice import slice_audio
+from dw.tasks.audio_utils import crossfade_audio, fade_audio
 
 RATE = 100
 ROOT = Path(__file__).resolve().parent.parent
