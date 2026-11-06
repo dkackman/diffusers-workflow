@@ -21,6 +21,7 @@ sys.path.insert(0, str(HERE))
 DEFAULT_SERVER = "http://127.0.0.1:18766"
 DEFAULT_TOKEN_FILE = "~/.dw-bench-token"
 MAX_COMPARE_BYTES = 4_000_000
+MAX_COMPARE_MOMENTS = 8
 TERMINAL = ("succeeded", "failed", "cancelled")
 
 
@@ -182,24 +183,28 @@ def measure(job, scene, server, token, workspace=None, moments=None):
         "seam_level_step_db_mean",
         "seam_level_step_db_max",
     )
-    payload = {
-        "names": [name],
-        "max_dimension": 384,
-        "max_total_bytes": MAX_COMPARE_BYTES,
-        "at": moments or scene.moments,
-        "crop": scene.crop,
-        "texture_bands": True,
-    }
-    compared = http(
-        "POST",
-        "/api/gallery/compare",
-        server,
-        token,
-        payload,
-        {"workspace": workspace} if workspace else None,
-    )
-    row = (compared.get("texture") or [{}])[0]
-    cells = [c.get("texture") for c in row.get("cells") or []]
+    at = moments or scene.moments
+    cells = []
+    # the compare route takes 1 to MAX_COMPARE_MOMENTS moments per call
+    for i in range(0, len(at), MAX_COMPARE_MOMENTS):
+        payload = {
+            "names": [name],
+            "max_dimension": 384,
+            "max_total_bytes": MAX_COMPARE_BYTES,
+            "at": at[i : i + MAX_COMPARE_MOMENTS],
+            "crop": scene.crop,
+            "texture_bands": True,
+        }
+        compared = http(
+            "POST",
+            "/api/gallery/compare",
+            server,
+            token,
+            payload,
+            {"workspace": workspace} if workspace else None,
+        )
+        row = (compared.get("texture") or [{}])[0]
+        cells += [c.get("texture") for c in row.get("cells") or []]
     if len(cells) >= 2 and cells[0] and cells[-1]:
         # Two-sided: blur (ratio < 1) and crust (ratio > 1) both count as
         # drift, so the measure is |ln(last / first)| and lower is better.
@@ -268,6 +273,7 @@ def measure_records(
             workspace,
             moments.get(record["arm"]),
         )
+        record["error"] = None  # a measure error from the run is now stale
         if out_path:
             Path(out_path).write_text(json.dumps(records, indent=2))
     return records

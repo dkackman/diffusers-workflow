@@ -284,3 +284,45 @@ def test_measure_records_takes_arm_moments_from_the_arms_file(monkeypatch, tmp_p
     records = [{"arm": "a", "scene": "s", "job_id": "j1", "status": "succeeded"}]
     driver.measure_records(records, scenes, arms, "http://h", "tok")
     assert calls[0]["at"] == ["frame:62", "frame:99"]
+
+
+def test_measure_splits_more_than_eight_moments_across_compare_calls(monkeypatch):
+    # the compare route takes 1 to 8 moments; texture drift still reads the
+    # first moment against the last across the chunks
+    calls = []
+
+    def fake(method, path, server, token, payload=None, params=None):
+        if path.endswith("/assess"):
+            return {"seams": []}
+        calls.append(payload["at"])
+        cells = [
+            {"texture": {"luma": {"fine": float(m.split(":")[1]), "mid": 1.0}}}
+            for m in payload["at"]
+        ]
+        return {"texture": [{"cells": cells}]}
+
+    monkeypatch.setattr(driver, "http", fake)
+    moments = [f"frame:{n}" for n in range(1, 14)]
+    scene = driver.Scene("s", None, moments)
+    job = {"manifest": [{"files": ["o.mp4"], "subfolder": "final"}]}
+    m = driver.measure(job, scene, "http://h", "tok")
+    assert [len(c) for c in calls] == [8, 5]
+    assert sum(calls, []) == moments
+    assert m["texture_fine_seg_last"] == pytest.approx(math.log(13))
+
+
+def test_measure_records_clears_a_stale_error_on_success(monkeypatch):
+    monkeypatch.setattr(driver, "http", _fake_server([]))
+    scenes = {"s": driver.Scene("s", None, ["frame:1", "frame:2"])}
+    records = [
+        {
+            "arm": "a",
+            "scene": "s",
+            "job_id": "j1",
+            "status": "succeeded",
+            "error": "RuntimeError: POST /api/gallery/compare: 400",
+        }
+    ]
+    driver.measure_records(records, scenes, [], "http://h", "tok")
+    assert records[0]["error"] is None
+    assert records[0]["measures"]["seam_jump_mean"] == 2.0
