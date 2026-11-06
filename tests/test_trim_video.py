@@ -58,9 +58,14 @@ class TestFramesAndAudio:
         assert len(result.frames) == 1
         assert result.audio.shape[1] == 2000
 
-    def test_plain_frame_list_gives_frames(self):
-        result = trim_video(frames(10), 2, 3)
-        assert isinstance(result, list) and len(result) == 3
+    def test_plain_frame_list_gives_one_silent_clip(self):
+        # A bare frame list is N results to the step, each saved as its own
+        # "video" - one PIL frame handed to export_to_video (#1199)
+        result = trim_video(frames(10), 2, 3, fps=12)
+        assert isinstance(result, AudioVideo)
+        assert len(result.frames) == 3 and result.audio is None
+        assert result.fps == 12
+        assert result.shots == [shot_record("video 1", 0, 3)]
 
     def test_audio_without_fps_is_refused(self):
         source = clip(24, fps=None)
@@ -179,3 +184,78 @@ def test_trimmed_shots_keep_frames_clips_the_tail():
         shot_record("b", 2, 2),
     ]
     assert trimmed_shots(shots, 0) is shots
+
+
+def _write_clip(path, num_frames=12, fps=24, sample_rate=16000):
+    import torch
+    from diffusers.utils.export_utils import encode_video
+
+    pictures = [Image.new("RGB", (16, 16), (i * 20, 0, 0)) for i in range(num_frames)]
+    track = torch.full((2, int(num_frames / fps * sample_rate)), 0.25)
+    encode_video(
+        pictures,
+        fps=fps,
+        output_path=str(path),
+        audio=track,
+        audio_sample_rate=sample_rate,
+    )
+    return str(path)
+
+
+def test_for_each_over_object_entries_trims_each_file_with_its_audio(tmp_path):
+    """The #1199 cold-drill cut: a 'shots' variable of {name, video} objects,
+    trimmed one member per entry through 'item:video'. The variables pass
+    loaded each entry's 'video' field as a frame list by the key convention -
+    a variable's field is not the argument it will fill (#365) - so the trim
+    got silent frames, returned a bare frame list, and the save wrote one
+    'video' per frame: "'Image' object is not subscriptable"."""
+    from dw.result import Result
+    from dw.step_cache import step_cache
+    from dw.workflow import Workflow
+
+    first = _write_clip(tmp_path / "s01.mp4")
+    second = _write_clip(tmp_path / "s02.mp4")
+    definition = {
+        "id": "trim_each",
+        "variables": {
+            "shots": [
+                {"name": "s01", "video": first},
+                {"name": "s02", "video": second},
+            ]
+        },
+        "steps": [
+            {
+                "name": "trim",
+                "for_each": "variable:shots",
+                "task": {
+                    "command": "trim_video",
+                    "arguments": {
+                        "video": "item:video",
+                        "start_frame": 2,
+                        "num_frames": 6,
+                        "fps": 24,
+                    },
+                },
+                "result": {"content_type": "video/mp4", "fps": 24},
+            }
+        ],
+    }
+    seen = []
+    original = Result.save
+
+    def spy_save(self, *args, **kwargs):
+        seen.extend(self.result_list)
+        return original(self, *args, **kwargs)
+
+    step_cache.clear()
+    workflow = Workflow(definition, str(tmp_path), str(tmp_path / "trim.json"))
+    with patch.object(Result, "save", spy_save):
+        workflow.run({})
+
+    assert len(seen) == 2
+    for trimmed in seen:
+        assert isinstance(trimmed, AudioVideo)
+        assert len(trimmed.frames) == 6
+        assert trimmed.audio is not None and trimmed.audio.shape[1] > 0
+    files = [f for e in workflow.manifest for f in e.get("files", [])]
+    assert len(files) == 2 and all(f.endswith(".mp4") for f in files)

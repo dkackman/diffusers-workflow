@@ -908,7 +908,8 @@ Keep one span of a video's frames, and its audio over the same span:
 Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
 the same span, each end `frames_to_samples` of a frame index rounded on its
 own, so consecutive trims tile the track exactly. A clip with audio comes back
-as an audio+video pair; a bare frame list as frames. Carried shots are clipped
+as an audio+video pair; a bare frame list as one silent clip at `fps`, so a
+step saves it as one video rather than one per frame. Carried shots are clipped
 to the span and re-based to `0`, their sample side cleared; a clip with none
 comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
 shortened or padded), as are a `num_frames` of `0` or less and a negative
