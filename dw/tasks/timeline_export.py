@@ -31,7 +31,6 @@ from types import SimpleNamespace
 from ..locations import validate_media_path
 from ..security import (
     InvalidInputError,
-    validate_output_path,
     validate_string_input,
 )
 from ..writers import exact_frame_rate
@@ -136,9 +135,9 @@ class TimelineBundle:
     def save(self, path):
         """Write the zip at `path`. The member names are fixed here, never
         taken from a path, so no source file can place itself outside
-        `media/`."""
-        directory = os.path.dirname(os.path.abspath(path))
-        path = validate_output_path(path, directory)
+        `media/`. `path` is the result writer's, already confined to the
+        step's output directory (dw/writers.py `output_file_path`) - the
+        only base there is to confine it to, which a bundle never learns."""
         with zipfile.ZipFile(path, "w") as bundle:
             bundle.writestr("version.txt", OTIO_VERSION, zipfile.ZIP_DEFLATED)
             bundle.writestr(
@@ -189,6 +188,42 @@ def _facts(path):
     return info
 
 
+def _span(shot, index):
+    """A shot record with its start and length as checked integers."""
+    where = f"{COMMAND}: shots[{index}]"
+    if not isinstance(shot, dict):
+        raise InvalidInputError(
+            f"{where} must be a shot record, not {type(shot).__name__}"
+        )
+    span = dict(shot)
+    for key, least in (("start_frame", 0), ("num_frames", 1)):
+        value = shot.get(key)
+        if isinstance(value, bool) or not isinstance(value, (int, float)):
+            raise InvalidInputError(f"{where} needs an integer {key}, got {value!r}")
+        if value != int(value) or value < least:
+            raise InvalidInputError(
+                f"{where} {key} must be a whole number of at least {least}, "
+                f"got {value!r}"
+            )
+        span[key] = int(value)
+    return span
+
+
+def _refuse_overlaps(records):
+    """A track lays its clips end to end, so shots that overlap would
+    lengthen the timeline past the video and repeat the shared frames:
+    clips and gaps must add up to the video's length."""
+    for before, after in zip(records, records[1:]):
+        end = before["start_frame"] + before["num_frames"]
+        if after["start_frame"] < end:
+            raise InvalidInputError(
+                f"{COMMAND}: shot {after.get('name', '')!r} starts at frame "
+                f"{after['start_frame']}, inside {before.get('name', '')!r} "
+                f"(frames {before['start_frame']}-{end - 1}) - shots on a "
+                f"timeline cannot overlap"
+            )
+
+
 def export_timeline(video, sources=None, shots=None, name="timeline"):
     """Task command: the shots of a joined video as an OpenTimelineIO bundle.
 
@@ -211,10 +246,28 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
     rate = float(exact_frame_rate(info["fps"]))
     total = int(info["frame_count"])
 
-    records, _source = resolve_shots(video, SimpleNamespace(shots=None), shots)
+    if shots is not None and not isinstance(shots, (list, tuple)):
+        raise InvalidInputError(
+            f"{COMMAND}: shots must be a list of shot records, not "
+            f"{type(shots).__name__}"
+        )
+    if sources is not None and not isinstance(sources, (list, tuple)):
+        raise InvalidInputError(
+            f"{COMMAND}: sources must be a list of files, one per shot, not "
+            f"{type(sources).__name__}"
+        )
+    if shots:
+        records = shots
+    else:
+        # The resolved path, so a {"location": ...} video still finds the
+        # shots its run's manifest records beside the file
+        records, _source = resolve_shots(path, SimpleNamespace(shots=None))
     if not records:
         records = [{"name": "whole", "start_frame": 0, "num_frames": total}]
-    records = sorted(records, key=lambda shot: int(shot["start_frame"]))
+    records = sorted(
+        (_span(shot, index) for index, shot in enumerate(records)),
+        key=lambda shot: shot["start_frame"],
+    )
 
     media = {}
     video_arc = _media_name(path, media)
@@ -249,12 +302,14 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
             tracks.append(_track("Audio", json.loads(json.dumps(children))))
         return TimelineBundle(_timeline(name, tracks), media)
 
+    _refuse_overlaps(records)
+
     def lay_out():
         children = []
         cursor = 0
         for index, shot in enumerate(records):
-            start = int(shot["start_frame"])
-            frames = int(shot["num_frames"])
+            start = shot["start_frame"]
+            frames = shot["num_frames"]
             if start > cursor:
                 children.append(_gap(start - cursor, rate))
             children.append(

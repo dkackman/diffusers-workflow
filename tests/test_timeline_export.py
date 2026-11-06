@@ -14,7 +14,7 @@ import pytest
 import dw.media
 import dw.tasks.timeline_export as te
 from dw.locations import location_errors
-from dw.security import SecurityError
+from dw.security import InvalidInputError, SecurityError
 from dw.shots import shot_record
 from dw.tasks.task import task_command_info
 from dw.trust import TRUST_WORKFLOWS_ENV_VAR
@@ -168,12 +168,82 @@ def test_same_named_sources_stay_apart(tmp_path, facts):
     assert set(urls) <= set(archive.namelist())
 
 
-def test_the_bundle_path_is_confined_by_validate_output_path(tmp_path, facts):
+def test_the_bundle_path_is_confined_by_the_result_writer(tmp_path, facts):
+    # The writer joins the result's name onto the step's output directory
+    # and confines it there (dw/writers.py output_file_path) before save()
+    # is ever called - save() re-validating against a base derived from the
+    # path itself would confine nothing
+    from dw.writers import output_file_path
+
     video = a_file(tmp_path, "joined.mp4", facts, 24)
     bundle = te.export_timeline(video)
+    out = tmp_path / "out"
+    out.mkdir()
     with pytest.raises(SecurityError):
-        bundle.save(str(tmp_path / "a" / ".." / ".." / "escape.otioz"))
-    assert not (tmp_path.parent / "escape.otioz").exists()
+        bundle.save(output_file_path(str(out), "../escape.otioz"))
+    assert not (tmp_path / "escape.otioz").exists()
+
+
+def test_save_does_not_derive_its_own_confinement(tmp_path, facts, monkeypatch):
+    calls = []
+    monkeypatch.setattr(
+        te,
+        "validate_output_path",
+        lambda path, base: calls.append(base) or path,
+        raising=False,
+    )
+    video = a_file(tmp_path, "joined.mp4", facts, 24)
+    te.export_timeline(video).save(str(tmp_path / "out.otioz"))
+    assert calls == []
+
+
+def test_manifest_shots_are_found_through_a_location_dict(tmp_path, facts, monkeypatch):
+    video = a_file(tmp_path, "joined.mp4", facts, 72)
+    seen = []
+
+    def beside(path):
+        seen.append(path)
+        return shots((0, 24), (24, 48))
+
+    monkeypatch.setattr("dw.runs.shots_beside", beside)
+    _, content = bundle_of({"location": video}, tmp_path)
+    clips = content["tracks"]["children"][0]["children"]
+    assert [frames_of(c) for c in clips] == [24, 48]
+    assert seen == [video]
+
+
+@pytest.mark.parametrize("sources", ["a.mp4", {"a": 1}, 3])
+def test_sources_must_be_a_list(tmp_path, facts, sources):
+    video = a_file(tmp_path, "joined.mp4", facts, 24)
+    with pytest.raises(InvalidInputError, match="sources"):
+        te.export_timeline(video, sources=sources)
+
+
+@pytest.mark.parametrize(
+    "records, match",
+    [
+        ("shot", "shots"),
+        (["shot"], "shots\\[0\\]"),
+        ([{"name": "a"}], "start_frame"),
+        ([{"start_frame": "x", "num_frames": 4}], "start_frame"),
+        ([{"start_frame": 0, "num_frames": None}], "num_frames"),
+        ([{"start_frame": -1, "num_frames": 4}], "start_frame"),
+        ([{"start_frame": 0, "num_frames": 0}], "num_frames"),
+    ],
+)
+def test_malformed_shot_records_are_refused(tmp_path, facts, records, match):
+    video = a_file(tmp_path, "joined.mp4", facts, 24)
+    with pytest.raises(InvalidInputError, match=match):
+        te.export_timeline(video, shots=records)
+
+
+def test_overlapping_shots_are_refused(tmp_path, facts):
+    # A track lays its clips end to end, so an overlap would lengthen the
+    # timeline past the video and repeat frames - clips and gaps must add
+    # up to the video's length
+    video = a_file(tmp_path, "joined.mp4", facts, 72)
+    with pytest.raises(InvalidInputError, match="overlap"):
+        te.export_timeline(video, shots=shots((0, 30), (24, 48)))
 
 
 def test_member_names_never_come_from_a_path(tmp_path, facts):

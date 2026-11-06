@@ -755,7 +755,8 @@ no `opentimelineio` dependency. Rates are the exact rational the engine writes
 
 By default there is one video track and, when the file has a soundtrack, one
 audio track. Where the shots leave frames uncovered the track carries a gap, so
-clips and gaps add up to the video's length. The concept and schema come from
+clips and gaps add up to the video's length; shots that overlap are refused,
+since a track lays its clips end to end. The concept and schema come from
 leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ### dissolve_videos
