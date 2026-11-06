@@ -44,3 +44,18 @@ Things only you can check.
   - Take 60 `3668ebd2e4de` and `c9f1f6145c3c`: words lost. There is a loop at 24-30 s, a skipped clause near 153 s, and stops mid-word. The template default is moving to take 45 and 3.0 words a second, both measured (being fixed now).
   - Gap 0.05 `c221ffe761a9`: the same speech as take 60 with shorter joins (30.8, 76.1, 116.7 and 158.9 s). Do 0.08-0.23 s joins run sentences together? Do the 0.24-0.5 s joins at gap 0.3 feel rushed? Recommendation: `gap_seconds` 0.45, subject to your ear; it stays 0.3 until you say.
 - **Long music: don't judge yet.** music-long padded short sections with silence (12-57 s holes and a 45 s silent tail), because Music 3 wrote 27-70 s where 85 s was asked. A fix is in progress, and S6 music reruns after it. The one real crossfade, near 250 s on `52303a4436d4` and `3bfee8aad7c5` (xf3000), is the only join worth hearing now.
+
+**Keystone confirmation (`structural.md` *Keystone confirmation*, be21f33c)**
+- **The burn reset comes from the keystone and repeats on seed 2.**
+  - Resets: seed 2 pixel `e4c7c19a99cd` at 58.7 s and 111 s; seed 2 latent carry `4cae30688ed4` at 91.7 s; keystone without the anchor `c4ec5a055464` (seed 1166) at 39.5 s and 81.5 s.
+  - No take without a keystone ever comes back.
+  - Fine texture at the end: 0.11 against 1.14 (seed 2); 0.53 against 1.71 (no anchor).
+  - The keystone costs no wall time. It also removes seed 1166's late music bed.
+- **It is a wipe, not a hold.** The crust grows back between resets. Each reset is a visible pop mid-segment, at times that vary with seed and arm (39-111 s). The seam measure misses it. Light, colour and framing do not jump; only the backdrop texture does.
+- **The anchor decides the face, not the backdrop.** Without it the face burns (painted, high contrast). With it the pixel face turns into a soft white mask from about 100 s. The latent-carry face stays sharp on both seeds, slightly glossy.
+- [ ] **Watch the pop.**
+  - `~/Desktop/dw-bench-t17/t17-s1-120s-seed2-keystone_LEFT-pixel-keystone-anchor25_RIGHT-anchor25-control-50-66s.mp4`: the pop is 8.7 s in.
+  - `t17-s1-120s-seed2-keystone_LEFT-pixel_RIGHT-latentcarry-88-120s.mp4`: the carry pop is 3.7 s in, the pixel's second reset is about 23 s in, and the faces are at the end.
+  - Is a mid-shot pop to a clean backdrop better than steady crust? Recommendation: yes, make the keystone the default for static chained takes past about 30 s. Anchor 0.25 stays a knob (+33% wall time, soft face). Never use it on moving shots: round 1's keystone lost on look on S2.
+- **#1188 hybrid windows, Steps 5-6: not built in this plan.** The chain keystone answers Step 6's anchor question. What is left is the blended finish, at 36+ min per minute of take, and Step 4's refine already covers seams. The cheaper next lever is to make the reset regular (every segment) inside the chain; that spike is running now. The #1188 commenter is yours to answer.
+- **#1044 latent carry: keep the scratch flag, for static shots only.** It ties on numbers, holds the face better by eye on both seeds, and is about 4 min faster. Your read of the 88-120 s clip decides whether it becomes a knob.
