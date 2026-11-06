@@ -46,6 +46,7 @@ the next consumer picking 61.
 import logging
 import math
 import numbers
+import re
 
 from . import references
 from .presets import PRESETS_KEY, bundle_sources, coerced_bundles, effective_variables
@@ -61,6 +62,57 @@ SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
 # pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
 # the template's own `reason` says (#1199)
 MIN_LENGTH = "min_length"
+# A string value's words against a sibling number of seconds, warned and
+# never refused: music-long cuts a section at its `seconds`, so a lyric
+# longer than that fits loses its last lines, and the rate is whatever the
+# workflow measured (#1199 bench). A [bracketed] tag is markup, not a word
+MAX_WORDS_PER_SECOND = "max_words_per_second"
+SECONDS_FROM = "seconds_from"
+_TAG = re.compile(r"\[[^\]\n]*\]")
+
+
+def word_count(text):
+    """The words in `text`, a [bracketed] tag not counting as one."""
+    return len(_TAG.sub(" ", text).split())
+
+
+def density_notice(name, value, constraint, siblings):
+    """(message, words, most words allowed) for a string with more words than
+    its seconds hold at the constraint's `max_words_per_second`, or None.
+
+    The seconds are read from `siblings[seconds_from]`: the same list entry
+    for an entry field, the workflow's variables for a top-level one. A
+    value that is not a string, or seconds that are not a number yet (a
+    reference), is not judged.
+    """
+    rate = constraint.get(MAX_WORDS_PER_SECOND)
+    source = constraint.get(SECONDS_FROM)
+    if not isinstance(value, str) or not rate or not isinstance(source, str):
+        return None
+    seconds = siblings.get(source) if isinstance(siblings, dict) else None
+    if isinstance(seconds, bool) or not isinstance(seconds, numbers.Real):
+        try:
+            seconds = float(seconds) if isinstance(seconds, str) else None
+        except ValueError:
+            seconds = None
+    if seconds is None or not math.isfinite(seconds) or seconds <= 0:
+        return None
+    words = word_count(value)
+    allowed = rate * seconds
+    if words <= allowed:
+        return None
+    reason = constraint.get("reason")
+    because = f" - {reason}" if reason else ""
+    return (
+        (
+            f"'{name}' has {words} words for {seconds:g} s ('{source}'), "
+            f"{words / seconds:.2f} a second, past the {rate:g} this workflow "
+            f"declares (about {math.floor(allowed)} words in {seconds:g} s), so "
+            f"its last lines may never be heard{because}"
+        ),
+        words,
+        math.floor(allowed),
+    )
 
 
 def declared_constraints(definition):
@@ -408,7 +460,40 @@ def constraint_warnings(definition, arguments=None):
         notice = snap_notice(name, entry[name], constraints[name])
         if notice is not None:
             notices.append(f"{variable}[{index}]: {notice}")
+    notices.extend(message for message, _ in density_notices(definition, values))
     return notices
+
+
+def density_notices(definition, values):
+    """Every value with more words than its seconds hold, as
+    (message, fields) - the one walk the validate and run passes share."""
+    constraints = declared_constraints(definition)
+    found = []
+    for name in sorted(constraints):
+        constraint = constraints[name]
+        if not isinstance(constraint, dict) or name not in values:
+            continue
+        answer = density_notice(name, values[name], constraint, values)
+        if answer is not None:
+            message, words, allowed = answer
+            found.append(
+                (message, {"variable": name, "words": words, "max_words": allowed})
+            )
+    for variable, index, name, entry in entry_targets(definition, values):
+        answer = density_notice(name, entry[name], constraints[name], entry)
+        if answer is not None:
+            message, words, allowed = answer
+            found.append(
+                (
+                    f"{variable}[{index}]: {message}",
+                    {
+                        "variable": f"{variable}[{index}].{name}",
+                        "words": words,
+                        "max_words": allowed,
+                    },
+                )
+            )
+    return found
 
 
 def snap_constraints(definition, variables):
@@ -459,6 +544,8 @@ def apply_constraints(definition, variables):
         return
     for message, label, value in snap_constraints(definition, variables):
         emit_warning(message, kind="value_snapped", variable=label, value=value)
+    for message, fields in density_notices(definition, variables):
+        emit_warning(message, kind="text_may_overrun", **fields)
     for name in sorted(constraints):
         constraint = constraints[name]
         if not isinstance(constraint, dict) or name not in variables:

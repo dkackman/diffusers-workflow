@@ -164,6 +164,15 @@
                     "type": "integer",
                     "minimum": 1
                 },
+                "max_words_per_second": {
+                    "description": "For a string value: the most words it may carry per second of the number 'seconds_from' names, warned (validation warning and the job's 'text_may_overrun') and never refused. A [bracketed] tag is markup, not a word. The rate is the workflow's own measurement - music-long cuts a section at its 'seconds', so a lyric longer than that fits loses its last lines; say where the rate was measured in 'reason'.",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "seconds_from": {
+                    "description": "With 'max_words_per_second': the number of seconds the value has, read from the same list entry for an entry field (a section's 'seconds'), else from the workflow's variables. Not a number yet (a reference), the value is not judged.",
+                    "type": "string"
+                },
                 "snap": {
                     "description": "What to do with a value the rule refuses. 'up' rounds to the next value the rule accepts, and warns that it did; absent, the value is refused.",
                     "enum": [

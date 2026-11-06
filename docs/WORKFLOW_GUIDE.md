@@ -430,6 +430,14 @@ refuses an empty lyric only after the model has loaded, so its templates
 declare `"lyrics": {"min_length": 1, "reason": "..."}`, and the `reason`
 says what to send instead (a tag-only body for an instrumental).
 
+`max_words_per_second` with `seconds_from` warns, and never refuses, when a
+string carries more words than its seconds hold at the workflow's measured
+rate. The seconds come from the same list entry for an entry field, else from
+the workflow's variables, and a `[bracketed]` tag is not a word. `music-long`
+declares 0.73 words a second of each section's `seconds`, measured on the
+long-form bench. It warns at validation and again in the job's `warnings`
+(`text_may_overrun`).
+
 The rule is checked at validation (`POST /api/validate`, `validate_workflow` and
 the pre-queue check refuse a bad value at `arguments.<name>` or
 `variables.<name>`), again at run time before anything loads (for a value the
@@ -444,10 +452,10 @@ Where a template both declares a constraint and snaps a chain, the chain's
 "frame_snap": "constraint:num_frames"
 ```
 
-A constraint cannot express a bound that depends on another variable (a maximum
-of `fps * seconds`), and it reaches a top-level variable only, not a field inside
-a list entry: a `for_each` template whose entries carry their own `num_frames`
-relies on the run-time check.
+A refused bound cannot depend on another variable (a maximum of `fps * seconds`);
+only the word-rate warning reads a second value. A constraint key reaches a
+top-level variable and, where a step consumes it as `item:<name>`, the same
+field of a `for_each` list's entries (`dialogue-short`'s per-shot `num_frames`).
 
 ### A workflow takes only the keys the engine reads
 
