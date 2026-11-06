@@ -3,7 +3,7 @@
 Part of the `long-form` skill. Sources: `bench/records/check.md`,
 `bench/records/repair.md`, `bench/records/noise-floor.md` (*Chain check
 thresholds*), and `docs/WORKFLOW_GUIDE.md`, *Checking each segment*
-(`get_guide("WORKFLOW_GUIDE", section="Checking each segment")`).
+(`get_guide("workflows", section="Checking each segment")`).
 
 ## The per-segment check
 

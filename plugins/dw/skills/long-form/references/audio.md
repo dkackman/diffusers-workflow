@@ -131,7 +131,7 @@ the source's own frames at the source's own frame rate, under the new track.
 - Validation refuses refine arguments with it, a chained step, and
   `latents`.
 - There is no catalog template yet; the draft waits on Don's listen. Compose
-  the step from `get_guide("WORKFLOW_GUIDE", section="Audio over a finished
+  the step from `get_guide("workflows", section="Audio over a finished
   picture")`, starting from `templates/minimax/video-with-audio`.
 
 This is the lever for replacing or adding a take's sound without redrawing
