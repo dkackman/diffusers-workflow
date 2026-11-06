@@ -283,10 +283,21 @@ def window_problems(arguments, has_cache=False):
     settings = arguments.get(REFINE_WINDOWS_INPUT)
     if settings is None:
         return []
+    if not isinstance(settings, dict):
+        return [
+            f"{REFINE_WINDOWS_INPUT} is {{frames, overlap}} in latent frames, "
+            f"got {settings!r}"
+        ]
+    return _settings_problems(settings, arguments) + _refine_problems(
+        arguments, has_cache
+    )
+
+
+def _settings_problems(settings, arguments):
+    """The window settings' own problems: their keys, the plan they make, the
+    blend and the positions."""
     name = REFINE_WINDOWS_INPUT
     problems = []
-    if not isinstance(settings, dict):
-        return [f"{name} is {{frames, overlap}} in latent frames, got {settings!r}"]
     extra = sorted(set(settings) - set(_KEYS))
     if extra:
         problems.append(f"{name} takes {', '.join(_KEYS)}, not {', '.join(extra)}")
@@ -303,17 +314,30 @@ def window_problems(arguments, has_cache=False):
     if positions not in POSITIONS:
         problems.append(f"{name} positions is one of {', '.join(POSITIONS)}")
     elif positions == "rebased" and planned:
-        # The stride decides every start but the pulled-back last; that one
-        # needs the take's length, when the call already says it. The loop
-        # checks the plan it runs either way
-        take = _take_latent_frames(arguments)
-        if take is not None:
-            plan = window_plan(take, frames, overlap)
-        else:
-            plan = [(0, frames), (frames - overlap, 2 * frames - overlap)]
-        problem = rebase_problem(plan)
+        problem = _rebased_plan_problem(arguments, frames, overlap)
         if problem:
             problems.append(problem)
+    return problems
+
+
+def _rebased_plan_problem(arguments, frames, overlap):
+    """Why rebased positions cannot hold for this plan, or None."""
+    # The stride decides every start but the pulled-back last; that one
+    # needs the take's length, when the call already says it. The loop
+    # checks the plan it runs either way
+    take = _take_latent_frames(arguments)
+    if take is not None:
+        plan = window_plan(take, frames, overlap)
+    else:
+        plan = [(0, frames), (frames - overlap, 2 * frames - overlap)]
+    return rebase_problem(plan)
+
+
+def _refine_problems(arguments, has_cache):
+    """The problems of the refine the windows ride on: its strength, its
+    take, its length, and the inputs and cache the windows cannot split."""
+    name = REFINE_WINDOWS_INPUT
+    problems = []
     if arguments.get(REFINE_STRENGTH_INPUT) is None:
         problems.append(f"{name} windows a refine_strength pass - add one")
     # A take as latents, or as pixels through the regional edit's encode

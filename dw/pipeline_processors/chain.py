@@ -966,148 +966,56 @@ def _trimmed_shots(shots, total_frames, total_samples=None):
     return trimmed
 
 
+def _argument(arguments, name):
+    """`arguments[name]` when the step's arguments are a dict, else None."""
+    return arguments.get(name) if isinstance(arguments, dict) else None
+
+
+def _raise_chain_problem(problem):
+    """Refuse a chain setting on its one problem, if it has one."""
+    if problem:
+        raise ValueError(f"Chain {problem}")
+
+
+def _raise_chain_problems(problems):
+    """Refuse a chain setting on all its (field, message) problems at once."""
+    if problems:
+        raise ValueError("; ".join(f"Chain {message}" for _, message in problems))
+
+
+def _chain_length(chain_definition):
+    """(segments, match_audio, duration_seconds), refused unless the chain
+    asks for its length exactly one way."""
+    segments = chain_definition.get("segments", None)
+    match_audio = bool(chain_definition.get("match_audio", False))
+    duration = chain_definition.get("duration_seconds", None)
+    # A resolved duration wins over a segment count: a template carries a
+    # default `segments`, and asking for seconds must not need it nulled
+    counted = segments is not None or duration is not None
+    if counted == match_audio:
+        raise ValueError(
+            "A chain needs exactly one of 'segments', 'match_audio' or "
+            "'duration_seconds'"
+        )
+    if segments is not None and duration is not None:
+        emit_log(
+            f"Chain 'segments' ({segments}) ignored: 'duration_seconds' "
+            f"({float(duration):g}) sets the segment count"
+        )
+    return segments, match_audio, duration
+
+
 class ChainConfig:
     """Validated chain settings plus the planned segments for one run."""
 
     def __init__(
         self, chain_definition, arguments, resolved_prompts=None, base_dir=None
     ):
-        segments = chain_definition.get("segments", None)
-        match_audio = bool(chain_definition.get("match_audio", False))
-        duration = chain_definition.get("duration_seconds", None)
-        # A resolved duration wins over a segment count: a template carries a
-        # default `segments`, and asking for seconds must not need it nulled
-        counted = segments is not None or duration is not None
-        if counted == match_audio:
-            raise ValueError(
-                "A chain needs exactly one of 'segments', 'match_audio' or "
-                "'duration_seconds'"
-            )
-        if segments is not None and duration is not None:
-            emit_log(
-                f"Chain 'segments' ({segments}) ignored: 'duration_seconds' "
-                f"({float(duration):g}) sets the segment count"
-            )
-
-        self.continuity = chain_definition.get("continuity", "last_frame")
-        if self.continuity not in CONTINUITY_MODES:
-            known = ", ".join(sorted(CONTINUITY_MODES))
-            raise ValueError(
-                f"Unknown chain continuity '{self.continuity}' - expected one of {known}"
-            )
-
-        # Segment 1 as every later segment's latent statistics anchor (#1166)
-        problem = chain_anchor_problem(chain_definition)
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
-        # How far each later segment's match goes (#1190); None is the full one
-        self.anchor_strength = chain_definition.get("anchor_strength")
-        problem = (
-            anchor_strength_problem(self.anchor_strength)
-            if (self.anchor_strength is not None)
-            else None
-        )
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        if self.anchor_strength is not None:
-            self.anchor_strength = float(self.anchor_strength)
-
-        # Segment 1's frame 0 as every later keyframe (#1187)
-        problem = chain_keystone_problem(chain_definition)
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
-        # Where the keystone sits in each later segment, a spike
-        problem = chain_keystone_slot_problem(
-            chain_definition,
-            arguments.get("num_frames") if isinstance(arguments, dict) else None,
-            arguments if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.keystone_slot = chain_keystone_slot(chain_definition)
-
-        # Segment 1's late frame past every later segment's end (#1187), a spike
-        problem = chain_capstone_problem(chain_definition)
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        capstone = chain_definition.get(CHAIN_CAPSTONE)
-        self.capstone = capstone and {
-            "enter_below_sigma": float(capstone["enter_below_sigma"]),
-            "from_end": int(capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)),
-        }
-
-        # The previous segment's own latents as its guide (#1150), a spike
-        problem = chain_latent_carry_problem(
-            chain_definition,
-            arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
-            arguments.get(HOLD_AUDIO_INPUT) if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
-
-        # The sharpest of the last N frames as the keyframe (#1032)
-        problem = chain_carry_pick_problem(
-            chain_definition,
-            arguments.get("num_frames") if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        pick = chain_definition.get("carry_pick")
-        self.carry_pick = int(pick["sharpest"]) if pick else 0
-
-        # Pixel corrections on each segment before its carry (#1191)
-        problem = chain_look_hold_problem(chain_definition)
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.look_hold = chain_look_hold_flags(chain_definition)
-
-        # The per-segment check and its re-roll budget; absent is off and 0
-        problem = chain_check_problem(chain_definition)
-        if problem:
-            raise ValueError(f"Chain {problem}")
-        self.check = segment_check(chain_definition.get("check"))
-        self.retries = int(chain_definition.get("retries", 0)) if self.check else 0
-
-        self.segment_argument = chain_definition.get("segment_argument", "image")
-        self.carry_frames = chain_definition.get("carry_frames", None)
-        if self.carry_frames is not None:
-            self.carry_frames = int(self.carry_frames)
-            if self.carry_frames < 1:
-                raise ValueError(
-                    f"Chain 'carry_frames' must be at least 1, got {self.carry_frames}"
-                )
-        self.carry_audio = bool(chain_definition.get("carry_audio", True))
-        self.trim_frames = int(chain_definition.get("trim_frames", 1))
-        self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
-        # A guide chain trims the guide it laid in, not trim_frames, and a
-        # held soundtrack has nothing to crossfade
-        self.guide_frames = None
-        self.guide_holds_audio = False
-        # Frames dropped from the tail of every segment but the last (#1189)
-        self.guide_backoff = 0
-        self.tail_trim = 0
-        problems = guide_backoff_problems(chain_definition)
-        if problems:
-            raise ValueError("; ".join(f"Chain {message}" for _, message in problems))
-        head_trim = self.trim_frames
-        if self.continuity == GUIDE_CONTINUITY:
-            problems = guide_chain_problems(chain_definition)
-            if problems:
-                raise ValueError(
-                    "; ".join(f"Chain {message}" for _, message in problems)
-                )
-            self.guide_frames = chain_definition.get(
-                "guide_frames", GUIDE_CHAIN_DEFAULT
-            )
-            head_trim = self.guide_frames
-            self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
-            self.tail_trim = self.guide_backoff
-            if self.carry_audio:
-                self.guide_holds_audio = True
-                self.crossfade_ms = 0.0
+        segments, match_audio, duration = _chain_length(chain_definition)
+        self._read_continuity(chain_definition)
+        self._read_experiments(chain_definition, arguments)
+        self._read_carry(chain_definition)
+        head_trim = self._read_guide(chain_definition)
         self.head_trim = head_trim
         self.prompts = resolved_prompts or chain_definition.get("prompts", None)
         self.fps = _resolve_fps(chain_definition, arguments)
@@ -1131,36 +1039,144 @@ class ChainConfig:
                 f"across {len(self.plan)} segments"
             )
         else:
-            segments = int(segments)
-            if not 1 <= segments <= MAX_SEGMENTS:
+            self._plan_from_segments(segments, arguments, head_trim)
+
+    def _read_continuity(self, chain_definition):
+        self.continuity = chain_definition.get("continuity", "last_frame")
+        if self.continuity not in CONTINUITY_MODES:
+            known = ", ".join(sorted(CONTINUITY_MODES))
+            raise ValueError(
+                f"Unknown chain continuity '{self.continuity}' - expected one of {known}"
+            )
+
+    def _read_experiments(self, chain_definition, arguments):
+        """The anchor, keystone, capstone, latent carry, carry pick, look hold
+        and per-segment check, each refused on its first problem, in order."""
+        # Segment 1 as every later segment's latent statistics anchor (#1166)
+        _raise_chain_problem(chain_anchor_problem(chain_definition))
+        self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
+        # How far each later segment's match goes (#1190); None is the full one
+        self.anchor_strength = chain_definition.get("anchor_strength")
+        if self.anchor_strength is not None:
+            _raise_chain_problem(anchor_strength_problem(self.anchor_strength))
+            self.anchor_strength = float(self.anchor_strength)
+
+        # Segment 1's frame 0 as every later keyframe (#1187)
+        _raise_chain_problem(chain_keystone_problem(chain_definition))
+        self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
+        # Where the keystone sits in each later segment, a spike
+        _raise_chain_problem(
+            chain_keystone_slot_problem(
+                chain_definition,
+                _argument(arguments, "num_frames"),
+                arguments if isinstance(arguments, dict) else None,
+            )
+        )
+        self.keystone_slot = chain_keystone_slot(chain_definition)
+
+        # Segment 1's late frame past every later segment's end (#1187), a spike
+        _raise_chain_problem(chain_capstone_problem(chain_definition))
+        capstone = chain_definition.get(CHAIN_CAPSTONE)
+        self.capstone = capstone and {
+            "enter_below_sigma": float(capstone["enter_below_sigma"]),
+            "from_end": int(capstone.get("from_end", CHAIN_CAPSTONE_FROM_END)),
+        }
+
+        # The previous segment's own latents as its guide (#1150), a spike
+        _raise_chain_problem(
+            chain_latent_carry_problem(
+                chain_definition,
+                _argument(arguments, GUIDE_NOISE_INPUT),
+                _argument(arguments, HOLD_AUDIO_INPUT),
+            )
+        )
+        self.latent_carry = chain_definition.get(CHAIN_LATENT_CARRY) is True
+
+        # The sharpest of the last N frames as the keyframe (#1032)
+        _raise_chain_problem(
+            chain_carry_pick_problem(
+                chain_definition, _argument(arguments, "num_frames")
+            )
+        )
+        pick = chain_definition.get("carry_pick")
+        self.carry_pick = int(pick["sharpest"]) if pick else 0
+
+        # Pixel corrections on each segment before its carry (#1191)
+        _raise_chain_problem(chain_look_hold_problem(chain_definition))
+        self.look_hold = chain_look_hold_flags(chain_definition)
+
+        # The per-segment check and its re-roll budget; absent is off and 0
+        _raise_chain_problem(chain_check_problem(chain_definition))
+        self.check = segment_check(chain_definition.get("check"))
+        self.retries = int(chain_definition.get("retries", 0)) if self.check else 0
+
+    def _read_carry(self, chain_definition):
+        self.segment_argument = chain_definition.get("segment_argument", "image")
+        self.carry_frames = chain_definition.get("carry_frames", None)
+        if self.carry_frames is not None:
+            self.carry_frames = int(self.carry_frames)
+            if self.carry_frames < 1:
                 raise ValueError(
-                    f"Chain 'segments' must be between 1 and {MAX_SEGMENTS}, got {segments}"
+                    f"Chain 'carry_frames' must be at least 1, got {self.carry_frames}"
                 )
-            num_frames = arguments.get("num_frames", None)
-            if num_frames is not None:
-                validate_frame_snap(int(num_frames), self.frame_snap)
-                if (
-                    self.guide_frames is not None
-                    and int(num_frames) <= head_trim + self.tail_trim
-                ):
-                    raise ValueError(
-                        f"Segments of {num_frames} frames cannot progress past "
-                        f"a {head_trim}-frame guide"
-                        + (
-                            f" and a {self.tail_trim}-frame back-off"
-                            if self.tail_trim
-                            else ""
-                        )
+        self.carry_audio = bool(chain_definition.get("carry_audio", True))
+        self.trim_frames = int(chain_definition.get("trim_frames", 1))
+        self.crossfade_ms = float(chain_definition.get("crossfade_ms", 75))
+
+    def _read_guide(self, chain_definition):
+        """The guide chain's settings; returns the head trim every later
+        segment drops - the guide it laid in, or trim_frames off a guide."""
+        # A guide chain trims the guide it laid in, not trim_frames, and a
+        # held soundtrack has nothing to crossfade
+        self.guide_frames = None
+        self.guide_holds_audio = False
+        # Frames dropped from the tail of every segment but the last (#1189)
+        self.guide_backoff = 0
+        self.tail_trim = 0
+        _raise_chain_problems(guide_backoff_problems(chain_definition))
+        if self.continuity != GUIDE_CONTINUITY:
+            return self.trim_frames
+        _raise_chain_problems(guide_chain_problems(chain_definition))
+        self.guide_frames = chain_definition.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+        self.guide_backoff = int(chain_definition.get("guide_backoff", 0))
+        self.tail_trim = self.guide_backoff
+        if self.carry_audio:
+            self.guide_holds_audio = True
+            self.crossfade_ms = 0.0
+        return self.guide_frames
+
+    def _plan_from_segments(self, segments, arguments, head_trim):
+        """The plan for a chain asked for by its segment count."""
+        segments = int(segments)
+        if not 1 <= segments <= MAX_SEGMENTS:
+            raise ValueError(
+                f"Chain 'segments' must be between 1 and {MAX_SEGMENTS}, got {segments}"
+            )
+        num_frames = arguments.get("num_frames", None)
+        if num_frames is not None:
+            validate_frame_snap(int(num_frames), self.frame_snap)
+            if (
+                self.guide_frames is not None
+                and int(num_frames) <= head_trim + self.tail_trim
+            ):
+                raise ValueError(
+                    f"Segments of {num_frames} frames cannot progress past "
+                    f"a {head_trim}-frame guide"
+                    + (
+                        f" and a {self.tail_trim}-frame back-off"
+                        if self.tail_trim
+                        else ""
                     )
-            self.plan = [
-                Segment(
-                    index,
-                    int(num_frames) if num_frames is not None else None,
-                    0,
-                    head_trim if index > 0 else 0,
                 )
-                for index in range(segments)
-            ]
+        self.plan = [
+            Segment(
+                index,
+                int(num_frames) if num_frames is not None else None,
+                0,
+                head_trim if index > 0 else 0,
+            )
+            for index in range(segments)
+        ]
 
     def _plan_from_audio(self, arguments, base_dir=None):
         """Derive the segment plan from the matched track's duration - the
