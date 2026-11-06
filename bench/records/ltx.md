@@ -1,0 +1,176 @@
+# LTX long takes (Task 23)
+
+## Verdicts
+
+- **last_frame chain (`ltx2/chained-segments`): stays the default.** Nothing
+  in the round beats it on picture at no cost and on both seeds.
+- **extend (`ltx2/extend-clip` shape, each segment conditioned on the whole
+  previous one): not a default.** It wins seam jump on both seeds and texture
+  on seed 1166. But it costs 2.1x the wall time, and on seed 2 the win is an
+  empty road: the courier rides out of frame in segment 1, and extend keeps
+  him gone for the last 10 s. It continues what is there, faithfully. Offer it
+  as a knob for a shot whose subject stays in frame.
+- **look_hold: wins on numbers, invisible by eye, safe on a moving camera.**
+  On S5 it wins seam look on both seeds (1.72→1.17, 1.68→1.22); seed 2 is
+  strictly mixed by 0.001 on fine texture. By eye the 15 s takes are the
+  control's shot, same framing at every sampled time. On the LTX orbit it
+  ties and does not hold the camera back (below). Warm, it costs no wall
+  time. Recommendation: make it the LTX chain default, with Don's ok, since
+  the gain is not visible.
+- **carry_pick 4: loses.** Mixed on seed 1166 (coarse texture worse), loses
+  on seed 2 (jump 1.25→1.81). It also shortens the take by 0.2-0.3 s.
+- **check + 1 re-roll: tie, free.** No segment failed on either seed (every
+  shot `attempts: 1`), so the take is bit-identical to the control and wall
+  time is the same. S5 cannot tell whether the check helps on LTX. It does
+  not see the audio dropout below; the check measures picture only.
+- **duration_seconds 36 (eight segments): not usable as one take.** On both
+  seeds the rider changes by about 30 s (helmet, box, shirt), and pale
+  vertical streaks grow in the sky and sea from about 20 s. With look_hold
+  the courier shrinks to a dot down the road by 22-27 s, and segment 7
+  (29.8 s) replaces him with a different man on a green moped. The look_hold
+  seam numbers at 36 s (look 1.41→1.00) are measured on that swap.
+
+## Recommended default
+
+- `ltx2/chained-segments`: last_frame continuity, 3 segments of 121 frames
+  (about 15 s), no carry_pick, no check. look_hold on is the one candidate
+  change (Don's call, above); until he rules, the template is unchanged.
+- **Cap an LTX long take at about 15-20 s (3-4 segments).** Past that, cut
+  and start the next shot from a fresh still of the subject. The round gives
+  no counter that holds the subject longer.
+- `ltx2/extend-clip`: no default change. It is the right template when the
+  shot must continue exactly what the previous clip shows, at 2x the cost.
+- No template default changes: the round supports none (plan Step 2).
+
+## Orbit check (look_hold on a moving camera)
+
+**look_hold does not hold an LTX orbit back.** The H3 ruling ("never pair
+look_hold with last_frame on a moving camera", `counters.md`) is H3's, not
+LTX's.
+
+- **Setup.** `bench/workflows/ltx-arc.json`: the S5 chain (last_frame, three
+  121-frame segments) on S2's statue still with an orbit caption, measured
+  under S2's crop. Arms `bench/arms/ltx-arc.json`, record `ltx-arc.json`.
+- **By eye.** On both seeds, with and without look_hold, the camera goes from
+  the statue's front (0.5 s) to three-quarter (5 s), side-back (10 s) and the
+  statue's back (14.9 s). The look_hold takes match the controls frame for
+  frame in framing.
+- **Measures.** Every measure is inside the floor on both seeds: a tie.
+
+| arm | seed | job | jump | look | tex fine | tex mid | tex coarse | wall min |
+|---|---|---|---|---|---|---|---|---|
+| control | 1166 | `a3e99c3df84b` | 0.89 | 0.45 | 0.205 | 0.681 | 0.019 | 11.2 (cold) |
+| look_hold | 1166 | `9331cd20fa39` | 0.86 | 0.42 | 0.231 | 0.700 | 0.040 | 8.9 |
+| control | 2 | `84328fe3ad81` | 1.31 | 0.80 | 0.776 | 0.857 | 0.652 | 8.8 |
+| look_hold | 2 | `64641b316eed` | 1.24 | 0.69 | 0.692 | 0.729 | 0.649 | 8.9 |
+
+- **Cost.** Warm, look_hold costs nothing measurable (8.9 against 8.8 min).
+  The 11.4 min of the S5 look_hold runs is a model reload after the extend
+  arm, not look_hold.
+- **Dropout again.** Seed 2's segment 3 is silent here too (-89 dBFS), with a
+  different prompt and picture (below).
+
+## Audio dropout (follow-up candidate)
+
+LTX sometimes renders a near-silent segment, about -89 dBFS against -23 to
+-50 dBFS for its neighbours. Segment RMS per take (dBFS):
+
+| arm | seed | seg 1 | seg 2 | seg 3 |
+|---|---|---|---|---|
+| control | 1166 | -40.5 | -23.0 | -24.2 |
+| control | 2 | -42.4 | -46.5 | **-89.2** |
+| look_hold | 2 | -42.4 | -46.5 | **-89.2** |
+| carry_pick 4 | 2 | -42.4 | -50.3 | **-89.2** |
+| check r1 | 2 | -42.4 | -46.5 | **-89.2** |
+| extend | 1166 | -49.7 | **-87.8** | -52.9 |
+| extend | 2 | -39.0 | -46.7 | **-89.0** |
+
+- On seed 2, segment 3 is silent in every 3-segment arm, though look_hold
+  and carry_pick change its start image, and in both orbit takes, which have
+  another prompt and still. The silence follows the segment's seed, not the
+  prompt or the picture.
+- The 36 s seed-2 control's segment 3 is quiet (-57 dBFS) but not silent.
+- The lem S5 noise-floor runs (CUDA) had level steps of 2.1-2.9 dB, so no
+  dropout there. Every dropout so far is on mini-ai (MPS).
+- So on S5 the seam level step measures dropouts, not seams. Knobs here are
+  judged on picture, as the S1/S2 ruling does for scenes with no held voice.
+- The chain check does not catch it. A segment-level silence check (RMS under
+  about -70 dBFS where the prompt asks for sound) would. Worth an issue: is
+  it MPS-only, and is it the audio VAE or the vocoder?
+
+## Setup
+
+- **Scene.** S5 (`bench/workflows/s5-ltx-action.json`): a courier cycling a
+  coastal road, tracking camera, wind and surf, no speech. Three 121-frame
+  segments at 960x544, 24 fps, about 15 s.
+- **Arms.** `bench/arms/ltx-long.json` (13 runs, seeds 1166 and 2) and
+  `ltx-long-probe.json` (the first control). extend runs
+  `bench/workflows/s5-ltx-extend.json`: a 241-frame `LTX2ConditionPipeline`
+  pass conditioned on the whole previous 121-frame segment, keeping its new
+  120 frames. carry_pick runs `lf-s5-ltx-action.json`.
+- **Server.** mini-ai (MPS), bench server port 8766, LTX-2.5 with uint4 SDNQ
+  transformer.
+- **Records.** `ltx-long.json`, `ltx-long-probe.json`, `ltx-arc.json`.
+- **Floor.** jump 0.124, look 0.438, fine 0.081, mid 0.159, coarse 0.118
+  (`combined_floor` of the bench's rerun gap and seed floors). On mini-ai the
+  S5 control reran bit-identical (`29884b7da674`, `3364de6cb5c1`), so this
+  floor is conservative.
+
+## Measures
+
+Each arm is read against the control at its own seed. Cells give the control
+value, then the arm. **Bold** is better past the floor; _italic_ is worse past
+it. Level step is shown but not counted (dropouts, above).
+
+| arm | seed | job | jump | look | tex fine | tex mid | tex coarse | level step dB | wall min |
+|---|---|---|---|---|---|---|---|---|---|
+| control | 1166 | `29884b7da674` | 1.29 | 1.72 | 0.500 | 0.560 | 0.628 | 9.3 | 8.9 (11.5 cold) |
+| control | 2 | `7fbfc3451e90` | 1.25 | 1.68 | 0.104 | 0.048 | 0.188 | 23.3 | 8.9 |
+| extend | 1166 | `516802e1acff` | **0.93** | 2.00 | **0.153** | **0.041** | **0.175** | 36.6 | 18.6 |
+| extend | 2 | `f032311a7f24` | **0.77** | **1.15** | 0.145 | _0.224_ | 0.215 | 24.8 | 18.3 |
+| look_hold | 1166 | `aaa32cab8384` | **1.13** | **1.17** | 0.437 | 0.426 | **0.455** | 9.0 | 11.4 (reload) |
+| look_hold | 2 | `5b471b1428a1` | **0.88** | **1.22** | _0.186_ | 0.147 | **0.004** | 23.3 | 11.4 (reload) |
+| carry_pick 4 | 1166 | `d563c0e5d4ab` | **1.12** | 1.34 | **0.344** | 0.434 | _0.961_ | 5.2 | 8.9 |
+| carry_pick 4 | 2 | `d0c1b0a56820` | _1.81_ | 1.36 | 0.093 | _0.252_ | 0.173 | 23.3 | 8.9 |
+| check r1 | 1166 | `ef9b8abfa067` | 1.29 | 1.72 | 0.500 | 0.560 | 0.628 | 9.3 | 8.9 |
+| check r1 | 2 | `61b7fc4d4fd9` | 1.25 | 1.68 | 0.104 | 0.048 | 0.188 | 23.3 | 8.8 |
+
+Strict verdicts (`bench/verdict.py`, all five picture measures): extend wins
+at 1166 and is mixed at 2 (mid 0.176 over, floor 0.159); look_hold wins at
+1166 and is mixed at 2 (fine +0.082 against a 0.081 floor, a hair); carry_pick
+is mixed at 1166 and loses at 2; check ties at both.
+
+36 s takes (eight segments, 864 frames). Seam means span seven seams, so read
+them against each other, not against the 15 s rows:
+
+| arm | seed | job | jump | look | tex fine | tex mid | tex coarse | wall min |
+|---|---|---|---|---|---|---|---|---|
+| control 36 s | 1166 | `cae2ee120f6b` | 1.27 | 1.41 | 0.306 | 0.131 | 0.648 | 23.5 |
+| control 36 s | 2 | `f721d3694acb` | 1.34 | 1.38 | 1.058 | 1.560 | 2.157 | 23.5 |
+| look_hold 36 s | 1166 | `3bcebd98295e` | **0.80** | 1.00 | 0.371 | _0.561_ | **0.266** | 23.8 |
+
+Seed 2's 36 s texture at the last segment is 3-10x seed 1166's: the streaks.
+
+Cost, wall minutes per output minute on mini-ai (warm): control 35,
+look_hold 35 (the 11.4 min rows paid a reload after extend), extend 74,
+36 s chain 39.
+
+## By eye
+
+Contact sheets at 0.5, 4.9, 5.2, 9.9, 10.2 and 14.9 s (the seams sit at
+5.04 and 10.0 s), and at 1, 10, 20, 30 and 35.9 s for 36 s takes.
+
+- **Seams are clean on every arm.** No arm shows a visible jump at either
+  seam; the frames either side of 5.04 and 10.0 s match in framing and light.
+- **The camera does not track.** The prompt asks for a tracking shot at the
+  rider's speed. Seed 1166 drifts from a side view to behind him by 10 s,
+  and he recedes down the road by 15 s. Seed 2 lets him ride out of frame at
+  the end of segment 1; last_frame brings a courier back into frame in
+  segment 2. extend does not, and shows an empty wall to 15 s.
+- **look_hold at 15 s** is the control's shot on both seeds, with the same
+  framing at every sampled time; the seam-look gain is not visible at this
+  size.
+- **36 s.** From about 20 s pale vertical streaks run through the sky and
+  sea; by 30 s they cross the whole frame. The rider changes: seed 1166's
+  loses the black helmet and the box changes shape; look_hold 36 s swaps him
+  for a man in a hat on a green moped at 29.8 s.

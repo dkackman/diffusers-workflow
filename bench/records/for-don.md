@@ -81,3 +81,11 @@ Things only you can check.
   - f34 gated at 0.9: 3-frame flashes, and the worst burn yet.
   - guide_noise 0.4: the threshold rose instead of falling.
   - guide_frames 39: +18 min, still a sawtooth.
+
+**LTX long takes (Task 23; `ltx.md`). Run on mini-ai, outputs under mini-ai `~/bench-workspace/outputs/`.**
+- **Default stays the last_frame chain, about 15 s.** Nothing beat it on picture on both seeds at no cost.
+- [ ] **36 s LTX takes are not usable as one shot.** On both seeds the rider changes by about 30 s, and pale vertical streaks grow from about 20 s. With look_hold, segment 7 swaps the courier for a man on a green moped at 29.8 s. Watch `~/Desktop/dw-bench-t23/t23-s5-36s-s1166_LEFT-control_RIGHT-lookhold-18-36s.mp4` (the swap is 11.8 s in). Recommendation: the playbook caps an LTX long take at about 15-20 s and cuts to a fresh still past that.
+- [ ] **look_hold as the LTX chain default?** It wins seam look on both S5 seeds (1.72→1.17, 1.68→1.22), costs no wall time warm, and unlike H3 it does not hold an orbit back: both orbit seeds reach the statue's back with it (`9331cd20fa39`, `64641b316eed`). But no difference is visible by eye. Recommendation: turn it on in `ltx2/chained-segments`; the template is unchanged until you say.
+- **extend (whole previous segment as condition): a knob, not a default.** It wins seam jump on both seeds at 2.1x wall time. On seed 2 the courier rides out of frame in segment 1 and extend keeps the road empty for 10 s, where last_frame brings a courier back. Optional look: `~/Desktop/dw-bench-t23/t23-s5-s1166_LEFT-lastframe_RIGHT-extend-0-15s.mp4` (sound is the right take's; it drops out 5-10 s, see next).
+- **Audio dropout, follow-up issue candidate.** LTX on mini-ai renders some segments near-silent (-89 dBFS): segment 3 of every seed-2 run, on S5 and on the orbit, whatever the prompt or picture; and segment 2 of extend at seed 1166. The lem CUDA S5 runs had none. The chain check reads picture only and misses it. Recommendation: file an issue (MPS only? audio VAE or vocoder?) and add a segment silence check.
+- carry_pick 4 loses on S5 (seed 2 jump 1.25→1.81) and shortens the take. check + 1 re-roll never fired on S5 (every segment passed), so it ties at no cost and the round cannot judge it on LTX.
