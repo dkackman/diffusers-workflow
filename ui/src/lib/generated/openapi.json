@@ -501,12 +501,18 @@
             "title": "Max Total Bytes"
           },
           "names": {
-            "description": "2 to 8 outputs (or `asset:` references), one row each",
+            "description": "2 to 8 outputs (or `asset:` references), one row each; 1 is enough with `texture_bands`",
             "items": {
               "type": "string"
             },
             "title": "Names",
             "type": "array"
+          },
+          "texture_bands": {
+            "default": false,
+            "description": "Add per-output RMS energy in the fine (2-8 px), mid (8-32) and coarse (32-128) wavelength bands of the measured region, on luma, R-G and B-G, plus each band's ratio to the baseline - a measurement, not a score. Needs one shared `crop` (or none: the full frame) of at least 16 px a side",
+            "title": "Texture Bands",
+            "type": "boolean"
           }
         },
         "required": [
@@ -3921,6 +3927,11 @@
             ],
             "title": "Gb"
           },
+          "not_found": {
+            "description": "True when the hub answered that the repo does not exist (or is private to this token); validation then fails on it.",
+            "title": "Not Found",
+            "type": "boolean"
+          },
           "repo": {
             "anyOf": [
               {
@@ -6223,7 +6234,7 @@
     },
     "/api/gallery/compare": {
       "post": {
-        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.",
+        "description": "Two to eight outputs side by side at the same moments, and how far\neach is from a baseline (#871): one grid, a row per output and a\ncolumn per moment, plus PSNR, SSIM and mean absolute difference per\nnon-baseline output at source resolution. Moments resolve to one\nframe index against the baseline (or the first video) and every\noutput is read at that frame; one past an output's end is a blank\ncell. A single `crop` is the region shown and measured; one box per\nname is shown only, and the metrics stay on the full frame. Outputs\nof different sizes get no metrics, and say why. Stills join a video\ncomparison as the same image in every column. `max_total_bytes`\nshrinks the whole grid, and `downscaled_to` says to what.\n`texture_bands` (#1152) adds each output's band energy per moment,\nthe baseline's included, and its ratio to the baseline's.",
         "operationId": "gallery_compare_api_gallery_compare_post",
         "parameters": [
           {
@@ -6841,7 +6852,7 @@
     },
     "/api/gallery/{name}/metadata": {
       "get": {
-        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\nAn image's `media` is its measured `{kind, width, height, mode}`,\nread from the file header (#922) - not the width/height arguments\nthe pipeline was asked for. `include_workflow=false` drops the\nembedded `metadata.workflow` (the whole definition, often 20 KB) and\nleaves the rest of `metadata` with `workflow_omitted: true`.\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen. `inputs` is the source run's too (#902).",
+        "description": "Generation metadata embedded in a saved image ('workflow' inside\nit is the full definition the editor can reopen), plus the job that\nproduced the file when history remembers one, plus - for audio and\nvideo - what the file itself holds: duration, format and level,\nwhich is how an agent that cannot listen checks a track. Only an\nimage embeds 'metadata' this way - it is always null for audio and\nvideo, since neither format has a slot this writer uses; recover\nthe recipe from 'job' (GET /api/jobs/{id}/workflow) when one is\nknown, or from nothing when it isn't (a kept asset has no job).\n\n`envelope=true` adds the soundtrack's level second by second, which\nis what says *where* in a track something is - whether a shot is\nstill voiced at its last frame, how deep the hole at a seam goes.\nOpt-in: a ten-minute track is 600 numbers, and the default call has\nto stay small. `interval_seconds` (default 1.0, 0.05 to 3600) is\nthe bin width: 0.1 places a cut on a vocal onset. A track that\nwould need more than 2400 bins at a finer-than-default width is\nrefused (422) with the interval that fits; the default width is\nnever refused for length (#823).\n\nA file with a soundtrack also carries `pcm_sha256`, the SHA-256 of\nits decoded samples (native dtype, interleaved, little-endian,\ntrimmed to the container duration), with the `sample_format` and\n`frames` hashed: proof two tracks are sample-identical, comparable\nonly when `sample_format`, `frames`, `sample_rate` and `channels`\nall agree (#1139). Only this route computes it.\n\nAn image's `media` is its measured `{kind, width, height, mode}`,\nread from the file header (#922) - not the width/height arguments\nthe pipeline was asked for. `include_workflow=false` drops the\nembedded `metadata.workflow` (the whole definition, often 20 KB) and\nleaves the rest of `metadata` with `workflow_omitted: true`.\n\n`name` may also be an 'asset:' reference, and then it is the input\nasset of that name that is described rather than an output (#127).\nThe numbers here - duration, frame count, fps, sample rate - are\nwhat decide whether a call will work at all, and for a file the\ncaller is about to *consume* they were previously unobtainable:\nthe only way to read a wav's length was to run a job that copied it\ninto the output directory. `job` is null for an asset with no\nrecorded provenance, and `source` says which of the two roots\nanswered.\n\nA kept asset (`keep_output`) is not always provenance-blind: when\nthe file it was kept from still had a job in history, `keep_output`\nrecorded `{job, run_id, version}` beside it, and this route reads it\nback the same way it reads a kept file's shots (#556). `run_id`/\n`version` are that source run's own - `job.id` is still the one to\npass `get_job_workflow`, since a pruned run leaves no `workflow.json`\nof its own to reopen. `inputs` is the source run's too (#902).",
         "operationId": "gallery_metadata_api_gallery__name__metadata_get",
         "parameters": [
           {

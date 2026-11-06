@@ -125,3 +125,7 @@ would skip `seam_frame_jump`).
 - Jobs: shot 1 `71a3c4ee9eba`; arm A `e1d37983f04a`; arm B shot 3
   `d4be72601012`, shot 5 `1ae6a04cb793`, bridge 2 `932c2add5238`, bridge 4
   `305f70b310b9`; joins and measurements `8a8adfbf3c30`.
+
+Drift above is lightness, saturation and contrast. For texture (grain, blotching,
+smoothing) over a static region, `compare_outputs(texture_bands=true)` reports
+energy by band; see the workflows guide, *Comparing outputs*, *Texture bands*.

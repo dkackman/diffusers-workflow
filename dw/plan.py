@@ -38,6 +38,7 @@ from .plan_downloads import _sub_workflow_paths, downloads_required
 # Re-exported: dw/server/routes/jobs.py and the tests read the plan's gate
 # warnings from here, beside build_plan
 from .plan_downloads import gate_warnings as gate_warnings
+from .plan_downloads import missing_repo_errors as missing_repo_errors
 from .realize import read_sub_workflow, realize_workflow
 from .validation import _is_seeded
 from .variables import same_number

@@ -40,7 +40,13 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
-from .guides import guide_chain_errors, guides_errors
+from .guides import (
+    anchor_errors,
+    guide_chain_errors,
+    guide_noise_errors,
+    guide_noise_warnings,
+    guides_errors,
+)
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
@@ -490,6 +496,17 @@ ERROR_CHECKS = [
         "guide_chain",
         lambda c: guide_chain_errors(c.expanded, c.source_indices),
     ),
+    # A latent_anchor or chain anchor off H3 t2va/fl2va, an unknown chain
+    # anchor, or 'segment_1' under a continuity it cannot run under (#1166)
+    Check(
+        "latent_anchor",
+        lambda c: anchor_errors(c.expanded, c.source_indices),
+    ),
+    # A guide_noise off H3 t2va/fl2va, or not a number in [0, 1) (#1166)
+    Check(
+        "guide_noise",
+        lambda c: guide_noise_errors(c.expanded, c.source_indices),
+    ),
     Check("task_signatures", _task_errors),
     # A task argument that runs Hub code, anywhere in the step - the run
     # refuses it too (Task.run), but before it queues costs nothing
@@ -720,6 +737,12 @@ WARNING_CHECKS = [
     # cache, a CUDA-only attention backend off CUDA - each of which cost a
     # render to find out (#868)
     Check("acceleration_warnings", acceleration_warnings),
+    # A guide_noise on a step with no guides and no guide chain - it would
+    # noise nothing (#1166)
+    Check(
+        "guide_noise_warnings",
+        lambda c: guide_noise_warnings(c.expanded, c.source_indices),
+    ),
 ]
 
 

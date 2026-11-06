@@ -126,7 +126,7 @@ def assess(path, kind, shots, probe=None, detail=False):
     # The whole-file level rules (full_scale, near_silent) are the gallery's
     # too (#807); a file with no soundtrack has no level to read
     level = media is not None and media.audio is not None
-    level_found = level_findings(_file_level(media)) if level else []
+    level_found = level_findings(_file_level(media), records) if level else []
     body = {
         "shots_source": source,
         "findings": sort_findings(
@@ -152,7 +152,7 @@ def assess(path, kind, shots, probe=None, detail=False):
 __all__ = ["PROBES", "assess", "unknown_probe"]
 
 
-def level_findings(media):
+def level_findings(media, shots=None):
     """The level problems a probed file's soundtrack shows, as findings:
     a peak at full scale (an encode may clip it) and a near-silent mean
     (info when real peaks say quiet-not-empty, as an ambience-only shot
@@ -176,7 +176,11 @@ def level_findings(media):
             "re-render",
         }
         found.append(finding(rule, peak, None))
-    if mean is not None and mean < audio_qc.NEAR_SILENT_WARN_DBFS:
+    if (
+        mean is not None
+        and mean < audio_qc.NEAR_SILENT_WARN_DBFS
+        and not audio_qc.all_shots_silent_by_design(shots)
+    ):
         quiet_not_empty = (
             peak is not None and peak >= audio_qc.NEAR_SILENT_QUIET_NOT_EMPTY_DBFS
         )

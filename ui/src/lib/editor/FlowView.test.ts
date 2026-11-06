@@ -354,3 +354,98 @@ it('shows a lone plain step as one line, not a canvas', () => {
   expect(line.textContent).toContain('gen')
   expect(line.textContent).toContain('Fake')
 })
+
+describe('chained segments', () => {
+  // The chained-segments template as a realized run carries it: one step
+  const chainWorkflow = {
+    variables: { segments: 3, anchor: 'segment_1' },
+    steps: [
+      {
+        name: 'clip',
+        pipeline: {
+          configuration: { component_type: 'ModularPipeline' },
+          chain: {
+            segments: 'variable:segments',
+            anchor: 'variable:anchor',
+            trim_frames: 2,
+            crossfade_ms: 80,
+          },
+        },
+      },
+    ],
+  }
+  const segmentsOf = (container: HTMLElement) => [
+    ...container.querySelectorAll('g.segment'),
+  ]
+
+  it('draws a lone chained step as a box of its segments, not one line', () => {
+    const { container } = render(FlowView, { workflow: chainWorkflow })
+    expect(container.querySelector('.loneline')).toBeNull()
+    const clip = nodeFor(container, 'clip')
+    expect(clip.getAttribute('aria-label')).toContain('chain of 3 segments')
+    expect(clip.querySelector('.chainsummary')?.textContent).toBe(
+      'chain · 3 segments',
+    )
+    const chips = segmentsOf(container)
+    expect(
+      chips.map((c) => c.querySelector('.chiplabel')?.textContent),
+    ).toEqual(['segment 1', 'segment 2', 'segment 3'])
+    // The anchor every later segment is pulled toward is segment 1
+    expect(chips[0].querySelector('.anchortag')?.textContent).toBe('anchor')
+    expect(chips[1].querySelector('.anchortag')).toBeNull()
+    // One seam between each pair, saying what crosses it
+    expect(
+      [...clip.querySelectorAll('.seamlabel')].map((s) => s.textContent),
+    ).toEqual(['↓ last frame · trim 2 · 80ms', '↓ last frame · trim 2 · 80ms'])
+  })
+
+  it('colors the segments behind the one a run is on, and that one live', () => {
+    const { container } = render(FlowView, {
+      workflow: chainWorkflow,
+      activeStep: 'clip',
+      activeSegments: { clip: 2 },
+    })
+    const states = segmentsOf(container).map((c) =>
+      ['done', 'active', 'failed'].find((s) => c.classList.contains(s)),
+    )
+    expect(states).toEqual(['done', 'active', undefined])
+    expect(segmentsOf(container)[1].getAttribute('aria-label')).toBe(
+      'segment 2, active',
+    )
+  })
+
+  it('marks the segment a failed run stopped in, and every one of a finished step', () => {
+    const failed = render(FlowView, {
+      workflow: chainWorkflow,
+      failedStep: 'clip',
+      activeSegments: { clip: 3 },
+    }).container
+    expect(
+      segmentsOf(failed).map((c) => c.classList.contains('failed')),
+    ).toEqual([false, false, true])
+    const done = render(FlowView, {
+      workflow: chainWorkflow,
+      doneSteps: ['clip'],
+    }).container
+    expect(segmentsOf(done).every((c) => c.classList.contains('done'))).toBe(
+      true,
+    )
+  })
+
+  it('says where the length comes from when the count is not in the definition', () => {
+    const fromAudio = {
+      steps: [
+        {
+          name: 'clip',
+          pipeline: { chain: { match_audio: true } },
+        },
+      ],
+    }
+    const { container } = render(FlowView, { workflow: fromAudio })
+    const clip = nodeFor(container, 'clip')
+    expect(clip.querySelector('.chainsummary')?.textContent).toBe(
+      'chain · length from audio',
+    )
+    expect(segmentsOf(container)).toHaveLength(0)
+  })
+})

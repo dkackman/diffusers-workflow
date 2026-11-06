@@ -24,17 +24,31 @@ A chain's `continuity: "guide"` lays guides in itself (dw/pipeline_processors/
 chain.py), so `guide_chain_errors` refuses it where those guides would be: off
 an H3 t2va/fl2va step, with a `guide_frames` other than 22 or 39, or with a
 `carry_frames` it would not read (`guide_chain_problems`, shared with the run).
+
+The latent statistics anchor (#1166) is refused here too, by `anchor_errors`:
+a `latent_anchor` argument, or a chain's `anchor: "segment_1"`, on a step the
+guides step rule refuses (`_takes_guides_problem`: off H3, ref2va, or passing
+`references`), and a chain `anchor` that is unknown, paired with a continuity
+other than guide or last_frame, or carried into `references`
+(`chain_anchor_problem`, shared with the run).
+
+Fixed guide noise (#1166) is refused by `guide_noise_errors`: a `guide_noise`
+that is not a number in [0, 1) (`guide_noise_problem`, shared with the run), or
+one on a step the guides step rule refuses. `guide_noise_warnings` says when it
+would do nothing: a step with no `guides` and no guide chain.
 """
 
 from . import references
 from .adapter_compatibility import (
     FROM_PRETRAINED_KEY,
+    KEYFRAME_WORKFLOWS,
     REFERENCE_WORKFLOWS,
     WORKFLOW_KEY,
 )
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.h3_rules import (
+    ANCHOR_NONE,
     CHAIN_CONTINUITY_MODES,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_FRAMES,
@@ -42,10 +56,14 @@ from .pipeline_processors.h3_rules import (
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     GUIDE_LIMIT,
+    GUIDE_NOISE_INPUT,
+    LATENT_ANCHOR_INPUT,
     RENDER_GRID,
+    chain_anchor_problem,
     guide_chain_problems,
     guide_end_problem,
     guide_frame_problem,
+    guide_noise_problem,
     not_h3,
     snap_guide_length,
 )
@@ -96,12 +114,15 @@ def _clip_frames(video, base_dir, probe, with_audio=False):
     return None, None
 
 
-def _takes_guides_problem(pipeline, arguments):
-    """Why this step cannot take guides, or None: it is not MiniMax-H3
-    (`h3_rules.not_h3`), or it loads ref2va or passes `references`. The one
-    step rule for both a `guides` argument and a guide chain. A pipeline or
+def _takes_guides_problem(pipeline, arguments, argument=GUIDES_INPUT):
+    """Why this step cannot take `argument`, or None: it is not MiniMax-H3
+    (`h3_rules.not_h3`), or it loads ref2va or passes `references` (a call
+    with references routes to ref2va). The one step rule for a `guides`
+    argument, a guide chain, a `latent_anchor` argument and a chain's
+    `anchor: "segment_1"` - every H3 t2va/fl2va-only input. A pipeline or
     workflow that is not literal is left to the run."""
-    h3_problem = not_h3(pipeline, GUIDES_INPUT)
+    # Named as taken by t2va/fl2va only: ref2va refuses it below
+    h3_problem = not_h3(pipeline, argument, taken_by=KEYFRAME_WORKFLOWS)
     if h3_problem:
         return h3_problem
     from_pretrained = pipeline.get(FROM_PRETRAINED_KEY)
@@ -112,7 +133,7 @@ def _takes_guides_problem(pipeline, arguments):
         isinstance(arguments, dict) and arguments.get("references") is not None
     )
     if workflow in REFERENCE_WORKFLOWS or passes_references:
-        return "guides cannot be combined with ref2va / references - use t2va or fl2va"
+        return f"{argument} cannot be combined with ref2va / references - use t2va or fl2va"
     return None
 
 
@@ -310,4 +331,107 @@ def guide_lengths(pipeline, base_dir=None, probe=None):
     return lengths
 
 
-__all__ = ["guide_chain_errors", "guide_lengths", "guides_errors"]
+def anchor_errors(workflow_definition, source_indices=None):
+    """Every latent statistics anchor refused before the run, as
+    [{path, message}]: a `latent_anchor` argument on a step that cannot take
+    it, and a chain `anchor` that is unknown, paired with a continuity it
+    cannot run under, or set on a step that cannot take it."""
+    errors = []
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        base = ("steps", source, "pipeline")
+        arguments = pipeline.get("arguments")
+        if (
+            isinstance(arguments, dict)
+            and arguments.get(LATENT_ANCHOR_INPUT) is not None
+        ):
+            problem = _takes_guides_problem(pipeline, arguments, LATENT_ANCHOR_INPUT)
+            if problem:
+                errors.append(
+                    {
+                        "path": render_path(base + ("arguments", LATENT_ANCHOR_INPUT)),
+                        "message": f"{problem}{where}",
+                    }
+                )
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict):
+            continue
+        path = render_path(base + ("chain", "anchor"))
+        problem = chain_anchor_problem(chain)
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+            continue
+        anchor = chain.get("anchor", ANCHOR_NONE)
+        if anchor == ANCHOR_NONE or references.is_ref(references.UNRESOLVED, anchor):
+            continue
+        problem = _takes_guides_problem(pipeline, arguments, "chain anchor 'segment_1'")
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+    return errors
+
+
+def _guide_noise_steps(workflow_definition, source_indices):
+    """(pipeline, arguments, path, where) for every step passing a non-null
+    `guide_noise`."""
+    for _, _, pipeline, source, where in references.iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        arguments = pipeline.get("arguments")
+        if isinstance(arguments, dict) and arguments.get(GUIDE_NOISE_INPUT) is not None:
+            path = render_path(
+                ("steps", source, "pipeline", "arguments", GUIDE_NOISE_INPUT)
+            )
+            yield pipeline, arguments, path, where
+
+
+def guide_noise_errors(workflow_definition, source_indices=None):
+    """Every `guide_noise` refused before the run, as [{path, message}]: on a
+    step that cannot take guides (off H3, ref2va, references), or not a
+    number in [0, 1)."""
+    errors = []
+    for pipeline, arguments, path, where in _guide_noise_steps(
+        workflow_definition, source_indices
+    ):
+        problem = _takes_guides_problem(
+            pipeline, arguments, GUIDE_NOISE_INPUT
+        ) or guide_noise_problem(arguments[GUIDE_NOISE_INPUT])
+        if problem:
+            errors.append({"path": path, "message": f"{problem}{where}"})
+    return errors
+
+
+def guide_noise_warnings(workflow_definition, source_indices=None):
+    """["path: message"] for a nonzero `guide_noise` on a step with no
+    `guides` and no guide chain: it noises guides, and there are none."""
+    warnings = []
+    for pipeline, arguments, path, where in _guide_noise_steps(
+        workflow_definition, source_indices
+    ):
+        if arguments[GUIDE_NOISE_INPUT] == 0:
+            continue
+        guides = arguments.get(GUIDES_INPUT)
+        chain = pipeline.get("chain")
+        continuity = chain.get("continuity") if isinstance(chain, dict) else None
+        if guides or continuity == GUIDE_CONTINUITY:
+            continue
+        if isinstance(continuity, str) and references.is_ref(
+            references.UNRESOLVED, continuity
+        ):
+            continue
+        warnings.append(
+            f"{path}: guide_noise does nothing here - it noises the step's "
+            f"guides, and this step has no 'guides' and no chain with "
+            f"continuity 'guide'{where}"
+        )
+    return warnings
+
+
+__all__ = [
+    "anchor_errors",
+    "guide_chain_errors",
+    "guide_lengths",
+    "guide_noise_errors",
+    "guide_noise_warnings",
+    "guides_errors",
+]

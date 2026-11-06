@@ -2,374 +2,394 @@
 
 ## Overview
 
-diffusers-workflow validates all file paths, user inputs, and URLs to protect against path traversal, injection, and resource exhaustion. A command-argument sanitizer (`sanitize_command_args()`) is available for any future subprocess use, though `dw/` currently invokes no subprocess/shell commands.
+diffusers-workflow validates file paths, names, user input and URLs against
+path traversal, injection, server-side request forgery and resource
+exhaustion. The validators are in `dw/security.py`, the trust gate for what a
+workflow may import or execute is `dw/trust.py`, the policy for where a
+workflow may read and fetch is `dw/locations.py`, and the HTTP layer is
+`dw/server/http_security.py`. [SECURITY_QUICKREF.md](SECURITY_QUICKREF.md) is
+the one-page digest.
 
 ## Security Module (`dw/security.py`)
 
+Every validator raises `PathTraversalError` or `InvalidInputError` (both
+`SecurityError`) on refusal.
+
 ### Path Validation
 
-- `validate_path()` — Blocks `../` (anywhere in the path), `~/` (or `~\`), and paths rooted at `/dev/`, `/proc/`, `/sys/`. Rejects null bytes and overlong paths (> 4096 chars). Resolves to an absolute, realpath'd path. If `base_dir` is given, raises `PathTraversalError` when the resolved path falls outside it.
-- `validate_workflow_path()` — `validate_path()` plus a required `.json` extension (via `validate_file_extension()`)
-- `validate_lora_path()` / `validate_lora_name()` — Confine a LoRA catalog entry to the `loras/` root: a plain name or one family folder deep, `.json` only, no traversal
-- `validate_output_path()` — `validate_path()` with `allow_create=True`, for directories/files that don't need to exist yet
-- `validate_file_extension()` — Checks a path's extension against an allowed set (used internally by `validate_workflow_path()` and by `arguments.py` for media files)
+- `validate_path(path, base_dir=None, allow_create=True)` - Refuses an empty
+  path, a null byte, a path over 4096 characters or a file name over 255,
+  `..` anywhere, `~/` (or `~\`), and a path rooted at `/dev/`, `/proc/` or
+  `/sys/`. Returns the absolute, realpath'd path. With `base_dir`, the
+  resolved path must equal it or lie under it (`PathTraversalError`
+  otherwise); symlinks are resolved on both sides first. Without `base_dir` it
+  confines nothing, and CodeQL still reports the path. `allow_create=False`
+  also requires the path to exist.
+- `validate_workflow_path(path, workflow_dir=None)`,
+  `validate_prompt_path(path, prompt_dir)`, `validate_lora_path(path, lora_dir)`
+  - `validate_path` with `allow_create=False` plus a required `.json`
+  extension.
+- `validate_output_path(path, output_dir)` - `validate_path` with
+  `allow_create=True`, for files and directories that need not exist yet.
+- `validate_file_extension(path, allowed)` - The extension against an allowed
+  set (`ALLOWED_*_EXTENSIONS`).
+- `contained(path, root)` - Whether `path`, symlinks resolved, lies inside
+  `root`, for directory walks that must not follow a link out.
+- `validate_weight_name(name, ...)` - A file name inside a Hub repo: no
+  leading `/` or `~`, no backslash or drive, no empty, `.` or `..` segment.
+
+### Name Validation
+
+Each name is checked before it is joined onto a directory; containment is
+then checked by the `validate_path` call that joins it. Every segment starts
+with a letter, digit or underscore, which excludes `..`, hidden names and
+absolute paths. Patterns end in `\Z`, so a trailing newline is refused.
+
+| Validator | Shape | Max |
+| --- | --- | --- |
+| `validate_variable_name` | `^[a-zA-Z_][a-zA-Z0-9_-]*$` | 100 |
+| `validate_prompt_reference`, `validate_lora_name` | a name, at most one folder deep | 200 |
+| `validate_asset_reference` | a file name with its extension, at most four folders deep; `@` allowed | 400 |
+| `validate_output_reference` | `<workflow>/<run>/<file>`, 2 to 7 segments; `@` allowed | 500 |
+| `validate_output_prefix` | `<workflow>/<run id>` or `<workflow>` | 500 |
+| `validate_subfolder` | relative segments under the run directory; no backslash | 200 |
+| `validate_workspace_name` | one segment, not one of the workspace root's own folder names | 100 |
+| `validate_constant_name` | a dotted Python name, identifiers and dots only | 200 |
+| `validate_commit_hash` | 7 to 40 hex characters (the diffusers updater's install pin) | 40 |
+| `validate_file_base_name` | no `/` or `\` | - |
+| `validate_content_type` | a MIME type with exactly one `/` | - |
 
 ### Input Validation
 
-- `validate_variable_name()` — Alphanumeric, underscore, hyphen only (pattern: `^[a-zA-Z_][a-zA-Z0-9_-]*$`), max 100 chars
-- `validate_string_input()` — Max length, no null bytes, no control characters other than tab/newline/CR. Every caller that checks a caller-supplied variable value (`dw/variables.py`, `dw/run.py`) passes `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters; file names and paths pass their own, shorter caps, so the function's bare default of 1000 is not the limit anything is held to. A variable's *default*, written in the definition, is not capped separately: the author controls the file, and the whole file is capped at 50MB
-- `validate_json_size()` — Limits JSON files to 50MB
-- `validate_url()` — Scheme must be `http` or `https`; must have a non-empty domain (`netloc`); may not contain a backslash. `urllib.parse` and the HTTP client disagree on which host `http://169.254.169.254\@example.com/` names, so the host the check approved need not be the one dialed; a `\` that belongs in a path is written `%5C`
-- `validate_constant_name()` — Guards `constant:` references before import: dotted-name pattern only, module must already be importable, and anything callable is refused
-- `safe_join_path()` — Joins path components after rejecting any that contain `..`, `/`, or `\\`. Defined in `security.py` but not currently called elsewhere in `dw/`.
+- `validate_string_input(value, max_length=1000)` - Refuses an over-long
+  value, a null byte, and any control character other than tab, newline and
+  CR. A caller-supplied variable value (`dw/variables.py`, `dw/run.py`) is held
+  to `MAX_VARIABLE_VALUE_LENGTH`, 20,000 characters. A variable's *default* is
+  not capped separately; the whole workflow file is.
+- `validate_json_size(path)` - A JSON file over 50MB is refused before it is
+  read.
+- `validate_url(url)` - Scheme `http` or `https`, a non-empty host, and no
+  backslash anywhere: `urllib.parse` and the HTTP client disagree on which
+  host `http://169.254.169.254\@example.com/` names, so a `\` that belongs in
+  a path is written `%5C`. It checks shape only; the host policy is
+  `dw/locations.py`'s.
+- `safe_join_path(*parts)` - Joins components after refusing any containing
+  `..`, `/` or `\`. Not called anywhere in `dw/`.
 
 ### Command Sanitization
 
-- `sanitize_command_args()` — Rejects arguments containing shell metacharacters ( `` ` `` `$` `|` `&` `;` `>` `<` and newline/CR). It does **not** call `shlex.quote()` — with `shell=False`, argument list separation is handled safely by Python/the OS, so this function is a defense-in-depth check, not an escaping step.
-- As of this writing, `dw/` does not invoke `subprocess` anywhere — the worker process (`dw/worker_manager.py`, `dw/worker.py`) is a `multiprocessing.Process` communicating over `multiprocessing.Queue`, not a shelled-out command. `sanitize_command_args()` is exercised by `tests/test_security.py` but is otherwise unused; it exists for any future code path that shells out.
+- `sanitize_command_args(args)` - Refuses an argument containing `` ` ``,
+  `$`, `|`, `&`, `;`, `>`, `<`, newline or CR. It does not quote: with
+  `shell=False` the OS separates arguments, so this is defense in depth.
+- `dw/` runs three subprocesses, all `shell=False` with fixed argument lists:
+  `pip` in the diffusers updater (`dw/server/updater.py`, through
+  `sanitize_command_args`, its commit pinned by `validate_commit_hash`),
+  `sysctl` for the Apple chip name (`dw/__init__.py`) and `nvidia-smi` for the
+  driver version (`dw/server/sysinfo.py`). The worker is a
+  `multiprocessing.Process`, not a shelled-out command.
 
 ## Trust model
 
-**A workflow JSON file can execute arbitrary Python.** This is a deliberate
-design choice, in the same spirit as ComfyUI custom nodes - the engine's
-dynamic-import machinery is what lets a workflow name any diffusers
-pipeline, scheduler, or quantization backend without dw shipping a bespoke
-adapter for each one. But the same machinery means loading a workflow file
-is not a passive data-load. Three things in a workflow JSON run
-`importlib.import_module()` on a name the file supplies, which executes
-that module's top-level code:
+**A workflow JSON file can execute arbitrary Python.** The dynamic-import
+machinery that lets a workflow name any diffusers pipeline, scheduler or
+quantization backend also makes loading a workflow more than a data-load.
+Three things in a workflow run `importlib.import_module()` on a name the file
+supplies, which executes that module's top-level code:
 
-- **`pre_load_modules`** (`dw/pipeline_processors/pipeline.py`) - a list of
-  module names imported before the pipeline loads, for their import-time
-  registration side effects (`sdnq` registering its quantization method
-  with diffusers, for instance)
+- **`pre_load_modules`** (`dw/pipeline_processors/pipeline.py`) - modules
+  imported before the pipeline loads, for their registration side effects
+  (`sdnq` registering its quantization method).
 - **A dotted `*_type`/`*_dtype`/`dtype`/`config_type` value**
   (`dw/type_helpers.py`, reached from `dw/arguments.py` and
   `dw/pipeline_processors/config_objects.py`) - `"sdnq.SDNQConfig"` imports
-  `sdnq` and reads `SDNQConfig` off it; nothing stops the module part from
-  naming something with no legitimate reason to appear in a workflow
-- **A `constant:`-prefixed reference** (`dw/type_helpers.py`'s
-  `load_constant_from_name`, reached from `dw/arguments.py`) - imports the
-  module the constant is declared in the same way, before reading the
-  attribute off it. `fetch_constant` refuses anything callable it finds,
-  but the import itself has already run by that point
+  `sdnq` and reads `SDNQConfig` off it.
+- **A `constant:` reference** (`dw/type_helpers.py`'s
+  `load_constant_from_name`) - imports the module the constant is declared in
+  before reading the attribute.
 
-**Treat an untrusted workflow file exactly like an untrusted Python
-script.** Don't run one from a source you would not run a `.py` file from -
-a random download, a link in an issue, an LLM-authored file you have not
-read.
+**Treat an untrusted workflow file exactly like an untrusted Python script.**
+Do not run one from a source you would not run a `.py` file from: a random
+download, a link in an issue, an LLM-authored file you have not read.
 
 ### `--trust-workflows`
 
-`dw-serve` takes a `--trust-workflows` flag (as does the in-process
-`dw-validate`), **off by default**. `dw-run` is a client of `dw-serve`, so
-the server's setting is the one its jobs run under. Untrusted (the default), `pre_load_modules` and any
-dotted `*_type`/`*_dtype`/`dtype`/`config_type` value are refused unless
-they resolve under a top-level package the tool already depends on for
-exactly this purpose - the framework packages (`diffusers`, `torch`,
-`torchvision`, `transformers`, `accelerate`, `peft`) and the quantization
-backends `pyproject.toml` declares for `config_objects.py`'s dynamic
-loading (`sdnq`, `torchao`, `optimum` for optimum-quanto, `gguf`,
-`bitsandbytes`), plus `dw` itself (a workflow's `component_type` can name a
-pipeline under `dw.community_pipelines`, which ships in this repo, not a
-third party one). The refusal names exactly what triggered it and points
-back at `--trust-workflows`. The bundled examples under `workflows/` all
-stay inside this set and load untrusted; a
-workflow that needs to reach outside it - a community pipeline module from
-somewhere else, a custom scheduler package - needs `--trust-workflows`.
+`dw-serve` and `dw-validate` take `--trust-workflows`, **off by default**.
+`dw-run` is a client of `dw-serve`, so its jobs run under the server's
+setting. The choice is process-wide, reaches the spawned worker through
+`DW_TRUST_WORKFLOWS`, and `GET /api/server` reports it as `trust_workflows`.
+It is not scoped per workflow or per request: a server that accepts jobs from
+anything other than yourself, an MCP client included, should run without it.
 
-The package is not the whole check, because an allowed package holds
-things other than classes and re-exports modules outside itself. Untrusted,
-two more rules apply (`dw/type_helpers.py`):
+Untrusted (the default), these are refused, each with an error naming what
+triggered it and pointing at `--trust-workflows`:
 
-- **A type reference must resolve to a class.** A `*_type`/`config_type`
-  value is constructed with the workflow's own arguments, so
-  `"torch.hub.load"` - in `torch`, and a function that fetches and runs a
-  GitHub repo's code - is refused as "not a class", as is a module or any
-  other object. Under a `dtype` or `*_dtype` key a `torch.dtype`
-  (`"torch.bfloat16"`) is accepted too, since that is data rather than
-  something called. A bare name (`"FluxPipeline"`) resolves against
-  `diffusers` and is held to the same rule. `validate_workflow` reports the
-  refusal at the key's path, for every key the run loads as a type
-  (`from_pretrained_arguments.torch_dtype` as much as `config_type`).
-- **A `constant:` walk stays inside the package.** A dotted `constant:`
-  reference is gated like a type (the module it names is imported before
-  `fetch_constant` gets to refuse a callable, so the import itself is what
-  the gate has to stop), and then every step of the walk is checked: no
-  segment may start with `_`, checked before anything imports, and no module
-  the walk passes through may sit outside the allowed packages -
-  `constant:torch.os.environ` starts in `torch` and ends in the server's
-  environment, and is refused at `torch.os`. Reading a field off a value
-  declared in an allowed module still works
-  (`...ltx2.utils.GEMMA4_PROMPT_ENHANCEMENT_CONFIG.max_new_tokens`). A bare
-  name (`constant:SOME_NAME`) reads from `diffusers`. `validate_workflow`
-  resolves every literal `constant:` in a step the way the run does and
-  reports a refusal at its path (a variable's default at `variables.<name>`),
-  so nothing is queued to find out.
+- **A `pre_load_modules` entry or dotted type outside the allowed packages**
+  (`require_trusted_dotted_name`). Allowed: `diffusers`, `torch`,
+  `torchvision`, `transformers`, `accelerate`, `peft`, the quantization
+  backends `sdnq`, `torchao`, `optimum` (optimum-quanto), `gguf`,
+  `bitsandbytes`, and `dw` itself (for `dw.community_pipelines`). This is
+  checked before anything is imported.
+- **A type reference that is not a constructible class**
+  (`require_loadable_type`, `require_constructible_class`). A `*_type` value
+  is constructed with the workflow's own arguments, so it must be a class
+  defined inside an allowed package (not merely re-exported by one) and one
+  of: a subclass of a diffusers or transformers model, pipeline, modular
+  pipeline, scheduler, tokenizer, processor, feature extractor, image
+  processor or quantization config, or of torchao's `AOBaseConfig`; a class in
+  an auto-pipeline/auto-model factory module; a dataclass in
+  `diffusers.pipelines` or `diffusers.modular_pipelines` with no unreviewed
+  `__post_init__`; or a diffusers attention processor. `"torch.hub.load"` is in
+  `torch` and is refused as not a class. Under a `dtype` or `*_dtype` key a
+  `torch.dtype` (`"torch.bfloat16"`) is accepted too. A bare name
+  (`"FluxPipeline"`) resolves against `diffusers` under the same rules.
+- **A `constant:` walk that leaves the allowed packages.** The module is gated
+  like a type before it imports; no segment may start with `_` (checked before
+  any import); no module the walk passes through may sit outside the allowed
+  packages (`constant:torch.os.environ` is refused at `torch.os`); and
+  `fetch_constant` refuses anything callable. Reading a field off a value
+  declared in an allowed module works. A bare `constant:SOME_NAME` reads from
+  `diffusers`.
+- **Remote code in `from_pretrained_arguments`**: `trust_remote_code` and
+  `custom_pipeline`, for every component and pipeline
+  (`require_trusted_from_pretrained_arguments`). Neither goes through an
+  import of ours, so the dotted-name gate alone would leave them open.
+- **Remote code in a model's `generate()`**: `custom_generate` (a Hub repo
+  whose `custom_generate/generate.py` transformers downloads and runs) and
+  `trust_remote_code`, in `text_generation`'s `generate_kwargs` and in
+  `speech_generation`'s `generate_kwargs` and `forward_params`
+  (`require_trusted_generate_arguments`), before the model loads.
+  `text_generation`'s `generate_kwargs` and `chat_template_kwargs` hold only
+  scalars or lists of them, and none may be one of the pipeline call's own
+  arguments (`tokenizer_encode_kwargs`, `images`, a template).
+- **Remote-code keys anywhere in a task's arguments**: `trust_remote_code`,
+  `custom_pipeline` or `custom_generate`, top level or nested, is a validation
+  error naming the key and its path, and `Task.run` repeats the check for
+  every command before its handler runs (`require_trusted_task_arguments`,
+  GHSA-hhfj-p9xj-xjmr). Trusted, the same keys given as a step argument
+  outside `generate_kwargs`/`forward_params` are still refused, as arguments
+  the task does not take.
 
-Every `*_type` and `constant:` in the bundled catalog satisfies both rules,
-pinned by `tests/test_workflow_trust.py`'s catalog sweep. `--trust-workflows`
-lifts both, as it lifts the package check.
+`validate_workflow` reports each refusal at the key's path (a variable's
+default at `variables.<name>`), so nothing is queued to find out. Every
+bundled workflow loads untrusted: `tests/test_workflow_trust.py` sweeps the
+catalog, and `tests/test_catalog_structure.py` refuses a catalog entry that
+sets `trust_remote_code` or `custom_pipeline`. `--trust-workflows` lifts all
+of the above except the trusted-mode argument check.
 
-Two `from_pretrained_arguments` keys are refused untrusted as well, for
-every component and pipeline: `trust_remote_code` (runs the model repo's
-own modeling code) and `custom_pipeline` (fetches and imports a pipeline
-module from the Hub or a local path). Neither goes through an
-`importlib` call of ours, so the dotted-name gate alone would leave
-diffusers' remote-code paths open. No bundled catalog entry sets either
-(`tests/test_catalog_structure.py` refuses one that does); a workflow that
-needs them needs `--trust-workflows`.
+Model code that dw vendors runs no code from its repo, trusted or not:
 
-`text_generation`'s `generate_kwargs` reach the model's `generate()`, which
-has a remote-code path of its own: `custom_generate` names a Hub repo whose
-`custom_generate/generate.py` transformers downloads and runs, and
-`trust_remote_code` lets it. Both are refused untrusted
-(`require_trusted_generate_arguments` in `dw/trust.py`), before the model
-loads. Its other keys must be scalars or lists of them, and none may be one of
-the pipeline call's own arguments - the same filter `chat_template_kwargs`
-gets, so neither can pass `tokenizer_encode_kwargs`, `images` or a template
-of its own around the task's checks.
+- **Audio8-TTS** (`speech_generation`, `dw/vendored/audio8_tts_model.py`):
+  five files fetched by `hf_hub_download` at one pinned 40-hex revision;
+  safetensors weights; the `codec.pth` pickle read with
+  `torch.load(weights_only=True)`. Its `generate_kwargs` / `forward_params`
+  pass the trust gate, then an allowlist (`temperature`, `top_p`, `top_k`,
+  `do_sample`, `max_new_tokens`); any other key is refused before the model
+  loads.
+- **MMAudio** (`dw/vendored/mmaudio_model.py`,
+  `dw/vendored/mmaudio_sync_model.py`, `dw/tasks/mmaudio_decoder.py`): the
+  network and Synchformer encoder vendored at upstream commit `974010a0`. The
+  two pickle checkpoints (`weights/mmaudio_large_44k_v2.pth`,
+  `ext_weights/synchformer_state_dict.pth`) are pinned to one 40-hex revision
+  and read with `torch.load(weights_only=True)` and a strict load. The VAE and
+  vocoder are Kandinsky 6 safetensors at a pinned sha, built from
+  `config.json` read as JSON. The modules take local paths and never fetch.
 
-`speech_generation` has the same path twice: the text-to-audio pipeline hands
-both its `generate_kwargs` and its `forward_params` to `generate()` for a
-generative model (Bark, VibeVoice). Each must be an object, and
-`custom_generate` / `trust_remote_code` in either are refused untrusted, before
-the model loads (released versions through 0.14.0 passed them through).
-`trust_remote_code`, `custom_pipeline` or `custom_generate` given as a step
-argument of their own, outside those two objects, is refused too, for every
-model: untrusted by the trust gate, trusted as an argument the task doesn't
-take. The task never read them there, but it used to drop them silently, so a
-step setting one ran as if it had taken effect.
-
-Untrusted, every task step is checked the same way at validate:
-`trust_remote_code`, `custom_pipeline` or `custom_generate` set anywhere in its
-`arguments`, top level or nested, is an error naming the key and its path, so
-the run is refused before it queues. `Task.run` repeats the check for every
-command before its handler runs (GHSA-hhfj-p9xj-xjmr).
-
-`speech_generation`'s Audio8-TTS branch (`Edge0/Audio8-TTS-Realistic-0.6b`,
-`dw/vendored/audio8_tts_model.py`) runs no code from its repo: the model is
-vendored, so there is no `trust_remote_code` load. Its five files are fetched
-with `hf_hub_download` at one pinned 40-hex revision, never a branch, and the
-weights are safetensors. The audio codec, `codec.pth`, is a pickle checkpoint;
-it is read with `torch.load(weights_only=True)`, which refuses any object that
-isn't a tensor or a plain container, and only at that pinned revision. Its
-`generate_kwargs` / `forward_params` pass the same trust gate as above, then an
-allowlist (`temperature`, `top_p`, `top_k`, `do_sample`, `max_new_tokens`):
-any other key is refused by name before the model loads.
-
-MMAudio (`dw/vendored/mmaudio_model.py`, `dw/vendored/mmaudio_sync_model.py`,
-`dw/tasks/mmaudio_decoder.py`) runs no code from its repo either: the network
-and the Synchformer visual encoder are vendored at upstream commit
-`974010a0`. Their two checkpoints, `hkchengrex/MMAudio`'s
-`weights/mmaudio_large_44k_v2.pth` and `ext_weights/synchformer_state_dict.pth`,
-are pickles, pinned to one 40-hex revision; each is read with
-`torch.load(weights_only=True)` and loaded strictly, so any object that isn't a
-tensor or a plain container is refused and an unexpected key fails the load.
-The decoder's VAE and vocoder are Kandinsky 6's safetensors at a pinned full
-sha, built from their `config.json` read as JSON (only the class's own
-constructor arguments are taken), with no pickle and no `trust_remote_code`.
-The modules take local paths and never fetch: tests pin that none of them
-calls the Hub or writes a checkpoint.
-
-`text_generation`'s `system_prompt` may be read from a Hub repo file
-(`{"from_hub": {...}}`). That fetch is anonymous only: the Hub is asked
-without credentials (`token=False`) whether it serves the file publicly at the
-pinned 40-hex commit before every use, and the download carries no token
-either, so the server's own login never reaches a gated or private file on a
-workflow's say-so. It fails closed - any error from that ask, being offline,
-or `HF_HUB_OFFLINE` refuses the run rather than fall back to the cache - and
-it is capped at 1 MiB, checked against the Hub's reported size before the
-download (no reported size is a refusal) and against the file after it.
+`text_generation`'s `system_prompt` may be a Hub file (`{"from_hub": {...}}`),
+pinned to a 40-hex commit. Before every use the Hub is asked, without
+credentials (`token=False`), whether it serves the file publicly, and the
+download carries no token, so the server's login never reaches a gated or
+private file on a workflow's say-so. It fails closed: any error from that
+ask, being offline, or `HF_HUB_OFFLINE` refuses the run. It is capped at 1
+MiB, checked against the Hub's reported size before the download (no
+reported size is a refusal) and against the file after it.
 
 ### Where a workflow may read and reach (`dw/locations.py`)
 
-Code execution is not the only thing a workflow file chooses. Its arguments
-choose *locations* - which image to open, which URL to fetch, which
-directory a glob expands over - and until 2026-09-13 each loader trusted the
-one it was handed. A workflow could name `/usr/share/pixmaps/debian-logo.png`
-as its `image` and get it decoded, glob `/usr/share/pixmaps/*.png` and get
-every match republished verbatim as an output, or point an `image` at
-`http://127.0.0.1:8765` and have the server fetch its own loopback.
-`remote_text_encoder.url` was the worst of them: the request carries this
-machine's HuggingFace token.
+A workflow's arguments also choose *locations*: which file to open, which URL
+to fetch, which directory a glob expands over. Untrusted:
 
-One policy now answers all of it, untrusted:
+- **A path** must resolve inside a root this installation works in: the
+  workflow file's own directory, the asset libraries on the search path, or
+  the output root. A relative path that climbs out is refused on its `..`
+  segments, at validation as well as at the loader (#124). Containment is
+  checked **before** existence, so a refusal is not a file-existence oracle.
+  The remedy for a file outside is an `asset:` reference. Validation finds a
+  path by its argument's name (`image`, `*_video`, `location`, ...) or by a
+  task's declaration (`@register_command(media_arguments=...)`, read through
+  `TASK_MEDIA_ARGUMENTS`, #692). `apply_lut`'s `lut`, `paste_face_track`'s
+  `track` and `restore_to_source`'s `fit` are read only from a server file,
+  so a URL there is refused (`LOCAL_ONLY_TASK_ARGUMENTS`).
+- **A URL with any other scheme than http(s)** (`file://`, `s3://`, ...) is
+  refused at validation and at the loader, trusted or not (#618).
+- **A glob** is contained on the fixed directory its pattern starts from, and
+  every match is re-checked on its real path, so a symlink cannot carry the
+  expansion out.
+- **An http(s) URL** must not resolve to an address inside the deployment:
+  loopback, link-local (`169.254.0.0/16`, cloud metadata), private ranges, and
+  anything else not globally routable (`is_global`), checked after DNS
+  resolution. That includes `100.64.0.0/10`, **Tailscale's tailnet range**: a
+  workflow that fetches media from another tailnet machine needs
+  `--trust-workflows`.
+- **Every redirect is re-checked.** A media fetch (`safe_get` in
+  `dw/outbound.py`) follows at most 5 hops (`MAX_MEDIA_REDIRECTS`), each
+  `Location` passing the same scheme and host policy before it is dialed. A
+  refused hop is never fetched, and its error begins `Refusing a redirect to
+  '<target>' (from '<url>'): ` followed by the rule; an upstream error status
+  keeps the HTTP client's own message (#1055). Each hop's host is resolved
+  once, by the policy, and dialed at the checked address, so DNS rebinding
+  reaches only what was checked; a host that does not resolve or is
+  percent-encoded is refused. An untrusted fetch ignores proxy and `~/.netrc`
+  settings. The body is capped at `MAX_MEDIA_BYTES` (1 GiB) and the fetch at
+  `MEDIA_TOTAL_TIMEOUT` (600 s), closing the connection at the deadline.
+  `remote_text_encoder` POSTs through the same path. Two limits: a trusted
+  fetch through a SOCKS proxy is not deadline-bounded, and the TLS handshake
+  is bounded only by the per-operation timeout.
+- **`remote_text_encoder.url`** is https-only, and the Hugging Face token is
+  attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. A
+  redirect that leaves the host, or drops to http, is followed without the
+  token.
+- **`model_name`** must be a Hub repo id or a contained path; a URL is refused
+  (#117).
 
-- **A path** must resolve inside a root this installation already works in -
-  the workflow file's own directory, the asset libraries on the search path,
-  the output root. `validate_path` already refuses `..`, so in practice this
-  closes the absolute path that pointed somewhere else entirely; a relative
-  one that climbs out is refused on its `..` segments, at validation time as
-  well as at the loader, so both spellings are answered at the same moment
-  rather than one of them three seconds into a queued job (#124). The remedy
-  for a file outside is to put it in the asset library and use an `asset:`
-  reference. Containment is checked **before** existence, so the refusal
-  cannot be used as a file-existence oracle. Validation finds a path by its
-  argument's name (`image`, `*_video`, `location`, ...); a task argument
-  that reads a file under a generic name, like `join_windows`' `source`, is
-  declared on its registration (`@register_command(media_arguments=...)`,
-  read through `TASK_MEDIA_ARGUMENTS`, #692) so it is refused at the same moment
-  (#630), as are the finishing tasks' `media`, `apply_lut`'s `lut` (#635),
-  and the face-track and fit tasks' `clip`, `repaired`, `track` and `fit`
-  (#773). `lut`, `track` and `fit` are only ever read from a file on the
-  server, so an http(s) URL there is refused as a URL
-  (`LOCAL_ONLY_TASK_ARGUMENTS`).
-- **A URL with any other scheme** (`file://`, `s3://`, ...) is refused at
-  validation and at the loader, whatever the trust posture. No loader opens
-  one, but as a relative path it joined onto the workflow directory and
-  passed containment, so validation called it clean (#618).
-- **A glob** is contained the same way, on the fixed directory its pattern
-  starts from, and every match is re-checked on its real path so a symlink
-  cannot carry the expansion out.
-- **An `http(s)` URL** must not resolve to an address inside the deployment -
-  loopback, link-local (`169.254.0.0/16`, the cloud metadata address),
-  private ranges, and anything else that is not globally routable
-  (`is_global`). Checked after DNS resolution, not on the literal string.
-  That last rule covers `100.64.0.0/10`, the shared address space, which is
-  **Tailscale's tailnet range** (and Alibaba's metadata address): a workflow
-  that fetches media from another machine on your tailnet is refused unless
-  it runs under `--trust-workflows`.
-- **Every redirect is re-checked.** A media fetch (`safe_get` in `dw/outbound.py`) never lets the
-  HTTP client follow a redirect on its own: it follows at most 5 hops
-  (`MAX_MEDIA_REDIRECTS`), and each `Location` passes the same scheme and
-  host policy before it is dialed. A public URL answering `302` to
-  `http://127.0.0.1:8765/api/server` is refused with the target named, and
-  nothing is fetched from it. A refused hop's error always begins
-  `Refusing a redirect to '<target>' (from '<the URL asked for>'): ` and
-  then gives the rule that refused it (an internal address, a scheme other
-  than http(s), an unresolvable host), whereas an error status from a URL
-  itself stays the HTTP client's own `403 Client Error: Forbidden for url:
-  ...` - so a refused redirect and an upstream failure read differently
-  (#1055). Images are decoded from the fetched bytes and
-  still go through diffusers' `load_image`, so EXIF orientation and RGB
-  conversion are unchanged. Each hop's host is resolved once, by the policy,
-  and dialed at the address it checked - so a name that answers differently
-  to the lookup and the connect (DNS rebinding) reaches only what was
-  checked - and refused when it does not resolve or is percent-encoded (the
-  host is read with the HTTP client's own parser, so `127%2e0%2e0%2e1` is
-  127.0.0.1 to the policy too). An untrusted fetch ignores proxy and
-  `~/.netrc` settings from the environment. The body is capped at
-  `MAX_MEDIA_BYTES` (1 GiB) and the whole fetch at `MEDIA_TOTAL_TIMEOUT`
-  (600 s) - the connection is closed at the deadline, so a server
-  trickling its response headers or its body cannot hold the worker; a 303 (or a
-  301/302 to a POST) is followed as a GET, as requests itself does; and
-  `remote_text_encoder` POSTs through the same path with a timeout. Two limits
-  to know: a trusted run behind a SOCKS proxy is not deadline-bounded (SOCKS
-  brings its own connection classes), and the TLS handshake is bounded by the
-  per-operation timeout only.
-- **`remote_text_encoder.url`** is https-only, and the HuggingFace token is
-  attached only for `huggingface.co`, `huggingface.cloud` and `hf.space`. An
-  endpoint elsewhere is still reachable; it just does not get the credential.
-  A redirect that leaves the host, or drops from https to http, is followed
-  without the token.
-- **`model_name`** must be a Hub repo id or a path inside a root - the same
-  shape check `download_model` has always applied to `repo_id`. A URL is
-  neither, and is refused as such rather than resolving into the workflow's
-  own directory as a path-shaped name (#117).
+`location_errors` runs inside `validation_errors`, so `validate_workflow`
+refuses before a model load is spent, and the loaders call the same functions
+for a location that arrives through a variable or a previous result. All of
+it yields to `--trust-workflows`, except the scheme rule.
 
-Enforced twice: `location_errors` runs inside `validation_errors`, so
-`validate_workflow` refuses before a model load is spent on the run, and the
-loaders call the same functions for a location that arrives through a
-variable or a previous result. All of it yields to `--trust-workflows`.
+## HTTP authentication and headers (`dw/server/http_security.py`)
 
-`GET /api/server` reports `trust_workflows`, so a client can read the posture
-it is running against rather than infer it.
-
-`--trust-workflows` is a blanket, process-wide choice - it is not scoped
-per-workflow or per-request. A `dw-serve` instance that accepts jobs from
-anything other than yourself (including an MCP client - see below) should
-be run without it.
-
-### MCP-authored workflows (M3)
-
-The MCP server's `save_workflow` and `run_workflow` tools let an LLM write
-and then execute a workflow through `dw.serve` - `save_workflow` writes a
-JSON file into the workflow directory, `run_workflow` queues it (or an
-inline definition) as a job. Nothing in `dw_mcp/` inspects what a workflow
-it saves or runs actually contains. What protects a server used this way
-is exactly the mechanism above: `dw-serve`'s own `--trust-workflows`
-default is untrusted, so an MCP-authored or MCP-submitted workflow gets
-the same code-execution gate a workflow from any other untrusted source
-does, with no code change needed in `dw_mcp` itself. Running `dw-serve
---trust-workflows` removes that gate for every job the server accepts,
-MCP-submitted or not - see the blanket-choice note just above.
+- **Bearer token, opt-in.** With `--token` / `DW_API_TOKEN` set, every
+  `/api/*` and `/mcp` request needs `Authorization: Bearer <token>`, compared
+  in constant time; anything else is a 401. Without a token there is no
+  authentication.
+- **Query token.** Only a GET or HEAD route marked `query_token_ok`
+  (EventSource streams, thumbnails, download links, which a browser loads
+  without headers) accepts `?token=`. The marker is matched on the real route,
+  not a path suffix.
+- **Not gated by the token:** the web UI's static files, `/outputs`, `/inputs`
+  and `/exports/{id}.zip` (#592). Anyone who can reach the port can read
+  generated files and input assets by name.
+- **Binding.** The default bind is `127.0.0.1`. A non-loopback bind without a
+  token logs a warning and starts; `--mcp` on a non-loopback host without a
+  token exits 2. The connection is plaintext HTTP; use a network you control,
+  Tailscale, or a TLS proxy ([REMOTE.md](REMOTE.md)).
+- **Origin check.** A request carrying an `Origin` is refused (403) unless
+  its host is a loopback name, the bind host, or the host the request was
+  addressed to. This stops a drive-by web page queuing jobs, and DNS
+  rebinding, where Origin and Host differ. A request without `Origin` passes.
+- **Host check.** Unless bound to a wildcard address, a `Host` that is not a
+  loopback name or the bind host is a 400.
+- **Response headers.** Every response carries `X-Content-Type-Options:
+  nosniff` and `X-Frame-Options: DENY` (#407).
 
 ## Integration Points
 
-| Entry Point | What's Validated |
-|-------------|-----------------|
+| Entry point | What's validated |
+| --- | --- |
 | `workflow.py` | Workflow file paths, JSON size, output directories, sub-workflow paths |
 | `run.py`, `validate.py` | CLI arguments, variable names and values |
-| `arguments.py`, `argument_media.py` | Image/video/audio URLs, file paths, file extensions (`validate_media_location`; `fetch_image`, `fetch_video` in `argument_media.py`) |
+| `arguments.py`, `argument_media.py` | Media locations, file paths and extensions (`validate_media_location`; `fetch_image`, `fetch_video`) |
+| `locations.py`, `outbound.py` | Every location a workflow supplies, and every outbound media fetch |
 | `tasks/gather.py` | URLs passed to the `gather` task |
-| `result.py`, `writers.py` | Output directories and filenames (`output_file_path` in `writers.py`) |
-| `server/app.py`, `server/jobs.py` | Every HTTP-supplied path — workflow files confined to the workflow directory, gallery files to the output directory, inline-workflow `base_dir`, `Origin`-header guard on every request |
+| `result.py`, `writers.py`, `content_types.py` | Output directories, file names (`output_file_path`), result content types |
+| `server/http_security.py` | Token, Origin and Host on every request |
+| `server/jobs.py`, `server/outputs.py`, `server/routes/*.py` | Every HTTP-supplied path: workflows confined to the workflow directories, gallery files to the output directory, assets to their library, an inline workflow's `base_dir` |
 
 ## MCP Server
 
-`dw_mcp/` introduces no new file access and no authentication of its own. It
-is an HTTP client of a running `dw.serve`: every path a tool touches (a
-workflow name, a gallery file, a job id) is sent to the REST API as-is and
-validated there, exactly as it would be for a browser request from the web
-UI. A remote `dw.serve` is allowed only with a token — see
-[MCP Server](MCP.md#security) and [REMOTE.md](REMOTE.md).
+`dw_mcp/` adds no authentication and no file access of its own, with two
+exceptions below. It is an HTTP client of `dw.serve`: every path a tool sends
+(a workflow name, a gallery file, a job id) is validated by the REST API
+exactly as a browser request from the web UI is. A remote `dw.serve` is
+allowed only with a token ([MCP Server](MCP.md#security),
+[REMOTE.md](REMOTE.md)).
 
-The two exceptions are `download_output`, which writes a local file for the
-MCP client, and `upload_asset(file_path=...)`, which reads one — neither goes
-through the API for that half of its work. Both turn on whose machine "local"
-is. Over a **stdio `dw-mcp`** it is the user's own, so both act for the local
-user the way a shell redirect would: `download_output` writes anywhere the
-process may (a full path, a directory, or the working directory by default,
-`~` expanded) and `upload_asset` reads anything it may. Over **`dw.serve
---mcp`** it is the operator's box, which the caller never chose, so both are
-confined there: `download_output`'s `destination` to the workspace (#113) and
-`upload_asset`'s `file_path` to the directories the server works in — its
-workspace, workflows, assets, outputs and prompts (#138). `upload_asset`'s
-refusal is ordered ahead of the existence and extension checks so it cannot
-be used as a path-existence oracle. A `..` path segment in `destination` is
-refused regardless, and an existing file at the resolved path is left alone
-unless the caller passes `overwrite=True`.
+`download_output` writes a local file and `upload_asset(file_path=...)` reads
+one, outside the API. Over a **stdio `dw-mcp`**, "local" is the user's own
+machine, and both act as the user would with a shell redirect. Over
+**`dw.serve --mcp`** it is the operator's box, so both are confined:
+`download_output`'s `destination` to the workspace (#113), and
+`upload_asset`'s `file_path` to the server's workspace, workflows, assets,
+outputs and prompts directories (#138), with the refusal ordered before the
+existence and extension checks so it is not a path-existence oracle. On both
+transports a `..` segment in `destination` is refused and an existing file is
+kept unless `overwrite=True`.
+
+Nothing in `dw_mcp/` inspects what a workflow it saves (`save_workflow`) or
+runs (`run_workflow`) contains. An MCP-authored or MCP-submitted workflow is
+protected by `dw-serve`'s untrusted default, the same gate as any other
+untrusted workflow. `dw-serve --trust-workflows` removes that gate for every
+job the server accepts.
 
 ## Exception Hierarchy
 
 ```text
 SecurityError
-  PathTraversalError — path traversal attempt
-  InvalidInputError  — input validation failure
+  PathTraversalError     - path traversal attempt
+  InvalidInputError      - input validation failure
+  UntrustedWorkflowError - an untrusted workflow reached the code-execution surface
 ```
 
 ### Disk caches
 
-`DELETE /api/caches/{name}` (`dw/disk_caches.py`) empties a directory whose path comes from an environment variable, so it never trusts the root: only a root carrying a `.dw-cache` marker is cleared. `dw.serve` writes the marker at start into a root that is missing or empty (a missing `triton` root is never created), or into a populated root equal to the cache's default exactly (`~/.cache/dw/torchinductor` or its `$XDG_CACHE_HOME` form; `~/.triton/cache` only - a populated `$TRITON_HOME/.triton/cache` is not grandfathered). Any other populated root is listed with `clearable: false` ("root not created by dw (no .dw-cache marker)") and its clear is a 400, until someone creates the marker by hand; deleting the marker stops clearing. `quantized` (`DW_QUANTIZED_CACHE_DIR`) follows the same marker rule, and `DELETE /api/caches/{name}/entries/{entry}` deletes one entry only if the id matches `^[0-9a-f]{64}$`, checked before any path is built. The clear refuses while a job is running or queued (for `quantized`, also while a model download is active), and renames the root's children into `.clearing-*` before deleting them. Like model deletion, it needs only the bearer token.
+`DELETE /api/caches/{name}` (`dw/disk_caches.py`) empties a directory whose
+path comes from an environment variable, so it clears only a root carrying a
+`.dw-cache` marker. `dw.serve` writes the marker at start into a root that is
+missing or empty (a missing `triton` root is never created), or into a
+populated root equal to the cache's default exactly (`~/.cache/dw/torchinductor`
+or its `$XDG_CACHE_HOME` form; `~/.triton/cache` only, not a populated
+`$TRITON_HOME/.triton/cache`). Any other populated root is listed with
+`clearable: false` and its clear is a 400 until someone creates the marker by
+hand; deleting the marker stops clearing. `quantized`
+(`DW_QUANTIZED_CACHE_DIR`) follows the same rule, and
+`DELETE /api/caches/{name}/entries/{entry}` deletes one entry only if the id
+matches `^[0-9a-f]{64}$`, checked before any path is built. A clear refuses
+while a job is running or queued (for `quantized`, also while a model download
+is active), and renames the root's children into `.clearing-*` before deleting
+them. Like model deletion, it needs only the bearer token.
 
 ## Rules
 
-- Always validate paths before file operations
-- Use `validate_url()` before loading remote resources
-- If a subprocess is ever introduced, use `shell=False` and pass args through `sanitize_command_args()`
-- Never use dynamic code execution (`eval`/`exec`) or shell interpretation
+- Validate a path before any file operation, with a base directory.
+- Validate a URL with `validate_url()`, and a workflow-supplied location with
+  `dw/locations.py`, before loading a remote resource.
+- Run a subprocess with `shell=False` and its arguments through
+  `sanitize_command_args()`.
+- Never use `eval`, `exec` or `shell=True`.
 
 ## Protected Against
 
-- **Path traversal** — Cannot access files outside allowed directories
-- **Command injection** — No shell interpretation is used anywhere in `dw/`; `sanitize_command_args()` is available as a guard should a subprocess call be added
-- **Resource exhaustion** — File size limits prevent memory exhaustion
-- **Decompression bombs** — an image a caller names is decoded at no more than `MAX_DECODE_PIXELS` (50M; an 8K frame is 33M), checked after `Image.open` and before any decode: `get_output_image` (crops included) refuses it, the gallery thumbnail answers 413, and embedded metadata is read from the PNG header chunks without decoding. Video and audio decode are not limited
-- **Malicious URLs** — Only http/https schemes allowed, and an untrusted
-  workflow may not name a host inside the deployment (SSRF)
-- **Arbitrary file read through a media argument** — a location a workflow
-  supplies is confined to the roots it may read (`dw/locations.py`)
-- **Script on the UI's origin through an output** — a step's
-  `result.content_type` may not be an active document type - `text/html`,
-  `application/xhtml+xml`, `text/xml`, `application/xml` or `image/svg+xml`
-  (compared without case or parameters): validation refuses it at
-  `steps[i].result.content_type` and the writer refuses it again
-  (`dw/content_types.py`). A file of an active type that reaches `/outputs`
-  or `/inputs` anyway is served with `Content-Security-Policy: sandbox`
+- **Path traversal**: no file outside the allowed directories.
+- **Command injection**: no shell interpretation anywhere in `dw/`.
+- **Arbitrary code from a workflow**: the trust gate, unless
+  `--trust-workflows`.
+- **Arbitrary file read through a media argument**: a workflow-supplied
+  location is confined to the roots it may read (`dw/locations.py`).
+- **Malicious URLs and SSRF**: http/https only, and an untrusted workflow may
+  not reach a host inside the deployment, including through a redirect.
+- **Resource exhaustion**: 50MB workflow JSON, 1 GiB media fetch with a 600 s
+  deadline.
+- **Decompression bombs**: an image a caller names is decoded at no more than
+  `MAX_DECODE_PIXELS` (50M; an 8K frame is 33M), checked after `Image.open`
+  and before any decode. `get_output_image` (crops included) refuses one, the
+  gallery thumbnail answers 413, `compare_outputs` refuses a video whose frame
+  exceeds it (413), and embedded metadata is read from PNG header chunks
+  without decoding. Other video decodes and all audio decodes are not limited.
+- **Script on the UI's origin through an output**: a result `content_type`
+  may not be an active document type (`text/html`, `application/xhtml+xml`,
+  `text/xml`, `application/xml`, `image/svg+xml`, compared without case or
+  parameters). Validation refuses it at `steps[i].result.content_type`, the
+  writer refuses it again (`dw/content_types.py`), and a file of an active type
+  that reaches `/outputs` or `/inputs` anyway is served with
+  `Content-Security-Policy: sandbox`.
+
+Not protected: generated files and input assets are readable without the
+token by anyone who can reach the port, and traffic is plaintext.
 
 ## Testing
 
 ```bash
-pytest tests/test_security.py tests/test_locations.py tests/test_outbound.py tests/test_workflow_trust.py -v
+pytest tests/test_security.py tests/test_security_auth.py tests/test_security_trust_gate.py \
+  tests/test_security_symlinks.py tests/test_locations.py tests/test_outbound.py \
+  tests/test_workflow_trust.py -v
 ```

@@ -145,7 +145,7 @@ shot's budget below.
 Before the keep, run the beat review in `references/beat-review.md` on
 the shot's `get_output_frames` frames.
 Fix a shot in the order and within the caps of `references/fix-ladder.md`: three failed attempts, then ask.
-Check a recurring face with `templates/face-drift-check`.
+Face drift (`templates/face-drift-check`): see `references/fix-ladder.md`.
 For H3, lint the prompt first: `minimax-h3/references/prompt-lint.md`.
 Each shot's files are organized by `subfolder` - typically `final`
 for the deliverable video or `intermediate` for test frames; read the

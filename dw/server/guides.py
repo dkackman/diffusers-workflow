@@ -85,6 +85,12 @@ SECTION_PATTERN = re.compile(r"^## (.+)$", re.M)
 # because it isn't in the listing is the gap #503 reported.
 SUBSECTION_PATTERN = re.compile(r"^### (.+)$", re.M)
 
+# One level deeper, as a second pass only: a `####` heading is named content
+# too (the workflows guide's *Texture bands*, which plugin skills point at by
+# name, #1160), but trying it after every `###` keeps each term a `###`
+# already resolved resolving to the same place.
+MINOR_SUBSECTION_PATTERN = re.compile(r"^(###|####) (.+)$", re.M)
+
 # A doc's link to an example is a repo-relative path, which resolves for a
 # reader with a checkout and dead-ends for the one these guides are served
 # to: an agent holding the MCP and nothing else. Said once, on a payload
@@ -181,30 +187,40 @@ def _extract_subsection(text, section):
     a subsection heading is usually a full sentence ("One step per entry:
     for_each"), and the term a caller actually has in hand is the concept
     inside it ("for_each"), not the sentence.
+
+    A `####` heading is tried only after no `###` matched, and runs to the
+    next `###` or `####` heading (or the end of its `##` section).
     """
     wanted = _normalized(section)
     if not wanted:
         return None
     section_matches = list(SECTION_PATTERN.finditer(text))
-    for index, section_match in enumerate(section_matches):
-        section_end = (
-            section_matches[index + 1].start()
-            if index + 1 < len(section_matches)
-            else len(text)
-        )
-        section_text = text[section_match.start() : section_end]
-        sub_matches = list(SUBSECTION_PATTERN.finditer(section_text))
-        for sub_index, sub_match in enumerate(sub_matches):
-            normalized_heading = _normalized(sub_match.group(1))
-            if wanted != normalized_heading and wanted not in normalized_heading:
-                continue
-            sub_end = (
-                sub_matches[sub_index + 1].start()
-                if sub_index + 1 < len(sub_matches)
-                else len(section_text)
+    for pattern, heading_group in (
+        (SUBSECTION_PATTERN, 1),
+        (MINOR_SUBSECTION_PATTERN, 2),
+    ):
+        for index, section_match in enumerate(section_matches):
+            section_end = (
+                section_matches[index + 1].start()
+                if index + 1 < len(section_matches)
+                else len(text)
             )
-            content = section_text[sub_match.start() : sub_end].rstrip() + "\n"
-            return sub_match.group(1), content, section_match.group(1)
+            section_text = text[section_match.start() : section_end]
+            sub_matches = list(pattern.finditer(section_text))
+            for sub_index, sub_match in enumerate(sub_matches):
+                if heading_group == 2 and sub_match.group(1) != "####":
+                    continue
+                heading = sub_match.group(heading_group)
+                normalized_heading = _normalized(heading)
+                if wanted != normalized_heading and wanted not in normalized_heading:
+                    continue
+                sub_end = (
+                    sub_matches[sub_index + 1].start()
+                    if sub_index + 1 < len(sub_matches)
+                    else len(section_text)
+                )
+                content = section_text[sub_match.start() : sub_end].rstrip() + "\n"
+                return heading, content, section_match.group(1)
     return None
 
 

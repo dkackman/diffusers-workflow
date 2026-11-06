@@ -32,28 +32,11 @@ from .placement import (
     attention_slicing_requested,
     place_component,
 )
-from .h3_guides import guide_frames_array, guides_refusal, prepared_guide
-from .h3_hold import hold_audio_reference, holds_audio, refines
-from .h3_mask import binarized, edits_regions
 from .h3_rules import (
-    GUIDES_INPUT,
-    GUIDE_LIMIT,
-    HELD_AUDIO_OUTPUT,
-    HELD_AUDIO_RATE_OUTPUT,
-    HOLD_AUDIO_INPUT,
-    MASK_IMAGE_INPUT,
-    MASK_INPUTS,
-    REFINE_SIGMAS_INPUT,
-    REFINE_STRENGTH_INPUT,
     REFINE_TILES_INPUT,
-    REGENERATE_MASK,
-    SOURCE_VIDEO_INPUT,
-    edits_region,
-    mask_problems,
-    media_problems,
-    refine_problems,
 )
 from .h3_tiles import run_tiled_refine
+from .pipeline_h3 import H3Arguments, latent_anchor_source  # noqa: F401 - re-exported
 from .progress import reported_blocks, reported_progress_bars
 from .timing import denoise_start_hook, is_compiled, mark
 from .remote import remote_text_encoder
@@ -181,7 +164,7 @@ def apply_runtime_settings(pipeline_definition, model):
     apply_sparse_settings(pipeline_definition.get("configuration", {}), model)
 
 
-class Pipeline:
+class Pipeline(H3Arguments):
     """
     Manages pipeline initialization, configuration, and execution.
     Handles loading of models, schedulers, and adapters.
@@ -226,6 +209,9 @@ class Pipeline:
         # What a chained run calls the segment it is on, so progress can say
         # which one the denoise counter belongs to - it restarts per segment
         self.segment_label = None
+        # Where a chain's injected `latent_anchor` frames came from ("segment
+        # 1"), so the job log can name the anchor's source (#1181)
+        self.latent_anchor_source = None
         logger.debug(f"Initialized pipeline with device: {self.device}")
 
     @property
@@ -662,6 +648,8 @@ class Pipeline:
         arguments = self._with_mask(arguments)
         arguments = self._with_held_audio(arguments)
         arguments = self._with_guides(arguments)
+        arguments = self._with_guide_noise(arguments)
+        arguments = self._with_latent_anchor(arguments)
         # The load is over and the denoise loop is starting. Pipelines whose
         # signature has no step callback report nothing else at all, so this
         # is the only thing that distinguishes running from still loading
@@ -726,181 +714,6 @@ class Pipeline:
                 raise
             mark("call_ended")
             return output
-
-    def _with_held_audio(self, arguments):
-        """`hold_audio` as the reference the H3 hold block takes, and the
-        held track asked for alongside `audio` (dw/pipeline_processors/h3_hold.py).
-
-        Raises:
-            ValueError: If this pipeline cannot hold audio, or the value is not audio
-        """
-        held = arguments.get(HOLD_AUDIO_INPUT)
-        if held is None:
-            if HOLD_AUDIO_INPUT not in arguments:
-                return arguments
-            # A template's null `hold_audio` variable is no hold at all, the
-            # same call as one that never named the argument
-            return {k: v for k, v in arguments.items() if k != HOLD_AUDIO_INPUT}
-        if not holds_audio(self.pipeline):
-            raise ValueError(
-                f"Step '{self.name}': hold_audio is a MiniMax-H3 argument "
-                f"(t2va, fl2va or ref2va), and {type(self.pipeline).__name__} "
-                f"cannot hold a soundtrack"
-            )
-        arguments = dict(arguments)
-        arguments[HOLD_AUDIO_INPUT] = hold_audio_reference(held, self.base_dir)
-        output = arguments.get("output")
-        # A single output is written as a string; the held keys ride along
-        # only when the track itself is asked for
-        names = [output] if isinstance(output, str) else list(output or [])
-        if "audio" in names:
-            arguments["output"] = names + [HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT]
-        return arguments
-
-    def _with_guides(self, arguments):
-        """`guides` as the H3 guide layout takes them - each clip as uint8
-        frames cut to a whole-latent length (dw/pipeline_processors/h3_guides.py).
-        An empty list is no guides.
-
-        A guide with `"audio": true` also carries its video's soundtrack, as
-        `audio` and `sample_rate`; with `audio` false or absent it carries none.
-
-        Raises:
-            ValueError: If this pipeline cannot take guides, the step also passes
-                `references`, a guide is not `{video, frame, audio?}` with a video,
-                or `audio` is true on a video with no audio
-        """
-        guides = arguments.get(GUIDES_INPUT)
-        if guides is None:
-            return arguments
-        arguments = dict(arguments)
-        if isinstance(guides, (list, tuple)) and not guides:
-            del arguments[GUIDES_INPUT]
-            return arguments
-        where = f"Step '{self.name}': guides"
-        refusal = guides_refusal(self.pipeline)
-        if refusal:
-            raise ValueError(f"{where}: {refusal}")
-        if arguments.get("references") is not None:
-            raise ValueError(
-                f"{where} cannot be combined with references - ref2va lays out "
-                f"its own conditioning; use guides on t2va or fl2va"
-            )
-        if not isinstance(guides, (list, tuple)):
-            raise ValueError(
-                f"{where} must be a list of {{video, frame}}, got {type(guides).__name__}"
-            )
-        if len(guides) > GUIDE_LIMIT:
-            raise ValueError(
-                f"{where} takes at most {GUIDE_LIMIT} clips, got {len(guides)}"
-            )
-        prepared = [
-            prepared_guide(where, index, guide, self.base_dir)
-            for index, guide in enumerate(guides)
-        ]
-        arguments[GUIDES_INPUT] = prepared
-        return arguments
-
-    def _with_mask(self, arguments):
-        """A regional edit's `source_video` as uint8 frames and its mask as the
-        bool frames the H3 source block maps to rows, under `REGENERATE_MASK`
-        (dw/pipeline_processors/h3_mask.py).
-
-        A step without `width`, `height` or `num_frames` renders the source's.
-
-        Raises:
-            ValueError: If this pipeline cannot take a regional edit, the
-                arguments break `mask_problems`, the mask is all black, or the
-                source or mask does not fit the canvas
-        """
-        takes = edits_regions(self.pipeline)
-        # An inpaint pipeline's own mask_image is no regional edit
-        if not edits_region(arguments, takes):
-            return arguments
-        where = f"Step '{self.name}'"
-        if not takes:
-            raise ValueError(
-                f"{where}: {SOURCE_VIDEO_INPUT} is a MiniMax-H3 argument (t2va, "
-                f"fl2va or ref2va), and {type(self.pipeline).__name__} cannot "
-                f"edit a region"
-            )
-        problems = mask_problems(arguments, chained=self.segment_label is not None)
-        if problems:
-            raise ValueError(f"{where}: {problems[0]}")
-        arguments = dict(arguments)
-        try:
-            source = guide_frames_array(arguments[SOURCE_VIDEO_INPUT])
-        except ValueError as e:
-            raise ValueError(f"{where}: {SOURCE_VIDEO_INPUT} is not a video: {e}")
-        arguments[SOURCE_VIDEO_INPUT] = source
-        frames, height, width = source.shape[:3]
-        for key, value in (
-            ("width", width),
-            ("height", height),
-            ("num_frames", frames),
-        ):
-            if arguments.get(key) is None:
-                arguments[key] = value
-        problems = media_problems(
-            SOURCE_VIDEO_INPUT,
-            source.shape[:3],
-            arguments["width"],
-            arguments["height"],
-            arguments["num_frames"],
-        )
-        name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
-        if name is not None:
-            value = arguments.pop(name)
-            try:
-                if name == MASK_IMAGE_INPUT:
-                    mask = binarized(value)
-                else:
-                    mask = binarized(guide_frames_array(value))
-            except (AttributeError, ValueError) as e:
-                kind = "an image" if name == MASK_IMAGE_INPUT else "a video"
-                raise ValueError(f"{where}: {name} is not {kind}: {e}")
-            if not mask.any():
-                raise ValueError(
-                    f"{where}: {name} is all black, so nothing would regenerate "
-                    f"- white marks the region to regenerate"
-                )
-            problems += media_problems(
-                name,
-                mask.shape,
-                arguments["width"],
-                arguments["height"],
-                arguments["num_frames"],
-            )
-            arguments[REGENERATE_MASK] = mask
-        if problems:
-            raise ValueError(f"{where}: {problems[0]}")
-        return arguments
-
-    def _check_refine(self, arguments):
-        """Refuse a `refine_strength` the H3 refine block cannot run, before the
-        call (dw/pipeline_processors/h3_hold.py).
-
-        Raises:
-            ValueError: If this pipeline cannot refine, the strength, the
-                `refine_sigmas` schedule or the step count is out of range, or the
-                step passes no `latents` or `hold_audio`
-        """
-        given = [
-            name
-            for name in (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
-            if arguments.get(name) is not None
-        ]
-        if not given:
-            return
-        where = f"Step '{self.name}': {given[0]}"
-        if not refines(self.pipeline):
-            raise ValueError(
-                f"{where} is a MiniMax-H3 argument (t2va, fl2va or ref2va), and "
-                f"{type(self.pipeline).__name__} cannot refine"
-            )
-        problems = refine_problems(arguments)
-        if problems:
-            raise ValueError(f"Step '{self.name}': {problems[0]}")
 
     def _takes_step_callback(self):
         """Whether this pipeline names `callback_on_step_end` in its own

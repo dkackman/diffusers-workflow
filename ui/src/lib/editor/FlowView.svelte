@@ -2,6 +2,7 @@
   import { dataFlowGraph, type FlowNode } from '../flow'
   import { formatDuration } from '../format'
   import FlowLegend from './FlowLegend.svelte'
+  import FlowSegments from './FlowSegments.svelte'
   import {
     BOX_H,
     BOX_W,
@@ -31,6 +32,7 @@
     doneMembers = [],
     nodeTimes = {},
     memberTimes = {},
+    activeSegments = {},
   }: {
     workflow: Record<string, any>
     onselect?: (stepName: string) => void
@@ -57,6 +59,9 @@
     nodeTimes?: Record<string, number>
     /** Seconds each finished for_each member took, engine names. */
     memberTimes?: Record<string, number>
+    /** The segment, 1-based, each chained step is on or last ran - its
+     * generating phases (runstate.ts chainSegments). */
+    activeSegments?: Record<string, number>
   } = $props()
 
   const showsRun = $derived(
@@ -89,15 +94,20 @@
 
   const graph = $derived(dataFlowGraph(workflow))
   const hasForEach = $derived(graph.nodes.some((node) => node.forEach))
+  const hasChain = $derived(
+    graph.nodes.some((node) => node.chain && !node.forEach),
+  )
   const hasPending = $derived(
     graph.nodes.some((node) => stateOf(node.name) === 'pending'),
   )
-  // One plain step has no flow to draw: it is shown as a line, not a canvas
+  // One plain step has no flow to draw: it is shown as a line, not a canvas.
+  // A chained step is not plain - its segments are the flow
   const lone = $derived(
-    graph.nodes.length === 1 && !graph.nodes[0].forEach
+    graph.nodes.length === 1 && !graph.nodes[0].forEach && !graph.nodes[0].chain
       ? graph.nodes[0]
       : undefined,
   )
+
   const canSelect = (name: string) => !!onselect && (selectable?.(name) ?? true)
 
   /** The parts of a node's labels that did not fit, in full, for its tooltip. */
@@ -181,6 +191,7 @@
       edges={graph.edges.length > 0}
       fanIn={graph.fanIn.size > 0}
       forEach={hasForEach}
+      chain={hasChain}
       done={doneSteps.length > 0}
       active={activeStep !== undefined}
       failed={failedStep !== undefined}
@@ -251,7 +262,7 @@
               clip-path={boxH > BOX_H
                 ? `url(#flow-nodebox-${boxH})`
                 : 'url(#flow-nodebox)'}
-              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}${node.forEach ? (node.members?.length ? `, for_each with ${node.members.length} entries` : ', for_each') : ''}`}
+              aria-label={`step ${node.name}, ${kindLabel(node.kind)}${stateOf(node.name) ? ', ' + stateOf(node.name) : ''}${node.isEntryPoint ? ', entry point' : ''}${fanIn ? ', fan-in: ' + fanIn.label : ''}${node.forEach ? (node.members?.length ? `, for_each with ${node.members.length} entries` : ', for_each') : ''}${node.chain && !node.forEach ? (node.chain.segments ? `, chain of ${node.chain.segments} segments` : ', chain') : ''}`}
               {...nodeAttributes(node.name)}
             >
               {#if overflowTitle(node)}
@@ -330,6 +341,12 @@
                 <text x="11" y={CHIP_TOP + 12} class="membersunknown"
                   >for_each</text
                 >
+              {:else if node.chain}
+                <FlowSegments
+                  {node}
+                  stepState={stateOf(node.name)}
+                  activeSegment={activeSegments[node.name]}
+                />
               {/if}
             </g>
             {#if fanIn}
@@ -516,7 +533,7 @@
   }
   /* The entries a for_each step runs, inset beneath its header. Machine
      state on their edges, as on the nodes: done green, running the
-     safelight amber. */
+     safelight amber. A chained step's segment chips are FlowSegments. */
   .member .chip {
     fill: var(--panel-2);
     stroke: var(--line);

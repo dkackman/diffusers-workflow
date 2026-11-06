@@ -135,6 +135,13 @@ def gallery_metadata(
     refused (422) with the interval that fits; the default width is
     never refused for length (#823).
 
+    A file with a soundtrack also carries `pcm_sha256`, the SHA-256 of
+    its decoded samples (native dtype, interleaved, little-endian,
+    trimmed to the container duration), with the `sample_format` and
+    `frames` hashed: proof two tracks are sample-identical, comparable
+    only when `sample_format`, `frames`, `sample_rate` and `channels`
+    all agree (#1139). Only this route computes it.
+
     An image's `media` is its measured `{kind, width, height, mode}`,
     read from the file header (#922) - not the width/height arguments
     the pipeline was asked for. `include_workflow=false` drops the
@@ -158,10 +165,66 @@ def gallery_metadata(
     `version` are that source run's own - `job.id` is still the one to
     pass `get_job_workflow`, since a pruned run leaves no `workflow.json`
     of its own to reopen. `inputs` is the source run's too (#902)."""
+    name = strip_output_prefix(name)
+    path, source, job, run_id, version, role, inputs, notes = _provenance(
+        request, name, ws
+    )
+    metadata = read_embedded_metadata(path)
+    if metadata is not None and not include_workflow and "workflow" in metadata:
+        metadata = {
+            **{k: v for k, v in metadata.items() if k != "workflow"},
+            "workflow_omitted": True,
+        }
+    extension = os.path.splitext(path)[1].lower()
+    kind = MEDIA_KINDS.get(extension)
+    try:
+        if kind in ("audio", "video"):
+            media = probe_media(
+                path,
+                envelope=envelope,
+                interval_seconds=interval_seconds,
+                pcm_hash=True,
+            )
+        elif kind == "image":
+            media = _image_media(path)
+        else:
+            media = None
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    if kind == "image":
+        pass  # no shots in a still
+    elif media is not None and source == "output":
+        # Where each shot of a joined video sits, as the run that wrote
+        # it recorded (dw/shots.py) - null for a file not joined from shots
+        media["shots"] = recorded_shots(ws.outputs, name)
+    elif media is not None and source == "asset":
+        # keep_output carries the source run's shots into a sidecar
+        # manifest beside the asset (#393); a file kept before that fix,
+        # or never joined from shots, has none
+        media["shots"] = shots_beside(path)
+    return {
+        "name": name,
+        "source": source,
+        "metadata": metadata,
+        "job": job,
+        "run_id": run_id,
+        "version": version,
+        "media": media,
+        "findings": level_findings(media, (media or {}).get("shots")),
+        "role": role,
+        "inputs": inputs,
+        **notes,
+    }
+
+
+def _provenance(request, name, ws):
+    """Where `name` lives and which run made it: `(path, source, job, run_id,
+    version, role, inputs, notes)`. An `asset:` name is read from the asset
+    root with the provenance `keep_output` left beside it; anything else is an
+    output, with the run's manifest and the listing's annotations."""
     run_id, version = "", None
     role, inputs = None, None
     notes = {}
-    name = strip_output_prefix(name)
     if is_asset_reference(name):
         path = asset_file(request.app.state, name, ws)
         source, job = "asset", None
@@ -212,49 +275,7 @@ def gallery_metadata(
                 for key in ("note", "note_source", "starred", "run_note")
                 if key in annotated
             }
-    metadata = read_embedded_metadata(path)
-    if metadata is not None and not include_workflow and "workflow" in metadata:
-        metadata = {
-            **{k: v for k, v in metadata.items() if k != "workflow"},
-            "workflow_omitted": True,
-        }
-    extension = os.path.splitext(path)[1].lower()
-    kind = MEDIA_KINDS.get(extension)
-    try:
-        if kind in ("audio", "video"):
-            media = probe_media(
-                path, envelope=envelope, interval_seconds=interval_seconds
-            )
-        elif kind == "image":
-            media = _image_media(path)
-        else:
-            media = None
-    except ValueError as error:
-        raise HTTPException(status_code=422, detail=str(error)) from error
-    if kind == "image":
-        pass  # no shots in a still
-    elif media is not None and source == "output":
-        # Where each shot of a joined video sits, as the run that wrote
-        # it recorded (dw/shots.py) - null for a file not joined from shots
-        media["shots"] = recorded_shots(ws.outputs, name)
-    elif media is not None and source == "asset":
-        # keep_output carries the source run's shots into a sidecar
-        # manifest beside the asset (#393); a file kept before that fix,
-        # or never joined from shots, has none
-        media["shots"] = shots_beside(path)
-    return {
-        "name": name,
-        "source": source,
-        "metadata": metadata,
-        "job": job,
-        "run_id": run_id,
-        "version": version,
-        "media": media,
-        "findings": level_findings(media),
-        "role": role,
-        "inputs": inputs,
-        **notes,
-    }
+    return path, source, job, run_id, version, role, inputs, notes
 
 
 def _image_media(path):
@@ -642,7 +663,8 @@ def _encoded_tile(tile, image):
 
 class CompareRequest(BaseModel):
     names: list[str] = Field(
-        description="2 to 8 outputs (or `asset:` references), one row each"
+        description="2 to 8 outputs (or `asset:` references), one row each; "
+        "1 is enough with `texture_bands`"
     )
     at: Optional[list[Union[float, str]]] = Field(
         None,
@@ -661,6 +683,14 @@ class CompareRequest(BaseModel):
     max_dimension: int = Field(384, description="Longest side of each grid cell")
     max_total_bytes: Optional[int] = Field(
         None, description="A budget on the grid's base64 size"
+    )
+    texture_bands: bool = Field(
+        False,
+        description="Add per-output RMS energy in the fine (2-8 px), mid "
+        "(8-32) and coarse (32-128) wavelength bands of the measured region, "
+        "on luma, R-G and B-G, plus each band's ratio to the baseline - a "
+        "measurement, not a score. Needs one shared `crop` (or none: the "
+        "full frame) of at least 16 px a side",
     )
 
 
@@ -708,10 +738,12 @@ def gallery_compare(
     name is shown only, and the metrics stay on the full frame. Outputs
     of different sizes get no metrics, and say why. Stills join a video
     comparison as the same image in every column. `max_total_bytes`
-    shrinks the whole grid, and `downscaled_to` says to what."""
+    shrinks the whole grid, and `downscaled_to` says to what.
+    `texture_bands` (#1152) adds each output's band energy per moment,
+    the baseline's included, and its ratio to the baseline's."""
     try:
         baseline_row, crop_mode = media_compare.check_request(
-            body.names, body.at, body.crop, body.baseline
+            body.names, body.at, body.crop, body.baseline, body.texture_bands
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
@@ -720,7 +752,13 @@ def gallery_compare(
     limit = max(1, int(body.max_dimension))
     try:
         answer = media_compare.compare(
-            sources, body.at, body.crop, baseline_row, crop_mode, limit
+            sources,
+            body.at,
+            body.crop,
+            baseline_row,
+            crop_mode,
+            limit,
+            texture_bands=body.texture_bands,
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

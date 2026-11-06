@@ -16,6 +16,7 @@ import {
   reference,
   referenceName,
 } from './references'
+import { chainSummary, type ChainSummary } from './flowChain'
 
 export interface StepFlow {
   name: string
@@ -230,6 +231,9 @@ export interface FlowNode {
    * names the run's members carry after the `@`. Null when there is no
    * for_each or the list cannot be read statically. */
   members: string[] | null
+  /** What the step's pipeline `chain` block runs, or null without one
+   * (flowChain.ts). */
+  chain: ChainSummary | null
 }
 
 export interface FlowEdge {
@@ -321,6 +325,7 @@ export function dataFlowGraph(workflow: Record<string, any>): DataFlowGraph {
       producedCount: producedCount(step),
       forEach: FOR_EACH_KEY in step,
       members: forEachMembers(workflow, step),
+      chain: chainSummary(workflow, step),
     }
   })
   const edges: FlowEdge[] = []

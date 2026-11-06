@@ -57,6 +57,9 @@ DEFAULT_SAMPLES = 8
 DETECTOR_CONFIDENCE = 0.6
 PLACES = 3
 
+# What a finding's `at` carries of its shot's measurement
+AT_KEYS = ("shot", "index", "start_frame", "num_frames", "start", "end")
+
 RULES = {
     "face_drift": {
         "name": "face_drift",
@@ -157,10 +160,15 @@ def _reference_embedding(detect, recognizer, reference, notes):
     return faces[0][1]
 
 
+def _span(start, count, total):
+    """A shot's (first, last) frame numbers, clipped to the clip; last is exclusive."""
+    first = max(0, min(int(start), total))
+    return first, max(first, min(int(start) + int(count), total))
+
+
 def _sample_indexes(start, count, total, samples):
     """Up to `samples` evenly spaced frame numbers of a shot, inside the clip."""
-    first = max(0, min(int(start), total))
-    last = max(first, min(int(start) + int(count), total))
+    first, last = _span(start, count, total)
     span = last - first
     if span <= 0:
         return []
@@ -197,9 +205,26 @@ def _best_match(recognizer, embedding, faces):
     return max(float(recognizer.match(embedding, face, COSINE)) for _, face in faces)
 
 
-def _shot_measurement(name, matches, sampled, faces_found):
+def _seconds(frame, fps):
+    return round(frame / float(fps), PLACES) if fps else None
+
+
+def _where(index, name, first, last, fps):
+    """Where a shot sits in the clip: its frames and, given an fps, its times
+    in seconds - two shots with the same name stay apart by these (#1165)."""
     return {
         "shot": name,
+        "index": index,
+        "start_frame": first,
+        "num_frames": last - first,
+        "start": _seconds(first, fps),
+        "end": _seconds(last, fps),
+    }
+
+
+def _shot_measurement(where, matches, sampled, faces_found):
+    return {
+        **where,
         "frames_sampled": sampled,
         "faces_found": faces_found,
         "similarity_median": round(float(np.median(matches)), PLACES)
@@ -209,26 +234,27 @@ def _shot_measurement(name, matches, sampled, faces_found):
     }
 
 
-def _measure_shot(video, shot, media, models, embedding, samples):
+def _measure_shot(video, index, shot, media, models, embedding, samples):
     detect, recognizer = models
+    start = int(shot.get("start_frame", 0))
     count = shot.get("num_frames")
     if count is None:
-        count = media.frame_count - int(shot.get("start_frame", 0))
-    indexes = _sample_indexes(
-        shot.get("start_frame", 0), count, media.frame_count, samples
-    )
+        count = media.frame_count - start
+    first, last = _span(start, count, media.frame_count)
+    where = _where(index, shot.get("name"), first, last, media.fps)
+    indexes = _sample_indexes(start, count, media.frame_count, samples)
     matches = []
-    for index in indexes:
-        faces = _embeddings(detect, recognizer, _picture_at(video, index))
+    for frame in indexes:
+        faces = _embeddings(detect, recognizer, _picture_at(video, frame))
         if faces:
             matches.append(_best_match(recognizer, embedding, faces))
-    return _shot_measurement(shot.get("name"), matches, len(indexes), len(matches))
+    return _shot_measurement(where, matches, len(indexes), len(matches))
 
 
 def _findings(measurements, threshold):
     found = []
     for record in measurements:
-        at = {"shot": record["shot"]}
+        at = {key: record[key] for key in AT_KEYS}
         if record["faces_found"] == 0:
             found.append(finding(RULES["no_face"], 0, at))
         elif record["similarity_median"] < threshold:
@@ -271,8 +297,11 @@ def analyze_face_drift(
         device: Where the models run
 
     Returns:
-        {measurements: [{shot, frames_sampled, faces_found, similarity_median,
-        similarity_min}], findings, rules_applied, shots_source, notes}
+        {measurements: [{shot, index, start_frame, num_frames, start, end,
+        frames_sampled, faces_found, similarity_median, similarity_min}],
+        findings, rules_applied, shots_source, notes}. `start`/`end` are
+        seconds (None when the clip has no fps); each finding's `at` carries
+        the shot's name, index, frames and times
     """
     threshold, samples = _checked_settings(threshold, samples_per_shot)
     models = _models(device)
@@ -287,8 +316,8 @@ def analyze_face_drift(
             "no shot boundaries found; the whole file was measured as one shot"
         )
     measurements = [
-        _measure_shot(video, shot, media, models, embedding, samples)
-        for shot in records
+        _measure_shot(video, index, shot, media, models, embedding, samples)
+        for index, shot in enumerate(records)
     ]
     return {
         "measurements": measurements,

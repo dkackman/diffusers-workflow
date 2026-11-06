@@ -76,7 +76,8 @@ EXPECTED_SITES = {
     ("dw/tasks/dissolve_videos.py", "dissolve_videos"): ("populates", 1),
     ("dw/tasks/join_into_song.py", "join_into_song"): ("populates", 1),
     ("dw/tasks/windows.py", "join_windows"): ("remeasures", 1),
-    ("dw/pipeline_processors/chain.py", "run_chain"): ("populates", 2),
+    # run_chain hands its result to _stitched, which builds it
+    ("dw/pipeline_processors/chain.py", "_stitched"): ("populates", 2),
     ("dw/tasks/image_ops.py", "per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),

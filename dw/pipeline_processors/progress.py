@@ -145,11 +145,14 @@ def reported_progress_bars(pipeline):
         # through again rather than a bound copy of it being frozen on
         patched.append((holder, original, "progress_bar" in vars(holder)))
 
-        def reporting(iterable=None, total=None, _original=original):
+        def reporting(iterable=None, total=None, _original=original, **kwargs):
             # The denoise bar opening is where a modular pipeline's encode
             # ends - it has no step callback to hang a forward hook off
             mark("denoise_started")
-            bar = _original(iterable=iterable, total=total)
+            # A pipeline's own progress_bar may take more than the base
+            # class's two - Marigold's takes desc= and leave= and its loop
+            # passes them - so whatever else the caller gave goes through
+            bar = _original(iterable=iterable, total=total, **kwargs)
             if total is None and iterable is not None:
                 # An iterated bar's total is the length of what it iterates,
                 # when that can be known at all
@@ -234,7 +237,19 @@ def reported_blocks(pipeline, label):
         if self is not blocks:
             return original(self, pipe, state)
         for name, block in self.sub_blocks.items():
-            run_context.emit("log", message=f"{label}: {name}")
+            # A dw block that does nothing without one input (the latent
+            # anchor, #1181) is not named when that input is absent - the
+            # job log of a call that never asked for it says nothing about
+            # it. It still runs: whether it acts is the block's own call
+            # (a pass-through without its input), not the narrator's
+            idle_without = getattr(block, "idle_without", None)
+            unnamed = (
+                idle_without
+                and hasattr(state, "get")
+                and state.get(idle_without) is None
+            )
+            if not unnamed:
+                run_context.emit("log", message=f"{label}: {name}")
             # A block boundary is a cancellation checkpoint the lead-in
             # otherwise has none of
             run_context.check_cancelled()

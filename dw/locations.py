@@ -64,6 +64,13 @@ logger = logging.getLogger("dw")
 MEDIA_KEY_SUFFIXES = ("_image", "_video", "_audio")
 MEDIA_KEY_NAMES = ("image", "video", "audio", "location", "from_file")
 
+# Pipeline arguments that read a file but are not named like their media, so
+# the key match above would miss them: MiniMax-H3's `latent_anchor` (#1166,
+# `h3_rules.LATENT_ANCHOR_INPUT`, pinned equal by tests/test_h3_anchor.py)
+# takes a video the way a guide's `video` does, and is refused here the same
+# way rather than only by the loader at run time (SE-F061)
+PIPELINE_MEDIA_ARGUMENTS = ("latent_anchor",)
+
 # Task arguments that name a file to read but not by the conventions above -
 # a generic name the key match would miss, so each command declares them on
 # its registration (`register_command(media_arguments=...)`,
@@ -578,7 +585,9 @@ SAFETENSORS_SUFFIX = ".safetensors"
 
 def _is_media_key(key):
     return isinstance(key, str) and (
-        key in MEDIA_KEY_NAMES or key.endswith(MEDIA_KEY_SUFFIXES)
+        key in MEDIA_KEY_NAMES
+        or key in PIPELINE_MEDIA_ARGUMENTS
+        or key.endswith(MEDIA_KEY_SUFFIXES)
     )
 
 

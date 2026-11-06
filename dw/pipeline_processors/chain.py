@@ -32,35 +32,41 @@ previous_result fan-out: three keyframes in, three chained videos out.
 import gc
 import logging
 import math
-import os
 import sys
-from collections.abc import Sequence
 from dataclasses import dataclass
 
 import numpy
 import torch
-from PIL import Image
-from diffusers.utils import is_av_available
 
 from .. import empty_device_cache
 from ..media_types import AudioVideo, fit_codec_padding
 from ..output_extraction import get_artifact_list
-from ..writers import encode_video, frames_for_encoding, output_file_path
 from ..events import emit_log
 from ..shots import shot_record, without_samples
 from ..dsp import as_channels_samples, slice_samples
 from ..task_domains import frames_to_samples
 from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import extract_frame, frames_as_pil_list
+from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-exported
+    SavedFrames,
+    SegmentedFrames,
+    SegmentSpill,
+    spilled_frames,
+)
+from .h3_anchor import anchor_refusal
 from .h3_guides import guides_refusal
 from .h3_hold import hold_audio_reference
 from .h3_rules import (
+    ANCHOR_NONE,
+    ANCHOR_SEGMENT_1,
     CHAIN_CONTINUITY_MODES,
     GUIDES_INPUT,
     GUIDE_CHAIN_DEFAULT,
     GUIDE_CHAIN_RULE,
     GUIDE_CONTINUITY,
     HOLD_AUDIO_INPUT,
+    LATENT_ANCHOR_INPUT,
+    chain_anchor_problem,
     guide_chain_problems,
 )
 
@@ -223,187 +229,6 @@ class Segment:
     head_trim: int  # frames dropped from its head on the output timeline
 
 
-class SegmentedFrames:
-    """Chained segments spilled to disk, replayed at save time.
-
-    Iterating yields one uint8 (frames, height, width, 3) torch tensor per
-    segment file - the chunk shape encode_video streams from - so the final
-    video is written holding only one segment in memory at a time.
-    """
-
-    def __init__(self, paths, total_frames=None, keep_files=False, stored_frames=None):
-        """
-        Args:
-            paths: The segment files, in output order
-            total_frames: Frames to yield in total - the match_audio tail trim.
-                None yields every stored frame
-            keep_files: Leave the segment files in place after cleanup()
-            stored_frames: Frames across all the files, when known - what
-                frame_count reports, since len() counts files
-        """
-        self.paths = list(paths)
-        self.stored_frames = stored_frames
-        self.total_frames = total_frames
-        self.keep_files = keep_files
-        # True once cleanup() has actually removed the files (not when
-        # keep_files skipped that) - a cached Result pointing at a cleaned-up
-        # SegmentedFrames must not be served to a later miss, since the files
-        # a replay would open are gone. See Result.retainable.
-        self.cleaned = False
-
-    def __len__(self):
-        """Chunk count - one per segment file."""
-        return len(self.paths)
-
-    @property
-    def frame_count(self):
-        """Frames the replay yields, or None when the files were not counted."""
-        if self.stored_frames is None:
-            return None
-        if self.total_frames is None:
-            return self.stored_frames
-        return min(self.stored_frames, self.total_frames)
-
-    def __iter__(self):
-        remaining = self.total_frames
-        for path in self.paths:
-            frames = _decode_segment(path)
-            if remaining is not None:
-                frames = frames[:remaining]
-                remaining -= len(frames)
-            if len(frames):
-                yield frames
-            if remaining == 0:
-                return
-
-    def cleanup(self):
-        """Remove the segment files once the final video is safely written."""
-        if self.keep_files:
-            return
-        for path in self.paths:
-            try:
-                os.remove(path)
-            except FileNotFoundError:
-                pass
-        self.cleaned = True
-
-
-class SavedFrames(Sequence):
-    """The frames of a chain's finished video, read back from the file it saved.
-
-    Once SegmentedFrames.cleanup() has removed the segment files, a later step
-    that names the chain's result (previous_result:) gets these instead: a
-    frame sequence - length is the frame count - decoded from the final file
-    the first time a frame is asked for, so a chain nobody consumes never pays
-    for the decode.
-    """
-
-    def __init__(self, path, count=None, cleaned=True):
-        self.path = path
-        self._count = count
-        self._frames = None
-        # Result.retainable: the segment files this replaced are gone, and a
-        # cache entry must not outlive the file this one reads
-        self.cleaned = cleaned
-
-    def _load(self):
-        if self._frames is None:
-            from ..media import decode_rgb_frames
-
-            self._frames = [Image.fromarray(f) for f in decode_rgb_frames(self.path)]
-            self._count = len(self._frames)
-        return self._frames
-
-    def __len__(self):
-        if self._count is None:
-            self._load()
-        return self._count
-
-    def __getitem__(self, index):
-        return self._load()[index]
-
-
-class SegmentSpill:
-    """Writes each completed segment to disk as a playable mp4.
-
-    Files are named {prefix}.{iteration}.segment-{index:03d}.mp4 in the
-    workflow's output directory - a crashed chain leaves them behind, ready to
-    salvage with gather_videos + concat_videos.
-    """
-
-    def __init__(self, pipeline, config):
-        output_dir = getattr(pipeline, "output_dir", None)
-        file_prefix = getattr(pipeline, "file_prefix", None)
-        if not output_dir or not file_prefix:
-            raise ValueError(
-                "save_segments needs the workflow's output directory - it is "
-                "only available when the chain runs through a workflow"
-            )
-        if not is_av_available():
-            raise ValueError(
-                "save_segments writes mp4 segment files with PyAV - install "
-                "it with: pip install av"
-            )
-        if config.fps is None:
-            raise ValueError(
-                "save_segments needs the frame rate to encode segment files - "
-                "set 'fps' on the chain or a 'frame_rate' pipeline argument"
-            )
-
-        # The same step can chain more than once (previous_result fan-out) -
-        # a per-wrapper counter keeps each iteration's files apart
-        iteration = getattr(pipeline, "_chain_iteration", -1) + 1
-        pipeline._chain_iteration = iteration
-
-        self.output_dir = output_dir
-        self.base_name = f"{file_prefix}.{iteration}"
-        self.fps = config.fps
-        self.paths = []
-        self.frame_count = 0
-
-    def write(self, frames, audio, sample_rate):
-        """Encode one trimmed segment to disk and record its path.
-
-        Args:
-            frames: The segment's on-timeline PIL frames
-            audio: The segment's on-timeline generated audio as
-                (channels, samples) numpy, or None - muxed in so a crashed
-                chain leaves fully playable segments
-            sample_rate: Sample rate of that audio
-        """
-        # A crashed or completed chain leaves segment files behind on disk,
-        # ready to salvage - and the per-wrapper iteration counter (base_name)
-        # restarts at 0 in a fresh process, so a rerun must dedupe through the
-        # same '-N' convention every other output goes through rather than
-        # silently overwriting them.
-        path = output_file_path(
-            self.output_dir,
-            f"{self.base_name}.segment-{len(self.paths):03d}.mp4",
-        )
-
-        audio_track = None
-        if audio is not None and audio.shape[1] and sample_rate is not None:
-            audio_track = torch.from_numpy(numpy.ascontiguousarray(audio))
-
-        encode_video(
-            frames_for_encoding(frames),
-            fps=self.fps,
-            output_path=path,
-            audio=audio_track,
-            audio_sample_rate=sample_rate if audio_track is not None else None,
-        )
-        self.paths.append(path)
-        self.frame_count += len(frames)
-        logger.info(f"Saved chain segment to {path}")
-
-
-def _decode_segment(path):
-    """Read a segment file back as a uint8 (frames, height, width, 3) tensor."""
-    from ..media import decode_rgb_frames
-
-    return torch.from_numpy(numpy.stack(decode_rgb_frames(path), axis=0))
-
-
 def run_chain(pipeline, chain_definition, arguments):
     """Run a pipeline's chain and stitch the segments into one video.
 
@@ -428,6 +253,8 @@ def run_chain(pipeline, chain_definition, arguments):
     continuity = CONTINUITY_MODES[config.continuity](config)
     if config.continuity == GUIDE_CONTINUITY:
         _check_guide_chain(pipeline, arguments, chain_definition, config)
+    if config.anchor == ANCHOR_SEGMENT_1:
+        _check_anchor_chain(pipeline, arguments)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -438,6 +265,10 @@ def run_chain(pipeline, chain_definition, arguments):
     audio = None  # joined generated audio, (channels, samples) float32
     audio_rate = None
     carry = None
+    # Segment 1's decoded frames, the latent anchor of every later segment
+    # under `anchor: "segment_1"` (#1166) - the same frame objects the output
+    # holds, so keeping them costs no copy on an unspilled chain
+    anchor_frames = None
     # One shot per segment, measured as the picture and track grow (#378);
     # the frames are counted rather than read off `frames`, which a spilled
     # chain never fills
@@ -447,7 +278,7 @@ def run_chain(pipeline, chain_definition, arguments):
     try:
         for segment in config.plan:
             segment_arguments = _segment_arguments(
-                arguments, config, segment, continuity, carry
+                arguments, config, segment, continuity, carry, anchor_frames
             )
 
             logger.info(
@@ -458,11 +289,17 @@ def run_chain(pipeline, chain_definition, arguments):
             # The denoise counter restarts for every segment - without this the
             # bar rewinds to zero with nothing saying why
             pipeline.segment_label = f"segment {segment.index + 1}/{len(config.plan)}"
+            # Names the anchor in the job log when this segment carries one
+            pipeline.latent_anchor_source = (
+                "segment 1" if segment.index > 0 and anchor_frames is not None else None
+            )
             output = pipeline._run_once(segment_arguments)
             artifact = _single_artifact(output)
 
             carry = continuity.extract(artifact)
             segment_frames = frames_as_pil_list(artifact)
+            if config.anchor == ANCHOR_SEGMENT_1 and segment.index == 0:
+                anchor_frames = segment_frames
             segment_audio, segment_rate = _generated_audio(artifact)
             # A segment's own generated audio can run a codec-padding sliver
             # short of the frames it was asked for - the same gap #197 fixed for
@@ -523,9 +360,17 @@ def run_chain(pipeline, chain_definition, arguments):
         # The label belongs to the run that set it - on a raise or a cancel
         # as much as on the way out
         pipeline.segment_label = None
+        pipeline.latent_anchor_source = None
 
+    return _stitched(config, spill, frames, audio, audio_rate, shots)
+
+
+def _stitched(config, spill, frames, audio, audio_rate, shots):
+    """The chain's one AudioVideo: the frames (replayed from disk when
+    spilled), and either the joined generated audio, the original match_audio
+    track, or no audio at all."""
     if spill is not None:
-        frames = _spilled_frames(config, spill)
+        frames = spilled_frames(config, spill)
 
     if config.source_audio is not None:
         # The video matches the track's duration; the original, unsliced audio
@@ -545,22 +390,13 @@ def run_chain(pipeline, chain_definition, arguments):
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
 
 
-def _spilled_frames(config, spill):
-    """A spilled chain's frames, replayed lazily from its segment files.
-
-    match_audio overshoots by design - the tail trim happens as the lazy
-    frames replay, so the files themselves stay whole."""
-    return SegmentedFrames(
-        spill.paths,
-        config.total_frames if config.source_audio is not None else None,
-        config.keep_segments,
-        spill.frame_count,
-    )
-
-
-def _segment_arguments(arguments, config, segment, continuity, carry):
+def _segment_arguments(
+    arguments, config, segment, continuity, carry, anchor_frames=None
+):
     """One segment's arguments: the step's, with this segment's prompt, its
-    slice of a match_audio track, and the previous segment's carry."""
+    slice of a match_audio track, the previous segment's carry, and - under
+    `anchor: "segment_1"`, on every segment after the first - segment 1's
+    frames as its `latent_anchor`."""
     segment_arguments = dict(arguments)
 
     if config.prompts:
@@ -579,6 +415,8 @@ def _segment_arguments(arguments, config, segment, continuity, carry):
 
     if segment.index > 0:
         continuity.inject(segment_arguments, carry, config.segment_argument)
+        if anchor_frames is not None:
+            segment_arguments[LATENT_ANCHOR_INPUT] = anchor_frames
     return segment_arguments
 
 
@@ -599,6 +437,22 @@ def _record_seam(shot, segment, config, applied):
             else "none (no head material)"
         )
     )
+
+
+def _check_anchor_chain(pipeline, arguments):
+    """Refuse an `anchor: "segment_1"` chain whose segments could not run the
+    latent anchor step - a loaded pipeline that is not MiniMax-H3 t2va/fl2va,
+    or a step that passes references (ref2va) - before segment 1 renders."""
+    if arguments.get("references") is not None:
+        raise ValueError(
+            "Chain anchor 'segment_1' cannot be combined with references - its "
+            "segments would run ref2va, which has no anchor step"
+        )
+    loaded = getattr(pipeline, "pipeline", None)
+    if loaded is not None:
+        refusal = anchor_refusal(loaded)
+        if refusal:
+            raise ValueError(f"Chain anchor 'segment_1': {refusal}")
 
 
 def _check_guide_chain(pipeline, arguments, chain_definition, config):
@@ -657,6 +511,12 @@ class ChainConfig:
             raise ValueError(
                 f"Unknown chain continuity '{self.continuity}' - expected one of {known}"
             )
+
+        # Segment 1 as every later segment's latent statistics anchor (#1166)
+        problem = chain_anchor_problem(chain_definition)
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.anchor = chain_definition.get("anchor", ANCHOR_NONE)
 
         self.segment_argument = chain_definition.get("segment_argument", "image")
         self.carry_frames = chain_definition.get("carry_frames", None)

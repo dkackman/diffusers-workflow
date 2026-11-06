@@ -2,9 +2,10 @@
 
 Skills for Claude Code that teach an agent to compose a model family's
 workflows on a [diffusers-workflow](https://github.com/dkackman/diffusers-workflow)
-server. They assume the `dw` MCP server is already registered
-(see the repo README, "Drive it from an agent"); a skill's first move is
-`get_server_info`.
+server. They assume the `dw` MCP server is already registered (see the repo
+README's "Getting started" and [docs/MCP.md](../../docs/MCP.md)); a skill's
+first move is `get_server_info`. Five skills cover one model family each; the
+last four are cross-cutting shapes that orchestrate them.
 
 Install once, from Claude Code:
 
@@ -40,13 +41,16 @@ Name the skill: the H3 repo also ships eight style packs
 alongside it. When a request wants one of those looks, install that pack the
 same way, by name; the `minimax-h3` skill's `references/style.md` lists them.
 
-Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`
-holds to the catalog and to the diffusers module that enforces them. A
-skill's `SKILL.md` stays under 12 KB because it loads whenever the skill
-triggers; detail only some requests need is in its `references/`, read on
-demand, and held to the same tests. The
-plugin's version is the engine's; the release script bumps both.
+`tests/test_plugin_skills.py` holds each skill's catalog names and numeric
+rules to the catalog and to the diffusers module that enforces them, and
+requires every skill directory to be named here and in the repo's `CLAUDE.md`.
+A skill's `SKILL.md` stays at or under 12 KiB because it loads whenever the
+skill triggers; detail only some requests need is in its `references/`, read
+on demand and held to the same tests. The plugin's version
+(`.claude-plugin/plugin.json`) is the engine's; `scripts/release.sh` bumps
+both. The marketplace entry is `.claude-plugin/marketplace.json` at the repo
+root.
 
 Adding a family: copy a skill, follow its outline, add the family's rules to
-the test, cite the vendor. The repo's `model-family-onboarding` skill
-(`.claude/skills/`) is the full lifecycle.
+the test, cite the vendor, and name it here and in `CLAUDE.md`. The repo's
+`model-family-onboarding` skill (`.claude/skills/`) is the full lifecycle.

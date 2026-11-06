@@ -210,6 +210,9 @@ LATENT_SCALE = 16
 H3_FPS = 24
 
 
+# The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
+LATENT_ANCHOR_INPUT = "latent_anchor"
+
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
 TILE_CONFLICTS = (
@@ -220,6 +223,7 @@ TILE_CONFLICTS = (
     "source_video",
     "mask_video",
     "mask_image",
+    LATENT_ANCHOR_INPUT,
 )
 
 
@@ -408,9 +412,14 @@ def tile_plan(width, height, tile_width, tile_height, overlap):
     ]
 
 
-def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
+def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
-    arguments - or None when it can or cannot be told before the load."""
+    arguments - or None when it can or cannot be told before the load.
+    `taken_by` is the H3 workflows the message names as taking it: an
+    argument ref2va refuses (guides, latent_anchor) passes t2va/fl2va only,
+    so the refusal does not send the author to a workflow that refuses it
+    too. It only words the message - an H3 workflow outside it is left to
+    the caller's own rule, which says why."""
     configuration = pipeline.get("configuration")
     component_type = (
         configuration.get("component_type") if isinstance(configuration, dict) else None
@@ -421,7 +430,7 @@ def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
     )
     holds = (
         f"{argument} is a MiniMax-H3 argument, taken by its "
-        f"{', '.join(sorted(H3_WORKFLOWS))} workflows"
+        f"{', '.join(sorted(taken_by))} workflows"
     )
     if (
         isinstance(component_type, str)
@@ -447,6 +456,43 @@ GUIDE_LATENTS_BLOCK = "dw_guide_latents"
 # the state key the layout leaves them under (#649)
 GUIDE_AUDIO_BLOCK = "dw_guide_audio"
 GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
+
+# Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
+# guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put
+# into its latent by encoding the noised pixels (h3_guide_steps.DwH3GuideLayoutStep). The
+# rows stay held condition rows; audio is never noised.
+GUIDE_NOISE_INPUT = "guide_noise"
+
+
+def guide_noise_problem(value):
+    """Why `value` cannot be a `guide_noise`, naming the range, or None. An
+    unresolved reference is left to the run."""
+    if isinstance(value, str) and references.is_ref(references.UNRESOLVED, value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4 - and {value!r} is "
+            f"not a number"
+        )
+    if not 0 <= value < 1:  # NaN fails it too
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4; 0 adds none - and "
+            f"{value} is outside it"
+        )
+    return None
+
+
+def guide_noise_taper(num_frames, strength):
+    """The noise amplitude on each of a guide's `num_frames` frames: a cosine
+    taper from `strength` at the first frame to 0 at the last, the frame next
+    to the join. A one-frame guide is all join, so it is clean."""
+    if num_frames <= 1:
+        return [0.0] * num_frames
+    return [
+        strength * 0.5 * (1.0 + math.cos(math.pi * index / (num_frames - 1)))
+        for index in range(num_frames)
+    ]
+
 
 # Pixel frames per VAE chunk and latent frames per chunk - a clip encodes to whole
 # latents at 1, 5 or 17m + 5 frames, and lines up with the target's latent grid
@@ -510,6 +556,59 @@ GUIDE_CHAIN_RULE = (
 # (`CONTINUITY_MODES`, zipped strictly against these). Kept here so validation
 # (dw/guides.py) reads the same names without importing chain.py
 CHAIN_CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
+
+# The latent statistics anchor (#1166): `latent_anchor` is video frames whose
+# per-channel latent mean/std the generated video latent is rescaled to, after
+# `after_denoise` and before decode, by the ANCHOR_BLOCK step
+# (dw/pipeline_processors/h3_anchor.py). A chain's `anchor: "segment_1"` sets it
+# on every segment after the first to segment 1's decoded frames.
+ANCHOR_BLOCK = "dw_latent_anchor"
+ANCHOR_AFTER = "after_denoise"
+ANCHOR_NONE = "none"
+ANCHOR_SEGMENT_1 = "segment_1"
+CHAIN_ANCHOR_MODES = (ANCHOR_NONE, ANCHOR_SEGMENT_1)
+# The continuities whose segments are fresh t2va/fl2va generations the anchor
+# block runs in; `last_segment` carries a ref2va reference, which has no block
+ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
+
+
+def chain_anchor_problem(chain):
+    """The reason a chain block's `anchor` is refused for its own settings, or
+    None: an unknown value (naming the values), or `segment_1` with a continuity
+    other than guide or last_frame, or carrying into `references`. Unresolved
+    references are left to the run;
+    whether the step is H3 is the caller's to ask (`not_h3`)."""
+    anchor = chain.get("anchor", ANCHOR_NONE)
+    if isinstance(anchor, str) and references.is_ref(references.UNRESOLVED, anchor):
+        return None
+    if anchor not in CHAIN_ANCHOR_MODES:
+        return (
+            f"unknown chain anchor {anchor!r} - expected one of "
+            f"{', '.join(CHAIN_ANCHOR_MODES)}"
+        )
+    if anchor == ANCHOR_NONE:
+        return None
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity not in ANCHOR_CONTINUITIES:
+        return (
+            f"anchor 'segment_1' needs continuity "
+            f"{' or '.join(repr(c) for c in ANCHOR_CONTINUITIES)} - its segments "
+            f"are MiniMax-H3 t2va/fl2va generations; got {continuity!r}"
+        )
+    # The carry lands in `segment_argument` on every later segment, and a call
+    # that passes references runs ref2va, which has no anchor step - the
+    # anchor would be dropped without a word
+    if chain.get("segment_argument") == "references":
+        return (
+            "anchor 'segment_1' cannot carry into 'references' - a segment that "
+            "passes references runs ref2va, which has no anchor step; use "
+            "segment_argument 'image' (t2va/fl2va)"
+        )
+    return None
 
 
 def guide_chain_problems(chain):

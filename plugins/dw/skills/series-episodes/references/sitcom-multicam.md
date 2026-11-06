@@ -8,7 +8,8 @@ below are this repo's.
 ## The grammar
 
 - **Master**: one wide take of the whole scene, held start to finish. Its shot
-  fields are `shot_size: wide`. It carries the room, the blocking and the full
+  fields are `shot_size: wide` and `move: static` (no push, dolly or
+  pan, so each single cuts back to an unmoved master). It carries the room, the blocking and the full
   dialogue audio, and is the fallback for anything below.
 - **Singles**: one `templates/minimax/dialogue-short` clip per speaker line or
   run of lines, `shot_size: medium-close` or `close-up`, the speaker facing

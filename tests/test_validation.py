@@ -201,6 +201,8 @@ ERROR_ORDER = [
     "select",
     "chain_prompts",
     "guide_chain",
+    "latent_anchor",
+    "guide_noise",
     "task_signatures",
     "task_remote_code",
     "component_types",
@@ -314,6 +316,7 @@ WARNING_ORDER = [
     "shot_span_warnings",
     "inherited_vram_warnings",
     "acceleration_warnings",
+    "guide_noise_warnings",
 ]
 
 

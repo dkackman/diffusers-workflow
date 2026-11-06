@@ -68,6 +68,33 @@ def _audios_from_attribute(result):
     ]
 
 
+# The diffusers output types whose `prediction` has a visualiser of its own, by the
+# MarigoldImageProcessor method that draws it. Keyed by type rather than read off the
+# array's shape: MarigoldIntrinsicsOutput's prediction is three channels too, in [0, 1]
+# rather than [-1, 1], and its visualiser needs the pipeline's target properties, which
+# the output does not carry - so it is left out rather than drawn as normals.
+PREDICTION_VISUALISERS = {
+    "MarigoldDepthOutput": "visualize_depth",
+    "MarigoldNormalsOutput": "visualize_normals",
+}
+
+
+def _prediction_images(result):
+    """A `prediction` array rendered the way diffusers' own visualiser draws it -
+    one PIL image per input: depth under its Spectral colour map, normals as RGB.
+    A prediction with no visualiser here stays the single artifact it was."""
+    method = PREDICTION_VISUALISERS.get(type(result).__name__)
+    if method is None:
+        logger.warning(
+            f"Don't know how to draw the prediction of a {type(result).__name__} - "
+            "treating it as a single artifact"
+        )
+        return [result]
+    from diffusers.pipelines.marigold import MarigoldImageProcessor
+
+    return getattr(MarigoldImageProcessor, method)(result.prediction)
+
+
 # Diffusers output fields get_artifact_list knows how to turn into artifacts, tried in
 # this order. A result is dispatched to the first field it has - images wins over frames
 # if a result somehow has both, matching the fixed hasattr chain this replaced. Supporting
@@ -79,6 +106,7 @@ OUTPUT_FIELD_EXTRACTORS = [
     ("image_embeddings", lambda result: result.image_embeddings),
     ("frames", _frames_from_attributes),
     ("audios", _audios_from_attribute),
+    ("prediction", _prediction_images),
 ]
 
 

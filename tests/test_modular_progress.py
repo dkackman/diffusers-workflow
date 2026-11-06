@@ -265,6 +265,80 @@ def test_a_block_is_named_before_it_runs_rather_than_after():
     ]
 
 
+class FakeIdleBlock(FakeNamedBlock):
+    """A dw block that is a pass-through without one input - the latent
+    anchor step's shape (#1181)."""
+
+    idle_without = "latent_anchor"
+
+
+class FakeAnchoredPipeline:
+    """The blocks H3 runs with dw's anchor step after `after_denoise`, over a
+    real PipelineState that does or does not carry `latent_anchor`."""
+
+    def __init__(self, anchor):
+        self.anchor = anchor
+        self.ran = []
+        self.denoise = FakeDenoiseBlock(2)
+        self._blocks = FakeSequentialBlocks(
+            {
+                "denoise.after_denoise": FakeNamedBlock(self.denoise.run),
+                "denoise.dw_latent_anchor": FakeIdleBlock(
+                    lambda: self.ran.append("anchor")
+                ),
+                "decode": FakeNamedBlock(),
+            }
+        )
+
+    @property
+    def blocks(self):
+        return copy.deepcopy(self._blocks)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        from diffusers.modular_pipelines.modular_pipeline import PipelineState
+
+        state = PipelineState()
+        if self.anchor is not None:
+            state.set("latent_anchor", self.anchor)
+        self._blocks(self, state)
+        return FakeOutput()
+
+
+def test_an_idle_block_is_unnamed_but_still_run_without_its_input():
+    """#1181: an H3 call that never asked for a latent anchor logged an
+    anchor phase anyway. Without its input nothing in the log names it - but
+    the narrator still calls it: whether the block acts is the block's own
+    decision (a pass-through there), not the narrator's (arch review)."""
+    pipeline = FakeAnchoredPipeline(anchor=None)
+    events = _events(pipeline)
+
+    assert _logs(events) == [
+        "acme/model: denoise.after_denoise",
+        "acme/model: decode",
+    ]
+    assert pipeline.ran == ["anchor"]
+
+
+def test_an_idle_block_is_named_and_run_when_its_input_is_given():
+    pipeline = FakeAnchoredPipeline(anchor=[object()])
+    events = _events(pipeline)
+
+    assert _logs(events) == [
+        "acme/model: denoise.after_denoise",
+        "acme/model: denoise.dw_latent_anchor",
+        "acme/model: decode",
+    ]
+    assert pipeline.ran == ["anchor"]
+
+
+def test_the_anchor_step_is_idle_without_latent_anchor():
+    """The real step declares the input the narrator checks."""
+    from dw.pipeline_processors.h3_anchor_steps import DwH3LatentAnchorStep
+    from dw.pipeline_processors.h3_rules import LATENT_ANCHOR_INPUT
+
+    assert DwH3LatentAnchorStep.idle_without == LATENT_ANCHOR_INPUT
+
+
 def test_the_block_dispatch_is_handed_back_unpatched():
     """The patch is on the class, so leaving it in place would outlive the
     run and report blocks into whatever context came next."""
@@ -367,3 +441,27 @@ def test_a_loop_the_decode_does_not_follow_reports_no_decoding():
     so the end of each tile's loop is not 'decoding'."""
     assert _phases_of_a_loop(decode_follows=True) == ["decoding"]
     assert _phases_of_a_loop(decode_follows=False) == []
+
+
+class FakeMarigoldPipeline:
+    """Marigold's own `progress_bar` takes `desc` and `leave` and its loop
+    passes them, with no step callback - so the wrapper must forward them or
+    the call fails before the first step."""
+
+    def __init__(self):
+        self.bar_arguments = []
+
+    def progress_bar(self, iterable=None, total=None, desc=None, leave=True):
+        self.bar_arguments.append((desc, leave))
+        return tqdm(iterable, total=total, desc=desc, leave=leave, disable=True)
+
+    def __call__(self, prompt=None, num_inference_steps=None, generator=None):
+        for _ in self.progress_bar(range(3), leave=False, desc="Diffusion steps..."):
+            pass
+        return FakeOutput()
+
+
+def test_a_bar_s_own_keywords_reach_the_pipeline_s_bar():
+    fake = FakeMarigoldPipeline()
+    assert _steps(_events(fake)) == [(1, 3), (2, 3), (3, 3)]
+    assert fake.bar_arguments == [("Diffusion steps...", False)]

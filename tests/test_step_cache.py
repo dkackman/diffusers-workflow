@@ -668,19 +668,19 @@ TEMPLATE_PIPELINE_KEYS = {
     "expand-prompt.json": {},
     "face-drift-check.json": {},
     "flux3/image-edit.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/layout-boxes.json": {
-        "layout_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "layout_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/multi-reference.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/text-to-image.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/upsample-then-generate.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "generate-speech.json": {},
     "image-edit.json": {
@@ -908,7 +908,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "sub-workflow.json": {},
     "surface-normals.json": {
-        "normals": "5f0d7e4762dd0483a2bdc767b3bff57502323ff231940cb817634b38d1709b64"
+        "normals": "e4236b2218a4e793c2c09489b9d6bd188c3038f6c7e8c8a016e49413db8c0fc1"
     },
     "text-to-image.json": {
         "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"

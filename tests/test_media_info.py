@@ -432,7 +432,15 @@ class TestProbeMetadata:
 
         info = probe_metadata(str(tmp_path / "score.wav"))
 
-        for key in ("peak_dbfs", "mean_dbfs", "integrated_lufs", "true_peak_dbfs"):
+        for key in (
+            "peak_dbfs",
+            "mean_dbfs",
+            "integrated_lufs",
+            "true_peak_dbfs",
+            "pcm_sha256",
+            "sample_format",
+            "frames",
+        ):
             assert key not in info
 
     def test_a_video_soundtrack_is_never_decoded_for_its_level(self, tmp_path):
@@ -536,3 +544,237 @@ class TestProbeMetadata:
 
         assert state["failed_once"]
         assert info["frame_count"] == 12
+
+
+def _write_s16_wav(path, samples, sample_rate=8000, list_chunk=False):
+    """An s16 WAV of `samples` (frames, channels), built by hand so an
+    extra LIST chunk can sit between fmt and data - the container
+    difference a file-byte hash would trip on."""
+    import struct
+
+    samples = numpy.asarray(samples, dtype="<i2")
+    channels = samples.shape[1]
+    fmt = struct.pack(
+        "<HHIIHH",
+        1,
+        channels,
+        sample_rate,
+        sample_rate * channels * 2,
+        channels * 2,
+        16,
+    )
+    chunks = b"fmt " + struct.pack("<I", len(fmt)) + fmt
+    if list_chunk:
+        info = b"INFO" + b"ISFT" + struct.pack("<I", 4) + b"dw\x00\x00"
+        chunks += b"LIST" + struct.pack("<I", len(info)) + info
+    data = samples.tobytes()
+    chunks += b"data" + struct.pack("<I", len(data)) + data
+    path.write_bytes(b"RIFF" + struct.pack("<I", 4 + len(chunks)) + b"WAVE" + chunks)
+
+
+def _write_flac(path, samples, sample_rate=8000):
+    import av
+
+    samples = numpy.asarray(samples, dtype="<i2")
+    with av.open(str(path), "w") as container:
+        stream = container.add_stream("flac", rate=sample_rate)
+        stream.layout = "stereo"
+        stream.format = "s16"
+        for start in range(0, samples.shape[0], 1024):
+            piece = numpy.ascontiguousarray(samples[start : start + 1024]).reshape(
+                1, -1
+            )
+            frame = av.AudioFrame.from_ndarray(piece, format="s16", layout="stereo")
+            frame.sample_rate = sample_rate
+            frame.pts = start
+            for packet in stream.encode(frame):
+                container.mux(packet)
+        for packet in stream.encode():
+            container.mux(packet)
+
+
+def _tone(seconds=1.0, sample_rate=8000):
+    t = numpy.arange(int(seconds * sample_rate)) / sample_rate
+    left = (numpy.sin(2 * numpy.pi * 220 * t) * 0.5 * 32767).astype("<i2")
+    right = (numpy.sin(2 * numpy.pi * 330 * t) * 0.3 * 32767).astype("<i2")
+    return numpy.stack([left, right], 1)
+
+
+HASH_KEYS = ("pcm_sha256", "sample_format", "frames")
+
+
+class TestPcmHash:
+    """`pcm_sha256`: proof over MCP that two tracks are sample-identical
+    (#1139) - of the decoded samples, not the file's bytes."""
+
+    def _hash(self, path, **kwargs):
+        return probe_media(str(path), pcm_hash=True, **kwargs)
+
+    def test_a_wav_carries_the_hash_and_its_descriptors(self, tmp_path):
+        _write_s16_wav(tmp_path / "a.wav", _tone())
+
+        info = self._hash(tmp_path / "a.wav")
+
+        assert len(info["pcm_sha256"]) == 64
+        int(info["pcm_sha256"], 16)
+        assert info["sample_format"] == "int16"
+        assert info["frames"] == 8000
+        assert info["sample_rate"] == 8000
+        assert info["channels"] == 2
+        assert info["frames"] / info["sample_rate"] == pytest.approx(
+            info["duration_seconds"], abs=1 / 8000
+        )
+
+    def test_it_hashes_the_interleaved_little_endian_samples(self, tmp_path):
+        import hashlib
+
+        tone = _tone()
+        _write_s16_wav(tmp_path / "a.wav", tone)
+
+        expected = hashlib.sha256(tone.astype("<i2").tobytes()).hexdigest()
+        assert self._hash(tmp_path / "a.wav")["pcm_sha256"] == expected
+
+    def test_off_by_default(self, tmp_path):
+        _write_s16_wav(tmp_path / "a.wav", _tone())
+
+        info = probe_media(str(tmp_path / "a.wav"))
+
+        for key in HASH_KEYS:
+            assert key not in info
+
+    def test_an_extra_list_chunk_does_not_change_it(self, tmp_path):
+        tone = _tone()
+        _write_s16_wav(tmp_path / "plain.wav", tone)
+        _write_s16_wav(tmp_path / "tagged.wav", tone, list_chunk=True)
+        assert (tmp_path / "plain.wav").read_bytes() != (
+            tmp_path / "tagged.wav"
+        ).read_bytes()
+
+        plain = self._hash(tmp_path / "plain.wav")
+        tagged = self._hash(tmp_path / "tagged.wav")
+
+        assert plain["pcm_sha256"] == tagged["pcm_sha256"]
+        assert plain["frames"] == tagged["frames"]
+
+    def test_a_wav_and_a_flac_of_the_same_samples_hash_equal(self, tmp_path):
+        tone = _tone()
+        _write_s16_wav(tmp_path / "a.wav", tone)
+        _write_flac(tmp_path / "a.flac", tone)
+
+        wav = self._hash(tmp_path / "a.wav")
+        flac = self._hash(tmp_path / "a.flac")
+
+        for key in ("pcm_sha256", "sample_format", "frames"):
+            assert wav[key] == flac[key]
+
+    def test_packed_and_planar_decodes_hash_equal(self):
+        # The same samples as a packed frame (1, frames * channels) and a
+        # planar one (channels, frames), fed to the accumulator as
+        # frame.to_ndarray() hands them over
+        from dw.media import _AudioAccumulator
+
+        tone = _tone(seconds=0.25)
+        packed = _AudioAccumulator(8000, 2, 0.25, pcm_hash=True)
+        packed.add(numpy.ascontiguousarray(tone).reshape(1, -1))
+        planar = _AudioAccumulator(8000, 2, 0.25, pcm_hash=True)
+        planar.add(numpy.ascontiguousarray(tone.T))
+
+        assert packed.finish()["pcm_sha256"] == planar.finish()["pcm_sha256"]
+
+    def test_a_polarity_flip_hashes_unequal(self, tmp_path):
+        tone = _tone()
+        _write_s16_wav(tmp_path / "a.wav", tone)
+        _write_s16_wav(tmp_path / "flipped.wav", -tone)
+
+        assert (
+            self._hash(tmp_path / "a.wav")["pcm_sha256"]
+            != self._hash(tmp_path / "flipped.wav")["pcm_sha256"]
+        )
+
+    def test_a_one_lsb_change_hashes_unequal(self, tmp_path):
+        tone = _tone()
+        nudged = tone.copy()
+        nudged[4000, 1] += 1
+        _write_s16_wav(tmp_path / "a.wav", tone)
+        _write_s16_wav(tmp_path / "nudged.wav", nudged)
+
+        a = self._hash(tmp_path / "a.wav")
+        b = self._hash(tmp_path / "nudged.wav")
+
+        assert a["pcm_sha256"] != b["pcm_sha256"]
+        assert a["peak_dbfs"] == pytest.approx(b["peak_dbfs"])
+
+    def test_a_video_soundtrack_is_hashed_trimmed_to_the_container(self, tmp_path):
+        write_mp4(tmp_path / "shot.mp4", frames=12, fps=6, with_audio=True)
+
+        info = self._hash(tmp_path / "shot.mp4")
+
+        assert len(info["pcm_sha256"]) == 64
+        assert info["sample_format"] == "float32"
+        assert info["frames"] == int(round(info["duration_seconds"] * 8000))
+        again = self._hash(tmp_path / "shot.mp4")
+        assert again["pcm_sha256"] == info["pcm_sha256"]
+
+    def test_a_mute_video_carries_none_of_the_keys(self, tmp_path):
+        write_mp4(tmp_path / "mute.mp4", frames=12, fps=6, with_audio=False)
+
+        info = self._hash(tmp_path / "mute.mp4")
+
+        for key in HASH_KEYS + ("sample_rate", "channels"):
+            assert key not in info
+
+    def test_a_damaged_track_carries_no_hash(self, tmp_path):
+        path = tmp_path / "shot.mkv"
+        write_mp4(path, frames=12, fps=6)
+        raw = bytearray(path.read_bytes())
+        for i in range(len(raw) // 2, len(raw), 64):
+            raw[i] = (raw[i] + 137) % 256
+        path.write_bytes(bytes(raw))
+
+        info = self._hash(path)
+
+        assert "peak_dbfs" not in info
+        for key in HASH_KEYS:
+            assert key not in info
+
+    @pytest.mark.parametrize("interval", [1.0, 0.05])
+    def test_the_envelope_is_unchanged_with_the_hash_on(self, tmp_path, interval):
+        write_mp4(tmp_path / "shot.mp4", frames=12, fps=6, with_audio=True)
+
+        without = probe_media(
+            str(tmp_path / "shot.mp4"), envelope=True, interval_seconds=interval
+        )
+        with_hash = self._hash(
+            tmp_path / "shot.mp4", envelope=True, interval_seconds=interval
+        )
+
+        assert with_hash["envelope"] == without["envelope"]
+        for key in ("peak_dbfs", "mean_dbfs", "integrated_lufs", "true_peak_dbfs"):
+            assert with_hash[key] == without[key]
+
+    def test_probe_metadata_never_carries_it(self, tmp_path):
+        _write_s16_wav(tmp_path / "a.wav", _tone())
+
+        info = probe_metadata(str(tmp_path / "a.wav"))
+
+        for key in HASH_KEYS:
+            assert key not in info
+
+    def test_the_save_time_check_does_not_compute_it(self, tmp_path, monkeypatch):
+        import dw.media
+        from dw import audio_qc
+
+        calls = []
+        real = dw.media.probe_media
+
+        def spy(*args, **kwargs):
+            calls.append(kwargs)
+            return real(*args, **kwargs)
+
+        monkeypatch.setattr(dw.media, "probe_media", spy)
+        _write_s16_wav(tmp_path / "a.wav", _tone())
+
+        info = audio_qc._probe_written_media(str(tmp_path / "a.wav"))
+
+        assert calls and not any(c.get("pcm_hash") for c in calls)
+        assert "pcm_sha256" not in info

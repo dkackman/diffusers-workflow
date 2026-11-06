@@ -2,59 +2,68 @@
 
 ## Overview
 
-`dw.serve` runs a persistent worker subprocess (`dw/worker.py`, managed by
-`dw/worker_manager.py`) to keep models loaded in GPU memory across jobs.
-After the first job loads a model, later jobs against the same workflow skip
-the loading step entirely.
-
-The worker uses the `spawn` multiprocessing start method, required for CUDA
-and MPS compatibility. This is configured automatically.
+`dw.serve` runs each job in a persistent worker subprocess (`dw/worker.py`,
+managed by `dw/worker_manager.py`), one per `--devices` card, so a model
+loaded by one job stays in memory for the next. Workers use the `spawn`
+start method (required for CUDA and MPS), start on the first job rather
+than with the server, and inherit the server's environment. A change to
+engine code needs a server restart before a job sees it.
 
 ## How It Works
 
-`JobManager` sends commands to the worker and reads results over
-`multiprocessing.Queue`s.
+`JobManager` (`dw/server/jobs.py`) sends commands to a worker and reads its
+replies over a pair of `multiprocessing.Queue`s.
 
-- **First run of a workflow**: Worker starts and loads the model
-- **Subsequent runs**: Worker reuses cached models
-- **Workflow file edited**: A job runs the definition the server checked when it was submitted, so an edit reaches only jobs submitted after it. Pipelines are cached by what they load, so only a pipeline whose definition changed reloads
-- **A different workflow queued**: The worker switches in place - it frees the old workflow's models before loading the new one
-- **`POST /api/memory/clear`**: Frees GPU memory, models reload on next run
-- **Server shutdown**: Worker shuts down gracefully
+- **First job on a card**: the worker starts and loads the model.
+- **Later jobs**: cached pipelines are reused.
+- **Workflow file edited**: a job runs the definition the server checked at
+  submit, so an edit reaches only jobs submitted after it. Pipelines are
+  cached by what they load, so only a pipeline whose definition changed
+  reloads.
+- **A different workflow**: the worker prepares the incoming definition and
+  frees only the models it does not load; a pipeline both workflows load
+  (same weights identity) stays warm. The step cache and the task model
+  cache are emptied, and if the incoming definition cannot be prepared
+  everything is released.
+- **`POST /api/memory/clear`** (MCP `clear_memory`): drops every pipeline
+  and the step cache on each idle card; models reload on the next job.
+- **diffusers updated from the Models page**: an idle worker is shut down,
+  so the next job imports the new version.
+- **Server shutdown**: workers shut down gracefully (10 s, then terminate).
+
+How jobs are assigned to cards, the host-RAM hold and the OOM ranking are in
+[SERVER.md](SERVER.md#jobs-api).
 
 ## Memory Management
 
-The worker cleans up automatically between runs (garbage collection + GPU
-cache clearing). If memory grows unexpectedly, `GET /api/memory` reports the
-current reading and `POST /api/memory/clear` resets it.
-
-Switching to a different workflow releases only the models the next workflow
-does not load: the worker prepares the incoming definition, and a pipeline
-both workflows load (same weights identity) stays warm. The step cache and
-the task model cache are still emptied, and if the incoming definition cannot
-be prepared everything is released. `clear_memory` (`POST /api/memory/clear`)
-remains the way to empty the card by hand.
+The worker collects garbage and clears the device cache between runs.
+`GET /api/memory` reports a card's reading and `POST /api/memory/clear`
+empties it; both take an optional `?device=`.
 
 ## Cold Loads
 
-With `DW_QUANTIZED_CACHE=1`, the first cold load of an SDNQ on-the-fly-quantized
-component pays the quantize and a save to disk. Later cold loads - a new worker,
-after a restart or after eviction - read the cached entry instead. See
-[QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache).
+With `DW_QUANTIZED_CACHE=1`, the first cold load of an SDNQ
+on-the-fly-quantized component pays the quantize and a save to disk; later
+cold loads (a new worker, after a restart or a memory clear) read the cached
+entry. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache).
 
 ## Troubleshooting
 
-**Worker crashes**: `JobManager` detects it and starts a fresh worker on the
-next job. `WorkerManager.crash_details()` reports why, when the OS can say
-(a signal such as SIGKILL) - see the job's error message.
+**Worker crashes**: only its own job fails, and the next job on that card
+starts a fresh worker with a cold cache. The job's error carries
+`WorkerManager.crash_details()` - the signal (such as SIGKILL) when the OS
+reports one.
 
-**Execution errors**: The worker stays alive (models cached) so the next job
-can run immediately.
+**Execution errors**: the worker stays alive with its models cached, except
+after a CUDA error that poisons the process's context
+(`poisons_cuda_context`, `dw/worker_protocol.py`); then the worker restarts.
 
-**Long runs**: There is no execution timeout - a run waits as long as the
-worker is alive (liveness is polled every second, so a crashed worker is
-noticed immediately). `POST /api/jobs/{id}/cancel` cancels a running job in
-place, keeping models cached.
+**Long runs**: there is no execution timeout. A run waits as long as its
+worker is alive; liveness is polled every second, so a dead worker is
+noticed within a second. `POST /api/jobs/{id}/cancel` cancels in place and
+keeps models cached; during a model load or a task step it takes effect
+once that finishes (a `cancel_pending` event says so).
 
-**GPU out of memory**: Use `POST /api/memory/clear`, reduce model size, or
-check for other processes using the GPU.
+**GPU out of memory**: `POST /api/memory/clear`, a smaller or quantized
+model, offloading ([ACCELERATION.md](ACCELERATION.md)), or check for other
+processes using the GPU.

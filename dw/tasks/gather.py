@@ -1,6 +1,7 @@
 import glob as glob_lib
 import io
 import logging
+import re
 from diffusers.utils import load_image
 from PIL import Image
 from ..argument_media import fetch_image
@@ -11,6 +12,10 @@ from .video_utils import load_audio_video
 
 logger = logging.getLogger("dw")
 
+# Anything naming a scheme goes to safe_get, which allows only http(s): a
+# file:// entry is refused there rather than read as a path
+_URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
+
 
 def gather_images(glob=None, urls=None):
     """
@@ -18,7 +23,10 @@ def gather_images(glob=None, urls=None):
 
     Args:
         glob: Pattern for matching local image files (e.g., "images/*.png")
-        urls: List of URLs to download images from
+        urls: List of URLs to download images from. An entry with no
+            scheme is a local path - what an 'asset:' or 'output:' reference
+            resolves to before this runs - and loads from disk under the same
+            read policy as a glob match, as gather_videos treats its urls
 
     Returns:
         List of loaded images
@@ -59,9 +67,15 @@ def gather_images(glob=None, urls=None):
                 )
                 raise
 
-    # Load images from URLs
+    # Load images from URLs, and from the local paths an 'asset:'/'output:'
+    # reference in the list resolved to - those reached safe_get as a URL
+    # with no scheme and failed the run after validation had passed
     for url in urls:
         try:
+            if not (isinstance(url, str) and _URL_SCHEME.match(url)):
+                logger.debug(f"Loading image from path: {url}")
+                images.append(fetch_image(url))
+                continue
             logger.debug(f"Loading image from URL: {url}")
             # safe_get re-checks every redirect, which load_image's own
             # fetch does not; load_image still transposes and converts

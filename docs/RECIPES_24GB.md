@@ -1,14 +1,14 @@
 # Fast on 24GB
 
-Recommended configurations per model family for a 24GB consumer GPU (RTX 3090/4090 class). Every knob here is documented individually in [ACCELERATION.md](ACCELERATION.md) and [QUANTIZATION.md](QUANTIZATION.md); this page is about the combinations that work.
+Tested configurations per model family for a 24GB consumer GPU (RTX 3090/4090 class). Each knob is documented in [ACCELERATION.md](ACCELERATION.md) or [QUANTIZATION.md](QUANTIZATION.md); this page is the combinations that work, and what they measured.
 
 The general recipe, in order of impact:
 
-1. **Fit the transformer first.** If it fits in bf16 with room for activations, don't quantize. If it doesn't, prefer float8/int8 quantization (TorchAO, GGUF Q8) over offloading - quantization costs quality once, offloading costs speed every step.
-2. **Compile the transformer** (`"compile": {"repeated_blocks": true}`). 1.3-1.5x, stacks with everything below. The server's persistent worker keeps compiled pipelines loaded, so the compile cost is paid once per session. Add `fullgraph: true` only when no cache is configured - cache hooks need a graph break.
-3. **Cache** (`"cache": {"type": "first_block"}`). Another 1.5-2x at mild quality cost; raise `threshold` to taste.
-4. **Offload only what doesn't fit.** Text encoders and VAE tolerate `offload: "model"` cheaply - they run once per generation, not once per step. In a modular pipeline the same components take `"residency": "on_demand"`, which frees their VRAM for the denoise loop at the cost of one pair of transfers per call.
-5. **Pin the attention backend** on compiled components (`"attention_backend": "flash_hub"` or `"sage_hub"` - fetched from the Hub, no local build).
+1. **Fit the transformer first.** If it fits in bf16 with room for activations, don't quantize. If it doesn't, prefer float8/int8 quantization (TorchAO, GGUF Q8) over offloading: quantization costs quality once, offloading costs speed every step. TorchAO int8 is the exception on Ampere ([Flux dev](#flux-dev-12b)).
+2. **Compile the transformer** (`"compile": {"repeated_blocks": true}`): 1.3-1.5x, paid once per worker per workflow ([torch.compile](ACCELERATION.md#torchcompile)). No `fullgraph: true` alongside a cache.
+3. **Cache** (`"cache": {"type": "first_block"}`) on a schedule of 20 steps or more; it skips nothing on a short or turbo one ([Diffusers Built-in Cache](ACCELERATION.md#diffusers-built-in-cache)). Raise `threshold` to skip more.
+4. **Offload only what doesn't fit.** Text encoders and VAE tolerate `offload: "model"` cheaply: they run once per generation, not once per step. Per component, `"residency": "on_demand"` frees their VRAM for the denoise loop at the cost of one pair of transfers per call.
+5. **Pin the attention backend** on compiled components (`"attention_backend": "flash_hub"` or `"sage_hub"`, Hub kernels with no local build; `sage_hub` needs `DIFFUSERS_TRUST_REMOTE_KERNELS=true` - see [Attention Backends](ACCELERATION.md#attention-backends)).
 
 ## Flux dev (12B)
 
@@ -69,8 +69,7 @@ loads with the least VRAM and is unmeasured for speed.
 
 ## Z-Image Turbo (6B)
 
-Fits a 24 GB card in bf16 with model offload, and that is the configuration to use.
-Measured on an RTX 3090 (960x544, 9 steps, 4 images per prompt, cold load included,
+Fits a 24 GB card in bf16 with model offload, the configuration to use. Measured on an RTX 3090 (960x544, 9 steps, 4 images per prompt, cold load included,
 2026-10-10):
 
 | Offload | Load | Denoise | Decode | Total | Peak VRAM reserved |
@@ -88,22 +87,20 @@ trade it for per-image decodes.
 
 ## Qwen-Image (20B)
 
-Too large for bf16 on 24GB. Quantize the transformer (TorchAO int8/float8 or GGUF Q4/Q5) and model-offload the rest; add `compile` + `first_block` cache as for Flux. The Qwen2.5-VL text encoder is large - quantize it too, or group-offload it (`"text_encoder.model"` with `leaf_level`).
+Too large for bf16 on 24GB. Quantize the transformer (TorchAO float8, or GGUF Q4/Q5) and model-offload the rest; add `compile` + `first_block` cache as for Flux. The Qwen2.5-VL text encoder is large: quantize it too, or group-offload it (`"text_encoder.model"` with `leaf_level`). The catalog ships no Qwen-Image (20B) workflow; author one from [text-to-image.json](../workflows/templates/text-to-image.json).
 
-The catalog no longer ships a Qwen-Image workflow - author one from [text-to-image.json](../workflows/templates/text-to-image.json) with the configuration above.
+Qwen-Image-2.1 is a different, 7B model and fits in bf16: [qwen-image-2.1.json](../workflows/models/qwen-image-2.1.json) runs text-to-image at 2048x2048 under `"offload": "model"`, and [qwen-image-2.1-edit.json](../workflows/models/qwen-image-2.1-edit.json) needs `"offload": "sequential"` because the condition image's latents lengthen the sequence. Both tile and slice the VAE, whose decode is what runs out of memory at that size. Its own `use_kv_cache` must be off for a `first_block` or `mag` cache ([Models diffusers has not registered](ACCELERATION.md#models-diffusers-has-not-registered)).
 
 ## Wan 2.2
 
-- **TI2V-5B**: fits in bf16 on 24GB. No quantization needed - just `compile` + `cache` + VAE tiling for longer clips.
-- **T2V/I2V-A14B**: two 14B transformers (`transformer` + `transformer_2`). Quantize both (GGUF Q4/Q5 or TorchAO int8) and use `offload: "model"`; enable `vae.enable_tiling`.
+- **TI2V-5B**: fits in bf16 on 24GB. No quantization; `compile` + `cache` + VAE tiling for longer clips.
+- **T2V/I2V-A14B**: two 14B transformers (`transformer` + `transformer_2`). Quantize both (GGUF Q4/Q5) and use `offload: "model"`; enable `vae.enable_tiling`.
 
-The catalog no longer ships Wan workflows - author one from [minimax/image-to-video.json](../workflows/templates/minimax/image-to-video.json) with the configuration above.
+Unmeasured here. The catalog ships no Wan workflow; author one from [ltx2/text-to-video.json](../workflows/templates/ltx2/text-to-video.json), the closest standard video pipeline.
 
 ## HunyuanVideo (13B)
 
-Same shape as Flux: quantize the transformer (GGUF Q6/Q8, or TorchAO int8/float8 per the Flux table) + `offload: "model"` + `vae.enable_tiling`. The Llama text encoder benefits from group offload. Use `first_block` cache - video steps are expensive, caching pays off more than on images.
-
-The catalog no longer ships a HunyuanVideo workflow - author one from [ltx2/text-to-video.json](../workflows/templates/ltx2/text-to-video.json) with the configuration above.
+Same shape as Flux: quantize the transformer (GGUF Q6/Q8, or TorchAO float8 on Ada) + `offload: "model"` + `vae.enable_tiling`. The Llama text encoder benefits from group offload. Use a `first_block` cache at 20 steps or more: video steps are expensive, so caching pays off more than on images. Unmeasured here. The catalog ships no HunyuanVideo workflow; author one from [ltx2/text-to-video.json](../workflows/templates/ltx2/text-to-video.json).
 
 ## MiniMax-H3
 
@@ -112,16 +109,16 @@ pipeline-level `offload`. The working 24GB configuration at 960x544:
 
 | Component | Config |
 | --------- | ------ |
-| `transformer` / `transformer_ref` | SDNQ int4 (`quantization_device: "cuda"`, `return_device: "cpu"`), `group_offload` `block_level` with `num_blocks_per_group: 1-2` and `use_stream: true` |
-| `text_encoder` | `remove_modules: ["lm_head"]` - the encoder path never calls it |
-| `text_encoder.model` | SDNQ int4, `truncate_layers: {"language_model.layers": 51}`, `group_offload` `leaf_level` |
-| `vae`, `audio_vae` | SDNQ int8, `device: "cuda"`, `residency: "on_demand"` |
-| pipeline | `cache: first_block` (`threshold: 0.05`) only on a ~30-step base-model run (`lora_model_name: null`): -22% denoise there, identical staging and faces. It skips nothing at 12 steps or on a turbo schedule (consecutive distilled steps differ too much), and every H3 template takes it as a `cache` argument (null by default): `{"type": "first_block", "threshold": 0.05}`. Measured on a 3090 with `sage_hub`; every H3 template now defaults to `attention_backend: "sparse"` ([Attention Backends](ACCELERATION.md#sparse-minimax-h3)), which needs no extra install. See the `minimax-h3` skill's `references/quality-and-speed.md` |
+| `transformer` / `transformer_ref` | SDNQ `weights_dtype` (`int4` by default; `quantization_device: "cuda"`, `return_device: "cpu"`), `group_offload` `block_level` with `num_blocks_per_group` 2 (`transformer`) or 1 (`transformer_ref`), `use_stream: true`, `low_cpu_mem_usage: true`; `attention_backend: "sparse"` with top-k 0.15 ([sparse](ACCELERATION.md#sparse-minimax-h3)) |
+| `text_encoder` | SDNQ, same `weights_dtype` (the vision tower and `lm_head` unconverted); `remove_modules: ["lm_head"]`, since the encoder path never calls it |
+| `text_encoder.model` | `truncate_layers: {"language_model.layers": 51}`, `group_offload` `leaf_level` |
+| `vae` | SDNQ int8, `device: "cuda"`, `residency: "on_demand"` |
+| `audio_vae` | unquantized, `device: "cuda"`, `residency: "on_demand"` |
+| pipeline | `cache` `null` by default. `first_block` (`threshold: 0.05`) only on a ~30-step base-model run (`lora_model_name: null`): -22% denoise there, identical staging and faces, measured on a 3090 with `sage_hub`. It skips nothing at 12 steps or on a turbo schedule. See the `minimax-h3` skill's `references/quality-and-speed.md` |
 
-The VAEs are the piece worth calling out. They hold roughly 3GiB, are used only to
-encode references and decode the result, and group offloading them is worse than useless
-because tiled decode restreams the model once per tile. Every H3 workflow adds
-`"residency": "on_demand"` to both. The reference workflows, which carry the most
+The VAEs hold roughly 3GiB, are used only to encode references and decode the result,
+and group offloading them is worse than useless because tiled decode restreams the model
+once per tile. Every H3 workflow sets `"residency": "on_demand"` on both. The reference workflows, which carry the most
 conditioning, go from 23.2GiB peak reserved with 40 allocator retries to 18.9GiB with
 none; the frame-conditioned ones from 22.7GiB with 22 retries to 18.0GiB with none. Both
 for about 1% in wall time.
@@ -133,8 +130,8 @@ The text encoder pruning exists because H3 conditions on `hidden_states[50]` of 
 encode. Keeping 51 layers is bit-identical - index 50 of the tuple is recorded before
 layer 50 runs; keeping only 50 would hand back the final-norm output, a different
 tensor - and it returns a few GiB of system RAM on a host that needs every one of them
-(a full t2va run peaks around 63GiB RSS on a 64GiB box). Note H3's VAE constructs with
-tiling already enabled, so a pipeline-level `vae.enable_tiling` adds nothing here.
+(a full t2va run peaks around 63GiB RSS on a 64GiB box). H3's VAE constructs with
+tiling already enabled, so a pipeline-level `vae.enable_tiling` adds nothing.
 
 Two levers measured and *rejected* on a 3090 (A/B, t2va 960x544x124f, 2026-08):
 `low_cpu_mem_usage: false` on the transformer's group offload (pin host copies once
@@ -142,8 +139,7 @@ instead of re-pinning per onload) left step time unchanged at ~15.4s - at int4 t
 step is compute-bound and the transfers already hide under it - while the ~27GiB of
 unswappable pinned memory pushed the host into an OOM kill. `use_stream` on the text
 encoder's leaf offload was backed out with it for the same host-memory reason. On a
-faster GPU (or a host with more RAM) both are worth re-testing; the step budget there
-may actually expose the transfer time.
+faster GPU, or a host with more RAM, both are worth re-testing.
 
 Length costs VRAM but the configuration holds to the model's full range: a single
 345-frame take (14.4s, the `17n+5` maximum) peaks at 23.6GiB reserved at 960x544 -
@@ -156,8 +152,8 @@ model first (Z-Image drawing a subject, Music3 writing a song) must free it with
 `release_pipeline` before H3 loads - with it, the multi-model digital-short
 workflows below fit; without it, the load is an OOM kill, not a slowdown.
 
-Ref2VA reaches 1344x768 too - the canvas isn't tied to the FL2VA 768p checkpoint, only
-the shift/alpha pairing is (above). The trade-off is frame count, not a config change:
+Ref2VA reaches 1344x768 too: the canvas isn't tied to the FL2VA 768p checkpoint, only
+its shift/alpha pairing is. The trade-off is frame count, not a config change:
 VAE decode memory scales with `width * height * num_frames`, so the same 24GB budget
 that holds 345 frames at 960x544 only holds 209 at 1344x768 with 2 references, and each
 reference costs about 1 GB more (175 at 3) - 175 frames with 2 references measured at
@@ -188,13 +184,13 @@ encoder is nearly as large as it is. The working 24GB configuration at 960x544:
 
 | Component | Config |
 | --------- | ------ |
-| `transformer` | SDNQ `uint4` (`quantization_device: "cuda"`, `return_device: "cuda"`, `use_quantized_matmul: true`), resident |
+| `transformer` | SDNQ `uint4` (`quantization_device: "cuda"`, `return_device: "cuda"`, `use_quantized_matmul: true`), `group_offload` `block_level` with `num_blocks_per_group: 1000` (more than its block count, so it moves as one group) and `use_stream: true`. A pipeline-level `offload: "model"` conflicts with the other components' group offload hooks (#266) |
 | `text_encoder` (Gemma 4, 23GB) | SDNQ `int8`, `return_device: "cpu"`, `group_offload` `leaf_level` with `use_stream: true` |
 | `connectors` (12GB) | `group_offload` `leaf_level` with `use_stream: true` |
 | `vae`, `audio_vae`, `vocoder`, `duration_head` | `device: "cuda"` - small, and used once per generation |
 | pipeline | `vae.enable_tiling` for anything above the base resolution |
 
-Two things about the checkpoint are worth knowing before tuning anything:
+Two facts about the checkpoint, before tuning anything:
 
 - **`transformer` is the distilled model.** It runs a fixed 8-step schedule at
   `guidance_scale: 1.0`, with STG and modality guidance off, and the `sigmas` every
@@ -235,7 +231,7 @@ That refine pass is what puts the detail back - the upsampler alone gives a soft
 and it is the flow the model card, Lightricks' pipeline notes and the diffusers docs all
 describe. The base pass keeps its pipeline loaded so the refine pass is served from the
 cache; the refine pass releases it. Since 2026-08 Lightricks route production quality
-through their DFR pipeline instead, which diffusers ships and nothing here uses yet.
+through their DFR pipeline instead, which diffusers ships and the catalog does not use.
 Measured on an RTX 3090 the refined clip is sharper than the 2x upsample alone at the
 same seed: fur, branches and snow texture resolve where the upsample-only frame is a
 soft blur. About eight warm minutes, three and a half of them writing the full-size clip.
@@ -260,7 +256,7 @@ Fits several times over in 24GB. Skip quantization and offloading entirely; `com
 
 ## Multi-model workflows
 
-When a workflow chains two large models (generate → upscale, generate → interpolate), release the first pipeline instead of offloading everything:
+When a workflow chains two large models (generate, then upscale or interpolate), release the first pipeline instead of offloading everything:
 
 ```json
 { "name": "generate", "release_pipeline": true, "pipeline": { ... } }

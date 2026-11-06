@@ -1,11 +1,160 @@
 # Releasing
 
+## Cutting a release
+
+A release is a `v<semver>` tag on `master`. CI builds and publishes it.
+
+Before merging `develop` into `master`, get `scripts/preflight.sh` passing. It runs the real-model integration tests (`pytest -m integration`), which CI cannot run, and the UI's full `npm run preflight` (see [TESTING.md](TESTING.md)).
+
+```bash
+scripts/release.sh 0.38.0
+scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
+scripts/release.sh 0.38.0 --next 0.39.0-alpha.1     # and reopen develop
+```
+
+`scripts/release.sh`, run on `master` with the venv active:
+
+1. Refuses a malformed version, a branch other than `master`, an existing tag, or staged changes. Unstaged changes elsewhere are fine; the release commit is path-limited.
+2. Runs `pytest -m integration -n0` against the working tree, and refuses when they fail or when the machine has no CUDA or MPS device (there they would skip and pass having run nothing).
+3. Sets the version in `pyproject.toml` (the single source; `dw.__version__` reads it at run time) and in `plugins/dw/.claude-plugin/plugin.json` (`tests/test_plugin_skills.py` holds them equal), commits those two files as `release <version>`, and pushes `master`.
+4. Tags the bump commit `v<version>` (annotated with the message, default `release <version>`) and pushes the tag.
+5. With `--next <version>`: in a temporary detached worktree, merges `master` into `develop` (a fast-forward when nothing landed there since the release PR), sets `<version>` in the same two files, commits `chore: open <version> on develop` and pushes `develop`. It works while `develop` is checked out elsewhere. Without `--next`, do this by hand, or `develop` keeps reporting the previous pre-release.
+
+By hand, the equivalent of steps 3-4 is:
+
+```bash
+# Set version = "0.38.0" in pyproject.toml and plugins/dw/.claude-plugin/plugin.json
+git commit -m "release 0.38.0" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
+git tag -a v0.38.0 -m "release 0.38.0"
+git push origin master v0.38.0
+```
+
+### What CI does with the tag
+
+`.github/workflows/ci.yml` runs on `v<semver>` tags:
+
+- **backend** and **ui**: the same checks as on every push.
+- **wheel** (after both): `scripts/build_dist.sh` builds the SPA, copies it into `dw/server/ui`, copies `docs/*.md` into `dw/docs` (the guides an installed server serves), and runs `python -m build`. It uploads `dist/*` as an artifact.
+- **release** (after wheel): fails unless the tag is `v` + semver and equals the `pyproject.toml` version, then creates a GitHub release named after the tag, with auto-generated notes and the wheel and sdist attached. A tag with a pre-release part (`v0.38.0-rc1`) is marked as a pre-release.
+- **pypi** (after release): publishes the same artifacts to PyPI by [trusted publishing](https://docs.pypi.org/trusted-publishers/) (OIDC; no token is stored). One-time setup on pypi.org under *Publishing*: a trusted publisher for project `diffusers-workflow`, owner `dkackman`, repository `diffusers-workflow`, workflow `ci.yml`, environment `pypi` (a pending publisher before the first release). A pre-release needs `pip install --pre`.
+- **docker** (after release): builds `docker/Dockerfile`, starts the image on the CPU runner and waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>` to Docker Hub. A release also moves `latest`; a pre-release does not. One-time setup: the public Docker Hub repository `dkackman/diffusers-workflow`, a read/write access token, and a GitHub environment `dockerhub` holding it as secret `DOCKERHUB_TOKEN`. A failed push leaves the GitHub release and PyPI as they are; re-run the job.
+
+Python packaging normalizes a semver pre-release, so `0.38.0-alpha.1` builds a wheel named `0.38.0a1`. The tag, `pyproject.toml` and the GitHub release keep the semver form.
+
+To build artifacts without releasing, run CI by hand (`workflow_dispatch`); the wheel job uploads `dist/*`.
+
+A PyPI install gets released `diffusers`, which may lag the newest pipelines; install `git+https://github.com/huggingface/diffusers` on top.
+
 ## Unreleased
 
-This project has no standing release-notes file - GitHub auto-generates
-notes from commits at tag time (see below). This section is a scratch pad
-for items a branch's author wants the next release note to name; clear it
-when a release ships.
+GitHub generates notes from commits at tag time. The sections below are the hand-written notes: the newest is drafted at release prep and pasted into the GitHub release body once the tag has published (`gh release edit v<version> --notes-file ...`). Items a branch's author wants the next note to name go in a new section at the top.
+
+### 0.19.0
+
+<!-- Drafted from v0.18.0..develop at release prep (2026-11-03). Paste into the GitHub release body once the tag has published: gh release edit v0.19.0 --notes-file ... -->
+
+This release is about long H3 chains: two off-by-default ways to hold a
+chain's look across its segments, a measurement that says whether the look
+drifted, a LoRA that was probed against burn, and the skill lines that came
+out of the probes. Alongside it, FLUX 3 Klein no longer loads a model it
+never runs, and the web UI draws a chained step as its segments.
+
+**H3 chain drift** (#1166, #1173, #1174, #1181)
+
+- `latent_anchor`, an H3 `t2va`/`fl2va` argument, matches each segment's
+  per-channel latent statistics to a reference clip before decode.
+  `chain.anchor: "segment_1"` uses the chain's own first segment. It is off
+  unless set, and the run logs one line per anchored call naming the source.
+  The argument meets the media location policy at validate: a bare server
+  path, `..`, `file://` or a loopback URL is refused there.
+- `guide_noise`, a number in [0, 1), loosens every video guide on the step:
+  cosine-tapered Gaussian noise from the guide's first frame to clean at
+  its last, encoded once under the guide's seed. A seeded run repeats.
+- A ten-segment, two-scene probe found the anchor best on a static scene and
+  worst on a moving-camera arc, and guide noise alone the only arm that did
+  not hurt the arc. No template or skill sets either yet; the H3 skill's
+  `chains.md` says what the community reports agree on (#1167).
+- Imagineer13's anti-burn LoRA is in the catalog as
+  `minimax-h3/h3-antiburn`, marked `trial` (#1151, #1159). On a five-segment
+  chain it held segment 1's skin, knit and wall where the unaided chain had
+  burnt by segment 5.
+
+**Measuring drift** (#1152, #1160, #1139, #1158)
+
+- `compare_outputs(names, texture_bands=true)` reports the RMS texture
+  energy per output per moment in three wavelength bands, fine (2-8 px), mid
+  (8-32 px) and coarse (32-128 px), on luma and both chroma differences,
+  over one shared crop, with ratios to the baseline. One name is allowed,
+  so a chain's own segments can be read across. It is a measurement, not a
+  score; the guide's *Texture bands* section says how to read it.
+- `get_gallery_metadata` carries `pcm_sha256`, a SHA-256 of the decoded
+  samples, with `sample_format` and `frames`, for any file with a
+  soundtrack: an identity check for audio over MCP.
+
+**Assessment fixes**
+
+- A `stills_to_video` clip's silent track no longer raises `near_silent` or
+  mono-duplication warnings, `assess_output` no longer reports
+  `shot_dead_air` on its shots, and a cut whose shots are all silent by
+  design no longer warns near-silent (#1161, #1162, #1163). One predicate
+  decides it everywhere.
+- `shot_span_overrun` findings carry severity `warn`; `seam_hole` leaves
+  `rules_applied` when it was skipped on every seam (#1179).
+- `face_drift` measurements and findings name the shot's index, frames and
+  times (#1165), and the `script-to-video` skill says what to do on one
+  (#1178).
+- `check-script` no longer counts a compound Whisper closed that the script
+  wrote open ('candle crumbs' / 'candlecrumbs') against line similarity
+  (#1172).
+
+**FLUX 3 Klein** (#1168)
+
+- Loading Klein on an empty 24 GB card no longer runs out of memory: the
+  pipeline loads only its four components, not the repository's 18.8 GB
+  prompt upsampler, and `configuration.remove_blocks` pops the upsampler
+  block off the modular graph. The step cache keys follow the names.
+- The `controlnet` template passes Canny's thresholds beside `image`, where
+  the detector reads them.
+
+**Fixes found on the templates** (#1201)
+
+- `validate_workflow` refuses a `model_name` the hub says does not exist,
+  at `model_name`, instead of passing it to fail mid-run. An offline or
+  timed-out lookup stays unknown, and `sizes=false` skips the hub.
+- `gather_images` loads an `asset:` or `output:` entry in `urls` from disk,
+  the way `gather_videos` already did; a URL with a scheme still goes
+  through the outbound fetcher, so `file://` stays refused.
+- Marigold depth and normals predictions save as images (depth under its
+  Spectral colour map, normals as RGB), and the step progress wrapper
+  passes a pipeline's own `progress_bar` keywords through.
+  `templates/surface-normals` names `prs-eth/marigold-normals-v1-1`; the
+  repo it named never existed.
+- The MMAudio sound-effects decoder no longer fails to build with "Tensor
+  on device cpu is not on the expected device meta!" when transformers'
+  meta-init patch is live.
+
+**Skills**
+
+- `minimax-h3`: splitting a short line into two `<d>` blocks removes the
+  lead-in; action prose between blocks is not a pacing rule (#1180, #1184,
+  #1185). `check-script` takes each block's contents, never the prose between.
+- `cinematography`: one light phrase per value in the LTX-2.5, H3 and Klein
+  compile tables (#1142); six named moves measured per video family (#1148).
+- `series-episodes` keeps cast portraits with an extensionless asset name
+  (#1154); the sitcom multicam master sets `move: static` (#1157).
+
+**Web UI and docs**
+
+- A chained step draws its segments: the count when the definition gives
+  it, what each seam carries, and the running segment while the job runs.
+- The job page shows a model download's progress while a load pulls a
+  repo: the bytes so far and the rate, or how long no bytes have come.
+- A workspace named in the URL that the cached listing lacks is refetched
+  once before the UI decides it is gone.
+- Every guide had an accuracy and concision pass, with page screenshots in
+  the README and SERVER guide. The workflow schema's `$id` names this
+  repository, and the HTTP API's OpenAPI document and the schema are linked
+  from the docs.
 
 ### 0.18.0
 
@@ -1557,104 +1706,3 @@ release body once the tag has published (`gh release edit v0.4.0
   `reference-sheet` (#444) run with their own defaults again.
 - Joined audio and shot maps stay on the frame grid through repeated joins
   (#423, #426, #428, #435).
-
-Releases are cut by pushing a `v<semver>` tag. CI does the rest.
-
-Before merging `develop` into `master`, run `scripts/preflight.sh` and get it
-passing. It covers more than CI: ruff over the whole repo rather than
-`dw dw_mcp tests` and the real-model integration tests (`pytest -m
-integration`), neither of which CI runs. (CI runs the UI's Playwright e2e
-tests on every develop push and on PRs into develop; the release PR from
-develop relies on the push runs.)
-
-```bash
-scripts/release.sh 0.38.0
-scripts/release.sh 0.38.0-alpha.1 "UI front end"   # optional tag message
-scripts/release.sh 0.38.0 --next 0.39.0-alpha.1     # and reopen develop
-```
-
-The script bumps `pyproject.toml` (the single source of the version —
-`dw.__version__` reads it at runtime) and sets the same version in
-`plugins/dw/.claude-plugin/plugin.json`, so an installed plugin names the
-engine it was written against; it commits just those two files, pushes
-master, tags the bump commit `v0.38.0`, and pushes the tag. It refuses
-a malformed version, a branch other than master, an existing tag, or a
-dirty index (unstaged changes elsewhere are fine — the release commit
-is path-limited to those two files).
-
-Before it bumps anything it runs the integration tests, the gate CI's
-accelerator-less runners cannot, and refuses to release when they fail or
-when the machine has no CUDA or MPS device - there they would skip and
-pass having run nothing. Cut a release from the Mac or lem, with the venv
-active. The tests run against the working tree, so unstaged changes are
-part of what they check.
-
-`--next <version>` finishes the release on the other branch: it merges
-`master` back into `develop` (a fast-forward when nothing landed there
-since the release PR), sets `<version>` in the same two files, commits
-`chore: open <version> on develop` and pushes `develop`, all in a temporary
-worktree, so it works while `develop` is checked out elsewhere. Without it, do that by hand, or `develop` goes on reporting the
-previous pre-release.
-
-CI runs on every push to `develop` as well as `master` - the agent loop
-pushes `develop` directly, with no PR - so a failure shows up against the
-commit that caused it, not first on the release PR.
-
-By hand, the equivalent is:
-
-```bash
-# 1. Bump the version in pyproject.toml:
-#    version = "0.38.0"
-# 2. Set the same version in plugins/dw/.claude-plugin/plugin.json
-git commit -m "release 0.38.0" -- pyproject.toml plugins/dw/.claude-plugin/plugin.json
-
-# 3. Tag the bump commit and push
-git tag -a v0.38.0 -m "release 0.38.0"
-git push origin master v0.38.0
-```
-
-The tag must point at a commit whose pyproject already declares the
-same version — the release job checks and refuses a mismatch.
-
-The tag triggers the full CI chain: backend tests, UI lint/type-check/
-unit tests, then the wheel build (SPA compiled into the package via
-`scripts/build_dist.sh`). Only if all of that passes does the `release`
-job run — it verifies the tag matches the pyproject version, then
-creates a GitHub release named after the tag with auto-generated notes
-and the wheel + sdist attached.
-
-Note on pre-release numbering: Python packaging normalizes semver-style
-pre-releases, so a `0.38.0-alpha.1` version builds a wheel named
-`0.38.0a1`. The tag, pyproject, and release stay in the semver form;
-only the wheel filename and pip metadata show the normalized one.
-
-A pre-release tag like `v0.38.0-rc1` is marked as a pre-release on
-GitHub. Tags that aren't `v` + semver (or that don't match the declared
-versions) fail the release job before anything is published.
-
-After the GitHub release, the `pypi` job publishes the same artifacts to
-PyPI via [trusted publishing](https://docs.pypi.org/trusted-publishers/)
-(OIDC — no token stored anywhere). One-time setup on pypi.org under
-*Publishing*: add a trusted publisher for project `diffusers-workflow`
-with owner `dkackman`, repository `diffusers-workflow`, workflow
-`ci.yml`, environment `pypi` (use "add a pending publisher" before the
-first release, since the project won't exist yet). Pre-release versions
-are hidden from plain `pip install`; they need `pip install --pre`.
-
-The `docker` job, also after the GitHub release, builds
-`docker/Dockerfile` from the tag, starts the image on the CPU runner and
-waits for `/api/health`, then pushes `dkackman/diffusers-workflow:<version>`
-to Docker Hub. A release also moves `latest`; a pre-release does not.
-One-time setup: on Docker Hub, create the public repository
-`dkackman/diffusers-workflow` and an access token with read/write scope.
-On GitHub, under *Settings > Environments*, create an environment named
-`dockerhub` with that token as secret `DOCKERHUB_TOKEN`. A failed push
-leaves the GitHub release and PyPI as they are; re-run the job.
-
-Note: released `diffusers` from PyPI may lag the newest model pipelines
-this project targets — a PyPI install can need
-`pip install git+https://github.com/huggingface/diffusers` on top.
-
-To rebuild artifacts without releasing, run the CI workflow manually
-(`workflow_dispatch`) — the wheel job uploads `dist/*` as a workflow
-artifact.

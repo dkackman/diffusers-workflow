@@ -1,0 +1,53 @@
+{
+  "model_name": "Imagineer13/H3-Anti-Burn-LoRA",
+  "weight_name": "h3_antiburn_universal_v1.safetensors",
+  "revision": "b98eb1d3f5574d1b8f57d6b0e720d2f047cfadb3",
+  "base_models": [
+    "MiniMaxAI/MiniMax-H3"
+  ],
+  "workflow": [
+    "fl2va"
+  ],
+  "description": "Imagineer13's rank-32 anti-burn LoRA (310 MB, ComfyUI diffusion_model.* keys), trained to stop the contrast build-up, over-sharpened skin and crunchy texture that compound across H3 continuation segments. Loads through load_lora_weights alongside the turbo adapter (lem, 2026-11-02, #1159). The file name names neither fl2v nor ref2v, so validate warns adapter_unrecognized; only fl2va has been tried. On a seed-42 five-segment guide chain (39 guide frames, 960x544, turbo-4step-keyframe at 5 steps) the unaided chain had burnt skin, knit and wall by segment 5; 0.6 on segments 2-5 held segment 1's look with a slight softening of fine texture; 0.4 let the burn partly back in by segment 5",
+  "use_when": "continuation segments only, never segment 1; needs a hand-built chain until a chain option exists",
+  "scale": {
+    "default": 0.6,
+    "range": [
+      0.4,
+      0.8
+    ]
+  },
+  "stacks_with": [
+    "minimax-h3/turbo-4step-keyframe"
+  ],
+  "status": "trial",
+  "evidence": [
+    {
+      "job": "3dc3f60fb217",
+      "issue": 1151,
+      "note": "Load check: fl2va with turbo plus anti-burn 0.6 ran clean, no unmatched-key warning; differs from turbo-only job e82ea2430448 (PSNR 22.75 dB, SSIM 0.78)"
+    },
+    {
+      "job": "e0c2ff0dd654",
+      "issue": 1151,
+      "note": "Arm A: five-segment guide chain without anti-burn - skin, knit and flat wall burnt by segment 5 (frame 421)"
+    },
+    {
+      "job": "bf477d3089dd",
+      "issue": 1151,
+      "note": "Arm B: the same chain with 0.6 on segments 2-5 - segment 1's look held through segment 5, fine knit slightly softened"
+    },
+    {
+      "job": "f8287f133e1c",
+      "issue": 1151,
+      "note": "Arm C: 0.4 on segments 2-5 - better than none, but the burn partly returns by segment 5"
+    }
+  ],
+  "license": "minimax-h3-community",
+  "tags": [
+    "anti-burn",
+    "continuation",
+    "chain",
+    "quality"
+  ]
+}

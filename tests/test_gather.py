@@ -106,6 +106,48 @@ class TestGatherImages:
 
         assert "No images found" in str(exc_info.value)
 
+    def test_gather_images_local_path_in_urls(self, tmp_path, monkeypatch):
+        """A urls entry that is a local path - what an 'asset:' or 'output:'
+        reference resolves to - loads from disk rather than going to the
+        URL fetcher, the way gather_videos already treats its urls."""
+        path = tmp_path / "monarch.png"
+        Image.new("RGB", (40, 30)).save(path)
+
+        import dw.tasks.gather as gather_module
+
+        fetched = []
+        monkeypatch.setattr(
+            gather_module, "safe_get", lambda *a, **k: fetched.append(a)
+        )
+        images = gather_images(urls=[str(path)])
+
+        assert [img.size for img in images] == [(40, 30)]
+        assert fetched == []
+
+    def test_gather_images_asset_reference_in_urls(self, tmp_path, monkeypatch):
+        """'urls': ['asset:uploads/monarch.png'] realizes to the asset's path
+        and gathers it - the depth-marigold and surface-normals templates
+        failed here with 'URL scheme not allowed' on an uploaded image."""
+        from dw.arguments import realize_args
+
+        (tmp_path / "uploads").mkdir()
+        Image.new("RGB", (24, 16)).save(tmp_path / "uploads" / "monarch.png")
+        monkeypatch.setenv("DW_ASSET_DIR", str(tmp_path))
+
+        arguments = {"urls": ["asset:uploads/monarch.png"]}
+        realize_args(arguments)
+        images = gather_images(**arguments)
+
+        assert [img.size for img in images] == [(24, 16)]
+
+    def test_gather_images_local_path_disallowed_extension(self, tmp_path):
+        """A local urls entry is held to the same image-extension rule as a
+        glob match."""
+        path = tmp_path / "notes.txt"
+        path.write_text("not an image")
+        with pytest.raises(SecurityError):
+            gather_images(urls=[str(path)])
+
     def test_gather_images_invalid_url(self):
         """Test that invalid URLs are rejected"""
         with pytest.raises(SecurityError):

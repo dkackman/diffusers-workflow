@@ -3,14 +3,14 @@
 diffusers-workflow is Apache-2.0. This page credits the work it builds on that
 a dependency list does not show: code that was copied in, and other projects
 whose ideas were reimplemented here. Python dependencies are in
-[requirements.txt](../requirements.txt) and [pyproject.toml](../pyproject.toml).
+[pyproject.toml](../pyproject.toml).
 Model and LoRA weights keep their own licences, and each catalog entry
 ([workflows/models/](../workflows/models/), [loras/](../loras/)) names the
 repository it downloads from.
 
 ## Code included in this repository
 
-Each file keeps its upstream licence notice in its header.
+Each copied or ported file keeps its upstream licence notice in its header.
 
 | File | Source | Licence |
 |---|---|---|
@@ -109,3 +109,27 @@ rendering the odd shots of a long take first and bridging the gaps
 ([#1094](https://github.com/dkackman/diffusers-workflow/issues/1094)), and
 finding phrase starts from the centre of the stereo mix
 ([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
+
+### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
+
+A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
+inspired the texture-band measurement on `compare_outputs`
+(`texture_bands`, [dw/texture_bands.py](../dw/texture_bands.py)): RMS energy by
+wavelength band, to see whether a change in a chain adds or removes texture.
+It also inspired `guide_noise`
+([dw/pipeline_processors/h3_guide_steps.py](../dw/pipeline_processors/h3_guide_steps.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)), from its prefix
+noise at `775be90`: a cosine-tapered noise on each guide, folded in as the difference of
+a paired VAE encode, so the guide's hold loosens toward its start.
+
+### [1113800942/comfy-h3md-director](https://github.com/1113800942/comfy-h3md-director)
+
+H3MD Director, a ComfyUI node pack for directing long MiniMax H3 videos, under
+AGPL-3.0-or-later, so only the concept was taken. It inspired the latent
+statistics anchor: rescaling each later segment's video latent to the first
+segment's per-channel mean and standard deviation before decode
+(`latent_anchor`, `chain.anchor: "segment_1"`,
+[dw/pipeline_processors/h3_anchor.py](../dw/pipeline_processors/h3_anchor.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
+diagnosis it answers, colour and contrast drifting from segment to segment of
+an H3 chain, was described by Lumifel and by roycho87 (NerdNotes).

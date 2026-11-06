@@ -13,7 +13,7 @@ import numpy
 import pytest
 from PIL import Image
 
-from dw.assessment_rules import RULES_BY_NAME
+from dw.assessment_rules import RULES_BY_NAME, SEVERITIES
 from dw.media_types import AudioVideo
 from dw.runs import MANIFEST_FILE_NAME, shots_beside
 from dw.shots import shot_record
@@ -255,6 +255,16 @@ class TestShotDeadAir:
         assert shot["dead_air_seconds"] > 0.4
         assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
 
+    def test_a_silent_by_design_shot_does_not_fire_but_a_plain_one_does(self):
+        video = self._shot(gap_dbfs=-80.0)
+        flagged = [
+            f for f in analyze_shots(video)["findings"] if f["rule"] == "shot_dead_air"
+        ]
+        assert len(flagged) == 1
+        video.shots[0]["silent_by_design"] = True
+        answer = analyze_shots(video)
+        assert not [f for f in answer["findings"] if f["rule"] == "shot_dead_air"]
+
 
 # ---------------------------------------------------------------------------
 # 2. A dissolve does not flag a level step, click, hole or frame jump
@@ -378,6 +388,8 @@ class TestSeamFadeIsRecorded:
         assert [f for f in answer["findings"] if f["rule"] == "seam_hole"] == []
         skipped = [r for r in answer["rules_skipped"] if r["rule"] == "seam_hole"]
         assert skipped and skipped[0]["seams"] == [1]
+        # Skipped on every seam: measured nowhere, so not "applied" (#1179)
+        assert "seam_hole" not in answer["rules_applied"]
 
     def test_an_unrequested_hole_still_fires(self):
         # Same material and the same dip, but the fade is only in the
@@ -985,6 +997,9 @@ class TestShotSpanOverrun:
         assert len(overrun) == 1
         assert overrun[0]["at"]["shot"] == "b"
         assert overrun[0]["value"]["frames"] == 176
+        # one of the assessment vocabulary's severities, not the validator's
+        # "warning" - a reader filtering findings by severity would miss it
+        assert overrun[0]["severity"] in SEVERITIES
 
         assert any(w[1].get("kind") == "shot_span_overrun" for w in warnings)
         assert any(w[1].get("shots") == ["b"] for w in warnings)

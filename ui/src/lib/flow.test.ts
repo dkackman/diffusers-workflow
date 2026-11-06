@@ -439,3 +439,24 @@ describe('the shared reference cases', () => {
     if (flagged.length === 0) expect(messages).toEqual([])
   })
 })
+
+describe('chained segments', () => {
+  // The summary itself is flowChain.test.ts; here, that the node carries it
+  it('puts the chain summary on the node, null on a step without one', () => {
+    const wf = {
+      steps: [
+        {
+          name: 'clip',
+          pipeline: {
+            configuration: { component_type: 'ModularPipeline' },
+            chain: { segments: 2 },
+          },
+        },
+        step('plain', {}),
+      ],
+    }
+    const [clip, plain] = dataFlowGraph(wf).nodes
+    expect(clip.chain?.segments).toBe(2)
+    expect(plain.chain).toBeNull()
+  })
+})

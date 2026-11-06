@@ -1,5 +1,5 @@
 {
-    "$id": "https://github.com/dkackman/diffusers-helper/workflow",
+    "$id": "https://raw.githubusercontent.com/dkackman/diffusers-workflow/master/dw/workflow_schema.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
     "description": "The definition of the diffusers-workflow.",
     "type": "object",
@@ -340,6 +340,10 @@
                     ],
                     "default": 22
                 },
+                "anchor": {
+                    "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
+                    "default": "none"
+                },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
                     "type": "string",
@@ -670,6 +674,15 @@
                             }
                         }
                     }
+                },
+                "remove_blocks": {
+                    "description": "Names of top-level blocks to pop off a modular pipeline's block graph once it is built (blocks.sub_blocks.pop). For a block that always runs and has no input that turns it off: FLUX 3 Klein's 'prompt_upsampler' rewrites every caption and needs an 18.8 GB component, so its workflows remove it and use an explicit upsample step instead (#1168). A name the pipeline has no block for is an error.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "uniqueItems": true
                 },
                 "configs": {
                     "description": "Values a modular pipeline's blocks declare and read while they run - not components, and not call arguments. Keys are whatever the pipeline itself declares, so what may be set here depends on the model: MiniMax-H3 declares 'canvas_short_edge', 'canvas_max_pixels' and 'reference_image_short_edge'. A name the pipeline does not declare is an error rather than a setting that quietly did nothing.",
