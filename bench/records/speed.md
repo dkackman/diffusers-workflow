@@ -165,3 +165,17 @@ and the sampled free host memory never fell below 31 GiB.
   cuda:0 on every job, alone or paired (17.4 s against 15.7 s for a 120 s
   pass). Round 2's `8d1614ced27a`, on cuda:1 a day earlier, reads 17.4 s too.
   So the overlap costs nothing measurable. Compare wall times within one card.
+
+## Promote (Step 3) and the verdicts (Step 4)
+
+**Nothing new is promoted.** This round benched only the two spikes, and both lost:
+SelfLift is lossy (close #1195) and TST has no effect (close #1196). The other
+Step 1 levers were not re-benched on the long-form scenes. They keep the verdicts
+they already shipped with: sparse top-k 0.15 attention and the 4-step schedule are
+the H3 defaults (#931/#932, H3 speed A/B), `sage_hub`, the `first_block` and
+MagCache caches and the quantized-weight cache stay knobs, and the LTX levers are
+as its skill lists them. The tiers (Task 20) bundle these as dial steps.
+
+**#980 (FastH3 Omni):** out of long-form scope. It is a 68 GB Ref2VA transformer
+finetune, and the long-form chains are t2va/fl2va, so it cannot speed a chain. It
+stays parked as its own onboarding.
