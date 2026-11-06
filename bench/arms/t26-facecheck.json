@@ -1,7 +1,7 @@
 [
   {
     "name": "facecheck-c2-unmentioned-s1001",
-    "scene": "t26",
+    "scene": "s3-dialogue-walk",
     "workflow": "t26-face-check.json",
     "arguments": {
       "video": "output:BenchT26Ref2VA/20261106-033548-3a857c4d/final/BenchT26Ref2VA-clip.0-0.0.mp4",
@@ -11,7 +11,7 @@
   },
   {
     "name": "facecheck-c2-unmentioned-s2002",
-    "scene": "t26",
+    "scene": "s3-dialogue-walk",
     "workflow": "t26-face-check.json",
     "arguments": {
       "video": "output:BenchT26Ref2VA/20261106-034400-d520e7c7/final/BenchT26Ref2VA-clip.0-0.0.mp4",
@@ -21,7 +21,7 @@
   },
   {
     "name": "facecheck-c2-control-s1001",
-    "scene": "t26",
+    "scene": "s3-dialogue-walk",
     "workflow": "t26-face-check.json",
     "arguments": {
       "video": "output:BenchT26Ref2VA/20261106-035011-9246a409/final/BenchT26Ref2VA-clip.0-0.0.mp4",
@@ -31,7 +31,7 @@
   },
   {
     "name": "facecheck-c2-control-s2002",
-    "scene": "t26",
+    "scene": "s3-dialogue-walk",
     "workflow": "t26-face-check.json",
     "arguments": {
       "video": "output:BenchT26Ref2VA/20261106-035727-3d0b72ac/final/BenchT26Ref2VA-clip.0-0.0.mp4",

@@ -1,0 +1,19 @@
+[
+  {
+    "arm": "t26-portraits",
+    "scene": "t26",
+    "seed": 1193,
+    "job_id": "af6dd086993b",
+    "status": "succeeded",
+    "error": "ValueError: job af6dd086993b wrote no video"
+  },
+  {
+    "arm": "c1-line-plain-s1001-probe",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "26c02d9ea5a4",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-032334-b777890e/final/BenchT26T2VA-clip.0-0.0.mp4"
+  }
+]
