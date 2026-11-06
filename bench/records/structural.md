@@ -815,5 +815,5 @@ In `~/Desktop/dw-bench-t17/`, side by side, x264 CRF 16:
   (`3232cabd16b1` | `c4ec5a055464`, the left take's track). The right take
   pops at 9.7 s (39.7 s). The left take stays clean, with no pop, through
   the stretch. Watch the left subject's return to the front-on pose at
-  every seam: 1.2, 5.5, 9.7, 14.0 and 18.2 s into the clip. That rhythm is
+  seam, just before 0.7, 4.9, 9.2, 13.4 and 17.7 s into the clip. That rhythm is
   the call.
