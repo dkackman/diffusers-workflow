@@ -209,6 +209,9 @@ still fail on picture by eye, and the gain is still not visible at 15 s.
 A ready change for Don's yes: `ltx2/chained-segments` gains a `look_hold`
 variable (default true) wired to `chain.look_hold`, with two tests in
 `tests/test_catalog_structure.py` (`..._holds_the_look_by_default`,
-`..._look_hold_false_is_the_plain_chain`); the full suite passed with it
-(the one failure, minimax/chained-segments' description check, is from
-uncommitted skill edits in the working tree, not from this change).
+`..._look_hold_false_is_the_plain_chain`). It needs one more edit before it
+lands: with `look_hold` declared as a variable anywhere in the catalog,
+`test_a_description_names_only_variables_the_workflow_declares` fails on
+`minimax/chained-segments`, whose description names `look_hold` without
+declaring it. Reword that sentence (or declare the variable there) in the
+same commit; the rest of the suite (18,787 tests) passed.
