@@ -48,8 +48,10 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
 - **LTX-2.5 parity** (Task 23): *pending measurement*. The H3 verdicts above
   are not yet confirmed on `templates/ltx2/chained-segments`. Use the
   `ltx-2.5` skill's own rules there.
-- **Windowed refine seam pass**: *pending measurement*. It is experimental
-  and flag-gated; do not offer it.
+- **Windowed refine seam pass**: measured. It wins as a seam pass on every
+  shot type, at about 36-40 min per minute of take, and is not a burn fix
+  (`bench/records/structural.md`, *Step 4*). It is experimental and
+  flag-gated; do not offer it.
 
 ## What does not buy quality on a long take
 
@@ -58,7 +60,11 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
 - **Re-rolling texture drift.** The re-roll inherits the carry
   (`bench/records/check.md`).
 - **A longer static chain.** Cut at about 30 s. A two-minute static take is
-  unusable on every arm measured (`bench/records/counters.md`, *Round 3*).
+  unusable on every counter in `bench/records/counters.md` (*Round 3*). The
+  exception under review is `keystone: segment_1`: it resets the burn at two
+  minutes on both seeds, at no wall cost, with a visible mid-shot pop
+  (`bench/records/structural.md`, *Keystone confirmation*). Until Don rules
+  on it, cut at about 30 s (`levers.md`, *Under review*).
 
 ## Apple Silicon
 

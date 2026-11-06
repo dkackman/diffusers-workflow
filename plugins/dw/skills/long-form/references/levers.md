@@ -3,7 +3,9 @@
 Part of the `long-form` skill. It lists every lever on an H3 chain: the
 default, the knobs that are not defaults, and the ideas the bench measured
 and cut. The verdicts come from `bench/records/counters.md` (*Verdict per
-idea*, *Defaults by shot type*, *Re-scored under R35*, *Round 3*). They were
+idea*, *Defaults by shot type*, *Re-scored under R35*, *Round 3*), with the
+keystone and the structural levers from `bench/records/structural.md` and
+`bench/records/repair.md`. They were
 read under the noise floor in `bench/records/noise-floor.md`, *Correction
 (2026-11-05, ruling R35)*.
 
@@ -59,25 +61,52 @@ Offer these only when the user asks, and say why each is not a default.
 - **The seam grade** (#1033/#1067) is `look_hold`'s pickup part. It runs
   only on `last_frame`, so it was measured inside that row.
 
+## Under review: the keystone on a long static take
+
+**`keystone: segment_1`** (#1187; a guide chain key, not a `shot` preset)
+makes every later segment's keyframe segment 1's frame 0. At 26 s it ties,
+and with anchor 0.5 it makes every seam worse (round 1). At two minutes it is
+the only lever that resets the burn (`bench/records/structural.md`,
+*Keystone confirmation*):
+
+- it resets on both seeds, with or without the anchor, and costs no wall
+  time; no take without it ever comes back clean;
+- each reset is a visible pop mid-segment at an unpredictable time
+  (39-111 s), where only the backdrop texture snaps clean;
+- between resets the crust grows back, so the take is still crusted for
+  40-60% of its length. It is a large improvement on the burn, not a clean
+  take.
+
+It is the leading candidate for static takes past about 30 s. The default is
+undecided pending Don's call on the pop. Until then, cut static takes at about
+30 s, and offer the keystone only as a knob with the pop named. Never use it on
+a moving shot: it lost the look on S2's arc in round 1.
+
 ## Measured and cut: do not re-propose
 
-- **keystone as keyframe** (#1187) ties, and with anchor 0.5 makes every
-  seam worse.
 - **hand-over backoff** (#1189) ties on S1 and loses on S2 and S3.
 - **sharpest of the last 4** (#1032, `carry_pick`) ties on S1 and froze S2.
 - **guide `look_hold`** (#1191) gains inside the floor on S1 and loses on S2.
 
 ## Structural levers
 
-Each of these is *pending measurement* until its record lands.
+Each is experimental and behind a server flag. Do not offer any of them.
 
-- **Windowed refine seam pass** (Task 17 Step 4): experimental, behind a
-  server flag. Do not offer it to end users. *Pending measurement*
-  (`bench/records/structural.md`).
-- **Latent carry** between segments (#1150/#1044, Task 17 Step 2):
-  experimental and flag-gated. *Pending measurement.*
-- **Late capstone** (#1187, the moving-camera candidate): experimental and
-  flag-gated. *Pending measurement* (`bench/records/repair.md`, *Step 4*).
+- **Windowed refine seam pass** (Task 17 Step 4): wins as a seam pass on
+  every shot type measured (seam jump past the floor on S1, S2 and S3, look
+  too on S2, nothing worse), at about 36-40 min per minute of take. It is
+  **not a burn fix**: drift against segment 1 is unchanged on every scene
+  (`bench/records/structural.md`, *Step 4*, *Verdict*). Promotion waits on
+  an eye check and the feature stages.
+- **Latent carry** between segments (#1150/#1044, Task 17 Steps 2-3): **not
+  a default** and not a burn fix. On the static scene the take still burns;
+  on the moving scene the seams get worse on both seeds. Under the keystone
+  it ties on numbers; its face hold by eye waits on Don
+  (`bench/records/structural.md`, *Steps 2-3*, *Keystone confirmation*).
+- **Late capstone** (#1187, the moving-camera candidate): **does not win**.
+  On S2 one gate ties every measure and the other is mixed, worse past the
+  floor on one seam measure at each seed. Not built
+  (`bench/records/repair.md`, *Step 4*).
 
 ## Community reports on drift
 
