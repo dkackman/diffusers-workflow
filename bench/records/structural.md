@@ -216,3 +216,237 @@ refined (held) track.
   6 segments, 0.3 rebased.
 - `t17-s1-120s-anchor25_LEFT-source_RIGHT-refine030-rebased-60-80s.mp4`: S1
   at 120 s, 0.3 rebased, 60-80 s (the burn region).
+
+## Steps 2-3: latent carry (#1150, #1044, #1030)
+
+### Verdict
+
+- **Latent carry is not a default, and not a burn fix.** On the static scene it
+  lowers the backdrop crust, but the take still burns. On the moving scene it
+  makes the seams worse on both seeds.
+- **The softness is the anchor's, not the carry's.** Without the anchor, the
+  latent-carry take is crusty and harsh, like the pixel control. It is not soft.
+  Don's "soft and masky" on `fc0f91663277` comes from anchor 0.25. The pixel
+  anchor-0.25 take is just as soft and masky at the same moments.
+- **The carry alone (keystone pair, R39) ties on every picture measure.** By
+  eye its face holds better at 104-120 s. That needs Don's eye (export below).
+- **The carry drops the late music bed on seed 1166, and only there.** It keeps
+  S2's garden ambience on both seeds. The bed is a property of the seed-1166
+  pixel chain, not of the carry. Seed 2's pixel take never grows one.
+- **New finding: keystone + anchor 0.25 resets the burn at two minutes.** Both
+  keystone takes crust from about 40 s. Then the backdrop snaps back clean:
+  pixel between 79 and 81 s, latent carry by about 104 s. Fine drift at 120 s
+  is 0.03-0.06, against anchor 0.25's 1.11. This is one seed. Round 2's
+  keystone verdict ("does not hold") was read at 24 s, before any reset.
+- **Cost.** The carry skips the pixel re-encode. A two-minute take encodes in
+  4.7-7.7 min less (465 s against 757 s, 281 s against 776 s with the
+  keystone), so it is about 5% faster overall (65.8 against 69.1 min).
+
+### What the A/B removes
+
+As R39 says, the keystone pair is #1044's latent-carry arm, not #1150's
+VRAM-saving arm 2. Against the pixel guide it removes the VAE encode of the
+guide frames, the posterior sampling, and the fp16 rounding of the round trip.
+On fl2va every later segment's keyframe image is still a pixel round trip
+(`carry.frames[0]`). The keystone pair pins that keyframe to the same fixed
+pixels in both arms, so the carry is the only difference.
+
+### Floors
+
+These are the first two-minute floors. Both pairs are anchor 0.25, guide, S1,
+120 s:
+
+- seed floor: `25f6bd1da507` (seed 1166) against `bf9ee32e040f` (seed 2), both
+  clean;
+- rerun gap: `25f6bd1da507` against its same-seed rerun `2c1fd3ab7869`.
+
+| floor | jump | jump max | look | look max | tex fine | tex mid | tex coarse | face fine |
+|---|---|---|---|---|---|---|---|---|
+| 120 s seed floor | 0.044 | 0.430 | 0.263 | 0.040 | 0.034 | 0.159 | 0.002 | 0.427 |
+| 120 s rerun gap | 0.044 | 0.350 | 0.162 | 0.640 | 0.075 | 0.066 | 0.118 | 0.638 |
+| S1 guide (6 seg) | 0.124 | 0.430 | 0.438 | 0.790 | 0.081 | 0.032 | 0.010 | |
+| **combined (used)** | **0.124** | **0.430** | **0.438** | **0.790** | **0.081** | **0.159** | **0.118** | **0.638** |
+
+- The 120 s floors fit inside the 6-segment row for seams and fine texture.
+- Mid and coarse texture need the wider 120 s values.
+- The face crop is too noisy to read at two minutes. The rerun alone moves it by
+  0.64 (`2c1fd3ab7869`'s face blurs out, while `25f6bd1da507`'s does not), so
+  the face is read by eye.
+- S2 uses the S2 guide row (fine 0.605, mid 1.21, coarse 1.66), widened by
+  the r36 reruns (`536548e14dd5` against `dedd341c9108`, which is bit-identical
+  in motion, and `1b8edfdba405` against `01146e925c94`).
+- The level step is shown but not counted on S1/S2 (Don's ruling).
+
+### Segment-1 labels (`bench/segment1.py`)
+
+Clean: `fc0f91663277`, `05a3a55b043c`, `4766787e793d`, `20ce09d60040`,
+`bf9ee32e040f`, `d93adb33249e`, `d901c8c82784`, `536548e14dd5`, `1b8edfdba405`.
+Drifted:
+
+- `40bbb40c14ec` (lc anchor 0.25, seed 2): `5e870262/8698ff4d`. Its read is
+  confounded.
+- `2c1fd3ab7869` (the anchor-0.25 rerun, cuda:1): `c65cc0b6/b2c2c63e`, video
+  half only. It is kept in the rerun gap, as R35 does.
+
+### S1, 120 s (static)
+
+Measures at the end of the take, and seams over all 28. **Bold** is better
+than its control past the floor; _italic_ is worse.
+
+| arm | job | control | jump | jump max | look | look max | tex fine | tex mid | tex coarse | face fine | level dB (not counted) | verdict (picture) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| guide control | `8d1614ced27a` | | 1.341 | 6.56 | 2.233 | 11.51 | 1.706 | 1.171 | 0.088 | 0.711 | 5.9 | |
+| lc, no anchor | `20ce09d60040` | `8d1614ced27a` | **0.932** | **1.49** | **1.016** | **2.49** | **1.105** | **0.740** | 0.147 | 0.746 | 12.1 | **wins** |
+| anchor 0.25 | `25f6bd1da507` | | 0.943 | 1.86 | 1.032 | 2.70 | 1.108 | 0.430 | 0.019 | 0.040 | 5.8 | |
+| lc + anchor 0.25 | `fc0f91663277` | `25f6bd1da507` | 0.842 | **1.17** | 1.175 | 2.13 | **0.643** | 0.334 | _0.216_ | 0.214 | 16.0 | mixed |
+| anchor 0.25, seed 2 | `bf9ee32e040f` | | 0.987 | 1.43 | 1.295 | 2.66 | 1.142 | 0.590 | 0.017 | 0.467 | 10.5 | |
+| lc + anchor 0.25, seed 2 (drifted) | `40bbb40c14ec` | `bf9ee32e040f` | **0.831** | 1.03 | 1.021 | **1.82** | **0.453** | **0.216** | _0.224_ | 0.048 | 9.8 | mixed (confounded) |
+| keystone + anchor 0.25, pixel | `05a3a55b043c` | `25f6bd1da507` | 0.922 | 1.59 | 1.134 | 2.50 | **0.029** | **0.016** | 0.016 | 0.226 | 9.7 | **wins** |
+| keystone + anchor 0.25, lc | `4766787e793d` | `05a3a55b043c` | 0.813 | **1.13** | 1.314 | 2.08 | 0.059 | 0.009 | 0.028 | 0.106 | 14.0 | tie |
+
+Fine texture drift against frame 62, over the take:
+
+| s | 12.5 | 24 | 42 | 62 | 83 | 104 | 119.5 |
+|---|---|---|---|---|---|---|---|
+| guide control | 0.180 | 0.536 | 1.108 | 1.399 | 1.646 | 1.658 | 1.706 |
+| lc, no anchor | 0.132 | 0.225 | 0.547 | 0.997 | 1.207 | 0.930 | 1.105 |
+| anchor 0.25 | 0.153 | 0.367 | 0.497 | 0.771 | 0.931 | 1.012 | 1.108 |
+| lc + anchor 0.25 | 0.114 | 0.107 | 0.151 | 0.330 | 0.442 | 0.572 | 0.643 |
+| keystone + anchor 0.25, pixel | 0.159 | 0.283 | 0.425 | 0.458 | 0.157 | 0.089 | 0.029 |
+| keystone + anchor 0.25, lc | 0.085 | 0.118 | 0.065 | 0.044 | 0.076 | 0.053 | 0.059 |
+
+The keystone-lc row is low throughout on the circle crop, yet the full frame
+crusts from 42 to about 100 s. Read that row with the stills, not alone.
+
+### By eye
+
+Face crops and full frames were taken at 24, 42, 62, 83, 104 and 119.5 s, with
+extra frames at 52-100 s for the keystone pair.
+
+- **lc, no anchor (`20ce09d60040`).** It burns like the control: a painted,
+  cracked face from 62 s, a high-contrast posterised face with white patches
+  from 104 s, and a crusted backdrop. It is never soft. Its backdrop mosaic at
+  120 s is finer than the control's shards, which matches the texture win.
+- **lc + anchor 0.25 against anchor 0.25 (seed 1166).** Both are soft. The
+  carry's backdrop is visibly less crusted at 42 s. From 83 s both faces are
+  pale and washed out. At 104-120 s the carry's face is ghosted (a doubled,
+  smeared outline), and the pixel take's is a white mask. Neither is usable.
+  The carry adds no softness of its own: the pixel take is as soft.
+- **Seed 2 (confounded).** The carry's face is present to 83 s and smeared
+  after. The pixel control is a white mask with dark eye holes from 83 s.
+- **Keystone pair.**
+  - Both crust from about 42 s. The pixel take's crust is coarser.
+  - Pixel: the backdrop is clean again from 81 s (it is still crusted at 79 s).
+    No seam scores high there (look 0.93 at 81.7 s). From 104 s the face has
+    streaks and the hair has turned dark and glossy.
+  - Latent carry: crusted, though milder, until about 100 s, then clean by
+    104 s. Its face at 104-120 s is the clearest of any two-minute take. The
+    eyes, nose and mouth are sharp, and the face is a little plastic. The hair
+    darkens in this take too.
+  - Identity drifts in both: darker hair, a slightly different face from
+    segment 1.
+
+### Audio
+
+Mean level per 20 s window (dBFS, from 5 s RMS windows):
+
+| take | job | 0-20 | 20-40 | 40-60 | 60-80 | 80-100 | 100-120 |
+|---|---|---|---|---|---|---|---|
+| guide control | `8d1614ced27a` | -64 | -63 | -32 | -20 | -11 | -14 |
+| lc, no anchor | `20ce09d60040` | -53 | -52 | -60 | -63 | -67 | -81 |
+| anchor 0.25 | `25f6bd1da507` | -61 | -58 | -44 | -42 | -45 | -49 |
+| anchor 0.25 rerun | `2c1fd3ab7869` | -63 | -52 | -47 | -45 | -36 | -20 |
+| lc + anchor 0.25 | `fc0f91663277` | -52 | -63 | -55 | -68 | -64 | -67 |
+| anchor 0.25, seed 2 | `bf9ee32e040f` | -63 | -62 | -58 | -72 | -62 | -74 |
+| lc + anchor 0.25, seed 2 | `40bbb40c14ec` | -59 | -54 | -44 | -55 | -63 | -55 |
+| keystone, pixel | `05a3a55b043c` | -60 | -62 | -64 | -79 | -72 | -56 |
+| keystone, lc | `4766787e793d` | -62 | -62 | -70 | -79 | -55 | -58 |
+
+- At seed 1166, without the keystone, all three pixel takes grow a late bed:
+  -11 to -49 dB. Both carry takes stay at -52 to -81 dB. The bed has almost no
+  energy above 6 kHz (0-1%), which fits a tonal music bed rather than hiss.
+- Seed 2's pixel take has no bed at all, and its carry take is louder than it
+  is. With the keystone, neither side has one.
+- So the bed is something the pixel chain grows at one seed. The carry avoids
+  it there, but "the carry suppresses the bed" does not hold in general.
+- **S2 keeps its ambience.** Per segment, lc against control:
+  - seed 1166: -50.4/-52.0/-54.1/-54.0/-53.9/-56.8 against
+    -50.4/-52.1/-55.4/-55.6/-55.2/-57.1;
+  - seed 2: -45.1/-43.9/-40.3/-45.6/-57.5/-56.9 against
+    -45.1/-44.2/-40.2/-48.6/-61.3/-54.3.
+
+  That is within 1-4 dB, segment by segment, on both seeds.
+
+### S2, 6 segments (arc)
+
+| arm | job | control | jump | jump max | look | look max | tex fine | tex mid | tex coarse | motion | verdict |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| guide control @1166 | `536548e14dd5` | | 1.362 | 2.09 | 1.286 | 1.74 | 3.084 | 2.293 | 1.430 | 4.16 | |
+| lc @1166 | `d93adb33249e` | `536548e14dd5` | _1.664_ | 2.45 | _1.960_ | _2.75_ | 3.625 | _3.647_ | _3.536_ | 4.07 | mixed (seams worse) |
+| guide control @2 | `1b8edfdba405` | | 1.306 | 1.83 | 1.418 | 1.77 | 3.518 | 2.994 | 2.545 | 4.44 | |
+| lc @2 | `d901c8c82784` | `1b8edfdba405` | _1.480_ | 2.16 | _2.140_ | _3.54_ | 3.525 | 3.518 | 3.186 | 4.35 | mixed (seams worse) |
+
+- The rule says *mixed*: the primary (fine texture) ties inside S2's wide floor.
+  Plainly read, the carry **loses on the seams on both seeds**: look mean
+  +0.67 and +0.72 against a 0.438 floor, and jump mean past 0.124 on both.
+- Motion is kept (4.07 against 4.16, and 4.35 against 4.44), so the camera
+  still moves.
+- The S2 carry takes are 12.8-13.3 min, against 10.8-10.9 min for the
+  controls. Most of the gap is a fresh model load (160-167 s) in both carry
+  jobs. Without it they take 10.1-10.5 min, about the same as the controls.
+
+### The call (Step 3)
+
+- **#1044 (latent carry, extra rows): not built as a default.** On the static
+  scene it wins texture at the cost of coarse texture. It does not stop the
+  burn, and it ties when isolated. On the moving scene it loses the seams. Keep
+  the scratch flag for the keystone round below; the second ksl seed decides it.
+  If Don's eye does not prefer the carry's face there, close it with these
+  numbers.
+- **#1150 (the VRAM-saving arm 2) and #1030 (decode-once):** not measured by
+  this A/B. The only saving seen is the skipped re-encode, about 5 min per
+  two-minute take. That is not worth a feature on its own.
+- **The keystone reset is the lead to chase.** It is one seed, and it is the
+  first sign of a two-minute static take that comes back clean.
+
+### Next round for Steps 5-7 (#1188), recommended
+
+- **Run the keystone confirmation first. It is the smallest round that can
+  change the plan.** Two arms at seed 2, S1, 120 s, on two cards at once:
+  - `ks-pixel-anchor25-s1-120s-s2`;
+  - `ks-lc-anchor25-s1-120s-s2`.
+
+  That is about 2 x 68 min, 2.3 GPU-hours, or 70 min of wall. Optionally add
+  a third arm, keystone without the anchor at seed 1166 (about 52 min, 0.9
+  GPU-hours), to separate the keystone's reset from anchor 0.25's softness.
+  In total that is about 3.2 GPU-hours, or about 2 h on two cards.
+- **Hold the Step 5 build (hybrid windows) until that round reads.**
+  - Step 4's windowed refine already gives the seam pass, and it does not touch
+    the burn.
+  - If the chain keystone resets the burn at seed 2 as well, Step 6's
+    keystone/capstone question is answered in chain form. Step 5's remaining
+    value is then the seamless blended finish: a new block, plus at least
+    36 min per minute of take. That is a weak case.
+  - If the reset does not repeat, hybrid windows with a finished window-1
+    keystone (Steps 5-6) is the remaining structural burn lever, and it is worth
+    the build.
+- **Latent carry:** do not open a follow-up feature. The ksl seed-2 arm above
+  decides whether the scratch flag stays (face hold by eye) or #1044 closes.
+
+### Exports for Don
+
+Exports are in `~/Desktop/dw-bench-t17/`, side by side, x264 CRF 16:
+
+- `t17-s1-120s-keystone_LEFT-pixel_RIGHT-latentcarry-75-120s.mp4`
+  (`05a3a55b043c` | `4766787e793d`, the right take's track). It shows the reset
+  at about 80 s on the left, and the carry's face at the end.
+- `t17-s1-120s-noanchor_LEFT-pixel-control_RIGHT-latentcarry-40-70s.mp4`
+  (`8d1614ced27a` | `20ce09d60040`, the right take's track). It shows that
+  without the anchor the carry burns rather than softens.
+
+Records: `latent-carry.json` (the a and b drivers merged),
+`latent-carry-controls.json`, `latent-carry-controls-r36.json` (arms
+`bench/arms/latent-carry-controls-r36.json`), `latent-carry-noanchor.json`,
+and the moments pass `t17-t19-moments.json`. The moments pass was taken
+in-process on lem from the bench checkout at `6a89744a`: raw texture bands,
+face crop, seams, motion, per-segment audio, and PSNR.
