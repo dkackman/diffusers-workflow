@@ -302,7 +302,13 @@ def slice_audio(
             length = snapped
     _warn_on_slice_past_end(total, start, length, sample_rate)
     _warn_on_slice_trims_tail(
-        waveform, total, start, length, sample_rate, section=past_end == "stop"
+        waveform,
+        total,
+        start,
+        length,
+        sample_rate,
+        section=past_end == "stop",
+        snapped_seconds=snapped_seconds,
     )
     if start:
         emit_log(
@@ -552,7 +558,7 @@ def _warn_on_slice_past_end(total, start, length, sample_rate):
 
 
 def _warn_on_slice_trims_tail(
-    waveform, total, start, length, sample_rate, section=False
+    waveform, total, start, length, sample_rate, section=False, snapped_seconds=None
 ):
     """Say when a slice left material behind that the caller likely wanted.
 
@@ -580,7 +586,9 @@ def _warn_on_slice_trims_tail(
         or remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION
     ):
         if section:
-            _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate)
+            _warn_on_loud_tail(
+                waveform, total, start, slice_end, sample_rate, snapped_seconds
+            )
         return
     dropped = waveform[:, slice_end:total]
     peak_dbfs = level_dbfs(dropped, "peak")
@@ -602,7 +610,9 @@ def _warn_on_slice_trims_tail(
     )
 
 
-def _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate):
+def _warn_on_loud_tail(
+    waveform, total, start, slice_end, sample_rate, snapped_seconds=None
+):
     """Say when a section's slice dropped a tail that is still playing.
 
     A `past_end: "stop"` slice keeps a section whole up to its length, so a
@@ -612,6 +622,11 @@ def _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate):
     small-trim warning above only reached remainders under 5% and under
     10 s. Measured as RMS against the kept part's, so a decay or a fade to
     silence does not warn.
+
+    What was playing is the dropped tail, not the cut: when `end_snap_seconds`
+    moved the cut (`snapped_seconds` back from the asked length) it sits in
+    the quietest window there, so the wording names that move and the quiet
+    point rather than calling the cut mid-signal (#1199, the snap bench).
     """
     dropped_rms = level_dbfs(waveform[:, slice_end:total], "rms")
     kept_rms = level_dbfs(waveform[:, start:slice_end], "rms")
@@ -620,22 +635,37 @@ def _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate):
     if dropped_rms < kept_rms - SLICE_LOUD_TAIL_DB:
         return
     dropped_seconds = (total - slice_end) / float(sample_rate)
+    kept_seconds = (slice_end - start) / float(sample_rate)
+    levels = f"(RMS {dropped_rms:.1f} dBFS dropped against {kept_rms:.1f} dBFS kept)"
+    if snapped_seconds:
+        cut = (
+            f"'end_snap_seconds' moved the cut {snapped_seconds:.2f} s back from "
+            f"{kept_seconds + snapped_seconds:.2f} s to a quiet point at "
+            f"{kept_seconds:.2f} s, but the source runs {dropped_seconds:.2f} s "
+            f"past that cut and is still playing there {levels}, so whatever "
+            f"those {dropped_seconds:.2f} s held is lost. The snap keeps "
+            f"nothing more"
+        )
+    else:
+        cut = (
+            f"the source runs {dropped_seconds:.2f} s past the slice and is "
+            f"still playing there {levels}: the slice cut at "
+            f"{kept_seconds:.2f} s while it was still playing, and whatever "
+            f"the last {dropped_seconds:.2f} s held is lost. "
+            f"'end_snap_seconds' moves the cut to a quiet point but keeps "
+            f"nothing more"
+        )
     emit_warning(
-        f"slice_audio: the source runs {dropped_seconds:.2f} s past the slice "
-        f"and is still playing there (RMS {dropped_rms:.1f} dBFS dropped "
-        f"against {kept_rms:.1f} dBFS kept), so the slice cut it mid-signal "
-        f"at {(slice_end - start) / float(sample_rate):.2f} s and whatever "
-        f"the last {dropped_seconds:.2f} s held is lost. If the source was "
-        f"meant to end inside the slice, give it less material (a shorter "
-        f"lyric) or a longer slice; 'end_snap_seconds' moves the cut to a "
-        f"quiet point but keeps nothing more",
+        f"slice_audio: {cut}. If the source was meant to end inside the "
+        f"slice, give it less material (a shorter lyric) or a longer slice",
         kind="slice_dropped_loud_tail",
         command="slice_audio",
         source_seconds=round(total / float(sample_rate), 3),
-        seconds=round((slice_end - start) / float(sample_rate), 3),
+        seconds=round(kept_seconds, 3),
         dropped_seconds=round(dropped_seconds, 3),
         dropped_rms_dbfs=round(dropped_rms, 1),
         kept_rms_dbfs=round(kept_rms, 1),
+        snapped_seconds=round(snapped_seconds, 3) if snapped_seconds else None,
         sample_rate=sample_rate,
     )
 

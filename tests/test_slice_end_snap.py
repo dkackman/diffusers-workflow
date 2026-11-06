@@ -70,6 +70,40 @@ class TestLoudTailWarns:
         # The small-trim warning keeps to its own case
         assert kinds(events, "slice_trimmed_tail") == []
 
+    def test_an_unsnapped_cut_says_it_fell_while_the_source_played(self):
+        _, events = events_of(
+            lambda: slice_audio(
+                tone(40.0), duration_seconds=20.0, sample_rate=RATE, past_end="stop"
+            )
+        )
+        message = kinds(events, "slice_dropped_loud_tail")[0]["message"]
+        assert "mid-signal" not in message
+        assert "cut at 20.00 s while it was still playing" in message
+        assert "moved the cut" not in message
+
+    def test_a_snapped_cut_says_the_tail_played_not_the_cut(self):
+        # The snap moved the cut into the 15.0-15.3 s gap: the cut is quiet,
+        # the dropped tail after it is not (#1199: "cut it mid-signal at
+        # 82.17 s" when the cut sat in a -51 dBFS gap)
+        source = song((15.0, 0.5), (0.3, 0.0), (24.7, 0.5))
+        sliced, events = events_of(
+            lambda: slice_audio(
+                source,
+                duration_seconds=20.0,
+                sample_rate=RATE,
+                past_end="stop",
+                end_snap_seconds=8.0,
+            )
+        )
+        warning = kinds(events, "slice_dropped_loud_tail")[0]
+        message = warning["message"]
+        kept = sliced.audio.shape[1] / RATE
+        assert "mid-signal" not in message
+        assert f"moved the cut {20.0 - kept:.2f} s back from 20.00 s" in message
+        assert f"to a quiet point at {kept:.2f} s" in message
+        assert "still playing" in message
+        assert warning["snapped_seconds"] == pytest.approx(20.0 - kept, abs=1e-3)
+
     def test_a_quiet_decay_tail_does_not_warn(self):
         source = song((20.0, 0.5), (20.0, 0.005))
         _, events = events_of(
