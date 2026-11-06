@@ -318,7 +318,7 @@ LEGITIMATE_MENTIONS = {
     # a field of the step's 'chain' block, which this workflow writes inline
     "workflows/templates/minimax/chain-matched-and-aligned.json": {"prompts"},
     # a field of the step's 'chain' block
-    "workflows/templates/minimax/chained-segments.json": {"trim_frames"},
+    "workflows/templates/minimax/chained-segments.json": {"trim_frames", "look_hold"},
     # fields of a 'shots' list entry, not this workflow's own variables
     "workflows/templates/minimax/dialogue-short.json": {"prompt", "num_frames"},
     # the fl2va sub-workflow's argument, named to say this one leaves it unset
@@ -1142,3 +1142,20 @@ def test_ltx2_chained_segments_prompts_absent_falls_back_to_prompt():
     chain = _ltx2_chain_after_substitution(segments=2)
     config = ChainConfig(chain, {"prompt": "x"})
     assert not config.prompts
+
+
+def test_ltx2_chained_segments_holds_the_look_by_default():
+    # bench/records/ltx.md: look_hold won S5's seams on both seeds and left an
+    # LTX orbit's motion alone, at no measurable cost
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2)
+    assert chain["look_hold"] is True
+    assert ChainConfig(chain, {"prompt": "x"}).look_hold
+
+
+def test_ltx2_chained_segments_look_hold_false_is_the_plain_chain():
+    from dw.pipeline_processors.chain import ChainConfig
+
+    chain = _ltx2_chain_after_substitution(segments=2, look_hold=False)
+    assert not ChainConfig(chain, {"prompt": "x"}).look_hold

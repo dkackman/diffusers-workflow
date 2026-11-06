@@ -61,7 +61,8 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   bridge). LTX parity is measured (`bench/records/ltx.md`): `last_frame`
   is the default; cap a take at about 15-20 s, then cut to a fresh still;
   extend-clip is a knob at about 2.1x wall, for a subject that stays in
-  frame; `look_hold` is undecided (Don). LTX's
+  frame; `look_hold` is on by default (it smooths the seams and does
+  not hold an LTX orbit back, unlike H3). LTX's
   own: `templates/ltx2/extend-clip` continues an opening conditioned on all
   of it, not one frame; `clip` extends an existing clip (`width`/`height`
   matched, shorter than `num_frames`; clip_frames unused) instead of

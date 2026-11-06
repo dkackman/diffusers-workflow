@@ -72,8 +72,8 @@ Set `shot` on `templates/minimax/chained-segments` from the shot's
 
 Two rules that bite:
 
-- **Never use `last_frame` with `look_hold` or `carry_pick` on a camera
-  move.** It froze the orbit on seed 1166 and held it back on seed 2. The
+- **Never use `last_frame` with `look_hold` or `carry_pick` on an H3
+  camera move.** It froze the orbit on seed 1166 and held it back on seed 2. The
   "wins" were a camera that moved less (`bench/records/counters.md`,
   *Eye notes (S2)*).
 - **Cut static takes longer than about 30 s into shots.** With anchor 0.25
