@@ -22,7 +22,7 @@ from diffusers.modular_pipelines.modular_pipeline import ModularPipelineBlocks
 from diffusers.modular_pipelines.modular_pipeline_utils import InputParam
 
 from .h3_rules import GATED_GUIDE_ROWS, SELFLIFT_INPUT
-from .h3_selflift import (
+from .h3_selflift_latents import (
     lift,
     patchify,
     scale_factor,
