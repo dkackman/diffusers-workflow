@@ -1,5 +1,5 @@
-"""The experimental keystone slot (#1187/#1188 follow-on, #1199 Task 17): where
-a guide chain's `keystone: "segment_1"` frame sits in each later segment.
+"""The keystone slot (#1187/#1188 follow-on, #1199 Task 17): where a guide
+chain's `keystone: "segment_1"` frame sits in each later segment.
 
 Today's keystone is the fl2va keyframe, at rotary time 0 - the same slot as the
 guide's first latent, so the two condition rows contradict each other and the
@@ -7,7 +7,9 @@ burn resets only when the keystone happens to win, mid-segment. The slot moves
 it: `"last"` makes it the fl2va `last_image` (the trained last-frame anchor),
 `{"frame": 17j}` a one-frame guide past the carried tail, optionally gated by
 `enter_below_sigma`; the keyframe goes back to the guide's first frame. A
-scratch spike behind DW_EXPERIMENTAL_REFINE_WINDOWS."""
+stable chain key since Don's 2026-11-06 call (bench/records/structural.md,
+*Keystone slot*); only the sigma gate, which the windowed denoiser runs, stays
+behind DW_EXPERIMENTAL_REFINE_WINDOWS."""
 
 import pytest
 
@@ -55,14 +57,47 @@ def render(slot, **arguments):
 # 1. The rule
 
 
-def test_the_slot_is_refused_with_the_flag_off(monkeypatch):
+def test_the_key_is_stable():
+    assert CHAIN_KEYSTONE_SLOT == "keystone_slot"
+
+
+@pytest.fixture
+def flag_off(monkeypatch):
     monkeypatch.delenv(FLAG, raising=False)
-    assert FLAG in chain_keystone_slot_problem(chain(**{CHAIN_KEYSTONE_SLOT: "last"}))
 
 
-def test_absent_null_and_first_are_off(flag_on, monkeypatch):
+@pytest.mark.parametrize("slot", ["last", {"frame": 34}])
+def test_last_and_a_frame_need_no_flag(flag_off, slot):
+    assert chain_keystone_slot_problem(chain(**{CHAIN_KEYSTONE_SLOT: slot})) is None
+
+
+def test_a_gated_frame_slot_still_needs_the_flag(flag_off):
+    slot = {"frame": 34, "enter_below_sigma": 0.9}
+    problem = chain_keystone_slot_problem(chain(**{CHAIN_KEYSTONE_SLOT: slot}))
+    assert FLAG in problem and "enter_below_sigma" in problem
+
+
+def test_the_spike_s_name_is_refused_naming_the_stable_one(flag_off):
+    problem = chain_keystone_slot_problem(
+        chain(**{"experimental_keystone_slot": "last"})
+    )
+    assert "experimental_keystone_slot" in problem
+    assert "keystone_slot" in problem.replace("experimental_keystone_slot", "")
+    with pytest.raises(ValueError, match="renamed"):
+        ChainConfig(
+            chain(**{"experimental_keystone_slot": "last"}),
+            GuideShape().arguments(image=solid_frame((1, 2, 3))),
+        )
+
+
+def test_last_runs_with_the_flag_off(flag_off):
+    calls = render("last")
+    for call in calls[1:]:
+        assert call["last_image"].getpixel((0, 0)) == SEGMENT_1_FRAME_0
+
+
+def test_absent_null_and_first_are_off(flag_off):
     assert chain_keystone_slot_problem(chain()) is None
-    monkeypatch.delenv(FLAG, raising=False)
     assert chain_keystone_slot_problem(chain(**{CHAIN_KEYSTONE_SLOT: None})) is None
     assert chain_keystone_slot_problem(chain(**{CHAIN_KEYSTONE_SLOT: "first"})) is None
 
@@ -138,16 +173,15 @@ def test_last_is_refused_without_a_keyframe(flag_on):
         )
 
 
-def test_validation_wires_the_rule(monkeypatch):
+def test_validation_wires_the_rule(flag_off):
     from dw.guides import anchor_errors
 
-    monkeypatch.delenv(FLAG, raising=False)
     definition = {
         "steps": [
             {
                 "name": "s",
                 "pipeline": {
-                    "chain": chain(**{CHAIN_KEYSTONE_SLOT: "last"}),
+                    "chain": chain(**{CHAIN_KEYSTONE_SLOT: "middle"}),
                     "arguments": {},
                 },
             }

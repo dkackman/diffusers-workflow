@@ -166,7 +166,7 @@ class ChainConfig:
         # Segment 1's frame 0 as every later keyframe (#1187)
         _raise_chain_problem(chain_keystone_problem(chain_definition))
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
-        # Where the keystone sits in each later segment, a spike
+        # Where the keystone sits in each later segment (#1187)
         _raise_chain_problem(
             chain_keystone_slot_problem(
                 chain_definition,

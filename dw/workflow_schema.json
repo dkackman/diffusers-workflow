@@ -414,8 +414,8 @@
                     "required": ["enter_below_sigma"],
                     "additionalProperties": false
                 },
-                "experimental_keystone_slot": {
-                    "description": "Scratch spike (#1187/#1188, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains with keystone 'segment_1': where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is today's keystone, the fl2va keyframe at the guide's first latent; 'last' makes it the fl2va last_image (the step must pass an image and no last_image); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given. With 'last' or a frame the keyframe is the guide's first frame again.",
+                "keystone_slot": {
+                    "description": "MiniMax-H3 guide chains with keystone 'segment_1' (#1187/#1188): where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is plain keystone, the fl2va keyframe at the guide's first latent; 'last' makes it the fl2va last_image (the step must pass an image and no last_image), which on a static two-minute take held the backdrop with no reset pop, at the price of the subject easing back to the opening pose at each segment's end (bench/records/structural.md, *Keystone slot*); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given (the gate refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1). With 'last' or a frame the keyframe is the guide's first frame again. Accepts a 'variable:' reference.",
                     "type": ["object", "string", "null"],
                     "properties": {
                         "frame": {
