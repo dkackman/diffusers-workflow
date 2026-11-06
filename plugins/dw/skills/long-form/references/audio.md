@@ -6,11 +6,13 @@ detail (`get_workflow(name)`). This file says which one fits which request.
 ## Narration longer than one take
 
 Audio8-TTS holds about 95 s of reference, text and speech together (see
-`templates/voice-clone`). A longer narration is cut into takes at sentence
-boundaries and joined.
+`templates/voice-clone`), but the limit that bites is shorter: a take over
+about 40 s of speech loops, skips or stops early (`bench/records/audio.md`).
+A longer narration is cut into takes at sentence boundaries and joined.
 
 - **`templates/narration-long`** works from plain text in one call. It runs
-  `split_takes` (60 s takes at 2.5 words a second by default), then speaks
+  `split_takes` (37 s takes at 3.0 words a second by default, about 111
+  words: the voice speaks about 3.0 words a second), then speaks
   each take under one `reference_audio`, `reference_text` and `seed`, and
   joins them. `gap_seconds` (0.3) of silence follows each take, and
   `crossfade_ms` (30) overlaps each join. Abbreviations and initials are not
@@ -26,7 +28,8 @@ boundaries and joined.
 - **Consent.** Clone only a voice the user has the right to use. There is no
   default voice.
 - The 0.3 s gap is a first guess, not a measured pause. Tune it by ear.
-  The S6 bench round (over 3 minutes) is *pending measurement*.
+  The S6 bench round measured no voice drift between takes and join level
+  steps inside the in-take spread.
 
 ## Music longer than one Music 3 track
 

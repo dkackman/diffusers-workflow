@@ -116,7 +116,7 @@ the one break a repair cannot fix.
 - Across chain seams, the voice carries in the guide.
 - For music longer than one Music 3 track (300 s practical), use
   `templates/minimax/music-long`.
-- For narration longer than one TTS take (about 95 s of context), use
+- For narration longer than one TTS take (about 40 s of speech), use
   `templates/narration-long`, or `split_takes` and then
   `templates/narration-from-takes` to edit the takes first.
 - To put a track under a picture, use `pair_audio`.

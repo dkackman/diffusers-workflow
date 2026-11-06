@@ -3140,15 +3140,16 @@ no named form.
 
 `split_takes` cuts a long text into takes a speech model can say in one go
 (`dw/tasks/text_takes.py`). Audio8-TTS holds about 95 s of reference, text and
-speech together, so a narration longer than that is spoken take by take and
-joined (`templates/narration-long`).
+speech together, but a take over about 40 s of speech loops, skips or stops
+early (`bench/records/audio.md`), so a long narration is spoken take by take
+and joined (`templates/narration-long`).
 
 ```json
 {
     "name": "split",
     "task": {
         "command": "split_takes",
-        "arguments": { "text": "variable:text", "max_seconds": 60, "words_per_second": 2.5 }
+        "arguments": { "text": "variable:text", "max_seconds": 37, "words_per_second": 3.0 }
     },
     "result": { "content_type": "application/json" }
 }
@@ -3157,12 +3158,14 @@ joined (`templates/narration-long`).
 | Argument | Required | Description |
 | -------- | -------- | ----------- |
 | `text` | Yes | The text to speak |
-| `max_seconds` | No | The longest a take may run (default 60: the ~95 s voice-clone context less the reference clip) |
-| `words_per_second` | No | The rate that turns the limit into a word count (default 2.5; written dialogue measured 2.5 to 4 words a second as filling a clip) |
+| `max_seconds` | No | The longest a take may run (default 37: at 3.0 words a second, 111 words, the longest voice-clone take measured word-complete) |
+| `words_per_second` | No | The rate that turns the limit into a word count (default 3.0, the voice-clone voice's measured rate; written dialogue measured 2.5 to 4 words a second as filling a clip) |
 
 It answers `{takes, count, words}`. A take ends at a sentence boundary; a
 sentence that alone is over the limit is cut at its last comma before the
-limit, else (no comma) at the word boundary nearest the limit, and the run warns. The takes rejoin to the text, modulo whitespace.
+limit, else (no comma) at the word boundary nearest the limit, and the run warns.
+A take already 60% of the way to the limit ends at a paragraph break (a blank
+line), so the join's pause falls where the text has one. The takes rejoin to the text, modulo whitespace.
 The engine expands `for_each` before a run, so the list cannot feed a
 `for_each` in the same workflow. `templates/narration-long` takes the plain
 text, runs this task, and hands the takes to `templates/narration-from-takes`

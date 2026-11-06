@@ -212,3 +212,57 @@ def test_music_long_slice_audio_steps_carry_a_sample_rate():
     assert slices
     for step in slices:
         assert "sample_rate" in step["task"]["arguments"], step["name"]
+
+
+def test_the_defaults_are_the_measured_word_complete_take():
+    """bench/records/audio.md (S6): a take of 125-144 words (41-48 s of
+    speech) looped, skipped or stopped early; takes of up to 109 words were
+    word-complete, and the voice speaks about 3.0 words a second. So the
+    default take is 37 s at 3.0 words a second, 111 words."""
+    import inspect
+    import json
+    from pathlib import Path
+
+    from dw.tasks.text_takes import split_takes_task
+
+    for function in (split_takes, split_takes_task):
+        parameters = inspect.signature(function).parameters
+        assert parameters["max_seconds"].default == 37
+        assert parameters["words_per_second"].default == 3.0
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    for name in ("narration-long.json", "split-takes.json"):
+        template = json.loads((root / name).read_text())
+        assert template["variables"]["max_seconds"] == 37, name
+        assert template["variables"]["words_per_second"] == 3.0, name
+        assert "60 s" not in template["description"], name
+        assert "40 s of speech" in template["description"], name
+    assert len(split_takes(" ".join(["word"] * 111) + ".")) == 1
+    assert len(split_takes(" ".join(["word"] * 112) + ".")) == 2
+
+
+def paragraph(sentences, words_each):
+    return " ".join(
+        " ".join(f"p{n}w{i}" for i in range(words_each - 1)) + " end."
+        for n in range(sentences)
+    )
+
+
+def test_a_reasonably_full_take_ends_at_a_paragraph_break():
+    # limit 20 words; the first paragraph is 15 words, the second 10. Packed
+    # greedily, take 1 would run 5 words into paragraph 2
+    text = paragraph(3, 5) + "\n\n" + paragraph(2, 5)
+    takes = split_takes(text, max_seconds=20, words_per_second=1)
+    assert takes == [paragraph(3, 5), paragraph(2, 5)]
+
+
+def test_a_take_well_short_of_the_limit_runs_across_a_paragraph_break():
+    # the first paragraph is only 5 of 20 words, so it is not cut there
+    text = paragraph(1, 5) + "\n\n" + paragraph(2, 5)
+    takes = split_takes(text, max_seconds=20, words_per_second=1)
+    assert takes == [paragraph(1, 5) + " " + paragraph(2, 5)]
+
+
+def test_a_paragraph_break_after_whitespace_lines_counts():
+    text = paragraph(3, 5) + "\n  \n\n" + paragraph(2, 5)
+    takes = split_takes(text, max_seconds=20, words_per_second=1)
+    assert len(takes) == 2
