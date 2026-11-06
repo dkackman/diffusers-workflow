@@ -77,17 +77,26 @@ Two rules that bite:
   "wins" were a camera that moved less (`bench/records/counters.md`,
   *Eye notes (S2)*).
 - **Cut static takes longer than about 30 s into shots.** With anchor 0.25
-  the backdrop crusts from about 42 s, the face softens from 52 s, and by
-  83 s it is a mask. Without the anchor, the burn starts at 24 s
-  (`bench/records/counters.md`, *Round 3*). No tested counter makes a
-  two-minute static take usable.
-- **A take of any shot type drifts past about 35 s.** A 90 s
+  the backdrop crusts from about 42 s, the face softens from 52 s, it is
+  washed out by 83 s, and a mask by about 104 s. Without the anchor, the
+  burn starts at 24 s (`bench/records/counters.md`, *Round 3*). One
+  exception is under review: the chain key `keystone: segment_1` (guide
+  only) resets the burn on static two-minute takes, at both seeds, with a
+  visible mid-shot pop at an unpredictable time
+  (`bench/records/structural.md`, *Keystone confirmation*). It is the
+  leading candidate for static takes past 30 s; the default waits on Don.
+  Until he rules, cut at about 30 s. Never use it on a moving shot.
+- **An H3 take of any shot type drifts past about 35 s.** A 90 s
   `shot: dialogue` walk was clean to 35 s; from 45 s the face changed
   and by 60 s the picture was oversaturated and painterly. The check
   passed every seam, because the drift is in the carry
   (`bench/records/drill.md`, ask 1). Before quoting a longer "single
   take", say it will not hold, and offer chains of 35 s or less joined
   by cuts (the *Cuts* row above; `minimax-h3` has the cut rules).
+- **Cap an LTX-2.5 chain at about 15-20 s (3-4 segments).** At 36 s the
+  subject was replaced by about 30 s and streaks grew from 20 s. Cut and
+  start the next shot from a fresh still of the subject. `last_frame`
+  stays the LTX default (`bench/records/ltx.md`); `ltx-2.5` has the rest.
 
 The classification of the vocabulary's other moves is #1200. Until then,
 treat any move other than `static` as moving.
