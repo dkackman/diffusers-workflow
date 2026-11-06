@@ -74,6 +74,9 @@ from .chain_rules import (
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
     chain_capstone_problem,
+    chain_keystone_slot,
+    chain_keystone_slot_problem,
+    place_keystone,
     chain_latent_carry_problem,
     chain_check_problem,
     chain_look_hold_flags,
@@ -867,7 +870,11 @@ def _segment_arguments(
             )
 
     if segment.index > 0:
-        if keystone is not None:
+        if keystone is not None and config.keystone_slot is not None:
+            # Out of the keyframe's slot, which is the guide's first latent's
+            continuity.inject(segment_arguments, carry, config.segment_argument)
+            place_keystone(segment_arguments, keystone, config.keystone_slot)
+        elif keystone is not None:
             continuity.inject(
                 segment_arguments, carry, config.segment_argument, keystone=keystone
             )
@@ -1011,6 +1018,15 @@ class ChainConfig:
         if problem:
             raise ValueError(f"Chain {problem}")
         self.keystone = chain_definition.get("keystone", KEYSTONE_NONE)
+        # Where the keystone sits in each later segment, a spike
+        problem = chain_keystone_slot_problem(
+            chain_definition,
+            arguments.get("num_frames") if isinstance(arguments, dict) else None,
+            arguments if isinstance(arguments, dict) else None,
+        )
+        if problem:
+            raise ValueError(f"Chain {problem}")
+        self.keystone_slot = chain_keystone_slot(chain_definition)
 
         # Segment 1's late frame past every later segment's end (#1187), a spike
         problem = chain_capstone_problem(chain_definition)

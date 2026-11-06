@@ -53,8 +53,10 @@ from .adapter_compatibility import (
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.chain_rules import (
+    CHAIN_KEYSTONE_SLOT,
     CHAIN_LATENT_CARRY,
     chain_check_problem,
+    chain_keystone_slot_problem,
     chain_latent_carry_problem,
     chain_look_hold_problem,
 )
@@ -437,6 +439,17 @@ def anchor_errors(workflow_definition, source_indices=None):
                     "message": f"{problem}{where}",
                 }
             )
+        problem = chain_keystone_slot_problem(
+            chain,
+            arguments.get("num_frames") if isinstance(arguments, dict) else None,
+        )
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", CHAIN_KEYSTONE_SLOT)),
+                    "message": f"{problem}{where}",
+                }
+            )
         problem = chain_latent_carry_problem(
             chain,
             arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
@@ -574,6 +587,13 @@ def selflift_errors(workflow_definition, source_indices=None):
                 problems.append(
                     f"{SELFLIFT_INPUT} does not combine with a chain's "
                     f"experimental_capstone: its gated rows are row ranges of "
+                    f"the full canvas's layout"
+                )
+            slot = chain.get(CHAIN_KEYSTONE_SLOT) if isinstance(chain, dict) else None
+            if isinstance(slot, dict) and slot.get("enter_below_sigma") is not None:
+                problems.append(
+                    f"{SELFLIFT_INPUT} does not combine with a gated "
+                    f"{CHAIN_KEYSTONE_SLOT}: its gated rows are row ranges of "
                     f"the full canvas's layout"
                 )
             problems += selflift_problems(arguments, has_cache=cached)

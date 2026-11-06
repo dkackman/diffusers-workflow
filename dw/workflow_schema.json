@@ -394,6 +394,20 @@
                     "required": ["enter_below_sigma"],
                     "additionalProperties": false
                 },
+                "experimental_keystone_slot": {
+                    "description": "Scratch spike (#1187/#1188, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains with keystone 'segment_1': where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is today's keystone, the fl2va keyframe at the guide's first latent; 'last' makes it the fl2va last_image (the step must pass an image and no last_image); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given. With 'last' or a frame the keyframe is the guide's first frame again.",
+                    "type": ["object", "string", "null"],
+                    "properties": {
+                        "frame": {
+                            "type": ["integer", "string"]
+                        },
+                        "enter_below_sigma": {
+                            "type": ["number", "string", "null"]
+                        }
+                    },
+                    "required": ["frame"],
+                    "additionalProperties": false
+                },
                 "experimental_latent_carry": {
                     "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold, match_audio or a nonzero guide_noise. False or null is off.",
                     "type": ["boolean", "string", "null"]

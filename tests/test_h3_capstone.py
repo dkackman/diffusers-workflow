@@ -342,3 +342,46 @@ def test_end_to_end_the_gate_decides_when_the_capstone_counts(tiny_guided_h3):
     assert never.shape == late.shape == plain.shape
     assert torch.isfinite(late).all() and torch.isfinite(never).all()
     assert not torch.allclose(never, late, atol=1e-5)
+
+
+def test_end_to_end_a_gated_one_frame_guide_inside_the_render(tiny_guided_h3):
+    # The keystone slot's {"frame": 34, "enter_below_sigma"} guide
+    # (chain_rules.place_keystone): a one-frame row on a chunk boundary past
+    # the carried tail, gated like a capstone but not past the end
+    rng = np.random.default_rng(5)
+
+    def render(gate):
+        guides = [
+            {
+                "video": rng.integers(0, 255, (22, 32, 32, 3), "uint8"),
+                "frame": 0,
+                "audio": None,
+                "sample_rate": None,
+            },
+            {
+                "video": np.full((1, 32, 32, 3), 200, "uint8"),
+                "frame": 34,
+                "audio": None,
+                "sample_rate": None,
+                "past_end": False,
+                "enter_below_sigma": gate,
+            },
+        ]
+        return tiny_guided_h3(
+            prompt="a cat sat",
+            height=32,
+            width=32,
+            num_frames=124,
+            num_inference_steps=3,
+            guides=guides,
+            generator=torch.Generator("cpu").manual_seed(1234),
+            output="latents",
+        )
+
+    rng_state = rng.bit_generator.state
+    never = render(1e-6)
+    rng.bit_generator.state = rng_state
+    late = render(0.95)
+    assert never.shape == late.shape
+    assert torch.isfinite(late).all()
+    assert not torch.allclose(never, late, atol=1e-5)

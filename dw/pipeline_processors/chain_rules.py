@@ -267,3 +267,140 @@ def chain_latent_carry_problem(chain, guide_noise=None, hold_audio=None):
             "encode, and a latent guide is never encoded"
         )
     return None
+
+
+# The experimental keystone slot (#1187/#1188 follow-on, #1199 Task 17): where
+# a guide chain's `keystone: "segment_1"` frame sits in each later segment.
+# "first" (today's, the default) is the fl2va keyframe, at rotary time 0 - the
+# slot of the guide's own first latent, so the two condition rows contradict
+# each other. "last" makes it the fl2va `last_image`, the last-latent anchor
+# the model is trained on; {"frame": 17j, "enter_below_sigma"?} a one-frame
+# guide on a chunk boundary past the carried tail, optionally gated like the
+# capstone. Off either way, the keyframe is the guide's first frame again. A
+# scratch spike behind the windowed refine's flag (h3_rules), MiniMax-H3 only
+CHAIN_KEYSTONE_SLOT = "experimental_keystone_slot"
+KEYSTONE_SLOT_FIRST = "first"
+KEYSTONE_SLOT_LAST = "last"
+KEYSTONE_SLOT_FIELDS = ("frame", "enter_below_sigma")
+
+
+def _unresolved(value):
+    return isinstance(value, str) and references.is_ref(references.UNRESOLVED, value)
+
+
+def chain_keystone_slot_problem(chain, num_frames=None, arguments=None):
+    """The reason a chain block's `experimental_keystone_slot` is refused, or
+    None. Absent, null and "first" are today's keystone. Otherwise refused:
+    the flag off; a keystone other than `segment_1`; a value other than
+    "first", "last" or {frame, enter_below_sigma?}; a frame off the 17-frame
+    grid, inside the carried guide (it would contradict a guide row again) or
+    past the segment's `num_frames` when known; a gate not in (0, 1]. With
+    the step's `arguments` (the run), "last" also needs the fl2va keyframe
+    and refuses a `last_image` of the step's own. Unresolved references are
+    left to the run."""
+    slot = chain.get(CHAIN_KEYSTONE_SLOT)
+    if slot is None or slot == KEYSTONE_SLOT_FIRST or _unresolved(slot):
+        return None
+    from .h3_rules import (
+        GUIDE_CHAIN_DEFAULT,
+        KEYSTONE_SEGMENT_1,
+        REFINE_WINDOWS_ENV_VAR,
+        guide_frame_problem,
+        refine_windows_enabled,
+    )
+
+    if not refine_windows_enabled():
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} is a scratch spike, off unless "
+            f"{REFINE_WINDOWS_ENV_VAR}=1 is set where the pipeline loads"
+        )
+    keystone = chain.get("keystone")
+    if keystone != KEYSTONE_SEGMENT_1 and not _unresolved(keystone):
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} places the keystone, so it needs keystone "
+            f"'segment_1', got {keystone!r}"
+        )
+    if slot == KEYSTONE_SLOT_LAST:
+        return _last_slot_problem(chain, arguments)
+    if not isinstance(slot, dict):
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} is one of {KEYSTONE_SLOT_FIRST}, "
+            f"{KEYSTONE_SLOT_LAST} or {{frame, enter_below_sigma?}}, got {slot!r}"
+        )
+    unknown = sorted(set(slot) - set(KEYSTONE_SLOT_FIELDS))
+    if unknown:
+        return f"{CHAIN_KEYSTONE_SLOT} has unknown key(s) {unknown}"
+    if "frame" not in slot:
+        return f"{CHAIN_KEYSTONE_SLOT} {{frame, enter_below_sigma?}} needs a frame"
+    gate = slot.get("enter_below_sigma")
+    if gate is not None and (
+        not _number_over(gate, 0) or (not isinstance(gate, str) and gate > 1)
+    ):
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} enter_below_sigma is a sigma in (0, 1], "
+            f"got {gate!r}"
+        )
+    frame = slot["frame"]
+    if _unresolved(frame):
+        return None
+    problem = guide_frame_problem(frame)
+    if problem:
+        return f"{CHAIN_KEYSTONE_SLOT} {problem}"
+    guide_frames = chain.get("guide_frames", GUIDE_CHAIN_DEFAULT)
+    if isinstance(guide_frames, int) and frame < guide_frames:
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} frame {frame} must be past the guide's "
+            f"{guide_frames} frames, or it lands on a guide row again"
+        )
+    if isinstance(num_frames, int) and frame >= num_frames:
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} frame {frame} is past the segment's "
+            f"{num_frames} frames"
+        )
+    return None
+
+
+def _last_slot_problem(chain, arguments):
+    if arguments is None:
+        return None
+    if arguments.get("last_image") is not None:
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} 'last' sets every later segment's "
+            "last_image, and the step passes one of its own - drop one"
+        )
+    if arguments.get(chain.get("segment_argument", "image")) is None:
+        return (
+            f"{CHAIN_KEYSTONE_SLOT} 'last' is an fl2va last-frame anchor, and "
+            "the step has no keyframe - it needs fl2va with an image"
+        )
+    return None
+
+
+def chain_keystone_slot(chain):
+    """A checked `experimental_keystone_slot` as the run uses it: None for
+    today's keystone, "last", or {"frame": int, "enter_below_sigma": float or
+    None}."""
+    slot = chain.get(CHAIN_KEYSTONE_SLOT)
+    if slot is None or slot == KEYSTONE_SLOT_FIRST:
+        return None
+    if slot == KEYSTONE_SLOT_LAST:
+        return slot
+    gate = slot.get("enter_below_sigma")
+    return {
+        "frame": int(slot["frame"]),
+        "enter_below_sigma": None if gate is None else float(gate),
+    }
+
+
+def place_keystone(arguments, keystone, slot):
+    """Put segment 1's keystone frame into a later segment's `arguments` at
+    `slot` (`chain_keystone_slot`, not None): as its `last_image`, or as a
+    one-frame guide after the carried one."""
+    if slot == KEYSTONE_SLOT_LAST:
+        arguments["last_image"] = keystone
+        return
+    guide = {"video": [keystone], "frame": slot["frame"]}
+    if slot["enter_below_sigma"] is not None:
+        guide["enter_below_sigma"] = slot["enter_below_sigma"]
+    # A copy: iteration arguments share nested values
+    arguments["guides"] = list(arguments.get("guides") or []) + [guide]
