@@ -577,7 +577,11 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 13_550 (measured 13_514) for the Music 3 lyric rule (#1199 drill):
 # `lyrics`/`song_lyrics` "non-empty" on the three Music 3 templates, since an
 # empty lyric passed validation and failed after the model loaded.
-COMPACT_BUDGET = 13_550
+# Then to 13_700 (measured 13_634, from 13_549) for the long-form cost rows
+# (#1199): `minimax/repair-segment`'s measured 8.1 min, and
+# `narration-from-takes`' per-take rows on CUDA and MPS, which
+# `narration-long` now carries rolled up from its child.
+COMPACT_BUDGET = 13_700
 FILTERED_BUDGET = 1_500
 
 
