@@ -101,6 +101,7 @@ import torch
 from .. import references
 from ..events import emit_log
 from ..for_each import render_path
+from ..sparse_attention import forward_arg
 from .h3_rules import REFINE_WINDOWS_ENV_VAR, not_h3
 
 logger = logging.getLogger("dw")
@@ -412,31 +413,13 @@ def _target_order(position_ids, token_tags):
     return order.to(position_ids.device), (t, h, w)
 
 
-_FORWARD_ARGS = (
-    "hidden_states",
-    "audio_hidden_states",
-    "encoder_hidden_states",
-    "timestep",
-    "timestep_indices",
-    "token_tags",
-    "position_ids",
-)
-
-
-def _forward_arg(args, kwargs, name):
-    if name in kwargs:
-        return kwargs[name]
-    index = _FORWARD_ARGS.index(name)
-    return args[index] if index < len(args) else None
-
-
 def _pre_hook(component, args, kwargs):
     state = component._dw_tst_state
     state.observe(
-        _forward_arg(args, kwargs, "position_ids"),
-        _forward_arg(args, kwargs, "token_tags"),
-        _forward_arg(args, kwargs, "timestep"),
-        _forward_arg(args, kwargs, "timestep_indices"),
+        forward_arg(args, kwargs, "position_ids"),
+        forward_arg(args, kwargs, "token_tags"),
+        forward_arg(args, kwargs, "timestep"),
+        forward_arg(args, kwargs, "timestep_indices"),
     )
     state.active = True
     return None

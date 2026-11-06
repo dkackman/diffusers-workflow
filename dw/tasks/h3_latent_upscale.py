@@ -557,22 +557,9 @@ def encode_take(vae, read, source_frames, pixel_mean, pixel_std, seed, device):
 def _take_reader(source):
     """`(read, source_frames, fps, path, (height, width))` for a take: a file
     read a clip's range at a time (#695), or frames already in memory sliced."""
-    from .video_utils import (
-        VideoFileReference,
-        frames_as_array,
-        is_video_location,
-        local_video_path,
-    )
+    from .video_utils import frames_as_array, local_path_or_video
 
-    path = None
-    if isinstance(source, VideoFileReference):
-        path = source.path
-    elif is_video_location(source):
-        path = local_video_path(source)
-        if path is None:
-            from .video_utils import load_audio_video
-
-            source = load_audio_video(source)
+    path, source = local_path_or_video(source)
     if path is not None:
         shape = video_shape(path)
         return (

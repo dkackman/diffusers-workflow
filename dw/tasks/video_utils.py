@@ -551,6 +551,22 @@ def local_video_path(location, base_dir=None):
     return validated_path
 
 
+def local_path_or_video(source):
+    """`(path, source)` for a take a caller reads its own way: the local file
+    a VideoFileReference or a local video location names, with `source` as
+    given, or None and the video loaded (`load_audio_video`) for a URL, or
+    None and `source` as given for frames already in memory (join_windows'
+    source and encode_h3_latents' take, #695)."""
+    if isinstance(source, VideoFileReference):
+        return source.path, source
+    if is_video_location(source):
+        path = local_video_path(source)
+        if path is None:
+            return None, load_audio_video(source)
+        return path, source
+    return None, source
+
+
 def is_video_location(value):
     """Whether value is something load_audio_video can load: a path/URL
     string, or a {"location": ...} dict wrapping one - the form validation
