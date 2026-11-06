@@ -644,3 +644,176 @@ In `~/Desktop/dw-bench-t17/`, side by side, x264 CRF 16:
   is at 3.7 s (91.7 s), and the pixel's second reset at about 23 s
   (111 s). Compare the faces at the end: soft mask on the left, sharp on the
   right. This clip decides #1044's flag.
+
+## Keystone slot (#1187, #1188)
+
+Arms `bench/arms/keystone-regular.json` (engine `experimental_keystone_slot`,
+4ef3cd03), record `keystone-regular.json`, re-measured on the standard three
+moments (frames 62, 1501, 2868): the run's `--measure` asked for 13 and the
+compare route takes 8, so the run left a 400 in every row's `error`. The copy
+here clears it. S1, 120 s, guide, anchor none, keystone segment_1. The
+control is plain keystone `c4ec5a055464` (seed 1166).
+
+### Verdict
+
+- **Slot "last" holds the crust down for the whole two minutes, with no pop,
+  on both seeds.** Each segment's crust stays at 1.1-1.5x segment 1 (find.py's
+  backdrop measure), against plain keystone's sawtooth of 1.0-6.3x. The face
+  holds too: sharp, natural, segment 1's identity to 120 s, with none of the
+  painted burn or hair drift.
+  - Seed 1166 (`3232cabd16b1`): segment means 1.11-1.46x, 1.23x at the end.
+  - Seed 2 (`94c5c0b219b3`): 1.16-1.40x, 1.37x at the end.
+- **Its price is a 4.25 s pose loop.** The subject goes back to segment 1's
+  exact opening pose at the end of every segment, and nearly stops there.
+  Each segment is one excursion (a glance, a blink, a head turn) and a
+  return to front-on. It eases in and out with no snap: the seam's motion
+  step is no larger than the take's own (2.4 against a p99 of 3.1). But the
+  rhythm repeats 28 times. In a strip it reads as natural, glance and return.
+  Played through, it may read as a loop. That is Don's call (clip below).
+- **The rest fail.**
+  - **f34** (`726bb72c3908`) does make the reset regular. The crust drops
+    from 1.4-1.9x to 1.05x at render frame 32-34 in nearly every segment.
+    But the reset comes with a visible snap: the pose jumps to segment 1's
+    in one frame (eyes down to front-on), at a motion step of 12-25 against
+    a p99 of 11.8. From about 64 s the drop moves to the seam (render 22).
+    The hair frizzes from about 80 s.
+  - **f34 gated at sigma 0.9** (`16f116c27981`) is the worst take of the
+    round. The keystone never takes the guide over. It shows as a
+    three-frame flash of segment 1's clean frame at render 34-36 in every
+    segment. The crust climbs to 13.6x by 77 s, past the guide control's
+    peak of 10.6x, before one partial reset. Close it.
+  - **guide_noise 0.4** (`60d9f28c6865`): the threshold did not drop. It
+    rose. Pops are at 45.5 s (from 5.9x) and 85.7-87.0 s (from 6.4x),
+    against the control's 4.8-5.2x and 6.3x. As predicted, crust grows
+    faster: segment 2-5 means are 1.26-2.41 against 1.16-2.09. It ends at
+    6.4x. It is still a sawtooth.
+  - **guide_frames 39** (`d5cb657fb9e8`): the first threshold rose as
+    predicted. The first pop is at 58.5 s, from 9.8x, in one frame (the
+    hardest pop yet). The later two are lower: 94.9 s (6.5 to 3.9x) and
+    101.3-102 s (4.4 to 1.5x). The 39-frame guide means 34 segments and
+    71.3 min wall (+18 min). Close it.
+- **Recommendation.** Slot "last" is the winner. It should replace plain
+  keystone as the static long-take default if Don accepts the pose loop.
+  If he does not, plain keystone stays, and the slot work closes. It is not
+  promotable until two things are settled:
+  - **The prompt confound.** The later-segment prompt names `<Picture 2>` at
+    5.17 s, the last frame. One arm without that clause, at seed 1166, says
+    whether the slot alone holds.
+  - **A moving scene.** The slot pins every segment's last frame to segment
+    1's, so it cannot work on S2's arc as it stands. It is static only.
+
+### Measures
+
+Seams over all 28 (33 for g39), and the end-of-take texture (frame 2868
+against 62). Floors: jump 0.124, look 0.438, fine 0.081, mid 0.159, coarse
+0.118. **Bold** is better than the control past the floor; _italic_ is
+worse. Wall minutes are two arms at a time, one per card, as the control was.
+
+| arm | job | control | jump | jump max | look | look max | tex fine | tex mid | tex coarse | wall min | verdict (picture) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| plain keystone, 1166 (control) | `c4ec5a055464` | | 0.844 | 1.06 | 1.156 | 2.04 | 0.527 | 0.200 | 0.028 | 53.0 | |
+| slot last, 1166 | `3232cabd16b1` | `c4ec5a055464` | 0.737 | 1.50 | _1.609_ | 2.78 | **0.098** | **0.017** | 0.005 | 61.9 | **wins** (look by 0.015 past the floor) |
+| slot last, seed 2 | `94c5c0b219b3` | `e4c7c19a99cd`* | **0.676** | 1.13 | _1.590_ | 2.53 | 0.183 | 0.037 | 0.003 | 62.1 | wins by eye |
+| f34 | `726bb72c3908` | `c4ec5a055464` | _1.341_ | 4.04 | 1.106 | 2.49 | **0.156** | **0.029** | 0.016 | 56.5 | loses by eye (pose snap) |
+| f34, gate 0.9 | `16f116c27981` | `c4ec5a055464` | _1.055_ | 1.72 | _1.687_ | 4.53 | _1.542_ | _1.047_ | 0.068 | 55.2 | loses |
+| guide_noise 0.4 | `60d9f28c6865` | `c4ec5a055464` | 0.843 | 0.99 | 0.884 | 2.90 | _1.314_ | _0.672_ | 0.010 | 53.8 | loses |
+| guide_frames 39 | `d5cb657fb9e8` | `c4ec5a055464` | 0.902 | 1.17 | 1.217 | 2.33 | 0.529 | 0.210 | 0.007 | 71.3 | tie, +18 min |
+
+\* There is no seed-2 plain keystone take without the anchor. The seed-2
+row is read against keystone + anchor 0.25 (`e4c7c19a99cd`), so read it by
+eye.
+
+- The "last" arms' worse look comes from how they end. Each segment slows to
+  near stillness on the return pose (motion 0.13 in the last frame, against
+  about 1 mid-segment). `look_ratio` divides by the local rate, so a small
+  step scores high. At the seams the eye sees a slight tone step: the eyes
+  go a little bluer and brighter. It is not a jump.
+- End-of-take texture depends on where a take sits on its sawtooth. The
+  crust table below is the read.
+
+Backdrop crust (find.py: high-frequency energy of three backdrop crops, in
+multiples of segment 1), every 10 s, then the pops (a fall of more than 0.12x
+in 4 frames that holds):
+
+| take | 0 | 10 | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 | 110 | end | pops (s, render frame, crust before -> after) |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| plain keystone `c4ec5a055464` | 0.91 | 1.43 | 2.11 | 3.47 | 1.65 | 1.88 | 2.83 | 4.76 | 2.70 | 2.19 | 2.25 | 2.29 | 3.02 | 39.7 (r34, 4.8->1.6); 77.9-80.7 gradual (6.3->1.75); 99.3 (3.2->2.3); 107.7 (2.9->2.3) |
+| slot last, 1166 `3232cabd16b1` | 0.91 | 1.29 | 1.30 | 1.24 | 1.47 | 1.42 | 1.25 | 1.49 | 1.39 | 1.23 | 1.37 | 1.34 | 1.23 | none |
+| slot last, s2 `94c5c0b219b3` | 0.91 | 1.32 | 1.33 | 1.14 | 1.32 | 1.38 | 1.23 | 1.33 | 1.33 | 1.26 | 1.34 | 1.37 | 1.37 | none |
+| f34 `726bb72c3908` | 0.91 | 1.06 | 1.55 | 1.41 | 1.20 | 1.50 | 1.16 | 1.12 | 1.16 | 1.09 | 1.58 | 1.77 | 1.35 | every segment from 31 s: r32-34 (1.4-1.9->1.05) to 57 s, then r22 at 65-95 s, r32 at 103-112 s |
+| f34 gate 0.9 `16f116c27981` | 0.91 | 1.29 | 2.39 | 4.15 | 7.13 | 9.97 | 11.55 | 13.08 | 2.41 | 3.98 | 5.97 | 7.03 | 8.65 | 3-frame clean flash at r34 every segment; one reset 77.4 s (13.6->4.5) |
+| guide_noise 0.4 `60d9f28c6865` | 0.91 | 1.61 | 2.42 | 3.52 | 5.53 | 1.75 | 2.64 | 4.27 | 5.72 | 1.86 | 3.28 | 4.78 | 6.41 | 44.8-45.7 (r56-77, 5.9->1.5); 84.7-87.0 (r94-r47 of the next, 6.4->1.9) |
+| guide_frames 39 `d5cb657fb9e8` | 0.91 | 1.45 | 2.32 | 3.34 | 4.67 | 7.23 | 1.47 | 2.10 | 3.16 | 5.39 | 4.21 | 1.82 | 3.07 | 58.5 (r43, 9.8->1.5, one frame); 94.9 (r68, 6.5->3.9); 101.3-102.0 (r52-68, 4.4->1.5) |
+| ks + anchor, s2 `e4c7c19a99cd` | 0.91 | 1.29 | 1.90 | 2.48 | 3.27 | 3.99 | 1.52 | 1.99 | 2.66 | 3.40 | 4.31 | 3.99 | 1.39 | 58.6-58.8 (r81-85, 4.4->1.6); 110.5-111.2 (r102-119, 4.5->1.4) |
+| guide control `8d1614ced27a` | 0.91 | 1.37 | 2.32 | 4.24 | 7.49 | 9.29 | 8.96 | 5.89 | 7.09 | 8.73 | 4.95 | 6.55 | 6.92 | partial only: 60.3-63.0 (10.6->4.7); 94.4 (r22, 8.7->4.6) |
+
+- Plain keystone's first pop is at 39.7 s, render 34, as in the spike's table.
+  The spike called its second "80.5 s". Here it is a 3 s slide from 77.9 s.
+- Thresholds just before each full pop: plain keystone 4.8x, then 6.3x; noise
+  0.4 5.9x, then 6.4x; g39 9.8x, then 6.5x, then 4.4x; keystone + anchor (s2)
+  4.4x, then 4.5x. The threshold moves with the take, not cleanly with the
+  knob.
+- Single-frame dips on the 17-frame grid (r35, 52, 69, 86, 103, 120) show in
+  every take without the slot fix, the guide control included. They are the
+  latent chunk boundaries, not pops, and the table leaves them out.
+
+### By eye
+
+Full frames every 10 s for all nine takes, strips across seams 12-14 (slot
+last), and frames 1150-1161 (render 28-39 of segment 12, f34 and gate 0.9).
+Pose is measured as the subject crop's mean difference from segment 1's
+frame 0.
+
+- **Slot last, both seeds.**
+  - The backdrop is segment 1's flat painted wall at every 10 s mark, with
+    sharp circle and square edges. There is a faint speckle at most.
+  - The face is sharp, natural and the same person to 120 s. Light brown
+    hair with blonde streaks, a plain sweater weave. It is the best face of
+    any two-minute take so far, anchor or carry included.
+  - Pose: the last frame of every segment sits 4.1 from segment 1's frame 0.
+    The take's own first 20 frames sit 4.05 from it, and mid-segment sits
+    13.5. So every segment returns to the opening pose. Plain keystone sits
+    at 31 throughout. The return eases: motion falls from about 1.4
+    mid-segment to 0.13 at the last frame. There is no snap.
+  - At the seam there is a slight tone step (eyes bluer, skin a touch
+    warmer), as in every chained take.
+- **f34.**
+  - The backdrop crust stays low, but you can see it breathe. The texture
+    builds over about 1.5 s, then wipes at render 34.
+  - At the wipe the pose snaps to segment 1's in one frame (segment 12:
+    eyes down at 1155, front-on and eyes open at 1156).
+  - The hair goes frizzy and curly from about 80 s, and stringy at the
+    ends by 110 s.
+- **f34 gate 0.9.** It burns like the guide control, and harder. Shattered
+  confetti backdrop from 40 s, a metallic face from 50 s. Every segment
+  flashes segment 1's clean frame for 3 frames (1156-1158). Close it.
+- **guide_noise 0.4.** A sawtooth, as plain keystone. The pops at 45 and
+  86 s are full wipes. The face stays natural, with mild freckling.
+- **guide_frames 39.** A sawtooth. By 100 s the hair is tight corkscrew
+  curls and the face is cracked. The 58.5 s pop is a one-frame wipe of
+  heavy crust, the most visible pop in the round.
+- **Staging** (camera, circle, square, light) holds in every take.
+
+### Audio
+
+Per-segment RMS, then the 20 s means:
+
+- Slot last: room tone only, -48 to -84 dB per segment. The 20 s means are
+  -54 to -66 dB (s1166) and -53 to -79 dB (s2). No bed, no break.
+- noise 0.4 and plain keystone: room tone, -50 to -87 dB.
+- f34 grows a steady bed from about 47 s (-33 to -40 dB per segment).
+  Gate 0.9 grows one from about 63 s (-27 to -32 dB). g39 rises at the end
+  (-37 dB). This is like the seed-1166 guide control's late bed (-10 dB),
+  but quieter. Not checked by ear.
+- The soundtrack is unbroken in every take: 120.0 s, with no silent segment.
+
+### Exports for Don
+
+In `~/Desktop/dw-bench-t17/`, side by side, x264 CRF 16:
+
+- `t17-s1-120s-s1166-keystone_LEFT-slot-last_RIGHT-plain-keystone-30-50s.mp4`
+  (`3232cabd16b1` | `c4ec5a055464`, the left take's track). The right take
+  pops at 9.7 s (39.7 s). The left take stays clean, with no pop, through
+  the stretch. Watch the left subject's return to the front-on pose at
+  every seam: 1.2, 5.5, 9.7, 14.0 and 18.2 s into the clip. That rhythm is
+  the call.
