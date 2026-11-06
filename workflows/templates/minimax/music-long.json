@@ -1,6 +1,22 @@
 {
   "id": "MiniMaxMusicLong",
   "description": "A piece longer than one Music 3 track, written as sections and joined. Music 3 is practical to about 300 s (stay at or under it); a longer piece is generated section by section, each section trimmed to its 'seconds' (or kept at its own length when Music 3 ends it early, so a join never meets silence), faded out a little, and crossfaded into the next. 'sections' is a list of {name, caption, lyrics, seconds, audio_duration}: 'caption' is that section's Music 3 prompt, 'lyrics' its tagged lyrics (a tag-only body such as \"[intro]\\n[instrumental]\\n[outro]\" for an instrumental: an empty lyric is refused), 'seconds' the most of it kept, and 'audio_duration' the generation ceiling - 1.5 times 'seconds', per the Music 3 skill, because the ceiling is not a target and a ceiling set at the wanted length cuts the end off and stretches the caption; the engine does no arithmetic, so write both. The lyric, not 'audio_duration', sets how long a section runs: Music 3 ends a section when its lyric is sung, so write enough lyric lines for the 'seconds' asked (a 4-line lyric came back 27-70 s for 85 s asked). The loaded model is reused across sections. The sections are generated independently: section-to-section style continuity is NOT guaranteed - key, tempo, instrumentation and mix can all change at a seam, so repeat the same style tags in every caption, keep each section's caption describing the same band, and expect to listen at the joins. 'crossfade_ms' (1500 by default) overlaps the end of one section with the start of the next, which hides a change of sound better than a short fade but cannot hide a change of tempo; 'section_fade_out_ms' (400) rounds each section's trimmed end. A beat-aligned join through analyze_beats is not attempted. The joined piece is peak-normalized to -3 dBFS (Music 3 lands at or over full scale; see 'minimax/music'). The joined length is at most the sum of the sections' 'seconds' minus one crossfade per join; a section that ended early makes the piece that much shorter, and the run warns ('joined_short') with the real total against the asked one. A section that runs longer than its 'seconds' is cut at the quietest point (a phrase gap or a bar break) in the last 'section_end_snap_seconds' (8 by default, about two bars at 72 BPM; 0 cuts at exactly 'seconds') before 'seconds', so the piece may come out up to that much shorter per long section - logged, not warned - and the run warns ('slice_dropped_loud_tail') with the seconds dropped and their level: the section was still playing, so whatever it held after the cut, sung lines included, is lost; write fewer lines for it. Cost grows with the sum of the sections' 'audio_duration'.",
+  "cost": [
+    {
+      "device": "cuda",
+      "name": "RTX 3090",
+      "vram_gb": 24,
+      "minutes": 2.6,
+      "scales_with": ["audio_duration"]
+    },
+    {
+      "device": "mps",
+      "name": "M5 Pro 64GB",
+      "vram_gb": 64,
+      "minutes": 6.9,
+      "scales_with": ["audio_duration"]
+    }
+  ],
   "cost_drivers": [
     "sections"
   ],

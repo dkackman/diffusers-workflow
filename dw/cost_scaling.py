@@ -5,8 +5,10 @@ A workflow's `cost` entry is measured at its variable defaults. The
 variables its `cost_drivers` names are the ones the author says move that
 figure: a generic diffusers driver (`num_inference_steps`, `width` and
 `height`, `num_frames`, per list entry summed) scales it in proportion
-(`scale_curated`); any other declared driver that moved has no rule to
-scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
+(`scale_curated`), and so does any driver a `cost` entry names in its
+`scales_with` (a Music 3 `audio_duration`, or that field summed over a
+list driver's entries - #1199); any other declared driver that moved has no
+rule to scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
 and applies the answer (`_scaled`); `dw/server/deps.py` scales an inherited
 figure with the same `scale_curated`, so an inline copy and its template
 quote one request alike. The basis labels an estimate carries live here
@@ -174,23 +176,40 @@ def scale_curated(minutes, defaults, effective):
     return minutes * factor, axes
 
 
-def _entry_frames(entries):
-    """The per-entry `num_frames` of a list's entries as numbers, or None
-    when an entry carries none (or a non-numeric one)."""
+SCALES_WITH_KEY = "scales_with"
+
+
+def _declared_proportional(definition):
+    """The names the workflow's `cost` entries say their figure is
+    proportional to (`scales_with`), beyond the generic diffusers ones. The
+    model's rule, declared by the workflow: the engine knows no music
+    argument of its own."""
+    names = []
+    for entry in definition.get("cost") or []:
+        declared = entry.get(SCALES_WITH_KEY) if isinstance(entry, dict) else None
+        for name in declared if isinstance(declared, list) else ():
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+    return names
+
+
+def _entry_frames(entries, field=FRAMES_DRIVER):
+    """The per-entry `field` (`num_frames` by default) of a list's entries
+    as numbers, or None when an entry carries none (or a non-numeric one)."""
     if not isinstance(entries, list) or not entries:
         return None
     frames = []
     for entry in entries:
-        number = (
-            _positive(entry.get(FRAMES_DRIVER)) if isinstance(entry, dict) else None
-        )
+        number = _positive(entry.get(field)) if isinstance(entry, dict) else None
         if number is None:
             return None
         frames.append(number)
     return frames
 
 
-def _list_frames_scaling(name, default_entries, effective_entries, list_entries):
+def _list_frames_scaling(
+    name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
+):
     """A list driver's per-entry frames as (factor, axis) - (1.0, None) when
     they did not move - or None when they moved in a way that cannot be
     scaled (#593, #866).
@@ -200,12 +219,14 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
     mean per entry is left to scale, so the two multiply to the summed ratio
     rather than counting the length twice.
     """
-    measured = _entry_frames(default_entries)
-    running = _entry_frames(effective_entries)
+    measured = _entry_frames(default_entries, field)
+    running = _entry_frames(effective_entries, field)
     if measured is None or running is None:
         # Nothing to sum on one side: only a frame count outside the values
         # the default entries carried leaves no figure, as before (#593)
-        if _list_entry_field_shifted(default_entries, effective_entries):
+        if field == FRAMES_DRIVER and _list_entry_field_shifted(
+            default_entries, effective_entries
+        ):
             return None
         return 1.0, None
     was, now = sum(measured), sum(running)
@@ -216,7 +237,8 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
         factor = (now / len(running)) / (was / len(measured))
         if math.isclose(factor, 1.0):
             return 1.0, None
-    return factor, f"frames {_shown(now)} vs {_shown(was)} over {name}"
+    label = "frames" if field == FRAMES_DRIVER else field
+    return factor, f"{label} {_shown(now)} vs {_shown(was)} over {name}"
 
 
 # The declared drivers that set how many segments a chain runs; the count
@@ -322,6 +344,7 @@ def _driver_scaling(definition, expanded, list_entries):
     running = {}
     unscaled = []
     chain_drivers = []
+    proportional = _declared_proportional(definition)
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
         if name in CHAIN_LENGTH_DRIVERS:
@@ -336,12 +359,33 @@ def _driver_scaling(definition, expanded, list_entries):
             factor *= frames[0]
             if frames[1]:
                 axes.append(frames[1])
+            for field in proportional:
+                if field == FRAMES_DRIVER:
+                    continue
+                summed = _list_frames_scaling(
+                    name, default_value, effective.get(name), list_entries, field
+                )
+                if summed is None:
+                    return None
+                factor *= summed[0]
+                if summed[1]:
+                    axes.append(summed[1])
             continue
         if name in list_entries:
             continue
         if name in SCALABLE_DRIVERS:
             at_default[name] = default_value
             running[name] = effective.get(name)
+        elif name in proportional:
+            if _driver_comparable(effective.get(name)) == _driver_comparable(
+                default_value
+            ):
+                continue
+            was, now = _positive(default_value), _positive(effective.get(name))
+            if was is None or now is None:
+                return None
+            factor *= now / was
+            axes.append(f"{name} {_shown(now)} vs {_shown(was)}")
         elif _driver_comparable(effective.get(name)) != _driver_comparable(
             default_value
         ):

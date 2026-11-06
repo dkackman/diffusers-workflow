@@ -552,9 +552,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `width` x `height` and `num_frames` - per entry in a list, summed - that
   the caller moved off the variable defaults a `cost` entry is measured at,
   with `scaled` naming each moved axis; an estimate, not a measurement; a
-  non-numeric value of one of those is `unknown`). Any other declared
-  driver moved off its default - H3's `weights_dtype` or LoRA, a music
-  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  non-numeric value of one of those is `unknown`). A driver a `cost` entry
+  names in `scales_with` scales the same way: Music 3's `audio_duration`,
+  or that field summed over `music-long`'s sections. The ceiling is what is
+  quoted, so a track that ends early costs less. Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA - has no rule
+  to scale by: the (scaled) figure is kept
   under whatever basis it has, with `low_confidence` true and `differs`
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for

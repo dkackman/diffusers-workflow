@@ -6,13 +6,15 @@
             "device": "cuda",
             "name": "RTX 3090",
             "vram_gb": 24,
-            "minutes": 3.6
+            "minutes": 3.6,
+            "scales_with": ["audio_duration"]
         },
         {
             "device": "mps",
             "name": "M5 Pro 64GB",
             "vram_gb": 64,
-            "minutes": 3.3
+            "minutes": 3.3,
+            "scales_with": ["audio_duration"]
         }
     ],
     "cost_drivers": [

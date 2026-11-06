@@ -1286,13 +1286,119 @@ class TestUnscalableDrivers:
         answer = plan(template, arguments=arguments)["estimate"]
         assert "low_confidence" not in answer
 
-    def test_music_at_another_duration(self, plan):
-        """#440's case, now a flagged figure rather than `unknown`."""
+    def test_an_undeclared_scalar_driver_is_flagged_not_scaled(self, plan):
+        """#440's case before #1199: a driver no rule scales stays flagged."""
         template = _repo_json(CATALOG_MUSIC)
+        for entry in template["cost"]:
+            entry.pop("scales_with", None)
         answer = plan(template, arguments={"audio_duration": 240})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (3.6, "catalog")
         assert answer["low_confidence"] is True
         assert answer["differs"] == ["audio_duration"]
+
+
+CATALOG_MUSIC_LONG = "workflows/templates/minimax/music-long.json"
+
+
+def proportional(spec, *names):
+    for entry in spec["cost"]:
+        entry["scales_with"] = list(names)
+    return spec
+
+
+class TestDeclaredProportionalDrivers:
+    """#1199 drill: `templates/minimax/music` quoted 3.6 min whatever its
+    `audio_duration`, and `music-long` had no figure at all. A cost entry's
+    `scales_with` names the drivers its figure is proportional to - a scalar
+    variable, or a field summed over a list driver's entries - so the
+    workflow, not the engine, says what a music ceiling costs."""
+
+    def test_a_declared_scalar_scales_in_proportion(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: audio_duration 240 vs 120"
+        )
+        assert "differs" not in answer
+
+    def test_a_declared_scalar_at_its_default_is_the_figure(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_declared_field_is_summed_over_a_list(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "one", "audio_duration": 45},
+            {"name": "b", "prompt": "two", "audio_duration": 45},
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["takes"] = [{"audio_duration": 45}]
+        spec["cost_drivers"].append("takes")
+        takes = [{"audio_duration": 90}, {"audio_duration": 45}]
+        # `takes` is priced by no for_each, so its sum carries the ratio
+        answer = plan(spec, arguments={"takes": takes})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (30.0, "derived")
+        assert answer["scaled"].endswith("audio_duration 135 vs 45 over takes")
+
+    def test_every_catalog_scales_with_names_a_driver_or_its_field(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = 0
+        for path in sorted((root / "workflows").rglob("*.json")):
+            spec = json.loads(path.read_text())
+            if not isinstance(spec, dict):
+                continue
+            variables = spec.get("variables") or {}
+            drivers = [n for n in spec.get("cost_drivers") or [] if n in variables]
+            reachable = set(drivers)
+            for name in drivers:
+                if isinstance(variables[name], list):
+                    for entry in variables[name]:
+                        if isinstance(entry, dict):
+                            reachable.update(entry)
+            for entry in spec.get("cost") or []:
+                for name in entry.get("scales_with") or []:
+                    found += 1
+                    assert name in reachable, f"{path.name}: scales_with {name}"
+        assert found
+
+    def test_music_scales_with_its_ceiling(self, plan):
+        template = _repo_json(CATALOG_MUSIC)
+        answer = plan(template, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.2, "derived")
+        assert "audio_duration 240 vs 120" in answer["scaled"]
+        assert "differs" not in answer
+
+    def test_music_long_quotes_its_defaults(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        answer = plan(template)["estimate"]
+        assert answer["basis"] == "catalog"
+        assert answer["minutes"] is not None
+
+    def test_music_long_scales_with_its_sections_and_their_ceilings(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        curated = next(e for e in template["cost"] if e["device"] == "cuda")["minutes"]
+        defaults = template["variables"]["sections"]
+        was = sum(entry["audio_duration"] for entry in defaults)
+        sections = [
+            dict(
+                defaults[n % len(defaults)],
+                name=f"part_{n}",
+                seconds=85,
+                audio_duration=128,
+            )
+            for n in range(4)
+        ]
+        answer = plan(template, arguments={"sections": sections})["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["minutes"] == pytest.approx(curated * 512 / was, abs=0.1)
 
     def test_a_thin_bucket_blends_toward_a_flagged_figure(self, plan):
         """One int8 run, blended toward the int4 catalog figure: the blend

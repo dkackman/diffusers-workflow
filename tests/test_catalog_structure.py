@@ -610,6 +610,20 @@ class _every_workflow_observed:
         }
 
 
+def test_the_compact_listing_drops_a_cost_entrys_scaling_rule():
+    found, _shadowed = library_path(
+        "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")
+    ).entries()
+    details = workflow_details(found)
+    assert details["templates/minimax/music"]["cost"][0]["scales_with"]
+
+    compact = project_listing(details, view="compact")
+
+    (entry, *_rest) = compact["templates/minimax/music"]["cost"]
+    assert "scales_with" not in entry
+    assert entry["minutes"] == 3.6
+
+
 def test_the_compact_listing_fits_the_budget():
     found, _shadowed = library_path(
         "workflows", None, primary=os.path.join(REPO_ROOT, "workflows")

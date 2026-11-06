@@ -44,6 +44,12 @@
                     "name": {"type": "string", "description": "The accelerator, for a person: 'RTX 4090', 'M2 Ultra'"},
                     "vram_gb": {"type": "number", "minimum": 0},
                     "minutes": {"type": "number", "minimum": 0},
+                    "scales_with": {
+                        "type": "array",
+                        "description": "Cost drivers this figure is proportional to beyond the generic num_inference_steps, width/height and num_frames: a scalar driver (a run at twice its default is quoted at twice 'minutes'), or a field of a list driver's entries, summed over them. The model's rule, declared here because the engine knows no model's arguments - a Music 3 'audio_duration' is a ceiling, so a track that ends early costs less than the quote.",
+                        "items": {"type": "string"},
+                        "uniqueItems": true
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
