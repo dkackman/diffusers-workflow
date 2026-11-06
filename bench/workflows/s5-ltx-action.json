@@ -1,9 +1,10 @@
 {
   "id": "BenchS5LtxAction",
-  "description": "Long-form bench S5 (LTX action): templates/ltx2/chained-segments, three 121-frame segments of one continuous silent action (a courier cycling along a coastal road, from asset:bench/runner.png), chained by last frame. No speech anywhere; the sound is wind, sea and the bicycle.",
+  "description": "Long-form bench S5 (LTX action): templates/ltx2/chained-segments, three 121-frame segments of one continuous silent action (a courier cycling along a coastal road, from asset:bench/runner.png), chained by last frame. No speech anywhere; the sound is wind, sea and the bicycle. Task 23 (LTX long takes) added `duration_seconds`, `look_hold`, `check` and `retries`, all off by default, so the control is unchanged.",
   "summary": "A long LTX-2.5 clip with audio, chained from short segments that each start on the previous one's last frame.",
   "cost_drivers": [
     "segments",
+    "duration_seconds",
     "num_frames",
     "width",
     "height"
@@ -25,7 +26,11 @@
     "segments": 3,
     "continuity": "last_frame",
     "image": "asset:bench/runner.png",
-    "seed": 1166
+    "seed": 1166,
+    "duration_seconds": null,
+    "look_hold": null,
+    "check": false,
+    "retries": 0
   },
   "variable_constraints": {
     "width": {
@@ -144,12 +149,18 @@
         },
         "chain": {
           "segments": "variable:segments",
+          "duration_seconds": "variable:duration_seconds",
           "prompts": "variable:prompts",
           "continuity": "variable:continuity",
           "segment_argument": "image",
           "trim_frames": 2,
           "crossfade_ms": 80,
-          "save_segments": true
+          "save_segments": true,
+          "fps": 24,
+          "frame_snap": "constraint:num_frames",
+          "look_hold": "variable:look_hold",
+          "check": "variable:check",
+          "retries": "variable:retries"
         },
         "arguments": {
           "prompt": "variable:prompt",
