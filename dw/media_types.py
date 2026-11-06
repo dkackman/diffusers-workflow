@@ -146,7 +146,14 @@ class AudioTrack:
     still wins over the one carried here.
     """
 
-    def __init__(self, audio, sample_rate, source_mean_dbfs=None, asked_seconds=None):
+    def __init__(
+        self,
+        audio,
+        sample_rate,
+        source_mean_dbfs=None,
+        asked_seconds=None,
+        snapped_seconds=None,
+    ):
         """
         Args:
             audio: The waveform, shaped (channels, samples)
@@ -160,11 +167,15 @@ class AudioTrack:
                 `past_end: "stop"`); fade_audio carries it on, and
                 crossfade_audio reads it to say how far a joined piece fell
                 short of what its sections asked for
+            snapped_seconds: How far slice_audio's `end_snap_seconds` moved
+                the cut back to a quiet point, so crossfade_audio tells a
+                section cut short on purpose from one that ended early
         """
         self.audio = audio
         self.sample_rate = sample_rate
         self.source_mean_dbfs = source_mean_dbfs
         self.asked_seconds = asked_seconds
+        self.snapped_seconds = snapped_seconds
 
 
 class Selected:

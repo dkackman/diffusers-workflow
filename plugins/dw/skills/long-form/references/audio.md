@@ -46,18 +46,21 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
   enough lines for each `seconds`. A section that still ends early is kept at
   its own length, so the joins stay music to music, and the run warns
   `joined_short` with the piece's real length against the one asked.
-- **A section that runs long is cut at `seconds`, wherever that falls.**
-  A 10-line verse ran to about the 128 s ceiling, and the cut at 85 s
-  dropped its last three lines in one draw and landed on the last line in
-  another, with no warning. Put the lines that must be heard first, and
-  listen to the last seconds before each join.
+- **A section that runs long is cut at its quietest point** in the last
+  `section_end_snap_seconds` (8, about two bars at 72 BPM) before `seconds`:
+  in a song, usually a phrase gap or a bar break. What it held past the cut,
+  sung lines included, is still lost, and the run warns
+  `slice_dropped_loud_tail` with the seconds dropped. A 10-line verse ran to
+  about the 128 s ceiling and lost its last three lines at 85 s. Put the
+  lines that must be heard first, and write fewer lines for a long section.
 - **Continuity between sections is not guaranteed.** Key, tempo,
   instrumentation and mix can change at a seam. Repeat the same style tags in
   every caption, describe the same band in each, and listen at the joins. A
   crossfade hides a change of sound, not a change of tempo.
 - **Joins are not on the beat.** Music 3 takes no audio to continue from,
   and no task trims a section at a beat (`analyze_beats` only reports
-  them), so each section is cut at its `seconds` or its own end. End each section's lyrics
+  them), so each section is cut at a quiet point near its `seconds`, not
+  on a beat, or at its own end. End each section's lyrics
   on a phrase end and let the crossfade cover the rest.
 - The S6 bench round: four 85 s sections joined to 311-319 s with no
   silent hole, the outro a real ending. Five of six joins drop 7-9 dB into the next

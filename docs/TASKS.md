@@ -1488,7 +1488,14 @@ a bed with [`loop_audio`](#loop_audio) and slice that. `past_end: "stop"` cuts
 at the end instead, keeping a short source at its own length: a joined piece
 whose sections may come back short (`templates/minimax/music-long`) wants
 that, and [`crossfade_audio`](#crossfade_audio) then warns `joined_short` with
-the real and the asked total.
+the real and the asked total. A `"stop"` slice is a section kept whole up to
+its length, so one that drops a tail still playing (its RMS within 10 dB of
+the kept part's) warns `slice_dropped_loud_tail` with the seconds dropped and
+both levels, however long the tail; a slice that cuts a source a little short
+of its end (under 5% of the slice and under 10 s, any non-silent tail) warns
+`slice_trimmed_tail` whatever `past_end` is. `end_snap_seconds` moves a cut
+that lands inside the source back to its quietest point in that many seconds
+before the end - in a song, a phrase gap or a bar break.
 
 **Audio inputs.** In every audio task, `audio` (and each entry of `audios`)
 takes the path or URL of an audio file, or of a video file whose soundtrack is
@@ -1519,6 +1526,7 @@ needed only for a bare waveform, and given, it wins.
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
 | `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
+| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never before the slice's start; an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
 
 ### gain_audio
 
@@ -1559,7 +1567,10 @@ Join audio tracks with an equal-power crossfade. Each seam overlaps the two
 tracks by the fade window. When a track was sliced with `past_end: "stop"` and
 kept shorter than asked (through a `fade_audio` too), the join warns
 `joined_short`: the joined length against the length the tracks asked for,
-and each short track's kept and asked seconds:
+and each short track's kept and asked seconds. A track `slice_audio`'s
+`end_snap_seconds` cut at a quiet point is counted in the totals but named
+apart, under `snapped_tracks`; when no track ended early, that shortfall is
+logged rather than warned, since the snap was asked for:
 
 ```json
 {

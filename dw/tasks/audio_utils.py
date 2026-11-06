@@ -55,6 +55,17 @@ SLICE_TRIM_WARN_FRACTION = 0.05
 # other side of a slice
 SLICE_TRIM_WARN_MIN_MS = 10.0
 
+# A section's dropped tail (`past_end: "stop"`) is still playing when its
+# RMS is within this many dB of the kept part's. A decay or a fade to
+# silence sits well below it; a band that keeps going sits at about 0 dB
+# (#1199 Task 22: Music 3 sections cut 40 s into an overrun measured there)
+SLICE_LOUD_TAIL_DB = 10.0
+
+# The short window `end_snap_seconds` measures RMS over: long enough that
+# the gap between two drum hits does not read as a pause, short enough to
+# find the 0.27-0.33 s dips between sung phrases the S6 bench round heard
+SLICE_SNAP_WINDOW_SECONDS = 0.2
+
 
 def load_audio(location, base_dir=None):
     """Load an audio file from a local path or http(s) URL.
@@ -107,6 +118,7 @@ def as_track(
     command="an audio task",
     source_mean_dbfs=None,
     asked_seconds=None,
+    snapped_seconds=None,
 ):
     """An audio task's return value: the waveform with the rate it is at.
 
@@ -138,6 +150,7 @@ def as_track(
         rate,
         source_mean_dbfs=source_mean_dbfs,
         asked_seconds=asked_seconds,
+        snapped_seconds=snapped_seconds,
     )
 
 
@@ -151,6 +164,7 @@ def slice_audio(
     sample_rate=None,
     lead_frames=0,
     past_end="pad",
+    end_snap_seconds=None,
 ):
     """Task command: cut a slice out of an audio track.
 
@@ -179,7 +193,19 @@ def slice_audio(
     length asked for as `asked_seconds`, which fade_audio passes on and
     crossfade_audio reads to warn when the joined piece is shorter than its
     sections asked for. A slice that starts at or past the end has nothing
-    to keep and is refused.
+    to keep and is refused. A `"stop"` slice declares its source a section
+    to be kept whole up to the length, not an excerpt, so one that drops a
+    tail still carrying real signal (RMS within SLICE_LOUD_TAIL_DB of the
+    kept part's) warns 'slice_dropped_loud_tail' whatever the tail's length:
+    the section was cut while it was still playing.
+
+    'end_snap_seconds' (off by default; 0 is off too) moves an end that cuts
+    into the source back to the quietest point - the lowest RMS over a
+    SLICE_SNAP_WINDOW_SECONDS window - within that many seconds before it,
+    which in a song is a phrase gap or a bar break. The slice comes out that
+    much shorter; the track carries the length asked for and how far the cut
+    moved, so crossfade_audio does not report it as a section that ended
+    early. An end the source does not reach has nothing to snap.
 
     Either half of a pair may be left out: with no start the slice begins at the
     head of the track, and with no duration it runs to the end of it. A workflow
@@ -208,6 +234,7 @@ def slice_audio(
     num_frames = whole_number(num_frames, "num_frames", command)
     fps = real_number(fps, "fps", command, exact=True)
     lead_frames = whole_number(lead_frames, "lead_frames", command)
+    end_snap_seconds = real_number(end_snap_seconds, "end_snap_seconds", command)
 
     # A count or an offset outside its domain is refused rather than handed to
     # Python's slice semantics, which answered a negative 'num_frames' with
@@ -223,6 +250,7 @@ def slice_audio(
         fps=fps,
         sample_rate=sample_rate,
         lead_frames=lead_frames,
+        end_snap_seconds=end_snap_seconds,
     )
     if past_end not in SLICE_PAST_END_CHOICES:
         raise ValueError(
@@ -262,8 +290,20 @@ def slice_audio(
     if past_end == "stop":
         asked_seconds = length / float(sample_rate)
         length = _stop_at_the_end(total, start, length, sample_rate)
+    snapped_seconds = None
+    if end_snap_seconds:
+        snapped = _snap_end_to_quiet(
+            waveform, total, start, length, sample_rate, end_snap_seconds
+        )
+        if snapped < length:
+            if asked_seconds is None:
+                asked_seconds = length / float(sample_rate)
+            snapped_seconds = (length - snapped) / float(sample_rate)
+            length = snapped
     _warn_on_slice_past_end(total, start, length, sample_rate)
-    _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
+    _warn_on_slice_trims_tail(
+        waveform, total, start, length, sample_rate, section=past_end == "stop"
+    )
     if start:
         emit_log(
             f"slice_audio: starts {start / sample_rate:.2f} s in, "
@@ -284,7 +324,49 @@ def slice_audio(
         "slice_audio",
         source_mean_dbfs=source_mean_dbfs,
         asked_seconds=asked_seconds,
+        snapped_seconds=snapped_seconds,
     )
+
+
+def _snap_end_to_quiet(waveform, total, start, length, sample_rate, window_seconds):
+    """The slice length with its end moved back to the quietest point in the
+    last `window_seconds` before it - the centre of the SLICE_SNAP_WINDOW
+    with the lowest RMS - or `length` unchanged when the end does not cut
+    into the source or nothing in the window is quieter than the end itself.
+    The latest of equally quiet points wins, so an even level keeps the
+    exact cut."""
+    end = start + length
+    half = max(int(round(SLICE_SNAP_WINDOW_SECONDS * sample_rate / 2)), 1)
+    if end >= total:
+        return length
+    lo = max(start + half, end - int(round(window_seconds * sample_rate)))
+    hi = min(end, total - half)
+    if hi <= lo:
+        return length
+    energy = numpy.mean(
+        numpy.square(waveform[:, lo - half : hi + half], dtype=numpy.float64), axis=0
+    )
+    sums = numpy.concatenate(([0.0], numpy.cumsum(energy)))
+    # sums[i + 2 * half] - sums[i] is the window centred at lo + i
+    windows = sums[2 * half :] - sums[: -2 * half]
+    quietest = windows.min()
+    tolerance = max(abs(quietest) * 1e-6, 1e-12)
+    cut = lo + int(numpy.flatnonzero(windows <= quietest + tolerance)[-1])
+    if cut >= end:
+        return length
+    rms = numpy.sqrt(max(quietest, 0.0) / (2 * half))
+    emit_log(
+        f"slice_audio: the cut moved {(end - cut) / float(sample_rate):.2f} s "
+        f"back, to the quietest point in the last {window_seconds:g} s before "
+        f"{end / float(sample_rate):.2f} s (RMS "
+        + (f"{20 * numpy.log10(rms):.1f} dBFS" if rms > 0 else "silence")
+        + ")",
+        command="slice_audio",
+        seconds=round((cut - start) / float(sample_rate), 3),
+        asked_seconds=round(length / float(sample_rate), 3),
+        snapped_seconds=round((end - cut) / float(sample_rate), 3),
+    )
+    return cut - start
 
 
 def _stop_at_the_end(total, start, length, sample_rate):
@@ -469,7 +551,9 @@ def _warn_on_slice_past_end(total, start, length, sample_rate):
     )
 
 
-def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
+def _warn_on_slice_trims_tail(
+    waveform, total, start, length, sample_rate, section=False
+):
     """Say when a slice left material behind that the caller likely wanted.
 
     slice_audio is a slice, so most unused remainders are deliberate excerpts
@@ -491,9 +575,12 @@ def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
     remainder_seconds = remainder / float(sample_rate)
     if remainder_seconds * 1000.0 < SLICE_TRIM_WARN_MIN_MS:
         return
-    if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
-        return
-    if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:
+    if (
+        remainder_seconds >= SLICE_TRIM_WARN_SECONDS
+        or remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION
+    ):
+        if section:
+            _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate)
         return
     dropped = waveform[:, slice_end:total]
     peak_dbfs = level_dbfs(dropped, "peak")
@@ -511,6 +598,44 @@ def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
         source_seconds=round(total / float(sample_rate), 3),
         dropped_seconds=round(remainder_seconds, 3),
         dropped_peak_dbfs=round(peak_dbfs, 1),
+        sample_rate=sample_rate,
+    )
+
+
+def _warn_on_loud_tail(waveform, total, start, slice_end, sample_rate):
+    """Say when a section's slice dropped a tail that is still playing.
+
+    A `past_end: "stop"` slice keeps a section whole up to its length, so a
+    long remainder is not a deliberate excerpt: it is a section that ran
+    past the length and was cut while still playing - a Music 3 section
+    40 s into its overrun, its last lines never sung (#1199 Task 22). The
+    small-trim warning above only reached remainders under 5% and under
+    10 s. Measured as RMS against the kept part's, so a decay or a fade to
+    silence does not warn.
+    """
+    dropped_rms = level_dbfs(waveform[:, slice_end:total], "rms")
+    kept_rms = level_dbfs(waveform[:, start:slice_end], "rms")
+    if dropped_rms is None or kept_rms is None:
+        return
+    if dropped_rms < kept_rms - SLICE_LOUD_TAIL_DB:
+        return
+    dropped_seconds = (total - slice_end) / float(sample_rate)
+    emit_warning(
+        f"slice_audio: the source runs {dropped_seconds:.2f} s past the slice "
+        f"and is still playing there (RMS {dropped_rms:.1f} dBFS dropped "
+        f"against {kept_rms:.1f} dBFS kept), so the slice cut it mid-signal "
+        f"at {(slice_end - start) / float(sample_rate):.2f} s and whatever "
+        f"the last {dropped_seconds:.2f} s held is lost. If the source was "
+        f"meant to end inside the slice, give it less material (a shorter "
+        f"lyric) or a longer slice; 'end_snap_seconds' moves the cut to a "
+        f"quiet point but keeps nothing more",
+        kind="slice_dropped_loud_tail",
+        command="slice_audio",
+        source_seconds=round(total / float(sample_rate), 3),
+        seconds=round((slice_end - start) / float(sample_rate), 3),
+        dropped_seconds=round(dropped_seconds, 3),
+        dropped_rms_dbfs=round(dropped_rms, 1),
+        kept_rms_dbfs=round(kept_rms, 1),
         sample_rate=sample_rate,
     )
 
@@ -689,33 +814,64 @@ def _warn_on_joined_short(audios, waveforms, joined, sample_rate):
     else (#82).
     """
     short, shortfall = {}, 0.0
+    snapped, snapped_shortfall = {}, 0.0
     for name, audio, waveform in zip(_track_names(audios), audios, waveforms):
         asked = getattr(audio, "asked_seconds", None)
         if asked is None:
             continue
         kept = waveform.shape[1] / float(sample_rate)
-        if asked - kept > 0:
+        if asked - kept <= 0:
+            continue
+        # A cut slice_audio moved to a quiet point (`end_snap_seconds`) was
+        # asked for, not a section that ended early
+        if getattr(audio, "snapped_seconds", None):
+            snapped_shortfall += asked - kept
+            snapped[name] = [round(kept, 3), round(asked, 3)]
+        else:
             shortfall += asked - kept
             short[name] = [round(kept, 3), round(asked, 3)]
-    if shortfall < JOINED_SHORT_WARN_SECONDS:
-        return
     real = joined.shape[1] / float(sample_rate)
-    asked_total = real + shortfall
+    asked_total = real + shortfall + snapped_shortfall
+    snapped_text = ", ".join(
+        f"{name}: {kept:.2f} of {asked:.2f} s"
+        for name, (kept, asked) in snapped.items()
+    )
+    if shortfall < JOINED_SHORT_WARN_SECONDS:
+        if snapped_shortfall >= JOINED_SHORT_WARN_SECONDS:
+            emit_log(
+                f"crossfade_audio: the joined track is {real:.2f} s of the "
+                f"{asked_total:.2f} s its tracks asked for; {len(snapped)} "
+                f"were cut at a quiet point before their length (" + snapped_text + ")",
+                command="crossfade_audio",
+                seconds=round(real, 3),
+                asked_seconds=round(asked_total, 3),
+                snapped_tracks=snapped,
+            )
+        return
     emit_warning(
-        f"crossfade_audio: the joined track is {real:.2f} s, {shortfall:.2f} s "
-        f"short of the {asked_total:.2f} s its tracks asked for, because "
+        f"crossfade_audio: the joined track is {real:.2f} s, "
+        f"{shortfall + snapped_shortfall:.2f} s short of the "
+        f"{asked_total:.2f} s its tracks asked for, because "
         f"{len(short)} of them ended early and were kept at their own length ("
         + ", ".join(
             f"{name}: {kept:.2f} of {asked:.2f} s"
             for name, (kept, asked) in short.items()
         )
-        + "). Each join is still sound to sound; to reach the asked length, "
+        + ")"
+        + (
+            f" and {len(snapped)} were cut at a quiet point before their "
+            f"length ({snapped_text})"
+            if snapped
+            else ""
+        )
+        + ". Each join is still sound to sound; to reach the asked length, "
         "regenerate the short tracks with more material in them.",
         kind="joined_short",
         command="crossfade_audio",
         seconds=round(real, 3),
         asked_seconds=round(asked_total, 3),
         short_tracks=short,
+        **({"snapped_tracks": snapped} if snapped else {}),
     )
 
 
@@ -958,6 +1114,7 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
         sample_rate,
         "fade_audio",
         asked_seconds=getattr(audio, "asked_seconds", None),
+        snapped_seconds=getattr(audio, "snapped_seconds", None),
     )
 
 

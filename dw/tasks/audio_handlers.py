@@ -73,6 +73,7 @@ def _handle_normalize_audio(task, arguments, previous_pipelines):
         "num_frames": POSITIVE,
         "fps": POSITIVE,
         "sample_rate": POSITIVE,
+        "end_snap_seconds": NON_NEGATIVE,
     },
     whole_numbers=("start_frame", "num_frames", "lead_frames"),
     choices={"past_end": SLICE_PAST_END_CHOICES},

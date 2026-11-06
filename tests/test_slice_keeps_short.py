@@ -198,8 +198,12 @@ class TestCrossfadeReportsAShortPiece:
         assert kinds(events, "joined_short") == []
 
 
-def write_wav(path, seconds, rate=8000):
-    samples = (numpy.full(int(seconds * rate), 0.4) * 32767).astype("<i2")
+def write_wav(path, seconds, rate=8000, gap=None):
+    """A steady 0.4 tone; `gap` (start, end) in seconds is digital silence."""
+    samples = numpy.full(int(seconds * rate), 0.4)
+    if gap is not None:
+        samples[int(gap[0] * rate) : int(gap[1] * rate)] = 0.0
+    samples = (samples * 32767).astype("<i2")
     with wave.open(str(path), "w") as handle:
         handle.setnchannels(1)
         handle.setsampwidth(2)
@@ -239,6 +243,9 @@ def test_a_run_shaped_like_music_long_reaches_the_job_with_both_totals(
             ],
             "crossfade_ms": 500,
             "section_fade_out_ms": 100,
+            "section_end_snap_seconds": template["variables"][
+                "section_end_snap_seconds"
+            ],
         },
         "steps": [trim, by_name["fade"], joined],
     }
@@ -248,9 +255,75 @@ def test_a_run_shaped_like_music_long_reaches_the_job_with_both_totals(
     assert kinds(events, "slice_past_end") == []
     found = kinds(events, "joined_short")
     assert len(found) == 1, events
-    # 2 + 4 - 0.5 against 4 + 4 - 0.5
+    # 2 + 4 - 0.5 against 4 + 4 - 0.5: section two's steady level leaves
+    # nothing quieter to snap to, so it is cut at exactly 4 s
     assert found[0]["seconds"] == pytest.approx(5.5, abs=0.01)
     assert found[0]["asked_seconds"] == pytest.approx(7.5, abs=0.01)
+    # Its 2 s overrun is 50% of the slice - past the small-trim warning's
+    # reach - and still playing, so the caller hears it was cut
+    loud = kinds(events, "slice_dropped_loud_tail")
+    assert len(loud) == 1, events
+    assert loud[0]["dropped_seconds"] == pytest.approx(2.0, abs=0.01)
+
+
+def test_music_long_cuts_an_over_long_section_at_a_quiet_point(tmp_path, monkeypatch):
+    """An over-long section (Music 3 ran past `seconds`) is cut at the phrase
+    gap inside the snap window rather than wherever `seconds` falls, the
+    overrun warns with its length and level, and the joined total counts the
+    snap without calling the section one that ended early."""
+    from dw.workflow import Workflow
+
+    template = json.loads(
+        (ROOT / "workflows" / "templates" / "minimax" / "music-long.json").read_text()
+    )
+    window = template["variables"]["section_end_snap_seconds"]
+    assert 6 <= window <= 10
+    by_name = {s["name"]: s for s in template["steps"]}
+    asset_dir = tmp_path / "assets"
+    asset_dir.mkdir()
+    # 20 s asked; Music 3 ran to 30 s, with a phrase gap 5 s before the cut
+    write_wav(asset_dir / "long.wav", 30.0, gap=(15.0, 15.3))
+    write_wav(asset_dir / "short.wav", 10.0)
+    monkeypatch.setenv("DW_ASSET_DIR", str(asset_dir))
+
+    trim = json.loads(json.dumps(by_name["trim"]))
+    trim["task"]["arguments"]["audio"] = "item:audio"
+    trim["task"]["arguments"]["sample_rate"] = 8000
+    joined = json.loads(json.dumps(by_name["joined"]))
+    joined["task"]["arguments"]["sample_rate"] = 8000
+    definition = {
+        "id": "music-long-overrun",
+        "variables": {
+            "sections": [
+                {"name": "verse", "audio": "asset:long.wav", "seconds": 20},
+                {"name": "chorus", "audio": "asset:short.wav", "seconds": 20},
+            ],
+            "crossfade_ms": 500,
+            "section_fade_out_ms": 100,
+            "section_end_snap_seconds": window,
+        },
+        "steps": [trim, by_name["fade"], joined],
+    }
+    workflow = Workflow(definition, str(tmp_path), str(tmp_path / "w.json"))
+    assert workflow.validation_errors() == []
+    _, events = events_of(lambda: workflow.run({}))
+
+    loud = kinds(events, "slice_dropped_loud_tail")
+    assert len(loud) == 1, events
+    # The cut moved into the gap, so it drops 14.7-15 s of a 30 s source
+    assert 14.7 <= loud[0]["dropped_seconds"] <= 15.0
+    assert loud[0]["dropped_rms_dbfs"] == pytest.approx(-8.0, abs=0.5)
+
+    found = kinds(events, "joined_short")
+    assert len(found) == 1, events
+    warning = found[0]
+    # Only the chorus ended early; the verse is named as snapped
+    assert warning["short_tracks"] == {"track 2": [10.0, 20.0]}
+    (kept, asked) = warning["snapped_tracks"]["track 1"]
+    assert 15.0 <= kept <= 15.3 and asked == pytest.approx(20.0)
+    assert warning["seconds"] == pytest.approx(kept + 10.0 - 0.5, abs=0.01)
+    assert warning["asked_seconds"] == pytest.approx(39.5, abs=0.01)
+    assert "1 of them ended early" in warning["message"]
 
 
 def test_music_long_keeps_a_short_section_at_its_own_length():
@@ -259,8 +332,14 @@ def test_music_long_keeps_a_short_section_at_its_own_length():
     )
     trim = next(s for s in template["steps"] if s["name"] == "trim")
     assert trim["task"]["arguments"]["past_end"] == "stop"
+    assert (
+        trim["task"]["arguments"]["end_snap_seconds"]
+        == "variable:section_end_snap_seconds"
+    )
     description = template["description"]
     assert "lyric" in description and "length" in description
+    assert "quietest point" in description
+    assert "slice_dropped_loud_tail" in description
 
 
 def test_slice_preflight_does_not_warn_a_slice_that_stops(tmp_path, monkeypatch):
