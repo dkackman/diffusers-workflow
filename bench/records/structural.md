@@ -450,3 +450,197 @@ Records: `latent-carry.json` (the a and b drivers merged),
 and the moments pass `t17-t19-moments.json`. The moments pass was taken
 in-process on lem from the bench checkout at `6a89744a`: raw texture bands,
 face crop, seams, motion, per-segment audio, and PSNR.
+
+## Keystone confirmation (seed 2, and keystone without the anchor)
+
+Arms `bench/arms/keystone-confirm.json`, record `keystone-confirm.json`,
+moments pass `keystone-confirm-moments.json`. S1, 120 s, guide, 6 segments
+(28 recorded seams, every 4.25 s).
+
+### Verdict
+
+- **The reset repeats at seed 2, in both arms. It is the keystone's, not the
+  anchor's.** Every keystone take at both seeds comes back clean at least once.
+  No take without a keystone ever does.
+  - Seed 2, pixel (`e4c7c19a99cd`): it resets twice, at 58.7 s and 110.5-111.2 s.
+  - Seed 2, latent carry (`4cae30688ed4`): it resets once, at 91.7 s, and stays
+    clean to the end.
+  - Keystone without the anchor, seed 1166 (`c4ec5a055464`): it resets twice,
+    at 39.5 s and 81.5 s.
+- **The reset is a wipe, not a hold.** Between resets the crust grows back. A
+  take is a sawtooth: clean, then crust from about 35 s, a reset, and crust
+  again. How much crust a take ends on depends on where its last reset fell.
+  The timing is not regular: 39-111 s, and it moves with the seed and the arm.
+- **Each reset is a visible pop.** The crust is gone within 4 frames, in the
+  middle of a segment. It is not at a recorded seam, so `analyze_seams` does
+  not see it. The light, colours, framing and face stay put. Only the backdrop
+  texture changes. Don's clip below shows it.
+- **Against the controls it wins clearly, on both seeds and without the
+  anchor.** Fine texture at the end is 0.11 against 1.14 (seed 2), and 0.53
+  against 1.71 (no anchor). The no-anchor keystone take also wins every seam
+  measure against the guide control.
+- **The anchor decides the face, not the backdrop.** Without the anchor the
+  face burns: high contrast and painted, but never a mask. With the anchor,
+  the pixel face goes soft and pale from about 100 s. At seed 2, after the
+  111 s reset, it is a soft white mask with faint eyes. The carry face stays
+  sharp on both seeds.
+- **Cost: the keystone is free.** 53.0 min against 52.2 min without the anchor,
+  and 72.0 against 70.7 with it. The anchor costs about 17 min per two-minute
+  take (+33%).
+- **The keystone also stops seed 1166's late music bed without the anchor.**
+  The 20 s means are -64/-73/-68/-76/-73/-70 dB, against the guide control's
+  -64 to -11. Seed 2 grows no bed in any arm. The level step is not counted.
+
+### Measures
+
+End of take, and seams over all 28. The floors are the two-minute floors above:
+jump 0.124, jump max 0.430, look 0.438, look max 0.790, fine 0.081, mid 0.159,
+coarse 0.118. **Bold** is better than its control past the floor; _italic_ is
+worse.
+
+| arm | job | control | jump | jump max | look | look max | tex fine | tex mid | tex coarse | wall min | verdict (picture) |
+|---|---|---|---|---|---|---|---|---|---|---|---|
+| anchor 0.25, seed 2 (control) | `bf9ee32e040f` | | 0.987 | 1.43 | 1.295 | 2.66 | 1.142 | 0.590 | 0.017 | 70.7 | |
+| keystone + anchor 0.25, pixel, seed 2 | `e4c7c19a99cd` | `bf9ee32e040f` | **0.849** | 1.25 | 1.014 | 2.28 | **0.106** | **0.054** | 0.001 | 72.0 | **wins** |
+| keystone + anchor 0.25, lc, seed 2 | `4cae30688ed4` | `e4c7c19a99cd` | 0.805 | 1.15 | 1.198 | 2.26 | 0.026 | 0.055 | 0.071 | 67.9 | tie |
+| (same, against the seed-2 control) | `4cae30688ed4` | `bf9ee32e040f` | **0.805** | 1.15 | 1.198 | 2.26 | **0.026** | **0.055** | 0.071 | | **wins** |
+| guide control, seed 1166 | `8d1614ced27a` | | 1.341 | 6.56 | 2.233 | 11.51 | 1.706 | 1.171 | 0.088 | 52.2 | |
+| keystone, no anchor, seed 1166 | `c4ec5a055464` | `8d1614ced27a` | **0.844** | **1.06** | **1.156** | **2.04** | **0.527** | **0.200** | 0.028 | 53.0 | **wins** |
+| (same, against keystone + anchor) | `c4ec5a055464` | `05a3a55b043c` | 0.844 | **1.06** | 1.156 | 2.04 | _0.527_ | _0.200_ | 0.028 | | loses (by phase, see below) |
+
+- The seed-2 carry against pixel ties: its fine gain of 0.080 sits on the
+  0.081 floor.
+- The no-anchor take "loses" to `05a3a55b043c` only because of where its last
+  reset fell. Its last reset was at 81.5 s, so it has 38 s of new crust at
+  119.5 s. `05a3a55b043c`'s was at 80-81 s, yet it stays clean. On the 5 s
+  pass the no-anchor take sits at 0.21-0.66 between resets. The keystone +
+  anchor pixel takes sit at 0.11-0.50.
+
+Fine texture drift against frame 62, top-left scene crop, every 10 s (5 s pass):
+
+| s | 20 | 30 | 40 | 50 | 60 | 70 | 80 | 90 | 100 | 110 | 115 | 119.5 |
+|---|---|---|---|---|---|---|---|---|---|---|---|---|
+| anchor 0.25, seed 2 `bf9ee32e040f` | 0.26 | 0.39 | 0.67 | 0.79 | 0.86 | 0.88 | 0.85 | 0.92 | 0.99 | 1.22 | 1.18 | 1.14 |
+| ks + anchor, pixel, seed 2 `e4c7c19a99cd` | 0.24 | 0.35 | 0.44 | 0.43 | **0.18** | 0.19 | 0.20 | 0.22 | 0.30 | 0.36 | **0.12** | 0.11 |
+| ks + anchor, lc, seed 2 `4cae30688ed4` | 0.16 | 0.15 | 0.13 | 0.10 | 0.10 | 0.06 | 0.07 | 0.11 | 0.02 | 0.01 | 0.03 | 0.03 |
+| guide control, 1166 `8d1614ced27a` | 0.38 | 0.66 | 1.14 | 1.33 | 1.48 | 1.45 | 1.60 | 1.66 | 1.65 | 1.68 | 1.70 | 1.71 |
+| ks, no anchor, 1166 `c4ec5a055464` | 0.26 | 0.44 | **0.22** | 0.26 | 0.39 | 0.66 | 0.62 | **0.21** | 0.29 | 0.38 | 0.43 | 0.53 |
+| ks + anchor, pixel, 1166 `05a3a55b043c` | 0.26 | 0.37 | 0.47 | 0.41 | 0.45 | 0.50 | 0.37 | **0.11** | 0.11 | 0.14 | 0.03 | 0.03 |
+| ks + anchor, lc, 1166 `4766787e793d` | 0.14 | 0.10 | 0.07 | 0.03 | 0.03 | 0.04 | 0.05 | 0.04 | 0.08 | 0.07 | 0.08 | 0.06 |
+
+**Bold** marks the first moment after a reset. As before, the carry rows stay
+low on this crop while the full frame crusts (seed 2: 35-91 s). Read them with
+the stills.
+
+### By eye
+
+Full frames every 10 s, 1 s strips around each reset, and 4-frame strips across
+the pops.
+
+- **Seed 2, pixel (`e4c7c19a99cd`).**
+  - Crusts from about 35 s.
+  - The backdrop pops clean between frames 1408 and 1412 (58.7 s). The seams
+    either side, 56.2 s and 60.4 s, score look 0.68 and 0.32.
+  - It is clean at 59-65 s, then crusts again from about 70 s.
+  - The second reset, at 110.5-111.2 s, is a quicker wipe: one patch of crust
+    lingers for about 15 frames, up to the 111.4 s seam (look 1.57).
+  - The face is sharp and natural to 80 s. From 100 s it is soft and smeared.
+    At 112-119.5 s it is a pale, soft mask with faint eyes and dark glossy
+    hair. That is anchor 0.25's softness, as in `25f6bd1da507`.
+  - So the low end-of-take texture is a clean backdrop with a soft face: real
+    detail on the wall, blur on the face.
+- **Seed 2, latent carry (`4cae30688ed4`).**
+  - Mild crust from about 30 s, full crust at 40-91 s.
+  - It pops clean between 91.5 and 92.0 s, mid-segment (the seams at 90.2 s
+    and 94.4 s score look 0.72 and 0.31). It is clean to the end, with a faint
+    speckle on the right-hand wall at 119.5 s.
+  - The face is sharp the whole way: clear eyes, nose and mouth. It is a little
+    glossy and plastic, as at seed 1166.
+- **Seed-2 control (`bf9ee32e040f`).** It crusts from 35 s and never recovers.
+  At 119.5 s the frame has shattered, and the face has been a white mask with
+  dark eye holes since about 60 s.
+- **Keystone, no anchor (`c4ec5a055464`).**
+  - Crusts from about 25 s, then pops clean at 39-40 s.
+  - It crusts again from about 60 s and pops clean at 81-82 s.
+  - It is crusted again by 110 s.
+  - The face is never soft and never a mask. From 60 s it is high contrast and
+    painted, with glossy dark hair, blonde streaks and a coarse sweater weave:
+    the burn, without the backdrop's shards. At 119.5 s the eyes are sharp.
+  - Against the guide control (`8d1614ced27a`), whose face is cracked and
+    posterised from 62 s, it is much better. Against `05a3a55b043c` the face is
+    harsher but not masky, and the backdrop is crusted for longer.
+- **Staging holds in every take.** The camera is static, with the circle top
+  left, the square bottom right and the subject centred, as in segment 1. No
+  pop moves the camera or the light.
+- **Identity drifts in every take**, with or without the keystone: darker hair
+  with lighter streaks, a heavier brow and fuller lips. The keystone resets the
+  backdrop, not the face.
+
+### Answers
+
+1. **Seed 2.** Yes, in both arms.
+   - Pixel: 58.7 s, then again at 110.5-111.2 s.
+   - Carry: 91.7 s.
+   - Each reset is a pop, mid-segment, within a few frames. Light and framing
+     do not jump.
+2. **Without the anchor.** The keystone alone resets the backdrop, at 39.5 s
+   and 81.5 s. The reset needs the keystone. The anchor is not needed for it.
+   The anchor only trades the face's burn (painted) for softness (a soft mask
+   late in the pixel takes).
+3. **Detail or softness.**
+   - On the backdrop the low texture is detail: the post-reset wall is
+     segment 1's flat painted wall, with sharp edges on the circle and square.
+   - On the face, the anchored pixel take is soft and masky from about 100 s.
+   - The carry face is sharp.
+4. **Latent carry under the keystone.**
+   - It ties on numbers at both seeds.
+   - By eye its face holds better on both: the clearest face at 104-120 s at
+     seed 1166, and sharp to the end at seed 2 while the pixel face goes to a
+     soft mask.
+   - It resets later on both seeds (104 against 80 s, and 92 against 59 s).
+   - It is about 4 min faster.
+   - **Keep the scratch flag.** This was the condition set above (face hold by
+     eye). It stays scoped to static shots: on S2 it lost the seams on both
+     seeds. It is not a default, and not a new feature until Don has seen the
+     88-120 s clip.
+5. **Steps 5-6 and the default.** See *The call* below.
+
+### The call (Steps 5-7)
+
+- **Do not build Steps 5-6 (#1188 hybrid windows) in this plan.** Step 7's
+  verdict is not built, by the rule written above:
+  - the chain keystone resets the burn on two seeds and without the anchor, so
+    Step 6's keystone question is answered in chain form;
+  - Step 5's remaining value is the blended finish. Step 4's windowed refine
+    already gives the seam pass, and the blended finish costs at least 36 min
+    per minute of take.
+
+  Don answers the #1188 commenter. If he reopens the build later, the open
+  problem is the sawtooth: the burn regrows between resets. The cheaper next
+  lever is to find what triggers the reset and make it regular, per segment,
+  in the chain.
+- **Make the keystone the default for static chained takes past about 30 s,
+  and keep anchor 0.25 a knob.**
+  - The keystone is free and wins at both seeds. It never hurts before the
+    first reset: it matches the control's drift up to about 35 s.
+  - It is measured on static shots only. In round 1 it lost the look on S2's
+    arc, so it is not a default for moving shots.
+  - Anchor 0.25 costs +33% wall. It trades a painted face for a soft or masky
+    one late in the take, and Don called it "soft and masky". It stays a knob.
+  - Caveat for Don's eye: the default brings a visible mid-shot pop at an
+    unpredictable time. The take is still crusted for 40-60% of its length
+    between resets. It is a large improvement on the burn, not a clean take.
+
+### Exports for Don
+
+In `~/Desktop/dw-bench-t17/`, side by side, x264 CRF 16:
+
+- `t17-s1-120s-seed2-keystone_LEFT-pixel-keystone-anchor25_RIGHT-anchor25-control-50-66s.mp4`
+  (`e4c7c19a99cd` | `bf9ee32e040f`, the left take's track). The pop is at
+  8.7 s into the clip (58.7 s); the control stays crusted, with a white-mask
+  face.
+- `t17-s1-120s-seed2-keystone_LEFT-pixel_RIGHT-latentcarry-88-120s.mp4`
+  (`e4c7c19a99cd` | `4cae30688ed4`, the right take's track). The carry's pop
+  is at 3.7 s (91.7 s), and the pixel's second reset at about 23 s
+  (111 s). Compare the faces at the end: soft mask on the left, sharp on the
+  right. This clip decides #1044's flag.
