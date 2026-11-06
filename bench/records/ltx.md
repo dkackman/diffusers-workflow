@@ -92,6 +92,12 @@ LTX sometimes renders a near-silent segment, about -89 dBFS against -23 to
 - The 36 s seed-2 control's segment 3 is quiet (-57 dBFS) but not silent.
 - The lem S5 noise-floor runs (CUDA) had level steps of 2.1-2.9 dB, so no
   dropout there. Every dropout so far is on mini-ai (MPS).
+- **CUDA check: no dropout.** The seed-2 control rerun on lem (`645d8600ac92`,
+  cuda:0, same workflow and arguments) has 5 s means of -50.0, -51.1 and
+  -45.1 dB, so segment 3 is not silent. It is a different draw (CUDA and MPS
+  noise differ, so the picture differs too), so this does not rule out the
+  seed, but every silent segment so far is MPS. The CUDA take ran 3.2 min
+  against 8.9 min warm on mini-ai.
 - So on S5 the seam level step measures dropouts, not seams. Knobs here are
   judged on picture, as the S1/S2 ruling does for scenes with no held voice.
 - The chain check does not catch it. A segment-level silence check (RMS under
