@@ -5,8 +5,9 @@ keep it from drifting.
 
 ## A guide seam
 
-`templates/minimax/chained-segments` with `continuity: "guide"` holds the
-previous segment's last `guide_frames` and its voice as a guide.
+`templates/minimax/chained-segments` defaults to `continuity: "guide"` (best
+for every shot type; `last_frame` is the rare case) and holds the previous
+segment's last `guide_frames` and its voice as a guide.
 
 - The guide prefix is trimmed off the deliverable, so `trim_frames` and the
   crossfade do not apply.
@@ -18,30 +19,26 @@ previous segment's last `guide_frames` and its voice as a guide.
 
 ## Drift
 
-Drift compounds per seam. Reference the subject picture in each segment,
-prefer `last_segment`, and use the longest segments memory allows.
+Drift compounds per seam. On the reference chains, reference the subject
+picture in each segment, prefer `last_segment`, and use the longest segments
+memory allows.
 
-### Community reports on drift
+## Probed and not a rule
 
-These are reports from other users (roycho87/NerdNotes,
-`20261102/h3_latents_and_degradation.md`, collecting Banodoco and
-r/StableDiffusion threads), paraphrased. They are not dw measurements.
+Tested on our server (Ref2VA turbo, 960x544, two seeds, November 2026; the
+record is `docs/proposals/audits/2026-11-longvideos-claims.md`, #1193,
+claim 4), and not a rule:
 
-- **Static and half-static shots are reported to drift worst.** On a moving
-  shot the background keeps being replaced. On a locked-off shot the drift is
-  mostly darkening and colour rather than texture.
-- **A hard cut or a new angle is reported to reset drift.** People describe
-  about 30 s of clean chain with good setups, with drift usually showing around
-  segments 3-6. Where the story allows, cut or change angle roughly that often;
-  `references/cuts.md` has the cut itself.
-- **Speed LoRAs are reported to add crunch over a long chain.** See the speed
-  tradeoff in `references/quality-and-speed.md`; the 4-step default is
-  unchanged.
-- **Measuring drift:** compare a patch the subject never enters against
-  segment 1 at the same frames. Whole-frame averages let changes cancel out.
-  `compare_outputs(texture_bands=true)` does the texture side (see
-  `references/cuts.md`), and `assess_output(probe="analyze_seams")` reports a
-  `jump_ratio` per seam.
-- **Colour matching** is reported to fix colour but not texture, and matching
-  to a frame with different content makes it worse. Match on a masked area or
-  a similar frame. #1033 tracks an engine version of this; it is not promised.
+- Refuted: leaving the portrait out of a continued segment, once the
+  carried tail shows the person, doesn't stop her being drawn twice. With
+  the tail alone and with portrait plus tail, segment 2 grew a look-alike
+  follower in the same coat on both seeds, and without the portrait her
+  face drifted further from it (similarity 0.18-0.23 against 0.30-0.32).
+  Keep the picture in every segment, as above. The follower was already in
+  segment 1 of a walk toward a backward-tracking camera: check a walking
+  shot's first segment for a second figure before chaining it.
+
+Everything else about drift on a long take is the `long-form` skill's: the
+`shot` preset per shot type (`static_long` past 30 s), the per-segment check,
+how to measure drift, and the community reports with the bench's verdict on
+each (`long-form/references/levers.md`).

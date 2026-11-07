@@ -31,7 +31,8 @@ from .for_each import render_path
 from .media import probe_metadata
 from .probe_paths import resolve_probe_path
 from .references import iter_steps
-from .task_domains import frame_size_error
+from .task_domains import as_number, frame_size_error
+from .task_problems import stills_memory_problem, stills_to_video_problems
 
 _CHECKED_COMMANDS = ("dissolve_videos", "concat_videos")
 
@@ -99,4 +100,72 @@ def video_size_errors(
     return errors
 
 
-__all__ = ["video_size_errors"]
+def _image_size(path):
+    """A still's (width, height) from its header alone, or None."""
+    from PIL import Image
+
+    try:
+        with Image.open(path) as image:
+            return image.size
+    except Exception:
+        return None
+
+
+def _stills_seconds(durations, count):
+    """The seconds each of `count` stills is held, or None when a duration is
+    not a literal number yet."""
+    items = list(durations) if isinstance(durations, (list, tuple)) else None
+    numbers = [as_number(item) for item in (items or [durations] * count)]
+    return None if any(n is None for n in numbers) else numbers
+
+
+def stills_memory_errors(workflow_definition, source_indices=None, base_dir=None):
+    """Every `stills_to_video` step whose frames would pass the in-memory
+    budget, as [{path, message}] - the refusal the run makes before it
+    allocates (`stills_memory_problem`), moved to validate (#1199).
+
+    Knowable when `durations` and `fps` are literal numbers after
+    substitution and every still is a file (`asset:`, `output:`, a path, or a
+    `{"location": ...}` dict) whose header gives its size; the stills are
+    one size or the run refuses them, so the first one's is the clip's. A
+    still from an earlier step, a reference left unresolved, or a duration
+    rule `stills_to_video_problems` already refuses is left alone.
+    """
+    errors = []
+    for _, _, task, source, where in iter_steps(
+        workflow_definition.get("steps"), source_indices, "task"
+    ):
+        if task.get("command") != "stills_to_video":
+            continue
+        arguments = task.get("arguments")
+        if not isinstance(arguments, dict):
+            continue
+        images = arguments.get("images")
+        images = [images] if isinstance(images, (str, dict)) else images
+        if not isinstance(images, list) or not images:
+            continue
+        durations, fps = arguments.get("durations"), arguments.get("fps", 24)
+        rate = as_number(fps)
+        if rate is None or stills_to_video_problems(durations, fps, len(images)):
+            continue
+        seconds = _stills_seconds(durations, len(images))
+        paths = [resolve_probe_path(i, base_dir, "an image argument") for i in images]
+        if seconds is None or None in paths:
+            continue
+        size = _image_size(paths[0])
+        if size is None:
+            continue
+        message = stills_memory_problem(seconds, rate, *size)
+        if message is not None:
+            errors.append(
+                {
+                    "path": render_path(
+                        ("steps", source, "task", "arguments", "images")
+                    ),
+                    "message": f"{message}{where}",
+                }
+            )
+    return errors
+
+
+__all__ = ["stills_memory_errors", "video_size_errors"]

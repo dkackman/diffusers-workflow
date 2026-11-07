@@ -1110,3 +1110,96 @@ def test_fps_overriding_an_input_rate_warns():
         deactivate_context(token)
     assert len(messages) == 1
     assert "8 fps" in messages[0] and "24" in messages[0]
+
+
+class TestContinuousJoins:
+    """#1169: a repaired chain segment is spliced back between its neighbours.
+    Those joins continue the take rather than cut it, so they must not be
+    recorded hard_cut - analyze_seams skips seam_frame_jump at a hard cut."""
+
+    def test_default_joins_are_hard_cuts(self):
+        result = concat_videos([audio_video(4, 0.1), audio_video(4, 0.2)], fps=4)
+        assert result.shots[1]["hard_cut"] is True
+
+    def test_continuous_joins_record_no_hard_cut(self):
+        result = concat_videos(
+            [audio_video(4, 0.1), audio_video(4, 0.2), audio_video(4, 0.3)],
+            fps=4,
+            continuous_joins=True,
+        )
+        assert [shot.get("hard_cut") for shot in result.shots] == [None] * 3
+        assert all("seam_fade_ms" not in shot for shot in result.shots)
+
+    def test_continuous_joins_keep_the_default_declick(self):
+        result = concat_videos(
+            [
+                audio_video(4, 0.1, sample_rate=8000),
+                audio_video(4, 0.2, sample_rate=8000),
+            ],
+            fps=4,
+            continuous_joins=True,
+        )
+        # The few-ms declick, so the seam does not click - and no
+        # seam_fade_ms recorded, so seam_hole still measures the seam
+        assert result.audio[0, 7999] < 0.1
+        assert result.audio[0, 8000] < 0.2
+        assert numpy.allclose(result.audio[:, :7900], 0.1)
+        assert numpy.allclose(result.audio[:, 8100:], 0.2)
+        assert "seam_fade_ms" not in result.shots[1]
+
+    def test_continuous_joins_take_a_zero_fade_as_a_butt_join(self):
+        result = concat_videos(
+            [audio_video(4, 0.1), audio_video(4, 0.2)],
+            fps=4,
+            continuous_joins=True,
+            seam_fade_ms=0,
+        )
+        assert numpy.allclose(result.audio[:, :100], 0.1)
+        assert numpy.allclose(result.audio[:, 100:], 0.2)
+
+    def test_an_inner_join_keeps_its_own_seams_continuous(self):
+        inner = concat_videos(
+            [audio_video(4, 0.1), audio_video(4, 0.2)], fps=4, continuous_joins=True
+        )
+        outer = concat_videos(
+            [inner, audio_video(4, 0.3)], fps=4, continuous_joins=True
+        )
+        assert len(outer.shots) == 3
+        assert not any(shot.get("hard_cut") for shot in outer.shots)
+
+    def test_the_seams_are_measured_by_analyze_seams(self):
+        from dw.tasks.assess import analyze_seams
+
+        result = concat_videos(
+            [audio_video(4, 0.1), audio_video(4, 0.2)], fps=4, continuous_joins=True
+        )
+        answer = analyze_seams(result)
+        assert answer["seams"][0]["hard_cut"] is False
+
+    @pytest.mark.parametrize("extra", [{"seam_fade_ms": 50}, {"audio_bleed_ms": 300}])
+    def test_a_cut_device_is_refused(self, extra):
+        with pytest.raises(ValueError, match="continuous_joins"):
+            concat_videos(
+                [audio_video(4, 0.1), audio_video(4, 0.2)],
+                fps=4,
+                continuous_joins=True,
+                **extra,
+            )
+
+    def test_the_fade_refusal_names_the_declick(self):
+        # Continuous joins declick by default; the refusal must not say they
+        # join with no fade
+        with pytest.raises(ValueError, match="declick") as raised:
+            concat_videos(
+                [audio_video(4, 0.1), audio_video(4, 0.2)],
+                fps=4,
+                continuous_joins=True,
+                seam_fade_ms=50,
+            )
+        assert "no fade" not in str(raised.value)
+
+    def test_a_non_boolean_is_refused(self):
+        with pytest.raises(ValueError, match="continuous_joins"):
+            concat_videos(
+                [audio_video(4, 0.1), audio_video(4, 0.2)], continuous_joins="yes"
+            )

@@ -364,3 +364,25 @@ def test_vendored_model_ports_are_not_counted(tmp_path):
     assert metrics["modules"] == 0
     assert metrics["functions_over_150_lines"] == 0
     assert metrics["modules_over_size_ceiling"] == 0
+
+
+def test_a_checkout_inside_claude_worktrees_is_measured(tmp_path):
+    # An agent worktree is a full checkout under .claude/worktrees; only the
+    # parts below the measured root decide what is excluded
+    root = _tree(
+        tmp_path / ".claude" / "worktrees" / "agent",
+        {
+            "dw/__init__.py": "",
+            "dw/a.py": _long_function(151) + _branches(20),
+            "dw/.claude/b.py": "x = 1\n",
+            # Split so this file's own text is not counted as a patch target
+            "tests/test_x.py": "patch(" + '"dw.a.b")\n',
+            "CLAUDE.md": "one\n",
+        },
+    )
+    metrics = _load().measure(root)
+    assert metrics["modules"] == 2
+    assert metrics["functions_over_150_lines"] == 1
+    assert metrics["complex_functions"] == 1
+    assert metrics["test_dw_patch_targets"] == 1
+    assert metrics["claude_md_lines"] == 1

@@ -317,13 +317,19 @@ peak (`host_ram_need`; see
 [Host-memory history](WORKSPACES.md#host-memory-history)). When it fits a
 free card, dispatch also checks host RAM: available is `MemAvailable` less
 what each running job's projected peak still has to add beyond its worker's
-resident size now (nothing for a running job with no figure), and the job is
-held while its peak exceeds available plus the resident size of the idle
-worker it would reuse. Backfill applies. A job is never held when no other
+committed memory now (nothing for a running job with no figure), and the job is
+held while its peak exceeds available plus the committed memory of the idle
+worker it would reuse. Committed is RssAnon + RssShmem + the pages of the
+worker's `/dev/nvidia*` mappings (the driver's pinned host memory, which Linux
+files under RssFile); the rest of RssFile, the checkpoint pages a worker
+mmaps, is page cache that `MemAvailable` already counts as free. Two workers
+loading different checkpoints evict and re-read each other's pages - a
+slowdown, not an OOM. Every peak is taken with a margin of 10%, at least 2 GB,
+since a peak recorded at phase boundaries is a lower bound. Backfill applies. A job is never held when no other
 job is running, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil), and with one card the gate is never exercised. A held
 job is re-checked every 10 s. The hold emits one `queue_wait` event (message
-`waiting for host RAM: needs ~N GB, ~M GB free`; not a `warning`), and job
+`waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
 detail and summaries carry `waiting_for` - that message - only while held.
 The gate never refuses a submit; it only delays a start, and the OOM ranking
 is the backstop for a wrong projection.
@@ -549,9 +555,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `width` x `height` and `num_frames` - per entry in a list, summed - that
   the caller moved off the variable defaults a `cost` entry is measured at,
   with `scaled` naming each moved axis; an estimate, not a measurement; a
-  non-numeric value of one of those is `unknown`). Any other declared
-  driver moved off its default - H3's `weights_dtype` or LoRA, a music
-  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  non-numeric value of one of those is `unknown`). A driver a `cost` entry
+  names in `scales_with` scales the same way: Music 3's `audio_duration`,
+  or that field summed over `music-long`'s sections. The ceiling is what is
+  quoted, so a track that ends early costs less. Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA - has no rule
+  to scale by: the (scaled) figure is kept
   under whatever basis it has, with `low_confidence` true and `differs`
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for
@@ -574,9 +583,10 @@ The editor's forms come from these; they are just as usable from scripts:
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false; and
   `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
-  peak - `basis` is `observed` (the largest job peak RSS of this machine's
-  successful runs with the same memory key) or `fit` (the list-run projection
-  from the workflow's own history), and the key is absent when there is no
+  peak - `basis` is `observed` (the largest committed job peak of this
+  machine's successful runs with the same memory key, or the largest job peak
+  RSS where none measured it) or `fit` (the list-run projection from the
+  workflow's own history, on the same basis), and the key is absent when there is no
   figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
@@ -1089,3 +1099,7 @@ more exposed than that.
 
 Running on another machine - token, firewall, systemd unit, the browser,
 `--mcp`, and beyond the LAN - is [REMOTE.md](REMOTE.md).
+
+### Host-RAM gate: mixed bases
+
+The RSS peak a job records is job-scoped growth over the run's baseline; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.

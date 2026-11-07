@@ -1,0 +1,216 @@
+{
+  "id": "BenchRefineWindows",
+  "description": "Task 17 Step 4 bench: a temporal windowed refine over a finished chain. encode_h3_latents reads the take (an output: or asset: mp4) a 17-frame clip at a time; an H3 t2va refine_strength pass re-denoises it in overlapping time windows fused every step (experimental_refine_windows, needs DW_EXPERIMENTAL_REFINE_WINDOWS=1 on the server), holding the take's own soundtrack; decode_h3_latents trims the padding back to the take's length and pair_audio puts the take's own track back. Windows are in latent frames (a latent is about 4 pixel frames).",
+  "variables": {
+    "source": "output:BenchS1Static/20261104-054934-fdc9b551/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. A young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
+    "width": 960,
+    "height": 544,
+    "refine_strength": 0.3,
+    "num_inference_steps": 5,
+    "window_frames": 40,
+    "window_overlap": 12,
+    "window_blend": "pyramid",
+    "window_positions": "true",
+    "video_shift": 6,
+    "audio_shift": 3,
+    "weights_dtype": "{int4}",
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+    "attention_backend": "sparse",
+    "seed": 1166
+  },
+  "variable_constraints": {
+    "width": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "H3 refuses width/height not a multiple of 32"
+    },
+    "height": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "H3 refuses width/height not a multiple of 32"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "encode",
+      "task": {
+        "command": "encode_h3_latents",
+        "arguments": {
+          "source": "variable:source"
+        }
+      },
+      "release_models": true
+    },
+    {
+      "name": "refine",
+      "release_pipeline": true,
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "t2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "turbo",
+            "scale": 1
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "latents": "previous_result:encode.latents",
+          "num_frames": "previous_result:encode.num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "hold_audio": "variable:source",
+          "refine_strength": "variable:refine_strength",
+          "num_inference_steps": "variable:num_inference_steps",
+          "experimental_refine_windows": {
+            "frames": "variable:window_frames",
+            "overlap": "variable:window_overlap",
+            "blend": "variable:window_blend",
+            "positions": "variable:window_positions"
+          },
+          "output": [
+            "latents"
+          ]
+        }
+      }
+    },
+    {
+      "name": "decode",
+      "task": {
+        "command": "decode_h3_latents",
+        "arguments": {
+          "latents": "previous_result:refine.latents",
+          "num_frames": "previous_result:encode.source_frames"
+        }
+      },
+      "release_models": true
+    },
+    {
+      "name": "mux",
+      "task": {
+        "command": "pair_audio",
+        "arguments": {
+          "video": "previous_result:decode",
+          "audio": "variable:source",
+          "fps": 24,
+          "fit": "video"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

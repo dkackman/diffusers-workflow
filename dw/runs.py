@@ -926,6 +926,24 @@ def record_kept_shots(directory, file_name, shots, provenance=None):
 MANIFEST_SEARCH_DEPTH = 8
 
 
+def manifest_beside(path):
+    """(run directory, manifest) of the run a file named by its absolute path
+    sits in - the nearest parent within MANIFEST_SEARCH_DEPTH holding a
+    readable manifest - or None."""
+    run_dir = os.path.dirname(os.path.abspath(path))
+    for _ in range(MANIFEST_SEARCH_DEPTH):
+        if os.path.isfile(os.path.join(run_dir, MANIFEST_FILE_NAME)):
+            break
+        parent = os.path.dirname(run_dir)
+        if parent == run_dir:
+            return None
+        run_dir = parent
+    else:
+        return None
+    manifest = _read_manifest(run_dir)
+    return None if manifest is None else (run_dir, manifest)
+
+
 def shots_beside(path):
     """The shots a run's manifest records for a file named by its absolute path.
 
@@ -939,19 +957,10 @@ def shots_beside(path):
     from .shots import shots_for_file
 
     path = os.path.abspath(path)
-    run_dir = os.path.dirname(path)
-    for _ in range(MANIFEST_SEARCH_DEPTH):
-        if os.path.isfile(os.path.join(run_dir, MANIFEST_FILE_NAME)):
-            break
-        parent = os.path.dirname(run_dir)
-        if parent == run_dir:
-            return None
-        run_dir = parent
-    else:
+    found = manifest_beside(path)
+    if found is None:
         return None
-    manifest = _read_manifest(run_dir)
-    if manifest is None:
-        return None
+    run_dir, manifest = found
     own = os.path.relpath(path, run_dir).replace(os.sep, "/")
     for entry in manifest.get("steps") or []:
         if not isinstance(entry, dict) or entry.get("reused"):

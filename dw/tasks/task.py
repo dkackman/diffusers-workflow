@@ -23,6 +23,8 @@ from . import measure_sync  # noqa: F401 - registers measure_sync
 from . import phrases  # noqa: F401 - registers analyze_phrases
 from . import cuts  # noqa: F401 - registers plan_cuts
 from . import trim  # noqa: F401 - registers trim_video
+from . import text_takes  # noqa: F401 - registers split_takes
+from . import chain_repair  # noqa: F401 - registers chain_repair_cut
 
 # The handlers by family, split out of this module when it outgrew the size
 # ceiling (#790). Each registers its commands on import, so these lines are

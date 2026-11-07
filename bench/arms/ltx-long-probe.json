@@ -1,0 +1,10 @@
+[
+  {
+    "name": "ltx-ctl-s1166",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-mps"
+  }
+]

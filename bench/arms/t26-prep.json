@@ -1,0 +1,18 @@
+[
+  {
+    "name": "t26-portraits",
+    "scene": "s3-dialogue-walk",
+    "workflow": "t26-portraits.json",
+    "arguments": {},
+    "seed": 1193
+  },
+  {
+    "name": "c1-line-plain-s1001-probe",
+    "scene": "s3-dialogue-walk",
+    "workflow": "t26-t2va.json",
+    "arguments": {
+      "prompt": "summary:\n[text generation] The target video shows a woman alone in a small kitchen, speaking to the camera.\n\ndetailed_description:\nThe target video is in realistic photographic style. [Shot 1] A static medium shot frames a woman in her thirties with short dark hair, in a plain white sleeveless T-shirt, standing alone behind a bare wooden kitchen counter and facing the camera. The counter is empty and the pale wall behind her is plain. She looks at the lens and, in a warm, clear female voice, says <d>[English] My brother Daniel borrowed my red raincoat last winter, and he still hasn't given it back.</d> Then she shrugs and folds her arms. The camera does not move.\n\noverall_soundscape:\nA quiet kitchen room tone.\n\nnon_diegetic_music:\nNone."
+    },
+    "seed": 1001
+  }
+]

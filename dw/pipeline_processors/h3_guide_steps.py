@@ -47,6 +47,9 @@ from PIL import Image
 
 from . import h3_hold_steps
 from .h3_rules import (
+    CAPSTONE_GATE,
+    CAPSTONE_PAST_END,
+    GATED_GUIDE_ROWS,
     GUIDE_AUDIO_ROWS,
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
@@ -103,6 +106,18 @@ def guide_position_ids(target_time, frame_grid, latent_index, num_latent_frames)
     positions[:, :, 0] = times[:, None]
     positions[:, :, 1:] = frame_grid[None]
     return positions.reshape(-1, 3)
+
+
+def gated_guide_rows(guides, positions, keyframe_rows):
+    """[(first row, row count, sigma)] in `latents` for each guide with a
+    capstone gate (#1187), or None. The guide rows follow the keyframe rows in
+    guide order (`splice_guide_rows`)."""
+    gates, start = [], keyframe_rows
+    for guide, rows in zip(guides, positions):
+        if guide.get(CAPSTONE_GATE) is not None:
+            gates.append((start, rows.shape[0], guide[CAPSTONE_GATE]))
+        start += rows.shape[0]
+    return gates or None
 
 
 def splice_guide_rows(layout, num_text_tokens, guide_positions, video_tag):
@@ -265,6 +280,49 @@ def noised_guide_pixels(pixels, strength, seed):
     return (pixels.to(torch.float32) + noise * amplitudes * 255.0).clamp(0.0, 255.0)
 
 
+def carried_guide_latents(index, guide, laid, guide_noise):
+    """A latent-carry guide's own `latents` (#1150), checked against the
+    canvas, as the float32 CPU tensor an encode gives - in place of
+    encoding its frames. `guide_noise` noises pixels, so it is refused."""
+    latents = guide["latents"]
+    if guide_noise:
+        raise ValueError(
+            f"guides[{index}]: guide_noise noises a guide's pixels before their "
+            f"encode, and this guide carries latents, which are never encoded"
+        )
+    canvas = (laid["latent_height"], laid["latent_width"])
+    if tuple(latents.shape[3:]) != canvas:
+        raise ValueError(
+            f"guides[{index}]: its latents are {tuple(latents.shape[3:])} cells, "
+            f"and the canvas is {canvas}"
+        )
+    logger.info(
+        f"Guide {index}: {latents.shape[2]} latent frames carried as latents "
+        f"(no encode)"
+    )
+    return latents.to("cpu", torch.float32)
+
+
+def carried_guide_audio(components, guide, start, count):
+    """A latent-carry guide's `audio_latents` (#1150), `(channels, n, C)`, as
+    the `(channels * count, C)` rows the layout takes - its first `count`, in
+    place of encoding its soundtrack."""
+    carried = guide["audio_latents"]
+    channels, width = components.audio_channels, components.audio_latent_channels
+    if carried.shape[0] != channels or carried.shape[2] != width:
+        raise ValueError(
+            f"A latent guide's audio latents are {tuple(carried.shape)}, and the "
+            f"pipeline takes ({channels}, n, {width})"
+        )
+    if carried.shape[1] < count:
+        raise ValueError(
+            f"A latent guide holds {count} audio latents from latent {start}, "
+            f"and carries {carried.shape[1]}"
+        )
+    logger.info(f"Guide audio: {count} audio latents carried as latents (no encode)")
+    return carried[:, :count].to("cpu", torch.float32).reshape(-1, width)
+
+
 class DwH3GuideLayoutStep(ModularPipelineBlocks):
     model_name = "minimax-h3"
 
@@ -327,6 +385,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         return list(self._layout.intermediate_outputs) + [
             OutputParam("condition_latents", type_hint=list),
             OutputParam(GUIDE_AUDIO_ROWS, type_hint=torch.Tensor),
+            OutputParam(GATED_GUIDE_ROWS, type_hint=list),
         ]
 
     @torch.no_grad()
@@ -368,6 +427,10 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
             state.set(name, value.to(device))
         state.set("num_condition_video_rows", layout[5])
         state.set("num_condition_audio_rows", num_audio_rows)
+        state.set(
+            GATED_GUIDE_ROWS,
+            gated_guide_rows(guides, positions, laid["num_condition_video_rows"]),
+        )
         # Keyframes first, then guides: the order the rows were laid out in
         state.set("condition_latents", list(laid["condition_latents"] or []) + latents)
         return components, state
@@ -384,39 +447,63 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         E(clean) + (E(noisy) - E(clean)), is E(noisy) under one seed, so the
         clean encode is never run.) 0 leaves today's latent exactly."""
         device = components._execution_device
+        # One latent more than the render: a capstone sits there (#1187)
         target_time = before_denoise._temporal_position_grid(
-            laid["num_latent_frames"], float(num_text)
+            laid["num_latent_frames"] + 1, float(num_text)
         )
         latents, positions = [], []
         for index, guide in enumerate(guides):
             frame, frames = guide["frame"], guide["video"]
-            problem = guide_frame_problem(frame) or guide_end_problem(
-                frame, frames.shape[0], laid["num_frames"]
+            past_end = guide.get(CAPSTONE_PAST_END)
+            problem = (
+                None
+                if past_end
+                else guide_frame_problem(frame)
+                or guide_end_problem(frame, frames.shape[0], laid["num_frames"])
             )
             if problem:
                 raise ValueError(f"guides[{index}]: {problem}")
-            pixels = fit_guide_frames(frames, laid["height"], laid["width"])
-            pixels = torch.from_numpy(np.ascontiguousarray(pixels))
-            if guide_noise:
-                pixels = noised_guide_pixels(
-                    pixels, guide_noise, components.keyframe_encode_seed + index
+            if guide.get("latents") is not None:
+                # The experimental latent carry (#1150): no encode at all
+                encoded = carried_guide_latents(index, guide, laid, guide_noise)
+            else:
+                encoded = self._encoded_guide(
+                    components, index, frames, laid, guide_noise, device
                 )
-                logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
-            encoded = self._encode_pixels(components, pixels, device)
             latents.append(encoded)
             positions.append(
                 guide_position_ids(
                     target_time,
                     frame_grid,
-                    frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK,
+                    laid["num_latent_frames"]
+                    if past_end
+                    else frame // GUIDE_FRAMES_PER_CHUNK * GUIDE_LATENTS_PER_CHUNK,
                     encoded.shape[2],
                 )
             )
             logger.info(
-                f"Guide {index}: {frames.shape[0]} frames at frame {frame} "
-                f"({encoded.shape[2]} latent frames)"
+                f"Guide {index}: {frames.shape[0]} frames "
+                + ("one latent past the end" if past_end else f"at frame {frame}")
+                + f" ({encoded.shape[2]} latent frames)"
+                + (
+                    f", entering below sigma {guide[CAPSTONE_GATE]}"
+                    if guide.get(CAPSTONE_GATE) is not None
+                    else ""
+                )
             )
         return latents, positions
+
+    def _encoded_guide(self, components, index, frames, laid, guide_noise, device):
+        """One guide's frames, fitted to the canvas, noised under
+        `guide_noise`, and VAE-encoded."""
+        pixels = fit_guide_frames(frames, laid["height"], laid["width"])
+        pixels = torch.from_numpy(np.ascontiguousarray(pixels))
+        if guide_noise:
+            pixels = noised_guide_pixels(
+                pixels, guide_noise, components.keyframe_encode_seed + index
+            )
+            logger.info(f"Guide {index}: guide_noise {guide_noise} on its frames")
+        return self._encode_pixels(components, pixels, device)
 
     @staticmethod
     def _encode_pixels(components, pixels, device):
@@ -440,7 +527,7 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         `DwH3GuideAudioStep`."""
         audio_rows, audio_positions = [], []
         for index, guide in enumerate(guides):
-            if guide.get("audio") is None:
+            if guide.get("audio") is None and guide.get("audio_latents") is None:
                 continue
             rows, start, count = self._guide_audio(
                 components, guide, laid["num_audio_latents"]
@@ -476,6 +563,9 @@ class DwH3GuideLayoutStep(ModularPipelineBlocks):
         latents_per_second = MINIMAX_H3_AUDIO_LATENTS_PER_SECOND
         start, _, count = guide_audio_span(frame, length, fps, latents_per_second)
         count = min(count, num_audio_latents - start)
+        if guide.get("audio_latents") is not None:
+            # The experimental latent carry (#1150): no encode at all
+            return carried_guide_audio(components, guide, start, count), start, count
         original = h3_hold_steps.as_channels_samples(guide["audio"])
         rate = guide.get("sample_rate") or vae_rate
         # The guide's span only, on the VAE's rate and channels the way a

@@ -1,0 +1,15 @@
+[
+  {
+    "name": "t17-s1-120s-r030-rebased",
+    "scene": "s1-static",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS1Static/20261104-233558-8c6ae697/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.3,
+      "window_frames": 42,
+      "window_overlap": 12,
+      "window_positions": "rebased"
+    }
+  }
+]

@@ -82,6 +82,13 @@ rule and none is worth prompt words yet:
     neither spoken nor turned into invented words (rows 6, 6b);
   - a negated noun ("There is no dog in the room") didn't render the
     thing (row 10b);
+  - what a `<d>` line talks about isn't acted out. A woman in a T-shirt
+    saying her brother borrowed her red raincoat drew no raincoat, no
+    brother and no extra arms, with or without the sentence "Spoken words
+    are only heard: the shot shows what it describes, not what anyone talks
+    about" (T2VA turbo, one speaker, static shot;
+    `2026-11-longvideos-claims.md` claim 1, #1193). Row 10's rule is
+    about the prose, not the line;
   - leaving the words out of `<d>` when a track is held for lip sync
     (WanGP's claim) is not needed: one person in frame, Ref2VA with the
     track held, sung and spoken, moved the mouth at the same instants with

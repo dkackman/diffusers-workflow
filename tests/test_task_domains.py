@@ -29,7 +29,8 @@ from dw.task_domains import (
     task_argument_errors,
 )
 from dw.dsp import resample_waveform
-from dw.tasks.audio_utils import resample_audio, slice_audio
+from dw.tasks.audio_slice import slice_audio
+from dw.tasks.audio_utils import resample_audio
 from dw.workflow import Workflow
 
 

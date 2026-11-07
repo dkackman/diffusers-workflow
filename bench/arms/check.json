@@ -1,0 +1,45 @@
+[
+  {
+    "name": "chk-s3-seg4-broken",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "prompts": [
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She walks toward the camera down the cobblestone street, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. Her eyes move along the shopfronts as she walks on, the long olive coat swinging with each step. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] But the street looks exactly the way I left it.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She slows for a moment, looks down at the stones, then lifts her chin and walks on. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Same lamps, same crooked stones, same bakery smell.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action. The shot opens exactly on <Picture 1>, then at 1.00 seconds it cuts hard to a completely different place: a deserted harbour at midnight in pouring rain, lit only by harsh blue-green neon signs reflected in black water. The woman is gone. The camera hangs high above the harbour looking straight down at the dark water and the rain-streaked wooden pier, and swings fast from left to right across moored fishing boats. A distant male voice, rough and loud, shouts <d>[English] Funny how a place waits for you without asking.</d>\n\noverall_soundscape: Heavy rain hammering on water and wood, a ship's horn, buzzing neon.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. Her expression softens and her pace eases, the golden light warm along her shoulder. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Maybe that is what I was afraid of.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She squares her shoulders and walks on, the camera keeping her centered in frame. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Well. Let's see if the door still sticks.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
+      ],
+      "check": true,
+      "retries": 1,
+      "keep_segments": true
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-chk"
+  },
+  {
+    "name": "chk-s1-fp",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "check": true,
+      "retries": 0
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-chk"
+  },
+  {
+    "name": "chk-s2-fp",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "check": true,
+      "retries": 0
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-chk"
+  }
+]

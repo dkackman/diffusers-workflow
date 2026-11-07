@@ -1,0 +1,53 @@
+[
+    {
+        "name": "r3-anchor25-s1-120s-s1166-r36",
+        "scene": "s1-static",
+        "workflow": "s1-static.json",
+        "arguments": {
+            "segments": 6,
+            "continuity": "guide",
+            "duration_seconds": 120,
+            "anchor": "segment_1",
+            "anchor_strength": 0.25
+        },
+        "seed": 1166,
+        "workflow_id_suffix": "-lcctl",
+        "moments": [
+            "frame:62",
+            "frame:1501",
+            "frame:2868"
+        ]
+    },
+    {
+        "name": "ctl-guide-s2-s1166-r36",
+        "scene": "s2-arc",
+        "workflow": "s2-arc.json",
+        "arguments": {
+            "segments": 6,
+            "continuity": "guide"
+        },
+        "seed": 1166,
+        "workflow_id_suffix": "-lcctl",
+        "moments": [
+            "frame:62",
+            "frame:277",
+            "frame:583"
+        ]
+    },
+    {
+        "name": "ctl-guide-s2-s2-r36",
+        "scene": "s2-arc",
+        "workflow": "s2-arc.json",
+        "arguments": {
+            "segments": 6,
+            "continuity": "guide"
+        },
+        "seed": 2,
+        "workflow_id_suffix": "-lcctl",
+        "moments": [
+            "frame:62",
+            "frame:277",
+            "frame:583"
+        ]
+    }
+]

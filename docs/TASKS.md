@@ -590,9 +590,13 @@ with no track), and its `shots` record where each still starts.
 
 Refused: stills of different sizes (naming both); a non-positive duration; an
 `fps` out of range; a duration count that does not match a literal image list;
-a total over 600 seconds or 36000 frames; and, at run time before allocating,
-a clip over 4 GiB of uint8 frames (frames x width x height x 3). All but the
-last are caught by `validate_workflow`.
+a total over 600 seconds or 36000 frames; and, before allocating, a clip over
+the 4 GiB in-memory frame budget (frames x width x height x 3 uint8 bytes),
+naming the highest `fps` that fits, smaller images, or a split joined with
+`concat_videos`. All are caught by `validate_workflow` when the values are
+literal; the budget needs every still to be a file (`asset:`, `output:`, a
+path) whose header gives its size, so stills from an earlier step are
+checked when the run starts.
 
 ### concat_videos
 
@@ -627,6 +631,7 @@ workflow guide).
 | `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -0.5 dBFS peak instead, reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
+| `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
 
 Shots an earlier run wrote are joined by path or URL without regenerating them.
 A file's track, and a `previous_result:` shot's, is fitted to its frames'
@@ -718,6 +723,49 @@ to `join_into_song`).
   a further 16-32 samples, logged, or warned as `joined_audio_short_after_mux`
   if it reaches a frame. The shot records are re-measured against the file as
   written, so `media.shots` stays accurate.
+
+### export_timeline
+
+A joined piece as an editable timeline: an OpenTimelineIO `.otioz` bundle that
+DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
+`version.txt` (`1.0.0`), `content.otio` and a `media/` folder; each clip's
+`target_url` is `media/<file>`. The OTIO JSON is written directly, so there is
+no `opentimelineio` dependency. Rates are the exact rational the engine writes
+(23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
+
+Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
+`.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per
+shot at the recorded rate. The Mac App Store build of Resolve is sandboxed and
+reads only folders it has been granted. Copy the file into
+`~/Movies/DaVinci Resolve/` (or another folder added under Media Storage) first.
+From elsewhere, such as `~/Desktop`, an `.otioz` import silently does nothing and
+an `.otio` reports "The clip was not found".
+
+```json
+{
+    "task": {
+        "command": "export_timeline",
+        "arguments": {
+            "video": "output:<identity>/latest/final/cut.mp4",
+            "name": "episode-1"
+        }
+    },
+    "result": { "content_type": "application/x-otioz" }
+}
+```
+
+| Argument | Meaning |
+| -------- | ------- |
+| `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
+| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
+| `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
+| `name` | The timeline's name |
+
+By default there is one video track and, when the file has a soundtrack, one
+audio track. Where the shots leave frames uncovered the track carries a gap, so
+clips and gaps add up to the video's length; shots that overlap are refused,
+since a track lays its clips end to end. The concept and schema come from
+leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ### dissolve_videos
 
@@ -873,11 +921,98 @@ Keep one span of a video's frames, and its audio over the same span:
 Frames `[start_frame, start_frame + num_frames)` are kept. The audio is cut to
 the same span, each end `frames_to_samples` of a frame index rounded on its
 own, so consecutive trims tile the track exactly. A clip with audio comes back
-as an audio+video pair; a bare frame list as frames. Carried shots are clipped
+as an audio+video pair; a bare frame list as one silent clip at `fps`, so a
+step saves it as one video rather than one per frame. Carried shots are clipped
 to the span and re-based to `0`, their sample side cleared; a clip with none
 comes back as one shot named after its file (else `video 1`). A span past the clip's end is refused, naming the clip's frame count (never
 shortened or padded), as are a `num_frames` of `0` or less and a negative
 `start_frame`; `validate_workflow` catches these on literal values.
+
+### chain_repair_cut
+
+The pieces that re-render one segment of a finished chain in place (#1169),
+for [templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json).
+A chain run with `save_segments` and `keep_segments` leaves each segment as a
+playable mp4 beside the take, and names each file on the take's shots
+(`segment_file`, in the run manifest). This command finds the files from the
+take, and cuts the guides a repair render of segment `k` needs and where the
+repair sits on the take:
+
+```json
+{
+    "task": {
+        "command": "chain_repair_cut",
+        "arguments": {
+            "chain_take": "output:minimax/MiniMaxH3I2VChained/latest/final/<the take>.mp4",
+            "segment": 3,
+            "num_frames": 175,
+            "head_frames": 22,
+            "tail_frames": 39
+        }
+    }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `chain_take` | One of the two | The chain's final video. Its shots (the run manifest beside it) give each segment's place on the take and name its segment file |
+| `chain_output` | One of the two | One of the chain's segment files. Alone, the take is found through the run manifest that names it. Beside a take whose shots name no files, the others are found by name beside it, and refused when they disagree in rate or size (two runs mixed in one directory) or leave a gap; `chain_repair_splice` still needs the take's shots |
+| `segment` | Yes | The segment to re-render, 1-based. Only 2 to N-1: the first has no segment before it and the last none after it, and are refused |
+| `num_frames` | Yes | The repair render's length, on the 17n + 5 grid: at least `head_frames` + segment k's frames + `tail_frames`, rounded up onto the grid. A smaller one is refused naming the smallest; a larger one reaches further into segment k+1 |
+| `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
+| `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
+| `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
+
+It returns a record for later steps (`previous_result:cut.<field>`):
+`head_guide` and `tail_guide` (clips with their audio, cut from the segment
+files, for two `guides` entries with `"audio": true`), `keyframe` (the head
+guide's first frame, the fl2va keyframe a guide chain gives its own
+segments), `tail_frame` (where the tail guide is placed: `num_frames -
+tail_frames`, always on 17j), `keep_start` (the render frame the kept span
+starts at), `chain_take`, and `start_frame`/`end_frame` (the take's frames
+the span replaces), with `overrun`, `segment_frames`, `segment_files` and
+`total_frames` (the take's). The neighbours are counted from their decode.
+
+The frames between the two guides number 12 more than a multiple of 17
+(17n + 5 less two 17m + 5 guides), and an interior segment of a 17n + 5 chain
+with a 22- or 39-frame carry is a multiple of 17, so the new frames replace
+segment k and the first `overrun` frames of segment k+1 (12 at the smallest
+render), and the take resumes on segment k+1's frame `overrun`.
+
+### chain_repair_splice
+
+Puts a repair render's span into the take in place (#1169): the second half
+of `chain_repair_cut`.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `chain_take` | Yes | The take, `previous_result:cut.chain_take` |
+| `video` | Yes | The repair render |
+| `segment` | Yes | The segment repaired, 1-based |
+| `start_frame`, `end_frame` | Yes | The take's frames the span replaces, from the cut |
+| `keep_start` | Yes | The render frame the span starts at, from the cut |
+
+Apart from frames `[start_frame, end_frame)` the result is the take: its
+frames, its frame count (a `duration_seconds` take, shorter than its segment
+files, stays its own length) and its track, sample for sample, so every other
+seam keeps its crossfade or declick. A `match_audio` take keeps its own track
+whole under the repaired picture. Otherwise the span's audio is the render's
+own, at the take's rate, blended in from the take's track and back into it
+inside the span, over the window the chain blended those seams with (the
+shot's `crossfade_ms`, else the few-ms declick). Its shots are the take's,
+each keeping its records (a chain seam's `crossfade_ms` and `trim_frames`),
+with the span as one `segment k (repaired)` shot and the next shot starting
+where the take resumes. Those two record their seams as a chain seam is: the
+head frames trimmed (the render's head guide; the take's own head of the
+resumed shot) and the blend applied. None of them is `hard_cut`, so
+`analyze_seams` measures the repaired seams and reads every other seam as the
+take's. No shot names a `segment_file`, so a repaired take cannot be repaired
+again: re-render the chain, or repair the original take.
+
+The take must be the chain's own output with its shots (the run manifest's
+shot list): they tell a `match_audio` track from the chain's own and give each
+seam's blend. A take without them, or whose shots do not place `segment` at
+`start_frame`, is refused rather than guessed at.
 
 ### window_video
 
@@ -1363,7 +1498,18 @@ Either half of a pair may be left out: an omitted start begins at the head, an
 omitted duration runs to the end. A slice past the end of the track is
 zero-padded to the length asked for, and more than a few milliseconds of
 padding warns `slice_past_end`; to fill a cut longer than the recording, build
-a bed with [`loop_audio`](#loop_audio) and slice that.
+a bed with [`loop_audio`](#loop_audio) and slice that. `past_end: "stop"` cuts
+at the end instead, keeping a short source at its own length: a joined piece
+whose sections may come back short (`templates/minimax/music-long`) wants
+that, and [`crossfade_audio`](#crossfade_audio) then warns `joined_short` with
+the real and the asked total. A `"stop"` slice is a section kept whole up to
+its length, so one that drops a tail still playing (its RMS within 10 dB of
+the kept part's) warns `slice_dropped_loud_tail` with the seconds dropped and
+both levels, however long the tail; a slice that cuts a source a little short
+of its end (under 5% of the slice and under 10 s, any non-silent tail) warns
+`slice_trimmed_tail` whatever `past_end` is. `end_snap_seconds` moves a cut
+that lands inside the source back to its quietest point in that many seconds
+before the end - in a song, a phrase gap or a bar break.
 
 **Audio inputs.** In every audio task, `audio` (and each entry of `audios`)
 takes the path or URL of an audio file, or of a video file whose soundtrack is
@@ -1393,6 +1539,8 @@ needed only for a bare waveform, and given, it wins.
 | `start_frame` / `num_frames` / `fps` | One pair | The slice in video frames; `fps` is required, start and count may be omitted |
 | `lead_frames` | No | Frame form only, default 0: extra audio before the cut. The slice starts at `start_frame - lead_frames` and still runs `num_frames`, so `start_frame` 48 with `lead_frames` 12 at 24 fps is audio from frame 36 for `num_frames` frames. A whole number, 0 or above; a nonzero value is refused with the seconds form, and refused when `start_frame - lead_frames` is below zero (by `validate_workflow` for literals, at run time otherwise) |
 | `sample_rate` | With a waveform | Rate of a bare waveform |
+| `past_end` | No | `"pad"` (default) zero-pads a slice past the end of the source to the length asked; `"stop"` cuts it at the end, so a short source keeps its own length (logged), and the track carries the length asked for to `fade_audio` and `crossfade_audio`. A slice starting at or past the end is refused with `"stop"` |
+| `end_snap_seconds` | No | Off by default (0 is off too); zero or above. When the slice's end cuts into the source, the end moves back to the centre of the quietest 0.2 s window (lowest RMS) within this many seconds before it, never before the slice's start; an even level keeps the exact cut. The slice comes out that much shorter (logged), and the track carries the asked length and the snap on to `fade_audio` and `crossfade_audio`, which counts it in the joined total but not as a track that ended early. An end the source does not reach has nothing to snap |
 
 ### gain_audio
 
@@ -1430,7 +1578,13 @@ with no duration runs to the end of the track.
 ### crossfade_audio
 
 Join audio tracks with an equal-power crossfade. Each seam overlaps the two
-tracks by the fade window:
+tracks by the fade window. When a track was sliced with `past_end: "stop"` and
+kept shorter than asked (through a `fade_audio` too), the join warns
+`joined_short`: the joined length against the length the tracks asked for,
+and each short track's kept and asked seconds. A track `slice_audio`'s
+`end_snap_seconds` cut at a quiet point is counted in the totals but named
+apart, under `snapped_tracks`; when no track ended early, that shortfall is
+logged rather than warned, since the snap was asked for:
 
 ```json
 {
@@ -3010,6 +3164,42 @@ Refused: a `parts` that is not a list; a part that is neither text nor a
 number (the reference resolved to something other than text); and a list left
 with nothing once empty parts are dropped. The parts are positional; there is
 no named form.
+
+## Splitting Text into Takes
+
+`split_takes` cuts a long text into takes a speech model can say in one go
+(`dw/tasks/text_takes.py`). Audio8-TTS holds about 95 s of reference, text and
+speech together, but a take over about 40 s of speech loops, skips or stops
+early (`bench/records/audio.md`), so a long narration is spoken take by take
+and joined (`templates/narration-long`).
+
+```json
+{
+    "name": "split",
+    "task": {
+        "command": "split_takes",
+        "arguments": { "text": "variable:text", "max_seconds": 37, "words_per_second": 3.0 }
+    },
+    "result": { "content_type": "application/json" }
+}
+```
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `text` | Yes | The text to speak |
+| `max_seconds` | No | The longest a take may run (default 37: at 3.0 words a second, 111 words, the longest voice-clone take measured word-complete) |
+| `words_per_second` | No | The rate that turns the limit into a word count (default 3.0, the voice-clone voice's measured rate; written dialogue measured 2.5 to 4 words a second as filling a clip) |
+
+It answers `{takes, count, words}`. A take ends at a sentence boundary; a
+sentence that alone is over the limit is cut at its last comma before the
+limit, else (no comma) at the word boundary nearest the limit, and the run warns.
+A take already 60% of the way to the limit ends at a paragraph break (a blank
+line), so the join's pause falls where the text has one. The takes rejoin to the text, modulo whitespace.
+The engine expands `for_each` before a run, so the list cannot feed a
+`for_each` in the same workflow. `templates/narration-long` takes the plain
+text, runs this task, and hands the takes to `templates/narration-from-takes`
+as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
+above zero.
 
 ## Extracting Sections
 

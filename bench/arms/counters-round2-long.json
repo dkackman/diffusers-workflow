@@ -1,0 +1,36 @@
+[
+  {
+    "name": "ctl-guide-s1-120s",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "r2-anchor50-s1-120s",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  }
+]

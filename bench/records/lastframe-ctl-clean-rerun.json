@@ -1,0 +1,50 @@
+[
+  {
+    "arm": "ctl-lastframe-s1-s1166-clean",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "88250351f1fe",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static-lfclean1/20261105-013634-712693ee/final/BenchS1Static-lfclean1-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.036,
+      "seam_jump_max": 1.19,
+      "seam_look_mean": 1.254,
+      "seam_look_max": 1.73,
+      "seam_level_step_db_mean": 4.508,
+      "seam_level_step_db_max": 9.35,
+      "texture_fine_seg_last": 0.5218991266072421,
+      "texture_mid_seg_last": 0.34220334994179036,
+      "texture_coarse_seg_last": 0.0017378778291200147,
+      "wall_minutes": 10.367353157202404
+    },
+    "segment1": "d59a1259/b2c2c63e",
+    "segment1_label": "clean",
+    "history": "first job after a bench server restart on cuda:0 alone (cold model load)"
+  },
+  {
+    "arm": "ctl-lastframe-s1-s2-clean",
+    "scene": "s1-static",
+    "seed": 2,
+    "job_id": "194ee59b559d",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static-lfclean2/20261105-014715-28da8eef/final/BenchS1Static-lfclean2-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.072,
+      "seam_jump_max": 1.27,
+      "seam_look_mean": 1.34,
+      "seam_look_max": 1.76,
+      "seam_level_step_db_mean": 4.6979999999999995,
+      "seam_level_step_db_max": 13.86,
+      "texture_fine_seg_last": 0.5928744772516797,
+      "texture_mid_seg_last": 0.448291178681586,
+      "texture_coarse_seg_last": 0.010577093306130311,
+      "wall_minutes": 10.676378142833709
+    },
+    "segment1": "f47df963/f88334a9",
+    "segment1_label": "clean",
+    "history": "first job after a bench server restart on cuda:0 alone (cold model load)"
+  }
+]

@@ -20,7 +20,11 @@ from diffusers.modular_pipelines.modular_pipeline_utils import (
 
 from .h3_anchor_stats import channel_statistics, match_channel_statistics
 from .h3_guide_steps import fit_guide_frames
-from .h3_rules import LATENT_ANCHOR_INPUT, snap_guide_length
+from .h3_rules import (
+    LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
+    snap_guide_length,
+)
 
 logger = logging.getLogger("dw")
 
@@ -76,6 +80,14 @@ class DwH3LatentAnchorStep(ModularPipelineBlocks):
                     "video latent is rescaled to before decode."
                 ),
             ),
+            InputParam(
+                name=LATENT_ANCHOR_STRENGTH_INPUT,
+                default=None,
+                description=(
+                    "How far the rescale goes, a number in [0, 1]: 1 (or unset) is the full per-channel "
+                    "match, 0 leaves the latent alone."
+                ),
+            ),
             InputParam(name="height", type_hint=int, required=True),
             InputParam(name="width", type_hint=int, required=True),
         ]
@@ -93,7 +105,10 @@ class DwH3LatentAnchorStep(ModularPipelineBlocks):
         mean, std = anchor_statistics(
             components, frames, block_state.height, block_state.width
         )
-        block_state.latents = match_channel_statistics(block_state.latents, mean, std)
+        strength = getattr(block_state, LATENT_ANCHOR_STRENGTH_INPUT, None)
+        block_state.latents = match_channel_statistics(
+            block_state.latents, mean, std, 1.0 if strength is None else float(strength)
+        )
         self.set_block_state(state, block_state)
         return components, state
 

@@ -154,6 +154,7 @@ SKILL_TASKS = {
     "minimax-h3": ["join_into_song", "slice_audio", "normalize_audio", "pair_audio"],
     "script-to-video": ["concat_videos", "get_first_frame", "get_last_frame"],
     "series-episodes": ["apply_lut", "film_grain", "concat_videos", "loop_audio"],
+    "long-form": ["pair_audio", "export_timeline", "split_takes", "find_loop_bed"],
 }
 
 
@@ -1193,7 +1194,30 @@ class TestMiniMaxMusic3Skill:
         assert encoders._MAX_PROMPT_TOKENS == 5000 and "5,000 tokens" in text
         # the ceiling semantics: the language model may stop earlier
         assert re.search(r'"audio_duration",\s*default=60.0', source)
-        assert "Default\n  60 seconds" in text or "Default 60 seconds" in text
+        flat = " ".join(text.split())
+        assert "pipeline's default is 60 seconds" in flat
+        # each template's own ceiling, as the skill states it
+        for template, stated in (
+            ("music", "120 s (`music`)"),
+            ("music-video", "30 s (`music-video`)"),
+        ):
+            with open(
+                os.path.join(
+                    REPO_ROOT, "workflows", "templates", "minimax", f"{template}.json"
+                ),
+                encoding="utf-8",
+            ) as handle:
+                default = json.load(handle)["variables"]["audio_duration"]
+            assert stated.startswith(f"{default} s") and stated in flat, template
+        with open(
+            os.path.join(
+                REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+            ),
+            encoding="utf-8",
+        ) as handle:
+            sections = json.load(handle)["variables"]["sections"]
+        assert {section["audio_duration"] for section in sections} == {45}
+        assert "45 s a section (`music-long`)" in flat
         assert "ceiling, not a target" in text
         # a tag line keeps only its leading bracketed tags, lower-cased
         assert "_LEADING_TAGS_RE" in source and hasattr(encoders, "_normalize_lyrics")
@@ -1588,6 +1612,12 @@ def _fenced_json(text):
 
 
 CINEMATOGRAPHY_KEYS = ("shot_size", "move", "lens", "light", "duration")
+SCENE_KEYS = ("id", "shots", "length_seconds", "continuity")
+
+
+def _is_scene_list(block):
+    """`<project>/scenes` (#1199 Task 25) is the shot document's other array."""
+    return all(isinstance(item, dict) and "length_seconds" in item for item in block)
 
 
 class TestShotDocumentShape:
@@ -1598,7 +1628,11 @@ class TestShotDocumentShape:
     def test_example_shot_and_two_shot_array_carry_every_key(self):
         blocks = _fenced_json(_read(SHOT_DOCUMENT))
         objects = [block for block in blocks if isinstance(block, dict)]
-        arrays = [block for block in blocks if isinstance(block, list)]
+        arrays = [
+            block
+            for block in blocks
+            if isinstance(block, list) and not _is_scene_list(block)
+        ]
         assert objects and any(len(array) == 2 for array in arrays)
         for shot in objects + [shot for array in arrays for shot in array]:
             for key in SHOT_KEYS:
@@ -1718,3 +1752,196 @@ class TestSitcomAssembly:
             assert f"| `{name}` |" in section, name
         flat = " ".join(text.split())
         assert "planned `start_frame` and `cut_frames`" in flat
+
+
+LONG_FORM_DIR = os.path.join(PLUGIN_DIR, "skills", "long-form")
+LONG_FORM_SKILL = os.path.join(LONG_FORM_DIR, "SKILL.md")
+CHAINED_SEGMENTS = os.path.join(
+    REPO_ROOT, "workflows", "templates", "minimax", "chained-segments.json"
+)
+
+
+def test_long_form_skill_is_named_in_the_readme_and_claude_md():
+    """The long-form playbook (#1199 Task 24) is a cross-cutting skill like
+    storyboard: it ships, and the two documents that enumerate skills name it."""
+    assert LONG_FORM_SKILL in SKILLS
+    for document in (
+        os.path.join(PLUGIN_DIR, "README.md"),
+        os.path.join(REPO_ROOT, "CLAUDE.md"),
+    ):
+        assert "`long-form`" in open(document, encoding="utf-8").read(), document
+
+
+class TestLongFormSkill:
+    """The playbook's settled rules are the template's and the bench's; the
+    open questions stay marked until a record settles them."""
+
+    def _text(self):
+        return " ".join(skill_text(LONG_FORM_SKILL).split())
+
+    def test_the_shot_presets_are_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        presets = spec["presets"]["shot"]
+        assert presets["static"] == {
+            "continuity": "guide",
+            "anchor": "segment_1",
+            "anchor_strength": 0.25,
+        }
+        assert presets["static_long"] == {
+            "continuity": "guide",
+            "keystone": "segment_1",
+            "keystone_slot": "last",
+        }
+        assert presets["moving"] == {"continuity": "guide"}
+        assert presets["dialogue"] == {"continuity": "guide"}
+        assert spec["variables"]["continuity"] == "guide"
+        text = self._text()
+        for shot in ("static", "static_long", "moving", "dialogue"):
+            assert f"`shot: {shot}`" in text, shot
+        assert "`anchor_strength` 0.25" in text
+
+    def test_the_cost_row_is_the_template_s(self):
+        with open(CHAINED_SEGMENTS, encoding="utf-8") as handle:
+            spec = json.load(handle)
+        (row,) = spec["cost"]
+        assert f"{row['minutes']} min" in self._text()
+
+    def test_the_check_ceilings_are_the_engine_s(self):
+        from dw.pipeline_processors import chain_check
+
+        text = self._text()
+        assert '`"check": {"cut_ratio_max": null}`' in text
+        assert "warn-only" in text
+        for name, ceiling in (
+            ("jump_ratio", chain_check.JUMP_RATIO_MAX),
+            ("look_ratio", chain_check.LOOK_RATIO_MAX),
+            ("cut_ratio", chain_check.CUT_RATIO_MAX),
+            ("texture_ratio", chain_check.TEXTURE_RATIO_MAX),
+        ):
+            assert f"`{name}` (ceiling {ceiling:g})" in text, name
+
+    def test_every_rule_cites_the_bench(self):
+        text = self._text()
+        for record in (
+            "counters.md",
+            "check.md",
+            "repair.md",
+            "structural.md",
+            "noise-floor.md",
+            "determinism.md",
+        ):
+            assert f"bench/records/{record}" in text, record
+
+    def test_the_open_questions_are_marked_pending(self):
+        text = self._text()
+        assert "pending measurement" in text
+        for topic in ("windowed refine", "latent carry", "capstone", "tier", "ltx"):
+            assert topic in text.lower(), topic
+
+    def test_the_measured_levers_carry_their_verdicts(self):
+        """The structural levers, the keystone and LTX parity were measured
+        (bench/records/structural.md, repair.md, ltx.md): each names its
+        verdict rather than reading as pending."""
+        text = " ".join(self._text().split())
+        for verdict in (
+            "not a burn fix",  # windowed refine
+            "not a default",  # latent carry
+            "does not win",  # late capstone
+            "Don ruled slot `last` the static long-take default",  # keystone
+            "stays the `templates/ltx2/chained-segments` default",
+            "Cap an LTX-2.5 chain at about 15-20 s",
+        ):
+            assert verdict in text, verdict
+        assert "experimental_keystone_slot" not in text
+
+    def test_the_cut_ideas_are_named_so_they_are_not_re_proposed(self):
+        text = self._text()
+        for idea in ("keystone", "backoff", "sharpest", "guide `look_hold`"):
+            assert idea in text, idea
+
+
+LONG_FORM_LEVERS = os.path.join(LONG_FORM_DIR, "references", "levers.md")
+H3_CHAINS = os.path.join(os.path.dirname(H3_SKILL), "references", "chains.md")
+STORYBOARD_SKILL = os.path.join(PLUGIN_DIR, "skills", "storyboard", "SKILL.md")
+MUSIC3_SKILL = os.path.join(PLUGIN_DIR, "skills", "minimax-music3", "SKILL.md")
+
+
+def _flat(text):
+    return " ".join(text.split())
+
+
+class TestLongFormPointers:
+    """#1199 Task 25: the planning skills carry a scene's length and
+    continuity, and the family skills hand anything longer than one clip to
+    the `long-form` playbook instead of restating it."""
+
+    def test_the_shot_document_plans_length_and_continuity_per_scene(self):
+        text = _flat(_read(SHOT_DOCUMENT))
+        assert "<project>/scenes" in text
+        assert "`length_seconds`" in text and "`continuity`" in text
+        for shape in ("`one_clip`", "`cuts`", "`chain`", "`bridge`"):
+            assert shape in text, shape
+        assert "`long-form`" in text
+        scenes = [
+            block
+            for block in _fenced_json(_read(SHOT_DOCUMENT))
+            if isinstance(block, list) and _is_scene_list(block)
+        ]
+        assert scenes, "the shot document shows a worked `<project>/scenes`"
+        shapes = {"one_clip", "cuts", "chain", "bridge"}
+        for scene in scenes[0]:
+            assert set(scene) == set(SCENE_KEYS), scene
+            assert isinstance(scene["length_seconds"], (int, float))
+            assert scene["continuity"] in shapes, scene
+
+    @pytest.mark.parametrize(
+        "path", [H3_SKILL, LTX_SKILL], ids=["minimax-h3", "ltx-2.5"]
+    )
+    def test_a_video_family_hands_longer_than_one_clip_to_long_form(self, path):
+        body = _flat(skill_body(path))
+        assert "**Longer than one clip" in body
+        assert "the `long-form` skill first" in body
+
+    @pytest.mark.parametrize(
+        "path",
+        [STORYBOARD_SKILL, SCRIPT_SKILL, SERIES_SKILL],
+        ids=["storyboard", "script-to-video", "series-episodes"],
+    )
+    def test_a_planning_skill_points_a_long_scene_to_long_form(self, path):
+        assert "`long-form`" in skill_body(path)
+
+    def test_music_over_one_track_points_to_the_long_form_audio_recipes(self):
+        body = _flat(skill_body(MUSIC3_SKILL))
+        assert "`long-form/references/audio.md`" in body
+
+    def test_the_community_drift_notes_moved_into_the_playbook(self):
+        chains = _read(H3_CHAINS)
+        assert "NerdNotes" not in chains
+        assert "`long-form`" in chains
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert "NerdNotes" in levers
+        for claim in (
+            "half-static",
+            "segments 3-6",
+            "masked area",
+            "Whole-frame averages",
+            "#1033",
+        ):
+            assert claim in levers, claim
+
+    @pytest.mark.parametrize(
+        "path",
+        [
+            H3_SKILL,
+            LTX_SKILL,
+            STORYBOARD_SKILL,
+            SCRIPT_SKILL,
+            SERIES_SKILL,
+            MUSIC3_SKILL,
+        ],
+        ids=lambda p: os.path.basename(os.path.dirname(p)),
+    )
+    def test_every_touched_skill_holds_its_budget(self, path):
+        size = len(skill_body(path).encode("utf-8"))
+        assert size <= SKILL_SIZE_LIMIT, f"{path} is {size} bytes"

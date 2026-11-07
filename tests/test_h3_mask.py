@@ -578,6 +578,8 @@ def args(**overrides):
         "mask_video": "asset:mask",
         "mask_grow": 1,
         "refine_strength": 0.9,
+        # Without it a source and no mask is an audio pass (#1192)
+        "hold_audio": "asset:clip",
     }
     arguments.update(overrides)
     return {k: v for k, v in arguments.items() if v is not None}
@@ -842,6 +844,8 @@ def probed_errors(tmp_path, **arguments):
     from dw.media import probe_metadata
 
     arguments.setdefault("refine_strength", 0.9)
+    # Without it a source and no mask is an audio pass (#1192)
+    arguments.setdefault("hold_audio", "asset:clip.mp4")
     return mask_errors(
         {"steps": [h3_step(**arguments)]}, None, str(tmp_path), probe=probe_metadata
     )
@@ -1045,8 +1049,9 @@ class TestStringStrength:
         variables = {"refine_strength": default}
         set_variables({"refine_strength": value}, variables)
         step = h3_step(
-            **args(refine_strength="variable:refine_strength"),
-            hold_audio="asset:clip.mp4",
+            **args(
+                refine_strength="variable:refine_strength", hold_audio="asset:clip.mp4"
+            ),
             num_inference_steps=5,
         )
         return replace_variables(step, variables)
@@ -1058,8 +1063,7 @@ class TestStringStrength:
 
     def test_a_literal_string_is_refused_at_its_path(self):
         step = h3_step(
-            **args(refine_strength="0.8"),
-            hold_audio="asset:clip.mp4",
+            **args(refine_strength="0.8", hold_audio="asset:clip.mp4"),
             num_inference_steps=5,
         )
         errors = self.errors(step)

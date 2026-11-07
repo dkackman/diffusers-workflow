@@ -638,6 +638,17 @@ class TestTheCatalogReportsAnEntrysBound:
 
         assert lists["shots"]["constraints"]["num_frames"] == "17*n+5, 124-345"
 
+    def test_music_long_reports_a_sections_lyric_rule(self):
+        from dw.server.catalog_shape import derive_catalog_metadata
+
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            lists = derive_catalog_metadata(json.load(handle))["lists"]
+
+        assert lists["sections"]["constraints"]["lyrics"] == "non-empty"
+
 
 class TestValidationSeesTheSnappedValue:
     """Validation must judge the value the run will use, not the one typed."""
@@ -733,3 +744,210 @@ class TestH3SizeIsMultipleOf32:
             definition, {"height": 288, "width": 480}, supplied=("height", "width")
         )
         assert errors == []
+
+
+# A Music 3 run with `lyrics: ""` passed validation and failed at run time:
+# the pipeline has no instrumental flag and refuses empty lyrics, so an
+# instrumental is a tag-only body (#1199 drill, ask 3, `b176507ac918`)
+LYRICS = {
+    "min_length": 1,
+    "reason": "send a tag-only body for an instrumental",
+}
+
+
+class TestANonEmptyString:
+    @pytest.mark.parametrize("value", ["", "   \n ", None])
+    def test_an_empty_value_is_refused(self, value):
+        assert violations(value, LYRICS) == ["must not be empty"]
+        message = refusal("lyrics", value, LYRICS)
+        assert f"'lyrics' is {value!r}" in message
+        assert "a non-empty string" in message
+        assert LYRICS["reason"] in message
+
+    def test_a_tag_only_body_is_accepted(self):
+        assert refusal("lyrics", "[intro]\n[instrumental]\n[outro]", LYRICS) is None
+
+    def test_a_longer_minimum_counts_characters(self):
+        rule = {"min_length": 5}
+        assert violations("abc", rule) == ["must be at least 5 characters"]
+        assert violations("abcde", rule) == []
+
+    def test_the_static_pass_refuses_it_at_the_argument(self):
+        definition = workflow_with({"lyrics": LYRICS}, {"lyrics": "[verse]\nla"})
+
+        (problem,) = constraint_errors(definition, {"lyrics": ""}, supplied={"lyrics"})
+
+        assert problem["path"] == "arguments.lyrics"
+
+    def test_the_run_time_pass_refuses_it(self):
+        definition = workflow_with({"lyrics": LYRICS}, {"lyrics": "[verse]\nla"})
+
+        with pytest.raises(ValueError, match="must not be empty"):
+            apply_constraints(definition, {"lyrics": ""})
+
+    def test_a_number_rule_ignores_a_string(self):
+        assert violations("", H3) == []
+
+
+def music3_lyric_variables(definition):
+    """The variables (or list-entry fields) a Music 3 step's `lyrics`
+    argument reads, as names."""
+    names = set()
+    for step in definition.get("steps") or []:
+        pipeline = step.get("pipeline") if isinstance(step, dict) else None
+        if not isinstance(pipeline, dict):
+            continue
+        model = (pipeline.get("from_pretrained_arguments") or {}).get("model_name")
+        if model != "MiniMaxAI/MiniMax-Music3":
+            continue
+        reference = (pipeline.get("arguments") or {}).get("lyrics")
+        if isinstance(reference, str) and ":" in reference:
+            names.add(reference.split(":", 1)[1])
+    return names
+
+
+class TestEveryMusic3TemplateRefusesEmptyLyrics:
+    def test_each_lyric_variable_declares_a_non_empty_rule(self):
+        checked = 0
+        for path in TEMPLATES:
+            with open(path, encoding="utf-8") as handle:
+                definition = json.load(handle)
+            constraints = definition.get("variable_constraints") or {}
+            for name in music3_lyric_variables(definition):
+                checked += 1
+                rule = constraints.get(name) or {}
+                assert rule.get("min_length") == 1, (
+                    f"{os.path.relpath(path, REPO_ROOT)}: '{name}' feeds Music 3's "
+                    "lyrics and declares no min_length"
+                )
+                assert "tag-only" in rule.get("reason", ""), path
+        assert checked >= 3
+
+    def test_music_long_refuses_an_empty_section_lyric(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        sections = [dict(entry) for entry in definition["variables"]["sections"]]
+        sections[1]["lyrics"] = ""
+
+        (problem,) = constraint_errors(
+            definition, {"sections": sections}, supplied={"sections"}
+        )
+
+        assert problem["path"] == "arguments.sections[1].lyrics"
+        assert "tag-only" in problem["message"]
+
+
+# music-long cuts a section at its `seconds`; a lyric longer than that fits
+# loses its last lines, and nothing said so before the run (#1199 bench)
+DENSE = {
+    "max_words_per_second": 0.73,
+    "seconds_from": "seconds",
+    "reason": "measured on the bench",
+}
+
+
+def lyric(words, lines=4):
+    """A tagged lyric of `words` words over `lines` lines."""
+    per = [words // lines + (1 if n < words % lines else 0) for n in range(lines)]
+    body = "\n".join(" ".join(["la"] * count) for count in per)
+    return f"[verse]\n{body}"
+
+
+def workflow_with_sections(constraints, sections):
+    return {
+        "id": "sectioned",
+        "variable_constraints": constraints,
+        "variables": {"sections": sections},
+        "steps": [
+            {
+                "name": "each",
+                "for_each": "variable:sections",
+                "task": {
+                    "command": "no_op",
+                    "arguments": {
+                        "lyrics": "item:lyrics",
+                        "seconds": "item:seconds",
+                        "name": "item:name",
+                    },
+                },
+            }
+        ],
+    }
+
+
+class TestALyricTooLongForItsSeconds:
+    def test_bracketed_tags_are_not_words(self):
+        from dw.variable_constraints import word_count
+
+        assert word_count("[intro]\n[verse]\nOne two, three\n[pre-chorus]\nfour") == 4
+
+    def test_a_dense_entry_is_a_warning_naming_the_entry_and_the_numbers(self):
+        sections = [
+            {"name": "a", "lyrics": lyric(62), "seconds": 85},
+            {"name": "b", "lyrics": lyric(71), "seconds": 85},
+        ]
+        definition = workflow_with_sections({"lyrics": DENSE}, sections)
+
+        assert constraint_errors(definition) == []
+        (notice,) = constraint_warnings(definition)
+        assert notice.startswith("sections[1]: ")
+        assert "71 words" in notice and "85 s" in notice
+        assert "62" in notice  # the most the rate allows at 85 s
+        assert DENSE["reason"] in notice
+
+    def test_the_rate_scales_with_the_seconds(self):
+        sections = [{"name": "a", "lyrics": lyric(71), "seconds": 120}]
+        definition = workflow_with_sections({"lyrics": DENSE}, sections)
+
+        assert constraint_warnings(definition) == []
+
+    def test_an_entry_without_a_number_of_seconds_is_not_judged(self):
+        sections = [{"name": "a", "lyrics": lyric(200), "seconds": "variable:x"}]
+        definition = workflow_with_sections({"lyrics": DENSE}, sections)
+
+        assert constraint_warnings(definition) == []
+
+    def test_the_run_time_pass_warns_and_does_not_refuse(self):
+        from dw.events import RunContext, activate_context, deactivate_context
+
+        sections = [{"name": "a", "lyrics": lyric(90), "seconds": 85}]
+        definition = workflow_with_sections({"lyrics": DENSE}, sections)
+        events = []
+        token = activate_context(RunContext(on_event=events.append))
+        try:
+            apply_constraints(definition, {"sections": sections})
+        finally:
+            deactivate_context(token)
+
+        (warning,) = [e for e in events if e.get("kind") == "text_may_overrun"]
+        assert warning["words"] == 90
+        assert warning["max_words"] == 62
+
+    def test_a_top_level_value_reads_its_seconds_from_a_variable(self):
+        definition = workflow_with(
+            {"lyrics": dict(DENSE, seconds_from="duration")},
+            {"lyrics": lyric(30), "duration": 30},
+        )
+
+        (notice,) = constraint_warnings(definition)
+        assert "30 words" in notice
+
+    def test_music_long_declares_the_measured_rate(self):
+        path = os.path.join(
+            REPO_ROOT, "workflows", "templates", "minimax", "music-long.json"
+        )
+        with open(path, encoding="utf-8") as handle:
+            definition = json.load(handle)
+        rule = definition["variable_constraints"]["lyrics"]
+        assert rule["max_words_per_second"] == 0.73
+        assert rule["seconds_from"] == "seconds"
+        assert "bench/records/audio.md" in rule["reason"]
+        # Its own defaults are inside the rate
+        assert constraint_warnings(definition) == []
+        sections = [dict(entry) for entry in definition["variables"]["sections"]]
+        sections[0] = dict(sections[0], lyrics=lyric(71, lines=10), seconds=85)
+        (notice,) = constraint_warnings(definition, {"sections": sections})
+        assert notice.startswith("sections[0]: ")

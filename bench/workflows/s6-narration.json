@@ -1,0 +1,180 @@
+{
+  "id": "BenchS6Narration",
+  "summary": "Three narration takes and a Music 3 bed under three animatic boards.",
+  "description": "Long-form bench S6 (narration): three templates/generate-speech narration takes in the default voice (no consented cast voice clip is on the bench host, so templates/voice-clone is not used), a templates/minimax/music instrumental bed, and three storyboard stills held by templates/animatic. Narration and bed are mixed and paired under the boards.",
+  "cost_drivers": [
+    "audio_duration"
+  ],
+  "variables": {
+    "take_1": "The keeper climbed the stairs every evening, long before the storm.",
+    "take_2": "By the time he reached the lamp, the sea had already gone dark.",
+    "take_3": "Then the light turned, and the whole coast could see him.",
+    "speech_model": "facebook/mms-tts-eng",
+    "music_prompt": "A slow, spare instrumental score: soft piano and a low sustained string pad, patient and melancholy, no vocals.",
+    "music_lyrics": "[intro]\n[instrumental]\n[outro]",
+    "audio_duration": 30,
+    "sample_rate": 44100,
+    "boards": [
+      "asset:bench/board_1.png",
+      "asset:bench/board_2.png",
+      "asset:bench/board_3.png"
+    ],
+    "durations": [
+      4.0,
+      4.0,
+      4.0
+    ],
+    "fps": 24.0,
+    "narration_gain": 1.0,
+    "bed_gain": 0.35,
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "narrate_1",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:take_1",
+          "model_name": "variable:speech_model"
+        }
+      }
+    },
+    {
+      "name": "narrate_2",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:take_2",
+          "model_name": "variable:speech_model"
+        }
+      }
+    },
+    {
+      "name": "narrate_3",
+      "task": {
+        "command": "generate_speech",
+        "arguments": {
+          "text": "variable:take_3",
+          "model_name": "variable:speech_model"
+        }
+      }
+    },
+    {
+      "name": "narration",
+      "task": {
+        "command": "crossfade_audio",
+        "arguments": {
+          "audios": [
+            "previous_result:narrate_1",
+            "previous_result:narrate_2",
+            "previous_result:narrate_3"
+          ],
+          "crossfade_ms": 75,
+          "sample_rate": "variable:sample_rate"
+        }
+      }
+    },
+    {
+      "name": "narration_resampled",
+      "task": {
+        "command": "resample_audio",
+        "arguments": {
+          "audio": "previous_result:narration",
+          "target_sample_rate": "variable:sample_rate"
+        }
+      }
+    },
+    {
+      "name": "generate_music",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "load_components": {
+            "dtype": "torch.bfloat16"
+          },
+          "components_manager": {
+            "enable_auto_cpu_offload": true
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-Music3"
+        },
+        "arguments": {
+          "prompt": "variable:music_prompt",
+          "lyrics": "variable:music_lyrics",
+          "audio_duration": "variable:audio_duration",
+          "output": "audios"
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100,
+        "save": false
+      },
+      "release_pipeline": true
+    },
+    {
+      "name": "balanced",
+      "task": {
+        "command": "normalize_audio",
+        "arguments": {
+          "audio": "previous_result:generate_music",
+          "peak_dbfs": -3.0,
+          "sample_rate": 44100
+        }
+      },
+      "result": {
+        "content_type": "audio/mp3",
+        "sample_rate": 44100,
+        "save": false
+      }
+    },
+    {
+      "name": "soundtrack",
+      "task": {
+        "command": "mix_audio",
+        "arguments": {
+          "audios": [
+            "previous_result:narration_resampled",
+            "previous_result:balanced"
+          ],
+          "gains": [
+            "variable:narration_gain",
+            "variable:bed_gain"
+          ],
+          "sample_rate": "variable:sample_rate"
+        }
+      }
+    },
+    {
+      "name": "stills",
+      "task": {
+        "command": "stills_to_video",
+        "arguments": {
+          "images": "variable:boards",
+          "durations": "variable:durations",
+          "fps": "variable:fps"
+        }
+      }
+    },
+    {
+      "name": "film",
+      "task": {
+        "command": "pair_audio",
+        "arguments": {
+          "video": "previous_result:stills",
+          "audio": "previous_result:soundtrack",
+          "fps": "variable:fps",
+          "fit": "video"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:fps",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

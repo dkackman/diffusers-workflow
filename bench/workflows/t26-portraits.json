@@ -1,0 +1,57 @@
+{
+  "id": "BenchT26Portraits",
+  "summary": "Pictures for the #1193 Ref2VA probes: a stranger portrait and a walker face crop.",
+  "description": "Task 26 (#1193) preparation. 'stranger' is a Z-Image head-and-shoulders portrait of a man who appears in no probe prompt (claim 2's unmentioned picture); 'walker_face' is a face-and-hair square of asset:bench/walker.png cut with recenter_crop, so the olive coat is all but gone (claim 3's cropped identity reference). Keep them as asset:bench/t26-stranger.jpg and asset:bench/t26-walker-face.png before running bench/arms/t26-claims.json.",
+  "variables": {
+    "stranger_prompt": "A photographic head-and-shoulders portrait of a man in his sixties with a short grey beard and round wire glasses, wearing a mustard-yellow corduroy jacket over a dark green shirt, facing the camera against a plain mid-grey studio backdrop, soft even light.",
+    "seed": 1193
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "stranger",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ZImagePipeline",
+          "offload": "model"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "Tongyi-MAI/Z-Image-Turbo",
+          "torch_dtype": "torch.bfloat16",
+          "low_cpu_mem_usage": true
+        },
+        "arguments": {
+          "prompt": "variable:stranger_prompt",
+          "num_inference_steps": 9,
+          "num_images_per_prompt": 1,
+          "width": 768,
+          "height": 768,
+          "guidance_scale": 0.0
+        }
+      },
+      "result": {
+        "content_type": "image/jpeg",
+        "subfolder": "final"
+      }
+    },
+    {
+      "name": "walker_face",
+      "task": {
+        "command": "recenter_crop",
+        "arguments": {
+          "image": "asset:bench/walker.png",
+          "center_x": 0.527,
+          "center_y": 0.135,
+          "crop": 0.3,
+          "width": 512,
+          "height": 512,
+          "fill": "symmetric"
+        }
+      },
+      "result": {
+        "content_type": "image/png",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

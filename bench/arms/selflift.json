@@ -1,0 +1,238 @@
+[
+  {
+    "name": "sl-ctl-s1-6seg-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-k2-s1-6seg-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 2,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-k1-s1-6seg-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 1,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-ctl-s1-6seg-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-k2-s1-6seg-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 2,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-k1-s1-6seg-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 1,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "sl-ctl-s2-1seg-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "sl-k2-s2-1seg-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 2,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "sl-k1-s2-1seg-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 1,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "sl-ctl-s2-1seg-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "sl-k2-s2-1seg-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 2,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "sl-k1-s2-1seg-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "width": 1024,
+      "height": 576,
+      "selflift": {
+        "lift_step": 1,
+        "start_scale": 0.5
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-sl",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  }
+]

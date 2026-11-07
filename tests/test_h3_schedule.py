@@ -117,6 +117,8 @@ def test_each_step_runs_its_adapters_shift(path):
     for step, pipeline in h3_steps(definition):
         shift = resolve(definition, pipeline["scheduler"]["shift"])
         for lora in pipeline.get("loras", []):
+            if resolve(definition, lora["model_name"]) is None:
+                continue  # no repo, no adapter: add-sound runs the base model
             name = resolve(definition, lora["weight_name"])
             assert TRAINED_SHIFT[name] == shift, (
                 f"{os.path.basename(path)}:{step['name']} runs {name} at shift {shift}"
@@ -220,6 +222,8 @@ def test_each_template_steps_its_adapters_nfe(path):
     variables = definition.get("variables", {})
     if "lora_weight_name" not in variables:
         pytest.skip("no adapter on this template")
+    if variables.get("lora_model_name", "") is None:
+        pytest.skip("the adapter is off by default (add-sound runs the base model)")
     nfe = DISTILLED_NFE[variables["lora_weight_name"]]
     assert variables["num_inference_steps"] == nfe + 1, os.path.basename(path)
 

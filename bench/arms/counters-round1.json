@@ -1,0 +1,411 @@
+[
+  {
+    "name": "r1-anchor25-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor50-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor75-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.75
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-backoff17-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "guide_backoff": 17
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:234",
+      "frame:498"
+    ]
+  },
+  {
+    "name": "r1-keystone-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-lookhold-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "look_hold": true
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-antiburn-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "antiburn_model_name": "Imagineer13/H3-Anti-Burn-LoRA"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-lf-carrypick-s1",
+    "scene": "s1-static",
+    "workflow": "lf-s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "carry_pick_n": 4
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r1-lf-lookhold-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r1-anchor25-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor50-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor75-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.75
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-backoff17-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "guide_backoff": 17
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:234",
+      "frame:498"
+    ]
+  },
+  {
+    "name": "r1-keystone-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-lookhold-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "look_hold": true
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-antiburn-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "antiburn_model_name": "Imagineer13/H3-Anti-Burn-LoRA"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-lf-carrypick-s2",
+    "scene": "s2-arc",
+    "workflow": "lf-s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "carry_pick_n": 4
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r1-lf-lookhold-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r1-anchor25-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor50-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-anchor75-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.75
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-backoff17-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "guide_backoff": 17
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:234",
+      "frame:498"
+    ]
+  },
+  {
+    "name": "r1-keystone-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-lookhold-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "look_hold": true
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r1-antiburn-s3",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "antiburn_model_name": "Imagineer13/H3-Anti-Burn-LoRA"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  }
+]

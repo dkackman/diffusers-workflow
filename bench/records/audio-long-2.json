@@ -1,0 +1,42 @@
+[
+  {
+    "arm": "s6-music-full-335s-s1166",
+    "scene": "s6-narration",
+    "seed": 1166,
+    "job_id": "ae2e1373cff6",
+    "status": "succeeded",
+    "error": "ValueError: job ae2e1373cff6 wrote no video"
+  },
+  {
+    "arm": "s6-music-full-335s-s1167",
+    "scene": "s6-narration",
+    "seed": 1167,
+    "job_id": "f83cf3566727",
+    "status": "succeeded",
+    "error": "ValueError: job f83cf3566727 wrote no video"
+  },
+  {
+    "arm": "s6-music-full-335s-xf3000-s1166",
+    "scene": "s6-narration",
+    "seed": 1166,
+    "job_id": "ef47c7b6684d",
+    "status": "succeeded",
+    "error": "ValueError: job ef47c7b6684d wrote no video"
+  },
+  {
+    "arm": "s6-narr-long-t37-wps3-s1166",
+    "scene": "s6-narration",
+    "seed": 1166,
+    "job_id": "847ccb839875",
+    "status": "succeeded",
+    "error": "ValueError: job 847ccb839875 wrote no video"
+  },
+  {
+    "arm": "s6-narr-long-t37-wps3-s1167",
+    "scene": "s6-narration",
+    "seed": 1167,
+    "job_id": "4467e6380276",
+    "status": "succeeded",
+    "error": "ValueError: job 4467e6380276 wrote no video"
+  }
+]

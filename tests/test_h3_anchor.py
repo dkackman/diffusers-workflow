@@ -18,7 +18,9 @@ from dw.pipeline_processors.h3_rules import (
     ANCHOR_AFTER,
     ANCHOR_BLOCK,
     LATENT_ANCHOR_INPUT,
+    LATENT_ANCHOR_STRENGTH_INPUT,
     TILE_CONFLICTS,
+    anchor_strength_problem,
     chain_anchor_problem,
 )
 from tests.test_chain import FakePipeline, video_output
@@ -56,6 +58,35 @@ class TestMatchChannelStatistics:
         matched = match_channel_statistics(latents, torch.zeros(4), torch.ones(4))
         assert matched.dtype == torch.bfloat16
         assert matched.shape == latents.shape
+
+    def test_strength_one_is_todays_full_match(self):
+        x = synthetic_latent()
+        mean_a, std_a = (
+            torch.tensor([0.5, -1.0, 2.0, 0.0]),
+            torch.tensor([1.0, 2.0, 3.0, 4.0]),
+        )
+        out = match_channel_statistics(x, mean_a, std_a, strength=1.0)
+        assert torch.equal(out, match_channel_statistics(x, mean_a, std_a))
+
+    def test_strength_zero_returns_the_latent_unchanged(self):
+        x = synthetic_latent()
+        out = match_channel_statistics(x, torch.zeros(4), torch.ones(4), strength=0.0)
+        assert out is x
+
+    def test_half_strength_moves_each_channel_halfway(self):
+        x = synthetic_latent()
+        mean_a, std_a = (
+            torch.tensor([0.5, -1.0, 2.0, 0.0]),
+            torch.tensor([1.0, 2.0, 3.0, 4.0]),
+        )
+        full = match_channel_statistics(x, mean_a, std_a)
+        half = match_channel_statistics(x, mean_a, std_a, strength=0.5)
+        assert torch.allclose(half, x + 0.5 * (full - x), atol=1e-5)
+
+    def test_partial_strength_keeps_the_latents_dtype(self):
+        x = synthetic_latent(dtype=torch.bfloat16)
+        out = match_channel_statistics(x, torch.zeros(4), torch.ones(4), strength=0.5)
+        assert out.dtype == torch.bfloat16
 
     def test_a_flat_channel_lands_on_the_anchors_mean(self):
         latents = synthetic_latent()
@@ -98,6 +129,65 @@ class TestPreparedAnchor:
         monkeypatch.setenv(TRUST_WORKFLOWS_ENV_VAR, "0")
         with pytest.raises(SecurityError):
             prepared_anchor("anchor", "/usr/share/videos/x.mp4", str(tmp_path))
+
+
+def test_anchor_strength_problem_refuses_out_of_range_and_non_numbers():
+    assert anchor_strength_problem(1.5) and anchor_strength_problem(-0.1)
+    assert anchor_strength_problem("a") and anchor_strength_problem(True)
+    assert anchor_strength_problem(float("nan"))
+    assert "[0, 1]" in anchor_strength_problem(1.5)
+    assert anchor_strength_problem(0.0) is None and anchor_strength_problem(1) is None
+    assert anchor_strength_problem("variable:s") is None
+
+
+def test_chain_anchor_strength_needs_anchor_segment_1():
+    chain = {"segments": 2, "anchor_strength": 0.5}
+    (error,) = anchor_errors(definition(chain=chain))
+    assert "anchor_strength" in error["message"] and "segment_1" in error["message"]
+    with pytest.raises(ValueError, match="anchor_strength.*segment_1"):
+        ChainConfig(chain, {})
+
+
+def test_chain_anchor_strength_out_of_range_is_refused_at_validate_and_run():
+    chain = {"segments": 2, "anchor": "segment_1", "anchor_strength": 1.5}
+    (error,) = anchor_errors(definition(chain=chain))
+    assert error["path"] == "steps[0].pipeline.chain.anchor_strength"
+    assert "[0, 1]" in error["message"]
+    with pytest.raises(ValueError, match=r"\[0, 1\]"):
+        ChainConfig(chain, {})
+
+
+def test_chain_anchor_strength_in_range_is_clean():
+    chain = {"segments": 2, "anchor": "segment_1", "anchor_strength": 0.5}
+    assert anchor_errors(definition(chain=chain)) == []
+
+
+def test_a_strength_argument_without_an_anchor_is_refused():
+    (error,) = anchor_errors(definition(latent_anchor_strength=0.5))
+    assert error["path"] == "steps[0].pipeline.arguments.latent_anchor_strength"
+    assert "latent_anchor" in error["message"]
+
+
+def test_a_strength_argument_out_of_range_is_refused():
+    (error,) = anchor_errors(
+        definition(latent_anchor="c.mp4", latent_anchor_strength=2)
+    )
+    assert "[0, 1]" in error["message"]
+
+
+def test_chain_sets_strength_on_segments_after_the_first():
+    pipeline = FakePipeline(video_output)
+    chain = {"segments": 3, "anchor": "segment_1", "anchor_strength": 0.5}
+    run_chain(pipeline, chain, {"prompt": "p"})
+    assert LATENT_ANCHOR_STRENGTH_INPUT not in pipeline.calls[0]
+    assert pipeline.calls[1][LATENT_ANCHOR_STRENGTH_INPUT] == 0.5
+    assert pipeline.calls[2][LATENT_ANCHOR_STRENGTH_INPUT] == 0.5
+
+
+def test_no_strength_key_when_the_chain_sets_none():
+    pipeline = FakePipeline(video_output)
+    run_chain(pipeline, {"segments": 2, "anchor": "segment_1"}, {"prompt": "p"})
+    assert all(LATENT_ANCHOR_STRENGTH_INPUT not in call for call in pipeline.calls)
 
 
 class TestChainAnchor:
@@ -366,6 +456,34 @@ class TestInsert:
     def test_takes_latent_anchor_as_an_input(self):
         inputs = {param.name for param in DwH3LatentAnchorStep().inputs}
         assert LATENT_ANCHOR_INPUT in inputs
+
+
+class TestStrengthStep:
+    def test_takes_the_strength_as_an_input(self):
+        inputs = {param.name for param in DwH3LatentAnchorStep().inputs}
+        assert LATENT_ANCHOR_STRENGTH_INPUT in inputs
+
+    def test_the_step_blends_by_strength(self, monkeypatch):
+        from dw.pipeline_processors import h3_anchor_steps
+
+        anchor_latent = synthetic_latent(seed=3)
+        monkeypatch.setattr(
+            h3_anchor_steps,
+            "anchor_statistics",
+            lambda components, frames, height, width: channel_statistics(anchor_latent),
+        )
+        latents = synthetic_latent()
+        state = PipelineState()
+        state.set("latents", latents)
+        state.set(LATENT_ANCHOR_INPUT, np.zeros((5, 32, 32, 3), dtype=np.uint8))
+        state.set(LATENT_ANCHOR_STRENGTH_INPUT, 0.5)
+        state.set("height", 32)
+        state.set("width", 32)
+        _, state = DwH3LatentAnchorStep()(None, state)
+        full = match_channel_statistics(latents, *channel_statistics(anchor_latent))
+        assert torch.allclose(
+            state.get("latents"), latents + 0.5 * (full - latents), atol=1e-5
+        )
 
 
 class TestStep:

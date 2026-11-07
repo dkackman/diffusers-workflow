@@ -31,6 +31,7 @@ from .h3_anchor import insert_latent_anchor
 from .h3_guides import insert_guides
 from .h3_hold import core_denoise_sequences, insert_audio_hold
 from .h3_mask import insert_mask_blocks
+from .h3_rules import refine_windows_enabled
 from .placement import (
     apply_on_demand_placement,
     create_components_manager,
@@ -811,6 +812,15 @@ def _assemble_loaded(
 
     if core_denoise_sequences(component):
         attach_tile_blocks(component)
+        # ...and, behind its scratch flag, the time-windowed refine (h3_windows.py)
+        if refine_windows_enabled():
+            from .h3_windows import insert_refine_windows
+
+            insert_refine_windows(component)
+            # ...and the mid-schedule SelfLift (h3_selflift.py, #1195)
+            from .h3_selflift import insert_selflift
+
+            insert_selflift(component)
 
 
 def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):

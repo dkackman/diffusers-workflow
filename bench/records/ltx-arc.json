@@ -1,0 +1,86 @@
+[
+  {
+    "arm": "ltx-arc-ctl-s1166",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "a3e99c3df84b",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchLtxArc-mps/20261106-093752-4c1c7110/final/BenchLtxArc-mps-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.89,
+      "seam_jump_max": 0.92,
+      "seam_look_mean": 0.445,
+      "seam_look_max": 0.49,
+      "seam_level_step_db_mean": 7.77,
+      "seam_level_step_db_max": 11.36,
+      "texture_fine_seg_last": 0.2051936540925779,
+      "texture_mid_seg_last": 0.6812761184507167,
+      "texture_coarse_seg_last": 0.01895610828751189,
+      "wall_minutes": 11.222849468390146
+    }
+  },
+  {
+    "arm": "ltx-arc-lookhold-s1166",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "9331cd20fa39",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchLtxArc-mps/20261106-094905-7510a362/final/BenchLtxArc-mps-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.8600000000000001,
+      "seam_jump_max": 0.91,
+      "seam_look_mean": 0.42000000000000004,
+      "seam_look_max": 0.5,
+      "seam_level_step_db_mean": 7.675,
+      "seam_level_step_db_max": 11.17,
+      "texture_fine_seg_last": 0.23068869709411274,
+      "texture_mid_seg_last": 0.6995427904613333,
+      "texture_coarse_seg_last": 0.03987465117137339,
+      "wall_minutes": 8.910393353303274
+    }
+  },
+  {
+    "arm": "ltx-arc-ctl-s2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "84328fe3ad81",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchLtxArc-mps/20261106-095800-b034643e/final/BenchLtxArc-mps-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.31,
+      "seam_jump_max": 1.66,
+      "seam_look_mean": 0.8,
+      "seam_look_max": 0.88,
+      "seam_level_step_db_mean": 22.525,
+      "seam_level_step_db_max": 40.15,
+      "texture_fine_seg_last": 0.7756513801535185,
+      "texture_mid_seg_last": 0.856923967469388,
+      "texture_coarse_seg_last": 0.6523259024877984,
+      "wall_minutes": 8.793856235345205
+    }
+  },
+  {
+    "arm": "ltx-arc-lookhold-s2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "64641b316eed",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchLtxArc-mps/20261106-100648-3202f70a/final/BenchLtxArc-mps-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.235,
+      "seam_jump_max": 1.61,
+      "seam_look_mean": 0.685,
+      "seam_look_max": 0.78,
+      "seam_level_step_db_mean": 22.61,
+      "seam_level_step_db_max": 40.32,
+      "texture_fine_seg_last": 0.6916616296373697,
+      "texture_mid_seg_last": 0.7287762921047032,
+      "texture_coarse_seg_last": 0.64938863454449,
+      "wall_minutes": 8.948012399673463
+    }
+  }
+]

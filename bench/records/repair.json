@@ -1,0 +1,23 @@
+[
+  {
+    "arm": "repair-s3-seg4",
+    "scene": "s3-dialogue-walk",
+    "seed": 4,
+    "job_id": "46d9c4f4b1d7",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3RepairSegment/20261105-092930-629e7ec0/final/MiniMaxH3RepairSegment-splice.2-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.466,
+      "seam_jump_max": 1.94,
+      "seam_look_mean": 1.59,
+      "seam_look_max": 2.57,
+      "seam_level_step_db_mean": 2.314,
+      "seam_level_step_db_max": 8.81,
+      "texture_fine_seg_last": 0.7177642846266591,
+      "texture_mid_seg_last": 0.054633719270975885,
+      "texture_coarse_seg_last": 0.022286401911626865,
+      "wall_minutes": 8.123658215999603
+    }
+  }
+]

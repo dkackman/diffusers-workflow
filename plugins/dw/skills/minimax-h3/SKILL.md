@@ -42,6 +42,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
+- **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
+  `listen_scale` 0.5 is the fastest that keeps lip sync. Never re-voice an
+  on-screen speaker: it plays as voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
@@ -52,21 +55,15 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
   past that, cuts.
-- **Longer than 14.4 seconds**: chain when one action or line of speech
-  crosses the seam, cut when the scene changes.
-- **As one take (a chain)**: `templates/minimax/chained-segments`
-  (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
-  22 or 39 - default 22 - holds the last frames and voice as a guide instead;
-  guide only here),
-  `templates/minimax/chain-video-continuity`
-  (previous segment's tail rides as a video reference - motion, camera,
-  voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
-  sets the length), `templates/minimax/chain-matched-and-aligned`
-  (per-segment prompts). Before composing a chain, read `references/chains.md`:
-  what a guide seam trims and carries, and how to hold drift down.
-  To compare two takes' texture on a static region, use
-  `compare_outputs(texture_bands=true)` (workflows guide, *Comparing outputs*,
-  *Texture bands*).
+- **Longer than one clip (14.4 s)**: read the `long-form` skill first; it
+  picks cuts, a chain or a bridge per scene, the chain's `shot` preset and
+  its check. H3's chains: `templates/minimax/chained-segments` (default
+  `continuity: "guide"`, `guide_frames` 22 or 39 - default 22 - holds the
+  last frames and voice as a guide), `templates/minimax/chain-video-continuity`
+  (the previous tail as a video reference), `templates/minimax/chain-matched-to-audio`
+  (a track sets the length), `templates/minimax/chain-matched-and-aligned`
+  (per-segment prompts). What a guide seam trims and carries:
+  `references/chains.md`.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`

@@ -1,0 +1,35 @@
+[
+  {
+    "name": "t16-mask-deflect",
+    "scene": "s4-montage",
+    "workflow": "t16-person-mask.json",
+    "arguments": {},
+    "seed": 0
+  },
+  {
+    "name": "t16-swap-r100-s1194",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {},
+    "seed": 1194
+  },
+  {
+    "name": "t16-swap-r100-s2002",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {},
+    "seed": 2002
+  },
+  {
+    "name": "t16-ctl-fresh-ref2va-s1194",
+    "scene": "s4-montage",
+    "workflow": "t16-performer-swap.json",
+    "arguments": {
+      "source_video": null,
+      "mask_video": null,
+      "mask_grow": null,
+      "refine_strength": null
+    },
+    "seed": 1194
+  }
+]

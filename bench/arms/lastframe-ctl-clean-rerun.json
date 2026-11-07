@@ -1,0 +1,34 @@
+[
+  {
+    "name": "ctl-lastframe-s1-s1166-clean",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-lfclean1",
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "ctl-lastframe-s1-s2-clean",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-lfclean2",
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  }
+]

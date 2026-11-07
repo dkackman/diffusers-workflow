@@ -1,0 +1,10 @@
+[
+  {
+    "name": "ctl10-guide-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {},
+    "seed": 2,
+    "workflow_id_suffix": "-ctl155"
+  }
+]

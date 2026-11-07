@@ -66,7 +66,8 @@ Write that shot's prompt to say what happens next, not what the board
 already shows. The board fixes the first frame only; later frames may drift
 from it, so check the last frame (`get_output_frames`) against the board.
 After the shots exist, `templates/face-drift-check` measures whether the
-character's face held.
+character's face held. A scene longer than one clip takes its shape (cuts, a
+chain or a bridge) from the `long-form` skill before its boards are drawn.
 
 ## 4. Animatic
 

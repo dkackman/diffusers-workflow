@@ -435,8 +435,8 @@ class TestDecodeH3Latents:
         assert result.fps == 24
         assert result.audio is None
 
-    def test_load_decoder_builds_from_the_h3_video_decode_step(self, monkeypatch):
-        import diffusers.modular_pipelines.minimax_h3.decoders as decoders_module
+    def test_load_decoder_builds_from_the_streamed_video_decode_step(self, monkeypatch):
+        import dw.pipeline_processors.h3_windows as windows_module
 
         recorded = {}
 
@@ -454,7 +454,10 @@ class TestDecodeH3Latents:
                 recorded["repo"] = name
                 return FakePipeline()
 
-        monkeypatch.setattr(decoders_module, "MiniMaxH3VideoDecodeStep", FakeDecodeStep)
+        # The stock block, a piece of the take at a time (h3_windows)
+        monkeypatch.setattr(
+            windows_module, "DwH3StreamedVideoDecodeStep", FakeDecodeStep
+        )
 
         pipeline = hlu._load_decoder("cpu", DEFAULT_H3_REPO)
 

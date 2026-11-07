@@ -1,0 +1,195 @@
+[
+  {
+    "name": "ksr-last-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "keystone_slot": "last",
+      "prompts": [
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced, and at 5.17 seconds into the target video, <Picture 2> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves. The shot ends exactly on <Picture 2>: the same woman, wall and framing.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None."
+      ]
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksrl",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ksr-last-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "keystone_slot": "last",
+      "prompts": [
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
+        "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced, and at 5.17 seconds into the target video, <Picture 2> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves. The shot ends exactly on <Picture 2>: the same woman, wall and framing.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None."
+      ]
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-ksrl",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ksr-f34-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "keystone_slot": {
+        "frame": 34
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksrf",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ksr-f34-gate09-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "keystone_slot": {
+        "frame": 34,
+        "enter_below_sigma": 0.9
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksrg",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ksr-noise04-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "guide_noise": 0.4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksrn",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  },
+  {
+    "name": "ksr-g39-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "guide_frames": 39
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-ksr39",
+    "moments": [
+      "frame:62",
+      "frame:240",
+      "frame:480",
+      "frame:720",
+      "frame:960",
+      "frame:1200",
+      "frame:1440",
+      "frame:1680",
+      "frame:1920",
+      "frame:2160",
+      "frame:2400",
+      "frame:2640",
+      "frame:2868"
+    ]
+  }
+]

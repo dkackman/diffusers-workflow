@@ -1,0 +1,47 @@
+[
+  {
+    "name": "s6-music-full-335s-s1166",
+    "scene": "s6-narration",
+    "workflow": "music-long-s6-full.json",
+    "arguments": {},
+    "seed": 1166
+  },
+  {
+    "name": "s6-music-full-335s-s1167",
+    "scene": "s6-narration",
+    "workflow": "music-long-s6-full.json",
+    "arguments": {},
+    "seed": 1167
+  },
+  {
+    "name": "s6-music-full-335s-xf3000-s1166",
+    "scene": "s6-narration",
+    "workflow": "music-long-s6-full.json",
+    "arguments": {
+      "crossfade_ms": 3000
+    },
+    "seed": 1166
+  },
+  {
+    "name": "s6-narr-long-t37-wps3-s1166",
+    "scene": "s6-narration",
+    "workflow": "narration-long-s6.json",
+    "arguments": {
+      "max_seconds": 37,
+      "words_per_second": 3.0
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t37"
+  },
+  {
+    "name": "s6-narr-long-t37-wps3-s1167",
+    "scene": "s6-narration",
+    "workflow": "narration-long-s6.json",
+    "arguments": {
+      "max_seconds": 37,
+      "words_per_second": 3.0
+    },
+    "seed": 1167,
+    "workflow_id_suffix": "-t37"
+  }
+]

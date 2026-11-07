@@ -8,8 +8,21 @@ import logging
 import numpy
 import torch
 
-from .media_types import AudioTrack, AudioVideo, rated_videos
-from .pipeline_processors.h3_rules import HELD_AUDIO_OUTPUT, HELD_AUDIO_RATE_OUTPUT
+from .media_types import (
+    AudioTrack,
+    AudioVideo,
+    FittedVideo,
+    fit_codec_padding,
+    rated_videos,
+    sample_axis,
+)
+from .pipeline_processors.h3_rules import (
+    H3_FPS,
+    HELD_AUDIO_OUTPUT,
+    HELD_AUDIO_RATE_OUTPUT,
+    HELD_VIDEO_OUTPUT,
+    HELD_VIDEO_RATE_OUTPUT,
+)
 
 logger = logging.getLogger("dw")
 
@@ -36,6 +49,50 @@ MODULAR_SAMPLE_RATE_KEYS = ("sampling_rate", "audio_sample_rate")
 # video, which plays in place of the decoded audio (the VAE round trip of it)
 HELD_AUDIO_KEYS = (HELD_AUDIO_OUTPUT,)
 HELD_AUDIO_RATE_KEYS = (HELD_AUDIO_RATE_OUTPUT,)
+# A MiniMax-H3 audio pass: the source's own frames, which play in place of the
+# decoded video (the VAE round trip of them) under the generated track
+HELD_VIDEO_KEYS = (HELD_VIDEO_OUTPUT,)
+HELD_VIDEO_RATE_KEYS = (HELD_VIDEO_RATE_OUTPUT,)
+
+
+def held_videos(videos, held, fps=None):
+    """The batch `videos` with every video replaced by `held` - uint8
+    `(frames, height, width, 3)` source frames - in the batch's own form: a
+    list of PIL frame lists (H3's default `output_type`), or a float array in
+    [0, 1] for `output_type='np'`. They play at `fps`, the source's own rate,
+    when it is given - never relabelled to the batch's 24 (R25)."""
+    held = numpy.asarray(held)
+    if isinstance(videos, numpy.ndarray):
+        stacked = numpy.stack([held.astype(numpy.float32) / 255.0] * len(videos))
+        return FittedVideo(stacked, fps) if fps else stacked
+    if isinstance(videos, torch.Tensor):
+        pixels = torch.from_numpy(held).permute(0, 3, 1, 2).float() / 255.0
+        return torch.stack([pixels] * len(videos)).to(videos.device)
+    from PIL import Image
+
+    frames = [Image.fromarray(frame) for frame in held]
+    fps = fps or getattr(videos, "fps", None)
+    return rated_videos([list(frames) for _ in videos], fps)
+
+
+def held_duration_audio(audio, frame_count, fps, sample_rate):
+    """Each generated track of an audio pass over a retimed source, trimmed
+    to the source's own `frame_count / fps` seconds: the conditioning ran on
+    the H3 grid, snapped up past the source's end, so the track runs long by
+    up to a grid step - more than `fit_codec_padding`'s tolerance - and a
+    short one is padded within it."""
+    expected = round(frame_count / fps * sample_rate)
+    fitted = []
+    for track in audio:
+        axis = sample_axis(track)
+        if axis is not None and track.shape[axis] > expected:
+            trim = [slice(None)] * track.ndim
+            trim[axis] = slice(None, expected)
+            track = track[tuple(trim)]
+        else:
+            track = fit_codec_padding(track, frame_count, fps, sample_rate)
+        fitted.append(track)
+    return fitted
 
 
 def _frames_from_attributes(result):
@@ -183,6 +240,11 @@ def modular_artifacts(result):
         return None
 
     consumed_keys = {video_key}
+    held_video_key, held_video = first_item(result, HELD_VIDEO_KEYS)
+    _, held_fps = first_item(result, HELD_VIDEO_RATE_KEYS)
+    if held_video is not None:
+        videos = held_videos(videos, held_video, held_fps)
+    consumed_keys.update(HELD_VIDEO_KEYS + HELD_VIDEO_RATE_KEYS)
 
     audio_key, audio = first_item(result, MODULAR_AUDIO_KEYS)
     sample_rate = None
@@ -198,6 +260,12 @@ def modular_artifacts(result):
         # One track, held under every video the call generated
         audio, sample_rate = [held[0]] * len(videos), held_rate
     consumed_keys.update(HELD_AUDIO_KEYS + HELD_AUDIO_RATE_KEYS)
+
+    # An audio pass over a source not at 24 fps: the track was generated
+    # against its retimed conditioning, and plays under its own frames
+    retimed = held_video is not None and held_fps and held_fps != H3_FPS
+    if retimed and audio is not None and sample_rate:
+        audio = held_duration_audio(audio, len(held_video), held_fps, sample_rate)
 
     artifacts = frames_with_audio(videos, audio, sample_rate)
 

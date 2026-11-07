@@ -1,0 +1,299 @@
+[
+  {
+    "name": "t20-ctl-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c672-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 672,
+      "height": 384
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-st4-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "num_inference_steps": 4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-ctl-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c672-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 672,
+      "height": 384
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-st4-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "num_inference_steps": 4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-8step-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768,
+      "num_inference_steps": 9,
+      "lora_weight_name": "minimax_h3_fl2v_turbo_8step_v1.0_768p_bf16.safetensors"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-int8-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-ctl-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c672-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 672,
+      "height": 384
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-ctl-s3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-c672-s3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "width": 672,
+      "height": 384
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-c1344-s3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "width": 1344,
+      "height": 768
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-ctl-s4-s1166",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {},
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-c672-s4-s1166",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {
+      "width": 672,
+      "height": 384
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-st5-s4-s1166",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {
+      "num_inference_steps": 5
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-c1344-s4-s1166",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {
+      "width": 1344,
+      "height": 768
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  }
+]

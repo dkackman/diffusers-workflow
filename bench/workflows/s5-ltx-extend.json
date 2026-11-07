@@ -1,0 +1,449 @@
+{
+  "id": "BenchS5LtxExtend",
+  "description": "Long-form bench S5 extended rather than chained by last frame (Task 23): segment 1 is the control's own image-to-video segment (same pipeline, prompt, seed); each later segment is one LTX2ConditionPipeline pass of 241 frames conditioned at index 0 on the whole previous 121-frame segment (extend-clip's shape), and only its new 120 frames are kept. The take is the three 121/120/120-frame pieces joined with continuous_joins (no frames trimmed, no crossfade: the pieces tile one timeline), so analyze_seams reads seams at the same places as the chain's. Each kept piece's audio is the pass that rendered its picture. Prompts: prompt_1..prompt_3, the S5 chain prompts.",
+  "summary": "S5 as extend-clip passes, each conditioned on the whole previous segment.",
+  "cost_drivers": [
+    "num_frames",
+    "extend_frames",
+    "width",
+    "height"
+  ],
+  "variables": {
+    "transformer_weights_dtype": "{uint4}",
+    "text_encoder_weights_dtype": "{int8}",
+    "prompt_1": "The courier, a man in a blue shirt and black helmet with a yellow delivery box on the back, is pedaling steadily along the coastal road toward the right of frame, leaning slightly into the wind, the sea glittering beyond the low stone wall behind him as the camera tracks alongside at his speed. The only sounds are the whir of the chain, the hum of tires on asphalt and the steady rush of the wind and surf, with no speech and no music.",
+    "prompt_2": "The courier keeps pedaling at the same pace, the road running on along the shoreline, waves rolling in beyond the stone wall as the camera continues to track alongside at his speed. The only sounds are the whir of the chain, tires on asphalt and the wind and surf, with no speech and no music.",
+    "prompt_3": "The courier pedals on without slowing, the road running straight ahead along the water, gulls wheeling over the waves as the camera continues to track alongside at his speed. The only sounds are the whir of the chain, tires on asphalt and the wind and surf, with no speech and no music.",
+    "negative_prompt": "constant:diffusers.pipelines.ltx2.utils.DEFAULT_NEGATIVE_PROMPT",
+    "width": 960,
+    "height": 544,
+    "frame_rate": 24.0,
+    "num_frames": 121,
+    "extend_frames": 241,
+    "image": "asset:bench/runner.png",
+    "seed": 1166
+  },
+  "variable_constraints": {
+    "width": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "LTX-2.5's pipelines refuse a width not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the chain's first segment load rather than after it"
+    },
+    "height": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "LTX-2.5's pipelines refuse a height not divisible by 32 outright (ValueError, not a silent floor), so it is checked here before the chain's first segment load rather than after it"
+    },
+    "num_frames": {
+      "modulus": 8,
+      "remainder": 1,
+      "min_frames": 9,
+      "reason": "LTX-2.5's video VAE encodes 8 * n + 1 frames, so an off-grid count is not refused by the pipeline but floored to the grid below - a shorter clip than the one asked for. Refused here instead: no 'snap', because rounding a length the other way from the pipeline's own would be a second silent change"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "seg1",
+      "release_pipeline": true,
+      "pipeline": {
+        "configuration": {
+          "component_type": "LTX2ImageToVideoPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "group_offload": {
+                "offload_type": "leaf_level",
+                "use_stream": true
+              }
+            },
+            "connectors": {
+              "group_offload": {
+                "offload_type": "leaf_level",
+                "use_stream": true
+              }
+            },
+            "vae": {
+              "device": "cuda"
+            },
+            "audio_vae": {
+              "device": "cuda"
+            },
+            "vocoder": {
+              "device": "cuda"
+            },
+            "duration_head": {
+              "device": "cuda"
+            }
+          },
+          "vae": {
+            "enable_tiling": true
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "Lightricks/LTX-2.5-Diffusers",
+          "torch_dtype": "torch.bfloat16"
+        },
+        "transformer": {
+          "configuration": {
+            "component_type": "LTX2VideoTransformer3DModel",
+            "preserve_device_placement": true
+          },
+          "quantization_config": {
+            "configuration": {
+              "config_type": "sdnq.SDNQConfig"
+            },
+            "arguments": {
+              "weights_dtype": "variable:transformer_weights_dtype",
+              "quantization_device": "cuda",
+              "return_device": "cuda",
+              "use_quantized_matmul": true,
+              "dequantize_fp32": false
+            }
+          },
+          "from_pretrained_arguments": {
+            "model_name": "Lightricks/LTX-2.5-Diffusers",
+            "subfolder": "transformer",
+            "torch_dtype": "torch.bfloat16"
+          }
+        },
+        "text_encoder": {
+          "configuration": {
+            "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+            "preserve_device_placement": true
+          },
+          "quantization_config": {
+            "configuration": {
+              "config_type": "sdnq.SDNQConfig"
+            },
+            "arguments": {
+              "weights_dtype": "variable:text_encoder_weights_dtype",
+              "quantization_device": "cuda",
+              "return_device": "cpu",
+              "dequantize_fp32": false,
+              "modules_to_not_convert": [
+                "embed_vision",
+                "embed_audio",
+                "lm_head"
+              ]
+            }
+          },
+          "from_pretrained_arguments": {
+            "model_name": "Lightricks/LTX-2.5-Diffusers",
+            "subfolder": "text_encoder",
+            "torch_dtype": "torch.bfloat16"
+          }
+        },
+        "arguments": {
+          "prompt": "variable:prompt_1",
+          "negative_prompt": "variable:negative_prompt",
+          "image": "variable:image",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_frames": "variable:num_frames",
+          "frame_rate": "variable:frame_rate",
+          "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+          "guidance_scale": 1.0,
+          "audio_guidance_scale": 1.0,
+          "stg_scale": 0.0,
+          "audio_stg_scale": 0.0,
+          "modality_scale": 1.0,
+          "audio_modality_scale": 1.0,
+          "output_type": "{np}"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "seg1_frames",
+      "task": {
+        "command": "video_frames",
+        "arguments": {
+          "video": "previous_result:seg1"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "seg2",
+      "pipeline": {
+        "configuration": {
+          "component_type": "LTX2ConditionPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "components": {
+            "transformer": {
+              "device": "cuda"
+            },
+            "text_encoder": {
+              "group_offload": {
+                "offload_type": "leaf_level",
+                "use_stream": true
+              }
+            },
+            "connectors": {
+              "group_offload": {
+                "offload_type": "leaf_level",
+                "use_stream": true
+              }
+            },
+            "vae": {
+              "device": "cuda"
+            },
+            "audio_vae": {
+              "device": "cuda"
+            },
+            "vocoder": {
+              "device": "cuda"
+            },
+            "duration_head": {
+              "device": "cuda"
+            }
+          },
+          "vae": {
+            "enable_tiling": true
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "Lightricks/LTX-2.5-Diffusers",
+          "torch_dtype": "torch.bfloat16"
+        },
+        "transformer": {
+          "configuration": {
+            "component_type": "LTX2VideoTransformer3DModel",
+            "preserve_device_placement": true
+          },
+          "quantization_config": {
+            "configuration": {
+              "config_type": "sdnq.SDNQConfig"
+            },
+            "arguments": {
+              "weights_dtype": "variable:transformer_weights_dtype",
+              "quantization_device": "cuda",
+              "return_device": "cuda",
+              "use_quantized_matmul": true,
+              "dequantize_fp32": false
+            }
+          },
+          "from_pretrained_arguments": {
+            "model_name": "Lightricks/LTX-2.5-Diffusers",
+            "subfolder": "transformer",
+            "torch_dtype": "torch.bfloat16"
+          }
+        },
+        "text_encoder": {
+          "configuration": {
+            "component_type": "transformers.Gemma4UnifiedForConditionalGeneration",
+            "preserve_device_placement": true
+          },
+          "quantization_config": {
+            "configuration": {
+              "config_type": "sdnq.SDNQConfig"
+            },
+            "arguments": {
+              "weights_dtype": "variable:text_encoder_weights_dtype",
+              "quantization_device": "cuda",
+              "return_device": "cpu",
+              "dequantize_fp32": false,
+              "modules_to_not_convert": [
+                "embed_vision",
+                "embed_audio",
+                "lm_head"
+              ]
+            }
+          },
+          "from_pretrained_arguments": {
+            "model_name": "Lightricks/LTX-2.5-Diffusers",
+            "subfolder": "text_encoder",
+            "torch_dtype": "torch.bfloat16"
+          }
+        },
+        "arguments": {
+          "prompt": "variable:prompt_2",
+          "negative_prompt": "variable:negative_prompt",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_frames": "variable:extend_frames",
+          "frame_rate": "variable:frame_rate",
+          "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+          "guidance_scale": 1.0,
+          "audio_guidance_scale": 1.0,
+          "stg_scale": 0.0,
+          "audio_stg_scale": 0.0,
+          "modality_scale": 1.0,
+          "audio_modality_scale": 1.0,
+          "output_type": "{np}",
+          "conditions": [
+            {
+              "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+              "from_arguments": {
+                "frames": "previous_result:seg1_frames",
+                "index": 0,
+                "strength": 1.0
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "seg2_tail",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg2",
+          "start_frame": 120,
+          "num_frames": 121,
+          "fps": "variable:frame_rate"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "seg2_tail_frames",
+      "task": {
+        "command": "video_frames",
+        "arguments": {
+          "video": "previous_result:seg2_tail"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "seg3",
+      "pipeline_reference": {
+        "reference_name": "seg2",
+        "arguments": {
+          "prompt": "variable:prompt_3",
+          "negative_prompt": "variable:negative_prompt",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_frames": "variable:extend_frames",
+          "frame_rate": "variable:frame_rate",
+          "sigmas": "constant:diffusers.pipelines.ltx2.utils.DISTILLED_SIGMA_VALUES",
+          "guidance_scale": 1.0,
+          "audio_guidance_scale": 1.0,
+          "stg_scale": 0.0,
+          "audio_stg_scale": 0.0,
+          "modality_scale": 1.0,
+          "audio_modality_scale": 1.0,
+          "output_type": "{np}",
+          "conditions": [
+            {
+              "condition_type": "diffusers.pipelines.ltx2.pipeline_ltx2_condition.LTX2VideoCondition",
+              "from_arguments": {
+                "frames": "previous_result:seg2_tail_frames",
+                "index": 0,
+                "strength": 1.0
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "piece_1",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg2",
+          "start_frame": 0,
+          "num_frames": 121,
+          "fps": "variable:frame_rate"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "piece_2",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg2",
+          "start_frame": 121,
+          "num_frames": 120,
+          "fps": "variable:frame_rate"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "piece_3",
+      "task": {
+        "command": "trim_video",
+        "arguments": {
+          "video": "previous_result:seg3",
+          "start_frame": 121,
+          "num_frames": 120,
+          "fps": "variable:frame_rate"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "save": false
+      }
+    },
+    {
+      "name": "take",
+      "task": {
+        "command": "concat_videos",
+        "arguments": {
+          "videos": [
+            "previous_result:piece_1",
+            "previous_result:piece_2",
+            "previous_result:piece_3"
+          ],
+          "trim_frames": 0,
+          "fps": "variable:frame_rate",
+          "continuous_joins": true
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": "variable:frame_rate",
+        "subfolder": "final"
+      }
+    }
+  ]
+}

@@ -1,0 +1,107 @@
+[
+  {
+    "name": "s1-static",
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "moments": [
+      "frame:62",
+      "frame:481",
+      "frame:990"
+    ],
+    "face_reference": "asset:bench/static-stripes.jpg",
+    "crop_verified": true
+  },
+  {
+    "name": "s2-arc",
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "moments": [
+      "frame:62",
+      "frame:481",
+      "frame:990"
+    ],
+    "crop_verified": true
+  },
+  {
+    "name": "s3-dialogue-walk",
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ],
+    "face_reference": "asset:bench/walker.png",
+    "lines": [
+      "I told myself I would not come back here.",
+      "But the street looks exactly the way I left it.",
+      "Same lamps, same crooked stones, same bakery smell.",
+      "Funny how a place waits for you without asking.",
+      "Maybe that is what I was afraid of.",
+      "Well. Let's see if the door still sticks."
+    ],
+    "crop_verified": true
+  },
+  {
+    "name": "s4-montage",
+    "crop": [
+      500,
+      16,
+      160,
+      130
+    ],
+    "moments": [
+      "frame:62",
+      "frame:186",
+      "frame:434"
+    ],
+    "crop_verified": true
+  },
+  {
+    "name": "s5-ltx-action",
+    "crop": [
+      0,
+      0,
+      240,
+      150
+    ],
+    "moments": [
+      "frame:60",
+      "frame:180",
+      "frame:299"
+    ],
+    "crop_verified": true
+  },
+  {
+    "name": "s6-narration",
+    "crop": [
+      690,
+      340,
+      190,
+      135
+    ],
+    "moments": [
+      "frame:48",
+      "frame:144",
+      "frame:240"
+    ],
+    "lines": [
+      "The keeper climbed the stairs every evening, long before the storm.",
+      "By the time he reached the lamp, the sea had already gone dark.",
+      "Then the light turned, and the whole coast could see him."
+    ],
+    "crop_verified": true
+  }
+]

@@ -1,0 +1,23 @@
+[
+  {
+    "arm": "ctl10-guide-s2-s2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "87038dfc0892",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-ctl155/20261105-160558-c67e7bc9/final/BenchS2Arc-ctl155-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.1633333333333333,
+      "seam_jump_max": 1.83,
+      "seam_look_mean": 1.2111111111111112,
+      "seam_look_max": 1.77,
+      "seam_level_step_db_mean": 6.846666666666668,
+      "seam_level_step_db_max": 24.46,
+      "texture_fine_seg_last": 3.386474702125032,
+      "texture_mid_seg_last": 3.378192274816704,
+      "texture_coarse_seg_last": 2.9058749743617796,
+      "wall_minutes": 17.828979742527007
+    }
+  }
+]

@@ -1,0 +1,23 @@
+[
+    {
+        "arm": "lc-noanchor-s1-120s-s1166",
+        "scene": "s1-static",
+        "seed": 1166,
+        "job_id": "20ce09d60040",
+        "status": "succeeded",
+        "error": null,
+        "output": "BenchS1Static-lcna/20261105-233057-1721b816/final/BenchS1Static-lcna-chained_keyframe_to_video_audio.0-0.0.mp4",
+        "measures": {
+            "seam_jump_mean": 0.9325,
+            "seam_jump_max": 1.49,
+            "seam_look_mean": 1.0164285714285715,
+            "seam_look_max": 2.49,
+            "seam_level_step_db_mean": 12.099285714285715,
+            "seam_level_step_db_max": 37.6,
+            "texture_fine_seg_last": 1.104576939882156,
+            "texture_mid_seg_last": 0.7404191324660745,
+            "texture_coarse_seg_last": 0.14688019788142942,
+            "wall_minutes": 50.96668136914571
+        }
+    }
+]

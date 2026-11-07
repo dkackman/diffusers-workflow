@@ -34,6 +34,7 @@ the pre-queue check covers every server submission.
 import json
 
 from .for_each import ForEachError, expand_for_each
+from .presets import effective_variables
 from .vram_estimate import KEY as ESTIMATE_KEY
 from .vram_estimate import reference_count
 from .variables import (
@@ -159,8 +160,7 @@ def reference_counts(definition, arguments=None):
     `variable:` references resolved and `for_each` expanded, so each member
     step counts its own entry's `references` (#915). A step's count is
     `vram_estimate.reference_count`'s, the one the VRAM projection uses."""
-    variables = dict(definition.get("variables") or {})
-    variables.update(arguments or {})
+    variables = effective_variables(definition, arguments)
     expanded = _expanded_steps(definition, variables)
     if expanded is None:
         return set()
@@ -197,8 +197,7 @@ def _compared_variables(definition, arguments=None):
     a variable whose default is null (`lora_alpha`) then drops that key as
     the template it was copied from does, instead of comparing the reference
     text against nothing (#866)."""
-    variables = dict(definition.get("variables") or {})
-    variables.update(arguments or {})
+    variables = effective_variables(definition, arguments)
     for _, name in undeclared_variable_references(definition):
         variables.setdefault(name, None)
     return variables
@@ -219,8 +218,7 @@ def pipeline_steps(definition, arguments=None):
     six-entry list is six steps, each with its entry's `item:` values - the
     count and values an inherited price is scaled by (#851). The authored
     steps when the expansion fails."""
-    variables = dict(definition.get("variables") or {})
-    variables.update(arguments or {})
+    variables = effective_variables(definition, arguments)
     steps = _expanded_steps(definition, variables)
     if steps is None:
         steps = definition.get("steps") or []
@@ -237,8 +235,7 @@ def pipeline_values(definition, key, arguments=None):
     sets it twice), None for a step that sets none or a non-numeric one -
     for scaling an inherited price along it (#851, #866). A `for_each`
     step is read per member, as `pipeline_steps` expands it."""
-    variables = dict(definition.get("variables") or {})
-    variables.update(arguments or {})
+    variables = effective_variables(definition, arguments)
     found = []
     for step in pipeline_steps(definition, arguments):
         numbers = [
@@ -368,10 +365,7 @@ def inherited_vram_warnings(
     identities = [pipeline_identity(step, variables) for step in steps]
     written_definition = written if isinstance(written, dict) else definition
     written_variables = written_definition.get("variables")
-    written_variables = {
-        **(written_variables if isinstance(written_variables, dict) else {}),
-        **(arguments or {}),
-    }
+    written_variables = effective_variables(written_definition, arguments)
     written_steps = written_definition.get("steps")
     written_steps = written_steps if isinstance(written_steps, list) else []
     warnings = []

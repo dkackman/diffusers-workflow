@@ -1,0 +1,34 @@
+[
+  {
+    "arm": "facecheck-c2-unmentioned-s1001",
+    "scene": "t26",
+    "seed": 0,
+    "job_id": "43d225620b94",
+    "status": "succeeded",
+    "error": "ValueError: job 43d225620b94 wrote no video"
+  },
+  {
+    "arm": "facecheck-c2-unmentioned-s2002",
+    "scene": "t26",
+    "seed": 0,
+    "job_id": "4fb8ff3ee82b",
+    "status": "succeeded",
+    "error": "ValueError: job 4fb8ff3ee82b wrote no video"
+  },
+  {
+    "arm": "facecheck-c2-control-s1001",
+    "scene": "t26",
+    "seed": 0,
+    "job_id": "bf8c275d35d3",
+    "status": "succeeded",
+    "error": "ValueError: job bf8c275d35d3 wrote no video"
+  },
+  {
+    "arm": "facecheck-c2-control-s2002",
+    "scene": "t26",
+    "seed": 0,
+    "job_id": "c00bec92b585",
+    "status": "succeeded",
+    "error": "ValueError: job c00bec92b585 wrote no video"
+  }
+]

@@ -144,6 +144,22 @@ def record_run_memory(job, info, slot, record_memory):
         job.host_memory_job_peak_rss_mb = max(
             job_peak, job.host_memory_job_peak_rss_mb or 0
         )
+    # The committed part of the worker's RSS (RssAnon + RssShmem + the
+    # driver's pinned pages; host_memory.committed_mb): RSS counts the
+    # checkpoint pages a worker maps, page cache the host-RAM gate must not
+    # charge again (#869). A max over the run's readings - committed memory
+    # has no high-water mark, so this is a lower bound on the true peak and
+    # the gate keeps a margin over it (pool.with_margin).
+    #
+    # The two peaks are on different bases: the RSS peak above is job-scoped
+    # growth over the run's baseline, this one an absolute reading of the
+    # whole process, a previous run's leftovers included. Nothing compares
+    # the two; peaks_for_key and the fit take one basis or the other
+    committed = info.get("host_memory_committed_mb")
+    if committed is not None:
+        job.host_memory_job_peak_committed_mb = max(
+            committed, getattr(job, "host_memory_job_peak_committed_mb", None) or 0
+        )
 
 
 def consume_results(job, manager, slot, output_dir, record_memory):

@@ -1,0 +1,292 @@
+{
+    "id": "MiniMaxH3RepairSegment",
+    "description": "Re-renders one bad segment of a finished MiniMax-H3 chain in place and splices it into the take, so the rest of the take is kept rather than re-rolled (#1169). The chain must have been run with 'save_segments' and 'keep_segments' on its chain block (the H3 chain templates set both from one variable), which leave each segment as a playable mp4 beside the take and name it on the take's shots in the run manifest. 'chain_take' is an 'output:' reference to the chain's final video; the segment files are found from its shots. 'chain_output', one of the segment files, is an alternative: the take is then found through the run manifest. The take must be the chain's own output with its shots in the manifest - they tell a match_audio track from the chain's own and give each seam's blend - so a take without them is refused rather than guessed at. 'segment' is 1-based and must be an interior one, 2 to N-1: the first segment has nothing before it and the last nothing after it, so both need a one-sided repair this template does not make, and are refused. 'chain_repair_cut' cuts the guides from the segment files: the repair is one fl2va render with segment k-1's last 'head_frames' (22) frames held at frame 0 (its first frame is the keyframe, as a guide chain gives its own segments) and segment k+1's frames held as a guide ending at the render's last frame, both with their audio, so picture and soundtrack run on from one neighbour into the other. A guide starts on the 17-frame grid and a render is 17n + 5 frames, so the frames between the guides number 12 more than a multiple of 17 while an interior segment of a 124/22 chain is 102: the new frames replace segment k and the first 12 frames of segment k+1, and the take resumes on segment k+1's frame 12. 'num_frames' is the render's length - at least 'head_frames' + the segment's frames + 'tail_frames', rounded up onto the grid; the default 175 fits an interior segment of the chained-segments defaults (124 frames, guide_frames 22) with the 22/39 holds, and a value too small is refused before the model loads, naming the one to pass. The tail hold outnumbers the head hold by default (39 against 22); it is 22 or 39. 'chain_repair_splice' then cuts the take itself, not the segment files: apart from the repaired span the output is the take, with its frame count (a duration_seconds take is shorter than its files), its picture and its soundtrack - every other seam's crossfade or declick kept, and a match_audio take's own track kept whole under the repaired picture. The span's audio is the render's own, blended in from the take's track and back into it inside the span over the window the chain blended those seams with. Every other shot keeps its records, and the span's two seams are recorded as a chain seam is (continuous, with their head trim and blend), so 'analyze_seams' measures them as it measures the chain's own seams. No shot names a segment file, so a repaired take cannot be repaired again: re-render the chain, or repair the original take. The saved file is one more h264/AAC encode of the take, not byte-identical. Pass the chain's own settings: its canvas ('width'/'height', checked against the segment files), steps, shifts, LoRA, weights_dtype and its counters ('guide_noise'; 'latent_anchor', an 'output:' of segment 1's file, for a chain run with anchor segment_1), since a workflow cannot read another run's workflow - the defaults are the chained-segments template's. The text encoder and its truncation are the chain's. 'seed' defaults to a new one: a re-render at the chain's seed would not redraw the segment's noise anyway, since a chain runs one generator through every segment. 'prompt' should describe this segment's stretch of the take, timed for the render's length. Concepts only from H3MD Director and roycho87/geiru_context_suite (docs/ATTRIBUTIONS.md). The cost row is one measured repair at these defaults, 8.1 min on an RTX 3090 including the model load (bench/records/repair.md, Step 3).",
+    "summary": "Re-render one interior segment of a finished H3 chain between its neighbours and splice it back.",
+    "vram_estimate": {
+        "base_gb": 16.3,
+        "bytes_per_voxel": 42.84,
+        "voxel_variables": [
+            "width",
+            "height",
+            "num_frames"
+        ],
+        "reason": "one H3 render: the t2va calibration (#324) - peak activation memory scales with width * height * num_frames at 28.71 bytes a voxel - plus its two guides, each encoded on the target canvas at about the clip's own cost per voxel (docs/proposals/complete/h3-guide-vram-complete.md, #694). The guides are clips cut at run time, which the per-guide charge (bytes_per_guide_voxel) cannot count before the run and would price at num_frames each, so their frames are folded into the voxel rate instead, at the shortest render allowed: 28.71 * (124 + 22 + 39) / 124 = 42.84 bytes. That is an upper bound, not a measurement: the variable constraints hold head_frames at 22, tail_frames at 39 at most and num_frames at 124 at least, so the folded charge, 28.71 * 61 * num_frames / 124, never falls below the guides' own charge (28.71 x 61 per pixel). It is met at a 124-frame render and over it for a longer one - about 0.35 GB over at the default 175 frames on 960x544, 0.9 GB at 192 frames on 1344x768. Derived, not yet measured on a GPU"
+    },
+    "cost": [
+        {
+            "device": "cuda",
+            "name": "RTX 3090",
+            "vram_gb": 24,
+            "minutes": 8.1
+        }
+    ],
+    "cost_drivers": [
+        "num_frames",
+        "num_inference_steps",
+        "width",
+        "height",
+        "weights_dtype",
+        "lora_model_name",
+        "attention_backend",
+        "cache"
+    ],
+    "variables": {
+        "chain_take": null,
+        "chain_output": null,
+        "segment": 2,
+        "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action macro photography with a shallow depth of field, one continuous shot. The shot opens exactly on <Picture 1>: a translucent blown glass figure fills the frame against a dark, softly graded background, its surface catching cool rim light along every curve and throwing small caustics onto the surface beneath it. Its tentacles writhe without pause, curling and uncurling in slow deliberate coils, the glass flexing as though molten while staying perfectly clear. The figure (S1), a deep cavernous male voice with a long tail of reverb, unhurried and very low in pitch, speaks steadily throughout, <d>[English] Rise now. The old ones are listening.</d> Its central mass swells and contracts with the cadence of the words, and the caustics on the surface below ripple in time. The camera holds a static shot, letting the tentacles move through the frame edges.\n\noverall_soundscape: A dark, near-silent room tone under a faint low-frequency hum. The tentacle movement carries a fine, dry glass-on-glass squeak and an occasional soft chime as two limbs touch, continuous and unhurried from the first frame to the last.\n\nnon_diegetic_music: A sustained low drone of bowed double bass and detuned synthesiser, almost subsonic, holding an even intensity with no discernible melody or pulse.",
+        "seed": null,
+        "num_frames": 175,
+        "head_frames": 22,
+        "tail_frames": 39,
+        "width": 960,
+        "height": 544,
+        "num_inference_steps": 5,
+        "video_shift": 6.0,
+        "audio_shift": 3.0,
+        "weights_dtype": "{int4}",
+        "lora_scale": 1.0,
+        "lora_alpha": null,
+        "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+        "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+        "lora_adapter_name": "turbo",
+        "guide_noise": null,
+        "latent_anchor": null,
+        "latent_anchor_strength": null,
+        "attention_backend": "sparse",
+        "sparse_tau": 0.5,
+        "sparse_topk": 0.15,
+        "cache": null
+    },
+    "variable_constraints": {
+        "num_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 124,
+            "max_frames": 345,
+            "snap": "up",
+            "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+        },
+        "segment": {
+            "min_frames": 2,
+            "reason": "segment 1 has no segment before it to hold - repairing the first segment (or the last) needs a one-sided repair with one guide, which this template does not make; the last segment is refused when the run counts the chain's files. 'segment' is not a frame count: min_frames is only the one key a constraint bounds a value with, used here as a plain minimum of 2"
+        },
+        "head_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 22,
+            "max_frames": 22,
+            "reason": "the head hold is exactly 22 frames - segment k-1's last whole latent, the keyframe and the carry a guide chain gives its own segments - so the VRAM estimate's folded guide charge stays an upper bound"
+        },
+        "tail_frames": {
+            "modulus": 17,
+            "remainder": 5,
+            "min_frames": 22,
+            "max_frames": 39,
+            "reason": "the tail hold is a whole-latent guide of 22 or 39 frames; a longer one would put the guides past the 61 frames the VRAM estimate folds into its voxel rate, and it would under-project"
+        },
+        "width": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        },
+        "height": {
+            "modulus": 32,
+            "remainder": 0,
+            "reason": "MiniMax-H3's pipeline refuses a `width` or `height` that is not a multiple of 32, and only after the weights have loaded; refused here instead, with no 'snap', since rounding would be a silent change to the size asked for"
+        }
+    },
+    "seed": "variable:seed",
+    "steps": [
+        {
+            "name": "cut",
+            "task": {
+                "command": "chain_repair_cut",
+                "arguments": {
+                    "chain_take": "variable:chain_take",
+                    "chain_output": "variable:chain_output",
+                    "segment": "variable:segment",
+                    "num_frames": "variable:num_frames",
+                    "head_frames": "variable:head_frames",
+                    "tail_frames": "variable:tail_frames",
+                    "width": "variable:width",
+                    "height": "variable:height"
+                }
+            }
+        },
+        {
+            "name": "repair",
+            "pipeline": {
+                "configuration": {
+                    "component_type": "ModularPipeline",
+                    "pre_load_modules": [
+                        "sdnq"
+                    ],
+                    "load_components": {
+                        "dtype": "torch.bfloat16",
+                        "quantization_config": {
+                            "transformer": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "use_quantized_matmul": true,
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        "proj_in",
+                                        "audio_proj_in",
+                                        "context_embedder",
+                                        "time_embedder",
+                                        "time_proj",
+                                        "token_refiner",
+                                        "norm_out",
+                                        "proj_out",
+                                        "audio_proj_out"
+                                    ]
+                                }
+                            },
+                            "text_encoder": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "variable:weights_dtype",
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false,
+                                    "modules_to_not_convert": [
+                                        ".model.visual",
+                                        "lm_head"
+                                    ]
+                                }
+                            },
+                            "vae": {
+                                "configuration": {
+                                    "config_type": "sdnq.SDNQConfig"
+                                },
+                                "arguments": {
+                                    "weights_dtype": "{int8}",
+                                    "quant_conv": true,
+                                    "use_quantized_matmul_conv": true,
+                                    "quantization_device": "cuda",
+                                    "return_device": "cpu",
+                                    "dequantize_fp32": false
+                                }
+                            }
+                        }
+                    },
+                    "components": {
+                        "transformer": {
+                            "attention_backend": "variable:attention_backend",
+                            "sparse_tau": "variable:sparse_tau",
+                            "sparse_topk": "variable:sparse_topk",
+                            "group_offload": {
+                                "offload_type": "block_level",
+                                "num_blocks_per_group": 2,
+                                "use_stream": true,
+                                "record_stream": true,
+                                "low_cpu_mem_usage": true
+                            }
+                        },
+                        "text_encoder": {
+                            "remove_modules": [
+                                "lm_head"
+                            ]
+                        },
+                        "text_encoder.model": {
+                            "truncate_layers": {
+                                "language_model.layers": 51
+                            },
+                            "group_offload": {
+                                "offload_type": "leaf_level"
+                            }
+                        },
+                        "vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        },
+                        "audio_vae": {
+                            "device": "cuda",
+                            "residency": "on_demand"
+                        }
+                    },
+                    "cache": "variable:cache"
+                },
+                "from_pretrained_arguments": {
+                    "model_name": "MiniMaxAI/MiniMax-H3",
+                    "workflow": "fl2va"
+                },
+                "loras": [
+                    {
+                        "model_name": "variable:lora_model_name",
+                        "weight_name": "variable:lora_weight_name",
+                        "adapter_name": "variable:lora_adapter_name",
+                        "scale": "variable:lora_scale",
+                        "alpha": "variable:lora_alpha"
+                    }
+                ],
+                "scheduler": {
+                    "shift": "variable:video_shift"
+                },
+                "audio_scheduler": {
+                    "shift": "variable:audio_shift"
+                },
+                "arguments": {
+                    "prompt": "variable:prompt",
+                    "image": "previous_result:cut.keyframe",
+                    "guides": [
+                        {
+                            "video": "previous_result:cut.head_guide",
+                            "frame": 0,
+                            "audio": true
+                        },
+                        {
+                            "video": "previous_result:cut.tail_guide",
+                            "frame": "previous_result:cut.tail_frame",
+                            "audio": true
+                        }
+                    ],
+                    "num_frames": "variable:num_frames",
+                    "width": "variable:width",
+                    "height": "variable:height",
+                    "num_inference_steps": "variable:num_inference_steps",
+                    "guide_noise": "variable:guide_noise",
+                    "latent_anchor": "variable:latent_anchor",
+                    "latent_anchor_strength": "variable:latent_anchor_strength",
+                    "output": [
+                        "videos",
+                        "audio",
+                        "sampling_rate"
+                    ]
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "intermediate"
+            }
+        },
+        {
+            "name": "splice",
+            "task": {
+                "command": "chain_repair_splice",
+                "arguments": {
+                    "chain_take": "previous_result:cut.chain_take",
+                    "video": "previous_result:repair",
+                    "segment": "variable:segment",
+                    "start_frame": "previous_result:cut.start_frame",
+                    "end_frame": "previous_result:cut.end_frame",
+                    "keep_start": "previous_result:cut.keep_start"
+                }
+            },
+            "result": {
+                "content_type": "video/mp4",
+                "fps": 24,
+                "subfolder": "final"
+            }
+        }
+    ]
+}
