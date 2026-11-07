@@ -8,7 +8,8 @@ segment 1's, for fine-band texture drift (`dw/texture_bands.py`). A segment
 over any ceiling fails, naming the measures; `run_chain` re-renders it from
 the same carry with `reroll_seed`'s seed up to the chain's `retries`, and
 keeps `best_attempt` of what it rendered. Segment 1 has no seam before it
-and is never checked; nor is a seam whose incoming shot is a hard cut.
+and is never checked. `check_segment` can skip a seam marked `hard_cut`, but
+`run_chain` never passes it: a chain's own seams are never marked cuts.
 
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
@@ -184,7 +185,10 @@ def reroll_seed(seed, attempt):
 def _cut_ratio(thumbs):
     """The largest frame step inside a segment over its own typical step,
     floored as a seam's is - `_seam_video`'s arithmetic on a seam inside the
-    segment - or None for fewer than three frames."""
+    segment - or None for fewer than three frames. The typical step is the
+    90th percentile, so at 3-5 frames (2-4 steps) it sits within a few percent
+    of the largest step and the ratio cannot reach the 4.0 ceiling: a short
+    segment cannot fail this measure."""
     from ..tasks.assess import TYPICAL_DELTA_FLOOR, TYPICAL_DELTA_PERCENTILE
 
     if thumbs.shape[0] < 3:

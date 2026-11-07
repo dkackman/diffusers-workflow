@@ -478,7 +478,8 @@ def _record_check(shot, segment, config, checked):
             f"on every attempt ({_failures(result)}); kept attempt {kept + 1} of "
             f"{checked['attempts']}, the closest"
             if exhausted
-            else f"({_failures(result)}); texture drift is not re-rolled, "
+            else f"({_failures(result)}); kept attempt {kept + 1} of "
+            f"{checked['attempts']}; texture drift is not re-rolled, "
             "a fresh seed inherits the carry"
         ),
         kind="chain_check_failed",

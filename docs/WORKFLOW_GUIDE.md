@@ -2723,8 +2723,9 @@ it names. `face` is reserved and must be `null`. The jump and look ceilings are 
 the cut ceiling sits between the 2.98 most of 282 good bench segments read and the 4.16 of a cut 26 frames past a seam (`bench/records/check.md`); the texture ceiling is still provisional, because those chains' own texture ratio is the
 drift it exists to catch. A static segment's own
 motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
-and is never checked, nor is a seam whose incoming shot is a hard cut (a chain's own
-segments never are).
+and is never checked. (`check_segment` has a `hard_cut` exemption, but `run_chain`
+does not pass it: a chain's own seams are never cuts, so every later segment is checked.)
+A re-roll renders a whole segment again, so re-rolls count in the step's timing segments.
 
 A segment that fails is rendered again from the same carry and the same arguments, at a
 new seed: attempt `n` (0 is the first) runs at the step's seed plus `n` x 1000003, on a

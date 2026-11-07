@@ -123,6 +123,8 @@ def pickup_grade(frames, carried):
         return frames
 
     first_luts = [_lut(first_tone[c], carried_tone[c]) for c in range(3)]
+    # last_luts is first_luts composed with one more correction, so it is
+    # nearly first_lut: the ramp from first to last moves little by design
     last_luts = [
         _lut(
             last_tone[c],
