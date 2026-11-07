@@ -604,6 +604,17 @@ def validate_file_base_name(name: str) -> str:
             f"a path; to write into a subfolder of the run directory set "
             f"'subfolder' on the result instead"
         )
+    # The file is named back with 'output:', so its base name must be made of
+    # what an output name segment may hold (#1249) - same per-character message
+    if not name:
+        raise InvalidInputError("Invalid file_base_name: cannot be empty")
+    if not re.fullmatch(_OUTPUT_SEGMENT, name):
+        raise InvalidInputError(
+            f"Invalid file_base_name: {name}{_name_fault(name, OUTPUT_REFERENCE_CHARACTERS)}"
+            f" - a file_base_name is one name of letters, digits, '_', '.', '@' "
+            f"and '-', starting with a letter, digit or underscore, so the file "
+            f"it names can be referenced with 'output:'"
+        )
     return name
 
 

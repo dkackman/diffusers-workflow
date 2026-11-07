@@ -761,6 +761,8 @@ class TestWarningsReachTheCaller:
         assert warnings[0]["index"] == 0
         assert warnings[0]["shortfall_db"] > 0
         assert "held to" in warnings[0]["message"]
+        # #1248: the rms hold leaves room for the join's own AAC overshoot
+        assert warnings[0]["ceiling_dbfs"] == -3.0
         # #681: a positional label says its count starts at 1
         assert "video 1 (counting from 1, in join order)" in warnings[0]["message"]
 

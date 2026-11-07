@@ -87,7 +87,7 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
 ## Apple Silicon
 
 `templates/minimax/chained-segments` at its defaults is refused on a 24 GB
-Mac: about 18.3 GB is projected against a 17.8 GB working set. 768x448 passes
+Mac: about 18.3 GB is projected against an approximate 17.8 GB working set (the device reports the real limit). 768x448 passes
 under guide continuity. `num_frames` cannot be lowered below 124
 (`docs/ACCELERATION.md`). The bench ran on CUDA only. The design carries the
 levers' ordering to MPS, but not the minutes.

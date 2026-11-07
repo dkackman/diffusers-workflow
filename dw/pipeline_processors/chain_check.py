@@ -203,9 +203,10 @@ def _cut_ratio(thumbs):
     """The largest frame step inside a segment over its own typical step,
     floored as a seam's is - `_seam_video`'s arithmetic on a seam inside the
     segment - or None for fewer than three frames. The typical step is the
-    90th percentile, so at 3-5 frames (2-4 steps) it sits within a few percent
-    of the largest step and the ratio cannot reach the 4.0 ceiling: a short
-    segment cannot fail this measure."""
+    90th percentile, linearly interpolated, so at 3-5 frames (2-4 steps) it is
+    at least 0.7 of the largest step and the ratio stays under about 1.43: a
+    short segment cannot fail the default 3.5 ceiling (a lower `cut_ratio_max`
+    can fail one)."""
     from ..tasks.assess import TYPICAL_DELTA_FLOOR, TYPICAL_DELTA_PERCENTILE
 
     if thumbs.shape[0] < 3:

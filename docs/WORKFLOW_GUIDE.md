@@ -1940,7 +1940,10 @@ head: N segments of F frames give F + (N - 1)(F - P) frames - 3 x 124 at P = 22 
 family. Each segment after the first is corrected before its carry is taken, so the
 carried keyframe and the stitched video are the corrected frames (applied once, not
 again to the stitched output). Segment 1 is the reference and is left as rendered.
-`"look_hold": true` turns all four on; an object turns on the ones it names:
+`"look_hold": true` turns all four on; an object turns on the ones it names. The template's
+`look_hold` variable is typed bool by its default, so `arguments` takes `true` or `false`
+only: an object there is refused, naming the variable. The per-flag object form is reachable
+only by editing the workflow (an inline copy of the template):
 
 - `pickup`: matches the segment's opening (frame 1; frame 0 is the keyframe copy) to
   the carried frame by a per-channel quantile map on YCbCr, carries the same map to the
