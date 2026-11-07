@@ -24,8 +24,11 @@ from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
 from .job_record import (
     ACK_NONE,
+    CANCELLED,
     MAX_PERSISTED_EVENTS,
+    QUEUED,
     RERUN_SPEC_KEYS,
+    RUNNING,
     SUCCEEDED,
 )
 
@@ -108,6 +111,11 @@ _ADDED_COLUMNS = (
     # The job a rerun reran. NULL for a fresh submit and for every row
     # before the column
     ("rerun_of", "TEXT"),
+    # The server that admitted the job - a fresh id per JobManager start
+    # (#1220). The startup sweep closes a dead server's open rows by it and
+    # leaves a live sibling's alone. NULL for every row before the column,
+    # all of which are terminal
+    ("server_instance", "TEXT"),
     # A database may hold a column no longer declared here (`kept`, #917,
     # retired once #944 made a workspace delete retire every row rather
     # than keep the ones an asset named): the migration only adds what is
@@ -167,7 +175,26 @@ _RECORDED = (
     ("note", lambda job: getattr(job, "note", None)),
     ("memory_key", _memory_key_of),
     ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
+    ("server_instance", lambda job: getattr(job, "server_instance", None)),
 )
+
+# What the startup sweep writes into a dead server's open rows (#1220). Both
+# start `server restart:`, the prefix the docs promise a caller can match on
+RESTART_QUEUED = "server restart: queued, never started"
+RESTART_RUNNING = (
+    "server restart: running when the server stopped; "
+    "partial outputs may be in {run_dir}"
+)
+# A row that was dispatched but had not reported its run directory yet
+RESTART_RUNNING_NO_RUN = (
+    "server restart: running when the server stopped, before it opened a run"
+)
+
+# The states a row is open in: written live, closed at the job's end or by
+# the next startup's sweep. Readers skip them - an open row is this server's
+# own job, served from memory, or a live sibling's, never a frozen one
+_OPEN_STATES = (QUEUED, RUNNING)
+_OPEN_PLACEHOLDERS = ", ".join("?" for _ in _OPEN_STATES)
 
 # `device_ordinal`/`device_card` from `device`, in SQL: an ordinal never
 # holds a space, so the label splits at its first one, and a label with none
@@ -202,10 +229,26 @@ DELETED_SUFFIX = " (deleted)"
 
 
 class JobHistory:
-    """Finished jobs, persisted so the Jobs view survives server restarts.
+    """Jobs, persisted so the Jobs view survives server restarts.
 
-    Records land at terminal state only - a crash mid-run loses that run's
-    row, which is the right trade for never blocking the runner on disk.
+    Every admitted job has a row (#1220), closed at terminal state or at the
+    next startup. JobManager records it `queued` at submit, again `running`
+    at dispatch and when the run reports its directory, and `_finish`
+    overwrites it with the terminal row. A write that fails is logged and
+    the job goes on: a missing row never costs a job.
+
+    A row names the server that admitted it (`server_instance`). Each
+    server holds a lock on `<root>/servers/<instance>.lock` for its life;
+    the OS drops it when the process dies, SIGKILL and power loss included.
+    At startup `open_instances` lists the other servers with open rows, and
+    the manager closes a dead one's (`close_instance`) as `cancelled` with
+    an `error` starting `server restart:`. A lock that cannot be taken is a
+    live sibling on the same database, and its rows are left alone. This
+    holds only on a local filesystem: flock over NFS is not reliable.
+
+    The readers (`get`, `recent_summaries`) serve closed rows only. A live job is the manager's to serve from memory, and a
+    sibling's open row must not show here as a job that never moves.
+
     The last MAX_PERSISTED_EVENTS progress events ride along, so a job can
     still explain itself after a restart; everything earlier is dropped.
     """
@@ -271,6 +314,42 @@ class JobHistory:
                 values,
             )
 
+    def open_instances(self, exclude=None):
+        """The servers, other than `exclude`, with a queued or running row."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT DISTINCT server_instance FROM jobs"
+                " WHERE status IN (?, ?) AND server_instance IS NOT NULL",
+                (QUEUED, RUNNING),
+            ).fetchall()
+        return sorted(
+            row["server_instance"] for row in rows if row["server_instance"] != exclude
+        )
+
+    def close_instance(self, instance, finished_at):
+        """Close a dead server's open rows as cancelled, each with why: the
+        restart, and for one that ran, where its partial outputs are. The
+        ids closed, oldest first."""
+        with self._lock, self._connect() as connection:
+            rows = connection.execute(
+                "SELECT id, status, run_dir FROM jobs WHERE server_instance = ?"
+                " AND status IN (?, ?) ORDER BY created_at",
+                (instance, QUEUED, RUNNING),
+            ).fetchall()
+            for row in rows:
+                if row["status"] == QUEUED:
+                    error = RESTART_QUEUED
+                elif row["run_dir"]:
+                    error = RESTART_RUNNING.format(run_dir=row["run_dir"])
+                else:
+                    error = RESTART_RUNNING_NO_RUN
+                connection.execute(
+                    "UPDATE jobs SET status = ?, finished_at = ?, error = ?"
+                    " WHERE id = ?",
+                    (CANCELLED, finished_at, error, row["id"]),
+                )
+        return [row["id"] for row in rows]
+
     def peaks_for_key(self, key):
         """This machine's committed job peak, in MB, for every successful run
         with this memory key - inline and renamed runs too, since the key is
@@ -323,11 +402,17 @@ class JobHistory:
         else:
             clauses.append("workspace NOT LIKE ?")
             params.append(f"%{DELETED_SUFFIX}")
+        # Closed rows only (the class docstring): asked for open states
+        # alone, history has nothing to add
         if statuses:
-            statuses = list(statuses)
+            statuses = [s for s in statuses if s not in _OPEN_STATES]
+            if not statuses:
+                return []
             placeholders = ", ".join("?" for _ in statuses)
             clauses.append(f"status IN ({placeholders})")
             params.extend(statuses)
+        clauses.append(f"status NOT IN ({_OPEN_PLACEHOLDERS})")
+        params.extend(_OPEN_STATES)
         if clauses:
             query += " WHERE " + " AND ".join(clauses)
         query += " ORDER BY created_at DESC LIMIT ?"
@@ -367,8 +452,9 @@ class JobHistory:
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
                 " run_version, device, note, rerun_of,"
-                " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?",
-                (job_id,),
+                " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?"
+                f" AND status NOT IN ({_OPEN_PLACEHOLDERS})",
+                (job_id, *_OPEN_STATES),
             ).fetchone()
         return self._to_detail(row) if row else None
 

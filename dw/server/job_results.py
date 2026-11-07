@@ -162,12 +162,14 @@ def record_run_memory(job, info, slot, record_memory):
         )
 
 
-def consume_results(job, manager, slot, output_dir, record_memory):
+def consume_results(job, manager, slot, output_dir, record_memory, on_run_start=None):
     """Read `manager`'s worker messages until the run ends; returns the
     terminal (status, error, traceback) for the caller to apply once the
     card no longer counts the job as current. `slot` is the card's: it
     keeps the run's memory readings, through `record_memory`. `output_dir`
-    is the job's own, which its file names are reported relative to."""
+    is the job's own, which its file names are reported relative to.
+    `on_run_start()` is called once the run has named its directory, so
+    the history row a restart closes can point at it (#1220)."""
     while True:
         try:
             message = manager.get_result()
@@ -194,6 +196,8 @@ def consume_results(job, manager, slot, output_dir, record_memory):
 
         if isinstance(reply, Progress):
             record_progress(job, dict(reply.event), output_dir)
+            if on_run_start and reply.event.get("event") == "run_start":
+                on_run_start()
         elif isinstance(reply, Output):
             job.add_event({"event": "log", "message": reply.message or ""})
         elif isinstance(reply, WorkflowLoaded):
