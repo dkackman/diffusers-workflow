@@ -41,6 +41,11 @@ def _presets(definition):
     return presets if isinstance(presets, dict) else {}
 
 
+def selectors(definition):
+    """The names of the preset selectors `definition` declares."""
+    return set(_presets(definition))
+
+
 def _chosen(selector, arguments, variables):
     """The bundle name a run selects: the caller's value, else the default."""
     if arguments and selector in arguments:

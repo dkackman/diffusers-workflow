@@ -35,6 +35,7 @@ from .elision import elide_definition
 from . import references
 from .plan_downloads import _sub_workflow_paths, downloads_required
 from .presets import effective_variables
+from .presets import selectors as preset_selectors
 
 # Re-exported: dw/server/routes/jobs.py and the tests read the plan's gate
 # warnings from here, beside build_plan
@@ -223,7 +224,7 @@ def _scaled_observed(observed, arguments, definition, expanded, entries):
     """History of the run with the preset selectors left at their defaults,
     scaled to `arguments`' drivers, or None when there is none or the move
     has no rule to scale by."""
-    selectors = set(definition.get("presets") or {})
+    selectors = preset_selectors(definition)
     base_args = {k: v for k, v in arguments.items() if k not in selectors}
     if len(base_args) == len(arguments):
         return None

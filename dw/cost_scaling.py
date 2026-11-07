@@ -360,6 +360,10 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
     proportion. Any other scalar driver that moved has no rule to scale by,
     for every template: its name goes in `unscaled`, and the figure is kept
     but flagged (#866, Q4).
+
+    `baseline` replaces the curated defaults as the point the movement is
+    measured from (an observed run's own variables, #1236). In that mode
+    `_worst_case_retries` is skipped: the re-rolls are in both runs.
     """
     # the defaults the curated cost was measured at, the default preset
     # bundle among them
