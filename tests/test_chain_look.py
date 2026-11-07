@@ -183,6 +183,33 @@ def test_a_greyscale_feed_still_learns_the_contrast_boost():
     assert chroma == 1.0
 
 
+def test_a_near_greyscale_feed_does_not_learn_a_chroma_boost():
+    # Nonzero but faint chroma (jpeg/vae residue) is still "about 0": the
+    # opening/fed chroma ratio is noise and must stay 1.0 (#1242)
+    from PIL import Image
+
+    def tinted(scale, tint):
+        ramp = numpy.linspace(60, 180, W, dtype=numpy.float32)
+        mean = ramp.mean()
+        row = numpy.clip(mean + (ramp - mean) * scale, 0, 255)
+        rgb = numpy.tile(row[None, :, None], (H, 1, 3))
+        rgb[..., 0] += tint
+        return Image.fromarray(numpy.clip(rgb, 0, 255).astype(numpy.uint8))
+
+    hold = LookHold(
+        dict.fromkeys(("pickup", "creep", "texture", "precompensate"), False)
+    )
+    hold.flags["precompensate"] = True
+    carry = tinted(1.0, 1)
+    hold.correct([carry] * 3, None, True)
+    hold.feed(carry)
+    rendered = tinted(1.3, 6)
+    hold.correct([carry, rendered, rendered], carry, False)
+    contrast, chroma = hold.boost()
+    assert contrast > 1.15
+    assert chroma == 1.0
+
+
 def test_correct_reports_what_each_part_measured_and_applied():
     # #1251: the notes carry the learned boost, pickup outcome, creep gains and
     # texture cuts, so a consumer can read them off the seam log line

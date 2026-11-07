@@ -26,6 +26,9 @@ TEXTURE_AMPLITUDE = 0.12  # detail stronger than this (in luma) is structure
 TEXTURE_GRADIENT = 0.03  # edge threshold on blurred luma, as at a 3 px box
 BOOST_MAX = 1.25  # precompensate clamps each gain to [1, BOOST_MAX]
 _EPS = 1e-4
+# A fed frame whose mean chroma deviation is below this is greyscale for the
+# boost: the opening/fed chroma ratio of a near-grey feed is noise (#1242)
+_CHROMA_FLOOR = 0.01
 
 
 def _float(frames):
@@ -334,7 +337,11 @@ class LookHold:
             # Each gain is learned on its own: a fed frame with no chroma (a
             # greyscale keyframe) says nothing of the chroma boost but still
             # measures the contrast one, and the other way round (#1242)
-            ratio = [r / f if f > _EPS else 1.0 for r, f in zip(rendered, self._fed)]
+            floors = (_EPS, _CHROMA_FLOOR)
+            ratio = [
+                r / f if f > floor else 1.0
+                for r, f, floor in zip(rendered, self._fed, floors)
+            ]
             self._ratios.append(ratio)
             notes.append(
                 f"measured opening/fed ratio contrast {ratio[0]:.3f}, chroma "
