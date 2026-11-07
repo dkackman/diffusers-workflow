@@ -1756,6 +1756,21 @@
             "title": "Historical",
             "type": "boolean"
           },
+          "host_memory_job_peak_committed_mb": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The job's peak committed host memory in MB (anonymous + shared + device-mapped pages), the figure the host-RAM gate projects from; null until a reading lands.",
+            "title": "Host Memory Job Peak Committed Mb"
+          },
           "id": {
             "title": "Id",
             "type": "string"

@@ -527,6 +527,12 @@ class JobDetail(JobSummary):
         default=None,
         description="Where a running (or failed) job had got to; live jobs only.",
     )
+    host_memory_job_peak_committed_mb: int | float | None = Field(
+        default=None,
+        description="The job's peak committed host memory in MB (anonymous + "
+        "shared + device-mapped pages), the figure the host-RAM gate projects "
+        "from; null until a reading lands.",
+    )
     output_kinds: dict[str, OutputKind | None] = sometimes(
         "Each output file's kind; null for a kind the gallery does not "
         "show. On GET /api/jobs/{id} only."

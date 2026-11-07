@@ -5268,6 +5268,42 @@ def test_a_historical_job_with_no_manifest_reports_no_output_kinds(server, tmp_p
         assert detail.json()["output_kinds"] == {}
 
 
+def test_a_historical_job_serves_its_committed_peak(server, tmp_path):
+    """#1214: the gate's recorded per-job committed peak reaches job detail."""
+    from dw.server.job_history import JobHistory
+
+    class Row:
+        id = "peaked"
+        workflow_name = "w"
+        catalog_name = None
+        status = "succeeded"
+        created_at = 1.0
+        started_at = 1.0
+        finished_at = 2.0
+        manifest = None
+        warnings = []
+        error = None
+        events = []
+        run_id = None
+        run_dir = None
+        acknowledged = "none"
+        spec = {"workspace": "default"}
+        host_memory_job_peak_committed_mb = 45324.0
+
+    JobHistory(str(tmp_path / "jobs.sqlite")).record(Row())
+    with server(success_script) as client:
+        detail = client.get("/api/jobs/peaked")
+        assert detail.status_code == 200, detail.text
+        assert detail.json()["host_memory_job_peak_committed_mb"] == 45324.0
+
+
+def test_slim_job_keeps_the_committed_peak():
+    from dw_mcp.diagnose import slim_job
+
+    slim = slim_job({"id": "j", "host_memory_job_peak_committed_mb": 1234.5})
+    assert slim["host_memory_job_peak_committed_mb"] == 1234.5
+
+
 def test_output_kinds_tolerates_a_job_with_no_manifest():
     from dw.server.outputs import output_kinds
 

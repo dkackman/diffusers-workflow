@@ -340,4 +340,5 @@ class Job:
             "run_dir": self.run_dir,
             "acknowledged_cost": self.spec.get("acknowledged_cost"),
             "progress": self.progress(),
+            "host_memory_job_peak_committed_mb": self.host_memory_job_peak_committed_mb,
         }
