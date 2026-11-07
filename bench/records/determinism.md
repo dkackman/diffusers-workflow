@@ -12,8 +12,11 @@
 > worker applies the keys itself, at start and at each job start, and the
 > defaults are `cudnn_benchmark: false`, `cudnn_deterministic: true`,
 > `enable_tf32: false`. The first job on a fresh worker narrates the flags it
-> actually ran with; what lem reports is recorded on #1238. The record below
-> stays as written.
+> actually ran with; what lem reports is recorded on #1238. On 2026-11-07
+> both cards' fresh workers reported `benchmark=false deterministic=true,
+> tf32=false` after SD 1.5 and LTX-2.5 loads, so nothing those pipelines
+> import sets the flags (`docs/proposals/complete/torch-settings-complete.md`).
+> The record below stays as written.
 
 The question from `.superpowers/sdd/2026-11-03-long-form-media/nondeterminism-report.md`:
 why do same-seed, same-arguments runs on the bench server sometimes give a
