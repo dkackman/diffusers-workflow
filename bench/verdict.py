@@ -38,6 +38,13 @@ def verdict(control, arm, noise, primary):
     other measure is worse by more than its noise; `loses` when the primary
     is worse by more than noise; `mixed` when the primary wins but another
     measure is worse past noise; `tie` otherwise."""
+    missing = [
+        name for name, run in (("control", control), ("arm", arm)) if primary not in run
+    ]
+    if missing:
+        raise ValueError(
+            f"primary measure {primary!r} missing from {' and '.join(missing)}"
+        )
     gain = control[primary] - arm[primary]
     floor = noise.get(primary, 0.0)
     worse_elsewhere = any(

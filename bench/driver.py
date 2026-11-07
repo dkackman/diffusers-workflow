@@ -94,7 +94,19 @@ def http(method, path, server, token, payload=None, params=None):
         with urllib.request.urlopen(request, timeout=120) as response:
             return json.loads(response.read() or b"null")
     except urllib.error.HTTPError as e:
-        raise RuntimeError(f"{method} {path}: {e.code} {e.read().decode()[:500]}")
+        raise RuntimeError(
+            f"{method} {path}: {e.code} {e.read().decode()[:500]}"
+        ) from e
+
+
+def _write_atomic(path, text):
+    """Write via a temp file and rename, so an interrupted run never leaves a
+    truncated record."""
+    target = Path(path)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    tmp = target.with_name(target.name + ".tmp")
+    tmp.write_text(text)
+    os.replace(tmp, target)
 
 
 def health(server, token):
@@ -226,8 +238,7 @@ def run_arms(
 
     def flush():
         if out_path:
-            Path(out_path).parent.mkdir(parents=True, exist_ok=True)
-            Path(out_path).write_text(json.dumps(records, indent=2))
+            _write_atomic(out_path, json.dumps(records, indent=2))
 
     for arm in arms:
         record = {
@@ -275,7 +286,7 @@ def measure_records(
         )
         record["error"] = None  # a measure error from the run is now stale
         if out_path:
-            Path(out_path).write_text(json.dumps(records, indent=2))
+            _write_atomic(out_path, json.dumps(records, indent=2))
     return records
 
 

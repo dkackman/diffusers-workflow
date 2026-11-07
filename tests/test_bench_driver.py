@@ -326,3 +326,48 @@ def test_measure_records_clears_a_stale_error_on_success(monkeypatch):
     driver.measure_records(records, scenes, [], "http://h", "tok")
     assert records[0]["error"] is None
     assert records[0]["measures"]["seam_jump_mean"] == 2.0
+
+
+def test_token_precedence(tmp_path, monkeypatch):
+    from types import SimpleNamespace
+
+    file_token = tmp_path / "t"
+    file_token.write_text("file\n")
+    default = tmp_path / "default"
+    default.write_text("dflt")
+    monkeypatch.setattr(driver, "DEFAULT_TOKEN_FILE", str(default))
+    monkeypatch.setenv("BENCH_TOKEN", "env")
+    assert driver._token(SimpleNamespace(token_file=str(file_token))) == "file"
+    assert driver._token(SimpleNamespace(token_file=None)) == "env"
+    monkeypatch.delenv("BENCH_TOKEN")
+    assert driver._token(SimpleNamespace(token_file=None)) == "dflt"
+    default.unlink()
+    with pytest.raises(SystemExit):
+        driver._token(SimpleNamespace(token_file=None))
+
+
+def test_write_atomic_leaves_no_temp(tmp_path):
+    target = tmp_path / "sub" / "r.json"
+    driver._write_atomic(target, "[1]")
+    driver._write_atomic(target, "[2]")
+    assert target.read_text() == "[2]"
+    assert [p.name for p in target.parent.iterdir()] == ["r.json"]
+
+
+def test_http_error_is_chained(monkeypatch):
+    import urllib.error
+
+    def boom(*a, **k):
+        raise urllib.error.HTTPError("u", 500, "x", {}, None)
+
+    monkeypatch.setattr(driver.urllib.request, "urlopen", boom)
+    with pytest.raises(RuntimeError) as info:
+        driver.http("GET", "/x", "http://s", None)
+    assert isinstance(info.value.__cause__, urllib.error.HTTPError)
+
+
+def test_verdict_missing_primary_is_clear_error():
+    import verdict
+
+    with pytest.raises(ValueError, match="missing from arm"):
+        verdict.verdict({"a": 1.0}, {"b": 1.0}, {}, "a")
