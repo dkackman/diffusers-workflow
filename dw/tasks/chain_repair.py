@@ -224,10 +224,7 @@ def _named_files(take, shots):
     ]
     for path in paths:
         if not os.path.isfile(path):
-            raise ValueError(
-                f"{COMMAND}: the take's segment file {os.path.basename(path)} is "
-                "gone - a repair needs every one of them kept"
-            )
+            return None  # not beside the take: it left its run
     return paths
 
 
@@ -269,6 +266,12 @@ def _locate(chain_take, chain_output):
                 "leaves no segment files - repair the original chain take "
                 "instead (the chain's own final video), then re-render the "
                 "segments you still want changed"
+            )
+        if shots and all(shot.get("segment_file") for shot in shots):
+            raise ValueError(
+                f"{COMMAND}: {name} was copied away from its run - its segment "
+                "files are not beside it; pass 'chain_output', one of the "
+                "chain's kept segment files, as well"
             )
         if shots:
             raise ValueError(
