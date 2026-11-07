@@ -349,6 +349,15 @@ def get_value(v, desired_type, name=None):
         )
         return v
 
+    # An escaped value ("{int8}" for a *_dtype argument, already unbraced by
+    # the parent's realize pass) keeps its marker when handed to a composed
+    # child: str(v) returns a plain str, and the child's own realize pass
+    # would then load the bare name as a type (#1228)
+    from .arguments import EscapedString
+
+    if isinstance(v, EscapedString) and desired_type is str:
+        return v
+
     # Special handling for boolean string values - bool("0") and bool("no") are
     # both truthy in Python, which would silently invert the user's intent, so
     # only a known set of true/false spellings is accepted here

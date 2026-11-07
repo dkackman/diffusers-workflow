@@ -444,3 +444,23 @@ class TestUndeclaredReferencesInsideVariableValues:
     def test_a_scalar_value_beginning_with_the_prefix_is_not_a_reference(self):
         definition = {"variables": {"x": "variable:nope"}, "steps": []}
         assert undeclared_variable_references(definition) == []
+
+
+def test_escaped_string_survives_set_variables_1228():
+    """A braced *_dtype value keeps its escape marker through a composed
+    child's variables, so the child's realize pass leaves it a string."""
+    from dw.arguments import EscapedString, realize_args
+    from dw.variables import set_variables
+
+    parent = {"step": {"weights_dtype": "{int8}"}}
+    realize_args(parent, None)
+    value = parent["step"]["weights_dtype"]
+    assert isinstance(value, EscapedString)
+
+    variables = {"weights_dtype": "{nf4}"}
+    set_variables({"weights_dtype": value}, variables)
+    assert isinstance(variables["weights_dtype"], EscapedString)
+
+    step = {"weights_dtype": variables["weights_dtype"]}
+    realize_args(step, None)
+    assert step["weights_dtype"] == "int8"
