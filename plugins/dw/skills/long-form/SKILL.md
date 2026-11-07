@@ -116,6 +116,10 @@ replaces `steps` whole.
 
 - `jump_ratio`, `look_ratio` and `cut_ratio` re-roll a failing segment at a
   new seed, from the same carry.
+- `audio_dbfs` re-rolls a segment (segment 1 too) whose generated audio reads
+  under `audio_dbfs_min`, -70 dBFS by default: dropout segments read -88, the
+  quietest real one -57. Held audio is not measured. Set
+  `"audio_dbfs_min": null` for a step that asks for silence.
 - `texture_ratio` is warn-only: the drift is in the carry, so a re-roll
   inherits it (`bench/records/check.md`; ruling R38).
 - A segment whose prompt asks for a cut inside it needs
@@ -156,7 +160,9 @@ guide chain. Quote `plan.estimate` from `validate_workflow`, never these.
 ## Run and judge
 
 1. `validate_workflow` with the arguments. Quote `plan.estimate`. A checked
-   chain quotes its worst case: 1 + (N - 1)(1 + `retries`) segment renders.
+   chain quotes its worst case: N(1 + `retries`) segment renders when it
+   generates its audio (segment 1 is re-rolled on the audio floor), else
+   1 + (N - 1)(1 + `retries`).
    A saved copy has no `cost` row of its own (its estimate comes back
    `basis: unknown`), so validate the template with the same arguments and
    scale that figure by the worst case over N.

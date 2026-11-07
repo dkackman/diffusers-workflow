@@ -467,7 +467,7 @@
                     "additionalProperties": false
                 },
                 "check": {
-                    "description": "Check each segment after the first before keeping it, any model family: its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 is never checked. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
+                    "description": "Check each segment before keeping it, any model family: after the first, its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); and 'audio_dbfs_min' (the floor, in dBFS below 0, of the segment's generated audio as kept; default -70, null skips it, and it is never measured when the chain holds its audio); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 has no seam and is checked for its audio level only. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
                     "type": ["boolean", "object", "string"],
                     "properties": {
                         "jump_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
@@ -477,6 +477,7 @@
                             "exclusiveMinimum": 0
                         },
                         "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
+                        "audio_dbfs_min": {"type": ["number", "string", "null"], "exclusiveMaximum": 0},
                         "face": {"type": "null"}
                     },
                     "additionalProperties": false

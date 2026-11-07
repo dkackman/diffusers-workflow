@@ -296,26 +296,60 @@ def _chain_retries(definition, variables):
     return max(0, retries)
 
 
+def _chain_checks_audio(definition, variables):
+    """Whether the workflow's one checked chain measures its generated audio
+    from segment 1 on (#1221): the floor is on (`check` true, or an object
+    whose `audio_dbfs_min` is not null) and the audio is not held - no
+    `match_audio`, no step `hold_audio`, no guide chain carrying its audio.
+    The estimate cannot see whether the pipeline makes audio at all, so it
+    assumes one that can does, as the worst case."""
+    from .pipeline_processors.h3_rules import GUIDE_CONTINUITY, HOLD_AUDIO_INPUT
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return False
+    chain, arguments = blocks[0]
+    check = _resolved(chain.get("check"), variables)
+    if isinstance(check, dict):
+        if (
+            "audio_dbfs_min" in check
+            and _resolved(check["audio_dbfs_min"], variables) is None
+        ):
+            return False
+    elif check is not True:
+        return False
+    if _resolved(chain.get("match_audio"), variables):
+        return False
+    if arguments.get(HOLD_AUDIO_INPUT) is not None:
+        return False
+    continuity = _resolved(chain.get("continuity", "last_frame"), variables)
+    carry_audio = _resolved(chain.get("carry_audio", True), variables)
+    return not (continuity == GUIDE_CONTINUITY and carry_audio)
+
+
 def _worst_case_retries(definition, variables):
     """(factor, axes, unscaled) for the worst case of a checked chain's
-    re-rolls, as `chain_check` runs them: segment 1 is never checked, and
-    each later segment may render 1 + retries times, so N segments cost up
-    to 1 + (N - 1)(1 + retries) renders where the curated figure, measured
-    without re-rolls, paid N. `retries` is flagged unscaled when the segment
-    count cannot be told; with no re-rolls nothing moves. The quote cannot
-    tell a texture failure (warn-only, never re-rolled) from a jump, look or
-    cut one, so it still assumes the worst: every segment re-rolls."""
+    re-rolls, as `chain_check` runs them. Each checked segment may render
+    1 + retries times. Segment 1 has no seam, so it is checked only for its
+    generated audio's level (#1221): a chain that generates its audio costs
+    up to N(1 + retries) renders, any other 1 + (N - 1)(1 + retries), where
+    the curated figure, measured without re-rolls, paid N. `retries` is
+    flagged unscaled when the segment count cannot be told; with no re-rolls
+    nothing moves. The quote cannot tell a texture failure (warn-only, never
+    re-rolled) from a jump, look, cut or audio one, so it still assumes the
+    worst: every checked segment re-rolls."""
     retries = _chain_retries(definition, variables)
     segments = _chain_segments(definition, variables) if retries else None
     if not retries:
         return 1.0, [], []
     if not segments:
         return 1.0, [], ["retries"]
-    renders = 1 + (segments - 1) * (1 + retries)
+    checked = segments if _chain_checks_audio(definition, variables) else segments - 1
+    renders = segments - checked + checked * (1 + retries)
     return (
         renders / segments,
         [
-            f"worst case {retries} re-roll(s) of each of {segments - 1} checked "
+            f"worst case {retries} re-roll(s) of each of {checked} checked "
             f"segment(s): {renders} renders for {segments}"
         ],
         [],

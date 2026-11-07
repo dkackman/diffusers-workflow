@@ -80,6 +80,7 @@ CHAIN_CHECK_FIELDS = (
     "look_ratio_max",
     "texture_ratio_max",
     "cut_ratio_max",
+    "audio_dbfs_min",
     "face",
 )
 CHAIN_RETRIES_MAX = 3
@@ -98,11 +99,25 @@ def _number_over(value, floor):
     )
 
 
+def _number_under(value, ceiling):
+    """Whether `value` is a finite number below `ceiling` (never a bool), or
+    an unresolved reference, which is left to the run."""
+    if isinstance(value, str):
+        return references.is_ref(references.UNRESOLVED, value)
+    return (
+        not isinstance(value, bool)
+        and isinstance(value, (int, float))
+        and math.isfinite(value)
+        and value < ceiling
+    )
+
+
 def chain_check_problem(chain):
     """The reason a chain block's `check` or `retries` is refused, or None.
     `check` is true (the default ceilings), false, or an object of
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
-    above 1 (it bounds the ratio both ways) or null, `face` null. `retries`
+    above 1 (it bounds the ratio both ways) or null, `audio_dbfs_min` a
+    floor below 0 or null, `face` null. `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
     to the run, whose `ChainConfig` asks this same rule."""
@@ -124,6 +139,12 @@ def chain_check_problem(chain):
         cut = check.get("cut_ratio_max")
         if cut is not None and not _number_over(cut, 0):
             return f"check cut_ratio_max must be a number above 0 or null, got {cut!r}"
+        floor = check.get("audio_dbfs_min")
+        if floor is not None and not _number_under(floor, 0):
+            return (
+                "check audio_dbfs_min is a floor in dBFS, so must be a number "
+                f"below 0 or null, got {floor!r}"
+            )
         if check.get("face") is not None:
             return f"check face is reserved and must be null, got {check['face']!r}"
     elif not (

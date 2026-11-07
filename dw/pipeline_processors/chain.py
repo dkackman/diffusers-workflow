@@ -55,7 +55,9 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
     spilled_frames,
 )
 from .chain_check import (
+    audio_dbfs,
     best_attempt,
+    check_audio,
     check_segment,
     measure_frames,
     reroll_seed,
@@ -162,7 +164,9 @@ def run_chain(pipeline, chain_definition, arguments):
                 seed,
                 capstone_frame,
             )
-            if config.check is not None and segment.index > 0:
+            if config.check is not None and (
+                segment.index > 0 or config.checks_segment_1
+            ):
                 attempt, checked = _checked_attempt(
                     pipeline,
                     arguments,
@@ -290,6 +294,7 @@ def _lay_down(timeline, config, segment, attempt, checked, spill):
     timeline.shots.append(shot)
     if config.check is not None:
         _record_check(shot, segment, config, checked)
+    _record_level(shot, segment, config, attempt)
     timeline.frame_count += len(kept_frames)
     if spill is not None:
         spill.write(
@@ -476,8 +481,17 @@ def _checked_attempt(
         attempt = _render_attempt(
             pipeline, arguments, config, segment, continuity, state, number, attempts
         )
+        kept_audio = _kept_audio(attempt, segment, config)
         results.append(
-            check_segment(previous_kept, attempt.kept, segment_1_texture, config.check)
+            check_audio(kept_audio, config.check)
+            if segment.index == 0
+            else check_segment(
+                previous_kept,
+                attempt.kept,
+                segment_1_texture,
+                config.check,
+                audio=kept_audio,
+            )
         )
         kept_index = best_attempt(results)
         if kept_index == number:
@@ -501,7 +515,8 @@ def _failures(result):
 def _record_check(shot, segment, config, checked):
     """Put a checked segment's attempts on its shot - and, when every attempt
     failed, the measures its kept attempt failed, with one job warning that
-    reaches the caller. Segment 1 is never checked: one attempt."""
+    reaches the caller. An unchecked segment 1 (no audio floor to hold it
+    to) has one attempt."""
     if checked is None:
         shot["attempts"] = 1
         return
@@ -531,6 +546,43 @@ def _record_check(shot, segment, config, checked):
         values={name: result.measures.get(name) for name in result.failed},
         kept_attempt=kept + 1,
         attempts=checked["attempts"],
+    )
+
+
+def _kept_audio(attempt, segment, config):
+    """The generated audio a kept attempt puts on the timeline - its span
+    past the head trim - or None when it has none or the chain holds its
+    audio, which is not the segment's to measure. With no frame rate the
+    span cannot be placed, and the join refuses the chain itself."""
+    if config.audio_held or attempt.audio is None or config.fps is None:
+        return None
+    return _on_timeline_audio(attempt.audio, segment, config, attempt.rate)
+
+
+def _record_level(shot, segment, config, attempt):
+    """Put the kept segment's generated audio level on its shot, and warn
+    `chain_segment_silent` when it reads under the chain's floor - with the
+    check on or off (#1221), so a silent segment is never kept unsaid."""
+    level = audio_dbfs(_kept_audio(attempt, segment, config))
+    if level is None:
+        return
+    shot["audio_dbfs"] = level
+    floor = config.audio_floor
+    if floor is None or level >= floor:
+        return
+    emit_warning(
+        f"Chain segment {segment.index + 1}/{len(config.plan)} is silent: its "
+        f"generated audio reads {level} dBFS, under the {floor:g} dBFS floor"
+        + (
+            " - turn check on with retries to re-roll it, or set check "
+            "audio_dbfs_min null if the step asks for silence"
+            if config.check is None
+            else "; set check audio_dbfs_min null if the step asks for silence"
+        ),
+        kind="chain_segment_silent",
+        segment=segment.index + 1,
+        audio_dbfs=level,
+        floor=floor,
     )
 
 

@@ -14,13 +14,14 @@ Add the check on the chain block of `templates/minimax/chained-segments`
 "chain": { "...": "the template's keys", "check": true, "retries": 1 }
 ```
 
-Each segment after the first is measured before it is kept:
+Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
 
 | Measure | Against | On failure |
 | --- | --- | --- |
 | `jump_ratio` (ceiling 4) | the seam's frame step | re-roll |
 | `look_ratio` (ceiling 5.5) | the seam's colour step | re-roll |
 | `cut_ratio` (ceiling 3.5) | a cut inside the segment, which the seam windows miss | re-roll |
+| `audio_dbfs` (floor -70 dBFS) | the segment's own generated audio level, segment 1 included; held audio is skipped | re-roll |
 | `texture_ratio` (ceiling 2) | segment 1's fine texture, doubled or halved | warn-only, no re-roll |
 
 - **Why `cut_ratio` exists.** The seam measures caught 1 of 3 broken renders,
@@ -42,8 +43,15 @@ Each segment after the first is measured before it is kept:
 - **When every attempt fails,** the chain keeps the attempt with the fewest
   failed measures and finishes. Its shot records `check_failed`, and the job
   carries a `chain_check_failed` warning.
-- **Cost.** The quote is the worst case: 1 + (N - 1)(1 + `retries`) segment
-  renders.
+- **A silent segment.** Dropout segments read -88 dBFS and the quietest real
+  one -57, so the `audio_dbfs_min` floor of -70 sits between. A kept segment
+  still under it carries a `chain_segment_silent` warning (segment, level,
+  floor), with `check` on or off. Turn `check` on with `retries` to re-roll
+  it, or set `"audio_dbfs_min": null` when the silence is intended.
+- **Cost.** The quote is the worst case: N(1 + `retries`) segment renders
+  for a checked chain that generates its audio (floor on, no `match_audio`,
+  no step `hold_audio`, not a guide chain carrying audio), else
+  1 + (N - 1)(1 + `retries`).
 
 ## Repair one segment in place
 
