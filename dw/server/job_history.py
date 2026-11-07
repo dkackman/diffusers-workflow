@@ -16,9 +16,14 @@ import contextlib
 import json
 import logging
 import os
+import re
 import sqlite3
+import time
 import threading
 
+from filelock import FileLock, Timeout
+
+from ..security import SecurityError, validate_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from .host_ram_need import memory_key
 from .observed_cost import EVENT_CAP, LOADING_MARKER
@@ -717,3 +722,80 @@ class JobHistory:
             **({"note": row["note"]} if row["note"] else {}),
             **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
         }
+
+
+# ------------------------------------------------------------ server liveness
+#
+# Which servers on this database are alive (#1220; JobHistory's docstring):
+# each holds `servers/<instance>.lock` beside the database for its life
+
+# A server instance id as JobManager writes it (uuid4().hex)
+_INSTANCE = re.compile(r"[0-9a-f]{32}")
+
+
+def _server_lock_path(history, instance):
+    """`servers/<instance>.lock` beside the database. `instance` is read back
+    out of the database, so it is held to the hex JobManager writes and
+    confined to the directory."""
+    if not isinstance(instance, str) or not _INSTANCE.fullmatch(instance):
+        raise SecurityError(f"Not a server instance id: {instance!r}")
+    servers = os.path.join(os.path.dirname(os.path.abspath(history.db_path)), "servers")
+    return validate_path(os.path.join(servers, f"{instance}.lock"), servers)
+
+
+def hold_server_lock(history, instance):
+    """Take `instance`'s lock for the server's lifetime: whoever can take it
+    later knows the server has gone. None when it cannot be taken, which
+    costs only the restart record."""
+    try:
+        path = _server_lock_path(history, instance)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        lock = FileLock(path, thread_local=False)
+        lock.acquire(timeout=0)
+        return lock
+    except Exception as e:
+        logger.warning(f"Could not take the server lock: {e}")
+        return None
+
+
+def release_server_lock(lock):
+    """A clean stop gives the lock up and removes its file; the next startup
+    then closes whatever the server left open."""
+    if lock is None:
+        return
+    with contextlib.suppress(Exception):
+        lock.release()
+        os.remove(lock.lock_file)
+
+
+def close_dead_servers(history, instance):
+    """Close the open rows of every server but `instance` whose lock is free
+    - it is dead - as cancelled with a `server restart:` error, then remove
+    its lock file. A held lock is a live sibling, whose rows are left alone.
+    Never fatal: a sweep that fails leaves rows open, never the server down."""
+    try:
+        instances = history.open_instances(exclude=instance)
+    except Exception as e:
+        logger.warning(f"Could not read open jobs from history: {e}")
+        return
+    for dead in instances:
+        try:
+            path = _server_lock_path(history, dead)
+            lock = FileLock(path, thread_local=False)
+            try:
+                lock.acquire(timeout=0)
+            except Timeout:
+                continue
+            try:
+                closed = history.close_instance(dead, time.time())
+            finally:
+                lock.release()
+            with contextlib.suppress(OSError):
+                os.remove(path)
+            if closed:
+                logger.info(
+                    f"Closed {len(closed)} job(s) server {dead} left open "
+                    f"when it stopped: {', '.join(closed)}"
+                )
+        except Exception as e:
+            logger.warning(f"Could not close server {dead}'s jobs: {e}")

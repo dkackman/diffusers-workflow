@@ -38,14 +38,10 @@ import copy
 import json
 import secrets
 import time
-import re
 import uuid
 import logging
 import threading
-import contextlib
 from contextlib import contextmanager
-
-from filelock import FileLock, Timeout
 
 from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
@@ -66,7 +62,8 @@ from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
-from .job_history import JobHistory
+from .job_history import JobHistory, close_dead_servers, hold_server_lock
+from .job_history import release_server_lock
 from .outputs import job_run_directory, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
@@ -92,9 +89,6 @@ TERMINAL_JOBS_KEPT = 20
 # How long a cancel waits for a worker in a phase with no checkpoint (a model
 # load, a task) before the worker is terminated (#892)
 CANCEL_GRACE_SECONDS = 30.0
-
-# A server instance id as JobManager writes it (uuid4().hex)
-_INSTANCE = re.compile(r"[0-9a-f]{32}")
 
 
 class JobsActive(Exception):
@@ -136,15 +130,11 @@ class JobManager(Dispatcher):
         # The first card's worker - what the single-worker callers address
         self.worker_manager = self.slots[0].manager
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
-        # Which server admitted a job, on its history row; the lock under
-        # `servers/` beside the database says this server is alive (#1220)
+        # Stamped on each job's history row; its lock says it is alive (#1220)
         self.instance = uuid.uuid4().hex
-        self._servers_dir = os.path.join(
-            os.path.dirname(os.path.abspath(self.history.db_path)), "servers"
-        )
-        self._server_lock = self._hold_server_lock()
+        self._server_lock = hold_server_lock(self.history, self.instance)
         # Before the runner starts and before the app takes a request
-        self._close_dead_servers()
+        close_dead_servers(self.history, self.instance)
         self.jobs = {}
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
@@ -182,62 +172,6 @@ class JobManager(Dispatcher):
             return min(running, key=lambda slot: slot.started_at or 0).current_job_id
 
     # ------------------------------------------------------- restart record
-
-    def _server_lock_path(self, instance):
-        """`servers/<instance>.lock` beside the database. `instance` is read
-        back out of the database, so it is held to the hex this class
-        writes and confined to the directory."""
-        if not isinstance(instance, str) or not _INSTANCE.fullmatch(instance):
-            raise SecurityError(f"Not a server instance id: {instance!r}")
-        return validate_path(
-            os.path.join(self._servers_dir, f"{instance}.lock"), self._servers_dir
-        )
-
-    def _hold_server_lock(self):
-        """Take this server's lock for its lifetime: whoever can take it
-        later knows this server has gone (JobHistory's docstring). None when
-        the lock cannot be taken, which costs only the restart record."""
-        try:
-            os.makedirs(self._servers_dir, exist_ok=True)
-            lock = FileLock(self._server_lock_path(self.instance), thread_local=False)
-            lock.acquire(timeout=0)
-            return lock
-        except Exception as e:
-            logger.warning(f"Could not take the server lock: {e}")
-            return None
-
-    def _close_dead_servers(self):
-        """Close the open history rows of every other server on this
-        database whose lock is free - it is dead - as cancelled with a
-        `server restart:` error, then remove its lock file. A held lock is
-        a live sibling, whose rows are left alone. Never fatal: a sweep
-        that fails leaves rows open, never the server down."""
-        try:
-            instances = self.history.open_instances(exclude=self.instance)
-        except Exception as e:
-            logger.warning(f"Could not read open jobs from history: {e}")
-            return
-        for instance in instances:
-            try:
-                path = self._server_lock_path(instance)
-                lock = FileLock(path, thread_local=False)
-                try:
-                    lock.acquire(timeout=0)
-                except Timeout:
-                    continue
-                try:
-                    closed = self.history.close_instance(instance, time.time())
-                finally:
-                    lock.release()
-                with contextlib.suppress(OSError):
-                    os.remove(path)
-                if closed:
-                    logger.info(
-                        f"Closed {len(closed)} job(s) server {instance} left "
-                        f"open when it stopped: {', '.join(closed)}"
-                    )
-            except Exception as e:
-                logger.warning(f"Could not close server {instance}'s jobs: {e}")
 
     def _record_open(self, job):
         """Write a live job's row - queued at submit, running at dispatch and
@@ -425,8 +359,7 @@ class JobManager(Dispatcher):
         job = Job(spec)
         job.host_ram_need = host_ram_need
         job.server_instance = self.instance
-        # Its row before anyone can see it, so no outcome can be written
-        # first and then overwritten as queued (#1220)
+        # Its row before anyone can see it: no outcome is written first (#1220)
         self._record_open(job)
         with self._lock:
             self.jobs[job.id] = job
@@ -858,17 +791,8 @@ class JobManager(Dispatcher):
         for slot in self.slots:
             slot.manager.shutdown_worker()
         self._host_claims().withdraw()
-        self._release_server_lock()
-
-    def _release_server_lock(self):
-        """A clean stop gives the lock up and removes its file; the next
-        startup then closes whatever this server left open."""
-        lock, self._server_lock = self._server_lock, None
-        if lock is None:
-            return
-        with contextlib.suppress(Exception):
-            lock.release()
-            os.remove(lock.lock_file)
+        release_server_lock(self._server_lock)
+        self._server_lock = None
 
     # ---------------------------------------------------------------- runner
 
