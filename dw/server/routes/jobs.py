@@ -375,6 +375,9 @@ def get_job_workflow(request: Request, job_id: str):
                 apply_presets(definition, declared, variables)
                 set_variables(declared, variables)
                 folded = list(declared)
+                # The bundle's values are folded in now; kept, it would
+                # overwrite them on a re-run
+                definition.pop("presets", None)
             except (SecurityError, TypeError, ValueError) as exc:
                 definition = copy.deepcopy(manager.definition(job_id))
                 failure = str(exc)

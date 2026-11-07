@@ -29,6 +29,7 @@ import logging
 import os
 
 from . import references
+from .presets import PRESETS_KEY
 from .prompts import fetch_prompt
 from .runs import (
     LATEST,
@@ -92,6 +93,10 @@ def realize_workflow(
         # matches what it used
         realized["variables"] = copy_containers(variables)
     variables = realized.get("variables")
+    # The folded variables already hold the chosen bundle's values (and the
+    # caller's overrides). Kept, the bundle would fill every variable a re-run
+    # does not pass and overwrite them, so the record would not reproduce.
+    realized.pop(PRESETS_KEY, None)
 
     realized["seed"] = seed
     # A definition can point its top-level seed at a declared variable
