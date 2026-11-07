@@ -370,6 +370,18 @@ def get_value(v, desired_type, name=None):
         logger.error(message)
         raise ValueError(message)
 
+    # A dict or list for a variable typed bool by its default would fold to
+    # True through bool(v) with no word (#1250): refuse it, naming the variable
+    if isinstance(v, (dict, list)) and desired_type is bool:
+        var_label = name if name is not None else "<unknown>"
+        message = (
+            f"Cannot convert variable '{var_label}' value {v!r} to type bool: "
+            f"this variable is typed bool by its default and takes true or "
+            f"false, not an object or list"
+        )
+        logger.error(message)
+        raise ValueError(message)
+
     # Special handling for list string values - list("cat") would mangle the
     # string into ['c', 'a', 't'], so a comma-separated string is split instead
     if isinstance(v, str) and desired_type is list:
