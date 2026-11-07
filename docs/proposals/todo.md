@@ -37,6 +37,13 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Camera moves classified as static or moving** (#1200, stage #1255),
+  shipped 2026-11-07. Each of the 13 move ids in the `cinematography`
+  vocabulary has a `class`. Only `static` is `static`. Every `moving` id
+  carries the H3 "never `last_frame` with `look_hold`/`carry_pick`" note,
+  and `long-form` picks its `shot` preset from that column. No new ids. The
+  measurement probe is parked as #1260:
+  `complete/move-class-complete.md`.
 - **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
   static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
   LTX chain, the `minimax/add-sound` audio pass, long narration and music joins,

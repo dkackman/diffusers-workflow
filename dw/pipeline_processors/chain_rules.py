@@ -18,6 +18,51 @@ LOOK_HOLD_PARTS = ("pickup", "creep", "texture", "precompensate")
 LOOK_HOLD_KEYFRAME_PARTS = ("pickup", "precompensate")
 
 
+CHAIN_LENGTH_RULE = (
+    "A chain needs exactly one of 'segments', 'match_audio' or 'duration_seconds'"
+)
+
+
+MATCH_AUDIO_SOURCE_RULE = (
+    "A match_audio chain needs a 'hold_audio' track, or a 'references' "
+    "argument holding the audio reference to match"
+)
+
+
+def chain_length_problem(chain):
+    """Why a chain block does not ask for its length exactly one way, or None.
+    A resolved duration wins over a segment count, so `segments` alongside
+    `duration_seconds` is fine. The run (`_chain_length`) and validation ask
+    this one rule."""
+    match_audio = chain.get("match_audio", False)
+    if isinstance(match_audio, str) and references.is_ref(
+        references.UNRESOLVED, match_audio
+    ):
+        return None
+    counted = (
+        chain.get("segments") is not None or chain.get("duration_seconds") is not None
+    )
+    if counted == bool(match_audio):
+        return CHAIN_LENGTH_RULE
+    return None
+
+
+def match_audio_source_problem(arguments):
+    """Why a match_audio chain step names no track to match, or None: no
+    `hold_audio` and no `references` list to hold an audio reference. The run
+    also counts the audio references in the list (`_find_audio_reference`)."""
+    arguments = arguments if isinstance(arguments, dict) else {}
+    held = arguments.get("hold_audio")
+    if held is not None:
+        return None
+    refs = arguments.get("references")
+    if isinstance(refs, str) and references.is_ref(references.UNRESOLVED, refs):
+        return None
+    if isinstance(refs, list):
+        return None
+    return MATCH_AUDIO_SOURCE_RULE
+
+
 def chain_look_hold_flags(chain):
     """The four look-hold switches as {part: bool}, or None when off. `true`
     turns on all four; an object names the ones it wants."""

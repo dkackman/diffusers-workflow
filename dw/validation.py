@@ -70,6 +70,7 @@ from .slice_preflight import slice_past_end_warnings
 from .subfolders import subfolder_errors
 from .step_value_checks import (
     cache_errors,
+    chain_length_errors,
     chain_prompts_errors,
     fps_errors,
     null_media_errors,
@@ -510,6 +511,12 @@ ERROR_CHECKS = [
     Check(
         "chain_prompts",
         lambda c: chain_prompts_errors(c.expanded, c.source_indices),
+    ),
+    # A chain whose length is not asked exactly one way after substitution, or
+    # a match_audio chain with no track to match (#1259)
+    Check(
+        "chain_length",
+        lambda c: chain_length_errors(c.expanded, c.source_indices),
     ),
     # A chain's continuity the run would refuse: an unknown mode, or a
     # 'guide' chain off H3 t2va/fl2va or with a guide_frames other than 22/39
