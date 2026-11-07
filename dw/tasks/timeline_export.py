@@ -312,6 +312,15 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
         return TimelineBundle(_timeline(name, tracks), media)
 
     _refuse_overlaps(records)
+    for shot in records:
+        end = shot["start_frame"] + shot["num_frames"]
+        if end > total:
+            raise InvalidInputError(
+                f"{COMMAND}: shot {shot.get('name', '')!r} runs to frame "
+                f"{end} (starts at {shot['start_frame']}, {shot['num_frames']} "
+                f"frames) but the video has only {total} frames - the shots "
+                f"must fit inside the video"
+            )
 
     def lay_out():
         children = []
