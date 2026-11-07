@@ -194,5 +194,7 @@ def test_check_and_retries_are_variables_and_price_the_worst_case():
     for retries in (1, 3):
         variables = {"check": True, "retries": retries}
         definition = wf.expanded_definition(variables)
-        factor = _worst_case_retries(definition, {**template["variables"], **variables})[0]
+        factor = _worst_case_retries(
+            definition, {**template["variables"], **variables}
+        )[0]
         assert factor == (1 + 2 * (1 + retries)) / 3
