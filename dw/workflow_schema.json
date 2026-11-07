@@ -481,7 +481,7 @@
                             "exclusiveMinimum": 0
                         },
                         "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
-                        "audio_dbfs_min": {"type": ["number", "string", "null"], "exclusiveMaximum": 0},
+                        "audio_dbfs_min": {"type": ["number", "string", "null"]},
                         "face": {"type": "null"}
                     },
                     "additionalProperties": false
