@@ -655,6 +655,32 @@ NO_DRIVERS = {
 }
 
 
+# Text-valued cost drivers, per template: a choice drawn from a short list. The
+# exemption is keyed on the template so that one template's choice cannot hide
+# a text driver appearing in another (#1243).
+H3_KNOBS = {"weights_dtype", "lora_model_name", "attention_backend"}
+TEXT_DRIVER_EXTRAS = {
+    "workflows/templates/minimax/chained-segments.json": {
+        "continuity",
+        "shot",
+        "anchor",
+        "tier",
+    },
+    "workflows/templates/minimax/chain-matched-and-aligned.json": {"tier"},
+    "workflows/templates/minimax/chain-matched-to-audio.json": {"tier"},
+    "workflows/templates/minimax/chain-video-continuity.json": {"tier"},
+    "workflows/templates/minimax/dialogue-short.json": {"tier"},
+    "workflows/templates/minimax/music-video.json": {"tier"},
+}
+
+
+def _text_drivers_allowed(relative):
+    allowed = set(TEXT_DRIVER_EXTRAS.get(relative, ()))
+    if relative.startswith("workflows/templates/minimax/"):
+        allowed |= H3_KNOBS
+    return allowed
+
+
 class TestTheCatalogsDriversAreReal:
     """The sweep: a driver naming no variable checks nothing, which is the
     failure this whole module exists to avoid."""
@@ -692,15 +718,6 @@ class TestTheCatalogsDriversAreReal:
         templates' `tier` (draft, standard, best) is one too: it selects a
         bundle of canvas, steps and weights (bench/records/tiers.md)."""
         never = {"seed", "prompt", "negative_prompt"}
-        choices = {
-            "weights_dtype",
-            "lora_model_name",
-            "attention_backend",
-            "continuity",
-            "shot",
-            "anchor",
-            "tier",
-        }
         for path in sorted(
             glob.glob(
                 os.path.join(REPO_ROOT, "workflows", "**", "*.json"), recursive=True
@@ -712,7 +729,8 @@ class TestTheCatalogsDriversAreReal:
             where = os.path.relpath(path, REPO_ROOT)
             for name in definition.get("cost_drivers") or []:
                 assert name not in never, f"{where} buckets on '{name}'"
-                assert name in choices or not isinstance(variables.get(name), str), (
+                allowed = _text_drivers_allowed(where.replace(os.sep, "/"))
+                assert name in allowed or not isinstance(variables.get(name), str), (
                     f"{where} buckets on '{name}', whose default is text"
                 )
 
