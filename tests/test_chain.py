@@ -1868,7 +1868,7 @@ class TestAudioFloorReroll:
 
     def test_a_silent_segment_2_is_rerolled_with_check_on(self):
         pipeline = FakePipeline(self.silent_on(1))
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             out = run_chain(
                 pipeline, self.chain(check=True, retries=1), self.arguments()
             )
@@ -1886,7 +1886,7 @@ class TestAudioFloorReroll:
 
     def test_a_silent_segment_2_only_warns_with_check_off(self):
         pipeline = FakePipeline(self.silent_on(1))
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             out = run_chain(pipeline, self.chain(), self.arguments())
 
         assert len(pipeline.calls) == 2
@@ -1910,7 +1910,7 @@ class TestAudioFloorReroll:
 
     def test_a_segment_still_silent_after_its_retries_warns_both_ways(self):
         pipeline = FakePipeline(self.silent_on(1, 2))
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             out = run_chain(
                 pipeline, self.chain(check=True, retries=1), self.arguments()
             )
@@ -1924,7 +1924,7 @@ class TestAudioFloorReroll:
     def test_a_null_floor_neither_rerolls_nor_warns(self):
         pipeline = FakePipeline(self.silent_on(0, 1))
         chain = self.chain(check={"audio_dbfs_min": None}, retries=1)
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             out = run_chain(pipeline, chain, self.arguments())
 
         assert len(pipeline.calls) == 2
@@ -1944,7 +1944,7 @@ class TestAudioFloorReroll:
                 audio[..., 25:] = 0.0
             return {"videos": [frames], "audio": audio, "sampling_rate": 100}
 
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             out = run_chain(FakePipeline(output), self.chain(), self.arguments())
 
         assert out.shots[1]["audio_dbfs"] == -120.0
