@@ -415,8 +415,11 @@ def _tempered(block, curated_minutes):
     toward the curated figure it might be papering over rather than
     presented as if it carried the same authority as a dozen runs (#301).
 
-    With a curated minutes figure to blend toward, the point estimate is
-    pulled toward it in proportion to how thin the history is - one run
+    `curated_minutes` is the figure to blend toward: the curated row scaled
+    to the run, or this box's default-tier history scaled to it when a
+    preset tier's own bucket is the thin one (#1236). With one, the point
+    estimate is pulled toward it in proportion to how thin the history is -
+    one run
     counts for a third of the blend, two for two thirds, three or more not
     at all. The blend is marked `tempered: true` with `observed_minutes`
     (the raw point figure, the same number `list_workflows`' own
