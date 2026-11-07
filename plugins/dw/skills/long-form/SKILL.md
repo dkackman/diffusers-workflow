@@ -22,7 +22,7 @@ Each rule names its bench record (`bench/records/<name>.md` in the repo;
 
 1. `get_server_info`: the device. H3 is CUDA-first. On a 24 GB Mac,
    `templates/minimax/chained-segments` at its defaults is refused
-   (about 18.3 GB projected against a 17.8 GB working set). Lower the
+   (about 18.3 GB projected against an approximate 17.8 GB working set; the device reports the real limit). Lower the
    canvas to 768x448, which fits under guide continuity. `num_frames`
    cannot drop below 124 (`docs/ACCELERATION.md`, *MPS*).
 2. `list_workflows(shape="sequence")` and `list_workflows(traits="chained")`:

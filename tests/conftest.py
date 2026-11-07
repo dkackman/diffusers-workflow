@@ -62,7 +62,7 @@ def _isolate_device_capacity(monkeypatch):
 
     The check uses the serving device's own capacity when no 'cost' entry
     describes its backend (dw/vram_estimate.py `_entries_for`), so on a
-    24 GB Mac - a 17.8 GB Metal working set - a template's own defaults were
+    24 GB Mac - an approximate 17.8 GB Metal working set - a template's own defaults were
     refused and its tests failed there and nowhere else. With no capacity
     read, every machine gets what CI gets. A test about the device ceiling
     patches its own capacity, which wins over this one.
