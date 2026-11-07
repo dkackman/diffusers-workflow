@@ -100,8 +100,10 @@ Two rules that bite:
   start the next shot from a fresh still of the subject. `last_frame`
   stays the LTX default (`bench/records/ltx.md`); `ltx-2.5` has the rest.
 
-The classification of the vocabulary's other moves is #1200. Until then,
-treat any move other than `static` as moving.
+Each move's class is the `class` column of
+`cinematography/references/vocabulary.md`: `move: static` is `shot: static`
+(or `static_long`), and every `moving` id, `push-in` and `handheld` included,
+is `shot: moving`.
 
 `references/levers.md` has every lever, the knobs that are not defaults, and
 the ideas that were measured and cut. Read it before proposing a counter.

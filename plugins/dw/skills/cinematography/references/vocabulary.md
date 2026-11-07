@@ -26,25 +26,42 @@ How much of the subject the frame holds.
 
 What the camera does during the shot. One move per shot.
 
-| id | Means |
-| --- | --- |
-| `static` | The camera does not move. |
-| `dolly-in` | The camera travels toward the subject, a full move. |
-| `dolly-out` | The camera travels away, revealing more of the setting. |
-| `truck-left` | The camera slides sideways to the left, parallel to the subject. |
-| `truck-right` | The camera slides sideways to the right. |
-| `crane-up` | The camera rises, often to look down over the scene. |
-| `crane-down` | The camera descends, often settling to the subject's level. |
-| `orbit` | The camera arcs around the subject, keeping it centred. |
-| `tracking` | The camera moves with a moving subject, keeping pace. |
-| `whip-pan` | A very fast turn sideways that blurs to a new view. |
-| `push-in` | A slow, small move toward the subject, for emphasis. |
-| `handheld` | Unsteady, operator-held movement. |
-| `crash-zoom` | A very fast zoom in on one thing. |
+| id | class | Means | Note |
+| --- | --- | --- | --- |
+| `static` | `static` | The camera does not move. | |
+| `dolly-in` | `moving` | The camera travels toward the subject, a full move. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `dolly-out` | `moving` | The camera travels away, revealing more of the setting. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `truck-left` | `moving` | The camera slides sideways to the left, parallel to the subject. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `truck-right` | `moving` | The camera slides sideways to the right. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `crane-up` | `moving` | The camera rises, often to look down over the scene. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `crane-down` | `moving` | The camera descends, often settling to the subject's level. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `orbit` | `moving` | The camera arcs around the subject, keeping it centred. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `tracking` | `moving` | The camera moves with a moving subject, keeping pace. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `whip-pan` | `moving` | A very fast turn sideways that blurs to a new view. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `push-in` | `moving` | A slow, small move toward the subject, for emphasis. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `handheld` | `moving` | Unsteady, operator-held movement. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
+| `crash-zoom` | `moving` | A very fast zoom in on one thing. | H3: never `last_frame` with `look_hold`/`carry_pick` (measured on the arc only). |
 
 `dolly-in` and `push-in` differ by size and speed: a dolly travels, a push-in
 creeps. `crash-zoom` is a zoom, not a travel: the view narrows while the
 camera stays put.
+
+**The `class` column** is a definition, not a measurement:
+
+- `static`: the camera's position and orientation don't change across the
+  take. Only the `static` id is in this class.
+- `moving`: every other id, including `push-in` and `handheld`, whose motion
+  is small but real. `crash-zoom` is here too: its view changes across the
+  take even though the camera stays put.
+
+The two errors don't cost the same, so a borderline move goes to `moving`. A
+moving shot treated as static has its pose pinned, which froze the camera on
+the bench's arc; a static-ish shot treated as moving only loses length (the
+`long-form` skill cuts it at about 30 s). The `long-form` skill maps this
+column to the H3 `shot` preset. The Note column's H3 rule comes from
+`long-form`'s *Two rules that bite*: it was measured on the bench's moving
+arc (`bench/records/counters.md`, *Eye notes (S2)*) only; the other moves
+inherit it by class, not by a measurement of their own.
 
 ## `lens`
 
