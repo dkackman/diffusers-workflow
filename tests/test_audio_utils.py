@@ -869,6 +869,17 @@ class TestNormalizeAudioLimit:
         finally:
             deactivate_context(token)
         assert any(e.get("kind") == "target_lufs_capped" for e in events)
+        capped = [e for e in events if e.get("kind") == "target_lufs_capped"]
+        assert "limit: true" in capped[0]["message"]
+
+    def test_relevel_clip_template_exposes_limit_on_by_default(self):
+        import json
+
+        with open("workflows/templates/relevel-clip.json") as handle:
+            template = json.load(handle)
+        assert template["variables"]["limit"] is True
+        level = template["steps"][0]["task"]["arguments"]
+        assert level["limit"] == "variable:limit"
 
     def test_past_twelve_db_of_reduction_the_target_is_capped(self):
         track, logs, warnings = self._run(
