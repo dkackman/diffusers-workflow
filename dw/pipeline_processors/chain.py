@@ -184,6 +184,7 @@ def run_chain(pipeline, chain_definition, arguments):
                 else:
                     previous_kept = checked["result"].frame_data
             _log_carry_pick(config, segment, attempt)
+            _log_seam_holds(config, segment, attempt, state)
             _lay_down(timeline, config, segment, attempt, checked, spill)
 
             # The segment's raw output is finished with - the frames live on
@@ -233,6 +234,29 @@ def _log_carry_pick(config, segment, attempt):
             f"{len(attempt.rendered)} (sharpest of the last "
             f"{config.carry_pick}), dropping {tail_trim} after it"
         )
+
+
+def _log_seam_holds(config, segment, attempt, state):
+    """Say in the job log what keystone and look_hold did at a seam: a segment
+    after the first is rendered from the keystone frame and corrected by the
+    look hold; the first only sets the scene, and its carry may be
+    pre-compensated for the next."""
+    seam = f"Chain seam {segment.index}/{len(config.plan) - 1}"
+    if segment.index > 0 and state.keystone_frame is not None:
+        emit_log(
+            f"{seam}: keystone applied - segment {segment.index + 1} opens on "
+            "segment 1's frame 0"
+        )
+    if attempt.hold is None:
+        return
+    parts = ", ".join(name for name, on in config.look_hold.items() if on)
+    if segment.index == 0:
+        emit_log(
+            f"Chain segment 1/{len(config.plan)}: look_hold read the scene look "
+            f"from segment 1 ({parts}); segment 1 is left as rendered"
+        )
+    else:
+        emit_log(f"{seam}: look_hold corrected segment {segment.index + 1} ({parts})")
 
 
 def _lay_down(timeline, config, segment, attempt, checked, spill):

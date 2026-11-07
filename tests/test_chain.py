@@ -1009,6 +1009,18 @@ class TestGuideContinuity:
         assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 0, 7)
         assert pipeline.calls[2]["image"].getpixel((0, 0)) == (0, 0, 7)
 
+    def test_keystone_is_logged_per_seam(self):
+        pipeline = FakePipeline(self.output)
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(
+                pipeline,
+                self.chain(keystone="segment_1"),
+                self.arguments(image=solid_frame((1, 2, 3))),
+            )
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("seam 1/2: keystone applied" in n for n in notes)
+        assert any("seam 2/2: keystone applied" in n for n in notes)
+
     def test_keystone_leaves_the_guide_as_the_carried_tail(self):
         pipeline = FakePipeline(self.output)
 
@@ -1559,6 +1571,13 @@ class TestLookHold:
             - carried.mean()
         )
         assert first_last.shape == opening.shape
+
+    def test_look_hold_is_logged_per_seam(self):
+        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+            run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
+        notes = [call.args[0] for call in emit_log.call_args_list]
+        assert any("segment 1 is left as rendered" in n for n in notes)
+        assert any("seam 1/2: look_hold corrected segment 2" in n for n in notes), notes
 
     def test_segment_one_is_left_as_rendered(self):
         out = run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
