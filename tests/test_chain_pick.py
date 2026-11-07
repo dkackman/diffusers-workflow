@@ -89,3 +89,29 @@ def test_validation_refuses_match_audio():
         ]
     }
     assert any("match_audio" in e["message"] for e in anchor_errors(definition))
+
+
+def test_a_reference_for_match_audio_is_not_read_as_set():
+    # a variable that resolves to false must not refuse the pick at validate (#1232)
+    from dw.pipeline_processors.h3_rules import (
+        chain_carry_pick_problem,
+        guide_backoff_problems,
+    )
+
+    pick = {"carry_pick": {"sharpest": 3}, "match_audio": "variable:use_audio"}
+    assert chain_carry_pick_problem(pick) is None
+    assert chain_carry_pick_problem({**pick, "match_audio": True}) is not None
+    backoff = {"continuity": "guide", "guide_backoff": 17}
+    assert guide_backoff_problems({**backoff, "match_audio": "variable:a"}) == []
+    assert guide_backoff_problems({**backoff, "match_audio": True})
+
+
+def test_the_pick_window_is_checked_against_the_snapped_length():
+    # 9 frames render as 22 (17n+5), so a window of 8 fits; the raw 9 - 1 = 8
+    # would have refused it
+    from dw.pipeline_processors.h3_rules import chain_carry_pick_problem
+
+    snap = {"modulus": 17, "remainder": 5}
+    chain = {"carry_pick": {"sharpest": 8}, "frame_snap": snap}
+    assert chain_carry_pick_problem(chain, 9) is None
+    assert chain_carry_pick_problem({"carry_pick": {"sharpest": 8}}, 9) is not None
