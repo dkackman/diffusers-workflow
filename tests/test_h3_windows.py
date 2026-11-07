@@ -274,6 +274,14 @@ def test_two_windows_change_the_refine_and_leave_the_audio_held():
     assert torch.equal(stock[1], windowed[1])
 
 
+def test_windows_refuse_a_gated_capstone_row_rather_than_ignore_its_gate():
+    state, scheduler = block_state({"frames": 7, "overlap": 2}, 3)
+    state.dw_gated_guide_rows = [(0, 4, 0.5)]
+    components = SimpleNamespace(transformer=tiny_transformer(), scheduler=scheduler)
+    with pytest.raises(ValueError, match="gated guide row"):
+        DwH3WindowedLoopDenoiser()(components, state, 0, scheduler.timesteps[0])
+
+
 class StubTransformer(torch.nn.Module):
     """A transformer whose video velocity is a known function of what it is
     shown: each row's own value plus the mean of every video row in the

@@ -650,7 +650,6 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
             ),
             InputParam(name="num_latent_frames", type_hint=int, default=None),
             InputParam(name="num_condition_video_rows", type_hint=int, default=0),
-            InputParam(name="num_condition_audio_rows", type_hint=int, default=0),
             InputParam(name=HELD_ROWS, type_hint=int, default=0),
             InputParam(name=GATED_GUIDE_ROWS, type_hint=list, default=None),
         ]
@@ -701,6 +700,13 @@ class DwH3WindowedLoopDenoiser(MiniMaxH3LoopDenoiser):
     def _check_rows(self, block_state):
         audio_rows = block_state.audio_latents.shape[0]
         held = getattr(block_state, HELD_ROWS, 0) or 0
+        if getattr(block_state, GATED_GUIDE_ROWS, None):
+            # the windowed forward never reads the gates, so a capstone would
+            # be silently ignored (the whole-sequence forward is what gates it)
+            raise ValueError(
+                f"{REFINE_WINDOWS_INPUT} does not hold a gated guide row back "
+                f"(the experimental capstone): drop one of the two"
+            )
         if block_state.num_condition_video_rows or held != audio_rows:
             raise ValueError(
                 f"{REFINE_WINDOWS_INPUT} windows a t2va refine whose every audio row is "
