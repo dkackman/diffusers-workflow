@@ -262,10 +262,24 @@ def _locate(chain_take, chain_output):
             )
         return take, shots, paths
     if output is None:
+        name = os.path.basename(take)
+        if shots and any("(repaired)" in str(shot.get("name", "")) for shot in shots):
+            raise ValueError(
+                f"{COMMAND}: {name} is already a repaired take, and a repair "
+                "leaves no segment files - repair the original chain take "
+                "instead (the chain's own final video), then re-render the "
+                "segments you still want changed"
+            )
+        if shots:
+            raise ValueError(
+                f"{COMMAND}: {name} was run without keep_segments, so its "
+                "segment files were not kept - re-run the chain with "
+                "'keep_segments: true' (and save_segments), then repair that take"
+            )
         raise ValueError(
-            f"{COMMAND}: {os.path.basename(take)}'s shots name no segment files "
-            "(a chain run before they were recorded, or a take copied away from "
-            "its run) - pass 'chain_output', one of its segment files, as well"
+            f"{COMMAND}: no run manifest beside {name} gives its shots (a take "
+            "copied away from its run) - pass 'chain_output', one of the "
+            "chain's kept segment files, as well"
         )
     paths = segment_files(output)
     if shots is not None and len(shots) != len(paths):
