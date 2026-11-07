@@ -353,9 +353,7 @@ def get_value(v, desired_type, name=None):
     # the parent's realize pass) keeps its marker when handed to a composed
     # child: str(v) returns a plain str, and the child's own realize pass
     # would then load the bare name as a type (#1228)
-    from .arguments import EscapedString
-
-    if isinstance(v, EscapedString) and desired_type is str:
+    if desired_type is str and isinstance(v, str) and type(v) is not str:
         return v
 
     # Special handling for boolean string values - bool("0") and bool("no") are
