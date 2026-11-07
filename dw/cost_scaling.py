@@ -427,16 +427,13 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
 FIXED_MINUTES_KEY = "fixed_minutes"
 
 
-def fixed_minutes(cost, device):
-    """The part of the `cost` entry a run is quoted from that does not scale
-    (`fixed_minutes`: model load, encode, decode - #1224), 0.0 when the entry
-    declares none. The entry is chosen as `dw/plan.py`'s `_price` chooses:
-    the device's own, else the first."""
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    if not entries:
+def fixed_minutes(entry):
+    """The part of one `cost` entry that does not scale (`fixed_minutes`: model
+    load, encode, decode - #1224), 0.0 when it declares none. `entry` is the one
+    `dw/plan.py`'s `_choose_entry` chose to quote from; this only reads it."""
+    if not isinstance(entry, dict):
         return 0.0
-    chosen = next((e for e in entries if e.get("device") == device), entries[0])
-    value = chosen.get(FIXED_MINUTES_KEY)
+    value = entry.get(FIXED_MINUTES_KEY)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0.0
     return float(value) if math.isfinite(value) and value > 0 else 0.0

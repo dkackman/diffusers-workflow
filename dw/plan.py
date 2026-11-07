@@ -482,7 +482,7 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
         own = _scaled(
             own,
             _driver_scaling(definition, expanded, list_entries),
-            fixed_minutes(definition.get("cost"), device),
+            fixed_minutes(_choose_entry(definition.get("cost"), device)[0]),
         )
     return own
 
@@ -558,7 +558,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child = _scaled(
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
-            fixed_minutes(child_cost, device),
+            fixed_minutes(_choose_entry(child_cost, device)[0]),
         )
     return child
 
@@ -962,6 +962,20 @@ def _only_composes_children(definition):
     return True
 
 
+def _choose_entry(cost, device):
+    """The `cost` entry a run on `device` is quoted from, as (entry, basis):
+    this device's own (CATALOG), else the first (OTHER_DEVICE); (None, UNKNOWN)
+    for no entry. The one place this choice is made - `_price` and the entry's
+    `fixed_minutes` (#1224) both read it."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return None, UNKNOWN
+    own = next((entry for entry in entries if entry.get("device") == device), None)
+    if own is None:
+        return entries[0], OTHER_DEVICE
+    return own, CATALOG
+
+
 def _price(cost, device, list_entries, measured_entries):
     """One cost list priced for `device` and `list_entries`, as
     {minutes, basis, measured_on}.
@@ -973,14 +987,9 @@ def _price(cost, device, list_entries, measured_entries):
     changed there is nothing honest to extrapolate along, so the figure is
     withheld rather than quoted for the wrong list.
     """
-    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
-    if not entries:
-        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
-    chosen = next((entry for entry in entries if entry.get("device") == device), None)
-    basis = CATALOG
+    chosen, basis = _choose_entry(cost, device)
     if chosen is None:
-        chosen = entries[0]
-        basis = OTHER_DEVICE
+        return {"minutes": None, "basis": UNKNOWN, "measured_on": None}
     minutes = float(chosen.get("minutes", 0))
     per = chosen.get("per_entry")
     # Another device's figure is re-priced for the list length too (#589): it

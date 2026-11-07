@@ -35,19 +35,34 @@ def test_a_run_at_the_defaults_is_the_curated_figure():
     assert _quote(_definition(fixed_minutes=9.0))["minutes"] == 13.5
 
 
-def test_fixed_minutes_is_read_from_the_device_entry():
+def test_fixed_minutes_reads_the_entry_it_is_given():
+    assert fixed_minutes({"minutes": 5, "fixed_minutes": 9}) == 9.0
+    assert fixed_minutes(None) == 0.0
+    assert fixed_minutes({"minutes": 1}) == 0.0
+    assert fixed_minutes({"minutes": 1, "fixed_minutes": -2}) == 0.0
+    assert fixed_minutes({"minutes": 1, "fixed_minutes": True}) == 0.0
+
+
+def test_the_fixed_share_comes_from_the_entry_price_quoted():
+    # only the other device's entry declares it: the cuda entry is quoted
+    # from, so nothing is subtracted from its minutes
     cost = [
-        {"device": "mps", "vram_gb": 0, "minutes": 5, "fixed_minutes": 1},
-        {"device": "cuda", "vram_gb": 24, "minutes": 13.5, "fixed_minutes": 9},
+        {"device": "mps", "vram_gb": 0, "minutes": 5, "fixed_minutes": 4},
+        {"device": "cuda", "vram_gb": 24, "minutes": 13.5},
     ]
-    assert fixed_minutes(cost, "cuda") == 9.0
-    assert fixed_minutes(cost, "mps") == 1.0
-    assert fixed_minutes(cost, "cpu") == 1.0  # the first entry, as _price does
-    assert fixed_minutes(None, "cuda") == 0.0
-    assert (
-        fixed_minutes([{"device": "cuda", "minutes": 1, "fixed_minutes": -2}], "cuda")
-        == 0.0
+    definition = {**_definition(), "cost": cost}
+    moved = {"num_inference_steps": 10}
+    cuda = _own_price(
+        definition, {"variables": {**definition["variables"], **moved}}, {}, "cuda", {}
     )
+    assert cuda["minutes"] == pytest.approx(13.5 * 2)
+    assert "fixed" not in cuda["scaled"]
+    # no entry for cpu: the first (mps) is quoted from and its share is used
+    cpu = _own_price(
+        definition, {"variables": {**definition["variables"], **moved}}, {}, "cpu", {}
+    )
+    assert cpu["basis"] == "other_device"
+    assert cpu["minutes"] == pytest.approx(4 + 1 * 2)
 
 
 def test_a_fixed_share_above_the_figure_is_capped():
