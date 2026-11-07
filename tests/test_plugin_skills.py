@@ -1087,6 +1087,39 @@ class TestCinematographySkill:
         for axis, ids in CINE_AXES.items():
             assert _table_ids(text, f"## `{axis}`") == ids, axis
 
+    def _move_rows(self):
+        """{id: [class, means, note]} for the vocabulary's `move` table."""
+        text = self._ref("vocabulary.md")
+        start = text.index("## `move`")
+        end = text.find("\n#", start + len("## `move`"))
+        rows = {}
+        for line in text[start:end].splitlines():
+            if not line.startswith("| `"):
+                continue
+            cells = [c.strip() for c in line.strip().strip("|").split("|")]
+            rows[cells[0].strip("`")] = cells[1:]
+        return rows
+
+    def test_cinematography_every_move_has_a_static_or_moving_class(self):
+        """#1255: the long-form playbook picks an H3 `shot` preset from this
+        column; only `static` is static (push-in and handheld are moving)."""
+        rows = self._move_rows()
+        assert list(rows) == CINE_AXES["move"]
+        classes = {move: cells[0] for move, cells in rows.items()}
+        assert set(classes.values()) == {"`static`", "`moving`"}
+        assert [m for m, c in classes.items() if c == "`static`"] == ["static"]
+        assert classes["push-in"] == classes["handheld"] == "`moving`"
+        text = _flat(self._ref("vocabulary.md"))
+        assert "position and orientation don't change across the take" in text
+
+    def test_cinematography_every_moving_id_carries_the_h3_last_frame_rule(self):
+        for move, (cls, _means, note) in self._move_rows().items():
+            if cls == "`moving`":
+                assert "H3: never `last_frame` with `look_hold`/`carry_pick`" in note
+                assert "measured on the arc only" in note, move
+            else:
+                assert "last_frame" not in note, move
+
     @pytest.mark.parametrize("family", sorted(CINE_COMPILES))
     def test_cinematography_vocabulary_covers_every_family(self, family):
         text = self._ref(CINE_COMPILES[family])
@@ -1864,6 +1897,17 @@ class TestLongFormSkill:
         ):
             assert verdict in text, verdict
         assert "experimental_keystone_slot" not in text
+
+    def test_the_move_class_comes_from_the_vocabulary(self):
+        """#1255: the "until #1200" stand-in is replaced by a pointer to the
+        cinematography vocabulary's `class` column, in both files."""
+        text = self._text()
+        assert "#1200" not in text and "until #1200" not in text
+        assert "`class` column of `cinematography/references/vocabulary.md`" in text
+        assert "`push-in` and `handheld` included, is `shot: moving`" in text
+        levers = _flat(_read(LONG_FORM_LEVERS))
+        assert "#1200" not in levers
+        assert "`class` column of `cinematography/references/vocabulary.md`" in levers
 
     def test_the_cut_ideas_are_named_so_they_are_not_re_proposed(self):
         text = self._text()

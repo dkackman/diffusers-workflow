@@ -131,7 +131,9 @@ dropped, and **unmeasured** means no bench verdict yet.
   static shot too, not only colour: the wall and stripes crawl and the face
   hardens by frame 583 (*Eye notes (S1)*). The moving arc drifts as well, as
   a blown-out, invented sky by its last segment (*Eye notes (S2)*). Half-static
-  shots were not benched; treat one as moving until #1200 classifies it.
+  shots were not benched. They are `moving` by the `class` column of
+  `cinematography/references/vocabulary.md` (`push-in`, `handheld`), so they
+  take `shot: moving`.
 - *Community:* a hard cut or a new angle resets drift. People describe about
   30 s of clean chain with good setups, with drift usually showing around
   segments 3-6. **Default:** past about 30 s a static take is `shot:
