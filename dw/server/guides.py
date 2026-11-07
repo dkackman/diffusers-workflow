@@ -193,6 +193,9 @@ def _sections(text):
     return SECTION_PATTERN.findall(text)
 
 
+_PAREN_SUFFIX = re.compile(r"\s*\([^()]*(?:\([^()]*\)[^()]*)*\)\s*$")
+
+
 def _normalized(heading):
     """A heading reduced to what a loose match compares.
 
@@ -207,11 +210,17 @@ def _extract_section(text, section):
     """One section's text, heading included, or None if there is no such one."""
     wanted = _normalized(section)
     matches = list(SECTION_PATTERN.finditer(text))
-    for index, match in enumerate(matches):
-        if _normalized(match.group(1)) != wanted:
-            continue
-        end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
-        return match.group(1), text[match.start() : end].rstrip() + "\n"
+    # Exact first; then the heading with a trailing parenthesised suffix
+    # (usually a code path: "Trust gate (`dw/trust.py`)") dropped.
+    for compare in (
+        _normalized,
+        lambda heading: _normalized(_PAREN_SUFFIX.sub("", heading)),
+    ):
+        for index, match in enumerate(matches):
+            if compare(match.group(1)) != wanted:
+                continue
+            end = matches[index + 1].start() if index + 1 < len(matches) else len(text)
+            return match.group(1), text[match.start() : end].rstrip() + "\n"
     return None
 
 

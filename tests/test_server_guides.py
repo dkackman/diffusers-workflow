@@ -500,3 +500,26 @@ class TestRoutes:
 
         assert response.status_code == 404
         assert "Speech Generation, Frame Interpolation" in response.json()["detail"]
+
+
+class TestParenthesisedHeadingSuffix:
+    """#1257: a heading's trailing "(`path`)" is optional in a section name."""
+
+    @pytest.mark.parametrize(
+        "guide, asked, heading",
+        [
+            ("security-quickref", "Trust gate", "Trust gate (`dw/trust.py`)"),
+            ("security-quickref", "HTTP", "HTTP (`dw/server/http_security.py`)"),
+        ],
+    )
+    def test_the_real_guide_resolves_without_the_suffix(self, guide, asked, heading):
+        body = guides.get_guide(guide, section=asked)
+
+        assert body["section"] == heading
+
+    def test_the_full_heading_still_resolves(self):
+        body = guides.get_guide(
+            "security-quickref", section="Trust gate (`dw/trust.py`)"
+        )
+
+        assert body["section"] == "Trust gate (`dw/trust.py`)"
