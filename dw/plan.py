@@ -28,6 +28,7 @@ from .cost_scaling import (
     PER_ENTRY,
     UNKNOWN,
     _driver_scaling,
+    fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
 )
@@ -478,7 +479,11 @@ def _own_price(definition, expanded, list_entries, device, measured_entries):
         # _repriced only re-prices a for_each list's length, so a moved scalar
         # cost_driver (H3's num_inference_steps, say) is scaled here rather
         # than quoted at the figure measured for the defaults (#267, #866)
-        own = _scaled(own, _driver_scaling(definition, expanded, list_entries))
+        own = _scaled(
+            own,
+            _driver_scaling(definition, expanded, list_entries),
+            fixed_minutes(definition.get("cost"), device),
+        )
     return own
 
 
@@ -553,6 +558,7 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
         child = _scaled(
             child,
             _driver_scaling(child_definition, child_expanded, child_list_entries),
+            fixed_minutes(child_cost, device),
         )
     return child
 

@@ -50,6 +50,11 @@
                         "items": {"type": "string"},
                         "uniqueItems": true
                     },
+                    "fixed_minutes": {
+                        "type": "number",
+                        "minimum": 0,
+                        "description": "The part of 'minutes' that does not scale with the cost drivers (model load, text encode, VAE decode, a LoRA fuse). A run that moves a driver is quoted fixed_minutes + (minutes - fixed_minutes) x the scale factor, so a long run is not charged the fixed share many times over. Declared by the workflow, set from two measured runs; absent means the whole figure scales."
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
