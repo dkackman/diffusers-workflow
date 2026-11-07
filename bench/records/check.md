@@ -141,3 +141,9 @@ prompt that asks for the break, and not a carry that already holds it
 (`repair.md`, Step 3). (The `retries: 3` run is drifted at segment 1, so
 its numbers are not comparable to the rerun's; its attempt 2 at the same
 seed reads 4.48, not 4.15.)
+
+## Ceiling moved to 3.5 (#1205)
+
+The tester's rerun read segment 4's cut under 4.0 on cuda:0 (4.15 on cuda:1), so
+a 4.0 ceiling sat on the boundary. `CUT_RATIO_MAX` is 3.5: 0.5 above the good
+segments' max (2.98 over 282) and 0.65 below the cut's 4.15.

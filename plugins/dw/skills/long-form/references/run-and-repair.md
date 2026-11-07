@@ -20,7 +20,7 @@ Each segment after the first is measured before it is kept:
 | --- | --- | --- |
 | `jump_ratio` (ceiling 4) | the seam's frame step | re-roll |
 | `look_ratio` (ceiling 5.5) | the seam's colour step | re-roll |
-| `cut_ratio` (ceiling 4) | a cut inside the segment, which the seam windows miss | re-roll |
+| `cut_ratio` (ceiling 3.5) | a cut inside the segment, which the seam windows miss | re-roll |
 | `texture_ratio` (ceiling 2) | segment 1's fine texture, doubled or halved | warn-only, no re-roll |
 
 - **Why `cut_ratio` exists.** The seam measures caught 1 of 3 broken renders,
