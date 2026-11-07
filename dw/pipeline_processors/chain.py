@@ -57,6 +57,7 @@ from .chain_spill import (  # noqa: F401 - SegmentedFrames and SavedFrames re-ex
 from .chain_check import (
     best_attempt,
     check_segment,
+    measure_frames,
     reroll_seed,
     texture_samples,
 )
@@ -176,9 +177,12 @@ def run_chain(pipeline, chain_definition, arguments):
                     config, attempt.rendered
                 )
             if config.check is not None:
-                previous_kept = attempt.kept
+                # Keep the kept segment's small measures, not its frames
                 if segment.index == 0:
                     segment_1_texture = texture_samples(attempt.kept)
+                    previous_kept = measure_frames(attempt.kept)
+                else:
+                    previous_kept = checked["result"].frame_data
             _log_carry_pick(config, segment, attempt)
             _lay_down(timeline, config, segment, attempt, checked, spill)
 
