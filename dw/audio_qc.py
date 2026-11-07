@@ -173,7 +173,8 @@ def warn_if_written_above_full_scale(
         f"clips on playback. {cause}, so the fix is more headroom before "
         f"the file is written: a 'normalize_audio' step at 'peak_dbfs: -3' "
         f"ahead of the step that saves it (a template's intermediate shot has "
-        f"no such step to edit: set the join's 'match_levels' instead). A "
+        f"no such step to edit: set the join's 'match_levels', or if it "
+        f"already has one, lower its 'match_levels_dbfs' by the overshoot). A "
         f"mux into a video needs more of it than an audio file does. For a "
         f"file already written, the 'relevel-clip' template re-levels it "
         f"without a re-render.",

@@ -505,6 +505,12 @@ DEFAULT_MATCH_DBFS = {"peak": -1.0, "rms": -20.0}
 # than squaring off its transients
 MATCH_CEILING_DBFS = -0.5
 
+# The ceiling for an "rms" match. The join's own AAC mux then adds about
+# 2.5 dB of overshoot, so a shot held at -0.5 decoded at +2.0 dBFS (#1248);
+# -3 is the headroom audio_qc's clipped warning teaches. A "peak" match keeps
+# MATCH_CEILING_DBFS: its caller named the peak level (default -1) themselves
+MATCH_RMS_CEILING_DBFS = -3.0
+
 LEVEL_SPREAD_WARN_DB = 6.0
 
 # The level step between a multi-shot input's own shots that match_levels cannot
@@ -529,7 +535,7 @@ def match_levels(
     Returns a new list in the same order and shape; a None entry (a video
     with no soundtrack) and a silent track pass through untouched, since
     neither has a level to move. A gain that would push the peak past
-    MATCH_CEILING_DBFS is held there and said so in the log - the shot is
+    the ceiling (-3 dBFS for rms, leaving room for the mux's AAC overshoot; -0.5 for peak) is held there and said so in the log - the shot is
     then quieter than the target rather than clipped. `names` labels each
     waveform in a warning; without them an input is "video N", counted from 1.
     """
@@ -544,6 +550,7 @@ def match_levels(
             f"{command} 'match_levels_dbfs' cannot be above full scale (0)"
         )
 
+    ceiling_dbfs = MATCH_RMS_CEILING_DBFS if measure == "rms" else MATCH_CEILING_DBFS
     matched = []
     for index, waveform in enumerate(waveforms):
         label = names[index] if names else f"video {index + 1}"
@@ -557,8 +564,8 @@ def match_levels(
         gain_db = target_gain_db
         peak = level_dbfs(waveform, "peak")
         held = False
-        if peak is not None and peak + gain_db > MATCH_CEILING_DBFS:
-            gain_db = MATCH_CEILING_DBFS - peak
+        if peak is not None and peak + gain_db > ceiling_dbfs:
+            gain_db = ceiling_dbfs - peak
             held = True
             shortfall_db = target_gain_db - gain_db
             # emit_warning rather than logger.warning: a clip-held shot stays
@@ -568,7 +575,7 @@ def match_levels(
             emit_warning(
                 f"{command}: {label} would clip at the {measure} target "
                 f"({peak + target_gain_db:+.1f} dBFS peak) - held to "
-                f"{MATCH_CEILING_DBFS} dBFS, {shortfall_db:.1f} dB short of target",
+                f"{ceiling_dbfs} dBFS, {shortfall_db:.1f} dB short of target",
                 kind="match_levels_held",
                 command=command,
                 index=index,
@@ -576,7 +583,7 @@ def match_levels(
                 target_dbfs=target_dbfs,
                 gain_db=round(gain_db, 1),
                 shortfall_db=round(shortfall_db, 1),
-                ceiling_dbfs=MATCH_CEILING_DBFS,
+                ceiling_dbfs=ceiling_dbfs,
             )
         elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
             # The other end of the range `held` covers (#434): an input this
