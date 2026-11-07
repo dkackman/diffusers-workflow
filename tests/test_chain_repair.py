@@ -2,6 +2,7 @@
 neighbours (#1169) - the splice arithmetic and the cut."""
 
 import os
+import shutil
 
 import numpy
 import pytest
@@ -343,6 +344,23 @@ class TestSegmentFiles:
         made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
         with pytest.raises(ValueError, match="copied away.*chain_output"):
             self._cut(made)
+
+    def test_a_take_beside_a_manifest_but_not_its_segments_names_chain_output(
+        self, tmp_path
+    ):
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        run = os.path.dirname(os.path.dirname(made["take"]))
+        copy_run = tmp_path / "copy"
+        os.makedirs(copy_run / "final")
+        shutil.copy(made["take"], copy_run / "final")
+        shutil.copy(os.path.join(run, "manifest.json"), copy_run)
+        with pytest.raises(ValueError, match="copied away.*chain_output"):
+            chain_repair_cut(
+                chain_take=str(copy_run / "final" / os.path.basename(made["take"])),
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
 
     def test_an_already_repaired_take_names_the_original(self, tmp_path):
         made = write_run(str(tmp_path), [40, 51, 51, 51])
