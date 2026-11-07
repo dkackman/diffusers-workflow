@@ -86,6 +86,25 @@ GUIDES = {
         "Using a dw server on another machine. Served because the other "
         "guides link into it.",
     ),
+    "worker": (
+        "WORKER_GUIDE.md",
+        "The persistent GPU worker: model caching between runs and the queue "
+        "protocol. Served because the other guides link into it.",
+    ),
+    "mcp": (
+        "MCP.md",
+        "The MCP tool surface. Served because the other guides link into it.",
+    ),
+    "docker": (
+        "DOCKER.md",
+        "Running the server in a container. Served because the other guides "
+        "link into it.",
+    ),
+    "security-quickref": (
+        "SECURITY_QUICKREF.md",
+        "The validators and trust gate at a glance. Served because the other "
+        "guides link into it.",
+    ),
     "workspaces": (
         "WORKSPACES.md",
         "How a run's workflows, prompts, assets and outputs are rooted, and "

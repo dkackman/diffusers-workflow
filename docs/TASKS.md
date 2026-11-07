@@ -2547,7 +2547,7 @@ MPS a failed separation falls back to the CPU and warns
 is the dialogue and `drums` + `bass` + `other`, summed with `mix_audio`, the
 rest. On H3 shots under a Music 3 score the `vocals` stem matched the dry shot
 within 0.1 dB RMS, with the score's leak about 30 dB under
-([record](proposals/audits/2026-11-dialogue-stems.md)). The rest is not a clean
+(record: `docs/proposals/audits/2026-11-dialogue-stems.md` in the repo). The rest is not a clean
 score: a shot's SFX and foley land in `drums` and `other`, so keep the score
 file when the goal is to replace the music. A speechless shot gives a
 near-silent `vocals` stem and an invented transcript, so judge "no dialogue"

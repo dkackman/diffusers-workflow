@@ -40,7 +40,7 @@ Claude Code users can add the composition skills with
 `/plugin install dw@diffusers-workflow`: one skill per model family (MiniMax
 H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein) plus cross-cutting
 skills for scripts, series, cinematography and storyboards. See
-[plugins/dw/README.md](../plugins/dw/README.md), which also gives the optional
+`plugins/dw/README.md`, which also gives the optional
 `npx skills add` lines for MiniMax's own prompt skills. Every tool works
 without the plugin.
 

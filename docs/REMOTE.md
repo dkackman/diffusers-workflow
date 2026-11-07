@@ -20,7 +20,7 @@ your laptop use it over the network. Nothing is installed on the laptop.
    a warning.
 
    To keep it running across logouts and reboots, use the systemd unit in
-   [contrib/systemd](../contrib/systemd/README.md).
+   `contrib/systemd` (its README).
 4. Open port 8765 in the box's firewall for your LAN only (for example
    `sudo ufw allow from 192.168.1.0/24 to any port 8765`).
 

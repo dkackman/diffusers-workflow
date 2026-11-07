@@ -267,12 +267,11 @@ class TestTheRealDocs:
         import re
 
         served = {meta[0] for meta in guides.GUIDES.values()}
-        # the guides that were already served; the ones added for #1237 link
-        # onward (DOCKER, MCP...) and following those is not what it fixes
-        original = set(guides.GUIDES) - {"server", "security", "remote"}
-        link = re.compile(r"\]\(([A-Z][A-Z_0-9]*\.md)[#)]")
+        # every relative link to a markdown doc, wherever it sits (examples are
+        # linked as repo paths and carry their own note)
+        link = re.compile(r"(?<!!)\]\((?!https?:|mailto:|#)([^)#\s]+\.md)")
         unserved = {}
-        for name in original:
+        for name in guides.GUIDES:
             for target in link.findall(guides.read_guide(name)):
                 # credits for third-party models; not guidance for a consumer
                 if target not in served and target != "ATTRIBUTIONS.md":

@@ -40,7 +40,7 @@ running server describes it:
 | `/openapi.json` | The OpenAPI document itself |
 
 The same document is committed as
-[`ui/src/lib/generated/openapi.json`](../ui/src/lib/generated/openapi.json)
+`ui/src/lib/generated/openapi.json`
 for client generation or reading without a server. It is generated, not
 written: `scripts/dump_openapi.py` writes it from the server, CI fails when
 the committed copy is stale, and its `info.version` is fixed at `"0"` so it
