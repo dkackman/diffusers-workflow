@@ -34,7 +34,7 @@
       "The fridge hums, and nobody looks up from their phone.",
       "It was a quiet kind of guilt."
     ],
-    "reference_audio": "asset:voice.wav",
+    "reference_audio": null,
     "reference_text": "The words spoken in the reference clip, exactly as said.",
     "seed": null,
     "gap_seconds": 0.3,
@@ -42,8 +42,9 @@
   },
   "variable_constraints": {
     "reference_audio": {
+      "required": true,
       "min_length": 1,
-      "reason": "there is no default voice: give an asset: reference of the voice to clone (at most 20 s) together with its reference_text"
+      "reason": "give an asset: reference of the voice to clone (at most 20 s) together with its reference_text"
     },
     "reference_text": {
       "min_length": 1,

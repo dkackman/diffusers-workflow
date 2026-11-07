@@ -412,6 +412,8 @@ def terse_constraint(rule):
     if not isinstance(rule, dict):
         return rule
     parts = []
+    if rule.get("required"):
+        parts.append("required")
     minimum = rule.get("min_length")
     if minimum == 1:
         parts.append("non-empty")

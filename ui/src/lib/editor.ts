@@ -315,6 +315,22 @@ export function attentionBackendVariables(definition: unknown): Set<string> {
   return found
 }
 
+/** The variables a workflow declares `required: true` in its
+ * `variable_constraints`: no default, the caller must give a value (#1253). */
+export function requiredVariables(definition: unknown): Set<string> {
+  const rules = (definition as { variable_constraints?: unknown } | null)
+    ?.variable_constraints
+  const found = new Set<string>()
+  if (rules !== null && typeof rules === 'object') {
+    for (const [name, rule] of Object.entries(rules)) {
+      if ((rule as { required?: unknown } | null)?.required === true) {
+        found.add(name)
+      }
+    }
+  }
+  return found
+}
+
 export const ATTENTION_BACKENDS = [
   'native',
   'flash',

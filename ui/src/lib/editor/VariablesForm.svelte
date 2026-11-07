@@ -15,6 +15,7 @@
     overrides = $bindable({}),
     idPrefix,
     backendVariables = new Set<string>(),
+    requiredVariables = new Set<string>(),
   }: {
     /** define: edit the workflow's own defaults (add/remove/coerce).
      * override: fill per-run values over read-only defaults. */
@@ -25,6 +26,9 @@
     /** Variables that feed an attention_backend: a dropdown of the
      * server's own list while it has one. */
     backendVariables?: Set<string>
+    /** Variables with no default: marked required, and the field says so
+     * where a default would otherwise show. */
+    requiredVariables?: Set<string>
   } = $props()
 
   const keys = $derived(Object.keys(variables ?? {}))
@@ -94,7 +98,10 @@
 
 <div class="vars" class:define={mode === 'define'}>
   {#each keys as key (key)}
-    <label for={idPrefix + key}>{key}</label>
+    <label for={idPrefix + key}
+      >{key}{#if requiredVariables.has(key)}
+        <span class="required">required</span>{/if}</label
+    >
     <div class="field">
       {#if isBackendSelect(key)}
         {@const current = shown(key)}
@@ -121,7 +128,11 @@
         <ExpandingText
           id={idPrefix + key}
           value={shown(key)}
-          placeholder={mode === 'override' ? displayValue(variables[key]) : ''}
+          placeholder={mode === 'override'
+            ? requiredVariables.has(key)
+              ? 'required'
+              : displayValue(variables[key])
+            : ''}
           refStyle={isReference(effective(key))}
           complete={(text) => referenceCompletions(text)}
           title={promptTooltip(effective(key), promptLibrary.texts)}
@@ -197,6 +208,11 @@
     font-weight: 600;
     color: var(--muted);
     overflow-wrap: anywhere;
+  }
+  .required {
+    font-weight: 400;
+    font-size: 0.8em;
+    color: var(--danger, var(--muted));
   }
   .addvar {
     justify-self: start;

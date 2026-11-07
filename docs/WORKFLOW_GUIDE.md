@@ -430,6 +430,19 @@ refuses an empty lyric only after the model has loaded, so its templates
 declare `"lyrics": {"min_length": 1, "reason": "..."}`, and the `reason`
 says what to send instead (a tag-only body for an instrumental).
 
+`"required": true` marks a variable that has no default. Declare it `null` in
+`variables` and set the flag: a run, or a validation given `arguments`, refuses
+it while it is still null, with `'<name>' is required and has no default` and
+the `reason`; a document check with no `arguments` does not judge the stored
+null. Pair it with `min_length: 1` so an empty string is refused too. It is for
+a value a placeholder default would quietly fill with something the caller did
+not choose: `voice-clone`, `narration-long` and `narration-from-takes` use it
+for `reference_audio`, so a stray `voice.wav` asset can never be cloned by
+omission. `get_workflow` reports it under `constraints`, the compact listing
+shows `required`, and the web UI marks the field. A sub-workflow that hands the
+variable down (`"reference_audio": "variable:reference_audio"`) gets the
+parent's value.
+
 `max_words_per_second` with `seconds_from` warns, and never refuses, when a
 string carries more words than its seconds hold at the workflow's measured
 rate. The seconds come from the same list entry for an entry field, else from

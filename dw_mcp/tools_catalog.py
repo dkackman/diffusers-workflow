@@ -79,7 +79,9 @@ class CatalogTools:
         excluded. A variable the workflow bounds is
         reported under `constraints` beside its default - the range and the
         step it has to land on - so a frame count is read rather than
-        guessed at."""
+        guessed at. A variable whose constraint says `required: true` has
+        no default (its stored value is null): give it in `arguments`, or
+        validate and run refuse it by name."""
         return catalog.get_workflow(self.client, name, variables_only=variables_only)
 
     def get_schema(self, section: str | None = None) -> dict:

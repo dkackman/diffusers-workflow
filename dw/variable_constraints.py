@@ -62,6 +62,11 @@ SNAP_FIELDS = ("modulus", "remainder", "min_frames", "max_frames")
 # pipeline refuses empty lyrics, and an instrumental is a tag-only body, which
 # the template's own `reason` says (#1199)
 MIN_LENGTH = "min_length"
+# A variable with no default: it is declared `null` and this marks the null as
+# "nothing given", so an omitted value is refused by name rather than by
+# whatever a placeholder default would have resolved to (#1253). A stored
+# default is not judged against it - there is none to judge
+REQUIRED = "required"
 # A string value's words against a sibling number of seconds, warned and
 # never refused: music-long cuts a section at its `seconds`, so a lyric
 # longer than that fits loses its last lines, and the rate is whatever the
@@ -336,8 +341,20 @@ def _accepted(constraint):
     return ", ".join(parts)
 
 
+def required_refusal(name, value, constraint):
+    """The refusal for a `required` variable left null, or None."""
+    if not constraint.get(REQUIRED) or value is not None:
+        return None
+    reason = constraint.get("reason")
+    because = f": {reason}" if reason else ""
+    return f"'{name}' is required and has no default{because}"
+
+
 def refusal(name, value, constraint):
     """The one wording every layer uses for a value outside its constraint."""
+    missing = required_refusal(name, value, constraint)
+    if missing is not None:
+        return missing
     problems = violations(value, constraint)
     if not problems:
         return None
@@ -394,6 +411,10 @@ def constraint_errors(definition, arguments=None, supplied=()):
         if not isinstance(constraint, dict) or name not in values:
             continue
         if name in from_bundle:
+            continue
+        if arguments is None and required_refusal(name, values[name], constraint):
+            # Checking the document, not a run: a required variable has no
+            # default for a stored-default check to judge (#1253)
             continue
         message = refusal(name, values[name], constraint)
         if message is None:

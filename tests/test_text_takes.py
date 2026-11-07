@@ -1,6 +1,7 @@
 """split_takes: a long text into takes a speech model can say in one go."""
 
 import re
+from pathlib import Path
 
 import pytest
 
@@ -312,3 +313,59 @@ def test_a_missing_reference_is_refused_at_validate(template, given):
     messages = [e["message"] for e in errors if "reference_audio" in e["path"]]
     assert messages, errors
     assert "reference_audio" in messages[0]
+
+
+TEMPLATES_ROOT = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+VOICE_TEMPLATES = ["narration-long", "narration-from-takes", "voice-clone"]
+
+
+def _voice_workflow(template):
+    import json
+
+    from dw.workflow import Workflow
+
+    path = TEMPLATES_ROOT / f"{template}.json"
+    definition = json.loads(path.read_text())
+    return definition, Workflow(definition, str(TEMPLATES_ROOT), str(path))
+
+
+@pytest.mark.parametrize("template", VOICE_TEMPLATES)
+def test_an_omitted_reference_is_required_not_a_missing_asset(template):
+    # #1253: no stored asset name stands in for the voice
+    definition, workflow = _voice_workflow(template)
+    assert definition["variables"]["reference_audio"] is None
+    errors = workflow.validation_errors({"text": "A short line."})
+    messages = [e["message"] for e in errors if e["path"].endswith("reference_audio")]
+    assert messages, errors
+    assert "'reference_audio' is required" in messages[0]
+    assert "Asset" not in messages[0] and "voice.wav" not in messages[0]
+
+
+@pytest.mark.parametrize("template", VOICE_TEMPLATES)
+def test_the_stored_null_is_not_judged_when_checking_the_document(template):
+    _, workflow = _voice_workflow(template)
+    errors = workflow.validation_errors()
+    assert [e for e in errors if "reference_audio" in e["path"]] == []
+
+
+@pytest.mark.parametrize("template", VOICE_TEMPLATES)
+def test_a_run_refuses_an_omitted_reference_by_name(template):
+    from dw.variable_constraints import apply_constraints
+
+    definition, _ = _voice_workflow(template)
+    with pytest.raises(ValueError, match="'reference_audio' is required"):
+        apply_constraints(definition, dict(definition["variables"]))
+    for given in ("", "  "):
+        variables = dict(definition["variables"], reference_audio=given)
+        with pytest.raises(ValueError, match="reference_audio"):
+            apply_constraints(definition, variables)
+
+
+def test_the_composed_child_takes_the_parents_reference():
+    # narration-long hands its reference_audio to narration-from-takes
+    definition, workflow = _voice_workflow("narration-long")
+    arguments = definition["steps"][1]["workflow"]["arguments"]
+    assert arguments["reference_audio"] == "variable:reference_audio"
+    given = {"reference_audio": "asset:voice.wav", "reference_text": "Some words."}
+    errors = workflow.validation_errors(given)
+    assert [e for e in errors if "required" in e["message"]] == []
