@@ -8,8 +8,9 @@ A setting is the standing choice and each has something that overrides it for
 one run: `DW_DEVICE` for `device`; `dw.serve --devices` for `devices`; `--workspace` then `DW_WORKSPACE` for
 `workspace`; `--output-layout` / `DW_OUTPUT_LAYOUT` for `output_layout`;
 `DW_PUBLIC_URL` for `public_url`; a `log_level` passed to `startup()`. The
-three PyTorch keys have no override and are read when `startup()` configures
-CUDA.
+three PyTorch keys have no override. They are applied by `configure_torch()`
+(`dw/__init__.py`) in every process that runs a pipeline - `startup()` for the
+CLI, and the served worker at its start and at each job's start (#1229).
 """
 
 import json
@@ -43,9 +44,12 @@ class Settings:
     output_layout: str = "run"
 
     # PyTorch optimization settings
-    enable_tf32: bool = True  # TensorFloat-32 for faster matmul on Ampere+ GPUs
-    cudnn_benchmark: bool = True  # cuDNN autotuner (faster for fixed sizes)
-    cudnn_deterministic: bool = False  # Set True for reproducibility
+    # The defaults make same-seed output reproducible on a shared host (#1229):
+    # the autotuner's timing-based choice can drift under a busy neighbour
+    # card, and TF32 changes fp32 matmul results
+    enable_tf32: bool = False  # TensorFloat-32 matmuls on Ampere+ (faster, inexact)
+    cudnn_benchmark: bool = False  # cuDNN autotuner (load-dependent algorithm pick)
+    cudnn_deterministic: bool = True  # deterministic cuDNN algorithms only
 
     # This server's public origin (e.g. "https://dw.example.com"), for a
     # client that can't otherwise turn a served path into a URL it can open
@@ -76,9 +80,13 @@ def load_settings():
     settings.output_layout = settings_dict.get("output_layout", "run")
 
     # PyTorch optimization settings
-    settings.enable_tf32 = settings_dict.get("enable_tf32", True)
-    settings.cudnn_benchmark = settings_dict.get("cudnn_benchmark", True)
-    settings.cudnn_deterministic = settings_dict.get("cudnn_deterministic", False)
+    settings.enable_tf32 = settings_dict.get("enable_tf32", Settings.enable_tf32)
+    settings.cudnn_benchmark = settings_dict.get(
+        "cudnn_benchmark", Settings.cudnn_benchmark
+    )
+    settings.cudnn_deterministic = settings_dict.get(
+        "cudnn_deterministic", Settings.cudnn_deterministic
+    )
 
     settings.public_url = settings_dict.get("public_url", None)
 
