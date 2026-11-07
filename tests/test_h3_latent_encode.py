@@ -314,19 +314,39 @@ def test_the_decode_checks_its_count_before_decoding(monkeypatch):
         decode_h3_latents(latents, num_frames=40)
 
 
-@pytest.mark.parametrize("count", range(3, 80))
+@pytest.mark.parametrize("count", range(1, 80))
 def test_decoded_frame_count_equals_the_real_decode(monkeypatch, count):
     from dw.tasks.h3_latent_upscale import decoded_frame_count
 
     vae = tiny_vae()
     ratio = vae.temporal_compression_ratio
+    # the function hard-codes the VAE's defaults; the real class must still hold them
+    assert (vae.config.clip_length, vae.config.token_drop, ratio) == (17, 3, 4)
 
     def stub(z):
         return torch.zeros(1, 3, z.shape[2] * ratio, 1, 1)
 
     monkeypatch.setattr(vae, "_decode_clip", stub)
     z = torch.zeros(1, 24, count, 1, 1)
+    if count < 3:  # nothing to decode: the real _decode has no chunk to join
+        assert decoded_frame_count(count) == 0
+        with pytest.raises(ValueError):
+            vae._decode(z)
+        return
     assert decoded_frame_count(count) == vae._decode(z).shape[2]
+
+
+@pytest.mark.parametrize("count", [1, 2])
+def test_the_decode_refuses_latents_too_short_to_decode(monkeypatch, count):
+    class Boom:
+        _execution_device = torch.device("cpu")
+
+        def __call__(self, **kwargs):
+            raise AssertionError("loaded/decoded a count that decodes to nothing")
+
+    monkeypatch.setattr(hlu, "_load_decoder", lambda device, name: Boom())
+    with pytest.raises(ValueError, match="at least 3"):
+        decode_h3_latents(torch.randn(1, 24, count, 2, 4))
 
 
 def test_a_valid_count_on_a_non_grid_latent_is_accepted(monkeypatch):

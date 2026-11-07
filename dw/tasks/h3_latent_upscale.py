@@ -457,8 +457,15 @@ def decode_h3_latents(latents, device="cpu", model_name=None, num_frames=None):
             f"{LATENT_CHANNELS}, frames, height, width); got {shape}"
         )
     num_frames = whole_number(num_frames, "num_frames", "decode_h3_latents")
+    decodable = decoded_frame_count(latents.shape[2])
+    if decodable < 1:
+        # the VAE decodes whole chunks and drops the tail of each: one or two
+        # latent frames leave nothing, and its own decode dies in a torch.cat
+        raise ValueError(
+            f"decode_h3_latents: {latents.shape[2]} latent frame(s) decode to "
+            f"no frames; the VAE needs at least 3"
+        )
     if num_frames is not None:
-        decodable = decoded_frame_count(latents.shape[2])
         if num_frames > decodable:
             raise ValueError(
                 f"decode_h3_latents: num_frames {num_frames} is more than the "
