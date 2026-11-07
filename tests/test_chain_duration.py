@@ -243,3 +243,30 @@ def test_a_spilled_duration_chain_trims_frames_and_audio(tmp_path):
     assert sum(len(chunk) for chunk in result.frames) == 18
     assert result.audio.shape[1] == frames_to_samples(18, 4, 8000) == 36000
     result.frames.cleanup()
+
+
+def _schema_accepts(chain_block):
+    import json
+    from pathlib import Path
+
+    import jsonschema
+
+    import dw
+
+    schema = json.loads((Path(dw.__file__).parent / "workflow_schema.json").read_text())
+    defs = schema["$defs"]
+    name = next(
+        k for k, v in defs.items() if "duration_seconds" in v.get("properties", {})
+    )
+    validator = jsonschema.Draft202012Validator(
+        {"$ref": f"#/$defs/{name}", "$defs": defs}
+    )
+    return not list(validator.iter_errors(chain_block))
+
+
+def test_the_schema_does_not_refuse_match_audio_beside_a_null_or_reference_duration():
+    # presence-based, it refused a duration that substitutes to null (#1232)
+    assert _schema_accepts({"match_audio": True, "duration_seconds": None})
+    assert _schema_accepts({"match_audio": True, "duration_seconds": "variable:d"})
+    assert not _schema_accepts({"match_audio": True, "duration_seconds": 4})
+    assert not _schema_accepts({"match_audio": True, "segments": 3})

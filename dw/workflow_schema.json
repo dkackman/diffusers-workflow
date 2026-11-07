@@ -621,13 +621,23 @@
                         "required": [
                             "segments",
                             "match_audio"
-                        ]
+                        ],
+                        "properties": {
+                            "segments": {
+                                "type": "integer"
+                            }
+                        }
                     },
                     {
                         "required": [
                             "duration_seconds",
                             "match_audio"
-                        ]
+                        ],
+                        "properties": {
+                            "duration_seconds": {
+                                "type": "number"
+                            }
+                        }
                     }
                 ]
             },

@@ -47,10 +47,10 @@ source may be silent, since a soundtrack is what it adds.
 from . import references
 from .argument_media import is_media_reference
 from .for_each import render_path
+from .pipeline_processors.h3_guides import grid_rate
 from .pipeline_processors.h3_rules import (
     H3_FPS,
     HOLD_AUDIO_INPUT,
-    grid_rate,
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
