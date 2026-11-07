@@ -371,6 +371,15 @@ def refusal(name, value, constraint):
     )
 
 
+def checked_refusal(name, value, constraint, arguments):
+    """`refusal`, except that checking the document (no `arguments`) does not
+    judge a required variable's stored null: it has no default to judge
+    (#1253)."""
+    if arguments is None and required_refusal(name, value, constraint):
+        return None
+    return refusal(name, value, constraint)
+
+
 def snap_notice(name, value, constraint):
     """The wording for a value that will be rounded, or None.
 
@@ -412,11 +421,7 @@ def constraint_errors(definition, arguments=None, supplied=()):
             continue
         if name in from_bundle:
             continue
-        if arguments is None and required_refusal(name, values[name], constraint):
-            # Checking the document, not a run: a required variable has no
-            # default for a stored-default check to judge (#1253)
-            continue
-        message = refusal(name, values[name], constraint)
+        message = checked_refusal(name, values[name], constraint, arguments)
         if message is None:
             # Either legal, or legal once rounded - a value the workflow
             # rounds is a warning (constraint_warnings), never an error
