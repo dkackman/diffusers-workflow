@@ -733,6 +733,14 @@ DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
 no `opentimelineio` dependency. Rates are the exact rational the engine writes
 (23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
 
+Checked by hand in Resolve 21 (2026-11-06): File > Import > Timeline takes the
+`.otioz`, or its unzipped `content.otio` beside `media/`, and gives one clip per
+shot at the recorded rate. The Mac App Store build of Resolve is sandboxed and
+reads only folders it has been granted. Copy the file into
+`~/Movies/DaVinci Resolve/` (or another folder added under Media Storage) first.
+From elsewhere, such as `~/Desktop`, an `.otioz` import silently does nothing and
+an `.otio` reports "The clip was not found".
+
 ```json
 {
     "task": {

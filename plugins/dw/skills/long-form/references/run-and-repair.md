@@ -96,5 +96,6 @@ one clip per shot. Rates are exact rationals: 23.976 is written as
 ```
 
 `sources` (one file per shot) points each clip at its own file instead of
-the joined one. An import into Resolve has not been checked by hand yet
-(`bench/records/for-don.md`).
+the joined one. Checked in Resolve 21: the Mac App Store build is
+sandboxed, so copy the bundle into `~/Movies/DaVinci Resolve/` before
+File > Import > Timeline; from `~/Desktop` the import silently does nothing.

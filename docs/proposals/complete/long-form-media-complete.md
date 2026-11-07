@@ -341,10 +341,13 @@ them.
   carry, may make the question moot.
 - **#1194 performer replacement (Task 16) was never run.** There is no record and no
   verdict.
-- **#1197 Resolve import of an exported `.otioz`.** Owed by Don. The bench S4 montage
-  (`6d33a88d24de`) is exported as `ae2ecd79da44` (2026-11-06; 4 clips of 124 frames at
-  24 fps on one video and one audio track, the joined film bundled under `media/`), in
-  `~/Desktop/dw-review/7-resolve/`, REVIEW.md step 7.
+- **#1197 Resolve import of an exported `.otioz`: passes.** Don imported the bench S4
+  montage (`6d33a88d24de`, exported as `ae2ecd79da44`) in Resolve 21 on 2026-11-06,
+  both the `.otioz` as written and its plain `content.otio` beside `media/`. The one
+  catch is the App Store build's sandbox: from `~/Desktop` an `.otioz` import is a silent
+  no-op and an `.otio` reports "The clip was not found"; from `~/Movies/DaVinci Resolve/`
+  both work. No change to `export_timeline`. The note is in TASKS.md and the long-form
+  skill's run-and-repair reference.
 - **TST tau sweep.** Don's call. The spike found no gain at tau 0.2.
 - **R36.** lem's shared `settings.json` has cudnn deterministic. Task 29's restore
   decides whether to keep or revert it for the main server.

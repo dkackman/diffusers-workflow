@@ -12,9 +12,9 @@ Things only you can check.
 5. Music: **drops ok, the ending is good, the key change is not jarring; keep the 1.5 s crossfade** (D better than E). The gain-ramp and beat-aligned-join follow-ups are dropped.
 6. Hum: **no drone, no music** (light rain in all; A and B indistinguishable). The claim stays "probed, not a rule".
 
-Still open: the Resolve import (#1197), now step 7 of REVIEW.md, with an `.otioz` in `~/Desktop/dw-review/7-resolve/`.
+Nothing is open: the Resolve import (#1197) passed on 2026-11-06.
 
-- [ ] Import one exported `.otioz` (`export_timeline`, #1197) in DaVinci Resolve 18.5+: File > Import > Timeline, then check one clip per shot, the rate (23.976 as 24000/1001) and that each clip plays its span. Nothing here can run Resolve. *(2026-11-06: a bench cut is exported; the file is in `~/Desktop/dw-review/7-resolve/`, REVIEW.md step 7.)*
+- [x] Import one exported `.otioz` (`export_timeline`, #1197) in DaVinci Resolve 18.5+: File > Import > Timeline, then check one clip per shot, the rate (23.976 as 24000/1001) and that each clip plays its span. Nothing here can run Resolve. *(2026-11-06: imports in Resolve 21, both the `.otioz` and the plain `.otio`, once the file sits in `~/Movies/DaVinci Resolve/`; the App Store build's sandbox can't read `~/Desktop`.)*
 - Compact catalog listing budget raised to 13_250 (tests) for the new split-takes, narration-long, narration-from-takes and music-long templates. Recommendation: keep (discovery). *(Superseded 2026-11-06: `COMPACT_BUDGET` is now 13_900, `tests/test_catalog_structure.py`, last raised for `minimax/add-sound`, 483f4487.)*
 - Arch ratchet module count grows on feat/long-form-media (presets, chain_pick, chain_look, chain_check, timeline_export, text_takes, ...). Re-baseline at merge needs your ok. Recommendation: approve.
 - Compact catalog listing budget raised again to 13_450 (tests) for `minimax/repair-segment` (#1169, task 14), measured 13_432. Recommendation: keep (discovery). *(Superseded: now 13_900, see above.)*
