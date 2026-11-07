@@ -31,6 +31,7 @@ from .cost_scaling import (
     fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
+    _worst_case_retries,
 )
 from .elision import elide_definition
 from . import references
@@ -769,7 +770,7 @@ def estimate(
     A composed child is not added to it: an observed run is the whole run,
     children included, already measured.
     """
-    measured = _observed(observed, device)
+    measured = _with_worst_case(_observed(observed, device), definition, expanded)
     own = _own_price(definition, expanded, list_entries, device, measured_entries)
     if measured is not None and _entry_cost_field_shifted(definition, expanded):
         # The history's drivers match on the list's length, not on what each
@@ -779,8 +780,13 @@ def estimate(
     if measured is not None:
         # A thin bucket blends toward this box's default-tier history scaled
         # to its drivers when there is one, not the curated row (#1236)
-        partner = _observed(
-            observed.get("baseline") if isinstance(observed, dict) else None, device
+        partner = _with_worst_case(
+            _observed(
+                observed.get("baseline") if isinstance(observed, dict) else None,
+                device,
+            ),
+            definition,
+            expanded,
         )
         if partner is None:
             partner = own
@@ -862,6 +868,49 @@ def _unpriced_reason(definition):
         "run history of its own. The run's length depends on its input "
         "media, which nothing here measures"
     )
+
+
+def _with_worst_case(measured, definition, expanded):
+    """An observed or inherited estimate with a checked chain's worst-case
+    re-rolls quoted on it, as the curated figure quotes them (#1246): the
+    history is read as N segment renders, and `_worst_case_retries` says how
+    many a run at `expanded`'s variables may pay. Unchanged when nothing can
+    re-roll. A history that ran checked already holds what re-rolls it drew,
+    so this is an upper bound, which is what the worst case promises. This
+    box's own history, so re-priced, is `derived`; an inherited one stays
+    `inherited`."""
+    if measured is None or measured.get("minutes") is None:
+        return measured
+    variables = (expanded or {}).get("variables") or {}
+    factor, axes, unscaled = _worst_case_retries(definition, variables)
+    if unscaled:
+        measured = {
+            **measured,
+            "differs": _unique((measured.get("differs") or []) + unscaled),
+            "low_confidence": True,
+        }
+    if not axes:
+        return measured
+    worst = {
+        **measured,
+        "minutes": round(measured["minutes"] * factor, 1),
+        "scaled": "; ".join(
+            part
+            for part in (
+                measured.get("scaled"),
+                f"from the observed {_shown_minutes(measured['minutes'])} min: "
+                + ", ".join(axes),
+            )
+            if part
+        ),
+    }
+    if worst["basis"] == OBSERVED:
+        worst["basis"] = DERIVED
+    return worst
+
+
+def _shown_minutes(minutes):
+    return int(minutes) if float(minutes).is_integer() else round(minutes, 1)
 
 
 def _observed(observed, device):

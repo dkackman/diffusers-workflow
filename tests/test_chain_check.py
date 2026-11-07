@@ -445,3 +445,58 @@ class TestAudioFloor:
         assert step_held.audio_held and step_held.audio_floor is None
         guide = ChainConfig({"segments": 2, "check": True, "continuity": "guide"}, {})
         assert guide.audio_held and not guide.checks_segment_1
+
+
+def _observed_quote(check, retries, **block):
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, check, retries)
+    history = {"cold_minutes": 30.0, "cold_runs": 10, "device": "cuda", **block}
+    return estimate(definition, expanded, {}, "cuda", None, None, observed=history)
+
+
+def test_an_observed_estimate_quotes_the_worst_case_retries():
+    # #1246: the box's own history is read as N renders, like the curated row
+    quoted = _observed_quote(True, 1)
+    assert quoted["minutes"] == pytest.approx(60.0)
+    assert quoted["basis"] == "derived"
+    assert "6 renders for 3" in quoted["scaled"]
+
+
+def test_an_inherited_estimate_quotes_the_worst_case_retries():
+    quoted = _observed_quote(True, 1, inherited_from="templates/ltx2/chained-segments")
+    assert quoted["minutes"] == pytest.approx(60.0)
+    assert quoted["basis"] == "inherited"
+    assert "6 renders for 3" in quoted["scaled"]
+    held = _observed_quote({"audio_dbfs_min": None}, 2, inherited_from="t")
+    assert held["minutes"] == pytest.approx(30.0 * (1 + 2 * 3) / 3)
+    assert "7 renders for 3" in held["scaled"]
+
+
+def test_an_observed_estimate_without_re_rolls_is_unchanged():
+    for check, retries in ((None, None), (False, 0), (True, 0)):
+        quoted = _observed_quote(check, retries, inherited_from="t")
+        assert quoted["minutes"] == pytest.approx(30.0), (check, retries)
+        assert "scaled" not in quoted
+
+
+@pytest.mark.parametrize("floor", [0, 6, 0.5])
+def test_a_literal_floor_at_or_above_0_is_refused_saying_below_0(floor, tmp_path):
+    # #1246: the schema leaves the range to chain_check_problem, so a literal
+    # number reads the same refusal as a reference that resolves to one
+    import json
+    from pathlib import Path
+
+    from dw.validation import workflow_errors
+    from dw.workflow import workflow_from_definition
+
+    template = (
+        Path(__file__).parent.parent / "workflows/templates/ltx2/chained-segments.json"
+    )
+    definition = json.loads(template.read_text())
+    definition["steps"][0]["pipeline"]["chain"]["check"] = {"audio_dbfs_min": floor}
+    errors = workflow_errors(workflow_from_definition(definition, str(tmp_path)))
+    messages = " ".join(str(e) for e in errors)
+    assert "audio_dbfs_min" in messages
+    assert "below 0" in messages
+    assert "greater than or equal to the maximum" not in messages
