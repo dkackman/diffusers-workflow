@@ -376,6 +376,7 @@ def _load_decoder(device, model_name):
     # The stock video decode, a piece of the take at a time: the same frames,
     # without the whole take's pixels on the device (a long take's do not fit)
     from ..pipeline_processors.h3_windows import DwH3StreamedVideoDecodeStep
+    from .. import quantized_cache
     from .model_cache import cached_model
 
     def load_decoder():
@@ -383,7 +384,9 @@ def _load_decoder(device, model_name):
         # the VAE from the repo's `vae` subfolder, and the video processor
         # the block configures itself
         pipeline = DwH3StreamedVideoDecodeStep().init_pipeline(model_name)
-        pipeline.load_components(names=["vae"], torch_dtype=torch.float32)
+        quantized_cache.load_components(
+            pipeline, {"names": ["vae"], "torch_dtype": torch.float32}
+        )
         logger.info(f"Loading MiniMax-H3 video VAE from {model_name} to {device}")
         return pipeline.to(device)
 
