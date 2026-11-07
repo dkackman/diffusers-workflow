@@ -162,7 +162,9 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
 
 - **Jobs** - the workspace's queue and run history (history persists in
-  `~/.diffusers_helper/jobs.sqlite`), filterable by status; a waiting job
+  `~/.diffusers_helper/jobs.sqlite`; a job queued or running when the
+  server stopped is listed as `cancelled` with `error` starting
+  `server restart:`, and `rerun_job` resubmits it), filterable by status; a waiting job
   shows its place in line, can be moved, and shows `waiting_for` while held
   for host RAM. A job's page streams step progress, denoise ticks, the phase
   between them (loading, decoding, saving), its log, and its results as they

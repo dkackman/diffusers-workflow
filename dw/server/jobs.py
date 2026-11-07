@@ -38,6 +38,7 @@ import copy
 import json
 import secrets
 import time
+import uuid
 import logging
 import threading
 from contextlib import contextmanager
@@ -61,7 +62,8 @@ from ..settings import resolve_path
 from ..workspace import DEFAULT_WORKSPACE_NAME
 from . import dispatch, job_results, pool, worker_memory
 from .dispatch import Dispatcher
-from .job_history import JobHistory
+from .job_history import JobHistory, close_dead_servers, hold_server_lock
+from .job_history import release_server_lock
 from .outputs import job_run_directory, with_run_note, with_run_state
 from .job_record import (
     ACK_NONE,
@@ -128,6 +130,11 @@ class JobManager(Dispatcher):
         # The first card's worker - what the single-worker callers address
         self.worker_manager = self.slots[0].manager
         self.history = JobHistory(history_path or resolve_path("jobs.sqlite"))
+        # Stamped on each job's history row; its lock says it is alive (#1220)
+        self.instance = uuid.uuid4().hex
+        self._server_lock = hold_server_lock(self.history, self.instance)
+        # Before the runner starts and before the app takes a request
+        close_dead_servers(self.history, self.instance)
         self.jobs = {}
         # Reentrant: cancel() finishes a queued job while holding it, and
         # _finish's terminal-job trim needs it again on the same thread
@@ -163,6 +170,17 @@ class JobManager(Dispatcher):
             if not running:
                 return None
             return min(running, key=lambda slot: slot.started_at or 0).current_job_id
+
+    # ------------------------------------------------------- restart record
+
+    def _record_open(self, job):
+        """Write a live job's row - queued at submit, running at dispatch and
+        at run_start. Logged, never raised: a missing row must not cost the
+        job (#1220)."""
+        try:
+            self.history.record(job)
+        except Exception as e:
+            logger.warning(f"Could not record job {job.id} in history: {e}")
 
     # ------------------------------------------------------------- affinity
 
@@ -340,6 +358,9 @@ class JobManager(Dispatcher):
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
+        job.server_instance = self.instance
+        # Its row before anyone can see it: no outcome is written first (#1220)
+        self._record_open(job)
         with self._lock:
             self.jobs[job.id] = job
             self._needs[job.id] = pool.dispatch_need(self.slots, vram_need)
@@ -770,6 +791,8 @@ class JobManager(Dispatcher):
         for slot in self.slots:
             slot.manager.shutdown_worker()
         self._host_claims().withdraw()
+        release_server_lock(self._server_lock)
+        self._server_lock = None
 
     # ---------------------------------------------------------------- runner
 
@@ -797,6 +820,8 @@ class JobManager(Dispatcher):
                 # The worker switches to this identity for the run
                 slot.last_identity = self._job_identity(job)
             job.add_event({"event": "job_status", "status": RUNNING})
+            # Before the job's thread exists, so _finish always writes last
+            self._record_open(job)
             thread = threading.Thread(
                 target=self._run_job,
                 args=(slot, job),
@@ -909,6 +934,7 @@ class JobManager(Dispatcher):
                         slot,
                         job.spec.get("output_dir") or self.output_dir,
                         worker_memory.record_memory,
+                        on_run_start=lambda: self._record_open(job),
                     )
             except Exception as e:
                 logger.error(f"Job {job.id} failed: {e}", exc_info=True)
