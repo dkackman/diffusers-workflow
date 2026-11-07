@@ -161,7 +161,6 @@ class TestProjection:
         warnings = host_memory_warnings(definition, {"shots": 32}, rows, 3_000 * MB)
         assert len(warnings) == 1
 
-
     def test_a_row_that_chose_another_bundle_reads_that_bundles_list(self):
         # a row's stored arguments name the selector, not the bundle's values:
         # its list length is the bundle it chose, not the default bundle's
