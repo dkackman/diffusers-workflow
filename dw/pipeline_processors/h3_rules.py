@@ -210,6 +210,19 @@ TILE_OVERLAP_FLOOR = 192
 LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
+# A source rate within this fraction of H3_FPS is H3_FPS: NTSC 23.976, or the
+# 23.899 an AAC-padded soundtrack's length gives, is not worth a retime (#1232)
+H3_FPS_TOLERANCE = 0.005
+
+
+def grid_rate(fps):
+    """`fps` as the audio pass treats it: H3_FPS when it is within
+    `H3_FPS_TOLERANCE` of it (no retime), else `fps` itself. None and anything
+    not a positive number pass through."""
+    if isinstance(fps, bool) or not isinstance(fps, (int, float)) or fps <= 0:
+        return fps
+    return H3_FPS if abs(fps - H3_FPS) <= H3_FPS * H3_FPS_TOLERANCE else fps
+
 
 # The experimental time-windowed refine (#1199 Task 17 Step 4,
 # dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
@@ -1128,7 +1141,9 @@ def media_problems(name, shape, width, height, num_frames=None, fps=None):
             )
         problems.append(problem)
     elif (
-        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
+        num_frames is not None
+        and name == SOURCE_VIDEO_INPUT
+        and grid_rate(fps) in (None, H3_FPS)
     ):
         # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
         # is padded to fit, so the mask drifts in time and the output is longer

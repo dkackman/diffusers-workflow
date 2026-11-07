@@ -50,6 +50,7 @@ from .for_each import render_path
 from .pipeline_processors.h3_rules import (
     H3_FPS,
     HOLD_AUDIO_INPUT,
+    grid_rate,
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
@@ -292,7 +293,7 @@ def _media_problems(arguments, base_dir, probe):
         SOURCE_VIDEO_INPUT, arguments.get(SOURCE_VIDEO_INPUT), base_dir, probe
     )
     # An audio pass retimes a source at another rate onto the grid (R25)
-    fps = fps if is_audio_pass(arguments) else None
+    fps = grid_rate(fps) if is_audio_pass(arguments) else None
     if problem:
         problems.append((SOURCE_VIDEO_INPUT, problem))
     if shape is not None:

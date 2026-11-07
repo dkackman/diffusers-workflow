@@ -50,6 +50,7 @@ from .h3_rules import (
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
     H3_FPS,
+    grid_rate,
     guide_frame_problem,
     guide_latent_frames,
     refine_windows_enabled,
@@ -214,7 +215,7 @@ def source_frame_rate(value, frame_count):
     while value is not None:
         fps = getattr(value, "fps", None)
         if isinstance(fps, (int, float)) and not isinstance(fps, bool) and fps > 0:
-            return fps
+            return grid_rate(fps)
         audio, rate = getattr(value, "audio", None), getattr(value, "sample_rate", None)
         axis = sample_axis(audio) if hasattr(audio, "ndim") else None
         if seconds is None and axis is not None and rate and audio.shape[axis]:
@@ -227,7 +228,7 @@ def source_frame_rate(value, frame_count):
             value = value[0]
         else:
             break
-    return frame_count / seconds if seconds else None
+    return grid_rate(frame_count / seconds) if seconds else None
 
 
 def prepared_guide(where, index, guide, base_dir):
