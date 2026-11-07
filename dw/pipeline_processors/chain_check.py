@@ -49,7 +49,9 @@ TEXTURE_RATIO_MAX = 2.0
 #   another scene 26 frames past its seam and passed). 282 segments of 47 bench
 #   takes read P50 1.22, P99 2.62, max 2.98 (bench/cuts.py); the two cuts in
 #   that take read 4.16 and 17.2. The seam's own ceiling, 4.0, sits between
-CUT_RATIO_MAX = 4.0
+# Issue #1205: the cut read 4.15 on one card and under 4.0 on another, so a 4.0
+# ceiling sat on the boundary. 3.5 sits between the good max (2.98) and the cut
+CUT_RATIO_MAX = 3.5
 
 # The measures a check can fail, in the order a failure names them
 MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio")

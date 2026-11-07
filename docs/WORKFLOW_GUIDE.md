@@ -2722,7 +2722,7 @@ state:
 | `jump_ratio` | the previous segment: the largest frame change across the seam over the larger of the two segments' own typical change, floored at 2 grey levels (`analyze_seams`'s measure) | `jump_ratio_max` 4 | above the ceiling |
 | `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 5.5 | above the ceiling |
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
-| `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 4 | above the ceiling; `null` skips it |
+| `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
 `check: {"cut_ratio_max": null}` to turn that measure off.
