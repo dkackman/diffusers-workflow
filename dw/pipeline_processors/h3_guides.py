@@ -50,7 +50,6 @@ from .h3_rules import (
     GUIDE_FRAMES_PER_CHUNK,
     GUIDE_LATENTS_PER_CHUNK,
     H3_FPS,
-    grid_rate,
     guide_frame_problem,
     guide_latent_frames,
     refine_windows_enabled,
@@ -202,6 +201,20 @@ def guide_frames_array(value):
         value = (np.clip(value.astype(np.float32), 0.0, 1.0) * 255.0).round()
         value = value.astype(np.uint8)
     return np.ascontiguousarray(value)
+
+
+# A source rate within this fraction of H3_FPS is H3_FPS: NTSC 23.976, or the
+# 23.899 an AAC-padded soundtrack's length gives, is not worth a retime (#1232)
+H3_FPS_TOLERANCE = 0.005
+
+
+def grid_rate(fps):
+    """`fps` as the audio pass treats it: H3_FPS when it is within
+    `H3_FPS_TOLERANCE` of it (no retime), else `fps` itself. None and anything
+    not a positive number pass through."""
+    if isinstance(fps, bool) or not isinstance(fps, (int, float)) or fps <= 0:
+        return fps
+    return H3_FPS if abs(fps - H3_FPS) <= H3_FPS * H3_FPS_TOLERANCE else fps
 
 
 def source_frame_rate(value, frame_count):

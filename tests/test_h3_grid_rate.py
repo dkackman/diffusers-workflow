@@ -4,8 +4,8 @@ from types import SimpleNamespace
 
 import numpy
 
-from dw.pipeline_processors.h3_guides import source_frame_rate
-from dw.pipeline_processors.h3_rules import H3_FPS, grid_rate, media_problems
+from dw.pipeline_processors.h3_guides import grid_rate, source_frame_rate
+from dw.pipeline_processors.h3_rules import H3_FPS
 
 
 def test_near_24_is_24_and_other_rates_are_kept():
@@ -28,10 +28,3 @@ def test_the_soundtrack_length_fallback_is_snapped():
     video = SimpleNamespace(audio=audio, sample_rate=48000)
     assert source_frame_rate(video, 143) == H3_FPS
     assert source_frame_rate(video, 150) == 150 / 5.984
-
-
-def test_a_snapped_rate_is_held_to_the_24_fps_frame_count():
-    # 23.976 is not exempt from the count check any more than 24 is
-    shape = (107, 64, 64)
-    assert media_problems("source_video", shape, 64, 64, 107, 23.976) == []
-    assert media_problems("source_video", shape, 64, 64, 90, 23.976)

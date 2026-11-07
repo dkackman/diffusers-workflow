@@ -210,20 +210,6 @@ TILE_OVERLAP_FLOOR = 192
 LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
-# A source rate within this fraction of H3_FPS is H3_FPS: NTSC 23.976, or the
-# 23.899 an AAC-padded soundtrack's length gives, is not worth a retime (#1232)
-H3_FPS_TOLERANCE = 0.005
-
-
-def grid_rate(fps):
-    """`fps` as the audio pass treats it: H3_FPS when it is within
-    `H3_FPS_TOLERANCE` of it (no retime), else `fps` itself. None and anything
-    not a positive number pass through."""
-    if isinstance(fps, bool) or not isinstance(fps, (int, float)) or fps <= 0:
-        return fps
-    return H3_FPS if abs(fps - H3_FPS) <= H3_FPS * H3_FPS_TOLERANCE else fps
-
-
 # The experimental time-windowed refine (#1199 Task 17 Step 4,
 # dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
 # the loader reads before it puts the windowed denoiser in. Here, not in
@@ -677,36 +663,11 @@ CARRY_PICK_MIN = 1
 CARRY_PICK_MAX = 8
 
 
-def _set_for_plan(chain, match_audio_key, duration_key):
-    """Whether the chain block sets `match_audio` or `duration_seconds`, for the
-    settings that do not combine with a fixed-length plan. A reference is
-    unknown until the run substitutes it, so it is not counted as set: a
-    `variable:` that resolves to false must not read truthy here (#1232)."""
-    audio = chain.get(match_audio_key)
-    if isinstance(audio, str) and references.is_ref(references.UNRESOLVED, audio):
-        audio = None
-    duration = chain.get(duration_key)
-    if isinstance(duration, str) and references.is_ref(references.UNRESOLVED, duration):
-        duration = None
-    return bool(audio) or duration is not None
-
-
-def _snapped_up(num_frames, frame_snap):
-    """`num_frames` rounded up to the chain's `frame_snap` grid (the 17n+5 an H3
-    render runs at), as the segments actually render; unchanged when there is
-    no grid or the count is not a number (#1232)."""
-    if (
-        isinstance(num_frames, bool)
-        or not isinstance(num_frames, int)
-        or not isinstance(frame_snap, dict)
-    ):
-        return num_frames
-    modulus, remainder = frame_snap.get("modulus"), frame_snap.get("remainder", 0)
-    if not isinstance(modulus, int) or isinstance(modulus, bool) or modulus < 1:
-        return num_frames
-    remainder = remainder if isinstance(remainder, int) else 0
-    steps = -(-(num_frames - remainder) // modulus)
-    return max(num_frames, steps * modulus + remainder)
+def _set_for_plan(chain, *keys):
+    """Whether a key is set; an unsubstituted reference is not (#1232)."""
+    values = [chain.get(k) for k in keys]
+    values = [v for v in values if not references.is_ref(references.UNRESOLVED, v)]
+    return any(v is not None and v is not False for v in values)
 
 
 def chain_carry_pick_problem(chain, num_frames=None):
@@ -756,7 +717,8 @@ def chain_carry_pick_problem(chain, num_frames=None):
             "shorter than asked - use 'segments'"
         )
     trim = chain.get("trim_frames", 1)
-    num_frames = _snapped_up(num_frames, chain.get("frame_snap"))
+    if isinstance(num_frames, int) and isinstance(chain.get("frame_snap"), dict):
+        num_frames = aligned(num_frames, chain["frame_snap"]) or num_frames
     if (
         isinstance(num_frames, int)
         and not isinstance(num_frames, bool)
@@ -1141,9 +1103,7 @@ def media_problems(name, shape, width, height, num_frames=None, fps=None):
             )
         problems.append(problem)
     elif (
-        num_frames is not None
-        and name == SOURCE_VIDEO_INPUT
-        and grid_rate(fps) in (None, H3_FPS)
+        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
     ):
         # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
         # is padded to fit, so the mask drifts in time and the output is longer

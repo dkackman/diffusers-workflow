@@ -1065,7 +1065,7 @@ class TestGuideContinuity:
 
     def test_keystone_on_t2va_warns_that_it_does_nothing(self):
         # t2va passes no keyframe, so there is nothing for the keystone to replace
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             run_chain(
                 FakePipeline(self.output),
                 self.chain(keystone="segment_1"),
@@ -1077,7 +1077,7 @@ class TestGuideContinuity:
         )
 
     def test_keystone_with_a_keyframe_does_not_warn(self):
-        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+        with patch.object(chain_module, "emit_warning") as warn:
             run_chain(
                 FakePipeline(self.output),
                 self.chain(keystone="segment_1"),
