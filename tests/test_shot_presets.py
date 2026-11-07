@@ -118,6 +118,8 @@ def test_continuity_last_frame_is_still_the_old_chain_block():
     assert chain.pop("anchor") == "none"
     assert chain.pop("keystone") == "none"
     assert chain.pop("keystone_slot", None) is None
+    assert chain.pop("check") is False  # off by default, as before
+    assert chain.pop("retries") == 0
     assert chain == before
 
 
@@ -178,3 +180,19 @@ def test_turning_the_anchor_off_on_a_static_shot_is_refused_as_documented():
     ):
         errors = _workflow().validation_errors(arguments)
         assert not any("anchor_strength needs" in e["message"] for e in errors)
+
+
+def test_check_and_retries_are_variables_and_price_the_worst_case():
+    """`retries` on a checked chain grows the estimate by 1 + (N-1)(1+retries)."""
+    from dw.cost_scaling import _worst_case_retries
+
+    template = json.loads(TEMPLATE.read_text())
+    assert template["variables"]["check"] is False
+    assert template["variables"]["retries"] == 0
+    assert {"check", "retries"} <= set(template["cost_drivers"])
+    wf = Workflow(template, None, str(TEMPLATE))
+    for retries in (1, 3):
+        variables = {"check": True, "retries": retries}
+        definition = wf.expanded_definition(variables)
+        factor = _worst_case_retries(definition, {**template["variables"], **variables})[0]
+        assert factor == (1 + 2 * (1 + retries)) / 3
