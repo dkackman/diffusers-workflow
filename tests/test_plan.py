@@ -2702,5 +2702,7 @@ class TestTiersPriceFromTheObservedDefault:
         args = {"segments": 2, "tier": "draft"}
         draft = self.quote(plan, CATALOG_CHAINED, args, by_tier)
         assert draft["tempered"] is True
-        assert draft["curated_minutes"] == pytest.approx(7.2, abs=0.05)
+        # 10 of the curated 13.5 min is the template's fixed_minutes (#1224):
+        # 10 + 3.5 x (the 7.2 / 13.5 proportional factor)
+        assert draft["curated_minutes"] == pytest.approx(11.87, abs=0.05)
         assert "scaled from the curated 13.5 min" in draft["scaled"]

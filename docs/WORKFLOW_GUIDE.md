@@ -720,7 +720,8 @@ by the source, and `validate_workflow` names the entries to add or drop.
    - `per_entry` - a measured per-entry rate re-priced for your list.
    - `catalog` - a measured total for a run whose lists are the ones it was
      measured with.
-   - `derived` - that total extrapolated over a list of another length, or
+   - `derived` - (a `cost` entry's `fixed_minutes`, the share that does not scale,
+     is held out of the scaling) that total extrapolated over a list of another length, or
      scaled along the steps, canvas or frames you moved off its defaults
      (`scaled` names each axis): say it is an estimate.
    - `inherited` - an inline workflow priced from this box's runs of the

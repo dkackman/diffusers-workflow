@@ -7,7 +7,8 @@
             "device": "cuda",
             "name": "RTX 3090",
             "vram_gb": 24,
-            "minutes": 13.5
+            "minutes": 13.5,
+            "fixed_minutes": 10
         }
     ],
     "vram_estimate": {

@@ -44,7 +44,10 @@ def test_fixed_minutes_is_read_from_the_device_entry():
     assert fixed_minutes(cost, "mps") == 1.0
     assert fixed_minutes(cost, "cpu") == 1.0  # the first entry, as _price does
     assert fixed_minutes(None, "cuda") == 0.0
-    assert fixed_minutes([{"device": "cuda", "minutes": 1, "fixed_minutes": -2}], "cuda") == 0.0
+    assert (
+        fixed_minutes([{"device": "cuda", "minutes": 1, "fixed_minutes": -2}], "cuda")
+        == 0.0
+    )
 
 
 def test_a_fixed_share_above_the_figure_is_capped():
@@ -69,3 +72,20 @@ def test_the_schema_accepts_it_and_refuses_a_negative():
     jsonschema.validate(ok, item)
     with pytest.raises(jsonschema.ValidationError):
         jsonschema.validate({**ok, "fixed_minutes": -1}, item)
+
+
+def test_the_h3_chain_template_quotes_the_measured_runs_within_1_3x():
+    """The 7 x 345 f, 12 step drill took 71.0 min (ab7f54f73b2f, with the check
+    on); the same chain at 3 segments took 28.3 min (8a669d31258e)."""
+    import json
+    from pathlib import Path
+
+    root = Path(__file__).resolve().parent.parent
+    definition = json.loads(
+        (root / "workflows/templates/minimax/chained-segments.json").read_text()
+    )
+    base = {"num_inference_steps": 12, "num_frames": 345, "lora_model_name": None}
+    three = _quote(definition, segments=3, **base)["minutes"]
+    seven = _quote(definition, segments=7, **base)["minutes"]
+    assert 28.3 / 1.3 < three < 28.3 * 1.3
+    assert 71.0 / 1.3 < seven < 71.0 * 1.3
