@@ -4,12 +4,15 @@ the policy of its bounded re-roll.
 After segment k renders (k > 1), its kept frames are measured against
 segment k - 1's - the seam's picture jump and look step, by the arithmetic
 `analyze_seams` uses (`dw/tasks/assess.py` `seam_measures`) - and against
-segment 1's, for fine-band texture drift (`dw/texture_bands.py`). A segment
-over any ceiling fails, naming the measures; `run_chain` re-renders it from
-the same carry with `reroll_seed`'s seed up to the chain's `retries`, and
-keeps `best_attempt` of what it rendered. Segment 1 has no seam before it
-and is never checked. `check_segment` can skip a seam marked `hard_cut`, but
-`run_chain` never passes it: a chain's own seams are never marked cuts.
+segment 1's, for fine-band texture drift (`dw/texture_bands.py`) - and its
+generated audio over the kept span is held to a level floor (#1221: a draw
+can come out silent). A segment over any ceiling, or under the floor, fails,
+naming the measures; `run_chain` re-renders it from the same carry with
+`reroll_seed`'s seed up to the chain's `retries`, and keeps `best_attempt`
+of what it rendered. Segment 1 has no seam before it, so `check_audio` holds
+it to the audio floor alone. `check_segment` can skip a seam marked
+`hard_cut`, but `run_chain` never passes it: a chain's own seams are never
+marked cuts.
 
 Measurement and choice only: nothing here renders, and nothing here touches
 the timeline. The chain keys are validated by `chain_rules.chain_check_problem`.
@@ -52,9 +55,15 @@ TEXTURE_RATIO_MAX = 2.0
 # Issue #1205: the cut read 4.15 on one card and under 4.0 on another, so a 4.0
 # ceiling sat on the boundary. 3.5 sits between the good max (2.98) and the cut
 CUT_RATIO_MAX = 3.5
+# - audio_dbfs: the floor, in dBFS rms, of a segment's generated audio over
+#   its kept span (#1221). The S5/extend dropouts on mini-ai read -87.8 to
+#   -89.2; the quietest real segment of the bench read -57 (the 36 s seed-2
+#   take). -70 sits between. Family-independent: generated audio is taken as
+#   wanted, and a step that wants silence sets the floor to null
+AUDIO_DBFS_MIN = -70.0
 
 # The measures a check can fail, in the order a failure names them
-MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio")
+MEASURES = ("jump_ratio", "look_ratio", "texture_ratio", "cut_ratio", "audio_dbfs")
 
 # Measures that warn and record but never re-roll a segment (ruling R38):
 # texture drift is in the carry, so a fresh seed from the same carry inherits
@@ -72,12 +81,14 @@ REROLL_PRIME = 1000003
 @dataclass(frozen=True)
 class SegmentCheck:
     """The ceilings one segment is held to. `texture_ratio_max` bounds the
-    fine-band ratio both ways (None skips it); `face` is reserved."""
+    fine-band ratio both ways (None skips it); `audio_dbfs_min` is the floor
+    of its generated audio (None skips it); `face` is reserved."""
 
     jump_ratio_max: float = JUMP_RATIO_MAX
     look_ratio_max: float = LOOK_RATIO_MAX
     texture_ratio_max: float | None = TEXTURE_RATIO_MAX
     cut_ratio_max: float | None = CUT_RATIO_MAX
+    audio_dbfs_min: float | None = AUDIO_DBFS_MIN
     face: None = None
 
 
@@ -109,7 +120,7 @@ def segment_check(value):
         for name in ("jump_ratio_max", "look_ratio_max")
         if name in value
     }
-    for name in ("texture_ratio_max", "cut_ratio_max"):
+    for name in ("texture_ratio_max", "cut_ratio_max", "audio_dbfs_min"):
         if name in value:
             fields[name] = None if value[name] is None else float(value[name])
     return SegmentCheck(**fields)
@@ -132,22 +143,52 @@ def measure_frames(frames):
     return frame_measures(frames)
 
 
-def check_segment(previous, frames, segment_1_frames, check, hard_cut=False):
+def audio_dbfs(audio):
+    """The rms level in dBFS of a segment's kept audio, (channels, samples),
+    rounded to 0.1 dB - digital silence reads SILENCE_DBFS - or None when
+    there is no audio to measure (none generated, or the chain holds it)."""
+    from ..dsp import SILENCE_DBFS, dbfs, rms
+
+    if audio is None or getattr(audio, "size", 0) == 0:
+        return None
+    return round(dbfs(rms(numpy.asarray(audio)), floor=SILENCE_DBFS), 1)
+
+
+def check_audio(audio, check):
+    """Hold a segment's kept audio to the check's floor alone, as a
+    CheckResult - segment 1's check, which has no seam to measure."""
+    level = audio_dbfs(audio)
+    failed = ["audio_dbfs"] if _under(level, check.audio_dbfs_min) else []
+    return CheckResult(not failed, {"audio_dbfs": level}, failed)
+
+
+def check_segment(
+    previous, frames, segment_1_frames, check, hard_cut=False, audio=None
+):
     """Measure a segment's kept frames against the segment before it and
-    segment 1, as a CheckResult. `previous` is that segment's frames, or the
-    (thumbs, looks) pair `measure_frames` returned for them. `hard_cut` marks
-    a seam meant as a cut, which is never checked."""
+    segment 1, and its kept audio against the floor, as a CheckResult.
+    `previous` is that segment's frames, or the (thumbs, looks) pair
+    `measure_frames` returned for them. `audio` is the segment's kept
+    generated audio, None when it has none or the chain holds it. `hard_cut`
+    marks a seam meant as a cut, which is never checked."""
     if hard_cut:
         return CheckResult(True, {"skipped": "hard_cut"}, [])
     from ..tasks.assess import seam_measures
 
+    level = audio_dbfs(audio)
+    audio_failed = ["audio_dbfs"] if _under(level, check.audio_dbfs_min) else []
     before_thumbs, before_looks = (
         previous if isinstance(previous, tuple) else measure_frames(previous)
     )
     after_data = measure_frames(frames)
     after_thumbs, after_looks = after_data
     if before_thumbs is None or after_thumbs is None:
-        return CheckResult(True, {"skipped": "no frames"}, [], after_data)
+        return CheckResult(
+            not audio_failed,
+            {"skipped": "no frames", "audio_dbfs": level},
+            audio_failed,
+            after_data,
+        )
     seam = seam_measures(
         numpy.concatenate([before_thumbs, after_thumbs]),
         numpy.concatenate([before_looks, after_looks]),
@@ -162,6 +203,7 @@ def check_segment(previous, frames, segment_1_frames, check, hard_cut=False):
         "look_ratio_measure": seam["look_ratio_measure"],
         "texture_ratio": _texture_ratio(frames, segment_1_frames),
         "cut_ratio": _cut_ratio(after_thumbs),
+        "audio_dbfs": level,
     }
     failed = []
     if _over(measures["jump_ratio"], check.jump_ratio_max):
@@ -179,6 +221,7 @@ def check_segment(previous, frames, segment_1_frames, check, hard_cut=False):
         measures["cut_ratio"], check.cut_ratio_max
     ):
         failed.append("cut_ratio")
+    failed.extend(audio_failed)
     return CheckResult(not failed, measures, failed, after_data)
 
 
@@ -220,6 +263,10 @@ def _cut_ratio(thumbs):
 
 def _over(value, ceiling):
     return value is not None and value > ceiling
+
+
+def _under(value, floor):
+    return value is not None and floor is not None and value < floor
 
 
 def _fine_luma(frames):
