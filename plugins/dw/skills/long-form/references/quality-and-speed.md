@@ -53,7 +53,10 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
   `standard` is the default. `tier: best` is 1344x768 on int8 weights, the
   cleanest take measured, at 1.3-1.7x standard's wall time. It re-stages,
   needs about 65 GB of host RAM per job, and runs one at a time on a 128 GB
-  box. Any argument you pass still wins over the tier. LTX chains have no
+  box. On a static shot, `weights_dtype: "{int8}"` alone at standard is
+  cleaner for 0-5% more time (2-minute `static_long`: seam look 1.50 to
+  0.66). Offer it when the host runs one H3 job at a time; it is not the
+  default. Any argument you pass still wins over the tier. LTX chains have no
   tier: their schedule is fixed, and the step up is `ltx2/upscale-clip`.
 - **LTX-2.5 parity** (Task 23, `bench/records/ltx.md`): measured.
   `last_frame` stays the `templates/ltx2/chained-segments` default. Cap an

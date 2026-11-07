@@ -256,13 +256,41 @@ them.
 
 ## Tiers (Task 20)
 
-> **PLACEHOLDER: tier work is still in progress. To be filled by the controller
-> from `bench/records/tiers.md` once Task 20 lands.** Expected contents: the
-> `tier` variable (`draft`/`standard`/`best`) and its bundles per template, the
-> quality-per-minute measurements behind each, the 2-minute cost-rule check, the
-> host-RAM cost of `best`, the cost rows and `cost_drivers`, whether `check`/`retries`
-> sit in any bundle (see *Open questions*), Don's int8-at-standard call, and the LTX
-> templates' exclusion.
+`tier` (`draft` / `standard` / `best`, default `standard`) is a preset variable on the
+six long-form H3 templates: `minimax/chained-segments`, `chain-video-continuity`,
+`chain-matched-to-audio`, `chain-matched-and-aligned`, `dialogue-short` and
+`music-video`. A bundle moves only `width`, `height`, `num_inference_steps` and
+`weights_dtype`. It shares no variable with the `shot` presets, and
+`tests/test_tier_presets.py` pins that. `tier` is in each template's `cost_drivers`.
+`standard` is today's defaults, so no cost row moved. The record is
+`bench/records/tiers.md`, with raw numbers in `tiers.json`.
+
+| | draft | standard | best |
+|---|---|---|---|
+| FL2VA chain | 4 steps, 0.66-0.72x wall | 960x544, 5 steps, int4 | 1344x768, int8, 1.68x |
+| Ref2VA (5 templates) | 5 steps, 0.56x | 960x544, 9 steps, int4 | 1344x768, int8, 1.32x |
+
+- **Draft:** fewer steps is the only cheap setting whose staging carries over to
+  standard (segment-1 PSNR 32 dB on S1, 21.6 dB on S2). 672x384 re-stages the shot
+  (19 / 12.7 dB) and looks worse, so it is rejected.
+- **Best:** 1344x768 int8 is the cleanest S1 take measured (crust 54 to 84, seam look
+  0.44, 23.7 min). The 8-step 768p model at 9 steps lost on every seam measure at 2.7x
+  the wall time.
+- **Cost rule:** the template end to end with `shot: static_long` takes 59.2 min for
+  120 s (`aa80458ab4f7`). The same take with int8 takes 62.2 min (`513f5ddd8d76`), with
+  seam look 1.50 to 0.66 and fine-texture drift 0.12 to 0.05.
+- **Host RAM:** an int8 H3 worker holds about 63-69 GB, against 42-51 GB at int4.
+  Two int8 jobs on one host get OOM-killed (seven were, on lem). Each server has its
+  own RAM gate, so on one host they don't wait for each other.
+- **Not bundled:** attention, cache, `check` and `retries` stay knobs.
+- **Excluded:** LTX, whose distilled schedule is fixed, which fits only at uint4 on
+  24 GB, and whose step up is `upscale-clip`. Kandinsky 6 is out by ruling.
+- **int8 at standard: not the default** (Don, 2026-11-06, on the recommendation). It
+  wins on static shots at both seeds and at two minutes, and is mixed on the arc and the
+  dialogue walk (seam jump worse on three of four arms). It costs one H3 job per host,
+  and every counter verdict was measured on int4. It stays in `best`, the long-form skill
+  offers it for static shots, and a follow-up covers the shared-variable rule for `shot`
+  and `tier`, plus a host-RAM check for int8.
 
 ## Don's rulings
 
@@ -301,6 +329,8 @@ them.
 
   Also: #980 is out of long-form scope. Raise the ratchets at their final counts
   (modules 259, `test_dw_patch_targets` 324, R44).
+- **2026-11-06 (evening):** int8 stays out of `standard` and is offered for static shots
+  (*Tiers*). Resolve import passes (#1197).
 
 ## Accepted limits
 
@@ -339,8 +369,14 @@ them.
 - **#1044 latent carry.** Its face hold under the keystone (88-120 s clip,
   `4cae30688ed4`) waits on Don's eye. The slot `last` default, which runs without the
   carry, may make the question moot.
-- **#1194 performer replacement (Task 16) was never run.** There is no record and no
-  verdict.
+- **#1194 performer replacement (Task 16): works on a one-person cut.** S4's ref2va
+  pipeline with the cut as `source_video` and `hold_audio`, and a per-frame `segment
+  "person"` mask, replaced the performer with a portrait. Face cosine against the
+  portrait is 0.76 / 0.73 over two seeds (pass 0.363; a plain ref2va render scores
+  0.68, the source 0.06). Outside the mask it holds 37.5 dB, and the audio is the
+  source's. The one flaw is a steady step in the couch edge near the shoulder. Follow-ups:
+  cut detection, a per-person SAM2 track, a `replace-performer` template, and a
+  tighter-mask bench (`bench/records/performer-replacement.md`).
 - **#1197 Resolve import of an exported `.otioz`: passes.** Don imported the bench S4
   montage (`6d33a88d24de`, exported as `ae2ecd79da44`) in Resolve 21 on 2026-11-06,
   both the `.otioz` as written and its plain `content.otio` beside `media/`. The one
