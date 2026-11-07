@@ -1878,10 +1878,10 @@ only the frames the guides leave free; restyling a whole take needs a LoRA train
 guides (#612).
 
 With no guides (or `guides: []`) the step runs the stock layout and draws the same noise
-from its seed as an unguided step. Repeat runs at one seed are bit-identical only on a
-server with `cudnn_deterministic: true` (`ACCELERATION.md`, *TF32 and cuDNN*); with the
-default `false`, two runs match frame for frame by eye but their audio levels differ by a
-few dB.
+from its seed as an unguided step. Repeat runs at one seed are bit-identical with the
+default `cudnn_deterministic: true` and `cudnn_benchmark: false` (`ACCELERATION.md`,
+*TF32 and cuDNN*). A server that turns benchmark on, or determinism off, can give two runs
+that match frame for frame by eye but whose audio levels differ by a few dB.
 
 #### Loosening a guide's hold: `guide_noise`
 

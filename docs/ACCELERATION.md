@@ -311,17 +311,21 @@ A workflow that offloads keeps its weights in host memory, so the card can sit n
 
 ## TF32 and cuDNN
 
-Device-level settings, read once at startup from `~/.diffusers_helper/settings.json` (the directory moves with `DIFFUSERS_HELPER_ROOT`):
+Device-level settings from `~/.diffusers_helper/settings.json` (the directory moves with `DIFFUSERS_HELPER_ROOT`). They are process-wide torch flags, so every process that runs a pipeline applies them (`configure_torch` in `dw/__init__.py`): the CLI at startup, and each `dw.serve` worker when it starts and again at the start of every job. A settings change reaches served jobs after a server restart. The first job a fresh worker runs narrates what it ran with, read back from torch after the pipelines loaded, as a `log` event: `torch: cudnn benchmark=false deterministic=true, tf32=false`.
+
+The defaults give the same output for the same seed, whatever else the host is doing (#1229; `bench/records/determinism.md`):
 
 | Setting | Default | Effect |
 | ------- | ------- | ------ |
-| `enable_tf32` | `true` | `torch.set_float32_matmul_precision("high")`, and on CUDA also `torch.backends.cuda.matmul.allow_tf32 = True`. ~2x faster matmuls on Ampere and newer (RTX 30/40, A100, H100) with minor precision loss |
-| `cudnn_benchmark` | `true` | CUDA only. Autotunes cuDNN algorithm selection: fastest for fixed input sizes, overhead when sizes vary run to run |
-| `cudnn_deterministic` | `false` | CUDA only. `true` trades speed for reproducible output given the same seed |
+| `enable_tf32` | `false` | `true` sets `torch.set_float32_matmul_precision("high")`, and on CUDA also `torch.backends.cuda.matmul.allow_tf32 = True`: faster fp32 matmuls on Ampere and newer (RTX 30/40, A100, H100), numerically different from full fp32. Most pipelines run in bf16, so this mostly touches fp32 text encoders and VAEs |
+| `cudnn_benchmark` | `false` | CUDA only. `true` autotunes cuDNN's algorithm choice by timing it. Timing moves with host load, so on a two-card server, or a card next to other GPU work, the same seed can give different output |
+| `cudnn_deterministic` | `true` | CUDA only. Restricts cuDNN to its deterministic algorithms. With `cudnn_benchmark` also on, the autotuner picks among those only |
 
 ```json
-{ "enable_tf32": true, "cudnn_benchmark": true, "cudnn_deterministic": false }
+{ "enable_tf32": false, "cudnn_benchmark": false, "cudnn_deterministic": true }
 ```
+
+The catalog `cost` rows were measured with benchmark and TF32 off. Turning either on is a speed opt-in that gives up same-seed reproducibility.
 
 ## Environment Defaults
 

@@ -103,9 +103,11 @@ def test_an_explicit_settings_key_overrides_the_default():
 
 
 def _make_worker():
-    with patch("dw.worker.setup_logging"), patch(
-        "dw.worker.get_device_type", return_value="cuda"
-    ), patch("dw.worker.configure_torch") as configure:
+    with (
+        patch("dw.worker.setup_logging"),
+        patch("dw.worker.get_device_type", return_value="cuda"),
+        patch("dw.worker.configure_torch") as configure,
+    ):
         from dw.worker import WorkflowWorker
 
         worker = WorkflowWorker(queue.Queue(), queue.Queue())

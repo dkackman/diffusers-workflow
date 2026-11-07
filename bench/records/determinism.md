@@ -1,5 +1,20 @@
 # Determinism check (2026-11-05)
 
+> **Correction (2026-11-07, #1229).** The served worker did not read
+> `enable_tf32`, `cudnn_benchmark` or `cudnn_deterministic` when these
+> batches ran. Only `startup()` applied them, and `startup()` runs in the
+> `dw.serve` parent, which runs no pipeline; each worker is a spawned process
+> that never called it. So served jobs ran on PyTorch's own defaults
+> (benchmark off, deterministic off, TF32 off) whatever `settings.json` said,
+> unless something the worker imports set them, and the `cudnn` and `cudnn2`
+> batches below cannot have got their result through those keys as this
+> record says (*Answer*, *The suspects*). From #1229 the
+> worker applies the keys itself, at start and at each job start, and the
+> defaults are `cudnn_benchmark: false`, `cudnn_deterministic: true`,
+> `enable_tf32: false`. The first job on a fresh worker narrates the flags it
+> actually ran with; what lem reports is recorded on #1238. The record below
+> stays as written.
+
 The question from `.superpowers/sdd/2026-11-03-long-form-media/nondeterminism-report.md`:
 why do same-seed, same-arguments runs on the bench server sometimes give a
 different output? Records: `bench/records/determinism.json` (one row per job:

@@ -28,10 +28,12 @@ Unless a row says otherwise, these are H3 chains at the template defaults:
   for 2 minutes with `shot: static_long`, took 59.2 min
   (`bench/records/tiers.md`). Quote `plan.estimate` and scale by length from
   that.
-- **Determinism is free.** `cudnn_benchmark: false` with
-  `cudnn_deterministic: true` cost nothing measurable on H3, and makes
-  same-seed runs on a two-card server repeat bit for bit
-  (`bench/records/determinism.md`).
+- **Determinism is the default, and free.** dw's settings default to
+  `cudnn_benchmark: false` with `cudnn_deterministic: true`, so same-seed
+  runs on a two-card server repeat bit for bit. It cost nothing measurable
+  on H3 (`bench/records/determinism.md`). A server whose `settings.json`
+  turns benchmark on gives that up; the first job on a fresh worker
+  narrates the flags it ran with (`torch: cudnn benchmark=...`).
 
 ## The tier dial
 
