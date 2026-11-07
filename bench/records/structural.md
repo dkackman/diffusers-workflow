@@ -105,6 +105,8 @@ past the floor. Nothing was worse past the floor on any arm.
 - **At 120 s, projected.** 852 latents is 28 windows (rebased 42/12). That
   projects to about 22 min of denoise, about 15 min of decode and the 2 min
   load: **about 20 min per minute of take** once the fixed costs spread.
+  *(Superseded: measured at 120 s it is 71.5 min for 2 min of take, **about 36
+  min per minute**, half of it decode; see* 120 s *below.)*
 - **Peak VRAM.** nvidia-smi, sampled at 1 s, reads 22.9-23.5 GB on a 24 GB
   card for every arm. Most of that is the allocator's cache around the two
   float32 decodes. The windowed denoise itself is small (one 40-latent window

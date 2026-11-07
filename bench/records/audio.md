@@ -111,7 +111,10 @@ the earlier line is harmless.
 ## Task 22: long narration (S6)
 
 **Verdict: `max_seconds` 60 is not safe. Take 45 is clean, and 45 should be the
-default.** At 60, 5 of the 10 takes (two seeds) drop or loop words. At 45, none of the
+default.** *(Superseded 2026-11-06: the shipped default is 37 s at 3.0 words a second,
+50e036fe, because the safe limit is about 111 words; it is word-complete on two seeds,
+see [S6 rerun](#s6-rerun-fixed-templates-mini-ai). `gap_seconds` stays 0.3 by Don's
+ear, see *Joins*.)* At 60, 5 of the 10 takes (two seeds) drop or loop words. At 45, none of the
 6 takes does. The join level steps are within the in-take spread. The join pause at
 `gap_seconds` 0.3 is at or under a normal sentence pause. At 0.05 the words run
 together at two joins. ECAPA finds no voice drift between takes. The narration is
@@ -172,7 +175,13 @@ side.
   joins are takes that end and start on speech. At 0.05, joins 1 and 2 have under a
   fifth of a second between sentences. **Recommendation: `gap_seconds` 0.45.** That
   puts the shortest join near 0.39 s and the typical one near the in-take median.
-  Don's ear decides.
+  Don's ear decides. *(Superseded 2026-11-06, Don's ear: keep 0.3.)*
+- **Don's ear (2026-11-06).** At 0.3 the joins are fine ("a titch rushed on
+  occasion") and the voice is fine, so `gap_seconds` stays **0.3**. At 0.05 he heard
+  the voice get louder at the joins: the +1.5 / +2.6 dB take-to-take steps above,
+  inside the in-take spread and masked by a 0.3 s pause, become audible once the
+  pause is gone. So: do not go below about 0.3, and no level fix is needed at the
+  default gap.
 - The 0.05 arm is the t60 s1166 audio with each gap 0.25 s shorter (the takes match
   sample for sample). So it isolates the gap: same seed, same takes, same draws.
 
@@ -329,7 +338,8 @@ side):
   with no clipping.
 - The bench still runs `gap_seconds` 0.3, so every join (0.36-0.48 s) is shorter
   than the median sentence pause, as in the first round. The 0.45 recommendation
-  stands for Don's ear.
+  stands for Don's ear. *(Superseded 2026-11-06: Don kept 0.3; see the first round's
+  *Joins*.)*
 
 **Voice drift (ECAPA cosine):**
 

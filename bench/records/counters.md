@@ -30,6 +30,12 @@ min)](#round-3-2-min-2026-11-05).
   comes from two seeds only, so it is thin. A measure where the two seeds
   happened to agree has a floor near 0, and any difference counts on it
   (S1 last_frame `jump max` is 0.000, for example).
+  *(Superseded 2026-11-05, ruling R35: same-seed reruns are not noise-free,
+  so the floor is now `combined_floor(seed floor, rerun gap)`, the larger of
+  the seed floor and the same-seed rerun gap per measure (`bench/verdict.py`).
+  The floors and the rerun gap are in `noise-floor.md`, *Correction (2026-11-05,
+  ruling R35)*; the verdicts here were re-scored on it, see* Re-scored under
+  R35 *below.)*
 - **Measures.** `verdict()` reads every measure in the record except
   `wall_minutes`. Every measure is lower-is-better.
 - **Primary measure per scene.**
@@ -578,7 +584,7 @@ count `seam_level_step_db_*` on scenes without a held voice or music bed
 |---|---|---|
 | #1190 anchor strength | **default for static shots, 0.25** (guide, `anchor: segment_1`, `anchor_strength: 0.25`), chains up to about 6-8 segments. Not for moving camera or dialogue walk. | S1 texture 0.367 vs 0.536 (`0a40c41af97c`) and 0.325 vs 0.455 (`93dd359dc11e`), floor 0.081. S2 look loses at every strength (2.03-3.50 vs 1.29, floor 0.07). S3 inside the floor. 0.5 dissolves the face at length (`107859a31bc1`). |
 | #1189 hand-over backoff | **cut** | S1 texture 0.462 vs 0.536 (inside 0.081); S2 look 1.43 vs 1.29 (floor 0.07, loses); S3 texture 0.337 vs 0.067 (floor 0.23, loses). Round 1 only; nothing to carry. |
-| #1187 keystone as keyframe | **cut** | Seed 2 texture 0.448 vs 0.455 (tie, `ab59d503fd4d`); with anchor 0.25 no gain over anchor alone (0.311 vs 0.325); with anchor 0.5 every seam worse (jump 1.30/1.07 vs 1.05/0.90, `e5c7b013538f`, `08e32162985c`); S2 look loses (1.40 vs 1.29). |
+| #1187 keystone as keyframe | **cut** as a short-take counter. *(Superseded 2026-11-06: at two minutes the keystone at slot `last` is the static long-take default, `shot: static_long` on `templates/minimax/chained-segments`, Don's "not a loop", 43a0fb87/d555a373; see `structural.md` *Keystone slot*.)* | Seed 2 texture 0.448 vs 0.455 (tie, `ab59d503fd4d`); with anchor 0.25 no gain over anchor alone (0.311 vs 0.325); with anchor 0.5 every seam worse (jump 1.30/1.07 vs 1.05/0.90, `e5c7b013538f`, `08e32162985c`); S2 look loses (1.40 vs 1.29). |
 | #1032 sharpest of last 4 (`carry_pick`) | **cut** | S1 texture 0.533 vs 0.569 on a 0.036 floor (no visible change, `ae932366ea0e`); S2 freezes the arc (`9713480482bc`). |
 | #1191 `look_hold` on guide (creep + texture parts) | **cut** | S1 look 1.31 vs 1.46 now inside the 0.31 floor, texture tied; S2 look loses (1.56 vs 1.29); S3 tie. |
 | #1191 `look_hold` on last_frame (all four parts) | **available knob, no default** | Wins against the last_frame control on both seeds (`be3f574df3db`, `b7ca6da7d075`) but loses texture to guide on seed 2 (0.550 vs 0.455) and holds the camera back on S2 on both seeds (`242358078691`, `a3d6a044fd6b`). Its value is as part of the static set below (Don's call). |
@@ -597,7 +603,7 @@ as" (the recommendation) unless Don overrules it in `for-don.md`.
 |---|---|---|---|
 | **static** (locked-off camera, subject in front; S1), up to about 30 s (6-8 H3 segments) | `continuity: guide`, `anchor: segment_1`, `anchor_strength: 0.25`. Nothing else. | anchor 0.25 at seed 1166 `0a40c41af97c` and seed 2 `93dd359dc11e`, against guide controls `b40e855eb553`, `fd34bc937628`, `894911aed6c7` | **Don's call, recommended.** The texture gain holds on two seeds and by eye, but the strict rule says `mixed`: a secondary measure is worse past the floor on each seed (jump on 1166, coarse texture on seed 2), though never the same one twice. |
 | static, alternative set | `continuity: last_frame`, `look_hold: true`, `anchor: segment_1`, `anchor_strength: 0.25`. Offered as a knob, not the default. | `835379468ec3`, `41355297a083` (0.25); `d8b17df7dfb9`, `c8bfadf286ce` (0.5); look_hold alone `be3f574df3db`, `b7ca6da7d075` | **Don's call, recommended: not the default.** It measures best on S1 and looks cleanest, but it changes the continuity, carries a mid-texture cost on both seeds, has not run at two minutes, and its look_hold holds a moving camera back. |
-| static, longer than about 30 s | Cut it into shots of about 30 s or less. The chain gets no counter beyond the static row. | two-minute takes `8d1614ced27a` (control), `107859a31bc1` (anchor 0.5) | **Settled:** no counter set tested gives a usable two-minute static take (the control burns, anchor 0.5 dissolves the face). This is the drift gap that opens the design's second group. |
+| static, longer than about 30 s | Cut it into shots of about 30 s or less. The chain gets no counter beyond the static row. | two-minute takes `8d1614ced27a` (control), `107859a31bc1` (anchor 0.5) | **Settled:** no counter set tested gives a usable two-minute static take (the control burns, anchor 0.5 dissolves the face). This is the drift gap that opens the design's second group. *(Superseded 2026-11-06: a static take past about 30 s is built as `shot: static_long` (guide, keystone `segment_1` at slot `last`, anchor off), which holds 120 s on two seeds; `structural.md` *Keystone slot*.)* |
 | **moving camera** (arc, dolly; S2) | `continuity: guide`, no counters. Never `last_frame` with `look_hold` or `carry_pick`. | guide controls `dedd341c9108`, `01146e925c94`; every round-1 S2 arm; look_hold motion loss `242358078691`, `a3d6a044fd6b` | **Settled.** Every guide counter loses seam look; both last_frame counters hold the camera back, on both seeds for look_hold. |
 | **dialogue walk** (speaking subject in motion; S3) | `continuity: guide`, no counters. | guide controls `c0b92d0d0cd4`, `64b4a78c74a2`; every round-1 S3 arm | **Settled.** Every counter is inside S3's wide floor or loses, and none looks better. |
 
