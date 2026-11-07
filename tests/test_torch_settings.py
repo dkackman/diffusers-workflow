@@ -14,6 +14,7 @@ from unittest.mock import patch
 import pytest
 
 import dw
+import dw.worker as worker_module
 from dw.settings import Settings, get_settings_full_path, load_settings
 
 
@@ -104,13 +105,11 @@ def test_an_explicit_settings_key_overrides_the_default():
 
 def _make_worker():
     with (
-        patch("dw.worker.setup_logging"),
-        patch("dw.worker.get_device_type", return_value="cuda"),
-        patch("dw.worker.configure_torch") as configure,
+        patch.object(worker_module, "setup_logging"),
+        patch.object(worker_module, "get_device_type", return_value="cuda"),
+        patch.object(worker_module, "configure_torch") as configure,
     ):
-        from dw.worker import WorkflowWorker
-
-        worker = WorkflowWorker(queue.Queue(), queue.Queue())
+        worker = worker_module.WorkflowWorker(queue.Queue(), queue.Queue())
     return worker, configure
 
 
@@ -153,7 +152,9 @@ def _execute(worker):
         "arguments": {},
         "output_dir": "/tmp",
     }
-    with patch("dw.worker.workflow_from_snapshot", return_value=_StubWorkflow()):
+    with patch.object(
+        worker_module, "workflow_from_snapshot", return_value=_StubWorkflow()
+    ):
         worker._handle_execute(command)
     return _drain(worker.result_queue)
 
@@ -174,7 +175,7 @@ def test_first_job_narrates_the_flags_once_per_process(backends):
     backends.cudnn.deterministic = True
     backends.cuda.matmul.allow_tf32 = False
 
-    with patch("dw.worker.configure_torch") as reapply:
+    with patch.object(worker_module, "configure_torch") as reapply:
         first = _execute(worker)
         second = _execute(worker)
 
