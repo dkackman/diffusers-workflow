@@ -700,9 +700,26 @@ class TestOtherRules:
         assert "124 once retimed" in problems[0]
 
     def test_over_ceiling_names_the_limit(self):
-        problems = media_problems("source_video", (1413, 128, 128), 128, 128, 124, 24)
+        declared = {"modulus": 17, "remainder": 5, "max_frames": 345}
+        problems = media_problems(
+            "source_video", (1413, 128, 128), 128, 128, 124, 24, declared
+        )
         assert len(problems) == 1
         assert "at most 345" in problems[0]
+        assert "trim it to 345" in problems[0]
+
+    def test_no_declared_ceiling_names_no_limit(self):
+        problems = media_problems("source_video", (1413, 128, 128), 128, 128, 124, 24)
+        assert len(problems) == 1
+        assert "at most" not in problems[0]
+
+    def test_the_named_ceiling_is_the_declared_one(self):
+        declared = {"modulus": 17, "remainder": 5, "max_frames": 200}
+        problems = media_problems(
+            "source_video", (300, 128, 128), 128, 128, 124, 24, declared
+        )
+        assert "at most 200" in problems[0]
+        assert "trim it to 192" in problems[0]
 
     def test_an_inpaint_mask_image_on_a_non_h3_step_is_not_a_regional_edit(self):
         assert edits_region({"mask_image": "x"}, False) is False

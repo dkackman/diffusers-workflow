@@ -70,6 +70,7 @@ from .pipeline_processors.h3_rules import (
 )
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
+from .variable_constraints import declared_constraints
 
 # A video is held by its own soundtrack - a regional edit's source_video
 HOLDABLE_EXTENSIONS = ALLOWED_AUDIO_EXTENSIONS | ALLOWED_VIDEO_EXTENSIONS
@@ -278,7 +279,7 @@ def _video_shape(name, value, base_dir, probe):
     return None, (frames, height, width), path, fps
 
 
-def _media_problems(arguments, base_dir, probe):
+def _media_problems(arguments, base_dir, probe, frames_constraint=None):
     """[(argument, problem)] for the regional edit's files that resolve now:
     the source's and the mask's size and frame count against the canvas - a
     canvas key the step leaves out is the source's, as at the call - and a
@@ -307,7 +308,9 @@ def _media_problems(arguments, base_dir, probe):
     if shape is not None and None not in canvas[:2]:
         problems += [
             (SOURCE_VIDEO_INPUT, p)
-            for p in media_problems(SOURCE_VIDEO_INPUT, shape, *canvas, fps)
+            for p in media_problems(
+                SOURCE_VIDEO_INPUT, shape, *canvas, fps, frames_constraint
+            )
         ]
     name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
     if name is None:
@@ -364,7 +367,12 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
         rules = mask_problems(arguments, chained=pipeline.get("chain") is not None)
         problems += [(given[0], problem) for problem in rules]
         if not rules:
-            problems += _media_problems(arguments, base_dir, probe)
+            problems += _media_problems(
+                arguments,
+                base_dir,
+                probe,
+                declared_constraints(workflow_definition).get("num_frames"),
+            )
         for name, problem in problems:
             if problem is not None:
                 path = render_path(("steps", source, "pipeline", "arguments", name))

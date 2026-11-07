@@ -1051,9 +1051,6 @@ def listen_canvas(width, height, scale):
     return (long, short) if width >= height else (short, long)
 
 
-H3_MAX_FRAMES = 345  # mirrors the templates' num_frames max_frames
-
-
 def retimed_indices(frame_count, fps):
     """The source frame each conditioning frame of an audio pass shows: the
     source's `frame_count` frames at `fps` resampled in time, nearest frame,
@@ -1065,12 +1062,18 @@ def retimed_indices(frame_count, fps):
     return [min(frame_count - 1, int(i * fps / H3_FPS + 0.5)) for i in range(count)]
 
 
-def media_problems(name, shape, width, height, num_frames=None, fps=None):
+def media_problems(
+    name, shape, width, height, num_frames=None, fps=None, frames_constraint=None
+):
     """Why a `source_video` or mask of `shape` - (frames, height, width) -
     does not fit a `width` x `height` canvas, as a list. `num_frames` is the
     step's frame count, when it is known; a `mask_image` (one frame) fits any.
     `fps` is an audio pass's source rate: at any rate but H3_FPS the source is
-    retimed onto the grid (`retimed_indices`), so its own count need not be."""
+    retimed onto the grid (`retimed_indices`), so its own count need not be.
+    `frames_constraint` is the workflow's declared `num_frames` constraint
+    (`variable_constraints`, the owner of the ceiling), when the caller has
+    it: a `source_video` past its `max_frames` is then named too long."""
+    ceiling = (frames_constraint or {}).get("max_frames")
     problems = []
     if (width, height) != (shape[2], shape[1]):
         problems.append(
@@ -1094,11 +1097,15 @@ def media_problems(name, shape, width, height, num_frames=None, fps=None):
         problem = (
             f"{have}, and the step renders num_frames={num_frames} - they must match"
         )
-        if name == SOURCE_VIDEO_INPUT and expected > H3_MAX_FRAMES:
+        if (
+            name == SOURCE_VIDEO_INPUT
+            and isinstance(ceiling, int)
+            and expected > ceiling
+        ):
+            fits = aligned_down(ceiling, frames_constraint)
             problem += (
-                f". MiniMax-H3 renders at most {H3_MAX_FRAMES} frames "
-                f"({H3_MAX_FRAMES / H3_FPS:.0f} seconds at {H3_FPS} fps), so this "
-                f"clip is too long - trim it to {aligned_down(H3_MAX_FRAMES, RENDER_GRID)} "
+                f". This workflow renders at most {ceiling} frames, so this clip "
+                f"is too long - trim it to {fits if fits is not None else ceiling} "
                 f"frames or fewer"
             )
         problems.append(problem)
