@@ -13,7 +13,7 @@
             "device": "mps",
             "name": "M5 Pro 64GB",
             "vram_gb": 64,
-            "minutes": 3.3,
+            "minutes": 9.2,
             "scales_with": ["audio_duration"]
         }
     ],
