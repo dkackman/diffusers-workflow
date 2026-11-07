@@ -23,7 +23,13 @@ from dw.path_redaction import redact_event, redact_paths
 from dw.log_setup import setup_logging, set_log_level
 from dw.settings import load_settings, resolve_path
 from dw.events import RunContext, WorkflowCancelled
-from dw import get_device_type, empty_device_cache, device_memory_stats
+from dw import (
+    configure_torch,
+    device_memory_stats,
+    empty_device_cache,
+    get_device_type,
+    torch_flags_report,
+)
 from dw.worker_protocol import (
     poisons_cuda_context,
     Cancelled,
@@ -134,6 +140,15 @@ class WorkflowWorker:
         # process, and ConcurrentRotatingFileHandler exists to share it safely
         settings = load_settings()
         setup_logging(resolve_path(settings.log_filename), log_level)
+
+        # The PyTorch settings (TF32, cuDNN) belong to this process, and
+        # startup() runs only in the parent, which runs no pipeline - so
+        # the worker applies them itself, before it loads anything (#1229),
+        # for the card it is pinned to
+        self.settings = settings
+        configure_torch(settings, get_device_type())
+        # Whether this process has narrated the flags it ran a job with yet
+        self.torch_flags_reported = False
 
         # Workflow state. Identity (path, or id for inline definitions) decides
         # when the model cache is dropped wholesale - switching workflows frees
@@ -427,6 +442,9 @@ class WorkflowWorker:
                 self._reply(MemoryInfo(info=memory_info))
 
         job.context = RunContext(on_event=_on_event)
+        # Again at each job start: cheap, and undoes anything an earlier
+        # job's imports set on these process-wide flags (#1229)
+        configure_torch(self.settings, get_device_type())
         watcher = self._watch_commands(job.context)
         try:
             workflow.run(
@@ -439,12 +457,26 @@ class WorkflowWorker:
             self._record_step_keys(workflow)
             watcher.stop()
 
+        self._report_torch_flags(job.context)
+
         self._evict_untouched_pipelines(job.context)
 
         self.run_count += 1
 
         # Aggressive memory cleanup after execution
         self._cleanup_between_runs()
+
+    def _report_torch_flags(self, context):
+        """Narrate the PyTorch flags on this worker's first finished job, once
+        per process (#1229). Read back from torch.backends after the run, so
+        after its pipelines loaded: a dependency that overrode dw's settings
+        shows here rather than hiding behind what settings.json asked for."""
+        if self.torch_flags_reported:
+            return
+        self.torch_flags_reported = True
+        message = torch_flags_report()
+        logger.info(message)
+        context.emit("log", message=message)
 
     def _report_success(self, job: "_Job"):
         """Phase 4: the job's final memory reading, then the success reply.

@@ -507,30 +507,56 @@ def startup(log_level=None):
 
     diffusers.logging.set_verbosity_error()
 
-    # TF32 optimization (Ampere+ GPUs: RTX 30/40 series, A100, H100)
-    # Provides ~2x speedup for matmul operations with minimal precision loss
+    configure_torch(settings, device_type)
+
+
+def configure_torch(settings, device_type):
+    """Apply the three PyTorch settings to this process (#1229).
+
+    `torch.backends` flags belong to a process, so every process that runs a
+    pipeline calls this: `startup()` for the CLI and the served worker
+    (`dw/worker.py`) for every job dw.serve runs. The worker also calls it at
+    each job start, in case something a pipeline imported moved them.
+
+    TF32 is applied on any backend (the matmul precision hint) and the cuDNN
+    flags only when `device_type` is "cuda" - a value from `get_device_type()`.
+    """
+    # TF32 (Ampere+): faster fp32 matmuls, numerically different from full fp32.
+    # Off by default, so same-seed output and the catalog cost rows hold
     if settings.enable_tf32:
         torch.set_float32_matmul_precision("high")
-        if device_type == "cuda":
-            torch.backends.cuda.matmul.allow_tf32 = True
-        logging.debug("TF32 precision enabled for faster matmul operations")
     else:
-        logging.debug("TF32 precision disabled (full FP32 precision)")
-
-    # CUDA-specific optimizations
+        torch.set_float32_matmul_precision("highest")
     if device_type == "cuda":
-        # cuDNN autotuner - benchmarks algorithms and selects fastest
-        # Best for fixed input sizes, may slow down variable-size workflows
-        torch.backends.cudnn.benchmark = settings.cudnn_benchmark
+        torch.backends.cuda.matmul.allow_tf32 = bool(settings.enable_tf32)
 
-        # Always enable cuDNN (default anyway)
+        # The cuDNN autotuner times candidate algorithms on the first call
+        # per shape and keeps the fastest. Timing is load-dependent, so a busy
+        # neighbour card can make it pick differently: same seed, different
+        # bytes. Off by default
+        torch.backends.cudnn.benchmark = bool(settings.cudnn_benchmark)
+
         torch.backends.cudnn.enabled = True
 
-        # Deterministic mode - set True for reproducibility (same seed = same output)
-        # False prioritizes performance over strict reproducibility
-        torch.backends.cudnn.deterministic = settings.cudnn_deterministic
+        # Restricts cuDNN to its deterministic algorithms, so the same seed
+        # gives the same output. On by default; with benchmark also on, the
+        # autotuner chooses among the deterministic algorithms only
+        torch.backends.cudnn.deterministic = bool(settings.cudnn_deterministic)
 
-        logging.debug(
-            f"CUDA optimizations - benchmark: {settings.cudnn_benchmark}, "
-            f"deterministic: {settings.cudnn_deterministic}"
-        )
+    logging.debug(f"Applied {torch_flags_report()}")
+
+
+def torch_flags_report():
+    """The PyTorch flags this process runs with, read back from
+    `torch.backends` rather than from settings - so a dependency that
+    overrode them shows. e.g. 'torch: cudnn benchmark=false
+    deterministic=true, tf32=false'."""
+
+    def _flag(value):
+        return "true" if value else "false"
+
+    return (
+        f"torch: cudnn benchmark={_flag(torch.backends.cudnn.benchmark)} "
+        f"deterministic={_flag(torch.backends.cudnn.deterministic)}, "
+        f"tf32={_flag(torch.backends.cuda.matmul.allow_tf32)}"
+    )
