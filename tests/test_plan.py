@@ -1548,6 +1548,21 @@ class TestSubWorkflowEstimate:
         assert (answer["minutes"], answer["partial"]) == (5.0, True)
         assert answer["unpriced"] == ["parent"]
 
+    def test_narration_long_is_priced_through_its_child(self, plan, tmp_path):
+        """The shipped template's own step is a split task; its cost block
+        covers that, so the estimate is the child's and not partial (#1222)."""
+        import shutil
+        from pathlib import Path
+
+        root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+        for name in ("narration-long.json", "narration-from-takes.json"):
+            shutil.copy(root / name, tmp_path / name)
+        spec = json.loads((tmp_path / "narration-long.json").read_text())
+        answer = plan(spec)["estimate"]
+        assert answer["minutes"] is not None
+        assert (answer["partial"], answer["unpriced"]) == (False, [])
+        assert any("unknown until the run" in note for note in answer["differs"])
+
     def test_a_fully_unpriced_workflow_is_unknown_not_partial(self, plan):
         """No cost block anywhere - 'unknown' already says nobody has a
         number; 'partial' would wrongly imply some of it is known."""
