@@ -314,10 +314,14 @@ class H3Arguments:
                     f"that declares its rate, or a step's video result"
                 )
         arguments[SOURCE_VIDEO_INPUT] = source
+        # An audio pass at another rate renders the retimed count
+        default_frames = frames
+        if fps not in (None, H3_FPS):
+            default_frames = len(retimed_indices(frames, fps))
         for key, value in (
             ("width", width),
             ("height", height),
-            ("num_frames", frames),
+            ("num_frames", default_frames),
         ):
             if arguments.get(key) is None:
                 arguments[key] = value
