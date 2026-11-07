@@ -24,8 +24,10 @@ Unless a row says otherwise, these are H3 chains at the template defaults:
   minute for a guide chain and about 35 min for a static one. A short chain
   costs more per minute, because the model load and the first-pass stall
   are fixed costs.
-- **The cost row and the bench disagree.** The cost row is an interim figure
-  (ruling R34) that predates the bench's settings. Task 20 re-measures it.
+- **The cost row is a 3-segment figure.** The catalog template itself, run
+  for 2 minutes with `shot: static_long`, took 59.2 min
+  (`bench/records/tiers.md`). Quote `plan.estimate` and scale by length from
+  that.
 - **Determinism is free.** `cudnn_benchmark: false` with
   `cudnn_deterministic: true` cost nothing measurable on H3, and makes
   same-seed runs on a two-card server repeat bit for bit
@@ -42,10 +44,17 @@ The design names three tiers for every family:
 
 Defaults favour quality. A speedup with no marked loss becomes a default.
 
-- **Speed levers and tiers** (Tasks 19-20): *pending measurement*. Which
-  settings each tier maps to, and what each step down saves per minute, are
-  not measured yet. Until they are, run the template defaults and quote
-  `plan.estimate`.
+- **The `tier` argument** (measured, `bench/records/tiers.md`) is on
+  `minimax/chained-segments`, the three `chain-*` templates,
+  `dialogue-short` and `music-video`. `tier: draft` uses fewer steps on
+  the same canvas and weights: 4 steps for a guide chain, 5 for the Ref2VA
+  ones. It is 28-44% cheaper and keeps the standard take's staging at the
+  same seed, so approve blocking and timing on it, never texture.
+  `standard` is the default. `tier: best` is 1344x768 on int8 weights, the
+  cleanest take measured, at 1.3-1.7x standard's wall time. It re-stages,
+  needs about 65 GB of host RAM per job, and runs one at a time on a 128 GB
+  box. Any argument you pass still wins over the tier. LTX chains have no
+  tier: their schedule is fixed, and the step up is `ltx2/upscale-clip`.
 - **LTX-2.5 parity** (Task 23, `bench/records/ltx.md`): measured.
   `last_frame` stays the `templates/ltx2/chained-segments` default. Cap an
   LTX take at about 15-20 s (3-4 segments), then cut and start the next

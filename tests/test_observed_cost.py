@@ -688,7 +688,9 @@ class TestTheCatalogsDriversAreReal:
         bucket by exact value (#866, Q5). So is the attention backend, which
         changes the wall clock by 2-4x (#931). The chained-segments template's
         continuity, shot and anchor are likewise short-list choices: a guide
-        chain measured 13.5 min against last_frame's 9.6."""
+        chain measured 13.5 min against last_frame's 9.6. The long-form
+        templates' `tier` (draft, standard, best) is one too: it selects a
+        bundle of canvas, steps and weights (bench/records/tiers.md)."""
         never = {"seed", "prompt", "negative_prompt"}
         choices = {
             "weights_dtype",
@@ -697,6 +699,7 @@ class TestTheCatalogsDriversAreReal:
             "continuity",
             "shot",
             "anchor",
+            "tier",
         }
         for path in sorted(
             glob.glob(

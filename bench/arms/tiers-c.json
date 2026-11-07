@@ -1,0 +1,12 @@
+[
+  {
+    "name": "t20-int8-s4-s1166",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  }
+]

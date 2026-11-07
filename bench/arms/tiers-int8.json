@@ -1,0 +1,192 @@
+[
+  {
+    "name": "t20-int8-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-int8-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-int8-s3-s1166",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-int8-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-ctl-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-int8-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768,
+      "weights_dtype": "{int8}"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-c1344-int8-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "width": 1344,
+      "height": 768,
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-ctl-s3-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {},
+    "seed": 2,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-int8-s3-s2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {
+      "weights_dtype": "{int8}"
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-t20"
+  },
+  {
+    "name": "t20-st4int8-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}",
+      "num_inference_steps": 4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-st4int8-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "weights_dtype": "{int8}",
+      "num_inference_steps": 4
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "t20-int8-static-long-120s-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "duration_seconds": 120,
+      "anchor": "none",
+      "keystone": "segment_1",
+      "keystone_slot": "last",
+      "weights_dtype": "{int8}"
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-t20",
+    "moments": [
+      "frame:62",
+      "frame:1501",
+      "frame:2868"
+    ]
+  }
+]

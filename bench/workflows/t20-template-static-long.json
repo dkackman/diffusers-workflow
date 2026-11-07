@@ -1,0 +1,33 @@
+{
+  "id": "BenchT20TemplateStaticLong",
+  "summary": "templates/minimax/chained-segments as shipped, shot static_long, on S1's still and prompt.",
+  "description": "Task 20 (#1199): the catalog template templates/minimax/chained-segments composed by its catalog name, not a bench copy, with S1's still and prompt, 'shot' (default static_long: guide + keystone segment_1 at keystone_slot last, anchor off), 'duration_seconds' (default 120) and 'seed' set and everything else the template's own defaults, so the GPU run confirms the template path end to end and records its wall time.",
+  "variables": {
+    "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous static shot. The shot opens exactly on <Picture 1>: a young woman in a plain dark grey sweater stands centered in front of a flat painted wall of bold diagonal rainbow stripes with a black circle at upper left and a teal square at lower right. She breathes calmly, blinks, shifts her weight slightly and turns her head a little left and right, staying in place at the center of the frame. The painted wall stays exactly as it is, evenly lit by soft studio light. The camera is locked off on a tripod and never moves.\n\noverall_soundscape: Quiet studio room tone, the soft rustle of a wool sweater, calm breathing.\n\nnon_diegetic_music: None.",
+    "image": "asset:bench/static-stripes.jpg",
+    "shot": "static_long",
+    "duration_seconds": 120,
+    "seed": 1166
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "take",
+      "workflow": {
+        "path": "templates/minimax/chained-segments",
+        "arguments": {
+          "prompt": "variable:prompt",
+          "image": "variable:image",
+          "shot": "variable:shot",
+          "duration_seconds": "variable:duration_seconds",
+          "seed": "variable:seed"
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

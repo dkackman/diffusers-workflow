@@ -243,3 +243,27 @@ def test_round2_two_minute_arms_share_one_geometry():
     assert {a.arguments["duration_seconds"] for a in arms} == {120}
     assert len({tuple(a.moments) for a in arms}) == 1
     assert {a.seed for a in arms} == {1166}
+
+
+TIERED_TEMPLATES = [
+    "minimax/chained-segments",
+    "minimax/chain-video-continuity",
+    "minimax/chain-matched-to-audio",
+    "minimax/chain-matched-and-aligned",
+    "minimax/dialogue-short",
+    "minimax/music-video",
+]
+
+
+@pytest.mark.parametrize("name", TIERED_TEMPLATES)
+def test_a_templates_tier_bundles_name_declared_variables(name):
+    """Task 20: the `tier` bundles the bench measured (bench/records/tiers.md)
+    move only variables the template declares, and the bench's own arms ran
+    those same values on the scene workflows."""
+    path = BENCH.parent / "workflows" / "templates" / f"{name}.json"
+    definition = json.loads(path.read_text(encoding="utf-8"))
+    bundles = definition["presets"]["tier"]
+    assert sorted(bundles) == ["best", "draft", "standard"]
+    for tier, bundle in bundles.items():
+        undeclared = set(bundle) - set(definition["variables"])
+        assert not undeclared, (tier, sorted(undeclared))

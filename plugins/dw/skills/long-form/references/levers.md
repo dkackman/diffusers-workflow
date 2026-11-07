@@ -143,8 +143,8 @@ dropped, and **unmeasured** means no bench verdict yet.
   `references/cuts.md`.
 - *Community:* speed LoRAs add crunch over a long chain. **Unmeasured.** The
   bench ran every arm on the 4-step turbo LoRA, the template default, so it
-  has no arm without it. The speed tiers are *pending measurement*
-  (`quality-and-speed.md`); the 4-step default is unchanged until they land.
+  has no arm without it. The 8-step 768p file lost to
+  it at 1344x768 (`bench/records/tiers.md`); the 4-step default stands.
 - *Community:* measure drift on a patch the subject never enters, against
   segment 1 at the same frames. Whole-frame averages let changes cancel out.
   **Default** method: the bench measures texture on the scene crop against
