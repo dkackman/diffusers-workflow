@@ -2451,7 +2451,7 @@ export interface components {
             job: components["schemas"]["JobRef"] | null;
             /**
              * Media
-             * @description The probe of an audio or video file, or an image's kind, width, height and mode; null for another file.
+             * @description The probe of an audio or video file, or an image's kind, width, height and mode, or an .otioz's timeline (tracks, clips with durations, members); null for another file.
              */
             media: {
                 [key: string]: unknown;
