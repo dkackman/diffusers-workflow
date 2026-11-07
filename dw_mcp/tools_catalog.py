@@ -194,7 +194,9 @@ class CatalogTools:
         its next run. A card running a job is skipped (`workers` says
         which); refused with a 409 when no card asked about is idle - wait
         and retry. No model process resident succeeds with a null
-        `info`."""
+        `info`. This frees memory only: the worker process stays alive with
+        the same pid, so process-level state (and one-time startup log
+        lines) is not renewed."""
         return catalog.clear_memory(self.client, device)
 
     def get_health(
@@ -209,7 +211,9 @@ class CatalogTools:
         `worker_alive: false` on an otherwise healthy server (`status: ok`)
         is the normal idle state, not a fault - workers are on-demand
         subprocesses that start with the next job, so none is resident
-        before the first run or after a memory clear."""
+        before the first run. A memory clear frees the models but keeps
+        the worker process alive (same pid, `alive: true`): to get a fresh
+        process the worker must exit, which a clear does not do."""
         return catalog.get_health(self.client)
 
     def get_server_info(
