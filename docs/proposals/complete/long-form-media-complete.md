@@ -409,7 +409,9 @@ These are drafted for filing at hand-off. None is filed yet.
 - A braced `*_dtype` loses its braces when a template is composed as a child workflow
   (`1fbbc89cf0eb`, found during Task 20).
 - An engine default of `cudnn_benchmark: false`, after timing a conv-heavy family
-  (R36, not done in Task 19).
+  (R36, not done in Task 19). Done in #1229 (`torch-settings-complete.md`):
+  served workers had never applied the key, and they now default to
+  benchmark off, deterministic on.
 - Promoting the windowed refine seam pass (a feature with its own stages).
 - Repairing two adjacent segments together (a break that spilled into k+1).
 - The deferred minors from the ledger, collected in one issue.

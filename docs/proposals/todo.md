@@ -571,6 +571,14 @@ remaining deferred fix is recorded in
   `dialogue.md` and check-script line say so. Probe record:
   `audits/2026-11-h3-dialogue-pacing-probes.md`; design record:
   `complete/h3-dialogue-pacing-complete.md`. Enhancer follow-up: #1186.
+- **Served workers apply dw's PyTorch settings** (#1229, stage #1238),
+  shipped 2026-11-07. Before this, `enable_tf32`, `cudnn_benchmark` and
+  `cudnn_deterministic` never reached a served job: only `startup()` applied
+  them, and the spawned worker never called it. The worker now applies them
+  at start and at each job, and narrates them once per process. The new
+  defaults are benchmark off, deterministic on, TF32 off. On lem, a seeded
+  SD 1.5 image was byte-identical under two-card load, with no slowdown and
+  no cost row moved. Design record: `complete/torch-settings-complete.md`.
 
 ## Declined
 
