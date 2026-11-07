@@ -37,6 +37,12 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
+  static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
+  LTX chain, the `minimax/add-sound` audio pass, long narration and music joins,
+  `tier: draft | standard | best` on six H3 templates, and the long-form skill.
+  Verdicts per idea, job ids and what was cut are in
+  `complete/long-form-media-complete.md`.
 - **H3 guide-chain drift counters** (#1166, stages #1173-#1175), shipped
   2026-11-02. Two off-by-default H3 options: `latent_anchor` with
   `chain.anchor: "segment_1"`, a pre-decode per-channel latent statistics
