@@ -2614,3 +2614,78 @@ class TestUnpricedNamesTheChildren:
         assert (answer["minutes"], answer["basis"]) == (None, "unknown")
         assert answer["partial"] is False
         assert [name for name in answer["unpriced"]] == ["child.json"]
+
+
+CATALOG_CHAINED = "workflows/templates/minimax/chained-segments.json"
+
+
+class TestTiersPriceFromTheObservedDefault:
+    """#1236 on the real templates: with this box's history of the default
+    tier, every other tier is priced from it, not from the curated row -
+    `best`, which moves `weights_dtype` too, and a `draft` whose own history
+    is a single run, tempered toward the observed default scaled rather than
+    toward the curated row scaled."""
+
+    @staticmethod
+    def history(by_tier):
+        def answer(arguments):
+            return by_tier.get(arguments.get("tier"))
+
+        return answer
+
+    def quote(self, plan, path, arguments, by_tier):
+        template = _repo_json(path)
+        return plan(template, arguments=arguments, observed=self.history(by_tier))[
+            "estimate"
+        ]
+
+    def test_best_scales_the_observed_default_and_names_weights(self, plan):
+        by_tier = {None: observed(minutes=5.5, runs=7)}
+        args = {"segments": 2}
+        standard = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        best = self.quote(plan, CATALOG_CHAINED, {**args, "tier": "best"}, by_tier)
+        assert (standard["minutes"], standard["basis"]) == (5.5, "observed")
+        assert best["basis"] == "derived"
+        assert best["scaled"] == (
+            "scaled from the observed 5.5 min: canvas 1344x768 vs 960x544"
+        )
+        assert best["differs"] == ["weights_dtype"]
+        assert best["low_confidence"] is True
+        # 5.5 x (1344 x 768) / (960 x 544)
+        assert best["minutes"] == pytest.approx(10.9, abs=0.05)
+        assert standard["minutes"] < best["minutes"]
+
+    def test_dialogue_short_best_scales_its_observed_default(self, plan):
+        by_tier = {None: observed(minutes=38.6, runs=5)}
+        best = self.quote(plan, CATALOG_DIALOGUE, {"tier": "best"}, by_tier)
+        assert best["basis"] == "derived"
+        assert best["scaled"].startswith("scaled from the observed 38.6 min")
+        assert "curated" not in best["scaled"]
+        assert best["minutes"] > 38.6
+
+    def test_a_thin_draft_bucket_tempers_toward_the_observed_default(self, plan):
+        by_tier = {
+            None: observed(minutes=5.5, runs=7),
+            "draft": observed(minutes=3.0, runs=1),
+        }
+        args = {"segments": 2}
+        standard = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        draft = self.quote(plan, CATALOG_CHAINED, {**args, "tier": "draft"}, by_tier)
+        assert draft["basis"] == "observed"
+        assert draft["tempered"] is True
+        assert draft["observed_minutes"] == 3.0
+        # 5.5 x 4/5 steps, not 13.5 x 4/5 x 2/3 segments (7.2)
+        assert draft["curated_minutes"] == pytest.approx(4.4)
+        assert draft["minutes"] == pytest.approx(4.4 * 2 / 3 + 3.0 / 3, abs=0.05)
+        assert "scaled from the observed 5.5 min: steps 4 vs 5" in draft["scaled"]
+        assert "curated" not in draft["scaled"]
+        assert "tier" not in (draft.get("differs") or [])
+        assert draft["minutes"] < standard["minutes"]
+
+    def test_a_thin_bucket_with_no_default_history_tempers_toward_curated(self, plan):
+        by_tier = {"draft": observed(minutes=3.0, runs=1)}
+        args = {"segments": 2, "tier": "draft"}
+        draft = self.quote(plan, CATALOG_CHAINED, args, by_tier)
+        assert draft["tempered"] is True
+        assert draft["curated_minutes"] == pytest.approx(7.2, abs=0.05)
+        assert "scaled from the curated 13.5 min" in draft["scaled"]

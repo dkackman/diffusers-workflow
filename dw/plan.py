@@ -206,25 +206,46 @@ def _observed_block(observed, arguments, definition=None, expanded=None, entries
     A run whose drivers this box has never run (a preset tier, say) has no
     bucket of its own. Rather than fall to the curated row, which can sit far
     from this box's speed (#1236), the history of the same run under the
-    default preset is scaled by the ratio the drivers moved by."""
+    default preset is scaled by the ratio the drivers moved by. A tier whose
+    own bucket is too thin to quote alone carries that scaled figure as
+    `baseline`, the one `estimate` tempers it toward in place of the
+    curated row."""
     if not callable(observed):
         return observed if isinstance(observed, dict) else None
     try:
-        block = observed(arguments or {})
-        if not isinstance(block, dict) and definition is not None:
-            block = _scaled_observed(
-                observed, arguments or {}, definition, expanded, entries
-            )
+        args = arguments or {}
+        block = observed(args)
+        if definition is not None:
+            if not isinstance(block, dict):
+                block = _scaled_observed(observed, args, definition, expanded, entries)
+            elif _thin(block):
+                baseline = _scaled_observed(
+                    observed, args, definition, expanded, entries
+                )
+                if baseline is not None:
+                    block = {**block, "baseline": baseline}
     except Exception:
         logger.debug("No observed history for the plan", exc_info=True)
         return None
     return block if isinstance(block, dict) else None
 
 
+def _thin(block):
+    """Whether an observed block's cold history is below the run count
+    `_tempered` quotes at full authority."""
+    runs = block.get("cold_runs")
+    return isinstance(runs, int) and runs < SMALL_N_THRESHOLD
+
+
 def _scaled_observed(observed, arguments, definition, expanded, entries):
     """History of the run with the preset selectors left at their defaults,
-    scaled to `arguments`' drivers, or None when there is none or the move
-    has no rule to scale by."""
+    scaled to `arguments`' drivers, or None when there is none or nothing
+    but the selector itself moved.
+
+    A driver the preset moved that no rule scales (a tier's weights dtype)
+    keeps the figure, named in `differs`, as the curated path keeps it
+    (#866): the observed default is still far nearer this box's speed than
+    the curated row (#1236)."""
     selectors = preset_selectors(definition)
     base_args = {k: v for k, v in arguments.items() if k not in selectors}
     if len(base_args) == len(arguments):
@@ -234,20 +255,27 @@ def _scaled_observed(observed, arguments, definition, expanded, entries):
         block.get("cold_minutes"), (int, float)
     ):
         return None
+    if block.get("inherited_from"):
+        # Another template's history, an approximation of its own (#797)
+        return None
     baseline = effective_variables(definition, base_args)
     scaling = _driver_scaling(definition, expanded, entries, baseline=baseline)
     if scaling is None:
         return None
     factor, axes, unscaled = scaling
     # The selector itself moved by construction; what it moved is scaled
-    if [name for name in unscaled if name not in selectors] or not axes:
+    differs = [name for name in unscaled if name not in selectors]
+    if not axes and not differs:
         return None
-    return {
+    scaled = {
         **block,
         "cold_minutes": block["cold_minutes"] * factor,
-        "scaled": f"scaled from the observed {round(block['cold_minutes'], 1)} min: "
-        + ", ".join(axes),
+        "scaled": f"scaled from the observed {round(block['cold_minutes'], 1)} min"
+        + (": " + ", ".join(axes) if axes else ""),
     }
+    if differs:
+        scaled["differs"] = differs
+    return scaled
 
 
 def list_entries(definition, realized):
@@ -740,18 +768,25 @@ def estimate(
         # be quoted at the shorter run's minutes (#796)
         measured = None
     if measured is not None:
-        measured = _tempered(measured, own["minutes"])
-        if measured.get("tempered") and own.get("scaled"):
+        # A thin bucket blends toward this box's default-tier history scaled
+        # to its drivers when there is one, not the curated row (#1236)
+        partner = _observed(
+            observed.get("baseline") if isinstance(observed, dict) else None, device
+        )
+        if partner is None:
+            partner = own
+        measured = _tempered(measured, partner["minutes"])
+        if measured.get("tempered") and partner.get("scaled"):
             # What it blended toward was scaled for this run's drivers, and
             # `curated_minutes` alone does not say so (#866)
             measured["scaled"] = "; ".join(
-                part for part in (measured.get("scaled"), own["scaled"]) if part
+                part for part in (measured.get("scaled"), partner["scaled"]) if part
             )
-        if measured.get("tempered") and own.get("differs"):
+        if measured.get("tempered") and partner.get("differs"):
             # It blended toward a figure measured at another setting of a
             # driver nothing scales (#866)
             measured["differs"] = _unique(
-                (measured.get("differs") or []) + own["differs"]
+                (measured.get("differs") or []) + partner["differs"]
             )
             measured["low_confidence"] = True
         measured["cached_minutes"] = _cached_minutes(
@@ -854,6 +889,9 @@ def _observed(observed, device):
         estimate["basis"] = DERIVED
         estimate["scaled"] = observed["scaled"]
         estimate["low_confidence"] = True
+        if observed.get("differs"):
+            # Moved a driver no rule scales: measured at another setting
+            estimate["differs"] = list(observed["differs"])
     if inherited_from:
         # History of the catalog template with this workflow's pipeline,
         # not of this workflow - an approximation (#797)
