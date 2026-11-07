@@ -107,6 +107,17 @@ def run_chain(pipeline, chain_definition, arguments):
         _check_guide_chain(pipeline, arguments, chain_definition, config)
     if config.anchor == ANCHOR_SEGMENT_1:
         _check_anchor_chain(pipeline, arguments)
+    if (
+        config.keystone == KEYSTONE_SEGMENT_1
+        and config.keystone_slot is None
+        and arguments.get(config.segment_argument) is None
+    ):
+        # t2va has no keyframe argument for the keystone to replace (#1232)
+        emit_warning(
+            f"Chain keystone 'segment_1' has no effect on this step: it takes "
+            f"no {config.segment_argument!r} keyframe (t2va), so every later "
+            f"segment is generated without the keystone frame"
+        )
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -601,6 +612,11 @@ def _stitched(config, spill, frames, audio, audio_rate, shots):
     return AudioVideo(frames, audio, audio_rate, fps=config.fps, shots=shots)
 
 
+def _copied(frame):
+    """`frame` as its own object when it is copyable (a PIL image)."""
+    return frame.copy() if hasattr(frame, "copy") else frame
+
+
 def _from_segment_1(config, rendered):
     """What later segments take from segment 1's frames as rendered: its
     frames as the latent anchor, its frame 0 as the keystone (#1187) and its
@@ -612,7 +628,9 @@ def _from_segment_1(config, rendered):
         )
     return (
         rendered if config.anchor == ANCHOR_SEGMENT_1 else None,
-        rendered[0] if config.keystone == KEYSTONE_SEGMENT_1 else None,
+        # A copy: the output holds rendered[0], and a later segment's
+        # processing must not reach it through the shared object (#1232)
+        _copied(rendered[0]) if config.keystone == KEYSTONE_SEGMENT_1 else None,
         rendered[-config.capstone["from_end"]] if config.capstone else None,
     )
 

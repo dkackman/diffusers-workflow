@@ -1063,6 +1063,41 @@ class TestGuideContinuity:
         ]
         assert pipeline.calls[1]["image"].getpixel((0, 0)) == (0, 102, 7)
 
+    def test_keystone_on_t2va_warns_that_it_does_nothing(self):
+        # t2va passes no keyframe, so there is nothing for the keystone to replace
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            run_chain(
+                FakePipeline(self.output),
+                self.chain(keystone="segment_1"),
+                self.arguments(),
+            )
+
+        assert any(
+            "keystone" in c.args[0] and "t2va" in c.args[0] for c in warn.call_args_list
+        )
+
+    def test_keystone_with_a_keyframe_does_not_warn(self):
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            run_chain(
+                FakePipeline(self.output),
+                self.chain(keystone="segment_1"),
+                self.arguments(image=solid_frame((1, 2, 3))),
+            )
+
+        assert not any("keystone" in c.args[0] for c in warn.call_args_list)
+
+    def test_keystone_frame_is_a_copy_of_the_output_frame(self):
+        pipeline = FakePipeline(self.output)
+
+        result = run_chain(
+            pipeline,
+            self.chain(keystone="segment_1"),
+            self.arguments(image=solid_frame((1, 2, 3))),
+        )
+
+        for call in pipeline.calls[1:]:
+            assert call["image"] is not result.frames[0]
+
     def test_keystone_validation_wires_the_rule(self):
         from dw.guides import anchor_errors
 
