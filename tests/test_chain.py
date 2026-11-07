@@ -1949,3 +1949,62 @@ class TestAudioFloorReroll:
 
         assert out.shots[1]["audio_dbfs"] == -120.0
         assert len(self.silent_warnings(warn)) == 1
+
+
+class TestChainLengthErrors:
+    """#1259 - validate applies the run's chain length and audio-source rules."""
+
+    @staticmethod
+    def _definition(chain, arguments=None):
+        return {"steps": [{"pipeline": {"chain": chain, "arguments": arguments or {}}}]}
+
+    def test_segments_plus_match_audio_refused_after_substitution(self):
+        from dw.step_value_checks import chain_length_errors
+
+        chain = {"segments": 2, "match_audio": True}
+        errors = chain_length_errors(self._definition(chain))
+        assert len(errors) == 1
+        assert errors[0]["path"].endswith("pipeline.chain")
+        assert "exactly one of" in errors[0]["message"]
+
+    def test_match_audio_without_track_refused(self):
+        from dw.step_value_checks import chain_length_errors
+
+        errors = chain_length_errors(self._definition({"match_audio": True}))
+        assert len(errors) == 1
+        assert "hold_audio" in errors[0]["message"]
+
+    def test_match_audio_with_hold_audio_passes(self):
+        from dw.step_value_checks import chain_length_errors
+
+        definition = self._definition(
+            {"match_audio": True}, {"hold_audio": "asset:song.wav"}
+        )
+        assert chain_length_errors(definition) == []
+
+    def test_plain_segments_passes(self):
+        from dw.step_value_checks import chain_length_errors
+
+        assert chain_length_errors(self._definition({"segments": 2})) == []
+
+    def test_variable_segments_with_match_audio_refused_by_validate(self, tmp_path):
+        import json
+        import pathlib
+
+        from dw.workflow import workflow_from_definition
+
+        template = pathlib.Path(__file__).parent.parent / (
+            "workflows/templates/ltx2/chained-segments.json"
+        )
+        workflow = json.loads(template.read_text())
+        workflow["variables"]["segments"] = 2
+        workflow["variables"]["duration_seconds"] = None
+        chain = workflow["steps"][0]["pipeline"]["chain"]
+        chain["match_audio"] = True
+        errors = workflow_from_definition(
+            workflow, str(tmp_path), str(tmp_path), None
+        ).validation_errors()
+        assert any(
+            e["path"] == "steps[0].pipeline.chain" and "exactly one of" in e["message"]
+            for e in errors
+        ), errors

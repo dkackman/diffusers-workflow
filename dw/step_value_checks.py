@@ -17,6 +17,10 @@ from functools import lru_cache
 from . import references
 from .arguments import names_no_media
 from .for_each import render_path
+from .pipeline_processors.chain_rules import (
+    chain_length_problem,
+    match_audio_source_problem,
+)
 from .schema import load_schema, validate_data_all
 from .references import (
     FROM_ARGUMENTS_KEY,
@@ -410,4 +414,30 @@ def chain_prompts_errors(workflow_definition, source_indices=None):
                 ),
             }
         )
+    return errors
+
+
+# --- A chain's length and its matched track (#1259) ---------------------------
+#
+# The schema's `not` clause only sees an integer `segments`; a `variable:`
+# reference passes it, and the run refused after the model load. These are
+# the run's own rules (chain_rules.py), asked of the substituted block.
+
+
+def chain_length_errors(workflow_definition, source_indices=None):
+    """Every chain that asks for its length not exactly one way, or that
+    matches audio with no track to match, as [{path, message}]."""
+    errors = []
+    for _, _, pipeline, source, _ in iter_steps(
+        workflow_definition.get("steps"), source_indices, "pipeline"
+    ):
+        chain = pipeline.get("chain")
+        if not isinstance(chain, dict):
+            continue
+        path = render_path(("steps", source, "pipeline", "chain"))
+        problem = chain_length_problem(chain)
+        if problem is None and chain.get("match_audio") is True:
+            problem = match_audio_source_problem(pipeline.get("arguments"))
+        if problem:
+            errors.append({"path": path, "message": problem})
     return errors

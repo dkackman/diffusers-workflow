@@ -201,6 +201,7 @@ ERROR_ORDER = [
     "stills_memory",
     "select",
     "chain_prompts",
+    "chain_length",
     "guide_chain",
     "latent_anchor",
     "guide_noise",

@@ -21,11 +21,13 @@ from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
+    MATCH_AUDIO_SOURCE_RULE,
     chain_capstone_problem,
     chain_check_problem,
     chain_keystone_slot,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
+    chain_length_problem,
     chain_look_hold_flags,
     chain_look_hold_problem,
     keystone_slot_plan_problem,
@@ -89,12 +91,9 @@ def _chain_length(chain_definition):
     duration = chain_definition.get("duration_seconds", None)
     # A resolved duration wins over a segment count: a template carries a
     # default `segments`, and asking for seconds must not need it nulled
-    counted = segments is not None or duration is not None
-    if counted == match_audio:
-        raise ValueError(
-            "A chain needs exactly one of 'segments', 'match_audio' or "
-            "'duration_seconds'"
-        )
+    problem = chain_length_problem(chain_definition)
+    if problem:
+        raise ValueError(problem)
     if segments is not None and duration is not None:
         emit_log(
             f"Chain 'segments' ({segments}) ignored: 'duration_seconds' "
@@ -546,10 +545,7 @@ def _find_audio_reference(arguments):
     slices per segment."""
     references = arguments.get("references", None)
     if not isinstance(references, list):
-        raise ValueError(
-            "A match_audio chain needs a 'hold_audio' track, or a 'references' "
-            "argument holding the audio reference to match"
-        )
+        raise ValueError(MATCH_AUDIO_SOURCE_RULE)
 
     audio_references = [
         reference
