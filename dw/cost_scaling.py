@@ -424,8 +424,27 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
     return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 
 
-def _scaled(price, scaling):
-    """`price` scaled by a `_driver_scaling` answer: `derived` once any axis
+FIXED_MINUTES_KEY = "fixed_minutes"
+
+
+def fixed_minutes(cost, device):
+    """The part of the `cost` entry a run is quoted from that does not scale
+    (`fixed_minutes`: model load, encode, decode - #1224), 0.0 when the entry
+    declares none. The entry is chosen as `dw/plan.py`'s `_price` chooses:
+    the device's own, else the first."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return 0.0
+    chosen = next((e for e in entries if e.get("device") == device), entries[0])
+    value = chosen.get(FIXED_MINUTES_KEY)
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return 0.0
+    return float(value) if math.isfinite(value) and value > 0 else 0.0
+
+
+def _scaled(price, scaling, fixed=0.0):
+    """`price` scaled by a `_driver_scaling` answer (`fixed` minutes of it,
+    the entry's `fixed_minutes`, stay as they are): `derived` once any axis
     moved (another device's figure stays `other_device`, as `_price` keeps it
     for a resized list - #589), with `scaled` saying from what. A driver with
     no rule to scale by that moved leaves the basis alone, and is named in
@@ -441,11 +460,14 @@ def _scaled(price, scaling):
     if not axes:
         return price
     basis = OTHER_DEVICE if price["basis"] == OTHER_DEVICE else DERIVED
+    # The fixed share is paid once however far the drivers moved (#1224)
+    fixed = min(fixed, price["minutes"])
+    note = f" ({_shown(fixed)} min of it fixed)" if fixed else ""
     return {
         **price,
-        "minutes": price["minutes"] * factor,
+        "minutes": fixed + (price["minutes"] - fixed) * factor,
         "basis": basis,
-        "scaled": f"scaled from the curated {_shown(price['minutes'])} min: "
+        "scaled": f"scaled from the curated {_shown(price['minutes'])} min{note}: "
         + ", ".join(axes),
     }
 
