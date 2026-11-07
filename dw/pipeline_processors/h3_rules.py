@@ -9,6 +9,7 @@ that it imports neither.
 """
 
 import math
+import os
 from array import array
 
 from .. import references
@@ -92,7 +93,8 @@ def refine_problems(arguments, canvas=None):
             "refine_strength re-denoises the 'latents' it is passed - pass the "
             "upscaled latents, e.g. 'previous_result:up'"
         )
-    if arguments.get(HOLD_AUDIO_INPUT) is None:
+    # An audio pass refuses refine_strength itself (h3_audio_pass.py)
+    if arguments.get(HOLD_AUDIO_INPUT) is None and not is_audio_pass(arguments):
         problems.append(
             "refine_strength re-denoises the video only, so it needs 'hold_audio' "
             "to keep a soundtrack - e.g. the base pass's 'previous_result:base.audio'"
@@ -209,6 +211,31 @@ LATENT_SCALE = 16
 # The rate H3 generates video at
 H3_FPS = 24
 
+# The experimental time-windowed refine (#1199 Task 17 Step 4,
+# dw/pipeline_processors/h3_windows.py): its call argument, and the scratch flag
+# the loader reads before it puts the windowed denoiser in. Here, not in
+# h3_windows.py, because that module imports diffusers and the loader reads the
+# flag on every H3 load
+REFINE_WINDOWS_INPUT = "experimental_refine_windows"
+REFINE_WINDOWS_ENV_VAR = "DW_EXPERIMENTAL_REFINE_WINDOWS"
+
+
+def refine_windows_enabled():
+    """Whether the windowed refine's scratch flag is on in this process."""
+    return os.environ.get(REFINE_WINDOWS_ENV_VAR) == "1"
+
+
+# The experimental SelfLift (#1195, #1199 Task 19; h3_selflift.py): the early
+# steps of one schedule on a smaller canvas, lifted to the call's canvas mid
+# schedule. Behind REFINE_WINDOWS_ENV_VAR, the long-form spikes' one flag
+SELFLIFT_INPUT = "experimental_selflift"
+
+
+# The latent statistics anchor's call argument (#1166; see ANCHOR_BLOCK)
+LATENT_ANCHOR_INPUT = "latent_anchor"
+# How far the match goes (#1190): 1 (default) is the full per-channel match, 0
+# leaves the latent alone; a blend in between
+LATENT_ANCHOR_STRENGTH_INPUT = "latent_anchor_strength"
 
 # The arguments that condition a step on a reference, a keyframe or a guide: the
 # tile plan has no place to put one, and each tile would need its own crop
@@ -220,6 +247,7 @@ TILE_CONFLICTS = (
     "source_video",
     "mask_video",
     "mask_image",
+    LATENT_ANCHOR_INPUT,
 )
 
 
@@ -408,9 +436,14 @@ def tile_plan(width, height, tile_width, tile_height, overlap):
     ]
 
 
-def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
+def not_h3(pipeline, argument=HOLD_AUDIO_INPUT, taken_by=H3_WORKFLOWS):
     """Why this step's pipeline cannot take `argument` - one of the H3 block
-    arguments - or None when it can or cannot be told before the load."""
+    arguments - or None when it can or cannot be told before the load.
+    `taken_by` is the H3 workflows the message names as taking it: an
+    argument ref2va refuses (guides, latent_anchor) passes t2va/fl2va only,
+    so the refusal does not send the author to a workflow that refuses it
+    too. It only words the message - an H3 workflow outside it is left to
+    the caller's own rule, which says why."""
     configuration = pipeline.get("configuration")
     component_type = (
         configuration.get("component_type") if isinstance(configuration, dict) else None
@@ -421,7 +454,7 @@ def not_h3(pipeline, argument=HOLD_AUDIO_INPUT):
     )
     holds = (
         f"{argument} is a MiniMax-H3 argument, taken by its "
-        f"{', '.join(sorted(H3_WORKFLOWS))} workflows"
+        f"{', '.join(sorted(taken_by))} workflows"
     )
     if (
         isinstance(component_type, str)
@@ -447,6 +480,50 @@ GUIDE_LATENTS_BLOCK = "dw_guide_latents"
 # the state key the layout leaves them under (#649)
 GUIDE_AUDIO_BLOCK = "dw_guide_audio"
 GUIDE_AUDIO_ROWS = "dw_guide_audio_latents"
+# The experimental late capstone (#1187, #1199 Task 14 Step 4; h3_windows.py):
+# a guide's keys for a one-frame row timed one latent past the render's end,
+# held out of the forward until sigma falls below its gate, and the state key
+# the layout leaves the gated rows under. Behind REFINE_WINDOWS_ENV_VAR
+CAPSTONE_PAST_END = "past_end"
+CAPSTONE_GATE = "enter_below_sigma"
+GATED_GUIDE_ROWS = "dw_gated_guide_rows"
+
+# Fixed guide noise (#1166, after PrefixStream): pixel noise on every video
+# guide, tapered by `guide_noise_taper` to clean at the guide's last frame, put
+# into its latent by encoding the noised pixels (h3_guide_steps.DwH3GuideLayoutStep). The
+# rows stay held condition rows; audio is never noised.
+GUIDE_NOISE_INPUT = "guide_noise"
+
+
+def guide_noise_problem(value):
+    """Why `value` cannot be a `guide_noise`, naming the range, or None. An
+    unresolved reference is left to the run."""
+    if isinstance(value, str) and references.is_ref(references.UNRESOLVED, value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4 - and {value!r} is "
+            f"not a number"
+        )
+    if not 0 <= value < 1:  # NaN fails it too
+        return (
+            f"guide_noise is a number in [0, 1) - about 0.4; 0 adds none - and "
+            f"{value} is outside it"
+        )
+    return None
+
+
+def guide_noise_taper(num_frames, strength):
+    """The noise amplitude on each of a guide's `num_frames` frames: a cosine
+    taper from `strength` at the first frame to 0 at the last, the frame next
+    to the join. A one-frame guide is all join, so it is clean."""
+    if num_frames <= 1:
+        return [0.0] * num_frames
+    return [
+        strength * 0.5 * (1.0 + math.cos(math.pi * index / (num_frames - 1)))
+        for index in range(num_frames)
+    ]
+
 
 # Pixel frames per VAE chunk and latent frames per chunk - a clip encodes to whole
 # latents at 1, 5 or 17m + 5 frames, and lines up with the target's latent grid
@@ -500,16 +577,197 @@ def guide_frame_problem(frame):
 GUIDE_CONTINUITY = "guide"
 GUIDE_CHAIN_FRAMES = (22, 39)
 GUIDE_CHAIN_DEFAULT = 22
+# guide_backoff (#1189) moves the carry back whole 17-frame blocks
+GUIDE_BACKOFF_BLOCK = 17
 # Where a guide chain runs is where `guides` runs (dw/guides.py); the run and
 # validate lead their refusal with this rule
 GUIDE_CHAIN_RULE = (
     "continuity 'guide' runs on MiniMax-H3 t2va or fl2va only - guides stay off ref2va"
 )
 
-# Every chain continuity mode, in the order chain.py registers its classes
+# Every chain continuity mode, in the order chain_continuity.py registers its classes
 # (`CONTINUITY_MODES`, zipped strictly against these). Kept here so validation
-# (dw/guides.py) reads the same names without importing chain.py
+# (dw/guides.py) reads the same names without importing chain_continuity.py
 CHAIN_CONTINUITY_MODES = ("last_frame", "last_segment", GUIDE_CONTINUITY)
+
+# The latent statistics anchor (#1166): `latent_anchor` is video frames whose
+# per-channel latent mean/std the generated video latent is rescaled to, after
+# `after_denoise` and before decode, by the ANCHOR_BLOCK step
+# (dw/pipeline_processors/h3_anchor.py). A chain's `anchor: "segment_1"` sets it
+# on every segment after the first to segment 1's decoded frames.
+ANCHOR_BLOCK = "dw_latent_anchor"
+ANCHOR_AFTER = "after_denoise"
+ANCHOR_NONE = "none"
+ANCHOR_SEGMENT_1 = "segment_1"
+CHAIN_ANCHOR_MODES = (ANCHOR_NONE, ANCHOR_SEGMENT_1)
+# The continuities whose segments are fresh t2va/fl2va generations the anchor
+# block runs in; `last_segment` carries a ref2va reference, which has no block
+ANCHOR_CONTINUITIES = ("last_frame", GUIDE_CONTINUITY)
+
+
+# The keystone (#1187): segment 1's frame 0 as every later segment's fl2va
+# keyframe, instead of the guide's first frame. Guide continuity only
+KEYSTONE_NONE = "none"
+KEYSTONE_SEGMENT_1 = "segment_1"
+CHAIN_KEYSTONE_MODES = (KEYSTONE_NONE, KEYSTONE_SEGMENT_1)
+
+
+def anchor_strength_problem(value):
+    """Why `value` cannot be a `latent_anchor_strength` / chain `anchor_strength`,
+    naming the range, or None. An unresolved reference is left to the run."""
+    if isinstance(value, str) and references.is_ref(references.UNRESOLVED, value):
+        return None
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        return (
+            f"anchor strength is a number in [0, 1] - 1 is the full match, 0 "
+            f"none - and {value!r} is not a number"
+        )
+    if not 0 <= value <= 1:  # NaN fails it too
+        return (
+            f"anchor strength is a number in [0, 1] - 1 is the full match, 0 "
+            f"none - and {value} is outside it"
+        )
+    return None
+
+
+def chain_keystone_problem(chain):
+    """The reason a chain block's `keystone` is refused, or None: an unknown
+    value (naming the values), or `segment_1` without `continuity: "guide"`.
+    Unresolved references are left to the run."""
+    keystone = chain.get("keystone", KEYSTONE_NONE)
+    if isinstance(keystone, str) and references.is_ref(references.UNRESOLVED, keystone):
+        return None
+    if keystone not in CHAIN_KEYSTONE_MODES:
+        return (
+            f"unknown chain keystone {keystone!r} - expected one of "
+            f"{', '.join(CHAIN_KEYSTONE_MODES)}"
+        )
+    if keystone == KEYSTONE_NONE:
+        return None
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity != GUIDE_CONTINUITY:
+        return (
+            f"keystone 'segment_1' needs continuity 'guide' - the keystone "
+            f"replaces the keyframe, and on {continuity!r} the keyframe is the "
+            f"only carry; got {continuity!r}"
+        )
+    return None
+
+
+# The carry pick (#1032): the sharpest of the last N frames as the next
+# keyframe, the segment trimmed after it. Family-independent, `last_frame` only
+CARRY_PICK_MIN = 1
+CARRY_PICK_MAX = 8
+
+
+def chain_carry_pick_problem(chain, num_frames=None):
+    """The reason a chain block's `carry_pick` is refused, or None: a shape
+    other than {"sharpest": N}, N outside 1..8, a continuity other than
+    `last_frame`, `match_audio` (the plan is fixed from the track's length and
+    the pick drops frames per seam), or - when the step's `num_frames` is known
+    - an N that could empty a segment. Unresolved references are left to the
+    run."""
+    if "carry_pick" not in chain:
+        return None
+    pick = chain["carry_pick"]
+    if isinstance(pick, str) and references.is_ref(references.UNRESOLVED, pick):
+        return None
+    expected = (
+        f"expected {{'sharpest': N}} with N from {CARRY_PICK_MIN} to {CARRY_PICK_MAX}"
+    )
+    if not isinstance(pick, dict) or set(pick) != {"sharpest"}:
+        return f"invalid carry_pick {pick!r} - {expected}"
+    window = pick["sharpest"]
+    if isinstance(window, str) and references.is_ref(references.UNRESOLVED, window):
+        return None
+    if (
+        isinstance(window, bool)
+        or not isinstance(window, int)
+        or not CARRY_PICK_MIN <= window <= CARRY_PICK_MAX
+    ):
+        return (
+            f"carry_pick sharpest must be a whole number between {CARRY_PICK_MIN} "
+            f"and {CARRY_PICK_MAX}, got {window!r}"
+        )
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity != "last_frame":
+        return (
+            f"carry_pick needs continuity 'last_frame' - the other modes carry "
+            f"more than one frame; got {continuity!r}"
+        )
+    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
+        return (
+            "carry_pick does not combine with match_audio or duration_seconds: "
+            "the plan covers the length up front and the pick drops up to "
+            f"{CARRY_PICK_MAX - 1} more frames per seam, leaving the video "
+            "shorter than asked - use 'segments'"
+        )
+    trim = chain.get("trim_frames", 1)
+    if (
+        isinstance(num_frames, int)
+        and not isinstance(num_frames, bool)
+        and isinstance(trim, int)
+        and not isinstance(trim, bool)
+        and window >= num_frames - trim
+    ):
+        return (
+            f"carry_pick sharpest {window} must be less than num_frames "
+            f"{num_frames} minus trim_frames {trim} ({num_frames - trim}), or "
+            "the pick could empty a segment"
+        )
+    return None
+
+
+def chain_anchor_problem(chain):
+    """The reason a chain block's `anchor` is refused for its own settings, or
+    None: an unknown value (naming the values), or `segment_1` with a continuity
+    other than guide or last_frame, or carrying into `references`. Unresolved
+    references are left to the run;
+    whether the step is H3 is the caller's to ask (`not_h3`)."""
+    anchor = chain.get("anchor", ANCHOR_NONE)
+    if isinstance(anchor, str) and references.is_ref(references.UNRESOLVED, anchor):
+        return None
+    if anchor not in CHAIN_ANCHOR_MODES:
+        return (
+            f"unknown chain anchor {anchor!r} - expected one of "
+            f"{', '.join(CHAIN_ANCHOR_MODES)}"
+        )
+    if anchor == ANCHOR_NONE:
+        if chain.get("anchor_strength") is not None:
+            return (
+                "anchor_strength needs anchor 'segment_1' - it sets how far "
+                "the anchor's latent match goes, and anchor is 'none'"
+            )
+        return None
+    continuity = chain.get("continuity", "last_frame")
+    if isinstance(continuity, str) and references.is_ref(
+        references.UNRESOLVED, continuity
+    ):
+        return None
+    if continuity not in ANCHOR_CONTINUITIES:
+        return (
+            f"anchor 'segment_1' needs continuity "
+            f"{' or '.join(repr(c) for c in ANCHOR_CONTINUITIES)} - its segments "
+            f"are MiniMax-H3 t2va/fl2va generations; got {continuity!r}"
+        )
+    # The carry lands in `segment_argument` on every later segment, and a call
+    # that passes references runs ref2va, which has no anchor step - the
+    # anchor would be dropped without a word
+    if chain.get("segment_argument") == "references":
+        return (
+            "anchor 'segment_1' cannot carry into 'references' - a segment that "
+            "passes references runs ref2va, which has no anchor step; use "
+            "segment_argument 'image' (t2va/fl2va)"
+        )
+    return None
 
 
 def guide_chain_problems(chain):
@@ -546,6 +804,53 @@ def guide_chain_problems(chain):
     return problems
 
 
+def guide_backoff_problems(chain):
+    """[(key, message)] for a chain block's `guide_backoff` (#1189): a whole
+    number of 17-frame blocks, on a guide-continuity chain, planned from a
+    segment count - a `match_audio` or `duration_seconds` plan counts every segment's new frames from
+    its head trim alone. An unresolved reference is left to the run."""
+    if "guide_backoff" not in chain:
+        return []
+    backoff = chain["guide_backoff"]
+    if isinstance(backoff, str) and references.is_ref(references.UNRESOLVED, backoff):
+        return []
+    block = GUIDE_BACKOFF_BLOCK
+    if (
+        isinstance(backoff, bool)
+        or not isinstance(backoff, int)
+        or backoff < 0
+        or backoff % block
+    ):
+        return [
+            (
+                "guide_backoff",
+                f"guide_backoff must be a multiple of {block} frames (whole "
+                f"latent blocks), got {backoff!r}",
+            )
+        ]
+    if backoff == 0:
+        return []
+    if chain.get("continuity", "last_frame") != GUIDE_CONTINUITY:
+        return [
+            (
+                "guide_backoff",
+                "guide_backoff is a guide continuity setting - set continuity "
+                "'guide' or drop guide_backoff",
+            )
+        ]
+    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
+        return [
+            (
+                "guide_backoff",
+                "guide_backoff does not combine with match_audio or "
+                "duration_seconds: the plan covers the length from each "
+                "segment's head trim alone, and backing off drops more frames "
+                "per segment - use 'segments'",
+            )
+        ]
+    return []
+
+
 def guide_end_problem(frame, length, num_frames):
     """Why a guide of `length` frames at `frame` runs past a `num_frames` render,
     or None. Ending exactly at `num_frames` fits."""
@@ -565,7 +870,17 @@ MASK_VIDEO_INPUT = "mask_video"
 MASK_IMAGE_INPUT = "mask_image"
 MASK_GROW_INPUT = "mask_grow"
 MASK_INPUTS = (MASK_VIDEO_INPUT, MASK_IMAGE_INPUT)
-REGIONAL_EDIT_INPUTS = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, MASK_GROW_INPUT)
+# The audio pass (#1192): a `source_video` with no mask and no `hold_audio`
+# keeps every video row and generates only the audio; `listen_scale` runs the
+# kept rows on a smaller canvas (dw/pipeline_processors/h3_mask.py)
+LISTEN_SCALE_INPUT = "listen_scale"
+LISTEN_SCALES = (1, 0.5, 0.25)
+REGIONAL_EDIT_INPUTS = (
+    SOURCE_VIDEO_INPUT,
+    *MASK_INPUTS,
+    MASK_GROW_INPUT,
+    LISTEN_SCALE_INPUT,
+)
 # Patch cells a mask is widened by past what it covers, so the edit's seam
 # lands in regenerated rows rather than against a kept one
 MASK_GROW_DEFAULT = 1
@@ -584,6 +899,20 @@ KEEP_ROWS = "dw_keep_rows"
 # The refine block's re-noise of the generated rows, packed - the noise the
 # blend re-noises the kept rows with, so they ride the same trajectory
 REFINE_ROW_NOISE = "dw_refine_row_noise"
+# The audio pass's blocks: one before `denoise` widens the conditioning rows
+# over every video row, one before `after_denoise` puts the count back
+AUDIO_PASS_BLOCK = "dw_audio_pass"
+AUDIO_PASS_BEFORE = REFINE_BEFORE
+RELEASE_VIDEO_BLOCK = "dw_release_video"
+RELEASE_VIDEO_BEFORE = RELEASE_BEFORE
+AUDIO_PASS_ROWS = "dw_audio_pass_rows"
+# The source's own frames at full size, uint8 - what the result plays in
+# place of the decode (dw/output_extraction.py), as dw_held_audio is for audio
+HELD_VIDEO_OUTPUT = "dw_held_video"
+# The rate those frames play at: the source's own, never H3's 24 (R25)
+HELD_VIDEO_RATE_OUTPUT = "dw_held_video_fps"
+# The refine arguments an audio pass has no use for: no video row is re-denoised
+AUDIO_PASS_REFUSES = (REFINE_STRENGTH_INPUT, REFINE_SIGMAS_INPUT, REFINE_TILES_INPUT)
 
 
 def is_h3_step(pipeline):
@@ -609,6 +938,14 @@ def _given(arguments, name):
     return arguments.get(name) is not None
 
 
+def is_audio_pass(arguments):
+    """A `source_video` with no mask and no `hold_audio`: the audio pass, which
+    keeps every video row and generates the audio (#1192)."""
+    names = (SOURCE_VIDEO_INPUT, *MASK_INPUTS, HOLD_AUDIO_INPUT)
+    given = [_given(arguments, name) for name in names]
+    return given[0] and not any(given[1:])
+
+
 def mask_problems(arguments, chained=False):
     """Why this step's regional edit - `source_video`, `mask_video` or
     `mask_image`, `mask_grow` - cannot run, as a list; empty when it can or
@@ -620,9 +957,10 @@ def mask_problems(arguments, chained=False):
     masks = [name for name in MASK_INPUTS if _given(arguments, name)]
     source = _given(arguments, SOURCE_VIDEO_INPUT)
     grow = arguments.get(MASK_GROW_INPUT)
+    audio_pass = is_audio_pass(arguments)
+    problems = [] if audio_pass else _listen_scale_problems(arguments)
     if not masks and not source and grow is None:
-        return []
-    problems = []
+        return problems
     if len(masks) > 1:
         problems.append(
             "pass mask_video or mask_image, not both - mask_image holds one mask "
@@ -641,7 +979,9 @@ def mask_problems(arguments, chained=False):
         problems.append(
             f"mask_grow is a whole number of patch cells, 0 or more, not {grow!r}"
         )
-    if source and arguments.get(REFINE_STRENGTH_INPUT) is None:
+    if audio_pass:
+        problems.extend(_audio_pass_problems(arguments))
+    elif source and not _given(arguments, REFINE_STRENGTH_INPUT):
         problems.append(
             "source_video is re-denoised from 'refine_strength' - pass one, near "
             "1.0 to replace what the mask covers, lower to keep its layout"
@@ -649,17 +989,77 @@ def mask_problems(arguments, chained=False):
     if source and _given(arguments, "latents"):
         problems.append("source_video stands in for 'latents' - pass one or the other")
     if source and chained:
+        what = "an audio pass scores" if audio_pass else "a regional edit re-denoises"
         problems.append(
-            "a regional edit re-denoises one source_video, and a chained step "
-            "renders several segments - use an unchained step"
+            f"{what} one source_video, and a chained step renders several "
+            f"segments - use an unchained step"
         )
     return problems
 
 
-def media_problems(name, shape, width, height, num_frames=None):
+def _listen_scale_problems(arguments):
+    """A `listen_scale` on a step that is no audio pass: what makes it one is
+    said, since a mask or `hold_audio` is the usual reason it is not."""
+    if not _given(arguments, LISTEN_SCALE_INPUT):
+        return []
+    return [
+        "listen_scale sets the canvas of an audio pass - a 'source_video' with "
+        "no mask_video, mask_image or hold_audio - and this step is not one"
+    ]
+
+
+def _audio_pass_problems(arguments):
+    """Why this audio pass's own arguments cannot run: a refine argument (no
+    video row is re-denoised) or a `listen_scale` not in LISTEN_SCALES."""
+    problems = [
+        f"{name} re-denoises video, and an audio pass (a source_video with no "
+        f"mask and no hold_audio) keeps every video row - drop it, or pass "
+        f"hold_audio to re-denoise the source under its own soundtrack"
+        for name in AUDIO_PASS_REFUSES
+        if _given(arguments, name)
+    ][:1]
+    scale = arguments.get(LISTEN_SCALE_INPUT)
+    if scale is not None and not _deferred(scale):
+        if isinstance(scale, bool) or scale not in LISTEN_SCALES:
+            problems.append(
+                f"listen_scale is one of {', '.join(map(str, LISTEN_SCALES))} - "
+                f"the audio pass's canvas against the source's - not {scale!r}"
+            )
+    return problems
+
+
+def listen_canvas(width, height, scale):
+    """The (width, height) an audio pass at `scale` runs its kept rows on: the
+    shorter side scaled and snapped to the nearest TILE_GRID multiple, ties
+    up, the longer derived from the source's aspect and snapped the same way,
+    neither below one cell of the grid. Snapping each side on its own would
+    squeeze 960x544 at 0.25 to 256x128, 13% off its aspect."""
+
+    def snapped(side):
+        return max(TILE_GRID, int(side / TILE_GRID + 0.5) * TILE_GRID)
+
+    short = snapped(min(width, height) * scale)
+    long = snapped(short * max(width, height) / min(width, height))
+    return (long, short) if width >= height else (short, long)
+
+
+def retimed_indices(frame_count, fps):
+    """The source frame each conditioning frame of an audio pass shows: the
+    source's `frame_count` frames at `fps` resampled in time, nearest frame,
+    to H3_FPS over the same duration, the count snapped up onto RENDER_GRID
+    as `num_frames` is (the frames past the end repeat the last). The video
+    rows then encode a 24 fps picture of the same moments, and the audio
+    generated against them covers the source's real duration (R25)."""
+    count = aligned(max(1, round(frame_count / fps * H3_FPS)), RENDER_GRID)
+    return [min(frame_count - 1, int(i * fps / H3_FPS + 0.5)) for i in range(count)]
+
+
+def media_problems(name, shape, width, height, num_frames=None, fps=None):
     """Why a `source_video` or mask of `shape` - (frames, height, width) -
     does not fit a `width` x `height` canvas, as a list. `num_frames` is the
-    step's frame count, when it is known; a `mask_image` (one frame) fits any."""
+    step's frame count, when it is known; a `mask_image` (one frame) fits any.
+    `fps` is an audio pass's source rate: at any rate but H3_FPS the source is
+    retimed onto the grid (`retimed_indices`), so its own count need not be."""
     problems = []
     if (width, height) != (shape[2], shape[1]):
         problems.append(
@@ -671,7 +1071,9 @@ def media_problems(name, shape, width, height, num_frames=None):
             f"{name} has {shape[0]} frames, and the step renders num_frames="
             f"{num_frames} - they must match"
         )
-    elif num_frames is not None and name == SOURCE_VIDEO_INPUT:
+    elif (
+        num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
+    ):
         # Off the 17n + 5 grid the pipeline snaps num_frames up and the source
         # is padded to fit, so the mask drifts in time and the output is longer
         # than the source: refused here, where the count can still be changed

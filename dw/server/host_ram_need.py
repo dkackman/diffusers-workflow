@@ -16,15 +16,25 @@ into a quantization config) or offload is a different key. Frame count,
 resolution and reference count are not in it either (#869's D3).
 
 `projected_peak` answers, in order:
-  - `observed`: the largest `host_memory_job_peak_rss_mb` of this machine's
-    successful runs with the same key (the max, not a median: under-
-    projecting is the failure this exists for);
+  - `observed`: the largest committed peak (`host_memory_job_peak_committed_mb`,
+    RssAnon + RssShmem + the driver's pinned pages) of this machine's
+    successful runs with the same key, or the largest job peak RSS for a key
+    no run measured that on (the max, not a median: under-projecting is the
+    failure this exists for; `JobHistory.peaks_for_key`);
   - `fit`: `host_memory_projection`'s projection for a list run, from this
     workflow's own history - also ahead of `observed` when it is the larger
     for a shape that holds its pipeline across the list, since the key
     leaves list length out and a longer list outgrows the observed max
-    (#910);
+    (#910). The fit reads committed rows once any has one, as `observed`
+    does (`host_memory_projection.peak_field`), so the comparison is on one
+    basis;
   - otherwise None - no figure.
+
+Mapped checkpoint pages are not charged: they are page cache, which
+MemAvailable counts as free. Two workers loading different checkpoints evict
+and re-read each other's pages - a slowdown, not an OOM. The figure is a
+peak as recorded, a lower bound; the gate adds its margin
+(`pool.with_margin`).
 """
 
 import hashlib
@@ -32,6 +42,7 @@ import json
 import logging
 
 from ..host_memory_projection import projected_mb, releases_between_iterations
+from ..presets import effective_variables
 from ..variables import VariableNotFoundError, replace_variables
 from ..vram_estimate import pipeline_identity
 from ..vram_inheritance import _found
@@ -61,9 +72,8 @@ def memory_key(definition, arguments=None):
     references a variable it doesn't declare."""
     if not isinstance(definition, dict):
         return None
-    variables = definition.get("variables")
-    variables = dict(variables) if isinstance(variables, dict) else {}
-    variables.update(arguments or {})
+    # the chosen preset bundle included, as the run folds it
+    variables = effective_variables(definition, arguments)
     # Deep substitution, not `_found`'s: `weights_dtype` sits inside a
     # quantization config rather than being one
     try:

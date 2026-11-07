@@ -1,0 +1,23 @@
+[
+  {
+    "arm": "ltx-ctl-s1166",
+    "scene": "s5-ltx-action",
+    "seed": 1166,
+    "job_id": "29884b7da674",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS5LtxAction-mps/20261106-045323-7052dd67/final/BenchS5LtxAction-mps-chained_image_to_video.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.29,
+      "seam_jump_max": 1.33,
+      "seam_look_mean": 1.72,
+      "seam_look_max": 1.88,
+      "seam_level_step_db_mean": 9.25,
+      "seam_level_step_db_max": 16.96,
+      "texture_fine_seg_last": 0.4997510124977312,
+      "texture_mid_seg_last": 0.5598330559121848,
+      "texture_coarse_seg_last": 0.6279770765432813,
+      "wall_minutes": 11.476390695571899
+    }
+  }
+]

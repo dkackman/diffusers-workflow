@@ -9,6 +9,11 @@ diffusers-workflow repo; "row N" below is its verdict table. A rule is listed
 only where both seeds showed the effect when the rule was broken and neither
 did when it was kept.
 
+Lines that cite "pacing row N" come from a second record,
+`docs/proposals/audits/2026-11-h3-dialogue-pacing-probes.md` (#1184, November
+2026). It ran the skill's non-turbo dialogue settings (no LoRA, 12 steps,
+shifts 12/3, int4) at 960x544, 124 frames, one speaker, seeds 1001 and 2002.
+
 ## The rule
 
 - **Don't name a thing the shot shouldn't show.** Naming something as off
@@ -28,14 +33,25 @@ Measured, not a limit the model enforces (row 1):
 - **A short line is not stretched to fill the clip.** H3 holds silence first
   (2–3.4 s of lead-in for 8–10 words in 5.17 s), then speaks fast, at 5–6
   words/s. In one of those clips the speaker's mouth moved during the silent
-  lead-in. Size the line to the clip, or shorten the clip, when the timing
-  of speech matters.
+  lead-in. Size the line to the clip, shorten the clip, or split the line
+  (below) when the timing of speech matters.
 - **A line at about 2.5–4 written words/s fills the clip**: delivered at
   3.2–4.5 words/s, with phrase pauses of 0.5–2 s nearer the low end. At
   124 frames (5.17 s) that is about 13–21 words; at 345 frames (14.4 s),
   about 36–57.
 - **The tail** after the last word ran 0.09–0.88 s, median about 0.37 s.
   Leaving a second of slack is a safety margin, not something H3 needs.
+- **Splitting a short line into two `<d>` blocks removes the lead-in**
+  (pacing row 1). As one block, `I left the light on for you, Daniel.` opened
+  on 2.14 and 2.72 s of silence and was delivered at 4.71 and 5.41 words/s.
+  Split at its sentence break, `<d>[English] I left the light on.</d>
+  <d>[English] For you, Daniel.</d>`, it started at 0.70 and 0.64 s and was
+  delivered at 2.23 and 2.26 words/s. The split doesn't slow the words: the
+  first block was still spoken at 6.25 and 6.6 words/s. The pacing is a
+  silent gap of about 1.9 s that H3 puts between the blocks. Measured only
+  in the non-turbo dialogue settings, at 124 frames, with one speaker.
+- **Prose between `<d>` blocks isn't spoken** (0 of 6 clips, pacing row 3),
+  so it doesn't count toward the line's length.
 
 Prompts of any length reach the model whole: the H3 text encoder doesn't
 truncate (row 7).
@@ -66,6 +82,13 @@ rule and none is worth prompt words yet:
     neither spoken nor turned into invented words (rows 6, 6b);
   - a negated noun ("There is no dog in the room") didn't render the
     thing (row 10b);
+  - what a `<d>` line talks about isn't acted out. A woman in a T-shirt
+    saying her brother borrowed her red raincoat drew no raincoat, no
+    brother and no extra arms, with or without the sentence "Spoken words
+    are only heard: the shot shows what it describes, not what anyone talks
+    about" (T2VA turbo, one speaker, static shot;
+    `2026-11-longvideos-claims.md` claim 1, #1193). Row 10's rule is
+    about the prose, not the line;
   - leaving the words out of `<d>` when a track is held for lip sync
     (WanGP's claim) is not needed: one person in frame, Ref2VA with the
     track held, sung and spoken, moved the mouth at the same instants with
@@ -76,6 +99,13 @@ rule and none is worth prompt words yet:
     and no source word (`2026-10-h3-aiskills-probes.md` row P2, #1059).
     `templates/voice-clone` (Audio8-TTS, #1121) is another source for that
     reference: it speaks a new line in a real speaker's cloned voice, with consent.
+- Refuted, though the action landed on one seed of two:
+  - a body action written between two `<d>` blocks (`He sniffs and looks
+    down at the table.`) doesn't pace a line beyond what the split alone
+    gives, and H3 doesn't stage it in the gap. The man sat still through the
+    break on both seeds. The look-down came as the second block began, at
+    the edge of the break on one seed and after it on the other (pacing
+    row 2).
 - Not settled:
   - whether `<breath>` adds a beat: it may lengthen a pause H3 already takes
     at a sentence break, but it doesn't create one (row 6b);

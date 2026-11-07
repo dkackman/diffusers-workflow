@@ -60,7 +60,13 @@ In the caption, as visual detail:
   compression with creamy background blur", "anamorphic widescreen with
   oval bokeh and horizontal flares", "soft vintage-lens glow". Name the
   effect, not a lens product.
-- **light**: the `vocabulary.md` meaning in observable words.
+- **light**: one phrase per value, in observable words - `high-key`
+  "bright, even high-key light with almost no shadows", `low-key` "a single
+  hard light source, most of the frame in deep shadow", `golden-hour` "low
+  warm golden-hour sun, long shadows, a glowing rim light on <subject>",
+  `practical` "lit only by the lamps, screens and neon signs in the scene",
+  `noir` "film noir lighting, hard contrast, venetian-blind shadows across
+  <subject>, a haze of smoke".
 - **era**: "a grainy 8mm film frame", "a 16mm film still", "a 35mm film
   still", "a VHS video frame", "a clean digital photograph".
 - **tempo**: only through motion blur - `still` and `measured` none,

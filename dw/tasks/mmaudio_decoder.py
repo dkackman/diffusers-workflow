@@ -69,7 +69,14 @@ def _load_component(cls, folder, drop_prefix=None):
     state = load_file(str(folder / WEIGHTS_FILE), device="cpu")
     if drop_prefix:
         state = {k: v for k, v in state.items() if not k.startswith(drop_prefix)}
-    with torch.device("meta"):
+    from accelerate import init_empty_weights
+
+    # Only the parameters are empty. MMAudioVAE builds its mel filterbank and
+    # window in __init__, and under torch.device("meta") that arithmetic mixed
+    # a CPU tensor with meta ones - which a long-lived worker's stricter fake
+    # kernels refused (#1201). Built for real on CPU those buffers are small,
+    # and the strict assign-load below replaces every one of them
+    with init_empty_weights(include_buffers=False):
         model = cls(**_init_kwargs(cls, config))
     model.load_state_dict(state, strict=True, assign=True)
     return model

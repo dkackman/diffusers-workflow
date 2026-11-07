@@ -32,15 +32,28 @@ from ..media_types import (  # noqa: F401
     fit_codec_padding,
 )
 from ..shots import shot_record
-from ..task_domains import frame_size_error, real_number, whole_number
+from ..task_domains import (
+    frame_size_error,
+    frames_to_samples,
+    real_number,
+    whole_number,
+)
 from ..task_problems import (  # noqa: F401
     MAX_STILLS_FPS,
     MAX_STILLS_SECONDS,
+    stills_frame_counts,
+    stills_memory_problem,
     stills_to_video_problems,
-    MAX_STILLS_BYTES,
 )
 
 logger = logging.getLogger("dw")
+
+# The rate of stills_to_video's silent track. A track of zeros rather than
+# none, so the clip scores like a generated shot: the world-audio path of
+# assemble-and-score (resample_audio on the joined cut) refuses a video that
+# carries no track at all. Mono, which concat_videos tiles up to a stereo
+# neighbour's channels
+STILLS_SAMPLE_RATE = 48000
 
 # A location that names a scheme is a URL, whatever the scheme
 _URL_SCHEME = re.compile(r"^[a-zA-Z][a-zA-Z0-9+.\-]*://")
@@ -259,9 +272,10 @@ def stills_to_video(images, durations, fps=24):
     """Task command: storyboard stills held on screen for a duration each, as
     one silent clip - an animatic.
 
-    The clip has no audio track (`audio=None`); `concat_videos` fills a
-    silent input with silence and `pair_audio` lays a score under it, so it
-    joins and scores like any generated shot.
+    The clip carries a silent mono track at STILLS_SAMPLE_RATE, its own
+    length, so it joins and scores like any generated shot: `concat_videos`
+    and the audio commands that read a video's track (`resample_audio` in
+    assemble-and-score) take it, and `pair_audio` lays a score in its place.
 
     Args:
         images: The stills, in order - PIL images or arrays. As a task
@@ -277,7 +291,7 @@ def stills_to_video(images, durations, fps=24):
 
     Returns:
         An AudioVideo of uint8 (frames, height, width, 3) frames at `fps`,
-        with one shot record per still
+        with a silent track and one shot record per still
     """
     if isinstance(images, numpy.ndarray) and images.ndim == 4:
         images = list(images)
@@ -309,23 +323,27 @@ def stills_to_video(images, durations, fps=24):
             f"{first[0]}x{first[1]} and {other[0]}x{other[1]} - resize them "
             "to match first"
         )
-    counts = [max(1, round(float(s) * fps)) for s in seconds]
+    counts = stills_frame_counts(seconds, fps)
     width, height = stills[0].size
-    needed = sum(counts) * height * width * 3
-    if needed > MAX_STILLS_BYTES:
-        raise ValueError(
-            f"stills_to_video would hold {sum(counts)} frames of "
-            f"{width}x{height} ({needed / 1024**3:.1f} GiB), over the "
-            f"{MAX_STILLS_BYTES / 1024**3:g} GiB limit - shorten 'durations', "
-            "lower 'fps', or use smaller images"
-        )
+    # The rule validate applies when the stills are files (#1199)
+    too_big = stills_memory_problem(seconds, fps, width, height)
+    if too_big:
+        raise ValueError(too_big)
     frames = numpy.empty((sum(counts), height, width, 3), dtype=numpy.uint8)
     shots, start = [], 0
     for index, (still, count) in enumerate(zip(stills, counts), start=1):
         frames[start : start + count] = numpy.asarray(still.convert("RGB"))
-        shots.append(shot_record(f"still_{index}", start, count))
+        shots.append(shot_record(f"still_{index}", start, count, silent_by_design=True))
         start += count
-    return AudioVideo(frames, None, None, fps=fps, shots=shots)
+    silence = numpy.zeros(
+        (1, frames_to_samples(len(frames), fps, STILLS_SAMPLE_RATE)),
+        dtype=numpy.float32,
+    )
+    clip = AudioVideo(frames, silence, STILLS_SAMPLE_RATE, fps=fps, shots=shots)
+    # The zeros are the design (#1161): no near-silent or mono-duplication
+    # warning at save time, and the shot records say so for the gallery
+    clip.silent_by_design = True
+    return clip
 
 
 def frame_grid(video, count=12, columns=None, tile_width=320, label=True):
@@ -531,6 +549,22 @@ def local_video_path(location, base_dir=None):
     validated_path = validate_media_path(location, base_dir, "a video argument")
     validate_file_extension(validated_path, ALLOWED_VIDEO_EXTENSIONS)
     return validated_path
+
+
+def local_path_or_video(source):
+    """`(path, source)` for a take a caller reads its own way: the local file
+    a VideoFileReference or a local video location names, with `source` as
+    given, or None and the video loaded (`load_audio_video`) for a URL, or
+    None and `source` as given for frames already in memory (join_windows'
+    source and encode_h3_latents' take, #695)."""
+    if isinstance(source, VideoFileReference):
+        return source.path, source
+    if is_video_location(source):
+        path = local_video_path(source)
+        if path is None:
+            return None, load_audio_video(source)
+        return path, source
+    return None, source
 
 
 def is_video_location(value):

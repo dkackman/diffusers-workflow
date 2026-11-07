@@ -15,6 +15,7 @@ from fastapi import HTTPException, Request
 from .. import references
 from ..adapter_compatibility import catalog_index
 from ..lora_catalog import entry_errors
+from ..presets import PRESETS_KEY, effective_variables
 from ..realize import strings_with_prefix
 from ..security import SecurityError, validate_asset_reference
 from ..vram_inheritance import (
@@ -295,8 +296,10 @@ def _scale_past_template(definition, template, drivers, arguments):
     catalog figure and this one quote a request alike - and the reason names
     each axis that moved. (1, None) when the workflow is the template's
     size; (None, reason) when its size cannot be compared."""
-    # The template as the bucket's drivers set it
-    bucket = {**template, "variables": {**(template.get("variables") or {}), **drivers}}
+    # The template as the bucket's drivers set it - its preset bundle
+    # folded in under them, and the block dropped so it is not applied twice
+    bucket = {key: value for key, value in template.items() if key != PRESETS_KEY}
+    bucket["variables"] = effective_variables(template, drivers)
     # Counted with for_each expanded, so a list longer than the one the
     # bucket ran (a fallback to the template's default bucket) re-prices by
     # its member count
@@ -381,8 +384,8 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
     if identity is None:
         return None
     arguments = arguments or {}
-    variables = definition.get("variables")
-    variables = variables if isinstance(variables, dict) else {}
+    # the inline run's own values, its chosen preset bundle included
+    variables = effective_variables(definition, arguments)
     best = None
     withheld = None
     for name, template, writable in _catalog_listing(state, ws):
@@ -392,9 +395,9 @@ def inherited_observed(state, ws, definition, arguments=None, *, card=None):
         # workflow's own value where it has that variable, else the template's
         # default - so the bucket is the one the inline run would fall in
         drivers = {
-            driver: arguments.get(driver, variables[driver])
+            driver: variables[driver]
             for driver in declared_drivers(template)
-            if driver in arguments or driver in variables
+            if driver in variables
         }
         block = observed_for_name(
             state,

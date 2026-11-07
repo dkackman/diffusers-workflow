@@ -737,8 +737,11 @@ def test_validation_expands_the_callers_list_not_the_default(tmp_path):
 
 def test_validation_falls_back_to_the_default_when_the_arguments_are_bad(tmp_path):
     workflow = _workflow_from(_for_each_workflow(), tmp_path)
-    # An undeclared argument is argument_errors' finding, not validation's
-    assert workflow.validation_errors(arguments={"nope": 1}) == []
+    # The expansion falls back to the defaults, so the undeclared argument
+    # is the only finding - the one submit refuses it with
+    errors = workflow.validation_errors(arguments={"nope": 1})
+    assert [e["path"] for e in errors] == ["arguments.nope"]
+    assert "Unknown variable 'nope'" in errors[0]["message"]
 
 
 def test_validation_of_an_undeclared_variable_still_does_not_raise(tmp_path):

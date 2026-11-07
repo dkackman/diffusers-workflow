@@ -1,6 +1,6 @@
 # LoRA Support
 
-LoRA (Low-Rank Adaptation) models apply lightweight style or subject modifications to a base model. Add one or more LoRAs to any pipeline step.
+A LoRA (Low-Rank Adaptation) adapter applies a style, subject or step-distillation change to a base model. A pipeline step takes a `loras` list, a sibling of `configuration`, on any pipeline diffusers can load adapters into (`load_lora_weights()`; `dw/pipeline_processors/adapters.py`).
 
 ## Basic Usage
 
@@ -33,28 +33,32 @@ LoRA (Low-Rank Adaptation) models apply lightweight style or subject modificatio
         "weight_name": "specific_weights.safetensors",
         "subfolder": "lora_subfolder",
         "adapter_name": "my_adapter",
-        "scale": 0.8
+        "scale": 0.8,
+        "alpha": 16
     }
 ]
 ```
 
 | Property | Required | Description |
 | -------- | -------- | ----------- |
-| `model_name` | Yes | HuggingFace Hub repo ID |
+| `model_name` | Yes | Hugging Face Hub repo id. `null` switches the entry off: it is not loaded and the step runs without it, with a `lora_disabled` warning at validate and run. A template's `loras` list is fixed JSON, so this is how a caller drops its adapter (MiniMax-H3: pass `lora_model_name=null`) |
 | `weight_name` | No | Specific weight file in the repo |
 | `subfolder` | No | Subfolder within the repo |
-| `adapter_name` | No | Named identifier for the adapter. Defaults to the LoRA's position in the list (`"0"`, `"1"`, ...) if omitted |
-| `scale` | No | Blend strength (default: 1.0). Lower = less effect |
+| `adapter_name` | No | The adapter's name in `set_adapters()`. Defaults to the entry's position in the list (`"0"`, `"1"`, ...), counting switched-off entries |
+| `scale` | No | Adapter weight, default 1.0. Lower = less effect. Takes a `variable:` reference |
+| `alpha` | No | Network alpha, overriding the checkpoint's. peft scales an adapter by `scale * alpha / rank`, taking alpha from the file (a per-module `.alpha` tensor, else a `__metadata__` alpha, else the rank). Positive; state it only where the file records the wrong figure, after reading its header. Fails if no loaded layer carries the adapter. The run logs the effective `alpha / rank` |
 
-Any other property (e.g. `revision`) is forwarded as-is to the underlying `load_lora_weights()` call.
+Any other property (e.g. `revision`) is passed to `load_lora_weights()` unchanged.
 
 `scale` and `alpha` are set in place on the loaded adapter, so a server run that changes
-only them reuses the warm pipeline instead of reloading it; changing `model_name` or
-`weight_name` reloads.
+only them reuses the warm pipeline; changing `model_name` or `weight_name` reloads.
+
+A step-distillation (turbo) LoRA sets the step count and sigma shift the step runs at.
+Switching one off, raise both to the base model's schedule, or the step runs undertrained.
 
 ## Multiple LoRAs
 
-Stack multiple LoRAs. They are blended via weighted adapter composition:
+Several entries load as separate adapters, each at its own `scale`, active together:
 
 ```json
 "loras": [
@@ -73,7 +77,7 @@ Stack multiple LoRAs. They are blended via weighted adapter composition:
 
 ## LoRA with Quantization
 
-LoRAs work with quantized models:
+A LoRA loads onto a quantized component as onto any other:
 
 ```json
 {
@@ -108,7 +112,7 @@ LoRAs work with quantized models:
 
 ## Variable LoRA
 
-Make the LoRA configurable via workflow variables:
+A `variable:` reference makes the adapter an argument:
 
 ```json
 {
@@ -130,9 +134,8 @@ python -m dw.run workflow.json lora="other-user/other-lora"
 
 ## Examples
 
-- [lora.json](../workflows/templates/lora.json) — Flux with realism LoRA and variables
-- [lora.json](../workflows/templates/lora.json) — SD 3.5 with yarn art style LoRA
-- [lora.json](../workflows/templates/lora.json) — A LoRA adapter on FLUX.1 dev, with the SD 3.5 variant in its description
+- [lora.json](../workflows/templates/lora.json): FLUX.1 dev with `XLabs-AI/flux-RealismLora` as the `lora` variable; its description names an SD 3.5 variant (`linoyts/yart_art_sd3-5_lora`)
+- [lora-styles.json](../workflows/templates/lora-styles.json): one prompt through ten FLUX.1 in-context LoRA styles, one image per adapter
 
 ## LoRA catalog
 
@@ -162,8 +165,9 @@ a step's `loras` entry. `base_models` holds exact repo ids, and matching is
 exact - an adapter on the wrong base usually loads and is quietly worse.
 `workflow` constrains a MiniMax-H3 entry to a partition (`t2va`, `fl2va`,
 `ref2va`) - a string, or a list of them for an adapter that covers several
-(the turbo keyframe files are `["t2va", "fl2va"]`). `proven` and `rejected` entries need `evidence`; a rejected
-entry's first note is why. The schema is `GET /api/lora-schema`.
+(the turbo keyframe files are `["t2va", "fl2va"]`). `proven` and `rejected` entries need
+`evidence`; a rejected entry's first note is why. The schema is `GET /api/lora-schema`
+(`dw/lora_catalog_schema.json`).
 
 The server's validate enforces that `workflow` (#870): a step whose workflow
 sits in the other partition is refused when the entry is `proven`, and only
@@ -180,9 +184,9 @@ it is also what makes its `workflow` refuse a mismatched step.
 place dw searches the Hub, and only when called. It returns the catalog's
 entries for the model first, ranked against the query, then Hub adapters
 whose card declares that exact base (`base_model:adapter:<repo>`), most
-downloaded first. Nothing is downloaded; the weight file's header is read to
-check its layout, for a single-weight repo only. Hub rows are candidates to trial, never recommendations,
-and carry `warnings`:
+downloaded first. Nothing is downloaded: for a single-weight repo the weight
+file's header is read to check its layout. Hub rows are candidates to trial, never
+recommendations, and carry `warnings`:
 
 | Warning | Meaning |
 | --- | --- |

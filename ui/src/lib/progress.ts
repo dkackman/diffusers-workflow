@@ -1,3 +1,4 @@
+import { formatBytes } from './format'
 import type { JobEvent } from './types'
 
 /** What a phase event means in the UI. The engine's vocabulary is small on
@@ -38,8 +39,13 @@ export function stepProgress(events: JobEvent[]): StepProgress {
 
   let phase: JobEvent | null = null
   let denoise: JobEvent | null = null
+  // A download the current phase is waiting on: only one newer than that
+  // phase counts, so the next phase (loading ending) replaces it
+  let download: JobEvent | null = null
   for (let i = events.length - 1; i > start; i--) {
     const event = events[i]
+    if (!phase && !download && event.event === 'download_progress')
+      download = event
     if (!phase && event.event === 'phase') phase = event
     if (!denoise && event.event === 'pipeline_step') denoise = event
     if (phase && denoise) break
@@ -47,7 +53,11 @@ export function stepProgress(events: JobEvent[]): StepProgress {
 
   return {
     phase: (phase?.phase as string) ?? null,
-    label: phase ? phaseLabel(phase) : null,
+    label: download
+      ? downloadLabel(download)
+      : phase
+        ? phaseLabel(phase)
+        : null,
     denoise: denoise
       ? {
           step: denoise.step as number,
@@ -63,6 +73,20 @@ export function phaseLabel(event: JobEvent): string {
   const label = PHASE_LABELS[phase] ?? phase
   const detail = event.detail as string | null | undefined
   return detail ? `${label} ${detail}` : label
+}
+
+/** "downloading acme/model: 4.00 GB, 38.0 MB/s" - or, once bytes stop,
+ * "no bytes for 45s" in place of the rate, as the server's own
+ * phase_detail says it (dw/download_watch.py: format_progress). */
+export function downloadLabel(event: JobEvent): string {
+  const repo = event.repo_id as string
+  const downloaded = (event.downloaded_bytes as number | undefined) ?? 0
+  const rate = event.bytes_per_second as number | undefined
+  const flat = event.seconds_since_bytes_changed as number | undefined
+  let text = `downloading ${repo}: ${formatBytes(downloaded)}`
+  if (rate) text += `, ${formatBytes(rate)}/s`
+  else if (flat) text += `, no bytes for ${Math.round(flat)}s`
+  return text
 }
 
 /** Seconds left in the running denoise loop, at the pace of its last six

@@ -618,6 +618,10 @@ class RequiredDownload(ApiModel):
         description="The hub's own `gated` field: false, or how access is granted."
     )
     access_blocked: bool | None
+    not_found: bool = sometimes(
+        "True when the hub answered that the repo does not exist (or is "
+        "private to this token); validation then fails on it."
+    )
 
 
 class PlanEstimate(ApiModel):

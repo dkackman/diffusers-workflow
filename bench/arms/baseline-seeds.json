@@ -1,0 +1,82 @@
+[
+  {
+    "name": "control-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "control-s2-seed2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "control-s3-seed2",
+    "scene": "s3-dialogue-walk",
+    "workflow": "s3-dialogue-walk.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "control-s4-seed2",
+    "scene": "s4-montage",
+    "workflow": "s4-montage.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "control-s5-seed2",
+    "scene": "s5-ltx-action",
+    "workflow": "s5-ltx-action.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "control-s6-seed2",
+    "scene": "s6-narration",
+    "workflow": "s6-narration.json",
+    "arguments": {},
+    "seed": 2
+  },
+  {
+    "name": "best-s1-seed1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "anchor": "segment_1",
+      "guide_noise": 0.4
+    },
+    "seed": 1166
+  },
+  {
+    "name": "best-s1-seed2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "anchor": "segment_1",
+      "guide_noise": 0.4
+    },
+    "seed": 2
+  },
+  {
+    "name": "best-s2-seed1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "guide_noise": 0.4
+    },
+    "seed": 1166
+  },
+  {
+    "name": "best-s2-seed2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "guide_noise": 0.4
+    },
+    "seed": 2
+  }
+]

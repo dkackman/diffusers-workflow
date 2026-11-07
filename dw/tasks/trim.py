@@ -44,9 +44,9 @@ def trim_video(video, start_frame, num_frames, fps=None):
             needed only to cut its audio, which is refused without one
 
     Returns:
-        The kept frames - an AudioVideo when the clip came in as one (its
-        track cut to the same span, at its own rate, fps and sample rate
-        kept), else a frame list. The shots the clip carried are clipped to
+        The kept frames as one AudioVideo - the clip's track cut to the same
+        span, at its own rate, fps and sample rate kept; a clip that came in
+        as bare frames comes out silent, at 'fps'. The shots the clip carried are clipped to
         the span (sample side cleared); a clip with none carries one shot
         spanning the kept frames, named after the file it was read from
     """
@@ -79,14 +79,18 @@ def trim_video(video, start_frame, num_frames, fps=None):
     kept = frames[start_frame:end]
     logger.info(f"Trimmed to frames {start_frame}..{end - 1} of {total}")
 
-    if not isinstance(video, AudioVideo):
-        return kept
-
-    audio, sample_rate = video.audio, video.sample_rate
-    fps = fps or video.fps
+    # Bare frames come out as one silent clip, not a bare list: a task's list
+    # result is one result per entry, so the step saved each frame as its own
+    # video (#1199)
+    clip = video if isinstance(video, AudioVideo) else None
+    audio = clip.audio if clip else None
+    sample_rate = clip.sample_rate if clip else None
+    fps = fps or (clip.fps if clip else None)
     if audio is not None:
         audio = _span_of_audio(audio, sample_rate, fps, start_frame, end)
-    shots = trimmed_shots(video.shots, start_frame, keep_frames=num_frames)
+    shots = trimmed_shots(
+        clip.shots if clip else None, start_frame, keep_frames=num_frames
+    )
     if not shots:
         # A clip with no shots record is one shot: the trim is still a clip
         # a consumer reads spans from (#627). The track was cut at its own

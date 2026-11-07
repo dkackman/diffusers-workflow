@@ -1,0 +1,90 @@
+[
+  {
+    "name": "cheap-a-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "cheap-b-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "guide_noise": 0.4
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "cheap-c-s1",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "anchor": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "cheap-a-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "cheap-b-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "guide_noise": 0.4
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "cheap-c-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 6,
+      "anchor": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  }
+]

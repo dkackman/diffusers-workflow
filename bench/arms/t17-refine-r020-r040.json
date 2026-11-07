@@ -1,0 +1,66 @@
+[
+  {
+    "name": "t17-s1-6seg-r020",
+    "scene": "s1-static",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS1Static/20261104-054934-fdc9b551/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.2
+    }
+  },
+  {
+    "name": "t17-s2-r020",
+    "scene": "s2-arc",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS2Arc/20261104-073022-cd97c6a1/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.2,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A bronze statue of a seated man on a stone plinth in a sunlit public garden, a red brick wall with ivy, tall cypress trees and a white gazebo behind it. The camera travels in a slow, steady orbit around the statue, arcing to the right at a constant speed and keeping the statue centered, so the brick wall, the cypresses, the gazebo and the garden behind it sweep past and change with the angle. Warm late-afternoon sunlight, leaves stirring gently in a light breeze.\n\noverall_soundscape: Outdoor garden ambience: light breeze in the leaves, distant birdsong, faint far-off traffic.\n\nnon_diegetic_music: None."
+    }
+  },
+  {
+    "name": "t17-s3-r020",
+    "scene": "s3-dialogue-walk",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS3DialogueWalk/20261104-084517-6db94fb9/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.2,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour, slow and steady, glancing up at the lamps and along the shopfronts. The woman (S1), a warm, low female alto voice, calm and unhurried, speaks quietly as she walks. The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
+    }
+  },
+  {
+    "name": "t17-s1-6seg-r040",
+    "scene": "s1-static",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS1Static/20261104-054934-fdc9b551/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.4
+    }
+  },
+  {
+    "name": "t17-s2-r040",
+    "scene": "s2-arc",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS2Arc/20261104-073022-cd97c6a1/final/BenchS2Arc-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.4,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A bronze statue of a seated man on a stone plinth in a sunlit public garden, a red brick wall with ivy, tall cypress trees and a white gazebo behind it. The camera travels in a slow, steady orbit around the statue, arcing to the right at a constant speed and keeping the statue centered, so the brick wall, the cypresses, the gazebo and the garden behind it sweep past and change with the angle. Warm late-afternoon sunlight, leaves stirring gently in a light breeze.\n\noverall_soundscape: Outdoor garden ambience: light breeze in the leaves, distant birdsong, faint far-off traffic.\n\nnon_diegetic_music: None."
+    }
+  },
+  {
+    "name": "t17-s3-r040",
+    "scene": "s3-dialogue-walk",
+    "workflow": "refine-windows.json",
+    "seed": 1166,
+    "arguments": {
+      "source": "output:BenchS3DialogueWalk/20261104-084517-6db94fb9/final/BenchS3DialogueWalk-chained_keyframe_to_video_audio.0-0.0.mp4",
+      "refine_strength": 0.4,
+      "prompt": "integrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. A woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour, slow and steady, glancing up at the lamps and along the shopfronts. The woman (S1), a warm, low female alto voice, calm and unhurried, speaks quietly as she walks. The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
+    }
+  }
+]

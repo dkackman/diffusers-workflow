@@ -199,6 +199,19 @@ class TestChunkDrift:
         assert "past the end" in guide_end_problem(119, 22, 124)
         assert guide_end_problem(0, 125, 124)
 
+    @pytest.mark.parametrize(
+        "num_frames, tail", [(158, 22), (175, 39), (192, 39), (209, 56), (345, 39)]
+    )
+    def test_a_tail_guide_sits_at_the_end_of_any_render(self, num_frames, tail):
+        # #1169's repair holds the next segment at the render's end: on the
+        # 17n + 5 grid, num_frames - tail is always a chunk boundary, the
+        # guide fits, and its audio ends with the render's own audio
+        frame = num_frames - tail
+        assert guide_frame_problem(frame) is None
+        assert guide_end_problem(frame, tail, num_frames) is None
+        start, _pad, count = guide_audio_span(frame, tail)
+        assert start + count == guide_audio_latents(num_frames)
+
 
 # 2. Rotary origin
 

@@ -1,0 +1,51 @@
+{
+  "id": "NarrationLong",
+  "description": "A narration of any length from plain text, spoken in one cloned voice and joined without audible seams. Audio8-TTS holds about 95 s of reference, text and speech together (see 'voice-clone'), but the limit that bites is shorter: a take over about 40 s of speech loops, skips or stops early. So the text is cut into takes at sentence boundaries, and at a paragraph break once a take is reasonably full, by the 'split_takes' task (37 s a take by default at 3.0 words a second, the rate the voice was measured speaking at, so a take is at most 111 words, the longest measured word-complete), and a child workflow, 'narration-from-takes', speaks each take under one 'reference_audio', 'reference_text' and 'seed' and joins them in order: the child expands its own 'for_each' over the takes it is handed. 'gap_seconds' of silence follows each take (0.3 by default, a first guess to be tuned by ear) and 'crossfade_ms' (30) is the overlap at every join; see 'narration-from-takes' for how the gap and the crossfade combine. Abbreviations such as Dr. and initials are not sentence ends. The same seed does not make takes sound alike by itself, so listen for a voice that drifts between takes and use a lower 'max_seconds' if one does, or if a take loses words; check the joined file's loudness before relying on it. Consent: clone only a voice you have the right to use - your own, or one whose owner has agreed - and never to impersonate or deceive. There is no default voice: 'reference_audio' (an asset: reference, at most 20 s) and 'reference_text' (exactly what is said in it) are required together, as in 'voice-clone'. Its estimate is this template's child priced at the child's own three default takes, since the take count is only known once the text is split: for a long text quote about 0.46 min a take on an RTX 3090 and 0.56 min on an M5 Pro (measured, see 'narration-from-takes'), at about 111 words a take by default.",
+  "variables": {
+    "text": "Somebody finished the pistachio and nobody is saying anything. The fridge hums, and nobody looks up from their phone. It was a quiet kind of guilt.",
+    "max_seconds": 37,
+    "words_per_second": 3.0,
+    "reference_audio": "asset:voice.wav",
+    "reference_text": "The words spoken in the reference clip, exactly as said.",
+    "seed": null,
+    "gap_seconds": 0.3,
+    "crossfade_ms": 30
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "split",
+      "task": {
+        "command": "split_takes",
+        "arguments": {
+          "text": "variable:text",
+          "max_seconds": "variable:max_seconds",
+          "words_per_second": "variable:words_per_second"
+        }
+      },
+      "result": {
+        "content_type": "application/json",
+        "save": false
+      }
+    },
+    {
+      "name": "narrate",
+      "workflow": {
+        "path": "./narration-from-takes.json",
+        "arguments": {
+          "takes": "previous_result:split.takes",
+          "reference_audio": "variable:reference_audio",
+          "reference_text": "variable:reference_text",
+          "seed": "variable:seed",
+          "gap_seconds": "variable:gap_seconds",
+          "crossfade_ms": "variable:crossfade_ms"
+        }
+      },
+      "result": {
+        "content_type": "audio/wav",
+        "subfolder": "final"
+      }
+    }
+  ],
+  "summary": "A narration from plain text, cut into takes and spoken in one cloned voice."
+}

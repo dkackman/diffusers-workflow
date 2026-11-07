@@ -111,8 +111,12 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             name is not the argument it will end up filling, so 'image' guessed
             a variable named that way into a PIL Image before the step that
             actually names its argument 'video' ever saw the value (#365).
-            Nested structures still recurse with this at its default, since by
-            then a dict key is a real argument name again
+            Off holds at every depth: a field of a variable's entry - the
+            'video' of a for_each list of {name, video} objects - is no more
+            the argument it fills than the variable's own name is, and loading
+            it here handed 'item:video' a silent frame list rather than the
+            file trim_video reads with its soundtrack (#1199). Objects are
+            built by the steps pass too, once their '_type' has loaded
     """
     if isinstance(arg, dict):
         logger.debug(f"Processing dictionary arguments: {list(arg.keys())}")
@@ -150,11 +154,11 @@ def realize_args(arg, base_dir=None, apply_key_conventions=True):
             ):
                 _realize_type_reference(arg, k, v)
             else:
-                _realize_nested(arg, k, v, base_dir)
+                _realize_nested(arg, k, v, base_dir, apply_key_conventions)
 
     # Recursively process lists
     elif isinstance(arg, list):
-        _realize_list(arg, base_dir)
+        _realize_list(arg, base_dir, apply_key_conventions)
 
 
 def _realize_explicit_reference(value, base_dir, containers=True):
@@ -213,10 +217,13 @@ def _realize_type_reference(arg, k, v):
         arg[k] = v
 
 
-def _realize_nested(arg, k, v, base_dir):
+def _realize_nested(arg, k, v, base_dir, apply_key_conventions=True):
     """Recursively process a nested value, then build any object it
     describes - the type reference it names is realized by the recursion."""
-    realize_args(v, base_dir)
+    realize_args(v, base_dir, apply_key_conventions)
+    if not apply_key_conventions:
+        # The type an object names has not loaded; the steps pass builds it
+        return
     realized = realize_object(v, base_dir)
     if realized is OMITTED:
         raise ValueError(
@@ -228,7 +235,7 @@ def _realize_nested(arg, k, v, base_dir):
     arg[k] = realized
 
 
-def _realize_list(arg, base_dir):
+def _realize_list(arg, base_dir, apply_key_conventions=True):
     """Realize a list in place: each entry resolves as an explicit reference
     or is processed and built as an object."""
     logger.debug("Processing list arguments")
@@ -238,12 +245,13 @@ def _realize_list(arg, base_dir):
         if handled:
             continue
         try:
-            realize_args(item, base_dir)
+            realize_args(item, base_dir, apply_key_conventions)
         except ValueError as error:
             if isinstance(item, dict) and "name" in item:
                 raise ValueError(f"{error} (step '{item['name']}')") from error
             raise
-        arg[i] = realize_object(item, base_dir)
+        if apply_key_conventions:
+            arg[i] = realize_object(item, base_dir)
     # An optional entry whose media is null leaves the list rather than
     # reaching the pipeline as a reference with nothing in it
     if any(item is OMITTED for item in arg):
@@ -926,6 +934,7 @@ _LAZY_FRAME_COMMANDS = frozenset(
         "analyze_seams",
         "analyze_sync_drift",
         "analyze_face_drift",
+        "export_timeline",
         "window_video",
         "trim_video",
         "generate_sound_effects",

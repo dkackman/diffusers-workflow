@@ -668,21 +668,24 @@ TEMPLATE_PIPELINE_KEYS = {
     "expand-prompt.json": {},
     "face-drift-check.json": {},
     "flux3/image-edit.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/layout-boxes.json": {
-        "layout_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "layout_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/multi-reference.json": {
-        "edit": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "edit": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/text-to-image.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "flux3/upsample-then-generate.json": {
-        "text_to_image": "58be5755e37a15b2780cc4fa3eead66e91e2eeec21e15f15624f60a9a072f235"
+        "text_to_image": "af1014c287ace2f22907a6a91d05107d5874f22f6aeb066c58c639c0243d6a66"
     },
     "generate-speech.json": {},
+    "narration-from-takes.json": {},
+    "narration-long.json": {},
+    "split-takes.json": {},
     "image-edit.json": {
         "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
     },
@@ -794,6 +797,10 @@ TEMPLATE_PIPELINE_KEYS = {
     "ltx2/upscale-clip.json": {
         "upscaled": "94618b4210efdaaf17afda812fbcfd9566bdaba1220a5b2518b178a154a9677c"
     },
+    # The audio pass loads no turbo LoRA, so its H3 key is its own (#1192)
+    "minimax/add-sound.json": {
+        "sound": "93827335f8bc9c15474c40054579240687ef3afa8217d1af13d09b6e952b685b"
+    },
     "minimax/chain-matched-and-aligned.json": {
         "audio_aligned_chained_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
     },
@@ -805,6 +812,9 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/chained-segments.json": {
         "chained_keyframe_to_video_audio": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
+    },
+    "minimax/repair-segment.json": {
+        "repair": "0d1cd2532b5c19d97ba165ddb4c715c9ead5e05c2ab6ba4db9bb182e012ec4c0"
     },
     "minimax/composable-references.json": {
         "video_reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
@@ -848,6 +858,10 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "minimax/music.json": {
         "generate_music": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5"
+    },
+    "minimax/music-long.json": {
+        "generate_section@intro": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
+        "generate_section@chorus": "1abd10e3c899fb5bbc490baa64467ed46d5005f78fa8f94bc777f3ddcaf81fb5",
     },
     "minimax/reference-to-video.json": {
         "reference_to_video_audio": "ba9915580e6a8017d8c68efbddea776985d107222546f84cca18e319298243bf"
@@ -908,7 +922,7 @@ TEMPLATE_PIPELINE_KEYS = {
     },
     "sub-workflow.json": {},
     "surface-normals.json": {
-        "normals": "5f0d7e4762dd0483a2bdc767b3bff57502323ff231940cb817634b38d1709b64"
+        "normals": "e4236b2218a4e793c2c09489b9d6bd188c3038f6c7e8c8a016e49413db8c0fc1"
     },
     "text-to-image.json": {
         "main": "4e1fd3c983134c89fd764ab8635c410b08a14947fa5a34c372b6567fca12a4d3"

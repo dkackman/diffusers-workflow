@@ -12,10 +12,9 @@ they generate.
   outputs/      generated files
 ```
 
-This exists so that day-to-day work does not have to live inside a checkout of
-this repository. The examples under the repo's `workflows/` are still examples
-— a corpus to read, copy and run — but they are not where your own workflows
-belong, and generated media does not belong in a source tree at all.
+It keeps day-to-day work out of a checkout of this repository: the repo's
+`workflows/` is a corpus of examples to read, copy and run, and generated
+media does not belong in a source tree.
 
 ## Which directory is used
 
@@ -29,14 +28,13 @@ the server's workspace. First match wins:
 4. the working directory, when it holds any of `workflows/`, `prompts/` or `outputs/`
 5. `~/diffusers-workspace`
 
-Rule 4 is why nothing changes when you work from a checkout: the repository
-root holds all three, so it resolves to itself and every default lands exactly
-where it always has. Only a working directory with none of those folders falls
-through to the home workspace.
+Rule 4 means a checkout serves itself: the repository root holds all three
+folders. Rules 1-3 are *explicit*; rules 4 and 5 are inferred, which matters
+for the prompt library (below).
 
-Nothing is created just by resolving. A command that is about to write creates
-what it needs — `dw.serve` creates the workspace's `workflows/` so the UI has
-somewhere to save, and a run creates its output directory.
+Resolving creates nothing. `dw.serve` creates the workspace's `workflows/`
+(unless `--workflow-dir` was given) and `assets/` at start, and a run creates
+its output directory.
 
 `dw.run --workspace NAME` is a different thing: it names one of the server's
 workspaces (the `default` one, or a named one beside it), not a directory. A
@@ -44,19 +42,16 @@ path there is refused as a workspace name rather than resolved.
 
 ## Overriding one folder
 
-The per-directory flags are `dw.serve`'s, and each overrides exactly one
-folder of the workspace:
+`--workflow-dir`, `--prompt-dir`, `--asset-dir` and `--output-dir` on
+`dw.serve` each override one folder of the workspace. `dw.run` takes none of
+them; every job it queues writes where the server does.
 
 ```bash
 python -m dw.serve --workspace ~/studio --output-dir /mnt/big-disk/renders
 python -m dw.serve --prompt-dir ~/shared-prompts
 ```
 
-`dw.run` takes none of them - every job it queues writes where the server
-does.
-
-`--output-dir` is the one people reach for most: video work fills disks, and
-the outputs folder is the one worth putting on another volume.
+`--output-dir` is the usual one: video work fills disks.
 
 ## Working in a workspace
 
@@ -86,26 +81,28 @@ The server reports what it resolved at `GET /api/server`, under
 
 ## The prompt library
 
-`prompt:` references resolve to the workspace's `prompts/` when a workspace was
-named explicitly (rules 1–3 above, or `DW_PROMPT_DIR`, which still wins over
-everything). A workspace that was merely inferred from the working directory
-does not preempt the older discovery — `./prompts`, then the nearest `prompts/`
-above the workflow file — so a repository workflow keeps reaching the library
-it lives beside. When the workspace is explicit, its `prompts/` becomes the library
-even if it does not exist yet, so a checkout's `./prompts` is no longer found once
-a standing workspace setting (like `DW_WORKSPACE` or `"workspace"` in settings.json)
-is in place; `--prompt-dir` and `DW_PROMPT_DIR` still override it. This follows
-the "explicit wins" rule. See [Prompt References](WORKFLOW_GUIDE.md#prompt-references).
+`dw.serve` resolves the prompt library once at start and pins it for every
+job, first match wins:
+
+1. `--prompt-dir`, then `DW_PROMPT_DIR`
+2. the workspace's `prompts/`, when the workspace is explicit (rules 1-3),
+   even if it does not exist yet
+3. `./prompts` in the working directory
+4. the nearest `prompts/` at or above the workflow directory
+5. the workspace's `prompts/`
+
+So a standing `DW_WORKSPACE` or `"workspace"` setting stops a checkout's
+`./prompts` being found; an inferred workspace does not. See
+[Prompt References](WORKFLOW_GUIDE.md#prompt-references).
 
 ## Assets
 
 `assets/` is the input-media library. A workflow argument written as
 `asset:name.ext` (or `asset:folder/name.ext`) resolves to that file's path,
-rooted at the library rather than at the workflow file — so a workflow and the
-media it reads no longer have to sit in the same folder. `--asset-dir` and
-`DW_ASSET_DIR` override the folder, and browser uploads land in
-`assets/uploads/`, coming back as `asset:uploads/<name>` (and served for
-preview under `/inputs/`, since the SPA's own bundles own `/assets/`).
+rooted at the library rather than at the workflow file. `--asset-dir`
+overrides the folder. Browser uploads land in `assets/uploads/` and come back
+as `asset:uploads/<name>`, served for preview under `/inputs/` (the UI's own
+bundles own `/assets/`).
 
 A generated file becomes an input the same way: **Keep as asset** in the
 gallery (`POST /api/assets/keep`, `keep_output` over MCP) links or copies it
@@ -175,9 +172,9 @@ deleting a prompt that came from a read-only library is refused with a 403,
 and saving one writes a copy into your workspace the way saving an example
 workflow does.
 
-The packaged workflows in `dw/workflows/` are deliberately *not* on the path.
-They are the pieces a `builtin:` sub-workflow step names, resolved by the
-engine where that step is read — not workflows to browse or run on their own.
+The packaged workflows in `dw/workflows/` are *not* on the path: they are
+what a `builtin:` sub-workflow step names (`GET /api/builtin-workflows` lists
+them), not workflows to browse or run on their own.
 
 ## Runs
 
@@ -229,6 +226,15 @@ held in memory by the running server, not read back from `outputs/`, so a
 `dw.serve` restart empties it even though every run directory is still on
 disk - a `plan.cached_steps` of 0 right after a restart is expected, not a
 lost run.
+
+For the same reason, two `dw.serve` processes on the same workspace share no
+cache entries: a run on one server is a cache miss on the other, even though
+both read the same `outputs/`. To avoid recomputing, either use one server
+with `--devices cuda:0,cuda:1`, whose identity affinity sends a rerun back to
+the card that holds it warm (see [SERVER.md](SERVER.md) *Choosing the card*),
+or, with two servers, split the work so each server only reruns what it ran
+itself: submit each arms file (or job set) to one server, and never resubmit
+another server's arms expecting hits.
 
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
@@ -312,29 +318,22 @@ it is working in - `dw.run --workspace NAME` among them.
     workflows/  assets/  outputs/  <- the 'scratch' workspace
 ```
 
-The root's own three folders are the workspace named `default`, so a server
-that has never heard of named workspaces behaves exactly as it did. A named
-workspace is a sibling directory holding the same three folders — and *not* a
-`prompts/`, because there is one prompt library: `prompt:` is shared by
-reference, and a prompt duplicated per workspace would resolve to different
-text depending on where a workflow happened to be saved. `workflows`,
-`prompts`, `assets` and `outputs` are reserved names for that reason.
+The root's own three folders are the workspace named `default`. A named
+workspace is a sibling directory holding the same three folders and no
+`prompts/`: there is one prompt library, because a `prompt:` reference
+duplicated per workspace would resolve to different text depending on where
+a workflow was saved.
 
-Three more names are reserved beside `workflows`, `prompts`, `assets` and
-`outputs`: `exports`, `common` and `loras`. `loras/` is the LoRA catalog,
-shared by every workspace like `prompts/`; a workspace already named `loras`
-stops being listed on upgrade, and the server logs a warning at start naming
-its directory. `POST /api/jobs/{id}/export` gathers one
-finished job into `<root>/exports/<job id>/`, and that folder is never mistaken
-for a workspace.
+Reserved names, which no workspace can take: `workflows`, `prompts`,
+`assets`, `outputs`, `exports` (where `POST /api/jobs/{id}/export` gathers a
+job, `<root>/exports/<job id>/`), `common` and `loras` (the LoRA catalog,
+shared like `prompts/`). A pre-existing workspace named `loras` stops being
+listed, and the server logs a warning at start naming its directory.
 
-**The shared asset library.** `common/assets/` is the one place an asset can
-live that belongs to no single workspace. Assets are otherwise per workspace,
-which is right for the inputs of one piece of work and wrong for a recurring
-cast: a character's portrait and voice clip uploaded while making episode one
-were invisible from the workspace episode four was made in, and the only way
-through was to copy the files in. It sits on every workspace's asset search
-path behind that workspace's own library, so:
+**The shared asset library.** `common/assets/` holds assets that belong to
+no single workspace, such as a recurring cast's portraits and voice clips.
+It sits on every workspace's asset search path behind that workspace's own
+library, so:
 
 - `asset:cast/priya.png` resolves in the workspace first, then in the shared
   library, then in any read-only examples library — a workspace's own name
@@ -349,21 +348,20 @@ path behind that workspace's own library, so:
 It holds assets only. A prompt is already shared, and workflows and outputs
 belong to the work that made them.
 
-This is what lets two agents share the server's GPUs without sharing a
-namespace: each takes a workspace, and neither can save over the other's
-workflows or delete the other's renders. The queue is shared across
-workspaces and the engine runs one job per GPU (`dw.serve --devices`), so two
-agents' jobs run side by side when there is a free card each fits, and queue
-otherwise.
+Two agents can share the server's GPUs without sharing a namespace: each
+takes a workspace, and neither can save over the other's workflows or delete
+the other's renders. The queue is shared and the engine runs one job per GPU
+(`dw.serve --devices`), so their jobs run side by side when each fits a free
+card, and queue otherwise.
 
 **How a client picks one.** Every scoped route takes an optional
-`?workspace=<name>`; omitting it means `default`, which is why every
-pre-workspace call still means what it meant.
+`?workspace=<name>`; omitting it means `default`. `GET /api/jobs` spans every
+workspace unless one is named.
 
 | Client | How |
 | --- | --- |
 | Web UI | The sidebar lists every workspace; the selected one is named in the hash (`#/ws/<name>/...`), so a link and a reload both land where they say. The choice is remembered in `localStorage` as a fallback for a route that names none (Shared, Server), and Server → Status adds a filter over the all-workspaces queue — job history spans every workspace there and says which one each job ran in |
-| MCP | `list_workspaces`, then `use_workspace(name)`. It is a session default rather than an argument on each call, so switching is one visible step in the transcript instead of a flag that can be forgotten on the call where it mattered |
+| MCP | `list_workspaces`, then `use_workspace(name)`: a session default, so switching is one visible step in the transcript. Most tools also take `workspace=` per call; over a shared `/mcp` mount see [REMOTE.md](REMOTE.md#claude-code-no-local-install) |
 | HTTP | `?workspace=` on the route, or `"workspace"` in a `POST /api/jobs` body |
 | Web UI (create/delete) | The sidebar's `+ new` creates one; a workspace's own Overview page deletes it (disabled for `default`) |
 
@@ -373,7 +371,8 @@ while it runs — including through a rerun, and when its files are served back
 from history.
 
 **Creating and deleting.** `POST /api/workspaces` (`create_workspace` over
-MCP) makes one; creating does not switch to it. Deleting removes everything in
+MCP) makes one; creating does not switch to it (over MCP, unless
+`use=true`). Deleting removes everything in
 it, so it refuses until acknowledged and answers first with what it would
 remove — file counts and bytes per folder. The default workspace cannot be
 deleted (it holds the shared prompt library, and there has to be somewhere to
@@ -468,7 +467,7 @@ dw already has.
    that clips notes still shows which variant is which. Call `wait_for_job`
    until the variant finishes before submitting the next. The server holds a
    second large variant until the host can hold it beside the first (see
-   [SERVER.md](SERVER.md)), so waiting is for ordering, not for memory.
+   [SERVER.md](SERVER.md#jobs-api)), so waiting is for ordering, not for memory.
 
 5. **Only the latest run of a step is cached.** The step cache holds one
    entry per workflow step: its most recent run. A variant whose step and
@@ -501,16 +500,3 @@ dw already has.
 8. **Keep the winner.** `keep_output` the winning file under a stable
    `asset:` name, and put the conclusion (the answer, and the variant that
    gave it) in the workspace note.
-
-## Where this is going
-
-The resolver, the workflow search path with writes confined to the writable
-root, run directories with an on-disk manifest, `asset:` and `output:`
-references, and server-side named workspaces are all implemented. A further
-stage was designed but deliberately not built: a client-side workspace (a
-laptop directory, under version control) that mirrors into a read-only
-server workspace, so an agent could author offline and only push at submit
-time. It stayed on the drawing board because source control of creative work
-is not this project's job — that is already handled on the client, by the
-user, with the tools they already use — which is what makes a mirroring
-layer unnecessary rather than merely speculative.

@@ -390,3 +390,255 @@ class TestValidateRoute:
             "basis": "observed",
             "runs": 1,
         }
+
+
+class TestCommittedPeak:
+    """A worker's RSS counts the checkpoint pages it maps (RssFile) - page
+    cache the kernel can drop and a second worker mapping the same weights
+    shares, which MemAvailable already counts as free. An H3 chain peaked at
+    ~122 GB RSS with ~43 GB of it committed (RssAnon), so the gate held every
+    queued H3 job for a figure three times what it would take."""
+
+    def test_the_committed_peak_is_the_need(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        job = recorded_job("a", definition, 122000)
+        job.host_memory_job_peak_committed_mb = 43000
+        history.record(job)
+
+        assert projected_peak(definition, {}, history) == (43000, "observed", 1)
+
+    def test_runs_that_measured_it_supersede_rss_only_rows(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+        job = recorded_job("new", definition, 120000)
+        job.host_memory_job_peak_committed_mb = 44000
+        history.record(job)
+
+        assert history.peaks_for_key(memory_key(definition)) == [44000]
+
+    def test_rss_only_history_still_answers(self, tmp_path):
+        definition = template()
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        history.record(recorded_job("old", definition, 122000))
+
+        assert history.peaks_for_key(memory_key(definition)) == [122000]
+
+
+class TestRecordRunMemory:
+    def test_the_committed_peak_is_the_largest_committed_reading(self):
+        from dw.server.job_results import record_run_memory
+
+        class Slot:
+            last_memory = None
+
+        job = recorded_job("a", template(), None)
+        for committed in (5000, 43000, 30000):
+            record_run_memory(
+                job,
+                # RssAnon alone is not the committed figure: shmem and the
+                # driver's pinned pages are in host_memory_committed_mb
+                {"host_memory_committed_mb": committed, "host_memory_rss_anon_mb": 1},
+                Slot(),
+                lambda info, slot: None,
+            )
+
+        assert job.host_memory_job_peak_committed_mb == 43000
+
+
+class TestWorkerCommittedRss:
+    def test_a_workers_committed_rss_leaves_out_its_mapped_files(self, tmp_path):
+        from dw.host_memory import committed_rss_mb
+
+        status = tmp_path / "status"
+        status.write_text(
+            "VmRSS:\t108026044 kB\nRssAnon:\t42561384 kB\nRssFile:\t64928348 kB\n"
+        )
+
+        assert committed_rss_mb(None, status_path=str(status)) == pytest.approx(
+            42561384 / 1024
+        )
+
+
+class TestTheFitOnCommittedHistory:
+    """The fit is a list run's projection from the workflow's own rows, and
+    those rows carried only RSS: an accumulating list's fit on ~122 GB-RSS
+    runs beat the ~43 GB committed observed max and became the need again,
+    a comparison of two bases. Once a row has the committed peak, the fit
+    reads committed rows."""
+
+    def _history(self, tmp_path, definition):
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        for job_id, count, rss, committed in (
+            ("a", 2, 100000, 20000),
+            ("b", 4, 120000, 30000),
+        ):
+            job = recorded_job(
+                job_id, definition, rss, arguments={"shots": [{"prompt": "p"}] * count}
+            )
+            job.host_memory_job_peak_committed_mb = committed
+            history.record(job)
+        return history
+
+    def test_a_list_runs_fit_reads_committed_rows(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+        rows = [
+            {**row, "host_memory_job_peak_committed_mb": committed}
+            for row, committed in zip(
+                shot_rows((2, 100000), (4, 120000)), (20000, 30000)
+            )
+        ]
+
+        need = projected_peak(
+            definition,
+            {"shots": [{"prompt": "p"}] * 8},
+            history,
+            rows=rows,
+            list_entries={"shots": 8},
+        )
+
+        # committed: 20000 at 2, 30000 at 4 -> 50000 at 8 (RSS would be 160000)
+        assert need == (50000, "fit", 2)
+
+    def test_the_history_rows_carry_the_committed_peak(self, tmp_path):
+        definition = shots_definition()
+        history = self._history(tmp_path, definition)
+
+        rows = next(iter(history.finished_runs().values()))
+
+        assert sorted(r["host_memory_job_peak_committed_mb"] for r in rows) == [
+            20000,
+            30000,
+        ]
+
+    def test_rss_only_rows_still_fit_on_rss(self):
+        definition = shots_definition()
+        fit = projected_mb(
+            definition, {"shots": 8}, shot_rows((2, 100000), (4, 120000))
+        )
+        assert fit == {"projected_mb": 160000, "runs": 2}
+
+
+class TestHostRamMargin:
+    """The stored peak is the largest of readings taken at phase boundaries,
+    a lower bound on the true peak, so the gate keeps a margin above it."""
+
+    def test_a_need_that_only_just_fits_waits_for_its_margin(self):
+        from dw.server.pool import host_ram_wait
+
+        # 40 GB need, 42 GB free: inside the 10% margin
+        assert host_ram_wait(40 * 1024, 42 * 1024, [(None, None)]) is not None
+        assert host_ram_wait(40 * 1024, 45 * 1024, [(None, None)]) is None
+
+    def test_a_small_need_keeps_the_minimum_margin(self):
+        from dw.server.pool import HOST_RAM_MARGIN_MIN_MB, host_ram_wait
+
+        need = 4 * 1024
+        free = need + HOST_RAM_MARGIN_MIN_MB - 1
+        assert host_ram_wait(need, free, [(None, None)]) is not None
+        assert host_ram_wait(need, free + 2, [(None, None)]) is None
+
+    def test_a_running_jobs_peak_is_charged_with_its_margin(self):
+        from dw.server.pool import host_ram_wait
+
+        # The running job sits at its recorded 30 GB peak, which is a lower
+        # bound: 3 GB more of growth is charged, so 46 GB available is 43 GB
+        # free against the 44 GB the 40 GB need takes with its own margin
+        need = 40 * 1024
+        assert host_ram_wait(need, 46 * 1024, [(30 * 1024, 30 * 1024)]) is not None
+        assert host_ram_wait(need, 48 * 1024, [(30 * 1024, 30 * 1024)]) is None
+
+    def test_the_margin(self):
+        from dw.server.pool import with_margin
+
+        assert with_margin(100 * 1024) == 110 * 1024
+        assert with_margin(1024) == 1024 + 2048
+
+
+class TestDispatchWorkerReading:
+    def test_a_slots_worker_is_read_as_committed_memory(self, monkeypatch):
+        from dw.server import dispatch
+
+        asked = []
+        monkeypatch.setattr(
+            dispatch,
+            "committed_rss_mb",
+            lambda pid, device=True: asked.append((pid, device)) or 43000.0,
+        )
+
+        class Manager:
+            def pid(self):
+                return 4242
+
+        class Slot:
+            manager = Manager()
+
+        assert dispatch._worker_rss_mb(Slot()) == 43000.0
+        assert asked == [(4242, False)]
+
+    def test_a_slot_without_a_worker_is_no_reading(self, monkeypatch):
+        from dw.server import dispatch
+
+        monkeypatch.setattr(
+            dispatch, "committed_rss_mb", lambda pid, device=True: 1 / 0
+        )
+
+        class Manager:
+            def pid(self):
+                return None
+
+        class Slot:
+            manager = Manager()
+
+        class NoPid:
+            manager = object()
+
+        assert dispatch._worker_rss_mb(Slot()) is None
+        assert dispatch._worker_rss_mb(NoPid()) is None
+
+
+class TestDispatchNeverReadsSmaps:
+    def _proc(self, tmp_path, monkeypatch):
+        from dw import host_memory
+
+        status = tmp_path / "status"
+        status.write_text("RssAnon:\t2048 kB\nRssFile:\t999 kB\nRssShmem:\t1024 kB\n")
+        monkeypatch.setattr(host_memory, "_has_proc", lambda: True)
+        monkeypatch.setattr(
+            host_memory,
+            "_proc_path",
+            lambda pid, name: str(status) if name == "status" else 1 / 0,
+        )
+        monkeypatch.setattr(host_memory, "device_mapped_mb", lambda *a, **k: 1 / 0)
+
+    def _slot(self, last_memory):
+        class Manager:
+            def pid(self):
+                return 4242
+
+        class Slot:
+            manager = Manager()
+
+        slot = Slot()
+        slot.last_memory = last_memory
+        return slot
+
+    def test_adds_the_last_reported_device_figure(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        report = {
+            "host_memory_committed_mb": 10.0,
+            "host_memory_rss_anon_mb": 4.0,
+            "host_memory_rss_shmem_mb": 1.0,
+        }
+        assert dispatch._worker_rss_mb(self._slot(report)) == 3.0 + 5.0
+
+    def test_no_report_falls_back_to_status_only(self, tmp_path, monkeypatch):
+        from dw.server import dispatch
+
+        self._proc(tmp_path, monkeypatch)
+        assert dispatch._worker_rss_mb(self._slot(None)) == 3.0
+        assert dispatch._worker_rss_mb(self._slot({})) == 3.0

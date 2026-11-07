@@ -37,6 +37,46 @@ remaining deferred fix is recorded in
 
 ## Shipped since the ranking
 
+- **Long-form media** (#1199), shipped 2026-11-06. Static long takes (`shot:
+  static_long`, the H3 keystone at the last slot), `look_hold` on by default in the
+  LTX chain, the `minimax/add-sound` audio pass, long narration and music joins,
+  `tier: draft | standard | best` on six H3 templates, and the long-form skill.
+  Verdicts per idea, job ids and what was cut are in
+  `complete/long-form-media-complete.md`.
+- **H3 guide-chain drift counters** (#1166, stages #1173-#1175), shipped
+  2026-11-02. Two off-by-default H3 options: `latent_anchor` with
+  `chain.anchor: "segment_1"`, a pre-decode per-channel latent statistics
+  match to segment 1, and `guide_noise`, cosine-tapered pixel noise on video
+  guides before their encode. A 10-segment, two-scene probe on lem found the anchor
+  (with or without guide noise) best on a static scene and worst on a
+  moving-camera arc, and guide noise alone the only arm that didn't hurt the
+  arc. No template or skill sets either until Don's taste verdict (Q6);
+  `latent_anchor_strength` is the named follow-up. The in-loop ramp and the
+  keystone/capstone were cut: `complete/h3-guide-chain-drift-complete.md`.
+
+- **Texture-band drift measurement on `compare_outputs`** (#1152, stage
+  #1160), shipped 2026-11-02. `compare_outputs(texture_bands=true)` reports
+  RMS energy in the fine 2-8, mid 8-32 and coarse 32-128 px bands (luma, R−G,
+  B−G) per output per moment over one shared crop, plus ratios to the
+  baseline. It accepts one name, so one chain's segments can be compared. It
+  is a measurement, not a score. The `assess_output` shape, pre-encode frame
+  export and any thresholds were cut:
+  `complete/texture-bands-complete.md`.
+
+- **H3 Anti-Burn LoRA on chain continuation segments** (#1151, stage
+  #1159), probed 2026-11-02. Imagineer13's anti-burn LoRA loads through
+  the stock loader beside turbo. On a seed-42, 5-segment hand-built
+  `fl2va` chain, 0.6 on segments 2-5 held segment 1's skin, knit and wall,
+  where the unaided chain burnt by segment 5. It is in the catalog as
+  `minimax-h3/h3-antiburn`, `trial`, until Don's taste verdict (Q4). The
+  `chain.continuation_loras` option was cut and returns only on a positive
+  Q4: `complete/h3-antiburn-continuation-complete.md`.
+
+- **`pcm_sha256`, an audio identity check over MCP** (#1139, stage #1158),
+  shipped 2026-11-02. `get_gallery_metadata`'s `media` now carries a
+  SHA-256 of the decoded samples, with `sample_format` and `frames`, for any
+  file with a soundtrack. The image/video `pixel_sha256` was cut, with its
+  trigger: `complete/pcm-sha256-complete.md`.
 - **MMAudio picture-synced sound effects** (#1124, stages #1131-#1133),
   shipped 2026-11-01. It followed a listening gate in which Don heard a
   clear win on replacing a shot's own sound, on silent clips and on
@@ -506,6 +546,31 @@ remaining deferred fix is recorded in
   clone a voice in English, Russian and more, with a 20 s reference cap and
   a context-fit refusal. Template `voice-clone`. Record, including the
   known edges: `complete/audio8-voice-clone-complete.md`.
+- **Cinematic controls, tier 1** (#1141, stages #1142-#1148), shipped
+  2026-11-02. It adds:
+  - the `cinematography` skill: a closed camera-and-look vocabulary
+    compiled per family for H3, LTX-2.5, K6 and Klein, plus five named
+    grades;
+  - a saved shot document, a fix ladder and an H3 lint in
+    `script-to-video`;
+  - `stills_to_video` and the `storyboard` skill with an `animatic`
+    template;
+  - `analyze_face_drift` (YuNet + SFace, pinned) with a
+    `face-drift-check` template;
+  - a sitcom multicam grammar in `series-episodes`.
+
+  A measured trial put six moves × three families at honoured or partial,
+  none ignored. Record, including what was deferred (the 7 unmeasured
+  moves, tier 2 in `cinematic-addons.md`):
+  `complete/cinematic-controls-complete.md`.
+- **H3 dialogue pacing: split `<d>` blocks** (#1180, stages #1184, #1185),
+  shipped 2026-11-02. A non-turbo probe on lem found that splitting a short
+  line into two `<d>` blocks removes the silent lead-in on both seeds (the
+  first block is still fast; the pause sits between blocks). Body-action
+  prose between blocks adds nothing and isn't spoken. `minimax-h3`'s
+  `dialogue.md` and check-script line say so. Probe record:
+  `audits/2026-11-h3-dialogue-pacing-probes.md`; design record:
+  `complete/h3-dialogue-pacing-complete.md`. Enhancer follow-up: #1186.
 
 ## Declined
 

@@ -40,7 +40,16 @@ from .argument_warnings import workflow_argument_warnings
 from .content_types import content_type_errors
 from .dissolve_frame_errors import dissolve_frame_errors
 from .for_each import ForEachError, entry_field_warnings
-from .guides import guide_chain_errors, guides_errors
+from .presets import apply_presets
+from .pipeline_processors.h3_tst import tst_errors
+from .guides import (
+    anchor_errors,
+    guide_chain_errors,
+    guide_noise_errors,
+    guide_noise_warnings,
+    guides_errors,
+    selflift_errors,
+)
 from .hold_audio import hold_audio_errors, mask_errors, refine_strength_errors
 from .introspection import task_signature_errors
 from .kernel_availability import kernel_availability_errors
@@ -73,6 +82,7 @@ from .type_references import (
     component_type_errors,
     unbraced_type_warnings,
 )
+from .presets import preset_errors
 from .variable_constraints import (
     ConstraintReferenceError,
     constraint_errors,
@@ -88,7 +98,7 @@ from .variables import (
     undeclared_variable_references,
 )
 from .video_extensions import video_extension_errors, video_into_image_errors
-from .video_size_errors import video_size_errors
+from .video_size_errors import stills_memory_errors, video_size_errors
 from .window_count_errors import window_count_errors
 from .vram_estimate import vram_estimate_errors
 from .vram_inheritance import inherited_vram_warnings
@@ -163,6 +173,7 @@ class ValidationContext:
         self._expanded = expanded
         self._source_indices = source_indices
         self._probes = {}
+        self._argument_errors = None
 
     def _expansion(self):
         if self._expanded is None and self._expand is not None:
@@ -188,6 +199,16 @@ class ValidationContext:
     def supplied(self):
         """The names of the variables the caller supplied."""
         return set(self.arguments or {})
+
+    @property
+    def argument_errors(self):
+        """What `set_variables` - the coercion a run applies - refuses in
+        the caller's arguments (`dw.variables.argument_errors`), memoized:
+        workflow_errors reports them and admit() tells them apart from the
+        definition's own errors by this same list. Each read is a copy."""
+        if self._argument_errors is None:
+            self._argument_errors = argument_errors(self.definition, self.arguments)
+        return copy.deepcopy(self._argument_errors)
 
     def probe(self, path):
         """`probe_metadata(path)`, memoized by real path for this context
@@ -306,7 +327,7 @@ def _task_errors(context):
     )
     if context.arguments is None:
         errors = [e for e in errors if "variable" not in e]
-    elif argument_errors(context.definition, context.arguments):
+    elif context.argument_errors:
         # A bad argument leaves every argument unfolded, so a variable the
         # caller did supply still reads as null here (#972). The argument
         # error is the one to say; drop the finding for a supplied name
@@ -472,6 +493,12 @@ ERROR_CHECKS = [
             c.expanded, c.source_indices, c.base_dir, probe=c.probe
         ),
     ),
+    # A stills_to_video clip past the in-memory frame budget, when the
+    # durations, fps and stills are all known (dw/video_size_errors.py, #1199)
+    Check(
+        "stills_memory",
+        lambda c: stills_memory_errors(c.expanded, c.source_indices, c.base_dir),
+    ),
     # A select step whose rule is misspelled, or whose threshold/index does
     # not match its rule (select_errors, above)
     Check(
@@ -489,6 +516,29 @@ ERROR_CHECKS = [
     Check(
         "guide_chain",
         lambda c: guide_chain_errors(c.expanded, c.source_indices),
+    ),
+    # A latent_anchor or chain anchor off H3 t2va/fl2va, an unknown chain
+    # anchor, or 'segment_1' under a continuity it cannot run under (#1166)
+    Check(
+        "latent_anchor",
+        lambda c: anchor_errors(c.expanded, c.source_indices),
+    ),
+    # A guide_noise off H3 t2va/fl2va, or not a number in [0, 1) (#1166)
+    Check(
+        "guide_noise",
+        lambda c: guide_noise_errors(c.expanded, c.source_indices),
+    ),
+    # An experimental_selflift with the flag off, off H3 t2va/fl2va, or on a
+    # call it cannot lift (#1195)
+    Check(
+        "selflift",
+        lambda c: selflift_errors(c.expanded, c.source_indices),
+    ),
+    # The experimental TST correction (#1196): the flag off, off H3, a bad
+    # value, or a transformer on dw's 'sparse' backend
+    Check(
+        "experimental_tst",
+        lambda c: tst_errors(c.expanded, c.source_indices),
     ),
     Check("task_signatures", _task_errors),
     # A task argument that runs Hub code, anywhere in the step - the run
@@ -516,6 +566,9 @@ ERROR_CHECKS = [
         "constraints",
         lambda c: constraint_errors(c.definition, c.arguments, supplied=c.supplied),
     ),
+    # A `presets` block naming nothing declared, or a selector value that
+    # is no bundle (dw/presets.py)
+    Check("presets", lambda c: preset_errors(c.definition, c.arguments)),
     # An 'attn_processor_type' whose Hub kernel this machine has no build
     # variant for (dw/kernel_availability.py, #178)
     Check(
@@ -720,6 +773,12 @@ WARNING_CHECKS = [
     # cache, a CUDA-only attention backend off CUDA - each of which cost a
     # render to find out (#868)
     Check("acceleration_warnings", acceleration_warnings),
+    # A guide_noise on a step with no guides and no guide chain - it would
+    # noise nothing (#1166)
+    Check(
+        "guide_noise_warnings",
+        lambda c: guide_noise_warnings(c.expanded, c.source_indices),
+    ),
 ]
 
 
@@ -804,6 +863,12 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
     Past the gates (schema, 'constraint:' references, the expansion)
     every check in `ERROR_CHECKS` runs, in order; one that raises is an
     internal error rather than a lost verdict (B10).
+
+    The caller's own arguments are then checked by `argument_errors` -
+    `set_variables`' coercion, the one a run applies, so validate and
+    submit refuse the same argument with the same message - and reported
+    after the definition's errors, whether or not a gate stopped them
+    (#976). A raise there is validation failing, not a finding.
     """
     if context is None:
         context = workflow_context(workflow, arguments, composing)
@@ -814,6 +879,18 @@ def workflow_errors(workflow, arguments=None, composing=None, context=None):
             "validation_errors was given a context and different "
             "arguments or composing - pass one or the other"
         )
+    errors = _definition_errors(workflow, context)
+    known = {(e.get("path"), e.get("message")) for e in errors}
+    return errors + [
+        e
+        for e in context.argument_errors
+        if (e.get("path"), e.get("message")) not in known
+    ]
+
+
+def _definition_errors(workflow, context):
+    """workflow_errors' gates and its ERROR_CHECKS - everything but the
+    caller's arguments' own refusals."""
     errors = validate_data_all(workflow.workflow_definition, load_schema("workflow"))
     # Only once the shape is known good: the checks walk the steps
     # array and a definition that fails the schema may have no such
@@ -873,8 +950,12 @@ def undeclared_variable_errors(workflow, arguments=None):
     definition = copy.deepcopy(workflow.workflow_definition)
     variables = definition.get("variables")
     supplied = set()
-    if isinstance(variables, dict) and arguments:
-        if not argument_errors(definition, arguments):
+    if isinstance(variables, dict):
+        good = bool(arguments) and not argument_errors(definition, arguments)
+        # the chosen bundle - the default one when no argument folds - as
+        # Workflow._fold applies it
+        apply_presets(definition, arguments if good else {}, variables, strict=False)
+        if good:
             set_variables(arguments, variables)
             supplied = set(arguments)
     declared = sorted(variables or {})

@@ -104,6 +104,46 @@ def test_loader_builds_both_classes_and_decodes_to_the_right_length(k6_folders):
 
 
 @needs_mmaudio
+def test_the_constructor_runs_off_meta(k6_folders, monkeypatch):
+    """MMAudioVAE builds its mel filterbank in __init__. Under a meta device
+    context that arithmetic mixed a CPU tensor with meta ones, which a
+    long-lived worker's stricter fake kernels refused (#1201, on MPS). Only
+    the parameters may be empty; the constructor's own tensors are real."""
+    from diffusers.models.autoencoders import autoencoder_mmaudio
+
+    root, _, _ = k6_folders
+    devices = []
+    original = autoencoder_mmaudio.mel_filterbank
+
+    def recording(*args, **kwargs):
+        devices.append(torch.empty(1).device.type)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(autoencoder_mmaudio, "mel_filterbank", recording)
+    decoder = dec.load_decoder(root / dec.VAE_FOLDER, root / dec.VOCODER_FOLDER)
+    assert devices == ["cpu"]
+    for model in (decoder.vae, decoder.vocoder):
+        assert not any(t.is_meta for t in model.parameters())
+        assert not any(t.is_meta for t in model.buffers())
+
+
+@needs_mmaudio
+def test_loads_while_transformers_has_torch_linspace_patched(k6_folders):
+    """The worker's crash, reproduced: transformers' meta-init context swaps
+    the process-global torch.linspace for one that defaults to CPU, and
+    MMAudioVAE's filterbank then mixed a CPU linspace with meta tensors -
+    'Tensor on device cpu is not on the expected device meta!' (#1201)."""
+    initialization = pytest.importorskip("transformers.initialization")
+    patch = getattr(initialization, "meta_device_safe_creation_ops", None)
+    if patch is None:
+        pytest.skip("this transformers does not patch torch.linspace")
+    root, _, _ = k6_folders
+    with patch():
+        decoder = dec.load_decoder(root / dec.VAE_FOLDER, root / dec.VOCODER_FOLDER)
+    assert not any(t.is_meta for t in decoder.vae.buffers())
+
+
+@needs_mmaudio
 def test_loader_is_strict(k6_folders, tmp_path):
     root, _, _ = k6_folders
     from safetensors.torch import load_file, save_file

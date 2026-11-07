@@ -41,21 +41,21 @@ The guide sets no shot-size words; its own examples use the plain ones.
 
 ## `move`
 
-| id | The move, in MiniMax's motion types |
-| --- | --- |
-| `static` | "The camera holds a static shot as <action>." |
-| `dolly-in` | "The camera pushes in with large amplitude toward <subject>." |
-| `dolly-out` | "The camera pulls out with large amplitude, revealing <the setting>." |
-| `truck-left` | "The camera trucks left alongside <subject>." |
-| `truck-right` | "The camera trucks right alongside <subject>." |
-| `crane-up` | "The camera pedestals up with large amplitude, rising above <subject>." |
-| `crane-down` | "The camera pedestals down to <subject>'s eye level." |
-| `orbit` | "The camera moves in an arc shot around <subject>." |
-| `tracking` | "The camera holds a tracking shot, matching <subject>'s pace." |
-| `whip-pan` | "The camera pans <left or right> with large amplitude at fast speed, revealing <the new view>." |
-| `push-in` | "The camera pushes in with small amplitude at slow speed toward <subject's face>." |
-| `handheld` | "The camera shakes slightly as it follows <subject>." |
-| `crash-zoom` | "The camera zooms in with large amplitude at fast speed on <subject>." |
+| id | The move, in MiniMax's motion types | measured (#1148) |
+| --- | --- | --- |
+| `static` | "The camera holds a static shot as <action>." | honoured |
+| `dolly-in` | "The camera pushes in with large amplitude toward <subject>." | honoured |
+| `dolly-out` | "The camera pulls out with large amplitude, revealing <the setting>." | honoured |
+| `truck-left` | "The camera trucks left alongside <subject>." | partial |
+| `truck-right` | "The camera trucks right alongside <subject>." | not measured |
+| `crane-up` | "The camera pedestals up with large amplitude, rising above <subject>." | honoured |
+| `crane-down` | "The camera pedestals down to <subject>'s eye level." | not measured |
+| `orbit` | "The camera moves in an arc shot around <subject>." | honoured |
+| `tracking` | "The camera holds a tracking shot, matching <subject>'s pace." | not measured |
+| `whip-pan` | "The camera pans <left or right> with large amplitude at fast speed, revealing <the new view>." | not measured |
+| `push-in` | "The camera pushes in with small amplitude at slow speed toward <subject's face>." | not measured |
+| `handheld` | "The camera shakes slightly as it follows <subject>." | not measured |
+| `crash-zoom` | "The camera zooms in with large amplitude at fast speed on <subject>." | not measured |
 
 ## The other axes
 
@@ -64,7 +64,12 @@ In the opening of the shot, with the style:
 - **lens**: the effect - "wide-angle", "long-lens compression with a soft
   background", "anamorphic widescreen, horizontal flares", "soft vintage
   glass".
-- **light**: the `vocabulary.md` meaning, in the visual description.
+- **light**: one phrase per value, in the visual description - `high-key`
+  "bright, even high-key lighting, few shadows", `low-key` "low-key
+  lighting from one hard source, deep shadows", `golden-hour` "warm
+  golden-hour sunlight, long shadows, glowing rim light", `practical` "lit
+  only by the lamps, screens and neon in the scene", `noir` "film noir
+  lighting, hard contrast, venetian-blind shadows, smoke, night".
 - **era**: "shot on grainy 8mm home-movie film", "16mm documentary film",
   "35mm film", "VHS camcorder footage", "clean digital video". For a medium
   (clay, paper) the `minimax-h3` skill's `style.md` reference applies too.

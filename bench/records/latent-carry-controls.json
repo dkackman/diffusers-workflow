@@ -1,0 +1,23 @@
+[
+    {
+        "arm": "r3-anchor25-s1-120s-s2",
+        "scene": "s1-static",
+        "seed": 2,
+        "job_id": "bf9ee32e040f",
+        "status": "succeeded",
+        "error": null,
+        "output": "BenchS1Static-lcctl/20261105-163748-138173d5/final/BenchS1Static-lcctl-chained_keyframe_to_video_audio.0-0.0.mp4",
+        "measures": {
+            "seam_jump_mean": 0.9871428571428572,
+            "seam_jump_max": 1.43,
+            "seam_look_mean": 1.2953571428571429,
+            "seam_look_max": 2.66,
+            "seam_level_step_db_mean": 10.45142857142857,
+            "seam_level_step_db_max": 31.99,
+            "texture_fine_seg_last": 1.14208473240703,
+            "texture_mid_seg_last": 0.5897377067054688,
+            "texture_coarse_seg_last": 0.017054293715587,
+            "wall_minutes": 70.66124661763509
+        }
+    }
+]

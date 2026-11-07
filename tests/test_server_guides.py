@@ -37,7 +37,16 @@ def checkout(tmp_path, monkeypatch):
         "### One step per entry: for_each\n\n"
         "for_each runs a step once per entry.\n\n"
         "### previous_result\n\n"
-        "previous_result chains steps.\n"
+        "previous_result chains steps.\n\n"
+        "#### Steps in detail\n\n"
+        "a minor heading under previous_result.\n\n"
+        "## Comparing\n\n"
+        "### Comparing outputs\n\n"
+        "the grid.\n\n"
+        "#### Texture bands\n\n"
+        "bands by wavelength.\n\n"
+        "### Remediation\n\n"
+        "recut or regenerate.\n"
     )
     monkeypatch.setattr(guides, "__file__", str(root / "dw" / "server" / "guides.py"))
     monkeypatch.setattr(
@@ -180,6 +189,37 @@ class TestFetching:
         assert guide["section"] == "Cross-Step Data Flow"
         assert "parent_section" not in guide
 
+    def test_a_minor_heading_is_reachable_by_name(self, checkout):
+        # #1160: a `####` heading is named content a skill points at; it
+        # runs to the next `###`/`####` and names its `##` section.
+        guide = guides.get_guide("workflows", section="Texture bands")
+
+        assert guide["section"] == "Texture bands"
+        assert guide["parent_section"] == "Comparing"
+        assert "bands by wavelength." in guide["content"]
+        assert "recut or regenerate." not in guide["content"]
+        assert "the grid." not in guide["content"]
+
+    def test_a_subsection_still_carries_its_minor_headings(self, checkout):
+        guide = guides.get_guide("workflows", section="Comparing outputs")
+
+        assert guide["section"] == "Comparing outputs"
+        assert "the grid." in guide["content"]
+        assert "bands by wavelength." in guide["content"]
+        assert "recut or regenerate." not in guide["content"]
+
+    def test_a_subsection_match_wins_over_a_minor_heading_match(self, checkout):
+        # The `####` pass runs only when no `###` matched, so a term a `###`
+        # heading already resolved still lands there.
+        assert (
+            guides.get_guide("workflows", section="previous_result")["section"]
+            == "previous_result"
+        )
+        assert (
+            guides.get_guide("workflows", section="Steps in detail")["section"]
+            == "Steps in detail"
+        )
+
     def test_a_section_linking_an_example_says_how_to_reach_it(self, checkout):
         """A guide's link to an example is a repo path. The reader these
         guides exist for has no checkout - it has the MCP and nothing else -
@@ -249,6 +289,18 @@ class TestTheRealDocs:
         )
 
         assert guide["section"] == "Authoring a workflow from an agent"
+
+    def test_the_texture_bands_heading_is_reachable(self):
+        """#1160: the minimax-h3 skill points at *Comparing outputs*,
+        *Texture bands*; both names resolve, and the first carries the second."""
+        bands = guides.get_guide("workflows", section="Texture bands")
+        assert bands["section"] == "Texture bands"
+        assert "texture_bands=true" in bands["content"]
+        assert "not a score" in bands["content"]
+
+        comparing = guides.get_guide("workflows", section="Comparing outputs")
+        assert comparing["section"] == "Comparing outputs"
+        assert "#### Texture bands" in comparing["content"]
 
     def test_the_for_each_subsection_is_reachable_without_its_parent(self):
         """#503: both terms the issue's repro used reach the `###` subsection

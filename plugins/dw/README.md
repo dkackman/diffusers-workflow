@@ -2,9 +2,10 @@
 
 Skills for Claude Code that teach an agent to compose a model family's
 workflows on a [diffusers-workflow](https://github.com/dkackman/diffusers-workflow)
-server. They assume the `dw` MCP server is already registered
-(see the repo README, "Drive it from an agent"); a skill's first move is
-`get_server_info`.
+server. They assume the `dw` MCP server is already registered (see the repo
+README's "Getting started" and [docs/MCP.md](../../docs/MCP.md)); a skill's
+first move is `get_server_info`. Five skills cover one model family each; the
+last five are cross-cutting shapes that orchestrate them.
 
 Install once, from Claude Code:
 
@@ -24,6 +25,7 @@ Install once, from Claude Code:
 | `storyboard` | Boards before video: a scene drawn on FLUX 3 Klein from character and location references (up to eight boards, cited as "image one"), the six-cut coverage set of one moment, a board as the first frame of an H3, LTX-2.5 or Kandinsky 6 shot, and a timed animatic with a scratch voice and music bed. Takes the Popcorn shape from Higgsfield (concept only) and the coverage set from Shot Board (MIT). |
 | `script-to-video` | From a prose script to finished video: decompose into shots, cast recurring characters once, pick each shot's template and family, validate cost before spending, run and diagnose, hand off to cut-and-score. The decision tree that turns a script into the shots the other skills know what to do with. |
 | `series-episodes` | A series rather than one generation: several episodes over one cast, each cut and scored from its own template runs. The five-beat recut-bed-match_levels-normalize-pair procedure, an optional per-shot look (one shared palette through `apply_lut`, then `film_grain`) before the recut, and the one step that must not be skipped or the cast drifts between episodes. |
+| `long-form` | A piece longer than one clip: scenes first, then per scene one clip, cuts or a chain; the chain's `shot` preset (static, moving, dialogue), the per-segment check and the in-place repair of one segment; narration and music longer than one generation, `pair_audio`, the H3 audio pass, and an OTIO export for an editor. Every rule cites the bench record it came from; what is still being measured is marked pending. |
 
 The two MiniMax skills defer the prompt format to MiniMax's own skills and
 fetch the vendor's guides when those are absent, so nothing else is required.
@@ -40,13 +42,16 @@ Name the skill: the H3 repo also ships eight style packs
 alongside it. When a request wants one of those looks, install that pack the
 same way, by name; the `minimax-h3` skill's `references/style.md` lists them.
 
-Each skill quotes catalog names and numeric rules that `tests/test_plugin_skills.py`
-holds to the catalog and to the diffusers module that enforces them. A
-skill's `SKILL.md` stays under 12 KB because it loads whenever the skill
-triggers; detail only some requests need is in its `references/`, read on
-demand, and held to the same tests. The
-plugin's version is the engine's; the release script bumps both.
+`tests/test_plugin_skills.py` holds each skill's catalog names and numeric
+rules to the catalog and to the diffusers module that enforces them, and
+requires every skill directory to be named here and in the repo's `CLAUDE.md`.
+A skill's `SKILL.md` stays at or under 12 KiB because it loads whenever the
+skill triggers; detail only some requests need is in its `references/`, read
+on demand and held to the same tests. The plugin's version
+(`.claude-plugin/plugin.json`) is the engine's; `scripts/release.sh` bumps
+both. The marketplace entry is `.claude-plugin/marketplace.json` at the repo
+root.
 
 Adding a family: copy a skill, follow its outline, add the family's rules to
-the test, cite the vendor. The repo's `model-family-onboarding` skill
-(`.claude/skills/`) is the full lifecycle.
+the test, cite the vendor, and name it here and in `CLAUDE.md`. The repo's
+`model-family-onboarding` skill (`.claude/skills/`) is the full lifecycle.

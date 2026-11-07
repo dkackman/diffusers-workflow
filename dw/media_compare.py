@@ -23,6 +23,7 @@ import numpy
 from PIL import Image, ImageDraw, ImageFont
 
 from . import media, references
+from . import texture_bands as bands
 from .media_frames import compose_grid, evenly_spaced_indices, moment_index, parse_crop
 
 MAX_COMPARE_NAMES = 8
@@ -82,14 +83,25 @@ def _luma(rgb):
     return rgb[..., 0] * 0.299 + rgb[..., 1] * 0.587 + rgb[..., 2] * 0.114
 
 
-def check_request(names, at, crop, baseline):
+def check_request(names, at, crop, baseline, texture_bands=False):
     """Refuse a request by its shape before anything is resolved or
     decoded: name and moment counts, the baseline, the crop's form.
-    Returns (the baseline's row, crop mode: None, "shared" or "each")."""
-    if not isinstance(names, list) or not 2 <= len(names) <= MAX_COMPARE_NAMES:
+    Returns (the baseline's row, crop mode: None, "shared" or "each").
+
+    With `texture_bands` one name is enough (one chain's moments against
+    each other), the crop must be one shared box, and that box must hold
+    the fine band (#1152)."""
+    fewest = 1 if texture_bands else 2
+    if not isinstance(names, list) or not fewest <= len(names) <= MAX_COMPARE_NAMES:
         count = len(names) if isinstance(names, list) else 0
+        if count == 1:
+            raise ValueError(
+                "`names` holds 1 output; compare takes 2 to "
+                f"{MAX_COMPARE_NAMES} (or 1 with `texture_bands`)"
+            )
         raise ValueError(
-            f"`names` holds {count} outputs; compare takes 2 to {MAX_COMPARE_NAMES}"
+            f"`names` holds {count} outputs; compare takes {fewest} to "
+            f"{MAX_COMPARE_NAMES}"
         )
     if at is not None and not 1 <= len(at) <= MAX_COMPARE_MOMENTS:
         raise ValueError(
@@ -104,12 +116,24 @@ def check_request(names, at, crop, baseline):
     if crop is None:
         return row, None
     if crop and all(isinstance(box, (list, tuple)) for box in crop):
+        if texture_bands:
+            raise ValueError(
+                "texture bands need one shared box: give `crop` as one "
+                "[x, y, width, height] for every output, not one per name"
+            )
         if len(crop) != len(names):
             raise ValueError(
                 f"`crop` gives {len(crop)} boxes for {len(names)} names - give "
                 "one [x, y, width, height] for every output, or one box for all"
             )
         return row, "each"
+    if texture_bands:
+        _, _, width, height = parse_crop(crop)
+        if min(width, height) < bands.MIN_SIDE:
+            raise ValueError(
+                f"crop {width}x{height} is too small for the 2-8 px band: "
+                f"texture bands need at least {bands.MIN_SIDE} px a side"
+            )
     return row, "shared"
 
 
@@ -143,11 +167,19 @@ def resolve_moments(at, reference, shortest):
     return resolved
 
 
-def compare(sources, at, crop, baseline_row, crop_mode, max_dimension):
+def compare(
+    sources, at, crop, baseline_row, crop_mode, max_dimension, texture_bands=False
+):
     """The grid and metrics for `sources`, one dict per output in the
     caller's order: {name, kind, and for a still `image` (decoded, PIL),
     for a video `path` and `shape` (`video_shape`)}. Returns the answer's
-    body without the encoded grid, plus the grid itself under "grid"."""
+    body without the encoded grid, plus the grid itself under "grid".
+
+    `texture_bands` adds, per output per moment, the band energy of the
+    measured region (`texture_bands.texture_bands`) - the baseline's too -
+    and, off the baseline, each band's ratio to the baseline's: a
+    `texture` list (one entry per output) and the same numbers on each
+    metrics cell, under a `texture_bands` header naming the px ranges."""
     for source in sources:
         source["width"], source["height"] = _size(source)
         source["box"] = None
@@ -203,14 +235,34 @@ def compare(sources, at, crop, baseline_row, crop_mode, max_dimension):
         for frame in base_frames
     ]
 
+    base_texture = (
+        [None if array is None else bands.texture_bands(array) for array in base_arrays]
+        if texture_bands
+        else None
+    )
+
     rows = []
     metrics = []
+    texture = []
     for row, source in enumerate(sources):
         source_frames = base_frames if row == baseline_row else _frames(source, frames)
+        entry = None
         if row != baseline_row:
-            metrics.append(
-                _metrics_for(
-                    row, source, source_frames, baseline, base_arrays, measure_box
+            entry = _metrics_for(
+                row, source, source_frames, baseline, base_arrays, measure_box
+            )
+            metrics.append(entry)
+        if texture_bands:
+            texture.append(
+                _texture_for(
+                    row,
+                    source,
+                    source_frames,
+                    baseline,
+                    base_texture,
+                    measure_box,
+                    row == baseline_row,
+                    entry,
                 )
             )
         rows.append(
@@ -223,7 +275,7 @@ def compare(sources, at, crop, baseline_row, crop_mode, max_dimension):
 
     fps_values = {round(video["shape"]["fps"] or 0.0, 3) for video in videos}
     grid = _grid(rows, sources, baseline_row, frames, bool(videos))
-    return {
+    answer = {
         "grid": grid,
         "baseline": baseline["name"],
         "region": metrics_region,
@@ -236,6 +288,13 @@ def compare(sources, at, crop, baseline_row, crop_mode, max_dimension):
         "metrics": metrics,
         "notes": notes,
     }
+    if texture_bands:
+        answer["texture_bands"] = {
+            band: f"{shortest}-{longest} px"
+            for band, (shortest, longest) in bands.BANDS.items()
+        }
+        answer["texture"] = texture
+    return answer
 
 
 def _size(source):
@@ -301,6 +360,47 @@ def _metrics_for(row, source, source_frames, baseline, base_arrays, measure_box)
     if not measured and entry["reason"] is None:
         entry["reason"] = "no moment holds a frame of both this output and the baseline"
     return entry
+
+
+def _texture_for(
+    row, source, source_frames, baseline, base_texture, measure_box, is_baseline, entry
+):
+    """One output's band energy per moment, and off the baseline its ratio
+    to the baseline's at the same moment; copied onto `entry`'s metrics
+    cells too, so a cell holds every number for its moment."""
+    texture = {
+        "name": source["name"],
+        "row": row,
+        "baseline": is_baseline,
+        "cells": [],
+    }
+    for index, frame in enumerate(source_frames):
+        cell = {"texture": None, "reason": None}
+        if not is_baseline:
+            cell["texture_ratio"] = None
+        if frame is None:
+            cell["reason"] = f"past end ({source['shape']['frame_count']} frames)"
+        else:
+            measured = (
+                base_texture[index]
+                if is_baseline
+                else bands.texture_bands(_measured(frame, measure_box))
+            )
+            cell["texture"] = measured
+            if not is_baseline:
+                base = base_texture[index]
+                if base is None:
+                    cell["reason"] = (
+                        f"baseline past end ({baseline['shape']['frame_count']} "
+                        "frames): no ratio"
+                    )
+                else:
+                    cell["texture_ratio"] = bands.ratio(measured, base)
+        texture["cells"].append(cell)
+        if entry is not None:
+            entry["cells"][index]["texture"] = cell["texture"]
+            entry["cells"][index]["texture_ratio"] = cell["texture_ratio"]
+    return texture
 
 
 def _summary(values):

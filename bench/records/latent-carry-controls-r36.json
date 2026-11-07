@@ -1,0 +1,65 @@
+[
+    {
+        "arm": "r3-anchor25-s1-120s-s1166-r36",
+        "scene": "s1-static",
+        "seed": 1166,
+        "job_id": "2c1fd3ab7869",
+        "status": "succeeded",
+        "error": null,
+        "output": "BenchS1Static-lcctl/20261105-215048-32074799/final/BenchS1Static-lcctl-chained_keyframe_to_video_audio.0-0.0.mp4",
+        "measures": {
+            "seam_jump_mean": 0.8992857142857142,
+            "seam_jump_max": 1.51,
+            "seam_look_mean": 0.8707142857142857,
+            "seam_look_max": 2.06,
+            "seam_level_step_db_mean": 4.351785714285714,
+            "seam_level_step_db_max": 26.07,
+            "texture_fine_seg_last": 1.1821581751513983,
+            "texture_mid_seg_last": 0.49590867078968065,
+            "texture_coarse_seg_last": 0.13771116873686765,
+            "wall_minutes": 69.92647580305736
+        }
+    },
+    {
+        "arm": "ctl-guide-s2-s1166-r36",
+        "scene": "s2-arc",
+        "seed": 1166,
+        "job_id": "536548e14dd5",
+        "status": "succeeded",
+        "error": null,
+        "output": "BenchS2Arc-lcctl/20261105-215337-2cd709a7/final/BenchS2Arc-lcctl-chained_keyframe_to_video_audio.0-0.0.mp4",
+        "measures": {
+            "seam_jump_mean": 1.3619999999999999,
+            "seam_jump_max": 2.09,
+            "seam_look_mean": 1.286,
+            "seam_look_max": 1.74,
+            "seam_level_step_db_mean": 1.4620000000000002,
+            "seam_level_step_db_max": 3.43,
+            "texture_fine_seg_last": 3.083963956401898,
+            "texture_mid_seg_last": 2.2932110623147106,
+            "texture_coarse_seg_last": 1.4297775601219735,
+            "wall_minutes": 10.86510852575302
+        }
+    },
+    {
+        "arm": "ctl-guide-s2-s2-r36",
+        "scene": "s2-arc",
+        "seed": 2,
+        "job_id": "1b8edfdba405",
+        "status": "succeeded",
+        "error": null,
+        "output": "BenchS2Arc-lcctl/20261105-220427-e6552f17/final/BenchS2Arc-lcctl-chained_keyframe_to_video_audio.0-0.0.mp4",
+        "measures": {
+            "seam_jump_mean": 1.306,
+            "seam_jump_max": 1.83,
+            "seam_look_mean": 1.418,
+            "seam_look_max": 1.77,
+            "seam_level_step_db_mean": 6.542,
+            "seam_level_step_db_max": 12.38,
+            "texture_fine_seg_last": 3.5178485966095336,
+            "texture_mid_seg_last": 2.994312479430393,
+            "texture_coarse_seg_last": 2.545146643212234,
+            "wall_minutes": 10.813770214716593
+        }
+    }
+]

@@ -5,7 +5,12 @@ import pytest
 from PIL import Image
 
 from dw.media_types import AudioVideo
-from dw.tasks.video_utils import MAX_STILLS_FPS, MAX_STILLS_SECONDS, stills_to_video
+from dw.tasks.video_utils import (
+    MAX_STILLS_FPS,
+    MAX_STILLS_SECONDS,
+    STILLS_SAMPLE_RATE,
+    stills_to_video,
+)
 
 
 def still(width=512, height=512, color=(255, 0, 0)):
@@ -42,10 +47,11 @@ class TestHold:
         video = stills_to_video([array], 1, fps=4)
         assert video.frames.shape == (4, 64, 64, 3)
 
-    def test_silent_clip_carries_no_audio(self):
-        video = stills_to_video([still()], 1, fps=4)
-        assert video.audio is None
-        assert video.sample_rate is None
+    def test_clip_carries_a_silent_track_of_its_own_length(self):
+        video = stills_to_video([still(), still()], [1, 0.5], fps=24)
+        assert video.sample_rate == STILLS_SAMPLE_RATE
+        assert video.audio.shape == (1, round(36 / 24 * STILLS_SAMPLE_RATE))
+        assert not video.audio.any()
 
 
 class TestRefusals:
@@ -91,6 +97,25 @@ class TestWithConcat:
         video = stills_to_video([still(64, 64)], 1, fps=4)
         joined = concat_videos([video, video], fps=4)
         assert len(joined.frames) == 2 * len(video.frames)
+
+    def test_clip_scores_through_the_assemble_and_score_chain(self):
+        """assemble-and-score's own steps, in order: the joined cut's track is
+        resampled as the world audio, mixed under the score and paired back
+        onto the cut - a stills clip must not stop at resample_audio."""
+        from dw.tasks.audio_utils import mix_audio, resample_audio
+        from dw.tasks.concat_videos import concat_videos
+        from dw.tasks.pair_audio import pair_audio
+
+        video = stills_to_video([still(64, 64)] * 3, [1, 2, 0.5], fps=24)
+        cut = concat_videos([video], fps=24, sample_rate=44100)
+        world = resample_audio(cut, 44100)
+        score = numpy.full((2, round(3.5 * 44100)), 0.1, dtype=numpy.float32)
+        mixed = mix_audio([score, world], gains=[1.0, 1.8], sample_rate=44100)
+        film = pair_audio(cut, mixed, sample_rate=44100, fit="video")
+
+        assert len(film.frames) == 84
+        assert film.audio.shape[-1] == round(3.5 * 44100)
+        assert film.audio.any()
 
     def test_silent_clip_saves_as_a_video(self, tmp_path):
         from dw.result import Result
@@ -159,15 +184,102 @@ class TestHandlerLoadsLocations:
 
 class TestByteBudget:
     def test_over_budget_refused_before_allocating(self, monkeypatch):
-        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 1000)
+        monkeypatch.setattr("dw.task_problems.MAX_STILLS_BYTES", 1000)
         with pytest.raises(ValueError) as error:
             stills_to_video([still(16, 16)], [1], fps=24)
         message = str(error.value)
-        assert "durations" in message and "fps" in message and "16x16" in message
+        assert "fps" in message and "16x16" in message and "split" in message
 
     def test_within_budget_passes(self, monkeypatch):
-        monkeypatch.setattr("dw.tasks.video_utils.MAX_STILLS_BYTES", 4 * 16 * 16 * 3)
+        monkeypatch.setattr("dw.task_problems.MAX_STILLS_BYTES", 4 * 16 * 16 * 3)
         assert len(stills_to_video([still(16, 16)], [1], fps=4).frames) == 4
+
+    def test_the_message_names_budget_size_and_the_fps_that_fits(self):
+        # The #1199 drill's animatic: 12 boards, about 304 s at 24 fps, at
+        # 1344x768 - 7290 frames, 21 GiB against the 4 GiB budget
+        from dw.task_problems import stills_memory_problem
+
+        seconds = [304 / 12] * 12
+        message = stills_memory_problem(seconds, 24, 1344, 768)
+        assert "4 GiB" in message and "21.0 GiB" in message
+        assert "1344x768" in message and "7296 frames" in message
+        # 1387 frames fit: 57 s at 24 fps, 4 fps for the whole 304 s
+        assert "57 s at 24 fps" in message
+        assert "'fps' to 4" in message
+        assert "split" in message
+        assert stills_memory_problem(seconds, 4, 1344, 768) is None
+
+
+def _boards(monkeypatch, tmp_path, count, size=(1344, 768)):
+    asset_dir = tmp_path / "assets"
+    asset_dir.mkdir()
+    for index in range(count):
+        still(*size).save(asset_dir / f"board-{index}.jpg")
+    monkeypatch.setenv("DW_ASSET_DIR", str(asset_dir))
+    return [f"asset:board-{index}.jpg" for index in range(count)]
+
+
+def _animatic_errors(tmp_path, arguments):
+    import os
+
+    from dw.workflow import workflow_from_file
+
+    template = os.path.join(
+        os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+        "workflows",
+        "templates",
+        "animatic.json",
+    )
+    workflow = workflow_from_file(template, str(tmp_path / "out"))
+    return [e for e in workflow.validation_errors(arguments) if "GiB" in e["message"]]
+
+
+class TestByteBudgetAtValidate:
+    """The frame count is the durations and fps the caller passes, and the
+    size is the boards' own header - both known before the run, so an
+    animatic over the budget is refused at validate, not ~1 s into the run
+    (#1199, job f4ff0c77d018)."""
+
+    def test_over_budget_animatic_is_refused(self, monkeypatch, tmp_path):
+        boards = _boards(monkeypatch, tmp_path, 2)
+        errors = _animatic_errors(
+            tmp_path, {"boards": boards, "durations": [30, 30], "fps": 24}
+        )
+        assert len(errors) == 1
+        assert errors[0]["path"] == "steps[0].task.arguments.images"
+        message = errors[0]["message"]
+        assert "4 GiB" in message and "1344x768" in message
+        assert "1440 frames" in message and "'fps'" in message
+
+    def test_the_same_boards_at_4_fps_validate(self, monkeypatch, tmp_path):
+        boards = _boards(monkeypatch, tmp_path, 2)
+        assert (
+            _animatic_errors(
+                tmp_path, {"boards": boards, "durations": [30, 30], "fps": 4}
+            )
+            == []
+        )
+
+    def test_a_board_from_an_earlier_step_is_left_to_the_run(self):
+        from dw.video_size_errors import stills_memory_errors
+
+        definition = {
+            "id": "a",
+            "steps": [
+                {
+                    "name": "stills",
+                    "task": {
+                        "command": "stills_to_video",
+                        "arguments": {
+                            "images": ["previous_result:draw"],
+                            "durations": [600],
+                            "fps": 120,
+                        },
+                    },
+                }
+            ],
+        }
+        assert stills_memory_errors(definition) == []
 
     def test_many_tiny_durations_cap_the_frame_count(self):
         from dw.task_problems import MAX_STILLS_FRAMES, stills_to_video_problems
@@ -230,3 +342,58 @@ class TestSavedManifest:
         assert list(tmp_path.glob("animatic.0*.mp4"))
         shots = step_shots(result.saved_shots, saved)
         assert [shot["start_frame"] for shot in shots] == [0, 24, 72]
+
+
+class TestSilentByDesign:
+    """The silent track raises no near-silent or mono-duplication warning (#1161)."""
+
+    def test_clip_and_shots_are_marked(self):
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        assert video.silent_by_design is True
+        assert all(shot["silent_by_design"] for shot in video.shots)
+
+    def test_gallery_level_skips_near_silent_for_marked_shots(self):
+        from dw.server.assess import level_findings
+
+        media = {"peak_dbfs": -120.0, "mean_dbfs": -120.0}
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        assert level_findings(media, video.shots) == []
+        names = [f["rule"] for f in level_findings(media)]
+        assert "near_silent" in names
+
+    def test_mono_duplication_quiet_only_when_asked(self, monkeypatch):
+        import dw.writers as writers
+
+        seen = []
+        monkeypatch.setattr(writers, "emit_warning", lambda *a, **k: seen.append(a))
+        mono = numpy.zeros((1, 100), dtype=numpy.float32)
+        writers.as_audio_track(mono, quiet=True)
+        assert seen == []
+        writers.as_audio_track(mono)
+        assert len(seen) == 1
+
+    def test_write_time_near_silent_skipped(self, monkeypatch):
+        import dw.audio_qc as qc
+
+        calls = []
+        monkeypatch.setattr(
+            qc,
+            "_probe_written_media",
+            lambda p: {"mean_dbfs": -120.0, "peak_dbfs": -120.0},
+        )
+        monkeypatch.setattr(qc, "emit_warning", lambda *a, **k: calls.append(a))
+        monkeypatch.setattr(qc, "remeasure_shots_after_mux", lambda *a, **k: None)
+        monkeypatch.setattr(
+            qc, "warn_if_written_above_full_scale", lambda *a, **k: None
+        )
+        video = stills_to_video([still(64, 64)], [1], fps=24)
+        qc.check_written_media(
+            "x.mp4",
+            video,
+            "video/mp4",
+            video_fps=None,
+            consumed_by_normalizer=False,
+            headroom_warned=False,
+            predicted_peak_dbfs=None,
+        )
+        assert calls == []

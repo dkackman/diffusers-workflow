@@ -1,0 +1,83 @@
+[
+  {
+    "arm": "ap-s4-cold_open-ls1",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "0e13c36a659b",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-002201-e099b1ba/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-deflect-ls1",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "adfb95588730",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-002706-a8cc5bf9/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-react-ls1",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "9f76f275eb8b",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-003015-3fe5ff5d/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-button-ls1",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "a37bd9bc70d1",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-003323-9a93c662/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-cold_open-ls050",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "a1d731ddbf29",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-003630-0dd54320/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-cold_open-ls025",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "c92a26d1c1d3",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-003943-56ccfd42/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s4-cold_open-foley-ls1",
+    "scene": "s4-montage",
+    "seed": 1166,
+    "job_id": "b51cc152524e",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSound-ap/20261106-004224-f12f561f/MiniMaxH3AddSound-ap-sound.0-0.0.mp4"
+  },
+  {
+    "arm": "ap-s3-seg1-same-line-ls1",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "864375a2cef2",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSoundSpan-ap/20261106-004532-3a4001fc/final/MiniMaxH3AddSoundSpan-ap-sound.1-0.0.mp4"
+  },
+  {
+    "arm": "ap-s3-seg1-new-line-ls1",
+    "scene": "s3-dialogue-walk",
+    "seed": 1166,
+    "job_id": "4b6ebb139735",
+    "status": "succeeded",
+    "error": null,
+    "output": "MiniMaxH3AddSoundSpan-ap/20261106-004840-98cb5c66/final/MiniMaxH3AddSoundSpan-ap-sound.1-0.0.mp4"
+  }
+]

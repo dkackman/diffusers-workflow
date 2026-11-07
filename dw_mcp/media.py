@@ -335,12 +335,21 @@ def assess_output(client, name, probe=None, detail=False, workspace=None):
 
 
 def compare_outputs(
-    client, names, at=None, crop=None, baseline=None, max_dimension=384, workspace=None
+    client,
+    names,
+    at=None,
+    crop=None,
+    baseline=None,
+    max_dimension=384,
+    texture_bands=False,
+    workspace=None,
 ):
     """Two to eight outputs side by side at the same moments, with PSNR,
     SSIM and mean absolute difference against a baseline (#871). The
     server builds the grid and measures at source resolution; the grid is
-    held to MAX_RETURNED_BYTES, shrunk whole when over it."""
+    held to MAX_RETURNED_BYTES, shrunk whole when over it.
+    `texture_bands` (#1152) is sent only when true, so a call without it
+    posts what it always has."""
     payload = {
         "names": names,
         "max_dimension": max_dimension,
@@ -349,6 +358,8 @@ def compare_outputs(
     for key, value in (("at", at), ("crop", crop), ("baseline", baseline)):
         if value is not None:
             payload[key] = value
+    if texture_bands:
+        payload["texture_bands"] = True
     return client.post_json(
         api_path("api", "gallery", "compare"), payload=payload, workspace=workspace
     )
@@ -370,7 +381,10 @@ def compare_summary(result):
     for entry in result["metrics"]:
         line = f"- row {entry['row'] + 1} {entry['name']}:"
         if entry["ssim"] is None:
-            lines.append(f"{line} no metrics - {entry['reason']}")
+            # No SSIM is no *pairwise* metrics: texture bands, when asked
+            # for, still measured this output and are printed below
+            what = "no pairwise metrics" if result.get("texture") else "no metrics"
+            lines.append(f"{line} {what} - {entry['reason']}")
             continue
         for key in ("psnr_db", "ssim", "mean_abs_diff"):
             summary = entry[key]
@@ -384,12 +398,53 @@ def compare_summary(result):
         if skipped:
             line += "  skipped: " + "; ".join(sorted(skipped))
         lines.append(line)
+    if result.get("texture"):
+        lines.extend(_texture_lines(result))
     if result["fps_differs"]:
         lines.append("fps_differs: the videos' frame rates differ")
     if result["downscaled_to"]:
         lines.append(f"downscaled_to: {result['downscaled_to']} (to fit the budget)")
     lines.extend(f"note: {note}" for note in result["notes"])
     return "\n".join(lines)
+
+
+TEXTURE_CHANNELS = (("luma", "Y"), ("chroma_rg", "R-G"), ("chroma_bg", "B-G"))
+
+
+def _texture_lines(result):
+    """One bands line per output per moment: fine/mid/coarse for luma and
+    both chroma differences, and off the baseline the ratio to it."""
+    header = result.get("texture_bands") or {}
+    lines = [
+        "texture bands (RMS, a measurement not a score): "
+        + ", ".join(f"{band} {span}" for band, span in header.items())
+    ]
+    for entry in result["texture"]:
+        tag = "  (baseline)" if entry["baseline"] else ""
+        for column, cell in zip(result["columns"], entry["cells"]):
+            line = (
+                f"- row {entry['row'] + 1} {entry['name']}{tag} @ {column['moment']}:"
+            )
+            if cell["texture"] is None:
+                lines.append(f"{line} no bands - {cell['reason']}")
+                continue
+            line += "  " + "  ".join(
+                f"{label} {_band_triple(cell['texture'][key])}"
+                for key, label in TEXTURE_CHANNELS
+            )
+            if cell.get("texture_ratio"):
+                line += "  ratio " + "  ".join(
+                    f"{label} {_band_triple(cell['texture_ratio'][key])}"
+                    for key, label in TEXTURE_CHANNELS
+                )
+            elif cell["reason"]:
+                line += f"  ({cell['reason']})"
+            lines.append(line)
+    return lines
+
+
+def _band_triple(bands):
+    return "/".join("-" if value is None else f"{value:g}" for value in bands.values())
 
 
 def delete_output(client, name=None, workspace=None, job_id=None):

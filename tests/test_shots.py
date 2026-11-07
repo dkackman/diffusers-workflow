@@ -39,7 +39,7 @@ from dw.shots import (
     name_unsaved_shots,
     step_shots,
 )
-from dw.tasks.audio_utils import slice_audio
+from dw.tasks.audio_slice import slice_audio
 from dw.task_domains import frames_to_samples
 from dw.tasks.concat_videos import concat_videos
 from dw.tasks.dissolve_videos import dissolve_videos
@@ -76,7 +76,8 @@ EXPECTED_SITES = {
     ("dw/tasks/dissolve_videos.py", "dissolve_videos"): ("populates", 1),
     ("dw/tasks/join_into_song.py", "join_into_song"): ("populates", 1),
     ("dw/tasks/windows.py", "join_windows"): ("remeasures", 1),
-    ("dw/pipeline_processors/chain.py", "run_chain"): ("populates", 2),
+    # run_chain hands its result to _stitched, which builds it
+    ("dw/pipeline_processors/chain.py", "_stitched"): ("populates", 2),
     ("dw/tasks/image_ops.py", "per_frame"): ("carries", 1),
     ("dw/tasks/stabilize.py", "stabilize_video"): ("carries", 1),
     ("dw/tasks/interpolate_frames.py", "interpolate_frames"): ("rescales", 1),
@@ -89,9 +90,11 @@ EXPECTED_SITES = {
     ("dw/tasks/windows.py", "window_video"): ("none", 1),
     ("dw/tasks/fit.py", "restore_to_source"): ("none", 1),
     # a guide chain's carried tail - a conditioning input, not a joined output
-    ("dw/pipeline_processors/chain.py", "inject"): ("none", 1),
+    ("dw/pipeline_processors/chain_continuity.py", "inject"): ("none", 1),
     ("dw/tasks/face_track.py", "paste_face_track"): ("carries", 1),
     ("dw/tasks/trim.py", "trim_video"): ("trims", 1),
+    # the take's shots with the repaired span as one shot of its own
+    ("dw/tasks/chain_repair.py", "chain_repair_splice"): ("populates", 1),
 }
 
 _SHOTS_HELPER_BY_DECISION = {

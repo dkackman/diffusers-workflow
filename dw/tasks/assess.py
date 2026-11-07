@@ -224,7 +224,7 @@ def _in_memory_thumbs(frames):
     """(thumbnails, looks) of an AudioVideo's frames, one frame at a time: a
     list, an (N, H, W, C) array, or a SegmentedFrames replaying (N, H, W, 3)
     chunks. Both None for no frames."""
-    from ..pipeline_processors.chain import SegmentedFrames
+    from ..pipeline_processors.chain_spill import SegmentedFrames
 
     thumbs = []
     looks = []
@@ -244,6 +244,25 @@ def _in_memory_thumbs(frames):
     if not thumbs:
         return None, None
     return numpy.stack(thumbs), numpy.stack(looks)
+
+
+def frame_measures(frames):
+    """(thumbnails, looks) of in-memory frames - the public name the chain's
+    per-segment check (dw/pipeline_processors/chain_check.py) reads them by;
+    `_in_memory_thumbs` is the one reduction."""
+    return _in_memory_thumbs(frames)
+
+
+def seam_measures(thumbs, looks, previous, shot, fade=0):
+    """The picture and look measurements `analyze_seams` takes at the seam
+    `shot` opens, over thumbnails and looks already reduced - the public name
+    the chain's per-segment check measures a seam by, before the segment is
+    on any timeline. `_seam_video` and `_seam_look` are the arithmetic."""
+    media = Media(thumbs, None, None, None, looks=looks)
+    return {
+        **_seam_video(media, previous, shot, fade),
+        **_seam_look(media, previous, shot, fade),
+    }
 
 
 def _file_path(video):
@@ -472,7 +491,7 @@ def _shot_span_findings(probe, records, media):
         findings.append(
             {
                 "rule": "shot_span_overrun",
-                "severity": "warning",
+                "severity": "warn",
                 "at": {
                     "shot": shot.get("name"),
                     "index": index,
@@ -608,10 +627,13 @@ def shots_answer(media, records, source):
         rms_range = 0.0
     answer = {"shots": measured, "rms_range_db": rms_range, "has_audio": True}
     dead_air_findings = []
-    for index, shot in enumerate(measured):
+    for index, (shot, record) in enumerate(zip(measured, records)):
         # A shot that is quiet throughout, on purpose, holds no gap to find -
-        # the same guard seam_hole applies to a seam's two sides (#465)
-        quiet = shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
+        # the same guard seam_hole applies to a seam's two sides (#465); a
+        # shot recorded silent_by_design is silent on purpose (#1162)
+        quiet = (
+            shot["rms_dbfs"] is not None and shot["rms_dbfs"] <= HOLE_VOICED_DBFS
+        ) or (isinstance(record, dict) and record.get("silent_by_design") is True)
         dead_air_findings.extend(
             _findings(
                 "analyze_shots",
@@ -963,6 +985,9 @@ def seams_answer(media, records, source):
                 "seams": sorted(blended),
             }
         )
+        if len(blended) == len(seams):
+            # Measured nowhere: not "applied" (#394 contract, #1179)
+            answer["rules_applied"].remove("seam_hole")
     return answer
 
 

@@ -1,13 +1,13 @@
 # Server & Web UI
 
-`dw.serve` runs the workflow engine as a local HTTP server with a full web
-UI: browse and run workflows, build them in a form-based editor with
-introspection-driven autocomplete, watch jobs stream live progress, review
-past generations in a gallery, and manage the models on disk.
+`dw.serve` runs the workflow engine as an HTTP server with a web UI: browse
+and run workflows, edit them in a form-based editor driven by the live
+pipeline signatures, watch jobs stream progress, review and compare outputs,
+manage input assets and the models on disk.
 
 ```bash
 python -m dw.serve                       # http://127.0.0.1:8765
-python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts
+python -m dw.serve --port 8000 --workflow-dir ./workflows --output-dir ./outputs --prompt-dir ./prompts --asset-dir ./assets
 
 # or point it at a workspace, which supplies all four directories
 python -m dw.serve --workspace ~/studio
@@ -21,12 +21,61 @@ python -m dw.serve --devices cuda:0,cuda:1   # one worker per card, two jobs at 
 python -m dw.serve --trust-workflows      # only if nothing untrusted can reach POST /api/jobs - see Security model
 ```
 
-Installed as a package, the same server is `dw-serve`. Interactive API docs
-(OpenAPI) are at `/docs`.
+Installed as a package, the same server is `dw-serve`. The other flags are
+`--output-layout {run,flat}` ([WORKSPACES.md](WORKSPACES.md#runs)) and
+`-l/--log_level`; `--help` gives each flag's default. Which directories a
+server uses, and in what order they are resolved, is in
+[WORKSPACES.md](WORKSPACES.md). Running it for other machines is
+[REMOTE.md](REMOTE.md); in a container, [DOCKER.md](DOCKER.md).
 
-The server keeps a persistent GPU worker underneath: models stay
-loaded between runs, so re-running a workflow with a new prompt skips the
-load entirely.
+### The HTTP API
+
+Everything the web UI and the MCP server do goes through one HTTP API, and a
+running server describes it:
+
+| Path | What it is |
+| ---- | ---------- |
+| `/docs` | Swagger UI: every route, its parameters and response, with *Try it out* |
+| `/redoc` | The same document in ReDoc, for reading |
+| `/openapi.json` | The OpenAPI document itself |
+
+The same document is committed as
+[`ui/src/lib/generated/openapi.json`](../ui/src/lib/generated/openapi.json)
+for client generation or reading without a server. It is generated, not
+written: `scripts/dump_openapi.py` writes it from the server, CI fails when
+the committed copy is stale, and its `info.version` is fixed at `"0"` so it
+is the same on every machine. GitHub shows it as plain JSON; to browse it,
+use `/docs` on a running server. Neither document declares the bearer token;
+see [Authentication](#authentication). The sections below cover the
+[Jobs API](#jobs-api), the [Introspection API](#introspection-api) and
+[Files and models](#files-and-models) in prose.
+
+Each job runs in a persistent GPU worker ([WORKER_GUIDE.md](WORKER_GUIDE.md)):
+models stay loaded between runs, so re-running a workflow with a new prompt
+skips the load.
+
+### The command line
+
+`dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
+its progress, and reports the run directory the server wrote to - start the
+server first.
+
+```bash
+python -m dw.run workflows/templates/text-to-image.json
+python -m dw.run workflows/templates/text-to-image.json prompt="a cat" num_images_per_prompt=4
+python -m dw.validate workflows/models/flux-dev.json
+```
+
+`dw.run` takes `WORKFLOW [name=value ...] [--server URL] [--workspace NAME]
+[--token TOKEN]` - `--server` defaults to `DW_MCP_URL`, else
+`http://127.0.0.1:8765`; `--token` to `DW_API_TOKEN`. Where the output lands,
+which workspace's `prompts:`/`asset:` references resolve, and the output
+layout are all `dw.serve` flags (`--workspace`, `--output-dir`,
+`--prompt-dir`, `--asset-dir`, `--output-layout` on the server) - `dw.run`
+only says which server and which of its workspaces to run in.
+
+`python -m dw.test` runs a small built-in workflow end to end - it downloads
+SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
 
 ### Environment
 
@@ -34,170 +83,186 @@ The server reads these from its environment (e.g. `.env`) and its workers inheri
 
 | Variable | Default | Effect |
 | -------- | ------- | ------ |
+| `DW_API_TOKEN` | none | The bearer token, when `--token` is not given ([Authentication](#authentication)) |
+| `DW_WORKSPACE`, `DW_PROMPT_DIR`, `DW_OUTPUT_LAYOUT` | unset | The workspace, prompt library and output layout when no flag names them ([WORKSPACES.md](WORKSPACES.md)) |
+| `DW_PUBLIC_URL` | unset | The origin absolute URLs in responses are built from ([REMOTE.md](REMOTE.md#urls-handed-to-a-person)) |
 | `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
 | `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
 
 ### Choosing the card
 
-`--devices cuda:1` runs the worker on that card. The worker is pinned to it
-with `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker the
-card is the only one it can see; a bare `cuda`, or no flag at all, pins
-nothing and behaves as before. The `devices` setting is the standing form of
-the same choice, and the flag wins over it. A list (`--devices cuda:0,cuda:1`)
-runs one worker per card, each running one job at a time. A card named twice,
-or a bare `cuda` in a list of several, is refused at startup, as is a card the
-machine lacks, with the message naming the cards that are present
-(`cuda:0 (NVIDIA GeForce RTX 4090)`, ...). A list survives a card being
-pulled: an entry the machine lacks is dropped with a warning naming it, and
-the server starts on the rest. Only a list none of whose cards is present
-(or a single absent card) is refused.
+`--devices cuda:1` runs the worker on that card, pinned with
+`CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker it is the
+only card visible. A bare `cuda`, or no flag, pins nothing. The `devices`
+setting is the standing form of the flag; the flag wins. A list
+(`--devices cuda:0,cuda:1`) runs one worker per card, each running one job at
+a time. Refused at startup: a card named twice, a bare `cuda` in a list, and
+a single card the machine lacks or a list none of whose cards is present -
+the message names the cards that are (`cuda:0 (NVIDIA GeForce RTX 4090)`,
+...). A list entry the machine lacks is otherwise dropped with a warning
+naming it, and the server starts on the rest.
 
-Each job's record carries `device` - the card it ran on, as the server
-addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`), set when the job starts
-running and null for a job still queued and for jobs recorded before the
-field existed. Observed cost figures are bucketed by it: a figure counts the
-runs from cards of the same name as the one the server runs on now, so a
-3090's runs never inform a 4090's estimate. Rows from before jobs carried a
-`device` count only while the server is on the box's default card.
+Each job's record carries `device`, the card it ran on as the server
+addresses it (`"cuda:1 NVIDIA GeForce RTX 3090"`): set when the job starts,
+null while queued and for jobs recorded before the field existed. Observed
+cost figures are bucketed by it: only runs from cards of the same name as
+the one the server runs on now count, so a 3090's runs never inform a
+4090's estimate. Rows with no `device` count only while the server is on the
+box's default card.
 
 ## The pages
 
-The UI is organised by workspace. A sidebar lists every workspace on the
-server; the selected one opens into **Overview, Workflows, Jobs, Gallery,
-Assets, Editor**, and the hash carries the workspace (`#/ws/studio/gallery`),
-so a link names where it points and an old `#/gallery` bookmark redirects to
-the last workspace you were in. Below the workspaces, **Shared** holds what
-every workspace sees — the prompt library, the `common` asset library and
-the read-only example workflows — and **Server** holds Models, Schema and
-Status.
+The sidebar lists every workspace on the server (`+ new` creates one; names
+sharing a prefix fold into one group). The selected workspace opens into
+**Overview, Workflows, Jobs, Gallery, Assets, Editor**, and the hash names
+it (`#/ws/studio/gallery`), so a link and a reload land where they say; a
+pre-workspace bookmark (`#/gallery`) redirects to the last workspace used.
+Below the workspaces, **Shared** holds what every workspace sees - Prompts,
+the `common` Assets library and the read-only Examples - and **Server**
+holds Models, Schema and Status. The header carries the breadcrumb, a VRAM
+meter per card with a status popover (workers, queue), the API-token key
+icon, a finish-alert toggle, the theme toggle, and links to these docs and
+`/docs`. `?` lists the keyboard shortcuts.
 
-- **Overview** — a glance at the workspace: its recent outputs, its recent
-  jobs, its workflows (ones with a proof first, plus a filled **New
-  workflow** button), its asset count, and disk usage. Each panel loads and
-  fails independently, so a slow gallery does not hold the jobs list back
-  and a panel's own error shows in place of its content rather than reading
-  as an empty workspace. **Manage** on this page is where a workspace is
-  deleted (disabled for `default`); a workspace is created from the sidebar.
-- **Workflows** — every workflow on the workspace's own search path
-  (`--workflow-dir`), as cards with descriptions, output kinds, and variable
-  counts; the read-only ones from an `--examples-dir` are under Shared →
-  Examples instead, and opening one's Editor there saves a copy into the
-  current workspace. Folders one level deep become sections. Click through
-  to a run form generated from the workflow's variables, with the raw JSON
-  alongside.
-- **Prompts** — under Shared: the prompt library under `--prompt-dir`
-  (default: discovered
-  the way a CLI run discovers it, then pinned for every job, so the page and
-  `prompt:` resolution always agree), plus the read-only `prompts/` beside
-  each `--examples-dir`, so an example's `prompt:` references resolve: stored
-  prompts as
-  cards with descriptions, intended-model badges, and tags, foldered the
-  same way workflows are. Each opens in an editor with form, split, and
-  schema-aware JSON views, and an **Enhance with AI** panel that expands an
+- **Overview** - the workspace at a glance: its note, recent outputs, the
+  running and last finished jobs, its workflows (ones with a proof image
+  first, and a **New workflow** button), its asset count and disk usage. Each
+  panel loads and fails on its own, so a slow gallery does not hold the jobs
+  list back and an error shows in place of that panel. **Manage** deletes
+  the workspace (disabled for `default`).
+- **Workflows** - every workflow on the workspace's own `--workflow-dir`, as
+  cards with the last image it made, its summary, the server's observed run
+  time, and `configures` / read-only marks. Shape buttons and trait chips
+  filter by what a workflow makes (the `shape`/`traits` vocabulary of
+  `GET /api/workflows`); folders become collapsible groups. **Shared →
+  Examples** is the same page over the `--examples-dir` trees. A card opens
+  the workflow's page: its recent outputs, a run form generated from its
+  variables (with `asset:`/`prompt:`/`output:` pickers), the raw JSON on
+  request, **Edit**, **Duplicate**, **Run** and delete. Opening an example in
+  the editor saves a copy into the current workspace.
+
+  ![Shared → Examples: workflow cards with their last image, shape and trait filters, and each card's summary and observed run time](img/ui-examples.jpg)
+
+- **Editor** - build or modify a workflow without writing JSON by hand.
+  Forms come from the live pipeline signatures
+  ([Introspection API](#introspection-api)), and references (`variable:`,
+  `previous_result:`, `asset:`, `prompt:`, `output:`, `builtin:`) autocomplete
+  or open a picker. Four views: **form**, **split** (form beside JSON, both
+  editable, applied when a side loses focus), **json** (Monaco with the
+  workflow schema), and **flow**, a read-only data-flow graph - a box per
+  step, an arrow per `previous_result` labelled with the argument it feeds,
+  entry steps marked, and fan-in steps flagged with their cartesian-product
+  multiplier where it is known statically. Clicking a step in the flow jumps
+  to it in the form. Validate, save and run from the same screen; a valid
+  verdict shows the run's plan - step and list counts, the estimate with its
+  basis, how many steps the step cache would serve, and the weights to
+  download first (`POST /api/validate`'s `plan`, rendered by
+  `ui/src/lib/plan.ts`).
+
+  ![The editor in split view: the variables as a form beside the workflow JSON](img/ui-editor.png)
+
+- **Jobs** - the workspace's queue and run history (history persists in
+  `~/.diffusers_helper/jobs.sqlite`), filterable by status; a waiting job
+  shows its place in line, can be moved, and shows `waiting_for` while held
+  for host RAM. A job's page streams step progress, denoise ticks, the phase
+  between them (loading, decoding, saving), its log, and its results as they
+  land - finals first, intermediates folded, and a section per
+  `result.subfolder` when a step chose one. **Cancel**, **Run again**,
+  **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
+  `POST /api/jobs/{id}/export` and downloads the zip - the same bundle as
+  MCP's `export_job`; replacing an existing export asks first).
+
+  ![A finished job: a warning about a level jump at a cut, then the workflow as a data-flow graph from the edit and soundtrack through mixing and normalizing to the film](img/ui-job.png)
+
+- **Gallery** - everything in the workspace's output directory
+  (`<workflow>/<run id>/`, see [WORKSPACES.md](WORKSPACES.md#runs)), grouped
+  by workflow, with a text filter and **Final** / **Intermediate** /
+  **Starred** chips (it opens on finals). A file's detail panel shows its
+  settings, the job that made it, what it was made from, its run and file
+  notes, a star (`S`), **Keep as asset** (promotes it into the asset library
+  under a stable name, so a later workflow carries `asset:<name>` rather than
+  a run id that pruning would break), and **open as workflow**, which loads
+  an `embed_metadata` image's embedded definition into the editor with its
+  seed pinned. Each tile has a checkbox (shift-click extends a range,
+  **Select all** takes what the filter shows); a selection downloads as one
+  zip, is deleted in bulk (anything that fails to delete stays selected), or,
+  for two to four files, opens in Compare.
+
+  ![A gallery file's detail panel: the poster, its run and settings, a note, Keep as asset and open as workflow](img/ui-gallery-detail.jpg)
+
+- **Compare** - two to four outputs side by side, with the arguments that
+  differ between their runs called out, each run's time, and every video on
+  one transport so a difference in motion is seen at the same frame.
+
+  ![Compare: four takes of a musical's poster side by side, with each run's seed and time](img/ui-compare.jpg)
+
+- **Assets** - the input side of the gallery: the asset library as folder
+  groups of a contact-sheet grid with a detail panel, notes, upload (button
+  or drop; the library it lands in is named) and delete. A workspace's page
+  shows its own library and only the shared and examples assets its
+  workflows use (`used_by`); **Shared → Assets** shows the whole `common`
+  library. Entries a nearer library shadows are listed by name under their
+  library; read-only tiles have no checkbox.
+- **Prompts** (Shared) - the prompt library (resolved as in
+  [WORKSPACES.md](WORKSPACES.md#the-prompt-library) and pinned for every job,
+  so the page and `prompt:` resolution agree), plus the read-only `prompts/`
+  beside each `--examples-dir`: cards with descriptions, intended-model
+  badges and tags, foldered like workflows. Each opens in an editor with
+  form, split and JSON views and an **Enhance with AI** panel that expands an
   idea into a full prompt with a local language model (a preset per target
-  model family; the model runs as an ordinary queued job). A workflow
-  argument written as `prompt:name` loads the stored text at run time,
-  and deleting a prompt warns which workflows reference it.
-- **Jobs** — the queue and full run history (persisted in
-  `~/.diffusers_helper/jobs.sqlite`). A workspace's Jobs page lists its own;
-  Server → Status lists every workspace's with a filter. A running job streams step-by-step
-  progress, per-step denoising ticks, what each step is doing when it is not
-  denoising (loading a model, decoding, saving), and its result files as
-  they land.
-  A run whose steps chose a `result.subfolder` shows its results under
-  `final/` and `intermediate/` headings (or whatever the step named), the
-  deliverable first; one that chose none shows them as before.
-  Jobs can be cancelled mid-denoise and re-run with one click. A finished
-  job's **Export** button gathers the run into the workspace's `exports/`
-  on the server (`POST /api/jobs/{id}/export`) and downloads it as one zip -
-  the same bundle MCP's `export_job` makes; an export that already exists
-  asks before it is replaced.
-- **Editor** — build or modify workflows without writing JSON by hand.
-  Forms are generated from the live pipeline signatures (see
-  [introspection](#introspection)), references
-  (`variable:` / `previous_result:`) autocomplete from the workflow itself,
-  and three views — form, split, and raw JSON — edit the same definition.
-  The split view puts the form beside the JSON with both sides editable;
-  changes apply when a side loses focus. Validate, save, and run from the
-  same screen; a valid verdict is followed by the run's plan - the step
-  and list counts, the minutes from the workflow's `cost` block with its
-  basis, how many steps the step cache would serve, and the weights this
-  server would download first (`describePlan`, `ui/src/lib/plan.ts`,
-  reading `POST /api/validate`'s `plan`). A Monaco editor with the workflow JSON schema backs the
-  JSON views. A fourth view, **flow**, renders the workflow's data-flow
-  graph read-only: one box per step, arrows for each `previous_result`
-  reference labeled with the argument it feeds, entry-point steps marked
-  apart from steps that depend on earlier ones, and fan-in points -
-  steps combining more than one upstream producer - flagged with the
-  cartesian-product multiplier where it's known statically (e.g. a
-  literal `num_images_per_prompt` on both producers). It's a diagram of
-  the JSON, not a second way to edit it; clicking a step jumps to it in
-  the form view.
-- **Gallery** — everything in the selected workspace's output directory,
-  which the engine lays out as `<workflow>/<run id>/`. The folder filter groups a workflow's runs
-  together rather than listing each run separately, and a **subfolder** pick
-  beside the text filter - offered once any output landed in one - narrows
-  the grid to `final/`, `intermediate/` or whatever a step's
-  `result.subfolder` named; each run directory
-  also holds a `manifest.json` describing what produced it (see
-  [Workspaces](WORKSPACES.md#runs)). Images generated with
-  `embed_metadata` carry their full workflow definition and seed; **open as
-  workflow** loads that definition into the editor with the seed pinned, so
-  any image can be reproduced or riffed on. Each tile carries a checkbox
-  (shift-click extends a range, **Select all** takes whatever the filter
-  leaves showing); a selection can be downloaded as one zip or deleted in
-  bulk, which is how a directory that fills up over a few hundred runs gets
-  cleared out. Anything that fails to delete stays selected. **Keep as
-  asset** promotes one generated file into the workspace's asset library
-  under a stable name, so a later workflow can reference it as
-  `asset:<name>` instead of a run id that pruning would break.
-- **Models** — the Hugging Face hub cache: every cached repo with sizes,
-  revisions, and last-used dates, plus free disk space. Download a repo by
-  id with live progress (cancellable; partial files resume on retry), and
-  delete to free disk (refused while a job is running; the next workflow
-  that needs the model downloads it again). The page also shows the
-  installed diffusers version (with its commit for a git install) and can
-  upgrade it to GitHub HEAD - new model pipelines usually land there
-  before a PyPI release. The idle worker restarts on success so the next
-  job imports the new version; the upgrade is refused while a job runs.
-- **Schema** — the workflow JSON schema the running server validates
-  against, as a browsable tree: the document root plus every definition,
-  with types, required markers, defaults, enums, and descriptions.
-  `$ref` labels jump to their definition; a filter narrows the list.
-- **Server → Status** — what this server is and how to reach it: device,
-  version, bind address and LAN addresses, whether a token is required,
-  whether `/mcp` is mounted (with the `claude mcp add` line to connect to
-  it), and the directories in use — and, below, the queue across every
-  workspace. Workspaces are created from the sidebar and deleted from their
-  Overview.
+  model family, run as an ordinary queued job). Deleting a prompt warns which
+  workflows reference it.
+
+  ![The prompt editor: a stored H3 shot prompt with its description and tags, and the Enhance with AI panel](img/ui-prompt-editor.png)
+
+- **Models** (Server) - the Hugging Face hub cache: each cached repo with
+  sizes, revisions and last-used dates, plus free disk. Download a repo by id
+  with live progress (cancellable; partial files resume on retry), and delete
+  one to free disk (refused while a job runs). It also shows the installed
+  diffusers version (with its commit for a git install) and **Update from
+  GitHub** installs HEAD - new pipelines usually land there before a PyPI
+  release. Refused while a job is running or queued; on success the idle
+  worker restarts so the next job imports the new version. Pinning a commit
+  or reverting is the API's (`POST /api/system/diffusers/update`, below).
+
+  ![The model manager: each cached repo with its size, file count and last use](img/ui-models.png)
+
+- **Schema** (Server) - the workflow JSON schema the server validates
+  against, as a browsable tree: the root and every definition, with types,
+  required markers, defaults, enums and descriptions. `$ref` labels jump to
+  their definition; a filter narrows the list.
+- **Status** (Server) - what this server is and how to reach it: workers per
+  card, bind address and LAN addresses, whether a token is required, whether
+  `/mcp` is mounted, a **Connect from another machine** panel with the
+  browser URL and the `claude mcp add` line for a chosen address, the
+  resolved directories, and the Caches panel (below) - then the queue and
+  history across every workspace, with a workspace filter.
+
+  ![The Status page: host, version, a worker per RTX 3090 with its memory, the queue, and the bind address](img/ui-status-dark.png)
 
 ## Workspaces
 
-One server can hold several workspaces — each with its own `workflows/`,
-`assets/` and `outputs/`, all sharing the root's one prompt library. The
-root's own folders are the workspace named `default`.
+One server can hold several workspaces, each with its own `workflows/`,
+`assets/` and `outputs/`, sharing the root's prompt library; the root's own
+folders are the workspace named `default`. Every scoped route takes an
+optional `?workspace=<name>` (omitted means `default`), `POST /api/jobs` also
+accepts `"workspace"` in the body, and a job keeps the directories it was
+submitted with through the run, a rerun, and when history serves its files.
+`GET /api/jobs` spans every workspace unless one is named. A workspace is a
+namespace, not a security boundary: the API token is all-or-nothing. The
+layout, the reserved names and how each client picks one are in
+[WORKSPACES.md](WORKSPACES.md#several-workspaces-on-one-server).
 
-Every scoped route takes an optional `?workspace=<name>`; omitting it means
-`default`, so nothing written against a single-workspace server changes
-meaning. `POST /api/jobs` also accepts `"workspace"` in the body, and a job
-holds onto the directories it was submitted with — through the run, a rerun,
-and when history serves its files back. `GET /api/jobs` spans every workspace
-unless one is named.
+The Status page's Caches panel lists dw's disk caches (`GET /api/caches`:
+size, files, last used, the volume's free space; the quantized cache expands
+into a table of its entries, each with a delete button) with a Clear button
+per cache that asks first, quoting what clearing costs, and shows the
+server's refusal when a job is running:
 
-A workspace is a namespace, not a security boundary: the API token is
-all-or-nothing. See [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
-
-The sidebar lists every workspace, and `+ new` there creates one; a
-workspace's own Overview page is where it is deleted. Server → Status shows
-the resolved directories and the `claude mcp add` line for connecting an
-agent from another machine, plus the queue across every workspace. Its
-Caches panel lists dw's disk caches (`GET /api/caches`: size, files, last
-used, the volume's free space; the quantized cache also expands into a table
-of its entries with a delete button each) with a Clear button per cache that asks first,
-quoting what clearing costs, and shows the server's refusal when a job is
-running:
-
-![The Server page before the sidebar: address picker, generated claude mcp add line, resolved directories — the workspace list it shows now lives in the sidebar](img/ui-server-dark.png)
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="img/ui-caches-dark.png">
+  <img alt="The Caches panel: the inductor, triton and quantized caches with size, file count, last use and free disk, each with a clear button" src="img/ui-caches.png">
+</picture>
 
 ## Jobs API
 
@@ -210,66 +275,74 @@ running:
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
 | `GET /exports/{id}.zip?workspace=` | The same tree as one archive, built on request rather than kept as a second copy. Entries are named `<job id>/<relative path>`. Ungated exactly as `/outputs` is |
-| `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs; `generating` is emitted when the pipeline call starts, so `generating` to the first `pipeline_step` is the prompt and reference encoding plus the first denoise pass (`timing.encode_s` in the manifest is the encoding alone; see [Step timing](WORKSPACES.md#step-timing)). The server keeps only the last 200 events, so on a long job the early ones are gone |
-| `GET /api/jobs/{id}/event-log?after=-1&limit=200` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
-| `POST /api/jobs/{id}/cancel` | Cooperative cancel (takes effect at the next step boundary or denoise step) |
+| `GET /api/jobs/{id}/events` | Server-sent events stream; `?after=N` / `Last-Event-ID` replay missed events, so reconnects are lossless. Every event carries `seq` and `at` - seconds since the job started (since it was queued, for the events before that) - so a step's cost is a subtraction: `step_start` to `generating` is what a reused pipeline still pays before it runs; `generating` is emitted when the pipeline call starts, so `generating` to the first `pipeline_step` is the prompt and reference encoding plus the first denoise pass (`timing.encode_s` in the manifest is the encoding alone; see [Step timing](WORKSPACES.md#step-timing)). A job in memory keeps every event; one served from history (after a restart, or once it is older than the 20 most recent finished jobs) keeps only its last 200 |
+| `GET /api/jobs/{id}/event-log?after=-1&limit=200&kinds=` | The same events as the SSE stream, as one JSON page: `{id, status, events, last_seq, truncated, note}`. `after` is exclusive; page by passing back the previous `last_seq`. `limit` is capped at 1000. `kinds` (repeatable) keeps events whose `event` or `kind` is one of those named (`log`, `warning`, `phase_stall`, ...). A job restored from history serves the bounded event tail persisted with it; a job that finished before events were retained returns an empty list and a `note` saying so. |
+| `POST /api/jobs/{id}/cancel` | Cooperative cancel: takes effect at the next step boundary or denoise step. During a model load or a task step, which cannot be interrupted, a `cancel_pending` event says it waits for that to finish |
 | `POST /api/jobs/{id}/rerun` | Re-queue a finished job's spec. Body `{"new_seed": true}` draws a fresh seed into the workflow's seed variable instead of repeating the original arguments; 400 when the workflow pins its seed to a literal or names none. A plain rerun of a seeded workflow is served whole from the step cache — the earlier run's files, republished with `reused: true`, generating nothing. The new job's summary and detail carry `rerun_of`: the id of the job it reran (absent on a fresh submit) |
 | `POST /api/jobs/{id}/move` | Reorder a queued job: `{"direction": "up"\|"down"\|"front"\|"back"}`. Job listings carry each waiting job's `queue_position`, and `waiting_for` while one is held for host RAM. |
 
+### Dispatch
+
 Each worker runs one job at a time, so with one device (the default) one job
-runs at a time; submissions queue in order, and the waiting portion of the
+runs at a time; submissions queue in order, and the waiting part of the
 queue can be reordered. With several `--devices` the dispatcher walks the
 queue in order and gives each job the first free card, in `--devices` order,
 that fits it. A job that fits no free card keeps its place while a smaller
 one behind it takes the card (backfill).
 
-What a job needs: the workflow's declared `vram_estimate` projected over the
-job's arguments (hard: a job bigger than every card is refused at submit with
-a 400 naming the largest card); else the smallest `cost` entry's `vram_gb` for
-this device type (soft: if no card is that big, the job runs on any card, as
-on one card); else any card. A card's size is its GiB rounded up (a 3090
-counts as 24), which a `cost` figure is compared to; a declared estimate is
-held to the card's GiB to one decimal (a 3090's 23.6), the same ceiling
-admission checks it against. Cancel reaches only the worker running that job, and a worker
-crash fails only its own job. Each dispatch sets its worker's Linux
-`oom_score_adj` to 1000 and every other live worker's back to the value it was
-spawned with (the server's own, e.g. 200 under a systemd user unit - the kernel
-refuses an unprivileged write below that), so a host-RAM squeeze kills the
-newest job whatever the workers' sizes; nothing is written with one worker, and
-a write the kernel refuses is a warning on the job. Under systemd the unit needs
-`OOMPolicy=continue` (`scripts/dw-serve.service` sets it): the default `stop`
-answers one worker's OOM kill by stopping the whole server, every other job
-with it. A
-queued job may also carry a projected host-RAM peak (see
-`host_ram_need`, #869). When it fits a free card, dispatch checks host RAM
-too: available is `MemAvailable` less, for each running job, what that job's
-projected peak still has to add beyond its worker's resident size now, and
-the job is held while its peak exceeds available plus the resident size of
-the idle worker it would reuse. A running job with no figure is charged
-nothing extra, since `MemAvailable` already reflects what it holds. Backfill
-applies: a smaller job behind a held one may start. With no other job
-running a job is never held, so it waits only for running jobs, never
-forever; a job with no figure is never held; and where the host's RAM cannot
-be read (macOS without psutil) there is no gate. With one card only one job
-runs, so the gate is never exercised. A held job is re-checked every 10 s,
-since memory can free outside dw. The hold emits one `queue_wait` event
-(`reason: "host_ram"`, message `waiting for host RAM: needs ~N GB, ~M GB
-free`; not a `warning`, so nothing lands in the job's `warnings`), and job
-detail and summaries carry `waiting_for` - that message - only while the job
-is queued and held. The web UI shows it beside "#n in line". The gate never
-refuses a submit (#243); it only delays a start, and the OOM ranking above
-(#881) stays the backstop for a wrong projection.
-Among the free cards a job fits, dispatch prefers the one it has an affinity
-for: a rerun goes to the card that ran the original, and any job to the card
-whose worker last ran the same workflow (the same file, or an inline
-definition's `id`) - that worker's pipelines and step cache are warm, and a
-worker's step cache and any model the next workflow does not load are freed
-when the workflow changes, while a model both workflows load (same weights
-identity) stays warm. `clear_memory` still empties the card by hand. A busy preferred card is not
-waited for. A validation's cache probe and its `plan.estimate` ask about the
-card the job would be dispatched to now, and the estimate names it in
-`priced_for`. Memory is per card: `GET /api/memory` and `POST
-/api/memory/clear` take an optional `device`.
+What a job needs, in order:
+
+- the workflow's declared `vram_estimate` projected over the job's
+  arguments - hard: a job bigger than every card is refused at submit with a
+  400 naming the largest card;
+- else the smallest `cost` entry's `vram_gb` for this device type - soft: if
+  no card is that big, the job runs on any card;
+- else any card.
+
+A card's size is its GiB rounded up (a 3090 counts as 24) when compared to a
+`cost` figure; a declared estimate is held to the card's GiB to one decimal
+(a 3090's 23.6), the ceiling admission uses. Cancel reaches only the worker
+running that job, and a worker crash fails only its own job.
+
+**OOM ranking (#881).** With more than one worker, each dispatch sets its
+worker's Linux `oom_score_adj` to 1000 and every other live worker's back to
+its spawn-time value (the server's own, e.g. 200 under a systemd user unit;
+the kernel refuses an unprivileged write below that), so a host-RAM squeeze
+kills the newest job. A refused write is a warning on the job. Under systemd
+the unit needs `OOMPolicy=continue` (`scripts/dw-serve.service` sets it): the
+default `stop` answers one worker's OOM kill by stopping the whole server.
+
+**Host-RAM hold (#869, #243).** A queued job may carry a projected host-RAM
+peak (`host_ram_need`; see
+[Host-memory history](WORKSPACES.md#host-memory-history)). When it fits a
+free card, dispatch also checks host RAM: available is `MemAvailable` less
+what each running job's projected peak still has to add beyond its worker's
+committed memory now (nothing for a running job with no figure), and the job is
+held while its peak exceeds available plus the committed memory of the idle
+worker it would reuse. Committed is RssAnon + RssShmem + the pages of the
+worker's `/dev/nvidia*` mappings (the driver's pinned host memory, which Linux
+files under RssFile); the rest of RssFile, the checkpoint pages a worker
+mmaps, is page cache that `MemAvailable` already counts as free. Two workers
+loading different checkpoints evict and re-read each other's pages - a
+slowdown, not an OOM. Every peak is taken with a margin of 10%, at least 2 GB,
+since a peak recorded at phase boundaries is a lower bound. Backfill applies. A job is never held when no other
+job is running, nor when it has no figure, nor where host RAM cannot be read
+(macOS without psutil), and with one card the gate is never exercised. A held
+job is re-checked every 10 s. The hold emits one `queue_wait` event (message
+`waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
+detail and summaries carry `waiting_for` - that message - only while held.
+The gate never refuses a submit; it only delays a start, and the OOM ranking
+is the backstop for a wrong projection.
+
+**Affinity.** Among the free cards a job fits, dispatch prefers a rerun's
+original card, else the card whose worker last ran the same workflow (the
+same file, or an inline definition's `id`), whose pipelines and step cache
+are warm. A busy preferred card is not waited for. When a worker's workflow
+changes, its step cache and any model the next workflow does not load are
+freed ([WORKER_GUIDE.md](WORKER_GUIDE.md)). A validation's cache probe and
+its `plan.estimate` ask about the card the job would go to now, named in
+`priced_for`. `GET /api/memory` and `POST /api/memory/clear` take an
+optional `device`.
 
 ### Step timing
 
@@ -297,6 +370,14 @@ Every event in the stream carries a `seq` and an `event` name:
 | `warning` | a step finds something wrong with what it is about to write | `message`, plus a `kind` and the figures behind it (`level_spread`: `spread_db`, `measure`, `command`; `fps_mismatch`: `declared_fps`, `source_fps`; `audio_no_headroom`: `file`, `peak_dbfs` - a deliverable at or above -0.5 dBFS, which an mp3 or AAC encode decodes over full scale; `step_elided`: `step`, `overridden_by` when a supplied argument is what made it unreferenced; `cache_stats_unavailable`: `cache_type` - the installed diffusers moved the private hook state dw reads, so the step's cache counts are null; the run is unaffected). Also appended to the job's `warnings`, prefixed with the step it fired in - the event keeps the moment, `warnings` keeps it where a caller polling the finished job will look, since a warning about the artifact outlives the run that noticed it |
 | `cache_stats` | a pipeline call that set a `cache` finishes its denoise, once per call | `step`, `segment` (only on a chain segment, e.g. `segment 1/3`), and the fields of `timing.cache`: `type`, `threshold`, `forwards`, `computed`, `skipped`, `hit_rate`. Counts are null for a cache diffusers keeps no per-forward decision for. For watching live (`get_job_events(kinds=["cache_stats"])`); the manifest entry's `timing.cache` is the record |
 | `workflow_end` | the run finishes | `manifest` |
+| `queue_wait` | a queued job is held for host RAM (below) | `reason: "host_ram"`, `message` |
+| `cancel_pending` | a cancel arrives during a phase that cannot be interrupted | `phase` |
+
+A `warning` with `kind: "phase_stall"` is emitted when a phase has gone 30 s
+without an event, and every 30 s while it stays silent (`phase`,
+`seconds_since_phase_start`, `seconds_since_last_progress`). It is
+informational - long silent stretches are normal for some models - and,
+unlike other warnings, never lands in the job's `warnings`.
 
 A step spends most of its wall clock outside the denoise loop, and
 `pipeline_step` cannot see any of it. `phase` is what fills that silence:
@@ -325,34 +406,25 @@ to learn where a long render is:
 | `seconds_since_event` | how long since anything at all happened - the number that separates a slow run from a stuck one |
 | `denoise_step`, `denoise_total_steps` | the denoise loop's counter, `null` until it starts |
 
-A null `denoise_step` under `generating` is the pipeline's lead-in - encoding
-the prompt and every reference - which emits nothing and runs well over a
-minute on a large video model. It is the encode plus the first denoise
-pass, and on MiniMax H3 the first pass dominates and varies by card. The
-reference encode (`vae_encoder`) is about 6 s for an image reference and
-about 50-53 s for a 5 s 960x544 video reference. Measured on lem: 187 s for
-an image reference (job `f90a041af26a`), and 508 s on cuda:1
-(`f5aefcdd5e26`, first pass 422 s) against 165 s on cuda:0
-(`6961876f11d3`, first pass 86 s) for the same image + video job. The keys
-are always present so that lead-in can be told from a loop that has stopped
-advancing: `seconds_since_event` is a stall signal once `denoise_step` is a
-number, or in any phase other than `generating`.
+A null `denoise_step` under `generating` is the pipeline's lead-in: prompt
+and reference encoding plus the first denoise pass, which runs well over a
+minute on a large video model. On MiniMax H3 the first pass dominates and
+varies by card (measured on one box: 86 s on one card, 422 s on another, for
+the same image + video job); the reference encode (`vae_encoder`) is about
+6 s for an image and 50-53 s for a 5 s 960x544 video. Each top-level block of
+a `SequentialPipelineBlocks` modular pipeline emits a `log` as it starts
+(`before_encode`, `text_encoder`, `vae_encoder`, `denoise`, `decode` on H3),
+so the last event says which block the run is in; a conditional container
+is not narrated, since it runs one branch. `seconds_since_event` is a stall
+signal once `denoise_step` is a number, or in any phase other than
+`generating`.
 
-The lead-in is no longer silent, though: each of a modular pipeline's
-top-level blocks emits a `log` naming it as it starts (`before_encode`,
-`text_encoder`, `vae_encoder`, `denoise`, `decode` on H3), so the last event
-says which one the run is inside. Only a `SequentialPipelineBlocks` is
-narrated this way - a conditional container picks one branch rather than
-running them all, and walking its sub-blocks would be a wrong answer bought
-with a progress message.
-
-It is a coarse one even then. A step's cost is not uniform when the pipeline
-configures a transformer block cache (`"cache": {"type": "first_block"}`):
-most steps are served from it in seconds and every few steps one is computed
-in full, so the same healthy run emits four `pipeline_step` events in 20 s
-and then nothing for 133 s. Liveness is `denoise_step` having moved between
-polls minutes apart, not silence measured against a fixed threshold - on H3
-that threshold would have to exceed ~140 s to mean anything.
+Even then it is coarse. With a transformer block cache
+(`"cache": {"type": "first_block"}`) most steps are served in seconds and
+every few one is computed in full, so a healthy run can emit four
+`pipeline_step` events in 20 s and then nothing for 133 s. Liveness is
+`denoise_step` having moved between polls minutes apart, not silence against
+a fixed threshold; on H3 that threshold would have to exceed ~140 s.
 
 ## Introspection API
 
@@ -360,9 +432,10 @@ The editor's forms come from these; they are just as usable from scripts:
 
 - `GET /api/pipelines`, `GET /api/pipelines/{name}` — diffusers pipeline
   classes and their call signatures
-- `GET /api/classes?kind=...`, `GET /api/classes/{name}?target=call|init|load` —
-  any allowed class (diffusers + registered extension modules), described
-  for calling, constructing, or `from_pretrained` loading
+- `GET /api/classes?kind=pipelines|models|schedulers|quantization`,
+  `GET /api/classes/{name}?target=call|init|load` (default `init`) — any
+  allowed class (diffusers + registered extension modules), described for
+  calling, constructing, or `from_pretrained` loading
 - `GET /api/tasks` — the task commands and processors
 - `GET /api/tasks/{command}` — a task's argument schema, read from its
   registered implementation's real signature
@@ -376,11 +449,10 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/guides/{name}?section=` — one section of a guide; section names
   match loosely. Without a `section` the answer is the guide's index - its
   opening, its first section, and `sections`/`withheld` naming the rest -
-  rather than the whole file, which for WORKFLOW_GUIDE.md is ~19.6k tokens
-  in one call (#101). Served by the engine so an MCP client
-  at another version reads the guides for the server it is driving, not
-  its own. A checkout serves the repo's `docs/`; an install the copy
-  `build_dist.sh` puts under `dw/docs/`
+  rather than the whole file (#101). Served by the engine, so an MCP client
+  at another version reads the guides for the server it drives. A checkout
+  serves the repo's `docs/`; an install the copy `build_dist.sh` puts under
+  `dw/docs/`
 - `POST /api/validate` — schema validation plus signature-level argument
   warnings for pipeline and task steps (catches the typo before the model
   loads); `warnings` also names an entry key of a list-driven variable that
@@ -449,8 +521,11 @@ The editor's forms come from these; they are just as usable from scripts:
   a 403 partway into a run, #186). `access_blocked` is `null` when there is
   no file to probe or the probe itself fails for an unrelated reason (e.g.
   offline) - "unknown" is not "not blocked". `validate_workflow`'s
-  `warnings` carries one line per entry with `access_blocked: true`. Each
-  `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
+  `warnings` carries one line per entry with `access_blocked: true`. A repo
+  the hub answers does not exist (a misspelled `model_name`, or a private
+  repo this token cannot see) carries `not_found: true`, and validation
+  fails on it with an error at `model_name`; an unanswered lookup leaves the
+  key out. Each `from_single_file` URL is `{repo: null, url, gb: null, gated: null,
   access_blocked: null}`, since a direct file URL is never gated.
   A task that fetches one file rather than a whole repo is listed as a file
   entry, `{repo, filename, revision, gb, gated, access_blocked}`: `revision`
@@ -480,9 +555,12 @@ The editor's forms come from these; they are just as usable from scripts:
   `width` x `height` and `num_frames` - per entry in a list, summed - that
   the caller moved off the variable defaults a `cost` entry is measured at,
   with `scaled` naming each moved axis; an estimate, not a measurement; a
-  non-numeric value of one of those is `unknown`). Any other declared
-  driver moved off its default - H3's `weights_dtype` or LoRA, a music
-  `audio_duration` - has no rule to scale by: the (scaled) figure is kept
+  non-numeric value of one of those is `unknown`). A driver a `cost` entry
+  names in `scales_with` scales the same way: Music 3's `audio_duration`,
+  or that field summed over `music-long`'s sections. The ceiling is what is
+  quoted, so a track that ends early costs less. Any other declared
+  driver moved off its default - H3's `weights_dtype` or LoRA - has no rule
+  to scale by: the (scaled) figure is kept
   under whatever basis it has, with `low_confidence` true and `differs`
   naming the drivers that moved, because it was measured at another setting
   of them; `other_device` (no entry for
@@ -505,9 +583,10 @@ The editor's forms come from these; they are just as usable from scripts:
   none - an `observed` figure already measured the whole run, children
   included, so nothing is added to it and `partial` is false; and
   `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
-  peak - `basis` is `observed` (the largest job peak RSS of this machine's
-  successful runs with the same memory key) or `fit` (the list-run projection
-  from the workflow's own history), and the key is absent when there is no
+  peak - `basis` is `observed` (the largest committed job peak of this
+  machine's successful runs with the same memory key, or the largest job peak
+  RSS where none measured it) or `fit` (the list-run projection from the
+  workflow's own history, on the same basis), and the key is absent when there is no
   figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
@@ -540,25 +619,20 @@ The editor's forms come from these; they are just as usable from scripts:
   already resident), with the `drivers` the figure is for, `since`, and
   `unclassified_runs` when a run's persisted events were trimmed past its
   `loading` phase. Runs are bucketed by the workflow's declared
-  `cost_drivers` - the variables that move its cost - so a 345-frame run
-  never informs a 124-frame figure; a list driver buckets on its length. A
-  workflow declaring no drivers falls back to runs that overrode nothing at
-  all, and a run whose every step was a step-cache hit is excluded. The
-  compact view carries only `observed_minutes` (cold) and `observed_runs`;
-  `GET /api/workflows/{name}/variables` carries the whole block beside the
-  defaults. Derived from the job rows in one query - so the figures outlive
-  a pruned run directory - and cached against the jobs table's high-water
-  mark rather than a file mtime, because a job landing changes every figure
-  and changes no file. `observed` never replaces `cost`: a maintainer's
-  claim on a named card and this machine's last week are different things.
+  `cost_drivers`, so a 345-frame run never informs a 124-frame figure; a
+  list driver buckets on its length. A workflow declaring no drivers counts
+  only runs that overrode nothing, and a run whose every step was a
+  step-cache hit is excluded. The compact view carries only
+  `observed_minutes` (cold) and `observed_runs`;
+  `GET /api/workflows/{name}/variables` carries the whole block. Derived from
+  the job rows, so the figures outlive a pruned run directory, and cached
+  against the jobs table's high-water mark. `observed` never replaces `cost`.
   A `models/` entry
   takes its `shape` and `traits` from the template it configures and keeps
   its own `cost`. A list-driven workflow (one with a `for_each` step) also
   carries `lists`: per list variable, the fields an entry takes, the steps
-  run over it and the default's length. Enough to choose a workflow and know
-  what to pass it without reading each one; the variable defaults are
-  deliberately left out, being an order of magnitude more payload on a
-  listing the UI reloads. Cached by file mtime
+  run over it and the default's length. Variable defaults are left out (an
+  order of magnitude more payload); cached by file mtime
 
   Optional query params narrow and shrink it:
   `?shape=&traits=&configures=&include_models=&view=compact`. `shape` keeps
@@ -570,8 +644,7 @@ The editor's forms come from these; they are just as usable from scripts:
   `shape`, `traits`, `cost`, `kinds`, `variable_names` and `lists` (carried
   only when the workflow has a list-driven step, like `configures`), and
   lists templates only unless `include_models=true` or a `configures` asks
-  otherwise. With no params the response is what it always was, plus the new
-  fields
+  otherwise
 - `GET/PUT/DELETE /api/workflows/{name}` — read, save, delete workflow files
   (confined to `--workflow-dir`); `PATCH` applies a JSON merge patch (RFC 7396,
   `application/merge-patch+json` or JSON) to the stored version and saves the
@@ -607,7 +680,9 @@ The editor's forms come from these; they are just as usable from scripts:
   queue an enhancement as an ordinary job whose saved text file is the
   result
 - `GET /api/gallery`, `GET /api/gallery/{name}/metadata`,
-  `DELETE /api/gallery/{name}` — outputs and their embedded metadata. Each
+  `DELETE /api/gallery/{name}` — outputs and their embedded metadata. Delete
+  takes a file, or a run directory (`<workflow>/<run id>`) to remove the whole
+  run; a run's directory goes with its last media file. Each
   gallery entry carries `folder` (the workflow identity, the run id dropped)
   and `subfolder` (what followed the run id - the `final`/`intermediate` a
   step's `result.subfolder` chose, `''` when it chose none); `?folder=` and
@@ -621,7 +696,10 @@ The editor's forms come from these; they are just as usable from scripts:
   the file, unless the step's `result.role` declared it), and `GET /api/gallery?role=final` lists only
   those (repeatable; a null role counts as final). See `dw/roles.py` for how
   a role is decided;
-  the metadata route reports the file's `role` and the run's `inputs` too
+  the metadata route reports the file's `role` and the run's `inputs` too,
+  and `findings`: each level problem the probed soundtrack shows
+  (`full_scale`, `near_silent`), measured against `dw/audio_qc.py`'s
+  thresholds, in the assess route's finding shape
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
   names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing
@@ -629,23 +707,41 @@ The editor's forms come from these; they are just as usable from scripts:
 - `GET /api/gallery/{name:path}/thumbnail` — a small JPEG of an image, or of
   a video's first frame; 404 for other kinds. `name` may be an `asset:`
   reference, which the editors' asset picker uses for its grid
-- `GET /api/gallery/{name}/metadata` also carries `findings`: each level
-  problem the probed soundtrack shows (`full_scale`, `near_silent`), measured
-  against `dw/audio_qc.py`'s thresholds, in the assess route's finding shape
 - `GET /api/gallery/{name}/image?max_dimension=768&crop=x,y,w,h&max_bytes=&format=auto`
   — an image output or `asset:` sized for an inline answer: cropped (clamped),
   fitted to `max_dimension`, and with `max_bytes` (a base64 budget) halved
   until it fits. Headers `X-DW-Original-Size`, `X-DW-Returned-Size`, and when
   they apply `X-DW-Crop` and `X-DW-Downscaled-To`. Takes `?token=`
-- `GET /api/gallery/{name}/frames` takes `max_total_bytes`: over it, every
-  tile shrinks to one shared size and `downscaled_to` says which
+- `GET /api/gallery/{name}/frames` — frames of a video output or `asset:`
+  as PNG tiles, with exactly one selector: `at` (comma list of seconds or
+  `frame:N`), `count` (an evenly spaced contact sheet) or `seams` (`true` or
+  1-based seam numbers: the frames either side of each shot boundary).
+  `boundaries` and `names` give the shots; without them, the shots the run's
+  manifest (or a kept asset's sidecar) recorded. `max_dimension` (default
+  512), `crop=x,y,w,h` in source pixels, and `max_total_bytes`: over it every
+  tile shrinks to one shared size and `downscaled_to` says which (MCP
+  `get_output_frames`)
+- `GET /api/gallery/{name}/audio?start=&duration=` — the soundtrack of an
+  output or `asset:` as WAV, or an excerpt; headers `X-DW-Duration` and, for
+  an excerpt, `X-DW-Excerpt-Start` / `X-DW-Excerpt-Duration`. A whole
+  audio-only file is served in its own encoding. 404 for a file with no
+  soundtrack (MCP `get_output_audio`)
+- `GET /api/gallery/{name}/assess?probe=&detail=` — every assessment probe
+  that applies to a finished cut (`analyze_shots`, `analyze_seams`,
+  `analyze_sync_drift`), run in the server process on one decode: merged
+  `findings`, `rules_applied`, `rules_skipped`, and `not_applicable` per probe
+  the file cannot feed. `detail=true` adds each probe's answer under
+  `probes`; `probe` names one and answers with its full body. Findings are
+  places to look, not verdicts (`dw/assessment_rules.py`; MCP
+  `assess_output`)
 - `POST /api/gallery/compare` — two to eight outputs side by side, and how far each is
   from a baseline; read-only, queues nothing. Body: `names` (2-8 gallery names or
   `asset:` references, one row each), `at` (1-8 moments, seconds or `"frame:N"`;
   default 4 evenly spaced frames of the shortest video), `crop` (`[x, y, w, h]`: the
   region shown and measured; or one box per name, shown only), `baseline` (default
-  the first name), `max_dimension` (default 384, longest side of each cell) and
-  `max_total_bytes`. Moments resolve to one frame index against the baseline (the
+  the first name), `max_dimension` (default 384, longest side of each cell),
+  `texture_bands` (default false: add per-output texture energy by wavelength band,
+  below) and `max_total_bytes`. Moments resolve to one frame index against the baseline (the
   first video if the baseline is a still) and every output is read at that frame
   number; a frame past an output's end is a blank cell. A still among videos repeats
   in every column; all stills give one column and `at` is ignored with a note. A crop
@@ -663,31 +759,32 @@ The editor's forms come from these; they are just as usable from scripts:
   `identical` when equal and SSIM is on luma (11x11 Gaussian window, sigma 1.5). An
   output whose size differs from the baseline gets null metrics and the `reason`
   `size differs from baseline: WxH vs WxH`, never a resize; a cell past an end says
-  `past end (N frames)`. Errors: 400 bad request, out-of-bounds crop, every moment
+  `past end (N frames)`. With `texture_bands`, the reply adds a `texture_bands` header
+  (`fine` "2-8 px", `mid` "8-32 px", `coarse` "32-128 px") and a `texture` list, one
+  entry per output: `name`, `row`, `baseline` and `cells`, each with `texture`
+  (`luma`, `chroma_rg`, `chroma_bg`, each `{fine, mid, coarse}`, RMS on a 0-255 scale
+  after a least-squares plane is removed), `texture_ratio` (non-baseline only: output
+  over baseline, null where the baseline band is 0) and `reason`. Each non-baseline
+  `metrics[].cells[]` entry carries `texture` and `texture_ratio` too. A band longer
+  than the box's short side is null. One name is allowed with bands (it is the
+  baseline: no ratios). `crop` must be one shared box (a per-name list is a 400:
+  "texture bands need one shared box") of at least 16 px a side. Errors: 400 bad request, out-of-bounds crop, every moment
   past every end, or not an image or video; 404 unknown name; 413 over the decode
   pixel limit; 422 undecodable file
 - `POST /api/gallery/archive` — `{"names": [...]}` (1-1000) bundles a
   multi-file selection into one zip, named by each file's gallery-relative
-  path so output subfolders survive. A browser cannot zip on its own and
-  throttles a burst of single downloads, so the gallery's bulk download
-  goes through here; an unknown or out-of-directory name 404s the whole
-  request rather than yielding a partial archive
+  path so output subfolders survive; the gallery's bulk download. An unknown
+  or out-of-directory name 404s the whole request rather than yielding a
+  partial archive
 - `GET /api/workspaces`, `POST /api/workspaces` (`{"name": ...}`),
   `DELETE /api/workspaces/{name}?acknowledged=true` — the workspaces on this
-  server. The workspace root's own `workflows/assets/outputs` are the
-  `default` workspace and a named one is a subdirectory beside them, sharing
-  the root's one prompt library. Delete answers with what it would remove and
-  refuses until acknowledged, refuses the default, and refuses a workspace
-  with jobs still queued. Each listed workspace carries a `usage`
-  (`{files, bytes}`) — roughly how much disk its own folders hold, walked at
-  most once a minute per workspace and deliberately approximate; the shared
-  prompt library counts against the `default` workspace alone rather than
-  once per workspace. A workspace is a namespace, **not** a security
-  boundary: the API token is all-or-nothing
-
-  `exports/` sits beside the workspace's own folders, holding one directory per
-  exported job. It is a reserved name: no workspace can be called `exports`, and
-  the folder is never listed as one.
+  server ([layout](WORKSPACES.md#several-workspaces-on-one-server)). Delete
+  answers with what it would remove and refuses until acknowledged, refuses
+  `default`, and refuses a workspace with jobs still queued. Each listed
+  workspace carries `usage` (`{files, bytes}`), an approximate walk of its
+  own folders at most once a minute; the shared prompt library counts
+  against `default` alone. `exports/` beside the workspace folders holds one
+  directory per exported job and is never listed as a workspace
 - `POST /api/workspaces/{destination}/copy` (`{"source": ..., "runs": [...],
   "assets": [...]}`) — copy runs and assets from one workspace into another.
   A `runs` entry is `<workflow>/<run id>`, or a bare `<workflow>` for all its
@@ -722,56 +819,43 @@ The editor's forms come from these; they are just as usable from scripts:
   none
 - `POST /api/assets/keep` (`{"name": ..., "asset_name": ..., "overwrite": false, "shared": false}`)
   — keep a generated file as an input asset under a stable name, returning
-  its `asset:` reference. A run's files are named by the run that made them,
-  which is the wrong thing for a later workflow to depend on: `latest` moves
-  and a pinned run id breaks when outputs are pruned. The copy happens inside
-  the workspace and is a hard link where the filesystem allows one, so
-  keeping one frame of a large render costs no second copy of it. Refuses an
+  its `asset:` reference, which survives the run's outputs being pruned. The
+  copy stays inside the workspace and is a hard link where the filesystem
+  allows one. Refuses an
   existing name unless `overwrite`. `asset_name` may name a folder and takes
   the kept file's extension when it carries none (a contradicting one is a
   400) — the same rule the upload route follows, and what keeps a kept asset
   from landing under an extensionless name the library listing never shows.
   `"shared": true` keeps it in
-  `<root>/common/assets` instead — the library every workspace under the root
-  shares, which is where a recurring cast belongs
+  `<root>/common/assets` instead, the library every workspace shares
 - `DELETE /api/assets/{name}` — remove one file from the asset library,
   deleting from whichever library on the search path holds it (the
   workspace's own before the shared one, the order `asset:` resolves in).
   An asset from a read-only examples library answers 403, the same as a
   read-only prompt or workflow; a name nothing holds answers 404
 - `POST /api/assets/archive` — `{"names": [...]}` (1-1000) bundles a
-  multi-file asset selection into one zip, named by each file's
-  library-relative path, which is the name its `asset:` reference carries.
-  The gallery archive's counterpart on the input side; it resolves down the
-  same search path a run does, so a selection spanning this workspace's
-  library, the shared one and an examples tree downloads as one archive, and
-  an unknown or out-of-library name 404s the whole request rather than
-  yielding a partial one. A duplicate name (repeated in the selection, or
-  differing only by leading/trailing whitespace) collapses onto the one zip
-  entry. Media (image/video/audio) stores rather than deflates, unless it's
-  a raw format that still compresses (`.bmp`, `.wav`) - everything else the
-  libraries hold is an already-compressed container, and the response does
-  not start until the archive is complete, so deflating it is latency the
-  caller waits through for nothing. Everything else - `.json`, `.md`,
-  `.txt`, an unrecognized extension - deflates; so does the export zip's
-  text files (`workflow.json`, `manifest.json`, `job.json`, the README)
-- `POST /api/uploads?filename=...` — the raw bytes of one image, video or audio file,
-  or a `.cube` 3D LUT for `apply_lut`
-  (200MB ceiling, checked from `Content-Length` before a byte is read, and
-  again on the body; extension held to the allowed image, video, audio and
-  `.cube` list), saved
-  into the asset library's `uploads/` subfolder - the shared library at
-  `<root>/common/assets` when `shared=true`, this workspace's own otherwise -
-  under a generated name, or under `asset_name` when one is given (`cast/priya-voice.wav`, folders allowed,
-  the uploaded file's extension assumed, confined to the library the way
-  `keep_output`'s name is).
-  Answers 201 with `reference` - `asset:uploads/<name>`, the reference a saved
-  workflow can carry and still resolve on a later run - and `url`, the same
-  file under the `/inputs` mount, for the editor's preview. A server started
-  without an asset library falls back to the output directory's `uploads/`
-  and an absolute path. This is how the UI's file pickers get a local file
-  onto the machine that will run the workflow. The body is the file itself,
-  so no multipart parser is needed for a single-file upload
+  multi-file asset selection into one zip, each entry named by its
+  library-relative path (the name its `asset:` reference carries). It
+  resolves down the same search path a run does, so a selection spanning the
+  workspace's library, the shared one and an examples tree is one archive;
+  an unknown or out-of-library name 404s the whole request, and a duplicate
+  name (repeated, or differing only by surrounding whitespace) collapses to
+  one entry. Media is stored rather than deflated, since it is already
+  compressed, except raw formats that still compress (`.bmp`, `.wav`);
+  everything else deflates, as do the export zip's text files
+- `POST /api/uploads?filename=&asset_name=&shared=&note=` — the raw bytes of
+  one image, video or audio file, or a `.cube` 3D LUT for `apply_lut`, as the
+  body (no multipart). 200MB ceiling, checked from `Content-Length` before a
+  byte is read and again on the body; the extension is held to the allowed
+  image, video, audio and `.cube` list. Saved under the asset library's
+  `uploads/` - the shared library at `<root>/common/assets` when
+  `shared=true`, else this workspace's own - with a generated name, or as
+  `uploads/<asset_name>` (folders allowed, the file's extension assumed,
+  confined the way `keep_output`'s name is). Answers 201 with `reference`
+  (`asset:uploads/<name>`, which a saved workflow can carry and still resolve
+  later) and `url`, the same file under `/inputs` for previews. 409 when the
+  workspace has no asset library. This is how the UI's file pickers get a
+  local file onto the machine that runs the workflow
 - `GET /api/models`, `DELETE /api/models?repo={repo_id}` — hub cache
   inventory and deletion
 - `GET /api/caches`, `DELETE /api/caches/{name}`, `DELETE /api/caches/{name}/entries/{entry}` - dw's disk caches of derived
@@ -984,30 +1068,27 @@ export DW_API_TOKEN="some-long-random-string"
 python -m dw.serve
 ```
 
-When a token is configured, every `/api/*` request must carry
-`Authorization: Bearer <token>` or gets a 401. The UI's own static files and
-`/outputs` (generated media) stay reachable without it - the page has to
-load far enough for a user to enter the token, and an `<img>`/`<script>`
-tag cannot attach a header anyway. That is why an active document served
-from `/outputs` or `/inputs` is sandboxed (Security model, above). A few GET API routes additionally accept the
-token as a `?token=...` query parameter, because the browser loads them
-without being able to set headers: the SSE stream,
-`GET /api/jobs/{id}/events` (`EventSource`), and the gallery grid's
-`GET /api/gallery/{name}/thumbnail` (an `<img>` tag). The three `/download`
-routes (gallery output, workflow, prompt) accept `?token=...` the same way,
-since a download button is a plain `<a href download>` navigation that
-cannot set a header either. That is a deliberate,
-narrower trade-off (a token that can leak into logs or browser history for
-those URLs) rather than a general alternative to the header - every other
-route accepts the header only.
+When a token is configured, every `/api/*` and `/mcp` request must carry
+`Authorization: Bearer <token>` or gets a 401. The UI's static files,
+`/outputs`, `/inputs` and `/exports/{id}.zip` stay reachable without it: the
+page has to load far enough for a user to enter the token, and an
+`<img>`/`<script>` tag cannot attach a header. That is why an active document
+served from `/outputs` or `/inputs` is sandboxed (Security model, above).
 
-The web UI has a one-time token field (next to the theme toggle) that
-stores the token in `localStorage` and attaches it to every API call,
-including the two query-parameter routes above. The MCP server reads the
-same `DW_API_TOKEN` variable (or `dw-mcp --token`), so one export
-configures both ends - see [MCP.md](MCP.md). It is a convenience, not a
-credential vault - anyone with access to the browser profile can read it
-back out of `localStorage`.
+Six GET routes also accept the token as `?token=`, because a browser loads
+them without being able to set a header: the SSE stream
+`GET /api/jobs/{id}/events` (`EventSource`), `GET /api/gallery/{name}/thumbnail`
+and `GET /api/gallery/{name}/image` (`<img>` tags), and the three `/download`
+routes (gallery output, workflow, prompt; `<a download>`). The allowance is
+bound to those routes, not to a path suffix. It is a narrower trade-off - a
+token in those URLs can leak into logs or browser history - and every other
+route, `/mcp` included, takes the header only.
+
+The web UI's key icon in the header stores the token in `localStorage` and
+attaches it to every API call, as a query parameter on the routes above; a
+`/?token=...` link saves it the same way. Anyone with the browser profile can
+read it back. The MCP server reads the same `DW_API_TOKEN` (or
+`dw-mcp --token`), so one export configures both ends - see [MCP.md](MCP.md).
 
 A token configured this way is a single shared static secret, not a login
 system: there is one token, checked with a constant-time comparison, and no
@@ -1016,6 +1097,9 @@ server on a LAN or beyond; it is not a substitute for a real network
 boundary (a firewall, a VPN, or simply binding to `127.0.0.1`) for anything
 more exposed than that.
 
-Running on another machine: [REMOTE.md](REMOTE.md) is the end-to-end recipe
-- token, firewall, systemd unit, the browser, `--mcp`, and what to do beyond
-the LAN.
+Running on another machine - token, firewall, systemd unit, the browser,
+`--mcp`, and beyond the LAN - is [REMOTE.md](REMOTE.md).
+
+### Host-RAM gate: mixed bases
+
+The RSS peak a job records is job-scoped growth over the run's baseline; the committed peak is an absolute reading of the whole worker process, a previous run's leftovers included. Nothing compares the two. The dispatcher reads a running worker's committed memory from `/proc/<pid>/status` alone (never smaps, which is slow for a large worker) and adds the driver-pinned term from the worker's last memory report.

@@ -34,10 +34,12 @@ from .cost_scaling import (
 from .elision import elide_definition
 from . import references
 from .plan_downloads import _sub_workflow_paths, downloads_required
+from .presets import effective_variables
 
 # Re-exported: dw/server/routes/jobs.py and the tests read the plan's gate
 # warnings from here, beside build_plan
 from .plan_downloads import gate_warnings as gate_warnings
+from .plan_downloads import missing_repo_errors as missing_repo_errors
 from .realize import read_sub_workflow, realize_workflow
 from .validation import _is_seeded
 from .variables import same_number
@@ -136,7 +138,11 @@ def build_plan(
     # cost is the cost of the work that happens
     elided = elide_definition(expanded, definition)
     entries = list_entries(definition, realized)
-    measured_entries = list_entries(definition, definition)
+    # The defaults a curated cost was measured at - the default preset
+    # bundle among them
+    measured_entries = list_entries(
+        definition, {"variables": effective_variables(definition)}
+    )
     step_count = len(expanded.get("steps") or [])
     cache_hits = cached_steps(definition, realized, arguments, cache_probe)
     # The work includes the text a stored prompt holds now, not only its
@@ -207,8 +213,9 @@ def list_entries(definition, realized):
     read from `realized`'s folded variables - a literal list is not an
     argument and is not listed.
 
-    Passing `definition` as both arguments answers the lengths the
-    workflow's *stored defaults* carry, which is the list a catalog `cost`
+    Passing `{"variables": effective_variables(definition)}` as `realized`
+    answers the lengths the workflow's *stored defaults* carry (its default
+    preset bundle included), which is the list a catalog `cost`
     figure was measured against (`estimate`).
     """
     variables = realized.get("variables") or {}
@@ -449,14 +456,17 @@ def _child_catalog_price(child_definition, child_cost, step_arguments, device):
     child_measured_entries = {}
     child_expanded = {"variables": {}}
     if child_definition is not None:
-        child_measured_entries = _list_entries(child_definition, child_definition)
+        child_measured_entries = _list_entries(
+            child_definition, {"variables": effective_variables(child_definition)}
+        )
         # The composing step's own `arguments` are what the child
-        # actually runs with - folded over its declared defaults the
-        # same way a caller's arguments are, since `expanded` has
-        # already substituted them to concrete values (#341)
-        effective_variables = dict(child_definition.get("variables") or {})
-        effective_variables.update(step_arguments)
-        child_expanded = {"variables": effective_variables}
+        # actually runs with - folded over its declared defaults (and the
+        # preset bundle they choose) the same way a caller's arguments are,
+        # since `expanded` has already substituted them to concrete values
+        # (#341)
+        child_expanded = {
+            "variables": effective_variables(child_definition, step_arguments)
+        }
         child_list_entries = _list_entries(child_definition, child_expanded)
     child = _price(child_cost, device, child_list_entries, child_measured_entries)
     if (

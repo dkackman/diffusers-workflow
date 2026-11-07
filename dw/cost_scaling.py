@@ -5,8 +5,10 @@ A workflow's `cost` entry is measured at its variable defaults. The
 variables its `cost_drivers` names are the ones the author says move that
 figure: a generic diffusers driver (`num_inference_steps`, `width` and
 `height`, `num_frames`, per list entry summed) scales it in proportion
-(`scale_curated`); any other declared driver that moved has no rule to
-scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
+(`scale_curated`), and so does any driver a `cost` entry names in its
+`scales_with` (a Music 3 `audio_duration`, or that field summed over a
+list driver's entries - #1199); any other declared driver that moved has no
+rule to scale by, so the figure is kept and flagged. `dw/plan.py` prices the run
 and applies the answer (`_scaled`); `dw/server/deps.py` scales an inherited
 figure with the same `scale_curated`, so an inline copy and its template
 quote one request alike. The basis labels an estimate carries live here
@@ -18,6 +20,9 @@ declaration, and the defaults its own `variables`.
 
 import json
 import math
+
+from . import references
+from .presets import effective_variables
 
 # The basis an estimate quotes its minutes on
 UNKNOWN = "unknown"
@@ -171,23 +176,40 @@ def scale_curated(minutes, defaults, effective):
     return minutes * factor, axes
 
 
-def _entry_frames(entries):
-    """The per-entry `num_frames` of a list's entries as numbers, or None
-    when an entry carries none (or a non-numeric one)."""
+SCALES_WITH_KEY = "scales_with"
+
+
+def _declared_proportional(definition):
+    """The names the workflow's `cost` entries say their figure is
+    proportional to (`scales_with`), beyond the generic diffusers ones. The
+    model's rule, declared by the workflow: the engine knows no music
+    argument of its own."""
+    names = []
+    for entry in definition.get("cost") or []:
+        declared = entry.get(SCALES_WITH_KEY) if isinstance(entry, dict) else None
+        for name in declared if isinstance(declared, list) else ():
+            if isinstance(name, str) and name not in names:
+                names.append(name)
+    return names
+
+
+def _entry_frames(entries, field=FRAMES_DRIVER):
+    """The per-entry `field` (`num_frames` by default) of a list's entries
+    as numbers, or None when an entry carries none (or a non-numeric one)."""
     if not isinstance(entries, list) or not entries:
         return None
     frames = []
     for entry in entries:
-        number = (
-            _positive(entry.get(FRAMES_DRIVER)) if isinstance(entry, dict) else None
-        )
+        number = _positive(entry.get(field)) if isinstance(entry, dict) else None
         if number is None:
             return None
         frames.append(number)
     return frames
 
 
-def _list_frames_scaling(name, default_entries, effective_entries, list_entries):
+def _list_frames_scaling(
+    name, default_entries, effective_entries, list_entries, field=FRAMES_DRIVER
+):
     """A list driver's per-entry frames as (factor, axis) - (1.0, None) when
     they did not move - or None when they moved in a way that cannot be
     scaled (#593, #866).
@@ -197,12 +219,14 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
     mean per entry is left to scale, so the two multiply to the summed ratio
     rather than counting the length twice.
     """
-    measured = _entry_frames(default_entries)
-    running = _entry_frames(effective_entries)
+    measured = _entry_frames(default_entries, field)
+    running = _entry_frames(effective_entries, field)
     if measured is None or running is None:
         # Nothing to sum on one side: only a frame count outside the values
         # the default entries carried leaves no figure, as before (#593)
-        if _list_entry_field_shifted(default_entries, effective_entries):
+        if field == FRAMES_DRIVER and _list_entry_field_shifted(
+            default_entries, effective_entries
+        ):
             return None
         return 1.0, None
     was, now = sum(measured), sum(running)
@@ -213,7 +237,116 @@ def _list_frames_scaling(name, default_entries, effective_entries, list_entries)
         factor = (now / len(running)) / (was / len(measured))
         if math.isclose(factor, 1.0):
             return 1.0, None
-    return factor, f"frames {_shown(now)} vs {_shown(was)} over {name}"
+    label = "frames" if field == FRAMES_DRIVER else field
+    return factor, f"{label} {_shown(now)} vs {_shown(was)} over {name}"
+
+
+# The declared drivers that set how many segments a chain runs; the count
+# itself is the chain's own to tell (`chain_segment_count`), so a figure
+# measured per segment scales by it
+CHAIN_LENGTH_DRIVERS = ("segments", "duration_seconds")
+
+
+def _resolved(value, variables):
+    """`value` with a `variable:` reference read from `variables`."""
+    name = references.ref_name(references.VARIABLE, value)
+    return variables.get(name) if name is not None else value
+
+
+def _chain_blocks(node):
+    """Every (chain block, arguments) pair under `node`: a dict holding a
+    `chain` beside its `arguments`."""
+    if isinstance(node, dict):
+        if isinstance(node.get("chain"), dict):
+            yield node["chain"], node.get("arguments") or {}
+        for value in node.values():
+            yield from _chain_blocks(value)
+    elif isinstance(node, list):
+        for value in node:
+            yield from _chain_blocks(value)
+
+
+def _chain_segments(definition, variables):
+    """The segments the workflow's chain runs at `variables`, or None when
+    there is no single chain or its count cannot be told."""
+    from .pipeline_processors.chain_config import chain_segment_count
+
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return None
+    chain, arguments = blocks[0]
+    chain = {key: _resolved(value, variables) for key, value in chain.items()}
+    arguments = {key: _resolved(value, variables) for key, value in arguments.items()}
+    return chain_segment_count(chain, arguments)
+
+
+def _chain_retries(definition, variables):
+    """The re-rolls a checked segment of the workflow's one chain may take
+    at `variables`: its `retries` with `check` on, else 0."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return 0
+    chain = blocks[0][0]
+    check = _resolved(chain.get("check"), variables)
+    retries = _resolved(chain.get("retries", 0), variables)
+    if not (check is True or isinstance(check, dict)):
+        return 0
+    if isinstance(retries, bool) or not isinstance(retries, int):
+        return 0
+    return max(0, retries)
+
+
+def _worst_case_retries(definition, variables):
+    """(factor, axes, unscaled) for the worst case of a checked chain's
+    re-rolls, as `chain_check` runs them: segment 1 is never checked, and
+    each later segment may render 1 + retries times, so N segments cost up
+    to 1 + (N - 1)(1 + retries) renders where the curated figure, measured
+    without re-rolls, paid N. `retries` is flagged unscaled when the segment
+    count cannot be told; with no re-rolls nothing moves. The quote cannot
+    tell a texture failure (warn-only, never re-rolled) from a jump, look or
+    cut one, so it still assumes the worst: every segment re-rolls."""
+    retries = _chain_retries(definition, variables)
+    segments = _chain_segments(definition, variables) if retries else None
+    if not retries:
+        return 1.0, [], []
+    if not segments:
+        return 1.0, [], ["retries"]
+    renders = 1 + (segments - 1) * (1 + retries)
+    return (
+        renders / segments,
+        [
+            f"worst case {retries} re-roll(s) of each of {segments - 1} checked "
+            f"segment(s): {renders} renders for {segments}"
+        ],
+        [],
+    )
+
+
+def _declared_axis_scaling(name, default_value, value, list_entries, proportional):
+    """A list driver's summed fields, or a `scales_with` scalar, as
+    (factor, axes), or None when one moved in a way nothing can scale.
+
+    A list sums its entries' `num_frames` and every `scales_with` field
+    (`_list_frames_scaling`); a scalar `scales_with` driver scales by its
+    own ratio to the default (#1199)."""
+    if not isinstance(default_value, list):
+        if _driver_comparable(value) == _driver_comparable(default_value):
+            return 1.0, []
+        was, now = _positive(default_value), _positive(value)
+        if was is None or now is None:
+            return None
+        return now / was, [f"{name} {_shown(now)} vs {_shown(was)}"]
+    factor = 1.0
+    axes = []
+    fields = [FRAMES_DRIVER] + [f for f in proportional if f != FRAMES_DRIVER]
+    for field in fields:
+        summed = _list_frames_scaling(name, default_value, value, list_entries, field)
+        if summed is None:
+            return None
+        factor *= summed[0]
+        if summed[1]:
+            axes.append(summed[1])
+    return factor, axes
 
 
 def _driver_scaling(definition, expanded, list_entries):
@@ -228,24 +361,30 @@ def _driver_scaling(definition, expanded, list_entries):
     for every template: its name goes in `unscaled`, and the figure is kept
     but flagged (#866, Q4).
     """
-    defaults = definition.get("variables") or {}
+    # the defaults the curated cost was measured at, the default preset
+    # bundle among them
+    defaults = effective_variables(definition)
     effective = expanded.get("variables") or {}
     factor = 1.0
     axes = []
     at_default = {}
     running = {}
     unscaled = []
+    chain_drivers = []
+    proportional = _declared_proportional(definition)
     for name in _declared_drivers(definition):
         default_value = defaults.get(name)
-        if isinstance(default_value, list):
-            frames = _list_frames_scaling(
-                name, default_value, effective.get(name), list_entries
+        if name in CHAIN_LENGTH_DRIVERS:
+            chain_drivers.append(name)
+            continue
+        if isinstance(default_value, list) or name in proportional:
+            moved = _declared_axis_scaling(
+                name, default_value, effective.get(name), list_entries, proportional
             )
-            if frames is None:
+            if moved is None:
                 return None
-            factor *= frames[0]
-            if frames[1]:
-                axes.append(frames[1])
+            factor *= moved[0]
+            axes.extend(moved[1])
             continue
         if name in list_entries:
             continue
@@ -259,7 +398,23 @@ def _driver_scaling(definition, expanded, list_entries):
     scaled = scale_curated(factor, at_default, running)
     if scaled is None:
         return None
-    return scaled[0], scaled[1] + axes, unscaled
+    factor, scaled_axes = scaled
+    scaled_axes = scaled_axes + axes
+    if chain_drivers:
+        was = _chain_segments(definition, defaults)
+        now = _chain_segments(definition, effective)
+        if was and now:
+            if was != now:
+                factor *= now / was
+                scaled_axes.append(f"segments {now} vs {was}")
+        elif any(
+            _driver_comparable(effective.get(name))
+            != _driver_comparable(defaults.get(name))
+            for name in chain_drivers
+        ):
+            unscaled.extend(chain_drivers)
+    worst, worst_axes, worst_unscaled = _worst_case_retries(definition, effective)
+    return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 
 
 def _scaled(price, scaling):
@@ -291,7 +446,9 @@ def _scaled(price, scaling):
 def _entry_cost_field_shifted(definition, expanded):
     """Whether any declared list driver carries a per-entry cost field outside
     the values the default entries had."""
-    defaults = definition.get("variables") or {}
+    # the defaults the curated cost was measured at, the default preset
+    # bundle among them
+    defaults = effective_variables(definition)
     effective = expanded.get("variables") or {}
     return any(
         isinstance(defaults.get(name), list)

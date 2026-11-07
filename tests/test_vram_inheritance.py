@@ -346,8 +346,14 @@ def _numbers(definition):
 # Templates measured on their own: they carry a formula that differs from
 # their identity's, because their bound is a different point on the card. Only
 # a name here may differ; every other template on the identity carries the
-# identity-level formula, or declares none and inherits it
-TEMPLATE_SPECIFIC = {"templates/ltx2/reference-sheet"}
+# identity-level formula, or declares none and inherits it.
+# minimax/repair-segment is not measured on its own: its two guides are clips
+# cut at run time, which the per-guide charge would price at num_frames each,
+# so it folds their frames into the identity's voxel rate (#1169)
+TEMPLATE_SPECIFIC = {
+    "templates/ltx2/reference-sheet",
+    "templates/minimax/repair-segment",
+}
 
 
 def disagreements(catalog, specific=()):

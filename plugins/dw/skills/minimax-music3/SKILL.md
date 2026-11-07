@@ -35,7 +35,8 @@ shapes; do not author a new workflow until the shape decision below fails.
   check the `vocals` stem of `separate_stems` with `analyze_audio` against
   the mix, never a transcript of the mix - Whisper invents words on music.
 - **A score under a film or a cuts piece**: an instrumental generated to a
-  ceiling comfortably longer than the cut, trimmed and faded with
+  ceiling comfortably longer than the cut (a cut past about 90 s:
+  `music-long` sections, as `long-form` says), trimmed and faded with
   `templates/audio-trim-fade`, then mixed under the picture as
   `templates/assemble-and-score` does with `pair_audio`. Each H3 shot should
   have written `non_diegetic_music: N/A` so the two scores don't fight. A
@@ -57,9 +58,10 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
 ## Hard rules
 
 - `audio_duration` is a ceiling, not a target: the language model stops when
-  the song ends, and generation is cut at the ceiling if it hasn't. Default
-  60 seconds. Ask for more than the piece needs and trim; the run's time
-  follows the length generated, so the margin is free.
+  the song ends, and generation is cut at the ceiling if it hasn't. The
+  pipeline's default is 60 seconds; the templates set 120 s (`music`),
+  30 s (`music-video`) and 45 s a section (`music-long`). Ask for more than the piece needs and trim; the run's time
+  follows the length generated; the quote assumes the whole ceiling.
   The consequence to size by: the arc the caption describes stretches to fill
   its given budget, so a ceiling set at the intended length isn't a
   piece that ends early with room to spare - it's the same piece stretched
@@ -70,7 +72,12 @@ If none fits, compose from `list_tasks` (`slice_audio`, `fade_audio`,
   `duration_seconds` lands within 0.2 s of its ceiling reads as cut
   off rather than finished.
 - The engine caps a track at 9000 frames at 25 frames per second, 360 seconds.
-  MiniMax supports five minutes; stay at or under 300.
+  MiniMax supports five minutes; stay at or under 300. Music longer than one
+  track: `templates/minimax/music-long`, per `long-form/references/audio.md`.
+- The lyric sets the length: Music 3 ends a track once its lyric is sung,
+  whatever the ceiling. Write enough lines for the seconds wanted; a 4-line
+  lyric came back 27-70 s for 85 s asked. A `music-long` section is cut at
+  its `seconds`: size it per `long-form/references/audio.md`.
 - The caption is capped at 5,000 tokens and a longer one is an error, not a
   truncation. A 250-450 word caption is nowhere near it; a pasted pile of
   example captions is.

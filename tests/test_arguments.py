@@ -473,6 +473,37 @@ class TestRealizeArgs:
 
             assert variables["image"] == video_path
 
+    def test_variables_pass_skips_key_conventions_at_every_depth(self):
+        # A for_each list of {name, video} objects: a field of a variable's
+        # entry is no more the argument it fills than the variable's own name
+        # is (#365) - loading it here gave trim_video silent frames (#1199)
+        with tempfile.TemporaryDirectory() as temp_dir:
+            video_path = os.path.join(temp_dir, "clip.mp4")
+            with open(video_path, "wb") as f:
+                f.write(b"placeholder")
+
+            variables = {
+                "shots": [{"name": "s01", "video": video_path}],
+                "nested": {"inner": {"image": video_path, "noise_type": "x"}},
+            }
+            realize_args(variables, apply_key_conventions=False)
+
+            assert variables["shots"][0]["video"] == video_path
+            assert variables["nested"]["inner"]["image"] == video_path
+            assert variables["nested"]["inner"]["noise_type"] == "x"
+
+    def test_variables_pass_still_resolves_nested_output_references(self):
+        # Explicit references keep resolving at any depth: what an output:
+        # stands for is a path, whatever the field is called
+        with patch("dw.arguments.resolve_path_references") as resolve:
+            resolve.side_effect = lambda value, base_dir=None: (
+                "/resolved.mp4" if value == "output:a/b.mp4" else value
+            )
+            variables = {"shots": [{"name": "s01", "video": "output:a/b.mp4"}]}
+            realize_args(variables, apply_key_conventions=False)
+
+        assert variables["shots"][0]["video"] == "/resolved.mp4"
+
     def test_variable_named_image_feeds_video_argument(self):
         # The exact #365 shape: a variable named 'image' is substituted into
         # a step's 'video' argument. Realizing the variables dict without key

@@ -1,0 +1,146 @@
+[
+  {
+    "name": "r2-anchor25-keystone-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-anchor50-keystone-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5,
+      "keystone": "segment_1"
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-anchor25-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-anchor50-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true,
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 1166,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r2-anchor25-keystone-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.25,
+      "keystone": "segment_1"
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-anchor50-keystone-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "guide",
+      "anchor": "segment_1",
+      "anchor_strength": 0.5,
+      "keystone": "segment_1"
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:277",
+      "frame:583"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-anchor25-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true,
+      "anchor": "segment_1",
+      "anchor_strength": 0.25
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  },
+  {
+    "name": "r2-lf-lookhold-anchor50-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 6,
+      "continuity": "last_frame",
+      "look_hold": true,
+      "anchor": "segment_1",
+      "anchor_strength": 0.5
+    },
+    "seed": 2,
+    "moments": [
+      "frame:62",
+      "frame:307",
+      "frame:673"
+    ]
+  }
+]

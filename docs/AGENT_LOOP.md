@@ -1,95 +1,113 @@
 # Agent Loop
 
-Some of the Issues in this repo are worked by an automated implementer/tester
-agent loop, not a human. It lives in a separate repo
-([`dkackman/iterate`](https://github.com/dkackman/iterate) — private) that
-drives two Claude Code agents in strict alternation against this repo's
-Issues. Nothing about running the loop lives here; this page exists so that
-anyone who opens or comments on one of its Issues — a human, or another
-agent joining in — knows how to act on it correctly.
+Some Issues in this repo are worked by an automated agent loop, not a human.
+The harness is [`dkackman/harnest`](https://github.com/dkackman/harnest); its
+[ticket protocol](https://github.com/dkackman/harnest/blob/main/docs/harness/ticket-protocol.md)
+is the full rule set this page summarizes, and `lib/classify.jq` there is the
+authoritative map from labels to the session that acts next. Nothing about
+running the loop lives here. This page is for anyone, human or agent, who
+opens or comments on one of its Issues.
 
 ## The two roles
 
-- **Implementer** — has this repo checked out and SSH access to the box
-  running the MCP server. Reproduces, fixes, deploys, and hands the ticket
+- **Implementer**: has this repo checked out and SSH access to the box running
+  the MCP server. Triages, reproduces, fixes, deploys and hands the ticket
   back. Never verifies its own fix.
-- **Tester** — talks to the MCP server only as a protocol client (MCP tool
-  calls), no source checkout, no shell/SSH access to the server box. Its job
-  is independent verification: it re-runs the original repro over MCP and
-  either confirms the fix or bounces the ticket back.
+- **Tester**: talks to the MCP server only as a protocol client, with no
+  source checkout and no shell on the server box. It re-runs the original
+  repro over MCP and either confirms the fix or bounces the ticket.
 
-That asymmetry — the only role that can mark an issue verified is the one
-with no ability to patch around a bug — is the entire point of the loop. A
-human or third agent joining in should preserve it: don't fix and verify the
-same ticket yourself.
+The only role that can mark an issue verified is the one that cannot patch
+around a bug. Preserve that: do not fix and verify the same ticket yourself.
 
-A third, standalone **regression agent** periodically runs a growing suite
-of scripted MCP calls (`regression-suite-*.md` in the `iterate` repo) against
-the live server and files/comments on Issues for anything that regresses. It
-doesn't participate in the implementer/tester handoff.
+Other sessions in the harness:
+
+- **Lead** (`owner:lead`): designs a feature with Don, turns an `idea` into a
+  feature or a single fix, or closes it.
+- **Docs reviewer**: read-only; closes a `docs-review` ticket.
+- **Regression agent**: runs the scripted MCP suites (`regression-suite-*.md`
+  in harnest) against the live server and files `regression` and
+  `performance` issues. It takes no part in the implementer/tester hand-off.
 
 ## Outside filings
 
-The loop runs as one GitHub login (the repo owner's) and must not act
-unattended on text filed by anyone else in this public repo. An issue filed
-under a different login — including a `field-report` from someone else's
-session — is relabelled `owner:don` + `status:needs-approval` before either
-role works it, and is handed to the loop, or not, only after the maintainer
-reviews it.
+The loop runs as the repo owner's GitHub login and must not act unattended on
+text anyone else filed in this public repo. An issue from another login,
+including a `field-report` from someone else's session, is relabelled
+`owner:don` + `status:needs-approval` before any role works it, and reaches
+the loop only if the maintainer hands it back.
+
+**Security findings are never public issues.** A boundary that did not hold
+(a gate, a path, a URL, a disclosure, a destructive call without
+acknowledgement) goes to a draft GitHub security advisory. No agent may add
+the `security` label.
 
 ## Reading a ticket
 
-Tickets use the **MCP agent-loop ticket** issue template. Two label
-families carry all the state — check both before acting:
+Tickets use the **MCP agent-loop ticket** issue template (ideas use **MCP
+agent-loop idea**). Two label families carry the state; check both before
+acting.
 
-- **`owner:*`** — exactly one of `owner:implementer` / `owner:tester` /
-  `owner:don` at a time: whoever is expected to act on it next. If you're
-  not that owner, leave the issue alone beyond reading it (or the specific
-  handoff comment/label a role prompt allows).
-- **`status:*`** — where the ticket is in its lifecycle:
-  - *(no status label)* — open, ready for the implementer to reproduce.
-  - `status:fixed-pending-verify` — implementer has fixed and deployed;
-    waiting on the tester to re-run the repro over MCP.
-  - `status:verified` — tester confirmed the fix over MCP; issue is closed
-    as `completed`.
-  - `status:needs-info` — a question bounce; whoever is asked needs to
-    answer before work continues.
-  - `status:needs-approval` (+ `owner:don`) — parked for the human. The
-    implementer uses this for anything beyond a rename-level change
-    (engine behavior, breaking syntax). Neither agent touches a parked
-    issue.
+**`owner:*`** is exactly one of `owner:implementer`, `owner:tester`,
+`owner:lead` or `owner:don`: whoever acts next. If it is not you, leave the
+issue alone beyond reading it. The owner label is the only signal: a status
+addressed to Don is stale once he swaps the owner back.
 
-Two built-in GitHub labels close a ticket without a fix:
+**`status:*`** is where the ticket is:
 
-- **`wontfix`** — the implementer's call, with a reason in a comment; issue
-  closed as `not planned`. The tester may reopen once with new evidence; a
-  second `wontfix` is final.
-- **`duplicate`** — closed as `not planned`, with a comment naming the
-  issue it duplicates (`duplicate of #NN`). A closed issue is still
-  canonical for duplicate detection — the implementer checks
-  `gh issue list --state all` before starting work, not just open issues.
+| Label | Meaning |
+| --- | --- |
+| *(none)* | Open, ready for the implementer to reproduce |
+| `status:fixed-pending-verify` | Fixed and deployed; the tester re-runs the repro over MCP |
+| `status:verified` | The tester confirmed the fix over MCP; closed as `completed` |
+| `status:reviewed` | A `docs-review` fix closed by the docs reviewer (never `status:verified`) |
+| `status:needs-info` | A question bounce; whoever is asked answers before work continues |
+| `status:needs-approval` | With `owner:don`: parked for the human, after a written proposal. Required for engine or syntax changes and anything breaking beyond a rename. Neither agent touches it |
+| `status:plan-review` | A feature plan is posted and waiting for Don |
+| `status:plan-approved` | Don approved the plan. Only Don adds it |
+| `status:needs-spec` | The tester writes acceptance cases for the plan's stages |
 
-`breaking-change` marks an Issue whose fix changed the MCP interface, so the
-tester adjusts its calls instead of filing the change as a new bug.
+Labels that close a ticket without a fix:
+
+- **`wontfix`**: the implementer's call, with a reason in a comment; closed as
+  `not planned`. The tester may reopen once with new evidence; a second
+  `wontfix` is final.
+- **`duplicate`**: closed as `not planned` with `duplicate of #NN` in a
+  comment. Closed issues count for duplicate detection
+  (`gh issue list --state all`). A verified issue that reproduces again is not
+  a duplicate: it becomes a new `regression` issue (`regression of #NN`), and
+  nobody reopens the old one.
+
+Other labels:
+
+| Label | Meaning |
+| --- | --- |
+| `docs-review` | A fix to text neither the server nor the plugin serves; the docs reviewer verifies it instead of the tester |
+| `breaking-change` | The fix changed the MCP interface; the tester adjusts its calls rather than filing a new bug |
+| `field-report` | Filed from Don's own dw sessions, not the harness |
+| `regression`, `performance` | Filed by the regression agent |
+| `idea` | An idea for the lead to assess |
+| `feature`, `stage` | Work designed with Don and built in stages; a `stage` is a child issue of one feature |
+| `lane:batch` | A plan review with no question of a kind Don decides, approved in a batch |
+| `parked` | Deferred: on `owner:lead`, until every blocking issue closes; on `owner:don`, Don's |
+| `release`, `release-blocker` | While an open `release` issue exists, only `release-blocker` issues move |
+| `stabilization`, `arch-approved` | dw's stabilization freeze (in force while `docs/stabilization/FREEZE` exists on `develop`): work parked for it, and new surface Don approved during it |
+| `arch-review` | A hand-off waiting on the architecture reviewer, who checks it against `docs/ARCHITECTURE.md` and passes or bounces it |
+| `consolidation` | Filed weekly from `scripts/arch_report.py`; Don plans it (to `owner:lead`) or closes it |
+| `backend:shared`, `backend:cuda`, `backend:mps` | What the bug is about |
+| `target:lem`, `target:mini-ai`, `target:minid`, `target:local` | Which server's loop claims it; a non-lem target is for Don to triage |
+| `verified-on:mps` | Verified on the Mac only; CUDA has not re-verified the fix |
+| `priority:2`, `priority:3` | Backlog rank |
 
 ## If you want to participate
 
-Whether you're a human or another agent:
-
-- Only touch an issue that's currently owned by you (or, for a human, one
-  parked with `owner:don`).
-- When you hand a ticket to the next owner, swap the `owner:*` label and
-  say what you did in a comment — the next actor has no memory of this
-  session, only the issue thread.
-- Keep implementer and tester roles separate. If you're fixing code, don't
-  also close the issue as verified — that requires an independent MCP call
-  from someone who didn't write the patch.
-- Reference the issue number in any commit that fixes it
-  (`fix(mcp): #42 - ...`), and work on a branch merged to `develop`, never
-  `master`.
-- Only the tester (or an equivalently independent verifier) closes an issue
-  as `completed`/`status:verified`, and only after a real MCP call
-  reproduces the fix — not by reading the diff.
-
-See the `iterate` repo's `CLAUDE.md` for the full protocol this is
-summarized from, including how the automated loop itself is run.
+- Only touch an issue owned by you (or, for a human, one parked with
+  `owner:don`).
+- To hand a ticket on, swap the `owner:*` label and say what you did in a
+  comment. The next actor has no memory of your session, only the thread.
+- Keep implementer and tester separate. Only the tester (or an equally
+  independent verifier) closes an issue as `completed` with
+  `status:verified`, and only after a real MCP call shows the fix, not by
+  reading the diff. The one exception is `docs-review`.
+- Reference the issue in the commit that fixes it, with a scope
+  (`fix(mcp): #42 - ...`), on a branch merged to `develop`, never `master`.

@@ -38,7 +38,10 @@ them as well (dw/pipeline_processors/h3_mask.py): its rules are
 resolve now, they are read here too, the way the guide-frame check reads its
 videos (`dw/guides.py`): the source's and the mask's size and frame count
 against the canvas (`h3_rules.media_problems`, which `Pipeline._with_mask` asks
-again at the call), and a mask with no white pixel in it.
+again at the call), and a mask with no white pixel in it. A `source_video` with
+no mask and no `hold_audio` is the audio pass (#1192), whose rules - no refine
+argument, a `listen_scale` of 1, 0.5 or 0.25 - `mask_problems` owns too; its
+source may be silent, since a soundtrack is what it adds.
 """
 
 from . import references
@@ -46,6 +49,7 @@ from .argument_media import is_media_reference
 from .for_each import render_path
 from .pipeline_processors.h3_rules import (
     HOLD_AUDIO_INPUT,
+    LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
     MASK_INPUTS,
     REFINE_SIGMAS_INPUT,
@@ -54,6 +58,7 @@ from .pipeline_processors.h3_rules import (
     REGIONAL_EDIT_INPUTS,
     SOURCE_VIDEO_INPUT,
     edits_region,
+    is_audio_pass,
     is_h3_step,
     mask_problems,
     media_problems,
@@ -251,23 +256,23 @@ def _mask_video_white(path):
 
 
 def _video_shape(name, value, base_dir, probe):
-    """(problem, (frames, height, width), path) for a regional edit's video
-    argument: why it is no video, its shape when the probe reads one, and the
-    confined path it resolved to; Nones for what cannot be told yet."""
+    """(problem, (frames, height, width), path, fps) for a regional edit's
+    video argument: why it is no video, its shape when the probe reads one,
+    the confined path it resolved to and the rate it declares; Nones for what
+    cannot be told yet."""
     path = resolve_probe_path(value, base_dir, name)
     info = probe(path) if path is not None else None
     if not isinstance(info, dict):
-        return None, None, None
+        return None, None, None, None
     if info.get("kind") != "video":
-        return (
-            f"{name} must be a video, and this is {info.get('kind') or 'unreadable'}",
-            None,
-            path,
-        )
+        kind = info.get("kind") or "unreadable"
+        return f"{name} must be a video, and this is {kind}", None, path, None
     frames, height, width = (info.get(k) for k in ("frame_count", "height", "width"))
+    fps = info.get("fps")
+    fps = fps if isinstance(fps, (int, float)) and fps > 0 else None
     if not all(isinstance(v, int) and v > 0 for v in (frames, height, width)):
-        return None, None, path
-    return None, (frames, height, width), path
+        return None, None, path, fps
+    return None, (frames, height, width), path, fps
 
 
 def _media_problems(arguments, base_dir, probe):
@@ -281,9 +286,11 @@ def _media_problems(arguments, base_dir, probe):
     width, height, num_frames = (
         arguments.get(k) for k in ("width", "height", "num_frames")
     )
-    problem, shape, _ = _video_shape(
+    problem, shape, _, fps = _video_shape(
         SOURCE_VIDEO_INPUT, arguments.get(SOURCE_VIDEO_INPUT), base_dir, probe
     )
+    # An audio pass retimes a source at another rate onto the grid (R25)
+    fps = fps if is_audio_pass(arguments) else None
     if problem:
         problems.append((SOURCE_VIDEO_INPUT, problem))
     if shape is not None:
@@ -294,7 +301,7 @@ def _media_problems(arguments, base_dir, probe):
     if shape is not None and None not in canvas[:2]:
         problems += [
             (SOURCE_VIDEO_INPUT, p)
-            for p in media_problems(SOURCE_VIDEO_INPUT, shape, *canvas)
+            for p in media_problems(SOURCE_VIDEO_INPUT, shape, *canvas, fps)
         ]
     name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
     if name is None:
@@ -305,7 +312,9 @@ def _media_problems(arguments, base_dir, probe):
         read = _mask_image_shape(path) if path is not None else None
         mask_shape, white = read if read is not None else (None, None)
     else:
-        problem, mask_shape, path = _video_shape(name, arguments[name], base_dir, probe)
+        problem, mask_shape, path, _ = _video_shape(
+            name, arguments[name], base_dir, probe
+        )
         if problem:
             problems.append((name, problem))
         elif path is not None:
@@ -338,8 +347,10 @@ def mask_errors(workflow_definition, source_indices=None, base_dir=None, probe=N
         steps, source_indices, "pipeline"
     ):
         arguments = pipeline.get("arguments")
-        if not isinstance(arguments, dict) or not edits_region(
-            arguments, is_h3_step(pipeline)
+        # listen_scale is no diffusers argument, so it is dw's on any step
+        if not isinstance(arguments, dict) or not (
+            edits_region(arguments, is_h3_step(pipeline))
+            or arguments.get(LISTEN_SCALE_INPUT) is not None
         ):
             continue
         given = [n for n in REGIONAL_EDIT_INPUTS if arguments.get(n) is not None]

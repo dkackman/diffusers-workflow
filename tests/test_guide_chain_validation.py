@@ -101,6 +101,37 @@ class TestRefused:
         assert "22" in error["message"]
         assert "39" in error["message"]
 
+    @pytest.mark.parametrize("backoff", [10, -17, 1.5, True])
+    def test_a_backoff_that_is_not_a_multiple_of_17(self, backoff):
+        chain = {"segments": 2, "continuity": "guide", "guide_backoff": backoff}
+
+        error = one(definition(chain=chain))
+
+        assert error["path"] == "steps[0].pipeline.chain.guide_backoff"
+        assert "17" in error["message"]
+
+    @pytest.mark.parametrize("backoff", [0, 17, 34])
+    def test_a_backoff_of_whole_blocks(self, backoff):
+        chain = {"segments": 2, "continuity": "guide", "guide_backoff": backoff}
+
+        assert guide_chain_errors(definition(chain=chain)) == []
+
+    def test_a_backoff_off_guide_continuity(self):
+        chain = {"segments": 2, "continuity": "last_frame", "guide_backoff": 17}
+
+        error = one(definition("t2va", chain=chain))
+
+        assert error["path"] == "steps[0].pipeline.chain.guide_backoff"
+        assert "guide" in error["message"]
+
+    def test_a_backoff_with_match_audio(self):
+        chain = {"match_audio": True, "continuity": "guide", "guide_backoff": 17}
+
+        error = one(definition(chain=chain))
+
+        assert error["path"] == "steps[0].pipeline.chain.guide_backoff"
+        assert "match_audio" in error["message"]
+
     def test_carry_frames(self):
         chain = {"segments": 2, "continuity": "guide", "carry_frames": 10}
 
@@ -168,7 +199,7 @@ class TestThroughTheWorkflow:
 
 
 class TestOwnGuidesPlusTheChain:
-    """The chain adds a guide of its own at frame 0 (chain.py GuideContinuity),
+    """The chain adds a guide of its own at frame 0 (chain_continuity.py GuideContinuity),
     so a step's written guides have one fewer slot than GUIDE_LIMIT."""
 
     @staticmethod

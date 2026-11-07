@@ -1307,7 +1307,9 @@ class TestHostRamGate:
         held = self.submit(manager, "held", host_gb=30)
         assert wait_until(lambda: held.waiting_for is not None)
         assert held.status == "queued"
-        assert held.waiting_for == "waiting for host RAM: needs ~30 GB, ~10 GB free"
+        assert held.waiting_for == (
+            "waiting for host RAM: needs ~33 GB with its margin, ~7 GB free"
+        )
         assert not second_gate.started.is_set()
         assert manager.get(held.id).summary()["waiting_for"] == held.waiting_for
 
@@ -1384,12 +1386,15 @@ class TestHostRamGate:
         manager, first_gate, second_gate = self._two_cards(pool)
         self.submit(manager, "loading", host_gb=30)
         first_gate.wait_started()
-        # 40 GB free now, but the loading job will take 25 GB more of it
+        # 40 GB free now, but the loading job will take 25 GB more of it,
+        # 28 GB with its margin
         host["rss"]["cuda:0"] = 5 * GB
         host["available_mb"] = 40 * GB
         held = self.submit(manager, "next", host_gb=20)
         assert wait_until(lambda: held.waiting_for is not None)
-        assert held.waiting_for == "waiting for host RAM: needs ~20 GB, ~15 GB free"
+        assert held.waiting_for == (
+            "waiting for host RAM: needs ~22 GB with its margin, ~12 GB free"
+        )
         assert not second_gate.started.is_set()
 
     def test_the_idle_worker_it_would_reuse_counts_as_free(self, pool, host):

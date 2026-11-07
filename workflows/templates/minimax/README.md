@@ -122,6 +122,7 @@ the hosted API accept 4. Output audio is 32 kHz stereo.
 | Example | What it introduces |
 | ------- | ------------------ |
 | [regional-edit.json](regional-edit.json) | Fixing one region of a good take: `source_video` is the take, a `mask_image` marks what to regenerate (white) and keep (black), `refine_strength` 0.9 replaces an object there, and `hold_audio` is the take itself, so the rest of the picture and the whole soundtrack stay the take's |
+| [add-sound.json](add-sound.json) | A new soundtrack under a finished clip's own picture: `source_video` with no mask and no `hold_audio` is an audio pass, so every video row stays the clip's and only the audio is generated, on the base model's dialogue schedule (no turbo LoRA, 12 steps). For a silent clip whose speech, if any, was generated with that picture; it is not a re-voice, since a new line over an on-screen speaker has no mouth to match and plays as voice-over. `listen_scale` 0.5 is about 23% faster and the fastest that keeps lip sync; 0.25 loses it |
 | [face-repair.json](face-repair.json) | Repairing a good take's small, soft face: `crop_face_track` cuts the face out on H3's `17n + 5` grid (24 fps, 124 to 345 padded frames, refused before H3 loads), a t2va refine at `refine_strength` 0.6 redraws it with `hold_audio` holding the take's own soundtrack so the mouth stays on the speech, and `paste_face_track` puts it back. The gate is 0.2/0.3 of the frame width, for H3's smaller faces. A ref2va refine with the cast picture holds identity slightly better, at about 4x the denoise time |
 
 ## Writing the prompt with a model
@@ -158,10 +159,11 @@ segments means half the compounding.
 
 | Example | What it introduces |
 | ------- | ------------------ |
-| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `last_frame` continuity, trimmed seams, crossfaded audio |
+| [chained-segments.json](chained-segments.json) | The simplest chain: fixed segment count, `guide` continuity by default (voice and motion carry across the seam) with `shot` presets (`static_long` for a static take past ~30 s: keystone at the last slot); `continuity: last_frame` gives trimmed seams and crossfaded audio |
 | [chain-matched-to-audio.json](chain-matched-to-audio.json) | `match_audio`: a supplied track decides the length, and the final video is muxed against the original, seamless track |
 | [chain-video-continuity.json](chain-video-continuity.json) | `last_segment` continuity: the previous segment's tail rides along as a video reference, carrying motion and voice across the seam |
 | [chain-matched-and-aligned.json](chain-matched-and-aligned.json) | Everything together for a long soundtrack-driven take, with per-segment prompts and crash-safe `save_segments` |
+| [repair-segment.json](repair-segment.json) | Re-rendering one interior segment of a finished chain (run with `keep_segments` on) between its neighbours, held to both by guides with their audio, and splicing it into the take itself, so everything outside the span stays the take's |
 
 ## Going long: cuts (digital shorts)
 

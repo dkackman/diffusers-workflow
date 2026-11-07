@@ -3,14 +3,14 @@
 diffusers-workflow is Apache-2.0. This page credits the work it builds on that
 a dependency list does not show: code that was copied in, and other projects
 whose ideas were reimplemented here. Python dependencies are in
-[requirements.txt](../requirements.txt) and [pyproject.toml](../pyproject.toml).
+[pyproject.toml](../pyproject.toml).
 Model and LoRA weights keep their own licences, and each catalog entry
 ([workflows/models/](../workflows/models/), [loras/](../loras/)) names the
 repository it downloads from.
 
 ## Code included in this repository
 
-Each file keeps its upstream licence notice in its header.
+Each copied or ported file keeps its upstream licence notice in its header.
 
 | File | Source | Licence |
 |---|---|---|
@@ -109,3 +109,81 @@ rendering the odd shots of a long take first and bridging the gaps
 ([#1094](https://github.com/dkackman/diffusers-workflow/issues/1094)), and
 finding phrase starts from the centre of the stereo mix
 ([#1095](https://github.com/dkackman/diffusers-workflow/issues/1095)).
+
+### [knoic/ComfyUI-MiniMaxH3-PrefixStream](https://github.com/knoic/ComfyUI-MiniMaxH3-PrefixStream)
+
+A ComfyUI node pack for MiniMax H3 prefix streaming, under the MIT licence. It
+inspired the texture-band measurement on `compare_outputs`
+(`texture_bands`, [dw/texture_bands.py](../dw/texture_bands.py)): RMS energy by
+wavelength band, to see whether a change in a chain adds or removes texture.
+It also inspired `guide_noise`
+([dw/pipeline_processors/h3_guide_steps.py](../dw/pipeline_processors/h3_guide_steps.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)), from its prefix
+noise at `775be90`: a cosine-tapered noise on each guide, folded in as the difference of
+a paired VAE encode, so the guide's hold loosens toward its start.
+
+### [1113800942/comfy-h3md-director](https://github.com/1113800942/comfy-h3md-director)
+
+H3MD Director, a ComfyUI node pack for directing long MiniMax H3 videos, under
+AGPL-3.0-or-later, so only the concept was taken. It inspired the latent
+statistics anchor: rescaling each later segment's video latent to the first
+segment's per-channel mean and standard deviation before decode
+(`latent_anchor`, `chain.anchor: "segment_1"`,
+[dw/pipeline_processors/h3_anchor.py](../dw/pipeline_processors/h3_anchor.py);
+[#1166](https://github.com/dkackman/diffusers-workflow/issues/1166)). The
+diagnosis it answers, colour and contrast drifting from segment to segment of
+an H3 chain, was described by Lumifel and by roycho87 (NerdNotes). It also
+inspired repairing one segment of a finished chain in place, held to both of its
+neighbours, and its rules: no tail hold on the last segment, a new seed for the
+re-render, and the chain's own text encoder, length and sizes kept
+([templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json),
+[dw/tasks/chain_repair.py](../dw/tasks/chain_repair.py);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+### [roycho87/geiru_context_suite](https://github.com/roycho87/geiru_context_suite)
+
+A set of ComfyUI nodes for long MiniMax H3 videos, under GPL-3.0, so only the
+concept was taken, together with seitanism's context hold. It inspired
+`guide_backoff`
+([dw/pipeline_processors/chain.py](../dw/pipeline_processors/chain.py);
+[#1189](https://github.com/dkackman/diffusers-workflow/issues/1189)): handing the
+next segment the frames one block before the end and dropping the previous
+segment's last block at assembly, so the join lands inside the held copy. The
+same suite's idea of a first-segment keyframe, and NerdNotes' (no licence, so
+concepts only), inspired `keystone`
+([#1187](https://github.com/dkackman/diffusers-workflow/issues/1187)): segment 1's
+frame 0 as every later segment's keyframe, pulling the chain back toward its
+clean start. Its Anchoring node, a source's head held in a shot's last frames
+with its audio, gave the repair's tail hold and the rule that the tail hold
+outnumbers the head (39 frames against 22 in
+[templates/minimax/repair-segment](../workflows/templates/minimax/repair-segment.json);
+[#1169](https://github.com/dkackman/diffusers-workflow/issues/1169)).
+
+harlixay7/Kinoloom (MIT; concept only, no code taken) inspired `carry_pick`
+([dw/pipeline_processors/chain_pick.py](../dw/pipeline_processors/chain_pick.py);
+[#1032](https://github.com/dkackman/diffusers-workflow/issues/1032)): picking the
+sharpest of a segment's last frames as the next keyframe rather than always the
+last, and ending the segment there.
+
+Smite79/MiniMax-H3-LongVideos (a custom no-redistribution licence; concepts only,
+no code taken) inspired `look_hold`
+([dw/pipeline_processors/chain_look.py](../dw/pipeline_processors/chain_look.py);
+[#1191](https://github.com/dkackman/diffusers-workflow/issues/1191)): a quantile
+grade of a segment's opening to the carried frame, an ease-out of contrast and
+saturation creep, an ease-out of faint texture, and a keyframe pre-compensated for
+the measured boost.
+
+Smite79/MiniMax-H3-LongVideos (concepts only, under the licence above) and WanGP
+(concept only, from [#984](https://github.com/dkackman/diffusers-workflow/issues/984))
+inspired the H3 audio pass
+([dw/pipeline_processors/h3_mask.py](../dw/pipeline_processors/h3_mask.py);
+[#1192](https://github.com/dkackman/diffusers-workflow/issues/1192)): a finished
+picture's video latents locked clean while only the audio is generated over it, and
+the listen pass on a smaller canvas.
+
+leonardofrito/Directors-Cut (MIT; concept and schema shape, no code taken)
+inspired `export_timeline`
+([dw/tasks/timeline_export.py](../dw/tasks/timeline_export.py);
+[#1197](https://github.com/dkackman/diffusers-workflow/issues/1197)): a joined
+piece written as an OpenTimelineIO `.otioz` bundle with one clip per shot, so an
+editor opens it as a timeline.

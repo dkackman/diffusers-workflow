@@ -53,45 +53,22 @@ schedule that is not a knob (except refine-in-place's `strength`, 0 preserve
   a prompt doesn't steer it. `num_frames` caps at 145 (RGB leaks past it).
   A hard cut leaks source texture into the frames after it: matte one shot
   at a time.
-- **Repairing the user's footage**: `templates/ltx2/restore-deblur` for
-  spatial defocus, `templates/ltx2/restore-decompression` for low-bitrate
-  artefacts, `templates/ltx2/restore-colorize` for black-and-white or
-  washed-out footage. All three come back at the source's size and frame
-  rate (`frame_rate` overrides the rate), with no soundtrack. Colorize
-  colours only what the prompt names: look at a source frame
-  (`get_output_frames`) and write both prompt panels for that clip, naming
-  its colours - the default is an example and leaves an unlike clip grey.
-  Reliable on 24 fps 16:9; a low-rate or portrait source may stay grey even
-  so: check a frame of the result; if it is grey, this route doesn't take
-  that source. Each inverts one defect and no other - neither upscales or
-  removes motion blur or grain - so name the defect and let the user
-  correct you. To upscale or sharpen: `templates/ltx2/upscale-clip`
-  (IC-LoRA re-render), `width`/`height` the render size, or `refine-clip`
-  (its own latents, no LoRA), `width`/`height` the working size. Both fit
-  the source first and restore after: output exactly 2x the source (2x the kept region under crop) at its
-  length, any aspect ratio letterboxed and cut back (`fit`), a short source
-  held and trimmed. Soundtrack kept, silent source refused. Same size and length, no 2x:
-  `templates/ltx2/refine-in-place` (`strength` 0-4, default 2). All three
-  write at the source's frame rate (`frame_rate` overrides the rate, never
-  the frame count). A small,
-  smeared face in a wide shot, the rest left alone:
-  `templates/ltx2/face-repair` (`strength` 0-4, default 2; describe the
-  person in `prompt` to hold identity at 3-4). A near face comes back
-  untouched; the source's soundtrack, size and frame rate are kept
-  (`frame_rate` overrides the rate, never the frame count). Footage
-  longer than `num_frames`: `templates/ltx2/restore-long` restores it window
-  by window. Its `windows` list needs `ceil(source_frames / (num_frames -
-  overlap))` entries, `index` 0 up - read `source_frames` from
-  `get_gallery_metadata`, keep `num_frames` 121 and `overlap` 16 (105 new
-  frames per window), and let `validate_workflow` name any entry to add or
-  drop. At most 32 windows. Written at the source's frame rate with its
-  soundtrack (`frame_rate` overrides the rate, never the frame count).
-- **Longer**: `templates/ltx2/extend-clip` continues an opening conditioned
-  on all of it, not one frame; `clip` extends an existing clip (`width`/
-  `height` matched, shorter than `num_frames`; clip_frames unused) instead
-  of generating; `templates/ltx2/chained-segments` re-runs per segment on
-  the previous last frame and stitches. Both are dw's own recipes (Lightricks
-  added a chunked one 2026-09-29); one 401-frame pass reaches 17 seconds first.
+- **Repairing the user's footage** (deblur, decompression, colorize, a
+  2x upscale or refine of their clip, a small smeared face, a long clip
+  window by window): read `references/repair.md` first.
+- **Longer than one clip** (one 401-frame pass reaches about 17 s at 768):
+  read the `long-form` skill first for the scene's shape (cuts, a chain or a
+  bridge). LTX parity is measured (`bench/records/ltx.md`): `last_frame`
+  is the default; cap a take at about 15-20 s, then cut to a fresh still;
+  extend-clip is a knob at about 2.1x wall, for a subject that stays in
+  frame; `look_hold` is on by default (it smooths the seams and does
+  not hold an LTX orbit back, unlike H3). LTX's
+  own: `templates/ltx2/extend-clip` continues an opening conditioned on all
+  of it, not one frame; `clip` extends an existing clip (`width`/`height`
+  matched, shorter than `num_frames`; clip_frames unused) instead of
+  generating; `templates/ltx2/chained-segments` re-runs per segment on the
+  previous last frame and stitches. Both are dw's own recipes (Lightricks
+  added a chunked one 2026-09-29).
 
 If none fits, compose from `list_tasks` before authoring a new workflow;
 read the `workflows` guide's authoring section first. Other

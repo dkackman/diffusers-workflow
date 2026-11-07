@@ -6,6 +6,7 @@
   import { groupResultFiles, unsavedSteps } from '../results'
   import {
     activeMember,
+    chainSegments,
     finishedMembers,
     finishedNodes,
     flowNodeName,
@@ -175,6 +176,7 @@
   // One grain finer than the group: which entries of a for_each step have
   // finished and which is running, in the engine's own `group@entry` names
   const finishedMemberSteps = $derived(finishedMembers(events as JobEvent[]))
+  const segments = $derived(chainSegments(events as JobEvent[]))
   const activeMemberStep = $derived(
     running ? activeMember(events as JobEvent[]) : undefined,
   )
@@ -300,6 +302,7 @@
         selectable={hasResult}
         selectHint="click a step to see its results"
         doneMembers={finishedMemberSteps}
+        activeSegments={segments}
         {nodeTimes}
         {memberTimes}
       />

@@ -12,6 +12,7 @@ from dw.plan import (
     PLACEMENT_RESULT_KEYS,
     build_plan,
     gate_warnings,
+    missing_repo_errors,
 )
 from dw.cost_scaling import scale_curated
 from dw.validation import unseeded_cache_warnings
@@ -241,6 +242,7 @@ KEPT_TOP_LEVEL_KEYS = {
     "id",  # names every file the run saves, and the step cache keys on it
     "variables",  # the folded values are the work
     "variable_constraints",  # a rule rounds or refuses a value
+    "presets",  # a bundle sets the variables the caller did not pass
     "argument_template",  # read as arguments when not run as a child
     "seed",  # removed separately: a seed is not the work, but it is the output
     "steps",
@@ -1285,13 +1287,119 @@ class TestUnscalableDrivers:
         answer = plan(template, arguments=arguments)["estimate"]
         assert "low_confidence" not in answer
 
-    def test_music_at_another_duration(self, plan):
-        """#440's case, now a flagged figure rather than `unknown`."""
+    def test_an_undeclared_scalar_driver_is_flagged_not_scaled(self, plan):
+        """#440's case before #1199: a driver no rule scales stays flagged."""
         template = _repo_json(CATALOG_MUSIC)
+        for entry in template["cost"]:
+            entry.pop("scales_with", None)
         answer = plan(template, arguments={"audio_duration": 240})["estimate"]
         assert (answer["minutes"], answer["basis"]) == (3.6, "catalog")
         assert answer["low_confidence"] is True
         assert answer["differs"] == ["audio_duration"]
+
+
+CATALOG_MUSIC_LONG = "workflows/templates/minimax/music-long.json"
+
+
+def proportional(spec, *names):
+    for entry in spec["cost"]:
+        entry["scales_with"] = list(names)
+    return spec
+
+
+class TestDeclaredProportionalDrivers:
+    """#1199 drill: `templates/minimax/music` quoted 3.6 min whatever its
+    `audio_duration`, and `music-long` had no figure at all. A cost entry's
+    `scales_with` names the drivers its figure is proportional to - a scalar
+    variable, or a field summed over a list driver's entries - so the
+    workflow, not the engine, says what a music ceiling costs."""
+
+    def test_a_declared_scalar_scales_in_proportion(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (20.0, "derived")
+        assert answer["scaled"] == (
+            "scaled from the curated 10 min: audio_duration 240 vs 120"
+        )
+        assert "differs" not in answer
+
+    def test_a_declared_scalar_at_its_default_is_the_figure(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["audio_duration"] = 120
+        spec["cost_drivers"] = ["audio_duration"]
+        answer = plan(spec)["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (10.0, "catalog")
+
+    def test_a_declared_field_is_summed_over_a_list(self, plan):
+        spec = proportional(definition(), "audio_duration")
+        spec["variables"]["shots"] = [
+            {"name": "a", "prompt": "one", "audio_duration": 45},
+            {"name": "b", "prompt": "two", "audio_duration": 45},
+        ]
+        spec["cost_drivers"] = ["shots"]
+        spec["variables"]["takes"] = [{"audio_duration": 45}]
+        spec["cost_drivers"].append("takes")
+        takes = [{"audio_duration": 90}, {"audio_duration": 45}]
+        # `takes` is priced by no for_each, so its sum carries the ratio
+        answer = plan(spec, arguments={"takes": takes})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (30.0, "derived")
+        assert answer["scaled"].endswith("audio_duration 135 vs 45 over takes")
+
+    def test_every_catalog_scales_with_names_a_driver_or_its_field(self):
+        import pathlib
+
+        root = pathlib.Path(__file__).resolve().parent.parent
+        found = 0
+        for path in sorted((root / "workflows").rglob("*.json")):
+            spec = json.loads(path.read_text())
+            if not isinstance(spec, dict):
+                continue
+            variables = spec.get("variables") or {}
+            drivers = [n for n in spec.get("cost_drivers") or [] if n in variables]
+            reachable = set(drivers)
+            for name in drivers:
+                if isinstance(variables[name], list):
+                    for entry in variables[name]:
+                        if isinstance(entry, dict):
+                            reachable.update(entry)
+            for entry in spec.get("cost") or []:
+                for name in entry.get("scales_with") or []:
+                    found += 1
+                    assert name in reachable, f"{path.name}: scales_with {name}"
+        assert found
+
+    def test_music_scales_with_its_ceiling(self, plan):
+        template = _repo_json(CATALOG_MUSIC)
+        answer = plan(template, arguments={"audio_duration": 240})["estimate"]
+        assert (answer["minutes"], answer["basis"]) == (7.2, "derived")
+        assert "audio_duration 240 vs 120" in answer["scaled"]
+        assert "differs" not in answer
+
+    def test_music_long_quotes_its_defaults(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        answer = plan(template)["estimate"]
+        assert answer["basis"] == "catalog"
+        assert answer["minutes"] is not None
+
+    def test_music_long_scales_with_its_sections_and_their_ceilings(self, plan):
+        template = _repo_json(CATALOG_MUSIC_LONG)
+        curated = next(e for e in template["cost"] if e["device"] == "cuda")["minutes"]
+        defaults = template["variables"]["sections"]
+        was = sum(entry["audio_duration"] for entry in defaults)
+        sections = [
+            dict(
+                defaults[n % len(defaults)],
+                name=f"part_{n}",
+                seconds=85,
+                audio_duration=128,
+            )
+            for n in range(4)
+        ]
+        answer = plan(template, arguments={"sections": sections})["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["minutes"] == pytest.approx(curated * 512 / was, abs=0.1)
 
     def test_a_thin_bucket_blends_toward_a_flagged_figure(self, plan):
         """One int8 run, blended toward the int4 catalog figure: the blend
@@ -2070,6 +2178,41 @@ class TestDownloadsRequired:
             }
         ]
 
+    def test_a_repo_the_hub_does_not_have_is_not_found(self, plan, monkeypatch):
+        """A misspelled model_name answers 401 RepositoryNotFound: the entry
+        says so, where an unanswered lookup stays all-null."""
+        import httpx
+        import dw.plan_downloads
+        from huggingface_hub.utils import RepositoryNotFoundError
+
+        response = httpx.Response(401, request=httpx.Request("GET", "https://hf.co/x"))
+
+        def boom(*a, **k):
+            raise RepositoryNotFoundError("no such repo", response=response)
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", boom)
+        assert plan(lookup_sizes=True)["downloads_required"] == [
+            {
+                "repo": "org/still-model",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+                "not_found": True,
+            }
+        ]
+
+    def test_an_unanswered_lookup_is_not_not_found(self, plan, monkeypatch):
+        """Offline is a state, not an error - only the hub's own answer
+        marks a repo missing."""
+        import dw.plan_downloads
+
+        def offline(*a, **k):
+            raise OSError("network unreachable")
+
+        monkeypatch.setattr(dw.plan_downloads, "model_info", offline)
+        [entry] = plan(lookup_sizes=True)["downloads_required"]
+        assert "not_found" not in entry
+
     def test_a_gated_repo_with_no_probeable_file_is_unknown(self, plan, monkeypatch):
         import dw.plan_downloads
 
@@ -2176,6 +2319,29 @@ class TestGateWarnings:
             {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}
         ]
         assert gate_warnings(required) == []
+
+
+class TestMissingRepoErrors:
+    def test_a_missing_repo_is_an_error(self):
+        required = [
+            {"repo": "org/real", "gb": 1.0, "gated": False, "access_blocked": False},
+            {
+                "repo": "org/typo",
+                "gb": None,
+                "gated": None,
+                "access_blocked": None,
+                "not_found": True,
+            },
+        ]
+        [error] = missing_repo_errors(required)
+        assert error["path"] == "model_name"
+        assert "'org/typo'" in error["message"]
+
+    def test_unknown_is_not_an_error(self):
+        required = [
+            {"repo": "org/offline", "gb": None, "gated": None, "access_blocked": None}
+        ]
+        assert missing_repo_errors(required) == []
 
 
 class TestCachedSteps:

@@ -42,6 +42,9 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Fix one region of a good take** (the rest and audio stay):
   `templates/minimax/regional-edit`; first `references/regional-edit.md`.
 - **A good take with a soft small face**: `templates/minimax/face-repair`.
+- **Sound for a silent clip** (picture kept): `templates/minimax/add-sound`;
+  `listen_scale` 0.5 is the fastest that keeps lip sync. Never re-voice an
+  on-screen speaker: it plays as voice-over.
 - **A consistent subject**: `templates/minimax/reference-to-video`
   (an image fixes appearance, an audio clip voice);
   `templates/minimax/composable-references` adds a video reference for
@@ -52,22 +55,15 @@ H3 generates video and audio together. Every template fits a 24 GB card.
 - **Several boards, one generation, unbroken score**:
   `templates/minimax/storyboard`, cuts no concat matches. One beat only;
   past that, cuts.
-- **Longer than 14.4 seconds**: chain when one action or line of speech
-  crosses the seam, cut when the scene changes.
-- **As one take (a chain)**: `templates/minimax/chained-segments`
-  (default `continuity: "last_frame"`; `continuity: "guide"`, `guide_frames`
-  22 or 39 - default 22 - holds the last frames and voice as a guide instead.
-  The guide prefix is trimmed off the deliverable (`trim_frames` and the
-  crossfade do not apply). `carry_audio` (default true, a chain-block setting)
-  holds the previous tail's audio. Guide only here: the reference chains
-  are ref2va, and guides stay off ref2va),
-  `templates/minimax/chain-video-continuity`
-  (previous segment's tail rides as a video reference - motion, camera,
-  voice carry the seam), `templates/minimax/chain-matched-to-audio` (a track
-  sets the length), `templates/minimax/chain-matched-and-aligned`
-  (per-segment prompts). Drift compounds per seam: reference the subject
-  picture each segment, prefer `last_segment`, use the longest segments
-  memory allows.
+- **Longer than one clip (14.4 s)**: read the `long-form` skill first; it
+  picks cuts, a chain or a bridge per scene, the chain's `shot` preset and
+  its check. H3's chains: `templates/minimax/chained-segments` (default
+  `continuity: "guide"`, `guide_frames` 22 or 39 - default 22 - holds the
+  last frames and voice as a guide), `templates/minimax/chain-video-continuity`
+  (the previous tail as a video reference), `templates/minimax/chain-matched-to-audio`
+  (a track sets the length), `templates/minimax/chain-matched-and-aligned`
+  (per-segment prompts). What a guide seam trims and carries:
+  `references/chains.md`.
 - **A piece with cuts**: fresh shots from shared portraits, then a concat.
   `templates/minimax/dialogue-short` (Z-Image draws the cast, one shot per
   `shots` entry, `concat_videos` splices) and `templates/minimax/music-video`
@@ -168,12 +164,10 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    plan's `{fingerprint, minutes, downloads}`.
 3. `wait_for_job` with `timeout_seconds` = the estimate plus a margin
    (`timeout_capped` says the server's cap cut it; call again while
-   `still_running`; on a client "timed out", retry at `timeout_seconds` 60), then `get_job`. A cancelled H3 job runs
-   to its next step boundary. Silence is no hang: `denoise_step` is null
-   at first (encode ~6 s img, ~50 s video; 1st pass
-   dominates: 165-508 s) and the block cache makes later steps uneven -
-   two-minute gaps are healthy; so is a slow first step at a new size (autotune, once a box). `phase_stall` in `get_job_events` narrates
-   it, not a fault; judge by `denoise_step`. Each entry carries `subfolder`:
+   `still_running`; on a client "timed out", retry at `timeout_seconds` 60),
+   then `get_job`. Silence is no hang (encode ~6 s img, ~50 s video; 1st
+   pass 165-508 s), nor are two-minute gaps; judge by `denoise_step`
+   (`references/watching-a-run.md`). Each entry carries `subfolder`:
    `final` is the deliverable (`episode`, `music_video`, `voyage`),
    `intermediate` the scratch.
 4. Judge: `get_output_frames(count=12)` for a clip's shape,
@@ -182,11 +176,10 @@ A wanted look (clay, paper): `references/style.md`. Film-term camera or look: th
    portrait's framing imposed on every shot - `at` late in
    a chain for drift sharpening to noise, and `get_output_audio` for a
    voice-over without affect. It returns sound, not text; to confirm a
-   take's lines, run `templates/check-script` with them as `lines` (markup
-   and all) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone:
-   `find_loop_bed` the `output:` cut, then `slice_audio`->`loop_audio`->`mix_audio`
-   its pick at its `gain`.
-   Then `get_gallery_metadata` for duration/audio and hand the
+   take's lines, run `templates/check-script` with them as `lines` (each
+   `<d>` block's contents, markup and all, never the prose between blocks,
+   which H3 doesn't speak) and read its `findings` with `get_output_text`. Dialogue gaps (`shot_dead_air`) need room tone,
+   in that reference. Then `get_gallery_metadata` for duration/audio and hand the
    user the gallery `url`.
 5. After a run worth keeping, `get_job_workflow` and `save_workflow` it;
    `export_job` bundles it on the server. `auth_required: false` - fetch

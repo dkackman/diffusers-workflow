@@ -19,7 +19,12 @@ import logging
 
 from huggingface_hub import model_info
 from huggingface_hub import get_hf_file_metadata, hf_hub_url
-from huggingface_hub.utils import GatedRepoError, HFValidationError, validate_repo_id
+from huggingface_hub.utils import (
+    GatedRepoError,
+    HFValidationError,
+    RepositoryNotFoundError,
+    validate_repo_id,
+)
 
 from .hub_cache import repo_download_incomplete, scan_models
 from .quantized_cache import _cached_file
@@ -41,6 +46,11 @@ SINGLE_FILE_KEY = "from_single_file"
 VARIANT_KEY = "variant"
 LOAD_COMPONENTS_KEY = "load_components"
 OVERRIDE_KEY = "pretrained_model_name_or_path"
+
+
+class _RepoNotFound(Exception):
+    """The hub answered that a repo does not exist - raised by `_model_info`
+    so its `(gb, gated, access_blocked)` shape stays as it is."""
 
 
 def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes):
@@ -91,7 +101,10 @@ def downloads_required(expanded, base_dir, workflow_dir, cache_dir, lookup_sizes
             continue
         entry = {"repo": name, "gb": None, "gated": None, "access_blocked": None}
         if lookup_sizes:
-            entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+            try:
+                entry["gb"], entry["gated"], entry["access_blocked"] = _model_info(name)
+            except _RepoNotFound:
+                entry["not_found"] = True
         required.append(entry)
     for repo, filename, revision in files:
         # A whole-repo entry for the same repo already covers the file
@@ -255,6 +268,25 @@ def _task_weights(command, arguments):
     return [entry for entry in entries or [] if isinstance(entry, dict)]
 
 
+def missing_repo_errors(downloads_required):
+    """One validation error per required repo the hub says does not exist -
+    a misspelled or renamed `model_name` the run would only find when it
+    reached that step. A private repo this box's token cannot see gets the
+    same answer from the hub, and fails the run the same way."""
+    return [
+        {
+            "path": "model_name",
+            "message": (
+                f"'{entry['repo']}' is not a model repo on Hugging Face (or is "
+                "private and this box's token cannot see it) - check the "
+                "model_name"
+            ),
+        }
+        for entry in downloads_required
+        if entry.get("not_found") and entry.get("repo")
+    ]
+
+
 def gate_warnings(downloads_required):
     """One line per required download this box's token is blocked from -
     the pre-flight signal #186 asked for, so a gated repo is a
@@ -310,6 +342,12 @@ def _model_info(name):
     except GatedRepoError as e:
         logger.debug(f"Gate not accepted for {name}: {e}")
         return None, True, True
+    except RepositoryNotFoundError as e:
+        # After GatedRepoError, which subclasses it. The hub's answer, not a
+        # failure to ask - an offline box raises something else and stays
+        # unknown - so the run would fail on this repo too
+        logger.debug(f"No such repo {name}: {e}")
+        raise _RepoNotFound(name) from e
     except Exception as e:
         logger.debug(f"No size for {name}: {e}")
         return None, None, None

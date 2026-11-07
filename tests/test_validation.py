@@ -198,14 +198,20 @@ ERROR_ORDER = [
     "script_shot_names",
     "window_count",
     "video_sizes",
+    "stills_memory",
     "select",
     "chain_prompts",
     "guide_chain",
+    "latent_anchor",
+    "guide_noise",
+    "selflift",
+    "experimental_tst",
     "task_signatures",
     "task_remote_code",
     "component_types",
     "component_names",
     "constraints",
+    "presets",
     "kernel_availability",
     "sub_workflows",
 ]
@@ -314,6 +320,7 @@ WARNING_ORDER = [
     "shot_span_warnings",
     "inherited_vram_warnings",
     "acceleration_warnings",
+    "guide_noise_warnings",
 ]
 
 
@@ -1083,3 +1090,104 @@ class TestCacheVariableOnAForEachTemplate:
 
         assert len(errors) == 1, errors
         assert errors[0]["path"].endswith("pipeline.configuration.cache.threshold")
+
+
+def _scalar_variable_definition(default):
+    return {
+        "id": "scalar-variable",
+        "variables": {"x": default},
+        "steps": [
+            {
+                "name": "say",
+                "task": {
+                    "command": "compose_text",
+                    "arguments": {"parts": ["hello"]},
+                },
+                "result": {"content_type": "text/plain"},
+            }
+        ],
+    }
+
+
+def _submit_refusal(default, value):
+    """What submit refuses `value` for x with: set_variables' own message,
+    the one coercion a run applies."""
+    from dw.variables import set_variables
+
+    try:
+        set_variables({"x": value}, {"x": default})
+    except ValueError as e:
+        return str(e)
+    return None
+
+
+@pytest.mark.parametrize(
+    "default, value",
+    [
+        (1, 0.5),  # an int default refuses a fraction
+        (True, "maybe"),  # a bool takes only the known spellings
+        ("text", {"location": "a.png"}),  # an object is not a string
+        ("text", ["a", "b"]),  # nor is a list
+        (1, "one"),  # a string that is no number
+    ],
+    ids=["fraction-for-int", "bool-string", "dict-for-str", "list-for-str", "nan"],
+)
+def test_an_argument_submit_refuses_fails_validation_with_its_message(
+    tmp_path, default, value
+):
+    """validation_errors answered valid for an argument the server then
+    refused at submit (listen_scale 0.5 on an int default, #1192): dw.validate
+    and the bench's arm check said OK to a job that could not start."""
+    from dw.workflow import workflow_from_definition
+
+    refusal = _submit_refusal(default, value)
+    assert refusal is not None
+    workflow = workflow_from_definition(
+        _scalar_variable_definition(default), str(tmp_path), str(tmp_path), None
+    )
+
+    errors = workflow.validation_errors(arguments={"x": value})
+
+    assert {"path": "arguments.x", "message": refusal} in errors
+
+
+def test_an_unknown_argument_fails_validation(tmp_path):
+    from dw.workflow import workflow_from_definition
+
+    workflow = workflow_from_definition(
+        _scalar_variable_definition(1), str(tmp_path), str(tmp_path), None
+    )
+    errors = workflow.validation_errors(arguments={"bogus": 1})
+    assert [e["path"] for e in errors] == ["arguments.bogus"]
+    assert "Unknown variable 'bogus'" in errors[0]["message"]
+
+
+@pytest.mark.parametrize(
+    "default, value",
+    [(1.0, 0.5), (1, 2.0), (True, "yes"), ("text", "other")],
+    ids=["fraction-for-float", "integral-float-for-int", "bool-string", "str"],
+)
+def test_an_argument_coercion_accepts_validates(tmp_path, default, value):
+    from dw.workflow import workflow_from_definition
+
+    assert _submit_refusal(default, value) is None
+    workflow = workflow_from_definition(
+        _scalar_variable_definition(default), str(tmp_path), str(tmp_path), None
+    )
+    assert workflow.validation_errors(arguments={"x": value}) == []
+
+
+def test_a_bad_argument_is_reported_beside_a_schema_failure(tmp_path):
+    """Every error at once (#976), now from validation_errors itself rather
+    than only from admit()."""
+    from dw.workflow import workflow_from_definition
+
+    definition = _scalar_variable_definition(1)
+    definition["steps"][0]["bogus_key"] = True
+    workflow = workflow_from_definition(definition, str(tmp_path), str(tmp_path), None)
+
+    errors = workflow.validation_errors(arguments={"x": 0.5})
+
+    paths = [e["path"] for e in errors]
+    assert "arguments.x" in paths
+    assert any(p != "arguments.x" for p in paths)

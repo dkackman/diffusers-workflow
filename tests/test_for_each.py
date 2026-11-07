@@ -1182,7 +1182,8 @@ class TestMusicVideoSoundtrackSamples:
     def test_a_cut_starting_past_frame_zero_carries_that_part_of_the_song(self):
         import numpy
 
-        from dw.tasks.audio_utils import crossfade_audio, slice_audio
+        from dw.tasks.audio_slice import slice_audio
+        from dw.tasks.audio_utils import crossfade_audio
 
         rate, fps = 1000, 24
         song = numpy.arange(rate * 20, dtype=numpy.float32)[None, :] / (rate * 20)

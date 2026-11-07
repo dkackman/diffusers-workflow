@@ -1,0 +1,858 @@
+[
+  {
+    "arm": "t17-s1-6seg-r030",
+    "scene": "s1-static",
+    "moments": [
+      "frame:62",
+      "frame:150",
+      "frame:277",
+      "frame:400",
+      "frame:583",
+      "frame:630"
+    ],
+    "source": {
+      "measures": {
+        "seam_jump_mean": 0.9279999999999999,
+        "seam_jump_max": 1.15,
+        "seam_look_mean": 1.128,
+        "seam_look_max": 1.98,
+        "seam_level_step_db_mean": 12.16,
+        "seam_level_step_db_max": 23.54,
+        "typical_delta_mean": 2.0,
+        "texture_fine_seg_last": 0.34562108548415904,
+        "texture_mid_seg_last": 0.11561955976957423,
+        "texture_coarse_seg_last": 0.009578898374631207,
+        "face_fine_seg_last": 0.08889803308949114
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.69,
+          "look_ratio": 1.98,
+          "level_step_db": 16.58,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.15,
+          "look_ratio": 1.57,
+          "level_step_db": 5.73,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.78,
+          "look_ratio": 1.16,
+          "level_step_db": 12.1,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.98,
+          "look_ratio": 0.47,
+          "level_step_db": 23.54,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.04,
+          "look_ratio": 0.46,
+          "level_step_db": 2.85,
+          "typical_delta": 2.0
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.0682604502009544,
+          0.15402629479650914,
+          0.21795821725171582,
+          0.36683259200135493,
+          0.34562108548415904
+        ],
+        "mid": [
+          0.0,
+          0.018229948807400177,
+          0.04317731781727424,
+          0.06745046935036213,
+          0.12383734756733206,
+          0.11561955976957423
+        ],
+        "coarse": [
+          0.0,
+          0.004915785068522211,
+          0.004406177591744155,
+          0.0037528632503382392,
+          0.015490472469675862,
+          0.009578898374631207
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.0911822841364561,
+          0.06895136823931643,
+          0.10508655101415533,
+          0.12309067426459207,
+          0.08889803308949114
+        ],
+        "mid": [
+          0.0,
+          0.010738957920073698,
+          0.04890830498578146,
+          0.09406492537405498,
+          0.14758993036246842,
+          0.11416433457127233
+        ],
+        "coarse": [
+          0.0,
+          0.0011189672940962487,
+          0.0066611233360087145,
+          0.14310966049619053,
+          0.11575207550746598,
+          0.12307535818924704
+        ]
+      },
+      "motion_mean": 0.4278505742549896
+    },
+    "refined": {
+      "measures": {
+        "seam_jump_mean": 0.5860000000000001,
+        "seam_jump_max": 0.87,
+        "seam_look_mean": 1.238,
+        "seam_look_max": 1.64,
+        "seam_level_step_db_mean": 12.596,
+        "seam_level_step_db_max": 24.46,
+        "typical_delta_mean": 2.0,
+        "texture_fine_seg_last": 0.3662316014232925,
+        "texture_mid_seg_last": 0.11495953395175076,
+        "texture_coarse_seg_last": 0.0002472652023458986,
+        "face_fine_seg_last": 0.13271563016166085
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.45,
+          "look_ratio": 1.53,
+          "level_step_db": 17.11,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 0.87,
+          "look_ratio": 1.64,
+          "level_step_db": 6.19,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.53,
+          "look_ratio": 1.32,
+          "level_step_db": 12.25,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.7,
+          "look_ratio": 1.23,
+          "level_step_db": 24.46,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 0.38,
+          "look_ratio": 0.47,
+          "level_step_db": 2.97,
+          "typical_delta": 2.0
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.017689476956483752,
+          0.14538825302987898,
+          0.23305251939709512,
+          0.3519029365255072,
+          0.3662316014232925
+        ],
+        "mid": [
+          0.0,
+          0.003500847836085017,
+          0.03587907682150172,
+          0.06181587280512738,
+          0.10411610628999082,
+          0.11495953395175076
+        ],
+        "coarse": [
+          0.0,
+          0.004414167352820047,
+          0.0010662030685258948,
+          0.0029207141431290768,
+          0.0009038292080737304,
+          0.0002472652023458986
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.07862961129494148,
+          0.04638182036647024,
+          0.15125445773632895,
+          0.1404832530751724,
+          0.13271563016166085
+        ],
+        "mid": [
+          0.0,
+          0.021879543417044695,
+          0.094729130579652,
+          0.11965771074108487,
+          0.17597651267227812,
+          0.14890594685344472
+        ],
+        "coarse": [
+          0.0,
+          0.019418958550583624,
+          0.0004922527011668811,
+          0.13574207707879732,
+          0.1021244503847628,
+          0.11521374639618397
+        ]
+      },
+      "motion_mean": 0.349222332239151
+    },
+    "fidelity": {
+      "psnr_db": [
+        31.11,
+        31.41,
+        30.31,
+        29.72,
+        28.05,
+        28.18
+      ],
+      "ssim": [
+        0.9109,
+        0.9205,
+        0.906,
+        0.9012,
+        0.8737,
+        0.8736
+      ]
+    }
+  },
+  {
+    "arm": "t17-s1-6seg-r030-rebased",
+    "scene": "s1-static",
+    "moments": [
+      "frame:62",
+      "frame:150",
+      "frame:277",
+      "frame:400",
+      "frame:583",
+      "frame:630"
+    ],
+    "source": {
+      "measures": {
+        "seam_jump_mean": 0.9279999999999999,
+        "seam_jump_max": 1.15,
+        "seam_look_mean": 1.128,
+        "seam_look_max": 1.98,
+        "seam_level_step_db_mean": 12.16,
+        "seam_level_step_db_max": 23.54,
+        "typical_delta_mean": 2.0,
+        "texture_fine_seg_last": 0.34562108548415904,
+        "texture_mid_seg_last": 0.11561955976957423,
+        "texture_coarse_seg_last": 0.009578898374631207,
+        "face_fine_seg_last": 0.08889803308949114
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.69,
+          "look_ratio": 1.98,
+          "level_step_db": 16.58,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.15,
+          "look_ratio": 1.57,
+          "level_step_db": 5.73,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.78,
+          "look_ratio": 1.16,
+          "level_step_db": 12.1,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.98,
+          "look_ratio": 0.47,
+          "level_step_db": 23.54,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.04,
+          "look_ratio": 0.46,
+          "level_step_db": 2.85,
+          "typical_delta": 2.0
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.0682604502009544,
+          0.15402629479650914,
+          0.21795821725171582,
+          0.36683259200135493,
+          0.34562108548415904
+        ],
+        "mid": [
+          0.0,
+          0.018229948807400177,
+          0.04317731781727424,
+          0.06745046935036213,
+          0.12383734756733206,
+          0.11561955976957423
+        ],
+        "coarse": [
+          0.0,
+          0.004915785068522211,
+          0.004406177591744155,
+          0.0037528632503382392,
+          0.015490472469675862,
+          0.009578898374631207
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.0911822841364561,
+          0.06895136823931643,
+          0.10508655101415533,
+          0.12309067426459207,
+          0.08889803308949114
+        ],
+        "mid": [
+          0.0,
+          0.010738957920073698,
+          0.04890830498578146,
+          0.09406492537405498,
+          0.14758993036246842,
+          0.11416433457127233
+        ],
+        "coarse": [
+          0.0,
+          0.0011189672940962487,
+          0.0066611233360087145,
+          0.14310966049619053,
+          0.11575207550746598,
+          0.12307535818924704
+        ]
+      },
+      "motion_mean": 0.4278505742549896
+    },
+    "refined": {
+      "measures": {
+        "seam_jump_mean": 0.516,
+        "seam_jump_max": 0.71,
+        "seam_look_mean": 1.014,
+        "seam_look_max": 1.21,
+        "seam_level_step_db_mean": 12.596,
+        "seam_level_step_db_max": 24.46,
+        "typical_delta_mean": 2.0,
+        "texture_fine_seg_last": 0.3805143616067333,
+        "texture_mid_seg_last": 0.11453825175529164,
+        "texture_coarse_seg_last": 0.00273464621758138,
+        "face_fine_seg_last": 0.12620476484549062
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.37,
+          "look_ratio": 0.94,
+          "level_step_db": 17.11,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 0.71,
+          "look_ratio": 1.21,
+          "level_step_db": 6.19,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.52,
+          "look_ratio": 1.05,
+          "level_step_db": 12.25,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.62,
+          "look_ratio": 1.07,
+          "level_step_db": 24.46,
+          "typical_delta": 2.0
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 0.36,
+          "look_ratio": 0.8,
+          "level_step_db": 2.97,
+          "typical_delta": 2.0
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.029147453835544037,
+          0.16030195585375323,
+          0.23426174933987226,
+          0.39562236699887765,
+          0.3805143616067333
+        ],
+        "mid": [
+          0.0,
+          0.009345444668279789,
+          0.028490364407945046,
+          0.05732728478456865,
+          0.11508029391233984,
+          0.11453825175529164
+        ],
+        "coarse": [
+          0.0,
+          0.0031495007665896303,
+          0.001926919238704877,
+          0.0019260600424962787,
+          0.0028889882627052277,
+          0.00273464621758138
+        ]
+      },
+      "face_texture": {
+        "fine": [
+          0.0,
+          0.06297208911536252,
+          0.08362875183330958,
+          0.15761950852121812,
+          0.1542686579862127,
+          0.12620476484549062
+        ],
+        "mid": [
+          0.0,
+          0.016301240634308264,
+          0.0824879628592204,
+          0.11677265472203373,
+          0.17867653691458124,
+          0.14821230853372808
+        ],
+        "coarse": [
+          0.0,
+          0.01200630955332596,
+          0.010201298621587843,
+          0.14029169296725805,
+          0.10442561374421856,
+          0.11763289738278225
+        ]
+      },
+      "motion_mean": 0.3484481871128082
+    },
+    "fidelity": {
+      "psnr_db": [
+        31.2,
+        31.39,
+        30.27,
+        29.8,
+        28.19,
+        28.21
+      ],
+      "ssim": [
+        0.9113,
+        0.9209,
+        0.9053,
+        0.8993,
+        0.8724,
+        0.8744
+      ]
+    }
+  },
+  {
+    "arm": "t17-s2-r030",
+    "scene": "s2-arc",
+    "moments": [
+      "frame:62",
+      "frame:150",
+      "frame:277",
+      "frame:400",
+      "frame:583",
+      "frame:630"
+    ],
+    "source": {
+      "measures": {
+        "seam_jump_mean": 1.3619999999999999,
+        "seam_jump_max": 2.09,
+        "seam_look_mean": 1.286,
+        "seam_look_max": 1.74,
+        "seam_level_step_db_mean": 1.4620000000000002,
+        "seam_level_step_db_max": 3.43,
+        "typical_delta_mean": 5.272,
+        "texture_fine_seg_last": 4.43180733926406,
+        "texture_mid_seg_last": 4.400673061097142,
+        "texture_coarse_seg_last": 4.575016765752062
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 2.09,
+          "look_ratio": 1.09,
+          "level_step_db": 1.46,
+          "typical_delta": 2.83
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.26,
+          "look_ratio": 1.74,
+          "level_step_db": 3.43,
+          "typical_delta": 3.46
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 1.17,
+          "look_ratio": 1.4,
+          "level_step_db": 0.23,
+          "typical_delta": 4.86
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 1.17,
+          "look_ratio": 1.33,
+          "level_step_db": 0.34,
+          "typical_delta": 6.43
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.12,
+          "look_ratio": 0.87,
+          "level_step_db": 1.85,
+          "typical_delta": 8.78
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          2.1200036818408092,
+          0.9740211359406922,
+          3.043823459255047,
+          3.083963956401898,
+          4.43180733926406
+        ],
+        "mid": [
+          0.0,
+          1.3167841633087687,
+          0.32113990928962494,
+          1.7593157783836975,
+          2.2932110623147106,
+          4.400673061097142
+        ],
+        "coarse": [
+          0.0,
+          0.6534541539488553,
+          0.5154910691119463,
+          0.9291353110536407,
+          1.4297775601219735,
+          4.575016765752062
+        ]
+      },
+      "face_texture": null,
+      "motion_mean": 4.160738945007324
+    },
+    "refined": {
+      "measures": {
+        "seam_jump_mean": 1.114,
+        "seam_jump_max": 1.64,
+        "seam_look_mean": 0.766,
+        "seam_look_max": 1.14,
+        "seam_level_step_db_mean": 1.462,
+        "seam_level_step_db_max": 3.42,
+        "typical_delta_mean": 5.5120000000000005,
+        "texture_fine_seg_last": 4.258676215859724,
+        "texture_mid_seg_last": 4.193007824412465,
+        "texture_coarse_seg_last": 4.211248608873569
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 1.64,
+          "look_ratio": 0.54,
+          "level_step_db": 1.44,
+          "typical_delta": 2.94
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.0,
+          "look_ratio": 0.77,
+          "level_step_db": 3.42,
+          "typical_delta": 3.66
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 0.88,
+          "look_ratio": 0.51,
+          "level_step_db": 0.26,
+          "typical_delta": 5.08
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 1.01,
+          "look_ratio": 1.14,
+          "level_step_db": 0.33,
+          "typical_delta": 6.66
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.04,
+          "look_ratio": 0.87,
+          "level_step_db": 1.86,
+          "typical_delta": 9.22
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          1.959873832010016,
+          0.9667702337213963,
+          2.7793147378942535,
+          2.971672152371171,
+          4.258676215859724
+        ],
+        "mid": [
+          0.0,
+          1.2910720984570978,
+          0.3281613432424549,
+          1.577067310745994,
+          2.2584607637888654,
+          4.193007824412465
+        ],
+        "coarse": [
+          0.0,
+          0.6773494939917842,
+          0.47426807366662005,
+          0.9191689261844561,
+          1.409297712685815,
+          4.211248608873569
+        ]
+      },
+      "face_texture": null,
+      "motion_mean": 4.26358699798584
+    },
+    "fidelity": {
+      "psnr_db": [
+        24.07,
+        24.54,
+        25.65,
+        27.35,
+        27.11,
+        27.83
+      ],
+      "ssim": [
+        0.7425,
+        0.7732,
+        0.7908,
+        0.8236,
+        0.8504,
+        0.8512
+      ]
+    }
+  },
+  {
+    "arm": "t17-s3-r030",
+    "scene": "s3-dialogue-walk",
+    "moments": [
+      "frame:62",
+      "frame:150",
+      "frame:277",
+      "frame:400",
+      "frame:583",
+      "frame:630"
+    ],
+    "source": {
+      "measures": {
+        "seam_jump_mean": 1.524,
+        "seam_jump_max": 1.83,
+        "seam_look_mean": 1.47,
+        "seam_look_max": 1.71,
+        "seam_level_step_db_mean": 2.968,
+        "seam_level_step_db_max": 8.81,
+        "typical_delta_mean": 5.206,
+        "texture_fine_seg_last": 0.030631958826816894,
+        "texture_mid_seg_last": 0.5106428593471353,
+        "texture_coarse_seg_last": 0.14468891120755345
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 1.83,
+          "look_ratio": 1.61,
+          "level_step_db": 8.81,
+          "typical_delta": 2.58
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.76,
+          "look_ratio": 1.52,
+          "level_step_db": 1.5,
+          "typical_delta": 3.65
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 1.75,
+          "look_ratio": 1.34,
+          "level_step_db": 1.3,
+          "typical_delta": 5.21
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 1.08,
+          "look_ratio": 1.71,
+          "level_step_db": 2.57,
+          "typical_delta": 6.54
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.2,
+          "look_ratio": 1.17,
+          "level_step_db": 0.66,
+          "typical_delta": 8.05
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.3798186863416516,
+          0.5806663339162876,
+          0.231486413508367,
+          0.0674850955709072,
+          0.030631958826816894
+        ],
+        "mid": [
+          0.0,
+          0.2448889387525672,
+          0.3457022337825501,
+          0.3758202724628086,
+          0.11366149849198895,
+          0.5106428593471353
+        ],
+        "coarse": [
+          0.0,
+          0.5099387711191702,
+          0.6808654251173802,
+          0.469307126866651,
+          0.18802880506763223,
+          0.14468891120755345
+        ]
+      },
+      "face_texture": null,
+      "motion_mean": 3.551892042160034
+    },
+    "refined": {
+      "measures": {
+        "seam_jump_mean": 1.1,
+        "seam_jump_max": 1.36,
+        "seam_look_mean": 1.324,
+        "seam_look_max": 1.62,
+        "seam_level_step_db_mean": 2.9720000000000004,
+        "seam_level_step_db_max": 8.81,
+        "typical_delta_mean": 5.328,
+        "texture_fine_seg_last": 0.12875677061184004,
+        "texture_mid_seg_last": 0.4948345734065851,
+        "texture_coarse_seg_last": 0.1536373447715356
+      },
+      "seams": [
+        {
+          "seconds": 5.167,
+          "jump_ratio": 0.87,
+          "look_ratio": 1.47,
+          "level_step_db": 8.81,
+          "typical_delta": 2.85
+        },
+        {
+          "seconds": 9.417,
+          "jump_ratio": 1.26,
+          "look_ratio": 1.38,
+          "level_step_db": 1.5,
+          "typical_delta": 3.79
+        },
+        {
+          "seconds": 13.667,
+          "jump_ratio": 1.36,
+          "look_ratio": 0.95,
+          "level_step_db": 1.31,
+          "typical_delta": 5.28
+        },
+        {
+          "seconds": 17.917,
+          "jump_ratio": 0.92,
+          "look_ratio": 1.62,
+          "level_step_db": 2.57,
+          "typical_delta": 6.58
+        },
+        {
+          "seconds": 22.167,
+          "jump_ratio": 1.09,
+          "look_ratio": 1.2,
+          "level_step_db": 0.67,
+          "typical_delta": 8.14
+        }
+      ],
+      "texture": {
+        "fine": [
+          0.0,
+          0.48679982979087044,
+          0.48082360147528797,
+          0.20331127731242826,
+          0.005404809914179108,
+          0.12875677061184004
+        ],
+        "mid": [
+          0.0,
+          0.26507495901022093,
+          0.3546340433307082,
+          0.38450685089334935,
+          0.08959540131581598,
+          0.4948345734065851
+        ],
+        "coarse": [
+          0.0,
+          0.4849980713966975,
+          0.666584768181334,
+          0.4540427109385927,
+          0.20342060732265638,
+          0.1536373447715356
+        ]
+      },
+      "face_texture": null,
+      "motion_mean": 3.618138551712036
+    },
+    "fidelity": {
+      "psnr_db": [
+        31.55,
+        31.05,
+        30.62,
+        28.67,
+        28.06,
+        28.04
+      ],
+      "ssim": [
+        0.9468,
+        0.9394,
+        0.9319,
+        0.9228,
+        0.8954,
+        0.8955
+      ]
+    }
+  }
+]

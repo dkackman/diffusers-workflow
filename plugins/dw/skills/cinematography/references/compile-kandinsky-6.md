@@ -33,21 +33,21 @@ A clip is five seconds: one move, once. `<subject>` is the shot's own noun.
 
 ## `move`
 
-| id | The one camera sentence |
-| --- | --- |
-| `static` | "The camera is static." |
-| `dolly-in` | "The camera slowly dollies in toward <subject>." |
-| `dolly-out` | "The camera slowly dollies back, widening to show <the setting>." |
-| `truck-left` | "The camera trucks left alongside <subject>." |
-| `truck-right` | "The camera trucks right alongside <subject>." |
-| `crane-up` | "The camera cranes up and looks down over <the setting>." |
-| `crane-down` | "The camera cranes down to <subject>'s eye level." |
-| `orbit` | "The camera circles slowly around <subject>." |
-| `tracking` | "The camera tracks alongside <subject>, keeping pace." |
-| `whip-pan` | "The camera whip-pans quickly to <the new view>." |
-| `push-in` | "The camera pushes in slightly toward <subject's face>." |
-| `handheld` | "The camera is handheld and sways gently with the action." |
-| `crash-zoom` | "The camera crash-zooms in on <subject>." |
+| id | The one camera sentence | measured (#1148) |
+| --- | --- | --- |
+| `static` | "The camera is static." | honoured |
+| `dolly-in` | "The camera slowly dollies in toward <subject>." | honoured |
+| `dolly-out` | "The camera slowly dollies back, widening to show <the setting>." | honoured |
+| `truck-left` | "The camera trucks left alongside <subject>." | partial |
+| `truck-right` | "The camera trucks right alongside <subject>." | not measured |
+| `crane-up` | "The camera cranes up and looks down over <the setting>." | partial |
+| `crane-down` | "The camera cranes down to <subject>'s eye level." | not measured |
+| `orbit` | "The camera circles slowly around <subject>." | partial |
+| `tracking` | "The camera tracks alongside <subject>, keeping pace." | not measured |
+| `whip-pan` | "The camera whip-pans quickly to <the new view>." | not measured |
+| `push-in` | "The camera pushes in slightly toward <subject's face>." | not measured |
+| `handheld` | "The camera is handheld and sways gently with the action." | not measured |
+| `crash-zoom` | "The camera crash-zooms in on <subject>." | not measured |
 
 Example opening: "A medium close-up of an old fisherman on a wet pier,
 from the chest up. The camera slowly dollies in toward his face. ..."

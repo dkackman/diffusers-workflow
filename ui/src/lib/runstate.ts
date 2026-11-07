@@ -136,3 +136,30 @@ export function nodeDurations(events: JobEvent[]): Record<string, number> {
     [...nodes].map(([node, [start, end]]) => [node, end - start]),
   )
 }
+
+// The detail a chained step's generating phase carries for each segment
+// (Pipeline._run_once, dw/pipeline_processors/pipeline.py); an unchained
+// step's names the step instead
+const SEGMENT_DETAIL = /^segment (\d+)\/\d+$/
+
+/** The segment each chained top-level step is on, 1-based, keyed by the
+ * engine's step name: the latest `segment i/N` generating phase since that
+ * step started. A phase event names no step, so it belongs to the last
+ * step_start before it - and one inside a sub-workflow belongs to no chip
+ * this graph draws, for the reason `finishedNodes` gives. Under fan-out
+ * the chain reruns per iteration, and the latest segment is the one on. */
+export function chainSegments(events: JobEvent[]): Record<string, number> {
+  const segments: Record<string, number> = {}
+  let current: string | null = null
+  for (const event of events) {
+    if (event.event === 'step_start') {
+      current = event.parent_step ? null : (event.step as string)
+      continue
+    }
+    if (current === null || event.event !== 'phase') continue
+    if (event.phase !== 'generating') continue
+    const match = SEGMENT_DETAIL.exec(String(event.detail ?? ''))
+    if (match) segments[current] = Number(match[1])
+  }
+  return segments
+}

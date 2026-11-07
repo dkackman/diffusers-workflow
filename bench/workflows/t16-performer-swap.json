@@ -1,0 +1,184 @@
+{
+  "id": "BenchT16PerformerSwap",
+  "summary": "One S4 cut, its performer replaced by a masked ref2va edit.",
+  "description": "Task 16 (#1194) spike, step 1: performer replacement on one cut of S4 (the 'deflect' close-up of the shaved-head man). The step is S4's own ref2va shot pipeline (int4, ref2v turbo 8-step LoRA, 9 steps, video_shift 12, 960x544x124) given the cut as 'source_video', a per-frame person mask from BenchT16PersonMask as 'mask_video' and the cut itself as 'hold_audio', at refine_strength 1.0: inside the mask is a fresh generation, and the identity comes from the replacement 'portrait' as <Picture 1>. The prompt is the cut's own prompt with the subject rewritten to the portrait's man. Outside the mask the engine writes the source latent back every step.",
+  "variables": {
+    "source_video": "output:BenchS4Montage/20261104-040255-9813688b/intermediate/BenchS4Montage-shot@deflect.3-0.0.mp4",
+    "mask_video": "output:BenchT16PersonMask/20261107-001508-24196385/final/mask-0.0.mp4",
+    "portrait": "asset:bench/t26-stranger.jpg",
+    "prompt": "subject_definitions:\n<Subject 1> is the man in <Picture 1>, early 60s, short greying dark hair, round wire-rimmed glasses, a full grey-and-dark beard, wearing a mustard corduroy jacket over a dark green crew-neck t-shirt.\n\nsummary:\n[reference generation] The target video is one close-up shot of a 1990s multi-camera sitcom: <Subject 1> answers an accusation without looking up from his magazine, in front of a live studio audience.\n\nretention_analysis:\n<Subject 1> (appears in [Shot 1]): fully_preserved - the face, glasses, beard, hair, corduroy jacket and proportions of <Picture 1> are kept exactly, with the head and jaw newly animated to speak; the grey studio backdrop of <Picture 1> is not used.\n\ndetailed_description:\nThe target video is in the style of a 1990s multi-camera sitcom, shot on studio video with warm, even, shadowless lighting. [Shot 1] A medium close-up frames <Subject 1> from the chest up, seated at the end of an olive-green couch in front of a brick wall, holding an open magazine just below the frame line and reading it, his glasses low on his nose. He does not look up. <Subject 1> (S1), a flat, low, unhurried male baritone voice, completely unbothered, says <d>[English] Technically? The freezer has a defrost cycle.</d> On the last word he turns a page. A live studio audience laughs as the line lands. The camera holds a static close-up throughout, the way a sitcom cross-shot camera holds a speaker.\n\noverall_soundscape:\nA bright, close television-studio room tone. A soft page turn, the faint creak of couch springs as <Subject 1> settles, and a rolling wave of live studio-audience laughter that starts on the last word of the line and carries under the end of the shot.\n\nnon_diegetic_music:\nN/A",
+    "refine_strength": 1.0,
+    "mask_grow": 1,
+    "num_frames": 124,
+    "width": 960,
+    "height": 544,
+    "num_inference_steps": 9,
+    "video_shift": 12.0,
+    "audio_shift": 3.0,
+    "weights_dtype": "{int4}",
+    "lora_scale": 1.0,
+    "lora_alpha": null,
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_ref2v_turbo_8step_v1.0_768p_bf16.safetensors",
+    "lora_adapter_name": "turbo",
+    "attention_backend": "sparse",
+    "sparse_tau": 0.5,
+    "sparse_topk": 0.15,
+    "cache": null,
+    "seed": 1194
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "swap",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer_ref": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer_ref": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": "variable:sparse_tau",
+              "sparse_topk": "variable:sparse_topk",
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 1,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          },
+          "cache": "variable:cache"
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "ref2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "variable:lora_adapter_name",
+            "scale": "variable:lora_scale",
+            "alpha": "variable:lora_alpha"
+          }
+        ],
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "references": [
+            {
+              "reference_type": "diffusers.modular_pipelines.minimax_h3.MiniMaxH3ImageReference",
+              "from_file": "variable:portrait"
+            }
+          ],
+          "source_video": "variable:source_video",
+          "mask_video": "variable:mask_video",
+          "mask_grow": "variable:mask_grow",
+          "hold_audio": "variable:source_video",
+          "refine_strength": "variable:refine_strength",
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final",
+        "file_base_name": "swap"
+      }
+    }
+  ]
+}

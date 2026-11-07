@@ -1,0 +1,18 @@
+[
+  {
+    "arm": "s6-music-snap8-335s-s1166",
+    "scene": "s6-narration",
+    "seed": 1166,
+    "job_id": "2179e0c0c9df",
+    "status": "succeeded",
+    "error": "ValueError: job 2179e0c0c9df wrote no video"
+  },
+  {
+    "arm": "s6-music-snap8-335s-s1167",
+    "scene": "s6-narration",
+    "seed": 1167,
+    "job_id": "d51816c55389",
+    "status": "succeeded",
+    "error": "ValueError: job d51816c55389 wrote no video"
+  }
+]

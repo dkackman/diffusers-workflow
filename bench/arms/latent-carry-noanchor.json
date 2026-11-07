@@ -1,0 +1,21 @@
+[
+    {
+        "name": "lc-noanchor-s1-120s-s1166",
+        "scene": "s1-static",
+        "workflow": "s1-static.json",
+        "arguments": {
+            "segments": 6,
+            "continuity": "guide",
+            "duration_seconds": 120,
+            "anchor": "none",
+            "latent_carry": true
+        },
+        "seed": 1166,
+        "workflow_id_suffix": "-lcna",
+        "moments": [
+            "frame:62",
+            "frame:1501",
+            "frame:2868"
+        ]
+    }
+]

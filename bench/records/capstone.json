@@ -1,0 +1,86 @@
+[
+  {
+    "arm": "cap90-s2-s1166",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "1800676a8213",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-cap90/20261105-145015-5a6f45eb/final/BenchS2Arc-cap90-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.2911111111111113,
+      "seam_jump_max": 1.85,
+      "seam_look_mean": 1.6555555555555557,
+      "seam_look_max": 4.52,
+      "seam_level_step_db_mean": 2.531111111111111,
+      "seam_level_step_db_max": 5.25,
+      "texture_fine_seg_last": 3.372096702618574,
+      "texture_mid_seg_last": 2.6640789708026666,
+      "texture_coarse_seg_last": 2.1929296996989085,
+      "wall_minutes": 20.58876499334971
+    }
+  },
+  {
+    "arm": "cap70-s2-s1166",
+    "scene": "s2-arc",
+    "seed": 1166,
+    "job_id": "ee132d5ef34e",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-cap70/20261105-151051-c529d829/final/BenchS2Arc-cap70-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.2066666666666666,
+      "seam_jump_max": 1.95,
+      "seam_look_mean": 1.098888888888889,
+      "seam_look_max": 2.36,
+      "seam_level_step_db_mean": 2.0311111111111106,
+      "seam_level_step_db_max": 7.26,
+      "texture_fine_seg_last": 3.309712953553608,
+      "texture_mid_seg_last": 2.4683830211657005,
+      "texture_coarse_seg_last": 2.018008283026852,
+      "wall_minutes": 18.354071803887685
+    }
+  },
+  {
+    "arm": "cap90-s2-s2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "17728f8ef9f6",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-cap90/20261105-152912-d39c9fc4/final/BenchS2Arc-cap90-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.1966666666666665,
+      "seam_jump_max": 1.7,
+      "seam_look_mean": 1.38,
+      "seam_look_max": 2.16,
+      "seam_level_step_db_mean": 7.219999999999999,
+      "seam_level_step_db_max": 35.91,
+      "texture_fine_seg_last": 3.45178582349353,
+      "texture_mid_seg_last": 3.319749933418036,
+      "texture_coarse_seg_last": 2.873726072393926,
+      "wall_minutes": 18.42096612453461
+    }
+  },
+  {
+    "arm": "cap70-s2-s2",
+    "scene": "s2-arc",
+    "seed": 2,
+    "job_id": "65ef9753bafd",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS2Arc-cap70/20261105-154737-1fb2a33e/final/BenchS2Arc-cap70-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.2344444444444445,
+      "seam_jump_max": 1.72,
+      "seam_look_mean": 1.4288888888888889,
+      "seam_look_max": 2.12,
+      "seam_level_step_db_mean": 6.113333333333333,
+      "seam_level_step_db_max": 33.0,
+      "texture_fine_seg_last": 3.6515719339545663,
+      "texture_mid_seg_last": 3.5260666086740042,
+      "texture_coarse_seg_last": 3.504043680639653,
+      "wall_minutes": 18.335200905799866
+    }
+  }
+]

@@ -1,10 +1,10 @@
 # Quantization
 
-Quantization reduces model memory usage by storing weights at lower precision. diffusers-workflow ships examples for BitsAndBytes, TorchAO, GGUF, and SDNQ, applied per-component in the pipeline - and any other backend with a config class (optimum-quanto, for example) works through the same dynamic `config_type` import.
+Quantization stores a component's weights at lower precision to cut its memory. The catalog has examples for BitsAndBytes, TorchAO, GGUF and SDNQ, applied per component. Any other backend with a config class (optimum-quanto, for example) works through the same dynamic `config_type` import ([Custom Quantization](#custom-quantization)). Which combinations fit a 24 GB card is in [RECIPES_24GB.md](RECIPES_24GB.md).
 
 ## Per-Component Quantization
 
-Quantize individual components (transformer, text encoder, etc.) independently:
+Each component block (transformer, text encoder, ...) takes its own `quantization_config`:
 
 ```json
 {
@@ -30,11 +30,11 @@ Quantize individual components (transformer, text encoder, etc.) independently:
 }
 ```
 
-The component is loaded separately with quantization, then the rest of the pipeline loads around it.
+The component loads on its own, quantized, and the rest of the pipeline loads around it. A modular pipeline declares it differently - see [Modular Pipelines](#modular-pipelines).
 
 ## BitsAndBytes (CUDA only)
 
-4-bit and 8-bit quantization via bitsandbytes:
+4-bit and 8-bit quantization. bitsandbytes is installed on Linux only:
 
 ```json
 "quantization_config": {
@@ -47,7 +47,7 @@ The component is loaded separately with quantization, then the rest of the pipel
 }
 ```
 
-Note: `"{nf4}"` uses braces to keep the string literal. Without braces, the type system would try to load `nf4` as a Python class.
+`"{nf4}"` is brace-escaped so it stays a string: a `*_type` key unbraced is loaded as a Python type and fails at load time, after validation has passed ([WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#types-and-escaping)).
 
 For 8-bit:
 
@@ -59,10 +59,9 @@ For 8-bit:
 
 ## TorchAO
 
-Quantization via TorchAO. `quant_type` must be an `AOBaseConfig` class (diffusers no
-longer accepts string shorthands like `"int4wo"`). Name the class as a dotted
-`quant_type` and it is instantiated automatically with no arguments before being passed
-to `TorchAoConfig`:
+`quant_type` must be an `AOBaseConfig` instance; diffusers no longer accepts string
+shorthands like `"int4wo"`. Name the class as a dotted `quant_type` and dw instantiates
+it with no arguments before passing it to `TorchAoConfig`:
 
 ```json
 "quantization_config": {
@@ -81,12 +80,12 @@ RTX 40-series/Ada or newer).
 **Example:** [flux-torchao.json](../workflows/models/flux-torchao.json)
 
 **Pair TorchAO with `torch.compile`.** Int8 weight-only and float8 dynamic-activation
-quant types get their fused-kernel speedups only under compilation - uncompiled they are
-a memory win but often a speed *loss*. Compiled is not a guarantee either: int8 weight-only
-on an RTX 3090 measured over a minute per denoising step for Flux dev, compiled, against
-two seconds for bf16 (see [RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b)). Measure on the
-card before recording a TorchAO recipe as fast. Add a `compile` block to the quantized component
-(see [ACCELERATION.md](ACCELERATION.md#torchcompile)):
+quant types get their fused-kernel speedups only under compilation; uncompiled they are
+a memory win and often a speed loss. Compiled is no guarantee: int8 weight-only on an
+RTX 3090 measured over a minute per denoising step for Flux dev, compiled, against two
+seconds for bf16 ([RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b)). Measure on the card
+before recording a TorchAO recipe as fast. Add a `compile` block to the quantized
+component ([ACCELERATION.md](ACCELERATION.md#torchcompile)):
 
 ```json
 "configuration": {
@@ -100,7 +99,7 @@ card before recording a TorchAO recipe as fast. Add a `compile` block to the qua
 
 ## GGUF
 
-Load GGUF-format checkpoint files:
+Loads a GGUF-format checkpoint file:
 
 ```json
 "quantization_config": {
@@ -111,7 +110,7 @@ Load GGUF-format checkpoint files:
 }
 ```
 
-GGUF models load from single files using `from_single_file`:
+The component's `from_pretrained_arguments` names the file with `from_single_file`:
 
 ```json
 "from_pretrained_arguments": {
@@ -124,13 +123,13 @@ GGUF models load from single files using `from_single_file`:
 
 ## SDNQ (SD.Next Quantization)
 
-SDNQ works two ways: quantize a component on the fly at load time, or load a
-pre-quantized model as a complete pipeline.
+SDNQ quantizes a component on the fly as it loads, or loads a pre-quantized model as a
+complete pipeline.
 
 ### On-the-fly (`sdnq.SDNQConfig`)
 
-Quantizes the component while it loads - the pattern the LTX-2 and MiniMax H3
-examples use for their large transformers and text encoders:
+The pattern the LTX-2.5 and MiniMax-H3 templates use for their transformers and text
+encoders (H3 declares it under `load_components`, see [Modular Pipelines](#modular-pipelines)):
 
 ```json
 "quantization_config": {
@@ -145,13 +144,11 @@ examples use for their large transformers and text encoders:
 }
 ```
 
-- `weights_dtype` — the storage dtype (`uint4`, `int8`, ...; brace-escaped so it stays a string)
-- `quantization_device` / `return_device` — where the quantization pass runs and where the finished component lands; quantizing on `cuda` is much faster than on CPU
-- `use_quantized_matmul` — quantized matmul kernels (CUDA/XPU only)
+- `weights_dtype`: the storage dtype (`uint4`, `int4`, `int8`, ...), brace-escaped so it stays a string
+- `quantization_device` / `return_device`: where the quantization pass runs and where the finished component lands. Quantizing on `cuda` is much faster than on CPU. A `cuda` here becomes the server's device on a Mac
+- `use_quantized_matmul`: quantized matmul kernels (CUDA/XPU). Turned off on MPS with a warning, where it runs through `torch._int_mm` far slower than dequantizing
 
 **Examples:** [text-to-video.json](../workflows/templates/ltx2/text-to-video.json), [video-with-audio.json](../workflows/templates/minimax/video-with-audio.json)
-
-The H3 templates also default to `attention_backend: "sparse"`; the quantization is independent of it ([Attention Backends](ACCELERATION.md#sparse-minimax-h3)).
 
 ### Cached on-the-fly (`DW_QUANTIZED_CACHE`)
 
@@ -160,7 +157,7 @@ An on-the-fly load reads the bf16 weights and quantizes them on every cold load.
 The variables are read by the server and inherited by its workers, so set them in the server's environment (e.g. `.env`) and restart.
 
 - **Where**: `DW_QUANTIZED_CACHE_DIR`, default `<HF_HOME>/dw-quantized`. `dw.serve` resolves it to an absolute path at start and pins it for the workers. Each entry is `<root>/<sha256 key>/` with an `entry.json` (the key's inputs, size, created and last-hit times), written to a `.tmp-*` sibling and renamed into place
-- **The key**: repo, subfolder, snapshot commit, quantizer class and config (minus the devices, the quantized-matmul switches and `non_blocking`, which don't change the stored weights), `torch_dtype`, and the sdnq, diffusers, transformers and torch versions. A key that can't pin the weights isn't cached
+- **The key**: repo, subfolder, snapshot commit, quantizer class and config (minus the devices, the quantized-matmul switches and `non_blocking`, which don't change the stored weights), `torch_dtype`, the sdnq, diffusers, transformers and torch versions, and `KEY_VERSION`. A key that can't pin the weights isn't cached
 - **Not cached** (a `skipped` event with the reason):
 
   | Reason | When |
@@ -200,16 +197,16 @@ Pre-quantized SDNQ repos load as complete pipelines. The `sdnq` module must be i
 }
 ```
 
-- `pre_load_modules` — Imports sdnq before pipeline loading (registers quantization method)
-- `sdnq_optimize` — Applies quantized matmul to listed components (CUDA/XPU only, skipped on MPS/CPU)
+- `pre_load_modules`: imports sdnq before the pipeline loads, which registers its quantization method. `sdnq` is one of the packages an untrusted workflow may import; any other module needs a trusted workflow ([SECURITY.md](SECURITY.md))
+- `sdnq_optimize`: applies quantized matmul to the listed components. CUDA/XPU with Triton only; skipped elsewhere with a log line
 
 **Example:** [z-image-sdnq.json](../workflows/models/z-image-sdnq.json)
 
 ## Modular Pipelines
 
-A modular pipeline pulls its component weights itself via `load_components()` rather than
-through `from_pretrained_arguments`, so quantization is keyed by component name under
-`load_components.quantization_config` instead of living on a separate component block:
+A modular pipeline loads its components itself through `load_components()`, so
+quantization is keyed by component name under `load_components.quantization_config`
+instead of living on a component block:
 
 ```json
 "configuration": {
@@ -230,14 +227,14 @@ through `from_pretrained_arguments`, so quantization is keyed by component name 
 }
 ```
 
-A component the map does not name loads unquantized. Note that a transformers-based
-component (a text encoder, for example) takes the `transformers.TorchAoConfig` class,
-not the diffusers one - the `config_type` still resolves either via the dynamic import
-described below.
+A component the map does not name loads unquantized. A transformers-based component
+(a text encoder or language model) takes `transformers.TorchAoConfig`, not the diffusers
+class. The MiniMax-H3 templates quantize `transformer` (or `transformer_ref`),
+`text_encoder` and `vae` this way with `sdnq.SDNQConfig`.
 
 ## Custom Quantization
 
-Any quantization backend that provides a config class works via the `config_type` field with a dotted module path:
+Any backend that provides a config class works through `config_type` with a dotted module path:
 
 ```json
 "quantization_config": {
@@ -246,7 +243,7 @@ Any quantization backend that provides a config class works via the `config_type
 }
 ```
 
-The class is loaded dynamically via importlib.
+The class is imported dynamically (`dw/trust.py` gates it). A config class outside the packages dw already depends on (diffusers, transformers, torchao, sdnq, optimum, gguf, bitsandbytes, ...) needs a trusted workflow ([SECURITY.md](SECURITY.md)).
 
 ## Platform Notes
 

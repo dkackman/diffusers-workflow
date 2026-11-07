@@ -1,0 +1,173 @@
+[
+  {
+    "arm": "c1-line-plain-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "2b93dfe5eb65",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-032735-6ed7056e/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c1-line-sentence-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "d45357868b54",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-032735-8f2cb391/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c1-line-sentence-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "79a9969093de",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-032902-702aee3d/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-hum-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "313fe586f422",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033029-b8ab76a0/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-hum-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "412db5c1ed0e",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033135-8c9f6ca7/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-nohum-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "133cae62bfbd",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033200-6aff45ee/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-nohum-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "c1b9be136407",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033259-dfd811ea/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-nohum-nomusicline-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "3e449fbebbca",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033326-b212f0a9/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c5-nohum-nomusicline-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "e0f10599f3d4",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26T2VA/20261106-033422-5c604a64/final/BenchT26T2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c2-unmentioned-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "6c6ebdc54886",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-033548-3a857c4d/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c2-unmentioned-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "ae1d84995e95",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-034400-d520e7c7/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c2-control-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "e1d5e3dcc86b",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-035011-9246a409/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c2-control-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "e05c79b91eda",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-035727-3d0b72ac/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c3-fullbody-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "aea9c681dc2f",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-040156-d5acb2d8/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c3-fullbody-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "0d5f4cafb7f2",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-040627-576c609c/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c3-facecrop-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "07e3855ea57c",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-041057-03669648/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c3-facecrop-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "fa445bdc6ba1",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Ref2VA/20261106-041426-8cd99e99/final/BenchT26Ref2VA-clip.0-0.0.mp4"
+  },
+  {
+    "arm": "c4-continued-s1001",
+    "scene": "t26",
+    "seed": 1001,
+    "job_id": "1b4869e2676a",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Continued/20261106-041753-5dc78d09/final/seg2_carry_only-0.0.mp4"
+  },
+  {
+    "arm": "c4-continued-s2002",
+    "scene": "t26",
+    "seed": 2002,
+    "job_id": "a3930b5f3fb4",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchT26Continued/20261106-043836-bf81ac7b/final/seg2_carry_only-0.0.mp4"
+  }
+]

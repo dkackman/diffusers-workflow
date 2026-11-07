@@ -402,6 +402,8 @@ export interface paths {
          *     of different sizes get no metrics, and say why. Stills join a video
          *     comparison as the same image in every column. `max_total_bytes`
          *     shrinks the whole grid, and `downscaled_to` says to what.
+         *     `texture_bands` (#1152) adds each output's band energy per moment,
+         *     the baseline's included, and its ratio to the baseline's.
          */
         post: operations["gallery_compare_api_gallery_compare_post"];
         delete?: never;
@@ -617,6 +619,13 @@ export interface paths {
          *     would need more than 2400 bins at a finer-than-default width is
          *     refused (422) with the interval that fits; the default width is
          *     never refused for length (#823).
+         *
+         *     A file with a soundtrack also carries `pcm_sha256`, the SHA-256 of
+         *     its decoded samples (native dtype, interleaved, little-endian,
+         *     trimmed to the container duration), with the `sample_format` and
+         *     `frames` hashed: proof two tracks are sample-identical, comparable
+         *     only when `sample_format`, `frames`, `sample_rate` and `channels`
+         *     all agree (#1139). Only this route computes it.
          *
          *     An image's `media` is its measured `{kind, width, height, mode}`,
          *     read from the file header (#922) - not the width/height arguments
@@ -2095,9 +2104,15 @@ export interface components {
             max_total_bytes?: number | null;
             /**
              * Names
-             * @description 2 to 8 outputs (or `asset:` references), one row each
+             * @description 2 to 8 outputs (or `asset:` references), one row each; 1 is enough with `texture_bands`
              */
             names: string[];
+            /**
+             * Texture Bands
+             * @description Add per-output RMS energy in the fine (2-8 px), mid (8-32) and coarse (32-128) wavelength bands of the measured region, on luma, R-G and B-G, plus each band's ratio to the baseline - a measurement, not a score. Needs one shared `crop` (or none: the full frame) of at least 16 px a side
+             * @default false
+             */
+            texture_bands: boolean;
         };
         /** CopiedItems */
         CopiedItems: {
@@ -3454,6 +3469,11 @@ export interface components {
             gated: boolean | ("auto" | "manual") | null;
             /** Gb */
             gb: number | null;
+            /**
+             * Not Found
+             * @description True when the hub answered that the repo does not exist (or is private to this token); validation then fails on it.
+             */
+            not_found?: boolean;
             /** Repo */
             repo: string | null;
             /**

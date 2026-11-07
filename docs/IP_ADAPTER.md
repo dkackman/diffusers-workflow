@@ -1,18 +1,15 @@
 # IP-Adapter
 
-IP-Adapter enables image-prompt conditioning — use a reference image to influence the style or content of generated images alongside a text prompt. It works with any pipeline whose `load_ip_adapter()` diffusers supports — Flux, Stable Diffusion 1.5, SDXL, SD 3.5, and others.
+IP-Adapter conditions a generation on a reference image alongside the text prompt, to carry its style or content. It works on any pipeline that has diffusers' `load_ip_adapter()`: Flux, Stable Diffusion 1.5, SDXL, SD 3.5 and others.
 
 ## Usage
 
-Add an `ip_adapter` block to the pipeline definition and pass `ip_adapter_image` in arguments:
+Add an `ip_adapter` block to the pipeline, a sibling of `configuration`, and pass the image as the `ip_adapter_image` argument:
 
 ```json
 {
     "pipeline": {
-        "configuration": {
-            "component_type": "FluxPipeline",
-            "offload": "sequential"
-        },
+        "configuration": { "component_type": "FluxPipeline" },
         "from_pretrained_arguments": {
             "model_name": "black-forest-labs/FLUX.1-dev",
             "torch_dtype": "torch.bfloat16"
@@ -33,20 +30,22 @@ Add an `ip_adapter` block to the pipeline definition and pass `ip_adapter_image`
 }
 ```
 
+FLUX.1 dev in bf16 needs a placement to fit a 24 GB card; [ip-adapter.json](../workflows/templates/ip-adapter.json) uses the streamed group offload from [RECIPES_24GB.md](RECIPES_24GB.md#flux-dev-12b).
+
 ## Properties
 
 | Property | Required | Description |
 | -------- | -------- | ----------- |
-| `model_name` | Yes | HuggingFace Hub repo ID for the IP-Adapter weights |
+| `model_name` | Yes | Hugging Face Hub repo id of the IP-Adapter weights |
 | `weight_name` | No | Specific weight file in the repo |
 | `subfolder` | No | Subfolder within the repo |
-| `scale` | No | Adapter strength (default: 1.0). Lower = less influence from reference image |
+| `scale` | No | Adapter strength, set with `set_ip_adapter_scale()` after the load. Unset keeps diffusers' default of 1.0. Lower = less influence from the reference image |
 
-Any other property (e.g. `revision`) is forwarded as-is to the underlying `load_ip_adapter()` call.
+Any other property (e.g. `revision`) is passed to `load_ip_adapter()` unchanged.
 
 ## Models Without a Built-in Image Encoder
 
-Some base models (e.g. Stable Diffusion 3.5) don't ship a default image encoder, so diffusers needs one configured explicitly. Add `image_encoder` and `feature_extractor` components alongside `ip_adapter`, the same way any other pipeline component is configured:
+Some base models (Stable Diffusion 3.5, for one) ship no image encoder, so diffusers needs one configured. Add `image_encoder` and `feature_extractor` component blocks beside `ip_adapter`, configured like any other pipeline component:
 
 ```json
 {
@@ -77,27 +76,15 @@ Some base models (e.g. Stable Diffusion 3.5) don't ship a default image encoder,
 }
 ```
 
-See [ip-adapter.json](../workflows/templates/ip-adapter.json) for the full workflow.
-
 ## Image Argument
 
-The `ip_adapter_image` uses the standard image loading format:
+`ip_adapter_image` loads like any `*_image` argument ([Media Arguments](WORKFLOW_GUIDE.md#media-arguments), [References](WORKFLOW_GUIDE.md#references)): a URL, a path relative to the workflow file, an `asset:` name on the server, or a `{"location": ...}` dict of any of these. Only `location` is read from the dict; the image is not resized.
 
 ```json
-"ip_adapter_image": {
-    "location": "https://example.com/image.jpg"
-}
+"ip_adapter_image": "asset:reference.png"
 ```
 
-```json
-"ip_adapter_image": {
-    "location": "./local/reference.png",
-    "width": 512,
-    "height": 512
-}
-```
-
-Can also reference a previous step's output:
+It can also take an earlier step's output:
 
 ```json
 "ip_adapter_image": "previous_result:preprocessing_step"
@@ -105,5 +92,4 @@ Can also reference a previous step's output:
 
 ## Examples
 
-- [ip-adapter.json](../workflows/templates/ip-adapter.json) — Flux with IP-Adapter for style transfer
-- [ip-adapter.json](../workflows/templates/ip-adapter.json) — FLUX.1 dev with an IP-Adapter, and the face-model variant in its description
+- [ip-adapter.json](../workflows/templates/ip-adapter.json): FLUX.1 dev with `XLabs-AI/flux-ip-adapter`. Its description gives the face-model variant, which keeps a person's face across a new scene: `h94/IP-Adapter`, subfolder `models`, weight `ip-adapter-full-face_sd15.bin`, scale 0.5, on a `StableDiffusionPipeline`.

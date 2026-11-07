@@ -1,79 +1,63 @@
 # MCP Server
 
-A third way to drive the engine, alongside `dw.run` and
-`dw.serve`: a stdio [MCP](https://modelcontextprotocol.io) server that lets
-an MCP client — Claude Code first — author, validate, save, run and diagnose
-workflows without shell access or a repo checkout.
+A stdio [MCP](https://modelcontextprotocol.io) server that lets an MCP client
+(Claude Code first) author, validate, save, run and diagnose workflows without
+shell access or a repo checkout. It is the third way to drive the engine,
+beside `dw.run` and `dw.serve`.
 
-`dw_mcp/` is an HTTP client of a **running** `dw.serve`. It owns no job
-state and no GPU worker of its own; every tool call is a REST request
-against the server described in [Server & Web UI](SERVER.md). If `dw.serve`
-is not running, every tool fails with a message telling you to start it.
+`dw_mcp/` is an HTTP client of a **running** `dw.serve`. It holds no job state
+and no GPU worker; every tool call is a REST request against the server
+described in [Server & Web UI](SERVER.md). If `dw.serve` is not running, every
+tool fails with a message telling you to start it.
 
 ## Install and run
 
 ```bash
 pip install -e ".[server,mcp]"
+dw-serve          # the engine; leave it running
 ```
 
-The MCP server needs a running `dw.serve`, so two processes are involved:
-
-```bash
-# terminal 1 - the engine. Leave it running.
-dw-serve
-```
-
-You do not start `dw-mcp` yourself. Your MCP client launches it on demand,
-which is why the client needs a command it can actually find (see below).
-
-`dw-mcp` (equivalently `python -m dw_mcp`) speaks MCP over stdio. Flags:
+You do not start `dw-mcp` yourself: the MCP client launches it on demand, so
+the client needs a command it can find (see below). `dw-mcp` (or
+`python -m dw_mcp`) speaks MCP over stdio. Flags:
 
 | Flag | Default | Meaning |
 | --- | --- | --- |
 | `--url` | `$DW_MCP_URL`, else `http://127.0.0.1:8765` | Base URL of the running `dw.serve` |
-| `--token` | `$DW_API_TOKEN`, else none | Bearer token, when `dw.serve` was started with `--token` / `DW_API_TOKEN` - the same variable, so one export configures both ends |
-| `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a directory here - `DW_WORKSPACE` means something else to the engine. `use_workspace` switches it mid-session |
+| `--token` | `$DW_API_TOKEN`, else none | Bearer token, when `dw.serve` was started with `--token` / `DW_API_TOKEN`. The same variable configures both ends |
+| `--workspace` | `$DW_MCP_WORKSPACE`, else the server's default | Which of the server's workspaces the session works in. A *name* on the server, not a local directory (`DW_WORKSPACE` means something else to the engine). `use_workspace` switches it mid-session |
 | `--timeout` | `30` | Seconds to wait on any one API request |
 | `--no-probe` | off | Skip the startup `GET /api/health` that confirms the server is reachable and the token is accepted |
 
-The `DW_MCP_URL` environment variable sets the same default the `--url` flag
-overrides.
+A non-loopback `--url` with no token makes `dw-mcp` exit 2. The startup probe
+reports a wrong URL or token once, instead of as a 401 on every tool call; it
+is fatal for a remote URL and only a warning for a loopback one, where it
+usually means `dw.serve` is not up yet. [REMOTE.md](REMOTE.md) covers the
+remote setup end to end.
 
-A non-loopback `--url` requires a token: `dw-mcp` exits 2 rather than start
-without one. At startup it makes one `GET /api/health`, so a wrong URL or
-token is reported once with a message instead of as a 401 on every tool
-call; that probe is fatal for a remote URL and only a warning for a
-loopback one (where it usually means `dw.serve` is not up yet).
-[REMOTE.md](REMOTE.md) covers the remote setup end to end.
-
-Claude Code users can add the composition skills as well:
+Claude Code users can add the composition skills with
 `/plugin marketplace add dkackman/diffusers-workflow` then
-`/plugin install dw@diffusers-workflow`. The plugin ships one skill per model
-family (MiniMax H3, MiniMax Music 3, LTX-2.5) that picks a template for a
-request's shape and states the family's rules - see
-[plugins/dw/README.md](../plugins/dw/README.md), which also gives the
-optional `npx skills add` lines for MiniMax's own prompt skills. It is
-optional; every tool below works without it.
+`/plugin install dw@diffusers-workflow`: one skill per model family (MiniMax
+H3, MiniMax Music 3, LTX-2.5, Kandinsky 6, FLUX 3 Klein) plus cross-cutting
+skills for scripts, series, cinematography and storyboards. See
+[plugins/dw/README.md](../plugins/dw/README.md), which also gives the optional
+`npx skills add` lines for MiniMax's own prompt skills. Every tool works
+without the plugin.
 
 ### Use the absolute path to `dw-mcp`
 
-**This is the one setup detail that reliably goes wrong.** If you installed
-the way `install.sh` does, `dw-mcp` lives in the project's virtualenv and is
-only on `PATH` while that venv is activated. Your MCP client is launched by
-your shell, your desktop app, or your editor — usually *without* the venv
-activated — so a bare `dw-mcp` fails to spawn:
+**This is the setup detail that most often goes wrong.** Installed the way
+`install.sh` does it, `dw-mcp` lives in the project's virtualenv and is on
+`PATH` only while that venv is active. An MCP client is usually launched
+without the venv, so a bare `dw-mcp` fails to spawn:
 
 ```
 Failed to reconnect to dw: ENOENT
 ```
 
-Registering it once from an activated terminal hides this: that session
-works, and the next one, started somewhere else, does not.
-
-Always register the venv's absolute path. Console scripts have the
-interpreter baked into their shebang, so they run correctly with no venv
-activated — which is exactly why the absolute path is more robust than
-telling people to activate first:
+Registering from an activated terminal hides the problem until a session
+starts somewhere else. Register the venv's absolute path instead; a console
+script has its interpreter in its shebang, so it runs with no venv active:
 
 ```bash
 echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
@@ -83,42 +67,36 @@ echo "$(pwd)/venv/bin/dw-mcp"    # the value to register
 
 ### Remote server, no local install
 
-If `dw.serve` runs on another machine with `--mcp` (see
-[REMOTE.md](REMOTE.md)), Claude Code connects to it directly:
+If `dw.serve` runs on another machine with `--mcp` (see [REMOTE.md](REMOTE.md)),
+Claude Code connects to it directly and nothing from this repository is
+installed on the client:
 
     claude mcp add --transport http dw http://<box>:8765/mcp \
       --header "Authorization: Bearer <token>"
 
-The same token fetches generated files: see step 7 of `The loop` in [WORKFLOW_GUIDE.md](WORKFLOW_GUIDE.md#the-loop).
-
-Nothing from this repository is installed on the client. The stdio setup
-below is for a machine that has its own `dw` install, and also works
+Generated files under `/outputs`, `/inputs` and `/exports` need no token
+(#592); step 7 of [The loop](WORKFLOW_GUIDE.md#the-loop) fetches them. The
+stdio setup below is for a machine with its own `dw` install, and also works
 against a remote `--url` with `--token`.
 
 ### Claude Code
 
-The CLI is the shortest path. From the project directory:
+From the project directory:
 
 ```bash
 claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp"
+claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp" --url http://127.0.0.1:8791   # subprocess flags go after --
 ```
 
-`--` separates Claude Code's own flags from the command it will spawn. Add
-subprocess flags after it:
-
-```bash
-claude mcp add dw -- "$(pwd)/venv/bin/dw-mcp" --url http://127.0.0.1:8791
-```
-
-Pick the scope deliberately with `-s`:
+Pick the scope with `-s`:
 
 | Scope | Stored in | Use when |
 | --- | --- | --- |
 | `local` (default) | `~/.claude.json`, keyed to this project | Just you, just this checkout |
-| `user` | `~/.claude.json`, global | You want it in every project. The absolute path makes this work |
-| `project` | `.mcp.json`, **committed to the repo** | You intend every clone to get it. Note an absolute path is machine-specific and will not port |
+| `user` | `~/.claude.json`, global | Every project. The absolute path makes this work |
+| `project` | `.mcp.json`, **committed to the repo** | Every clone gets it. An absolute path is machine-specific and will not port |
 
-Equivalent hand-written `.mcp.json`, if you prefer a file:
+The same registration as a hand-written `.mcp.json`:
 
 ```json
 {
@@ -131,14 +109,12 @@ Equivalent hand-written `.mcp.json`, if you prefer a file:
 }
 ```
 
-**A running session does not pick up a registration change** - start a new
-one after adding or editing the server.
+**A running session does not pick up a registration change**; start a new one.
 
 ### Claude Desktop
 
-`claude_desktop_config.json`, same shape - and the same absolute-path rule,
-which matters more here because a desktop app never inherits a shell's
-`PATH`:
+`claude_desktop_config.json` takes the same shape. The absolute path matters
+more here, because a desktop app never inherits a shell's `PATH`:
 
 ```json
 {
@@ -151,393 +127,302 @@ which matters more here because a desktop app never inherits a shell's
 }
 ```
 
-`DW_MCP_URL` can be set instead of `--url` via an `"env"` object alongside
-`"command"`/`"args"` in either config.
+In either config, an `"env"` object beside `"command"`/`"args"` can set
+`DW_MCP_URL` instead of `--url`.
 
 ## Verify the setup
 
-Three checks, in order. Each isolates a different failure, so run them in
-sequence rather than jumping to the last one.
+Run the three checks in order; each isolates a different failure. None costs
+GPU time.
 
 **1. The command launches without a venv.** This reproduces the environment
-your client actually spawns it in, and is the check that catches ENOENT:
+the client spawns it in, and catches ENOENT:
 
 ```bash
 env -i PATH=/usr/bin:/bin HOME="$HOME" /path/to/venv/bin/dw-mcp --help
 ```
 
-Prints usage and exits 0. If it does not, the path is wrong or the package
-is not installed into that venv.
+It prints usage and exits 0. If not, the path is wrong or the package is not
+installed into that venv.
 
-**2. The client sees the server.** Start a new Claude Code session and run
-`/mcp`; `dw` should be listed and connected. From the shell,
-`claude mcp list` and `claude mcp get dw` show the same thing.
+**2. The client sees the server.** In a new Claude Code session, `/mcp` lists
+`dw` as connected (`claude mcp list` and `claude mcp get dw` from the shell).
+"Connected" means only that the process launched, not that `dw.serve` is
+reachable.
 
-Note that a "connected" status only means the process launched - it says
-nothing about whether `dw.serve` is reachable.
-
-**3. The tools reach the engine.** With `dw-serve` running, ask the client
-something free, such as "list my diffusers workflows" (`list_workflows`) or
-"check the diffusers-workflow server health" (`get_health`). A real answer
-means the whole chain works. "Cannot reach diffusers-workflow at ..." means
-step 3 failed while steps 1 and 2 passed - the client is fine and the engine
-is not running.
-
-Nothing in this sequence costs GPU time.
+**3. The tools reach the engine.** With `dw-serve` running, ask for something
+free, such as "list my diffusers workflows" (`list_workflows`) or "check the
+diffusers-workflow server health" (`get_health`). "Cannot reach
+diffusers-workflow at ..." means the engine is not running.
 
 ## Tool reference
 
-65 tools in six groups. Names and arguments below are transcribed from
-`dw_mcp/tools_*.py` — nothing here is renamed or reshaped for the docs.
+65 tools in six groups. Names, arguments and defaults are those registered in
+`dw_mcp/tools_*.py` (wired in `dw_mcp/server.py`); each tool's own description
+is the full contract. Every `workspace` argument pins that one call to a
+workspace without moving the session's pin (see
+[Authoring, assets and workspaces](#authoring-assets-and-workspaces)).
 
 ### Catalog (read-only)
 
-The catalog is large, so the server's instructions point a client at
-`list_workflows` first: its listing carries enough about each workflow - a
-one-line `summary`, its `shape` and `traits`, its measured `cost`, output
-kinds and variable names - to pick one and know what to pass it, without
-fetching every candidate's definition. Reusing a stored workflow is a
-preference, not a rule; `run_workflow` still takes an `inline_workflow` for
-a request nothing on disk covers.
+The server's instructions send a client to `list_workflows` first: its
+listing carries enough per workflow to choose one and know what to pass it.
+A request usually names a *subject* while the catalog is written in *shapes*
+(one image, an image set, one shot, a cut sequence), so decide the shape
+first. `list_guides` indexes the documentation by section, and `list_tasks`
+is what a shape is composed from when no stored workflow covers it;
+`run_workflow` still takes an `inline_workflow` for that case.
 
-The instructions also say the engine runs **one job per GPU** - one worker
-per `dw.serve --devices` card, each running its own job from the one shared
-queue - and point at `get_health`'s `workers` for what each card is running.
-A job record's `device` (`get_job`, `list_jobs`) names the card it ran on,
-and a job started by `rerun_job` carries `rerun_of`, the id of the job it
-reran (absent on a fresh submit).
+The engine runs **one job per GPU**: one worker per `dw.serve --devices` card,
+each taking jobs from one shared queue. A job record's `device` (`get_job`,
+`list_jobs`) names the card it ran on, and a job started by `rerun_job`
+carries `rerun_of`.
 
-A request usually names a *subject* ("a lego movie trailer set in the marvel
-universe") while the catalog is written in *shapes* - a single image, an image
-set, one shot, a multi-shot cut sequence, video with speech. Nothing in a
-catalog entry will match the subject, so the shape is what has to be decided
-first and matched against. `list_guides` indexes the engine's documentation by
-section for exactly that, and `list_tasks` is what a shape gets composed from
-when no single workflow covers it.
-
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `list_guides()` | — | List the documentation the engine serves: each guide's name, what it covers, and its section headings. The index is the routing table - match a request's shape against a heading rather than guessing |
-| `get_guide(name, section=None)` | `name`, `section` | Get one section of a guide - name it: a guide runs to thousands of lines, and WORKFLOW_GUIDE.md whole is ~19.6k tokens, more in one call than the whole tool surface costs to connect. Called with no `section` the answer is the guide's index: its opening, its first section, and `sections`/`withheld` naming the rest, with a `note` saying how to fetch one. Section names match loosely, so a heading copied approximately still resolves |
-| `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | `shape`, `traits`, `configures`, `include_models` | List stored workflows. Called with no filter at all each entry is cut to its `summary` and `shape` (`view: "summary"`, with a `note`), because the whole catalog in full detail is ~6.8k tokens for a question that is really "which shape do I want"; pass `shape` and the entries come back whole. Filtered, it is the server's compact view: each entry carries `summary`, `shape`, `traits`, `cost`, `kinds`, `variable_names`, `lists`, and `configures` only when set - `get_workflow` has the full description and definition. `lists`, present for a list-driven workflow, names the fields an entry of each list takes, the steps over it and the default's length; `cost` may carry `per_entry`, the measured cost of one entry so a run over a different-length list can be priced from it. `shape` keeps one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and every one listed must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value in either is a 400 listing the vocabulary. Templates only by default - `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. The first call to make for a request an existing workflow might cover `libraries` names the roots searched (`origin`, `root`, `writable`) and `shadowed` the names a nearer root hides |
-| `get_workflow(name, variables_only=False)` | `name` | Get one stored workflow's full JSON definition. `variables_only=true` answers with just its variables and their defaults (long strings cut to 200 characters, the cut ones named in `truncated`, including strings inside a list default, named like `shots[0].prompt`) — the cheap way to confirm what a variable defaults to |
-| `get_schema(section=None)` | `section` | Get the JSON schema every workflow definition must satisfy. Whole it is ~8.6k tokens, so name the part you need: `section` takes `steps`, `pipelines`, `tasks`, `result`, `variables` or `configuration` and answers `{section, sections, elsewhere, schema}` - `elsewhere` says which section holds each definition the fragment still `$ref`s. An unknown section is a 404 naming the ones there are |
-| `list_pipelines()` | — | List every diffusers pipeline class this installation provides |
-| `get_pipeline_signature(name)` | `name` | Get a pipeline's real call arguments; for a modular pipeline class (e.g. `MiniMaxH3ModularPipeline`), its block graph's inputs |
-| `list_classes(kind)` | `kind` | List class names of one kind: pipelines, models, schedulers, or quantization |
-| `get_class(name, target="init")` | `name`, `target` (`init`\|`call`\|`load`) | Get a class's argument schema from the entry point a workflow reaches it by: `init` the constructor (quantization configs, schedulers), `call` a pipeline's `__call__`, `load` `from_pretrained` plus the curated loading knobs |
-| `list_tasks()` | — | List every task command a workflow's task step can name |
-| `get_task(command)` | `command` | Get a task command's argument schema |
-| `list_models()` | — | List what the Hugging Face model cache holds, largest first |
-| `get_memory()` | `device` | Get VRAM and RAM statistics: `workers` has one reading per card (the top level repeats the first card's), and `device` (`cuda:1`) asks for that card alone. `gpu_*` is the card; `host_memory_rss_mb` / `host_memory_peak_rss_mb` are the worker process's resident and high-water host memory, beside the machine's `host_memory_total_mb` / `host_memory_available_mb`; on Linux `host_memory_rss_anon_mb` / `host_memory_rss_file_mb` split the resident figure into memory the worker owns and mapped-file pages (memory-mapped checkpoint weights) the kernel can drop, so a loader that maps rather than copies raises the resident and peak figures without raising committed memory (#709) - read both, since an offloading workflow keeps its weights in host RAM and the card says little about what it holds (a host field is absent, not null, where the platform cannot measure it). `host_pinned_reserved_mb` / `host_pinned_allocated_mb`, when present, are torch's pinned-host cache - the staging buffers group offloading moves weights through, part of `host_memory_rss_mb` and invisible in every `gpu_*` figure, which is what a worker holding GB after releasing every model is usually holding (#98). `live: true` means `info` was measured now and is the worker's own memory; only live readings are comparable with each other. `live: false` with `info: null` (and `stale: false`) means nothing has been measured because nothing is resident; `live: false` with a populated `info` is a cached earlier reading, with `reason` (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`) and `age_seconds` - one cached while a job loads a model understates what is resident, so ask again when the card is idle rather than comparing it with a live figure |
-| `get_health()` | — | Check that the server is alive, and which machine answered: `version`, `device`, whether any model process is resident (`worker_alive`), and the queue depth. The engine runs one job per GPU: `workers` has one entry per card - `device`, `name`, `vram_gb`, `alive`, its own `current_job`, and the worker's `host_memory_rss_mb` while it runs - and the top-level `current_job` is the longest-running job. `worker_alive: false` is the normal idle state on a server that has not run a job since startup or the last memory clear - not a fault - the on-demand worker starts with the next job (#206) |
-| `get_server_info()` | — | What this installation can do and where it keeps things: `device` (the accelerator a run will use), `version`, the `workspace` this session is working in and the workflow/asset/output/prompt `directories` of *that* workspace, the bind address and port, whether a token is required, and whether MCP is mounted. Check the device before authoring - a CUDA-only choice (bitsandbytes, `torch.compile`, flash attention) is not available on an `mps` or `cpu` server. `runtime` (#222) reports the Python version, torch version and the CUDA version torch was built against, the NVIDIA driver version (when `nvidia-smi` is reachable), and the installed versions of diffusers, transformers, accelerate, bitsandbytes, peft, safetensors and sentencepiece (`null` for one not installed) - for diagnosing an environment mismatch between boxes without shelling in. `caches` lists dw's disk caches (`inductor`, `triton`, `quantized`), each with `name`, `bytes`, `files`, `enabled`, `clearable` and `disk_free`, plus `entry_count` for a cache with entries, and `cache_entries=true` lists them (`id`, `model`, `subfolder`, `component`, `bytes`, `files`, `unreadable`, `created`, `last_hit`; the quantizer and dtype are not in `/api/caches`); it is omitted when the server has no `/api/caches`. There is no MCP tool to clear one - that is `DELETE /api/caches/{name}` or `.../entries/{entry}` ([SERVER.md](SERVER.md)) |
-| `list_jobs(limit=20, status=None, workspace=None)` | optional `limit` (newest N), `status` (one state or a comma-separated set of `queued`, `running`, `succeeded`, `failed`, `cancelled`), `workspace` | List queued, running and recent jobs, **newest first** (a queued job held for host RAM carries `waiting_for`). Bounded by default: the unbounded listing was over a client's tool-result limit on a server with a few months of history, which made it a tool that could not be called at all. `total` says how many matched and `truncated`/`next` say so when the answer was cut - raise `limit` or narrow with `status`. Without `workspace`, a named workspace lists its own jobs and the default one lists every job the server holds |
-| `list_gallery(limit=50, subfolder=None, only_orphans=False, workspace=None, folder=None, version=None, media=False, role=None)` | `limit`, `subfolder`, `only_orphans`, `workspace`, `folder`, `version`, `media`, `role` | List generated output files, newest first. A name is `<workflow>/<run id>/<file>`, where `<file>` may sit in the subfolder the step chose (`final/episode.mp4`); each entry carries `folder` (the workflow) and `subfolder` (by convention `final` or `intermediate`, `''` when the step chose none, any path the workflow wrote otherwise), and `subfolder="final"` lists only deliverables. Each entry also carries `role`, `final` or `intermediate` (null for a flat-layout file with no run, or an older run's file that neither its subfolder nor a later run's reads place; `intermediate` once a later step or a later run read the file, unless `result.role` declared it); `role=["final"]` lists only those, and the `role` filter defaults to every file. See `dw/roles.py` for how a role is decided. A file starred in the web UI's gallery (its keep mark) carries `starred: true`; an unstarred one carries no `starred`. Each entry carries `run_id` and `version` - that run's ordinal among the workflow's runs, which is how one of several runs that wrote the same basename is named to a person: the web UI labels the same file `v5`. The number is assigned when the run opens and never renumbered, so deleting a run leaves a gap rather than sliding the rest down (a failed run, or a rerun that reused every step, leaves one too - it took a number and may have nothing to list), and it is `null` under the flat output layout, which has no runs. `folder` with `version` lists that one run's files, and `output:<folder>/v5/<file>` names one in a workflow; every other tool takes `name`. Each entry also carries a ready-made `url`, already scoped to the workspace that made it - a hand-built `/outputs/<name>` URL 404s for anything but the default workspace. `only_orphans=True` inverts the call: instead of files, it returns run directories with no media anywhere under them (`runs`, each `{name, mtime}`) - a run whose output was deleted before `delete_output` could remove it by name, or one that failed before writing anything; `subfolder` does not apply in this mode, and `name` is exactly what `delete_output` accepts (#170). `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `get_gallery_metadata(name, envelope=False, workspace=None, interval_seconds=None)` | `name`, `workspace` | Get the metadata embedded in a generated file — or, when `name` is an `asset:` reference, what an *input* asset holds (`source` says which; `job` is null for an asset). Reading an input's duration, frame count, fps and sample rate before a run is how a caller learns the `total_frames`, `fps` and `sample_rate` a workflow expects it to supply: the exact workflow and arguments that produced it, and, for audio/video, a `media` block (duration, rate, channels, fps, size, peak/mean dBFS) and `findings` - each level problem the server measured against `dw/audio_qc.py`'s thresholds (`full_scale`, `near_silent`), with the fix. Only an image (PNG/JPEG/WebP) embeds `metadata` this way — it is always null for audio and video, and `next` then points at `get_job_workflow(job_id)` when `job` is known, or says a kept asset carries no provenance at all when it isn't. `envelope=true` adds `media.envelope` — `rms_dbfs` and `peak_dbfs` one entry per second, or per `interval_seconds` (default 1.0, 0.05 to 3600; 0.1 places a vocal onset; a finer-than-default width that would need over 2400 bins is refused with the interval that fits) — which is what locates something in a track rather than measuring the whole of it. `media.shots` is set on an output joined from shots: one `{name, start_frame, num_frames, start_sample, num_samples}` per shot, as the join measured them (see the run manifest in docs/WORKFLOW_GUIDE.md), else null. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
+| Tool | Purpose |
+| --- | --- |
+| `list_guides()` | The documentation the engine serves: each guide's name, what it covers, and its section headings. Match a request's shape against a heading |
+| `get_guide(name, section=None)` | One section of a guide, matched loosely (a `###` subsection resolves too). Without `section` the answer is the guide's index: its opening, its first section, and `sections`/`withheld` naming the rest. A whole guide can cost more than the tool surface does to connect |
+| `list_workflows(shape=None, traits=None, configures=None, include_models=False)` | Stored workflows. With no filter each entry is cut to `summary` and `shape` (`view: "summary"`, with a `note`). Filtered, each entry carries `summary`, `shape`, `traits`, `cost`, `observed_minutes`/`observed_runs` (this box's own finished runs), output kinds, `variable_names`, and when set `lists` (per list variable: entry fields, steps over it, default length; `cost[].per_entry` prices one entry), `constraints` and `configures`. `shape` is one of `image`, `image-set`, `image-edit`, `shot`, `sequence`, `audio`, `text`, `utility`; `traits` is comma-separated and all must match (`has-audio`, `chained`, `image-conditioned`, `identity-referenced`, `needs-input-media`, `composes-workflows`); an unknown value is a 400 listing the vocabulary. Templates only by default; `configures=<template>` lists the checkpoint configs tuned for one, `include_models=true` lists them all. `libraries` names the roots searched (`origin`, `root`, `writable`), `shadowed` the names a nearer root hides |
+| `get_workflow(name, variables_only=False)` | One stored workflow's full JSON. `variables_only=true` returns just its variables and defaults, long strings cut to 200 characters and named in `truncated` (`shots[0].prompt` for one inside a list) |
+| `get_schema(section=None)` | The workflow JSON schema (~8.6k tokens whole). `section` is one of `steps`, `pipelines`, `tasks`, `result`, `variables`, `configuration` and answers `{section, sections, elsewhere, schema}`; `elsewhere` says which section holds each `$ref` the fragment still has. An unknown section is a 404 naming the valid ones |
+| `list_pipelines()` | Every diffusers pipeline class this installation provides |
+| `get_pipeline_signature(name)` | A pipeline's real call arguments; for a modular pipeline class (`MiniMaxH3ModularPipeline`), its block graph's inputs |
+| `list_classes(kind)` | Class names of one kind: pipelines, models, schedulers or quantization |
+| `get_class(name, target="init")` | A class's argument schema at the entry point a workflow reaches it by: `init` the constructor (quantization configs, schedulers), `call` a pipeline's `__call__`, `load` `from_pretrained` plus the curated loading knobs |
+| `list_tasks()` | Every task command a task step can name |
+| `get_task(command)` | A task command's argument schema |
+| `list_models()` | What the Hugging Face cache holds, largest first |
+| `get_memory(device=None)` | VRAM and RAM per card in `workers` (the top level repeats the first card; `device`, e.g. `cuda:1`, asks for one). `gpu_*` is the card. `host_memory_rss_mb` / `host_memory_peak_rss_mb` are the worker's resident and peak host memory, beside the machine's `host_memory_total_mb` / `host_memory_available_mb`; on Linux `host_memory_rss_anon_mb` / `host_memory_rss_file_mb` split resident memory into owned pages and mapped checkpoint pages the kernel can drop (#709). `host_pinned_reserved_mb` / `host_pinned_allocated_mb` are torch's pinned-host cache, part of RSS and invisible to `gpu_*` (#98). A host field the platform cannot measure is absent. `live: true` is a reading taken now; `live: false` with `info: null` means nothing is resident; `live: false` with `info` is a cached reading with `reason` (`job_running`, `worker_stopped`, `worker_busy`, `worker_unreachable`) and `age_seconds`. Compare only live readings |
+| `get_health()` | Liveness and which machine answered: `version`, `device`, `worker_alive`, queue depth, and `workers` (per card: `device`, `name`, `vram_gb`, `alive`, `current_job`, `host_memory_rss_mb`). The top-level `current_job` is the longest-running job. `worker_alive: false` is the normal idle state before the first job or after a memory clear (#206) |
+| `get_server_info(cache_entries=False)` | `device`, `version`, this session's `workspace` and its `directories`, the bind address and port, `auth_required`, `trust_workflows`, the MCP mount, and `runtime` (#222: Python, torch, CUDA build, NVIDIA driver, and the diffusers, transformers, accelerate, bitsandbytes, peft, safetensors and sentencepiece versions, `null` when not installed). Check `device` before authoring: CUDA-only choices (bitsandbytes, `torch.compile`, flash attention) fail on `mps` or `cpu`. `caches` sizes dw's disk caches (`inductor`, `triton`, `quantized`); `cache_entries=true` lists the quantized cache's entries. No tool clears a cache; that is `DELETE /api/caches/{name}` ([SERVER.md](SERVER.md)) |
+| `list_jobs(limit=20, status=None, workspace=None)` | Queued, running and recent jobs, **newest first**, with queue position, `device`, `acknowledged` and (when held for host RAM) `waiting_for`. `status` is one state or a comma-separated set of `queued`, `running`, `succeeded`, `failed`, `cancelled`. `total`, `truncated` and `next` show a cut answer. Without `workspace`, a named workspace lists its own jobs and the default lists every job |
+| `list_gallery(limit=50, subfolder=None, only_orphans=False, workspace=None, folder=None, version=None, media=False, role=None)` | Generated files, newest first, named `<workflow>/<run id>/<file>` (`<file>` may sit in a subfolder: `final/episode.mp4`). Each entry carries `folder`, `subfolder` (`final`, `intermediate`, `''` or any path the workflow wrote), `role` (`final`, `intermediate`, or null; see `dw/roles.py`), `starred` when kept in the web UI, `run_id`, `version` and a workspace-scoped `url` (a hand-built `/outputs/<name>` 404s outside the default workspace). `version` is the run's ordinal (`v5` in the UI): assigned when the run opens, never renumbered, `null` in the flat layout; `output:<folder>/v5/<file>` names a file by it. `folder` with `version` lists one run. `role=["final"]` lists only deliverables. `only_orphans=True` returns run directories with no media (`runs`, each `{name, mtime}`), each a name `delete_output` accepts (#170) |
+| `get_gallery_metadata(name, envelope=False, workspace=None, interval_seconds=None, include_workflow=True)` | What produced a file and what it measures. `name` may be an `asset:` reference, for an input's duration, frame count, fps and sample rate before a run (`source` says which; `job` is null). Only an image embeds `metadata`; for audio and video it is null and `next` points at `get_job_workflow(job_id)`. `include_workflow=false` omits the embedded workflow. `media` holds duration, rates, channels, fps, size and peak/mean dBFS; `findings` lists each level problem (`full_scale`, `near_silent`, thresholds in `dw/audio_qc.py`) with its fix. `envelope=true` adds `media.envelope` (`rms_dbfs`, `peak_dbfs`) per second or per `interval_seconds` (0.05 to 3600; over 2400 bins is refused). `media.pcm_sha256` hashes the decoded samples; two hashes compare only when `sample_format`, `frames`, `sample_rate` and `channels` agree. `media.shots` places a joined output's shots (`{name, start_frame, num_frames, start_sample, num_samples}`) |
 
 ### Media
 
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `get_output_image(name, max_dimension=768, workspace=None, crop=None)` | `name`, `max_dimension`, `workspace`, `crop` | Look at a generated image, downscaled to `max_dimension` on its longest side. Returns the image plus a text part reporting `original_size`, `returned_size` and `bytes`, so a downscale is never silent. `crop` is `[x, y, width, height]` in the original's pixels, cut before the downscale and reported back clamped - the way to see a region of a 2K still at 100%, where the whole would be shrunk past what a small element or a decode-tiling seam can be judged at. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `get_output_audio(name, start=None, duration=None, workspace=None)` | `name`, `start`, `duration`, `workspace` | Listen to a generated soundtrack as base64 - an audio output, or the track muxed into a video (#193) - in its own encoding when served whole, WAV when extracted or excerpted. No downscale exists for audio, so a whole clip over the 4MB budget is refused rather than cut (#204); ask for the part instead with `start` and `duration` in seconds, and the text part names what was cut (`excerpt: 2.0s from 10.0s of 240.0s`) so a slice is never mistaken for the whole. `get_gallery_metadata`'s envelope says where in a track to look. `workspace` names the workspace for this one call without switching the session to it |
-| `get_output_frames(name, at=None, seams=None, count=None, boundaries=None, names=None, max_dimension=512, hear=None, workspace=None)` | `name`, `at`, `seams`, `count`, `boundaries`, `names`, `max_dimension`, `hear`, `workspace` | See a generated video as frames, since there is no video content type over MCP (#193). One selector per call: `count` for an evenly spaced contact sheet, `at` for moments (seconds or `"frame:N"`), `seams` (true, or seam numbers from 1) for the last frame before and first frame after each join side by side (each pair carries `difference`, the mean pixel change across the join, 0-255 - rank seams by it and look at the worst). `boundaries` and `names` are modifiers of `seams` only - passing either alongside `at` or `count` is refused, naming the offending argument(s). On an output joined from shots (`concat_videos`, `dissolve_videos`, a chained step) `seams` alone is enough: the seams and their names are the `media.shots` its run recorded. For any other file pass `boundaries` - each later shot's first frame, the running sum of the shots' `frame_count` from `get_gallery_metadata` on their own `intermediate/` files - and `names` to name them; either one given overrides the recorded value. Tiles are fitted to `max_dimension` and, when the set would exceed the 4MB budget, shrunk together rather than dropped; the text part lists each tile and says so. `hear=N` also returns N seconds of soundtrack centred on each `at` moment, after its image - the way to check a hit point or lip-sync without reconciling two clocks; a mute clip keeps its frames and says `no soundtrack` |
-| `get_output_text(name, max_characters=20000, workspace=None)` | `name`, `max_characters`, `workspace` | Read a text output — a prompt enhancement, or any step whose result is `text/plain` or JSON. Reports the file's real length and whether it was truncated. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `assess_output(name, probe=None, detail=False, workspace=None)` | `name` (a gallery name or `asset:`), `probe`, `detail`, `workspace` | Measure a finished cut on the server, without queueing: the assessment probes (`analyze_shots`, `analyze_seams`, `analyze_sync_drift`) run in the server process over one decode of the file, beside whatever job holds the GPU. Shot boundaries are the ones its run recorded (the manifest for an output, the `keep_output` sidecar for an asset). The answer merges every applicable probe's `findings` (`{rule, severity, at, value, threshold, says}`) with `rules_applied`, `rules_skipped` and `not_applicable` (`{probe: why}` - a still, a mute file, a file with no recorded shots); `detail=true` adds each probe's full body under `probes`, and `probe=` returns that one probe's full body. `probe` is checked against the three names before anything else is read, and an unknown one is refused naming them. Findings are places to look, not verdicts: drill in with `get_output_frames(seams=[n])` / `get_output_audio(start, duration)`. See *Assessing a run's output* in docs/WORKFLOW_GUIDE.md |
-| `compare_outputs(names, at=None, crop=None, baseline=None, max_dimension=384, workspace=None)` | `names`, `at`, `crop`, `baseline`, `max_dimension`, `workspace` | Read-only, queues nothing: 2-8 outputs (gallery names or `asset:`) as one grid, a row per output (labelled with its row number and short name, `(baseline)` on the baseline) and a column per moment, each cell stamped `frame N`, with PSNR, SSIM and mean absolute difference against `baseline` (default the first name). `at` is 1-8 moments (seconds or `"frame:N"`, never negative: unlike `get_output_frames`, a negative moment is a 400, not counted back from the end); they resolve to one frame index against the baseline (the first video if the baseline is a still) and every output is read at that same frame number; default 4 evenly spaced frames of the shortest video. A frame past an output's end is a blank cell and its metrics cell says `past end (N frames)`; `fps_differs` flags videos with different frame rates, where the same frame number is not the same second. All stills: one column, `at` ignored with a note; a still among videos repeats in every column. Metrics are per non-baseline output at source resolution: `psnr_db` (`identical` when equal), `ssim` (luma, 11x11 Gaussian window, sigma 1.5) and `mean_abs_diff` (0-255), per column and as mean/min/max. `crop` is `[x,y,w,h]`: one shared box is the region shown and measured (`region` reads `crop [...]`); a list of one box per name is display only and metrics stay on the full frame (no crop is `full frame`). A crop must lie wholly inside every output's frame, else 400 (stricter than `get_output_frames`, which clamps). An output whose size differs from the baseline gets null metrics with the reason `size differs from baseline: WxH vs WxH` - it is never resized. `max_dimension` is the longest side of each cell; the grid is held to 4 MiB and shrunk whole when over (never below 64 px per cell), `downscaled_to` null when nothing shrank. Returns the grid image and a text summary. Errors: 400 bad shape, out-of-bounds crop, every moment past every end, or not an image or video; 404 unknown name; 413 over the decode pixel limit; 422 undecodable file. See *Assessing a run's output* in [the workflow guide](WORKFLOW_GUIDE.md#assessing-a-runs-output) |
-| `download_output(name, destination=None, overwrite=False, workspace=None)` | `name`, `destination`, `overwrite`, `workspace` | Save one output file to local disk, of any content type. `destination` may be a full path or a directory; `~` expands and missing parent directories are created. `overwrite=True` is required to replace a file already at the resolved path. Over the stdio `dw-mcp`, omitting `destination` saves under the output's own name in the current working directory. Over a `dw.serve --mcp` endpoint the file lands on the server confined to that workspace (a relative path is joined onto it), and `destination` is required there - an omitted one is refused rather than dropped loose in the workspace root, where nothing can find or delete it later (#353); use the `url` `list_gallery` reports, `get_output_image`/`get_output_audio`/`get_output_frames` for inline content, or `keep_output` to make it a named asset instead. Returns nothing to the conversation but where the file landed — unlike the other media tools, the point is a file on disk, not a payload in context. Writes on the machine running the MCP server - over `dw.serve --mcp` that is the GPU box. A write that fails there (a path that exists only on the client, for instance) comes back as an error naming the server-side write and the client-side alternatives, not as an anonymous tool failure. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `delete_output(name=None, workspace=None, job_id=None)` | exactly one of `name` / `job_id`, `workspace` | Permanently remove one generated file from the output directory, or - with `name` a `<workflow>/<run id>` run directory, or with `job_id` - a whole run. By `job_id` the server reads the run directory from the job record and the root the job ran in (`DELETE /api/jobs/{id}/run`), and the reply is `job_id`, `run_dir`, `deleted` and `run_swept`; a job that never wrote a run directory, an unknown one, or one still queued or running is an error. `workspace` names the workspace for a `name` delete without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
+| Tool | Purpose |
+| --- | --- |
+| `get_output_image(name, max_dimension=768, workspace=None, crop=None)` | A generated image, downscaled to `max_dimension` on its longest side, with a text part reporting `original_size`, `returned_size` and `bytes`. `crop` is `[x, y, width, height]` in the original's pixels, cut before the downscale and reported back clamped |
+| `get_output_audio(name, start=None, duration=None, workspace=None)` | A soundtrack (an audio output, or a video's muxed track) as base64: its own encoding when whole, WAV when excerpted. A whole clip over the 4MB budget is refused, not cut (#204); ask for `start`/`duration` in seconds, and the text part names the excerpt (`excerpt: 2.0s from 10.0s of 240.0s`) |
+| `get_output_frames(name, at=None, seams=None, count=None, boundaries=None, names=None, max_dimension=512, hear=None, workspace=None, crop=None)` | A video as frames (#193). One selector per call: `count` (an evenly spaced contact sheet), `at` (seconds or `"frame:N"`), or `seams` (true, or seam numbers from 1: the frame pair across each join, with `difference`, the mean pixel change 0-255). `boundaries` and `names` modify `seams` only; passing either with `at` or `count` is refused. On an output joined from shots, `seams` reads the recorded `media.shots`; for any other file pass `boundaries` (each later shot's first frame) and `names`. `crop` is `[x, y, width, height]` in source pixels, cut before any downscale. Over the 4MB budget, tiles shrink together. `hear=N` adds N seconds of soundtrack centred on each `at`; a mute clip says `no soundtrack` |
+| `get_output_text(name, max_characters=20000, workspace=None)` | A text output (a prompt enhancement, any `text/plain` or JSON result), with its real length and whether it was truncated |
+| `assess_output(name, probe=None, detail=False, workspace=None)` | Measures a finished cut in the server process without queueing: `analyze_shots`, `analyze_seams` and `analyze_sync_drift` over one decode, using the shot boundaries its run recorded (the manifest, or the `keep_output` sidecar for an asset). Returns merged `findings` (`{rule, severity, at, value, threshold, says}`) with `rules_applied`, `rules_skipped` and `not_applicable`; `detail=true` adds each probe's body under `probes`; `probe=` returns one probe's body, and an unknown name is refused first. Findings are places to look, not verdicts. See [Assessing a run's output](WORKFLOW_GUIDE.md#assessing-a-runs-output) |
+| `compare_outputs(names, at=None, crop=None, baseline=None, max_dimension=384, texture_bands=False, workspace=None)` | 2-8 outputs (gallery names or `asset:`) as one grid, a row per output and a column per moment, with PSNR (`psnr_db`), SSIM (luma, 11x11 Gaussian, sigma 1.5) and `mean_abs_diff` (0-255) against `baseline` (default the first name), per column and as mean/min/max. `at` is 1-8 moments (seconds or `"frame:N"`; negative is a 400), resolved to one frame index against the baseline and read at that frame in every output; default 4 evenly spaced frames of the shortest video. A frame past an output's end is a blank cell (`past end (N frames)`); `fps_differs` flags mismatched rates. One shared `crop` `[x,y,w,h]` is shown and measured; a list of one box per name is display only. A crop must lie wholly inside every frame (400). A size mismatch gives null metrics, never a resize. The grid is held to 4 MiB (never below 64 px a cell). `texture_bands=true` adds RMS texture energy per band (`fine` 2-8 px, `mid` 8-32, `coarse` 32-128) for `luma`, `chroma_rg`, `chroma_bg`, plus `texture_ratio` against the baseline; it needs one shared crop of at least 16 px a side, or none, and allows a single name. Errors: 400 bad shape, crop out of bounds, every moment past every end, or not an image or video; 404 unknown name; 413 over the decode pixel limit; 422 undecodable |
+| `download_output(name, destination=None, overwrite=False, workspace=None)` | Saves one output, any type, to disk on the machine running the MCP server, and returns only where it landed. `destination` is a path or a directory (`~` expands, parents are created); a `..` segment is refused; an existing file needs `overwrite=True`. Over stdio, no `destination` saves under the output's name in the working directory. Over `dw.serve --mcp` the file lands on the server, confined to the workspace, and `destination` is required (#353); use the entry's `url`, the inline tools, or `keep_output` instead |
+| `delete_output(name=None, workspace=None, job_id=None)` | Permanently removes one generated file, or a whole run: `name` as `<workflow>/<run id>`, or `job_id` (`DELETE /api/jobs/{id}/run`, which answers `job_id`, `run_dir`, `deleted`, `run_swept`). Exactly one of the two. A job with no run directory, an unknown one, or one still queued or running is an error. A `job_id` delete goes to the workspace the job ran in |
 
 ### Authoring, assets and workspaces
 
-Authoring happens inside one workspace. A server can hold several - each with
-its own `workflows/`, `assets/` and `outputs/`, all sharing one prompt library
-- and `use_workspace` picks the one this session reads and writes for the rest
-of its life. That is how two agents work against one GPU without saving over
-each other; see [Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
-The session starts in `default` and stays there unless it is told otherwise.
+A server can hold several workspaces, each with its own `workflows/`,
+`assets/` and `outputs/`, all sharing one prompt library and one shared asset
+library. `use_workspace` sets the one this session reads and writes; a session
+starts in `default`. See
+[Workspaces](WORKSPACES.md#several-workspaces-on-one-server).
 
-The pin above is per-*process* state on `client.py`'s `DwClient`, which is
-one session for the local stdio `dw-mcp`, but `dw.serve --mcp` (see
-[REMOTE.md](REMOTE.md#claude-code-no-local-install)) builds a single client
-for every agent it serves - so on that mounted surface the pin is shared by
-every concurrently connected caller, not scoped to any one of them (#298).
-A second client's `use_workspace`/`create_workspace(use=true)` can switch
-what your session reads and writes without your session calling either. This
-server is single-user by design, so nothing tracks distinct MCP sessions to
-fix that; `use_workspace`/`create_workspace` add a `warning` field to their
-result when the pin they are about to overwrite was already pointed
-somewhere other than `default` (a sign another client may depend on it), but
-they cannot warn the *other* session whose pin just moved out from under it.
-A caller that needs real isolation on a mounted server - the tester and
-regression harnesses among them - must pass `workspace=` on every call that
-accepts it (`validate_workflow`, `run_workflow`, and most of the read/media
-tools) rather than relying on the session pin.
+The pin is state on `client.py`'s `DwClient`. A stdio `dw-mcp` has one per
+session, but `dw.serve --mcp` builds one client for every agent it serves, so
+on that surface the pin is **shared by every connected caller** (#298): another
+client's `use_workspace` or `create_workspace(use=true)` moves your pin
+without your session calling either. Both tools add a `warning` to their
+result on a mounted server when they overwrite a pin that pointed somewhere
+other than `default`; the other session gets no warning. A caller that needs
+isolation on a mounted server passes `workspace=` on every call that takes it.
 
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `validate_workflow(workflow=None, name=None, workspace=None, arguments=None)` | exactly one of `workflow` (inline definition) or `name` (a stored workflow, as `list_workflows` reports it), optional `workspace`, optional `arguments` | Check a workflow against the schema and against real pipeline signatures. Free and instant. Validating by name uses the workflow file's own directory as the base directory, so it sees what a run would. Returns every schema violation in `errors`, each with the JSON path it sits at, so a draft is fixed in one pass, and a `previous_result:` that names no earlier step is one of them. `warnings` covers what still runs but is probably wrong - a signature mismatch, and, for a list-driven variable, an entry key no step reads, at the entry's path. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's. Pass the same `arguments` you will pass to `run_workflow` and they are checked too - an undeclared or renamed variable name, a value that will not coerce to the declared type, and an `asset:`, `prompt:` or `output:` reference that names nothing this workspace can reach, each reported at `arguments.<name>`. `checked_arguments` lists what was covered, so a `valid: true` about the stored defaults cannot be mistaken for one about your values. A reference set the model would refuse - too many images, videos or audio clips, or, for MiniMax-H3, audio as the only reference - is an error here too, rather than a failure minutes into a run you acknowledged. `run_workflow` makes the same check and refuses a bad argument rather than queuing a job that fails on its first step. A valid answer carries `plan` - the fingerprint, step count, list lengths, `downloads_required` (pipeline `model_name`s and the repos and single files task steps fetch), `estimate` (with `basis`), `host_memory` (`{projected_mb, basis, runs}`, the projected host-RAM peak; `basis` is `observed` from same-key successful runs on this machine or `fit`; absent when there is no figure) and `elided_steps` for the arguments given; quote from it. `steps` counts what will run: a step nothing reads and which saves no file does not run, and is named in `elided_steps` instead |
-| `list_workspaces()` | — | The server's workspaces and which one this session is using. Each has its own workflows, assets and outputs; the prompt library is shared by all of them. Compact entries are `name`/`default`/`usage` plus any `note` (clipped, `note_truncated` when cut); `detail=true` adds each entry's folder paths |
-| `use_workspace(name)` | `name` | Work in that workspace for the rest of the session - every later call reads and writes there. This is how to keep your work out of another agent's namespace rather than sharing the default one. Checked against the server, so a typo fails here rather than scoping every later call to nothing. On a `dw.serve --mcp` endpoint the pin is shared by every connected client (#298, see the note above the table) - a `warning` field appears when this call overwrote a pin already pointed away from `default` |
-| `create_workspace(name, use=False)` | `name`, `use` | Create a workspace. Pass use=true to switch this session to it as well; otherwise the session stays where it was and the result says so. The result names the workspace (`name`, `default`, `current`, `next`), not its folders - `list_workspaces(detail=true)` is the opt-in for those. `use=true` carries the same mounted-server caveat and `warning` field as `use_workspace` |
-| `copy_to_workspace(destination, runs=None, assets=None, source=None)` | `destination`, `runs`, `assets`, `source` | Copy runs and assets from one workspace into another. Each `runs` entry is `<workflow>/<run id>` as `list_gallery` names it, or a bare `<workflow>` for all its runs; each `assets` entry is a path as after `asset:`, or a folder (`proj/`) for every file under it, keeping its path, note and kept shots. `source` defaults to this session's workspace. Free: no `acknowledged_cost`. Media is hard-linked (a copy across devices falls back to a real copy) and JSON sidecars are always copied, so an edit in one workspace never reaches the other. All or nothing; a run or identical asset the destination already has is skipped as `already_present`, a different file at an asset's path refuses the whole request, so a repeat is idempotent, and a `vN` it already uses is renumbered after its highest and reported in `renumbered`. Warnings: `unresolved_output_refs`, `absolute_paths`, `no_jobs`. A copied run has no job record - it shows in `list_gallery` and resolves as an `output:` reference, not in `list_jobs`. A run whose job is still queued or running is refused. To move, copy then `delete_output` the source runs and `delete_asset` the source assets. See [Workspaces](WORKSPACES.md#copying-between-workspaces) |
-| `delete_workspace(name, acknowledged_cost=False)` | `name`, `acknowledged_cost` | Permanently delete a workspace and everything in it. Refuses without the acknowledgement, reporting what it would remove |
-| `list_assets(limit=50, prefix)` | `limit`, `prefix` | The input media on the server, each with the `asset:` reference a workflow argument carries. Look here before asking for a file - what a workflow needs may already be there. `libraries` names the roots searched and which are writable; `shadowed` lists names a nearer library hides. Compact entries are `name`/`reference`/`kind`/`size`/`origin` plus any `note` (clipped, `note_truncated` when cut); `detail=true` adds `folder`, `mtime`, `url`, `writable`, and `absolute_url`/`used_by` when set. Newest first; `prefix` keeps names starting with it (e.g. `cast/`), `limit` bounds the answer, `total` is the count matched before the cut |
-| `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None, note=None)` | `name`, optional `asset_name`, `overwrite`, `shared`, `workspace`, `note` | Keep a generated file as an input asset under a stable `asset:` name, so a later workflow can rely on it. The copy happens on the server: nothing is downloaded or re-uploaded. `note` is kept with the asset; left out, the source file's note is copied. `asset_name` may name a folder and takes the kept file's extension when it has none; `shared=true` keeps it in the library every workspace shares, which is where a recurring cast belongs. `workspace` names the workspace for this one call without switching the session to it - the same pin `run_workflow` takes, so a job run into another workspace stays reachable from the session that queued it |
-| `set_note(target, note=None, workspace=None)` | `target` (a run `<workflow>/<run id>`, a gallery file name, `asset:<name>` or `workspace:<name>`), `note`, `workspace` | Set the note on a run, an output file, an asset or a workspace; null or `""` clears it. Plain text up to 4000 characters saying what the thing is for - what a run tested, why a file is the keeper. Free: no `acknowledged_cost`. Returns `{target, note, note_source}`. `run_workflow(note=...)` sets a run's note at submission and it shows on every file the run wrote; `list_gallery`, `list_assets`, `list_workspaces` and `list_jobs` carry each note clipped to 200 characters (`note_truncated: true` when cut), while `get_job` and `get_gallery_metadata` return it whole. `get_job` shows the run's current note, so one set here after submission replaces the submitted one. `workspace` names the workspace a run or file name is read in for this one call without switching the session to it - the same pin `run_workflow` takes |
-| `upload_asset(file_path=None, content=None, asset_name=None, shared=False, note=None)` | exactly one of `file_path` or `content` (base64), optional `asset_name`, `shared`, `note` (kept with the asset) | Push an image, video or audio file, or a `.cube` 3D LUT for `apply_lut`, into the server's asset library and get back its `asset:` reference. `file_path` is read from the machine the MCP server runs on, so this is how an input reaches a dw.serve running somewhere else - but only when the caller shares a filesystem with that machine. `content` is the alternative for an agent that does not: the bytes travel inline, base64-encoded, in the tool call itself, capped at 4MB (well under `file_path`'s 200MB) because inline bytes compete with the calling agent's own context budget rather than being a bulk-transfer path (#203). `asset_name` is required with `content` (there is no file name to infer one from) and, either way, stores it under a readable name (`cast/priya-voice.wav`) instead of a random one; `shared=true` puts it in the library every workspace shares |
-| `delete_asset(name)` | `name` | Permanently remove one file from the asset library, by the name `list_assets` reports. Deletes from whichever library holds it - this workspace's own before the shared one; one from a read-only examples library is refused. Any workflow still carrying that `asset:` reference stops loading |
-| `save_workflow(name, workflow)` | `name`, `workflow` | Save a workflow into the server's writable workflow directory, overwriting any existing workflow of that name there. A name that currently resolves to a read-only source (an examples directory) is not overwritten - the copy lands in the writable directory and shadows it |
-| `delete_workflow(name)` | `name` | Permanently delete a stored workflow |
+| Tool | Purpose |
+| --- | --- |
+| `validate_workflow(workflow=None, name=None, inline_workflow=None, workflow_path=None, workspace=None, arguments=None)` | Free and instant: schema, real pipeline signatures, references and arguments. Exactly one of `workflow` (inline, an object or a JSON-encoded string) or `name` (a stored workflow); `run_workflow`'s spellings `inline_workflow` and `workflow_path` are accepted too. By name, the workflow file's own directory is the base directory, as a run sees it. `errors` lists every violation with its JSON path (a `previous_result:` naming no earlier step among them); `warnings` covers what runs but is probably wrong (a signature mismatch, a list entry key no step reads, a value the workflow rounds up). Pass the `arguments` you will run with: an undeclared name, a value that will not coerce, a value outside a declared bound, and an `asset:`/`prompt:`/`output:` reference that reaches nothing are each reported at `arguments.<name>`; `checked_arguments` says what was covered. Also checked: a reference set the model would refuse (too many images, videos or audio clips; for MiniMax-H3, audio as the only reference), an unwritable `result.subfolder` or `file_base_name`, and each sub-workflow step. A valid answer carries `plan`: `fingerprint`, step count, list lengths, `downloads_required`, `estimate` (with `basis`), `host_memory` (`{projected_mb, basis, runs}`) and `elided_steps` (steps nothing reads and that save no file, which do not run). `plan` is null when it could not be built |
+| `list_workspaces(detail=False)` | The workspaces and which one this session uses. Entries carry `name`, `default`, `usage` and any `note` (clipped, `note_truncated`); `detail=true` adds each entry's folder paths |
+| `use_workspace(name)` | Work in that workspace for the rest of the session. Checked against the server, so a typo fails here. On a mounted server the pin is shared (above) |
+| `create_workspace(name, use=False)` | Create a workspace; `use=true` also switches to it. The result names the workspace (`name`, `default`, `current`, `next`), not its folders |
+| `copy_to_workspace(destination, runs=None, assets=None, source=None)` | Copy runs (`<workflow>/<run id>`, or `<workflow>` for all its runs) and assets (a path as after `asset:`, or a folder `proj/`, keeping path, note and kept shots) into another workspace. `source` defaults to the session's workspace. No `acknowledged_cost`. Media is hard-linked (a real copy across devices), JSON sidecars are copied. All or nothing: what the destination already has is skipped as `already_present`, a different file at an asset's path refuses the whole request, a `vN` in use is renumbered (`renumbered`). Warnings: `unresolved_output_refs`, `absolute_paths`, `no_jobs`. A copied run has no job record. A run whose job is queued or running is refused. To move, copy then `delete_output` / `delete_asset`. See [Workspaces](WORKSPACES.md#copying-between-workspaces) |
+| `delete_workspace(name, acknowledged_cost=False)` | Permanently delete a workspace and everything in it. Without the acknowledgement the server refuses (409), reporting what it would remove |
+| `list_assets(detail=False, workspace=None, limit=50, prefix=None)` | Input media on the server, each with its `asset:` reference, newest first. Entries carry `name`, `reference`, `kind`, `size`, `origin` and any `note`; `detail=true` adds `folder`, `mtime`, `url`, `writable`, and `absolute_url`/`used_by` when set. `prefix` keeps names starting with it (`cast/`); `total` counts all matches. `libraries` and `shadowed` are as in `list_workflows` |
+| `keep_output(name, asset_name=None, overwrite=False, shared=False, workspace=None, note=None)` | Keep a generated file as an input asset under a stable `asset:` name, copied on the server. `asset_name` may name a folder and takes the file's extension when it has none; `shared=true` keeps it in the shared library, where a recurring cast belongs. `note` defaults to the source file's note |
+| `set_note(target, note=None, workspace=None)` | Set the note (plain text, up to 4000 characters) on a run (`<workflow>/<run id>`), an output file, `asset:<name>` or `workspace:<name>`; null or `""` clears it. Returns `{target, note, note_source}`. Listings clip notes to 200 characters (`note_truncated`); `get_job` and `get_gallery_metadata` return them whole, and `get_job` shows the current note |
+| `upload_asset(file_path=None, content=None, asset_name=None, shared=False, workspace=None, note=None)` | Put an image, video, audio file or `.cube` LUT into the asset library and get its `asset:` reference. Exactly one of `file_path` (read on the machine running the MCP server, up to 200MB) or `content` (base64 inline, up to 4MB, #203; `asset_name` required). The file is stored under the library's `uploads/`, named `asset_name` when given (`cast/priya-voice.wav`, folders allowed, the extension matching the file's kind) and randomly otherwise; `shared=true` uses the shared library |
+| `delete_asset(name, workspace=None)` | Permanently remove one asset, by the name `list_assets` reports, from whichever library holds it (the workspace's own before the shared one). One from a read-only examples library is refused. A workflow still carrying the reference stops loading |
+| `save_workflow(name, workflow=None, patch=None, workspace=None)` | Save into the writable workflow directory, overwriting a workflow of that name there; `name` may include folders. Exactly one of `workflow` (the full document) or `patch` (a JSON Merge Patch, RFC 7396, onto the stored definition: `null` deletes a key, a list is replaced whole). Either may be a JSON-encoded string. A name that resolves to a read-only source is not overwritten: the copy lands in the writable directory and shadows it |
+| `delete_workflow(name, workspace=None)` | Permanently delete a stored workflow. One from a read-only examples directory (`writable: false`) is refused |
 
 ### Prompts
 
-The stored prompt library is the other half of authoring: a workflow
-argument written as `"prompt:name"` or `"prompt:folder/name"` resolves
-against it at load time, so a workflow can be authored and the text it
-references written in the same session.
+A workflow argument written `"prompt:name"` or `"prompt:folder/name"` resolves
+against the stored prompt library at load time, so a workflow and the text it
+references can be written in the same session. This group also holds the
+enhancers and the LoRA catalog.
 
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `list_prompts(tag=None, intended_model=None, include_text=False)` | optional `tag`, `intended_model`, `include_text` | List the stored prompts - description, intended model, tags and `text_chars`, bodies left out; `get_prompt` for one body Each entry carries `origin` and `writable`; `libraries` and `shadowed` are as in `list_workflows` |
-| `get_prompt(name)` | `name` | Get one stored prompt's full definition |
-| `get_prompt_schema()` | — | Get the JSON schema every stored prompt must satisfy. Its own route rather than a name under `/api/prompts`, so a prompt called `schema` cannot shadow it |
-| `save_prompt(name, prompt)` | `name`, `prompt` | Save a prompt, overwriting any prompt of that name. The server validates first, and refuses a `text` that itself begins with a reference prefix (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) |
-| `delete_prompt(name)` | `name` | Permanently delete a stored prompt. A workflow still referencing it will fail to load |
-| `list_enhancers()` | — | List the enhancer presets `enhance_prompt` accepts |
-| `enhance_prompt(idea, preset="h3", model_name=None, device=None, acknowledged_cost=False)` | `idea`, `preset`, optional `model_name` and `device`, `acknowledged_cost` | Expand a short idea into a full prompt with a language model. Queued as an ordinary job, so it passes the gate; the enhanced text is the text file in the finished manifest, readable with `get_output_text` |
-| `list_loras(model=None, workflow=None, status=None, tag=None)` | optional `model`, `workflow`, `status`, `tag` | List the LoRAs tried on a base model - proven, trial or rejected - with `use_when`, `trigger` and `scale`; exact match on the base. Guide: `loras` |
-| `save_lora(name, entry)` | `name`, `entry` | Save a catalog entry, overwriting any entry of that name; promote a trial to `proven` with its job in `evidence` |
-| `recommend_loras(model, query, limit=8)` | `model`, `query`, optional `limit` | Opt-in: catalog LoRAs ranked against a style request, then Hugging Face Hub adapters of that exact base. Queries the Hub (the one tool with `open_world_hint`); no download, no GPU. Hub rows are candidates to trial. A failed or busy Hub (another search already running) returns the catalog rows plus `hub_error`; an empty `hub` with `hub_error` means the search failed |
+| Tool | Purpose |
+| --- | --- |
+| `list_prompts(tag=None, intended_model=None, include_text=False)` | Stored prompts: `description`, `intended_model`, `tags`, `text_chars`, `origin`, `writable`; `libraries` and `shadowed` as in `list_workflows`. Bodies only with `include_text=true`, which for the whole library is too large; filter first |
+| `get_prompt(name)` | One stored prompt's full definition |
+| `get_prompt_schema()` | The JSON schema a stored prompt must satisfy, on its own route so a prompt named `schema` cannot shadow it |
+| `save_prompt(name, prompt)` | Save a prompt, overwriting one of that name. The server validates it, and refuses a `text` that begins with a reference prefix (`variable:`, `previous_result:`, `constant:`, `asset:`, `output:`, `prompt:`) |
+| `delete_prompt(name)` | Permanently delete a stored prompt. A workflow referencing it fails to load |
+| `list_enhancers()` | The presets `enhance_prompt` accepts |
+| `enhance_prompt(idea, preset="h3", model_name=None, device=None, acknowledged_cost=False)` | Expand a short idea into a full prompt with a language model. Queued as an ordinary job behind the cost gate; the text is the text file in the finished manifest (`get_output_text`) |
+| `list_loras(model=None, workflow=None, status=None, tag=None)` | LoRAs tried on a base model (proven, trial or rejected) with `use_when`, `trigger` and `scale`; exact match on the base. Guide: `loras` |
+| `save_lora(name, entry)` | Save a catalog entry, overwriting one of that name; promote a trial to `proven` with its job in `evidence` |
+| `recommend_loras(model, query, limit=8)` | Catalog LoRAs ranked against a style request, then Hugging Face Hub adapters of that exact base. The one tool that queries the Hub (`open_world_hint`); no download, no GPU. A failed or busy Hub returns the catalog rows plus `hub_error` |
 
 ### Diagnose
 
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `run_workflow(workflow_path=None, inline_workflow=None, arguments=None, acknowledged_cost=False, workspace=None, wait_seconds=0, note=None)` | exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path to a workflow file on the server) or `inline_workflow`, optional `arguments`, `acknowledged_cost`, `workspace`, `wait_seconds`, `note` | Queue a workflow for generation. Returns as soon as the job is queued - unless `wait_seconds` is above 0, in which case the call then waits on the queued job exactly as `wait_for_job(job_id, timeout_seconds=wait_seconds)` would (same per-call cap, clamped not honoured) and the result carries the queued-job fields plus that wait's (`status`, `still_running`, `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds`, `timeout_capped`, the slim `job`); when the cap covers the job's runtime one call is the run and the wait, and a `still_running: true` result is followed with `wait_for_job` as before. `workspace` names the workspace for this one call without switching the session to it - use it to pin a job whose `output:` or `asset:` references live in a workspace other than the session's - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate, and nothing is waited on. `note` says what the run is for (see `set_note`) |
-| `get_job(job_id)` | `job_id` | Get a job's status, warnings, output manifest, error and traceback; each manifest entry's `subfolder` is the in-run subfolder the step declared - by convention `final` for the deliverable, `intermediate` for scratch, `''` for none. A running job also carries `progress` (below); a queued job held for host RAM carries `waiting_for` (#869) |
-| `get_job_workflow(job_id)` | `job_id` | The REST equivalent is `GET /api/jobs/{id}/workflow` (see [SERVER.md](SERVER.md#jobs-api)). The workflow the job actually ran. `realized: true` means every mutable input is pinned (arguments, seed, prompts, `output:latest`); `false` means the job predates run tracking and this is the definition as submitted. Pass it to `save_workflow` to keep it under a name |
-| `export_job(job_id, overwrite=False)` | `job_id`, `overwrite` | Gather one finished job into `<workspace>/exports/<job id>/` on the server: the realized workflow, the run's manifest, the job row, a README, and copies of the assets, earlier-run inputs and outputs. Returns the directory, a zip URL, the file list with sizes and the total. The three JSON files are in the zip, not repeated here - get_job_workflow and get_job serve them individually. **The directory is on the machine running the server**, like `download_output`'s destination. The zip needs no token (`/exports/*.zip` is ungated like `/outputs`, #592), so `auth_required` is false and the agent fetches `open_url` itself (prefixing a relative one with the server address) and unpacks it into `exports/` under the session's working directory (a deliverable, not a temp file) - the archive already unpacks into one folder named after the job id, so do not create that folder first; only an agent without HTTP gives the user `open_url`. `true` is kept as a forward guard for a gated zip, when `open_url` is handed to the person instead |
-| `get_job_events(job_id, after=-1, limit=200)` | `job_id`, `after`, `limit` | Get a page of a job's progress events |
-| `wait_for_job(job_id, timeout_seconds=20)` | `job_id`, `timeout_seconds` | Block until a job reaches a terminal status, or `timeout_seconds` elapses. **One call blocks for at most the server's cap** — 55 seconds unless the deployment sets `DW_MCP_MAX_WAIT_SECONDS` higher, and the tool's description states the live value; a larger `timeout_seconds` is clamped, not honoured. Ask for the job's `plan.estimate` plus a margin: under the cap that is one call for the whole job, over it one call per cap. A deployment raises the cap only as far as its clients (and anything between them and the server) hold one silent HTTP request open - Claude Code's limit is `MCP_TOOL_TIMEOUT`. Every reply carries `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds` and `timeout_capped`, so a capped return is distinguishable from an elapsed one. Use instead of hand-polling `get_job`/`get_job_events` in a loop; if it returns `still_running: true`, call it again. Returns a slim job - status, warnings, error, `run_id` and `run_version` (the run's `v5`, as the gallery labels it), and the manifest once finished - without the arguments; `get_job` has those. A running job also carries `progress` (below); a queued job held for host RAM carries `waiting_for` |
-| `cancel_job(job_id)` | `job_id` | Ask a queued or running job to stop |
-| `clear_memory()` | `device` | Drop every loaded pipeline and the step cache on each idle card - `device`'s alone when named - freeing VRAM/RAM immediately instead of waiting for the next job to evict one model for another. Also drops the step cache, so a seeded workflow that would otherwise reuse cached results regenerates on its next run. A card running a job is skipped (`workers` reports it `job_running`); refused with a 409 when no card asked about is idle, so wait and retry rather than expecting this call to block (#221, #677) |
-| `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | `job_id`, `acknowledged_cost`, `new_seed` | Queue a fresh job from a previous job's stored specification. Costs GPU time, so it passes the same gate as `run_workflow`. `new_seed=true` draws a fresh seed into the workflow's seed variable — without it a seeded workflow's rerun repeats its arguments exactly and the step cache serves the whole run from the earlier one's files (`reused: true`), generating nothing. `get_job_workflow`'s `seed_variable` says whether there is one - `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and the message carries the new estimate |
-| `move_job(job_id, direction)` | `job_id`, `direction` (`up`\|`down`\|`front`\|`back`) | Reorder a queued job |
+| Tool | Purpose |
+| --- | --- |
+| `run_workflow(workflow_path=None, inline_workflow=None, workflow=None, name=None, arguments=None, acknowledged_cost=False, workspace=None, wait_seconds=0, note=None)` | Queue a workflow. Exactly one of `workflow_path` (a catalog name from `list_workflows`, with or without `.json`, or a path on the server) or `inline_workflow` (an object or JSON-encoded string); `validate_workflow`'s spellings `name` and `workflow` are accepted too. `arguments` overrides variables by name and is checked as `validate_workflow` checks it; a bad one is refused before queueing. `acknowledged_cost` is `true` or the bound `{fingerprint, minutes, downloads}` from the validate plan; a 409 means the plan changed and carries the new estimate. Returns once queued, unless `wait_seconds` > 0: then it waits as `wait_for_job(job_id, timeout_seconds=wait_seconds)` would, under the same cap, and adds that wait's fields. `note` says what the run tests (see `set_note`) |
+| `get_job(job_id)` | Status, warnings, output manifest, error and traceback. Each manifest entry's `subfolder` is the one the step declared. A running job carries `progress`; a job held for host RAM carries `waiting_for` (#869) |
+| `get_job_workflow(job_id)` | The workflow the job ran (`GET /api/jobs/{id}/workflow`, [SERVER.md](SERVER.md#jobs-api)). `realized: true` pins every mutable input (arguments, seed, prompts, `output:latest`); `false` is the submitted definition of a job from before run tracking. `seed_variable` names the variable `rerun_job(new_seed=true)` draws into. Pass it to `save_workflow` to keep it |
+| `export_job(job_id, overwrite=False)` | Gather a finished job into `<workspace>/exports/<job id>/` **on the server machine**: the realized workflow, the manifest, the job row, a README, and copies of its assets, earlier-run inputs and outputs (`total_bytes` is what was copied). Returns the directory, a zip URL, the file list and the total. The zip `open_url` needs no token (#592): fetch it (prefixing a relative URL with the server address) and unpack it into `exports/` in the session's working directory; it unpacks into one folder named after the job id. `auth_required: true` would mean a gated zip, to hand to the person. Refuses a running job, and an existing export without `overwrite=true` |
+| `get_job_events(job_id, after=-1, limit=200, kinds=None)` | A page of progress events. `after` is exclusive: pass back `last_seq`. Each event's `at` is seconds since the job started. `kinds` (e.g. `["log", "warning"]`) filters the page, which `memory` events otherwise dominate. A `phase_stall` entry is a watchdog notice every ~30 s of a quiet phase, not evidence of a hang |
+| `wait_for_job(job_id, timeout_seconds=20)` | Block until the job is terminal or `timeout_seconds` elapses. One call blocks for at most the server's cap (`DW_MCP_MAX_WAIT_SECONDS`; the tool's description states the live value); a larger timeout is clamped, and every reply carries `waited_seconds`, `timeout_requested_seconds`, `timeout_applied_seconds` and `timeout_capped`. On `still_running: true`, call again. A deployment raises the cap only as far as its clients hold a silent HTTP request open (Claude Code: `MCP_TOOL_TIMEOUT`). Returns a slim job: status, warnings, error, `run_id`, `run_version`, the manifest once finished, `progress` while running, `waiting_for` when held |
+| `cancel_job(job_id)` | Ask a queued or running job to stop. A running job stops at the next denoise or step boundary |
+| `clear_memory(device=None)` | Drop every loaded pipeline and the step cache on each idle card (`device`'s alone when named), so a seeded workflow regenerates on its next run. A busy card is skipped (`workers` reports `job_running`); a 409 when no card asked about is idle (#221, #677) |
+| `rerun_job(job_id, acknowledged_cost=False, new_seed=False)` | Queue a fresh job from a previous job's stored specification, behind the same gate as `run_workflow`. Without `new_seed=true` a seeded rerun repeats its arguments exactly and the step cache serves it from the earlier files (`reused: true`) |
+| `move_job(job_id, direction)` | Reorder a queued job: `direction` is `up`, `down`, `front` or `back` |
 
 ### Models
 
-| Tool | Arguments | Purpose |
-| --- | --- | --- |
-| `list_models()` | — | (Catalog) List what the Hugging Face cache holds, largest first |
-| `download_model(repo_id, acknowledged_cost=False)` | `repo_id`, `acknowledged_cost` | Fetch a model repo into the cache. Costs disk and bandwidth, so it passes the gate. Returns as soon as the download starts. It fetches the whole repo at `main`, so it does not pre-fetch a single pinned file a task entry names; the task fetches that on its first run |
-| `list_downloads()` | — | List downloads the server is running or recently ran |
-| `cancel_download(download_id)` | `download_id` | Stop a running download; the record shows `cancel_requested: true` until it is `cancelled`. Partial files stay cached and resume on a retry |
-| `delete_model(repo, acknowledged_cost=False)` | `repo`, `acknowledged_cost` | Delete every cached revision of one repo. Not recoverable locally |
-| `get_diffusers_state()` | — | Installed diffusers version, its git commit, and any update in flight |
-| `update_diffusers(acknowledged_cost=False)` | `acknowledged_cost` | Upgrade diffusers to GitHub HEAD in the background |
+`list_models` (above, under Catalog) reports the cache.
+
+| Tool | Purpose |
+| --- | --- |
+| `download_model(repo_id, acknowledged_cost=False)` | Fetch a whole model repo at `main` into the cache; returns once the download starts. It does not pre-fetch a single pinned file a task names; the task fetches that on its first run |
+| `list_downloads()` | Downloads running or recently run |
+| `cancel_download(download_id)` | Stop a running download; the record shows `cancel_requested: true` until `cancelled`. Partial files stay cached and resume on a retry |
+| `delete_model(repo, acknowledged_cost=False)` | Delete every cached revision of one repo. Not recoverable locally |
+| `get_diffusers_state()` | Installed diffusers version, its git commit, and any update in flight |
+| `update_diffusers(acknowledged_cost=False)` | Upgrade diffusers to GitHub HEAD in the background |
 
 The server refuses `delete_model` and `update_diffusers` while a job is
-running or queued, and `delete_model` while a download is active — pulling
-files or package contents out from under a loaded pipeline is the same
-hazard twice. That refusal arrives as the server's own explanation.
+running or queued, and `delete_model` while a download is active, and says
+why.
 
 ## The cost gate
 
-Seven tools refuse unless `acknowledged_cost=true` is passed. Each commits
-the machine to something the user would want to have been asked about first,
-and each says so in its own words — a single shared refusal would be wrong
-for each of them in a different way, and a gate the user learns to wave
-through is not a gate.
+Seven tools refuse unless `acknowledged_cost` is set. Each refuses in its own
+words.
 
 | Tool | What it commits |
 | --- | --- |
-| `run_workflow` | Minutes of GPU time; the engine runs one job per GPU, so a run holds a card the queue could give another job |
-| `rerun_job` | The same run, from a stored spec |
+| `run_workflow` | Minutes of GPU time on a card the queue could give another job |
+| `rerun_job` | The same run, from a stored spec; ungated, any job id would bypass the gate |
 | `download_model` | Tens of gigabytes of network and disk |
-| `delete_model` | Cached weights, unrecoverably — getting them back means downloading again |
+| `delete_model` | Cached weights, unrecoverably |
 | `update_diffusers` | Replacing the installed library with an untagged development build |
-| `enhance_prompt` | A real job on the one-at-a-time engine, delaying any generation behind it |
+| `enhance_prompt` | A real job, delaying any generation behind it |
 | `delete_workspace` | Every workflow, asset and generated file in a workspace, unrecoverably |
 
-`rerun_job` is gated for the same reason as `run_workflow`: it queues the
-identical work, so leaving it open would make the gate worth nothing — any
-job id from `list_jobs` would buy a way around it. `cancel_job` and
-`cancel_download` are deliberately *not* gated: they end a cost rather than
-starting one, and gating them would make the safe direction the harder one.
+`cancel_job` and `cancel_download` are not gated: they end a cost.
 
-The acknowledgement can be bound to what was quoted. `validate_workflow`
-answers with a `plan`; pass `acknowledged_cost={"fingerprint":
-plan.fingerprint, "minutes": plan.estimate.minutes, "downloads": [...]}` and
-the server refuses with 409 if the run's shape changed between the quote and
-the call - a longer list, a stored prompt edited meanwhile, weights that now
-have to be downloaded - naming the new plan so the agent re-quotes. The
-`plan` itself, passed unedited, binds the same way: with no `downloads` key,
-its `downloads_required` repos (a file entry by its repo) and `estimate.minutes` stand in. Bare
-`true` still works and is for a `plan` that came back null; the job records
-which form it got (`acknowledged: none | boolean | bound`).
+The acknowledgement can be bound to the quote. Pass
+`acknowledged_cost={"fingerprint": plan.fingerprint, "minutes":
+plan.estimate.minutes, "downloads": [...]}` from `validate_workflow`'s `plan`,
+and the server refuses with 409, naming the new plan, if the run's shape
+changed since (a longer list, an edited stored prompt, weights that now need
+downloading). The `plan` passed unedited binds the same way: with no
+`downloads` key, its `downloads_required` repos and `estimate.minutes` stand
+in. Bare `true` is for a `plan` that came back null. The job records the form
+it got (`acknowledged: none | boolean | bound`).
 
-Passing the flag does not make a tool wait. The five that start work return
-as soon as it is queued or started, the same way queuing a job from the web UI
-does not block the browser tab; `delete_model` and `delete_workspace` are
-deletions rather than queued work and complete before they answer.
+The flag does not make a tool wait. The five that start work return once it is
+queued or started; `delete_model` and `delete_workspace` complete before they
+answer.
 
-The intended loop:
+The loop ([The loop](WORKFLOW_GUIDE.md#the-loop) is the full version):
 
-1. `validate_workflow` — free, checks schema and pipeline signatures, no GPU
-   time spent. Pass the `arguments` you intend to run with: without them the
-   verdict covers the stored definition and its stock defaults, not the
-   values you wrote, and its `plan` is the number to say out loud:
-   `estimate.minutes` with its `basis`, plus each `downloads_required`
-   entry as a line item of its own (task steps' repos and single files are included)
-2. `run_workflow` with `acknowledged_cost` bound to the plan (`{fingerprint,
-   minutes, downloads}`), or `true` when there was no plan — pass a name straight from
-   `list_workflows` as `workflow_path`; queues the job and returns
-   immediately with a `job_id`
-3. `wait_for_job(job_id, timeout_seconds=...)` to block instead of
-   hand-polling, asking for the plan's estimate plus a margin; one call
-   covers at most the server's cap (`timeout_applied_seconds` and
-   `timeout_capped` say what you got), so call it again if it comes back
-   `still_running: true` — or
-   `get_job_events(job_id)` repeatedly, passing back the previous call's
-   `last_seq` as `after`, for incremental progress instead of just a
-   terminal/not-terminal status. Each event carries `at`, seconds since the
-   job started, so where a step's time went is a subtraction between two
-   events - `step_start` to `generating` is the lead-in a reused pipeline
-   still pays; `generating` is emitted when the pipeline call starts, so
-   `generating` to the first `pipeline_step` is the encoding plus the first
-   denoise pass (`timing.encode_s` on the manifest entry is the encoding alone)
-4. `get_job(job_id)` for the finished manifest (or the error and traceback,
-   if it failed). A pipeline step's entry carries `timing` - load, encode,
-   denoise, decode and save seconds ([WORKSPACES.md](WORKSPACES.md#step-timing))
-5. `get_output_image(name)` to look at a result image
-6. `get_output_frames(name, count=12)` to look at a result video, and
-   `get_output_audio(name, start, duration)` to hear it
+1. `validate_workflow` with the `arguments` you will run with. Quote its
+   `plan`: `estimate.minutes` with its `basis`, and each `downloads_required`
+   entry (task repos and single files included) as its own line.
+2. `run_workflow` with `acknowledged_cost` bound to the plan (or `true` when
+   there was none); it returns a `job_id`.
+3. `wait_for_job(job_id, timeout_seconds=...)`, asking for the estimate plus a
+   margin and calling again on `still_running: true`; or `get_job_events`,
+   passing back `last_seq` as `after`, for incremental progress.
+4. `get_job(job_id)` for the manifest, or the error and traceback. A pipeline
+   step's entry carries `timing` (load, encode, denoise, decode and save
+   seconds; [WORKSPACES.md](WORKSPACES.md#step-timing)).
+5. `get_output_image(name)`, `get_output_frames(name, count=12)` and
+   `get_output_audio(name, start, duration)` to judge the result.
 
-While a job runs, `get_job` and `wait_for_job` carry a `progress` block -
-the step being run, the phase (`loading`, `generating`, `decoding`,
-`saving`) with the model in `phase_detail`, `seconds_in_phase`,
-`seconds_since_event`, and `denoise_step`/`denoise_total_steps`, which are
-null until the denoise loop starts. A single-step generation is minutes of
-one phase, so two polls otherwise come back identical: read `denoise_step`
-moving (slow but healthy) against a `denoise_step` that is a number and
-stays put while `seconds_since_event` climbs (nothing is happening). A null
-`denoise_step` under `generating` is neither - it is the lead-in the
-pipeline runs before the loop, encoding the prompt and every reference and
-then the first denoise pass, with nothing emitted, so silence there is
-expected. On MiniMax H3 the first pass dominates the lead-in, not the encode,
-and it varies by card. The reference encode (`vae_encoder`) is about 6 s for
-an image reference and about 50-53 s for a 5 s 960x544 video reference;
-reference tokens make the first pass slower. Measured on lem: an image
-reference's lead-in was 187 s (job `f90a041af26a`: `timing.encode_s` 26 s,
-first pass 161 s; of the encode, `vae_encoder` was 6 s); the same image +
-video job took 508 s on cuda:1 (`f5aefcdd5e26`: `encode_s` 86 s, first pass
-422 s; `vae_encoder` 59 s) and 165 s on cuda:0 (`6961876f11d3`: `encode_s`
-79 s, first pass 86 s; `vae_encoder` 56 s). Plan for several minutes, up to
-~8.5 min measured (508 s, `f5aefcdd5e26`), with a video reference. `get_job_events` names the block it is in
-while that runs - a `log` line per top-level block of a modular pipeline
-(`MiniMaxAI/MiniMax-H3: vae_encoder`), which is the difference between
-silence and knowing it is encoding the reference. And once the counter is a number the gaps
-between steps are uneven wherever a transformer block cache is configured -
-cheap cached steps, then a full one - so a 140 s gap on H3 is a healthy run;
-read liveness as the counter moving between polls minutes apart rather than
-as silence under a threshold. `cancel_job` stops at the next denoise or
-step boundary, which `denoise_step` is also the measure of.
-
-The other frozen-counter stretch is at the end: under `saving`, `denoise_step`
-sits at a completed-looking `8/8` and cannot move again, because the step is
-writing files. `get_job_events` carries a `log` per file there too - named as
-the write starts (`writing shot.mp4 (121 frames)`) and costed as it finishes
-(`wrote shot.mp4 in 1.3s (1.4 MB)`) - so that stretch is attributable rather
-than silent (#97).
+While a job runs, `get_job` and `wait_for_job` carry `progress`: the step, the
+phase (`loading`, `generating`, `decoding`, `saving`) with the model in
+`phase_detail`, `seconds_in_phase`, `seconds_since_event`, and
+`denoise_step`/`denoise_total_steps` (null until the denoise loop starts). A
+run is healthy while `denoise_step` moves between polls minutes apart, and
+stuck when it is a number that stays put while `seconds_since_event` climbs.
+Two silent stretches are normal: the lead-in under `generating` with a null
+`denoise_step` (prompt and reference encoding plus the first denoise pass;
+several minutes on MiniMax H3 with a video reference), and `saving`, where the
+counter sits at its total. `get_job_events` carries a `log` line per top-level
+modular block (`MiniMaxAI/MiniMax-H3: vae_encoder`) and per file written
+(`writing shot.mp4 (121 frames)`, `wrote shot.mp4 in 1.3s (1.4 MB)`, #97).
+Gaps between denoise steps are uneven under a transformer block cache.
+Measured lead-in figures and every field are in
+[Progress on a running job](SERVER.md#progress-on-a-running-job) and
+[Progress events](SERVER.md#progress-events).
 
 ## Security
 
-The MCP server adds no authentication of its own — it inherits the REST
-API's posture exactly, described in full in [Security](SECURITY.md):
-localhost binding, no auth, `Origin` header checks, and path confinement in
-`dw/security.py` for every workflow, gallery and prompt path a tool touches.
-Nothing under `dw_mcp/` re-implements or loosens that confinement; it is
-purely a client of the same validated endpoints the web UI uses - except for
-`download_output`, the one tool that writes a local file for the MCP client
-rather than only reading through the API. Over a stdio `dw-mcp` it may write
-anywhere the client's own filesystem lets it (a full path, a directory, or
-the current working directory by default, `~` expanded), the way a shell
-redirect would for the same user; a `..` path segment in `destination` is
-refused, and an existing file is left alone unless the caller passes
-`overwrite=True`.
+`dw_mcp` adds no authentication of its own and inherits the REST API's
+posture, described in [Security](SECURITY.md): an opt-in bearer token
+(`--token` / `DW_API_TOKEN`) on `/api/*` and `/mcp`, `Origin` and `Host`
+header checks, and `dw/security.py` path confinement for every workflow,
+gallery, asset and prompt path a tool sends. Nothing under `dw_mcp/` loosens
+that confinement.
 
-Over `dw.serve --mcp` the write happens **on the server**, and there the
-destination is confined to that workspace: an absolute or `~` path outside
-it is refused, and a relative one is joined onto the workspace rather than
-onto whatever the server process's working directory happens to be.
-`destination` is required over this transport - an omitted one is refused
-rather than dropped loose in the workspace root, where nothing can find or
-delete it later (#353). The
-transport is what distinguishes the two - on stdio "local disk" is genuinely
-the caller's own machine, over HTTP it is the operator's. Confinement is on
-the resolved real path, not a substring test, because an absolute path needs
-no `..` to reach anywhere the server can write.
+Two tools touch a file outside the API, and whose machine "local" is depends
+on the transport:
 
-`dw-mcp` may be pointed at a `dw.serve` on another machine only when that
-server was started with a token, and the same token is passed here
-(`--token` / `DW_API_TOKEN`); it refuses to start otherwise. The token is
-the only authentication, and the connection is plaintext HTTP - use it on
-a network you control, or through Tailscale or a TLS proxy beyond that.
-[REMOTE.md](REMOTE.md) has the full setup. The same applies to
-`dw.serve --mcp`, which serves this tool surface itself at `/mcp` behind
-the same token; in that setup `download_output` writes on the server
-machine, not the client's.
+- **`download_output`** writes a file. Over stdio `dw-mcp` it writes anywhere
+  the user's own process may, like a shell redirect. Over `dw.serve --mcp` it
+  writes on the server, confined to the workspace: an absolute or `~` path
+  outside it is refused, a relative one is joined onto the workspace, and
+  `destination` is required (#353, #113). Containment is checked on the
+  resolved real path. On both transports a `..` segment is refused and an
+  existing file needs `overwrite=True`.
+- **`upload_asset(file_path=...)`** reads a file. Over stdio it reads what the
+  user may. Over `dw.serve --mcp` `file_path` is confined to the server's
+  workspace, workflows, assets, outputs and prompts directories, and the
+  refusal comes before the file is looked for, so it is not a path-existence
+  oracle (#138). `content` names no path and is not confined.
 
-`save_workflow` and `run_workflow` together let an MCP client write and
-then execute a workflow it authored - and a workflow JSON file can execute
-arbitrary Python (see [Trust model](SECURITY.md#trust-model)). What
-protects a `dw.serve` an MCP client talks to is the server's own
-`--trust-workflows` flag, off by default: run `dw-serve` without it (the
-default) for any server an MCP client can reach.
+`dw-mcp` reaches a `dw.serve` on another machine only when that server has a
+token and the same token is passed here; it refuses to start otherwise. The
+token is the only authentication and the connection is plaintext HTTP: use a
+network you control, or Tailscale or a TLS proxy beyond that
+([REMOTE.md](REMOTE.md)). `dw.serve --mcp` serves this tool surface at `/mcp`
+behind the same token, and refuses to start on a non-loopback host without one.
+
+`save_workflow` and `run_workflow` let an MCP client write and then run a
+workflow, and a workflow can execute arbitrary Python
+([Trust model](SECURITY.md#trust-model)). What protects the server is its own
+`--trust-workflows` flag, off by default: leave it off on any server an MCP
+client can reach.
 
 ## Known limits
 
-- **Event history is bounded.** `get_job_events` serves at most the last 200
-  events of a finished job (`MAX_PERSISTED_EVENTS` in the job history store).
-  A job that ran before this feature existed returns an empty event list
-  with a `note` explaining why.
-- **Images, sound and frames.** `get_output_image` returns an image,
-  `get_output_audio` a soundtrack (an audio file's, or the one muxed into a
-  video) whole or as a named excerpt, and `get_output_frames` frames of a
-  video as images - there is no video content type over MCP, so a video is
-  seen as frames and heard as its track. `get_output_audio` refuses a whole
-  clip whose base64 size would exceed the same 4MB budget; ask for an
-  excerpt instead.
-- **Uploads read the MCP server's disk, unless sent inline.**
-  `upload_asset(file_path)` pushes a local file into the asset library, but
-  "local" means the machine `dw-mcp` runs on. Over `dw.serve --mcp` that is
-  the GPU box, so a file sitting on the client's laptop is not reachable that
-  way - put it on the server, give the workflow a URL (the arguments that
-  take a path take a URL too), or use `upload_asset(content=..., asset_name=...)`
-  to send the bytes inline instead, base64-encoded in the call itself, capped
-  at 4MB (#203). On a `--mcp` endpoint `file_path` is also *confined* to the
-  directories the server works in (its workspace, workflows, assets, outputs
-  and prompts), and the refusal comes before the file is looked for, so the
-  tool cannot be used to probe which paths exist on the box (#138); `content`
-  reads no path and is not subject to this confinement, since no file on
-  either machine is ever named.
-  `download_output` has the same asymmetry in the other direction: on a
-  `--mcp` endpoint it writes on the GPU box, not the client's machine, and is
-  confined to the workspace there.
-- **Prompts are not per-workspace.** Switching workspaces changes which
-  workflows, assets and outputs the session sees; the prompt library is one
-  library shared by all of them, because `prompt:` is shared by reference.
+- **Event history is bounded.** A finished job keeps its last 200 events
+  (`MAX_PERSISTED_EVENTS`). A job from before event persistence returns an
+  empty list with a `note`.
+- **No video content type.** A video is seen as frames (`get_output_frames`)
+  and heard as its track (`get_output_audio`); a whole clip over the 4MB
+  budget is refused, so ask for an excerpt.
+- **Files cross machines only by transport.** Over `dw.serve --mcp`,
+  `upload_asset(file_path)` and `download_output` act on the GPU box, not the
+  client. Send a client file with `upload_asset(content=..., asset_name=...)`
+  (4MB cap) or give the workflow a URL; fetch results by their `url`.
+- **Prompts are not per-workspace.** The prompt library is one library shared
+  by every workspace, because `prompt:` is shared by reference.
 
 ## Troubleshooting
 
 | Symptom | Likely cause |
 | --- | --- |
-| `Failed to reconnect to dw: ENOENT` (or the client cannot start the server) | The client cannot find the command. Register the venv's **absolute** path to `dw-mcp`, not the bare name - see [Use the absolute path](#use-the-absolute-path-to-dw-mcp). A bare name works only when the client was launched from an activated venv, so this often appears in a second terminal after the first one worked |
-| The server shows connected, but every tool fails | "Connected" means the `dw-mcp` process launched, not that the engine is reachable. Check `dw.serve` is running |
-| "Cannot reach diffusers-workflow at …" | `dw.serve` is not running. Start it with `dw-serve` (or `python -m dw.serve`) and try again |
-| A config change seems to have no effect | A running session holds the old config. Start a new session |
-| It worked, then broke after rebuilding the venv | Re-run `pip install -e ".[server,mcp]"`. If the repo moved or was renamed, re-register the server with the new absolute path |
-| A tool call times out | Usually a model loading into VRAM/RAM for the first time; retry, or raise `--timeout` |
-| `run_workflow` or `rerun_job` refuses with a cost message | Not an error — it is the `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost` bound to the plan (or `true`); a 409 "shape changed" answer means the run grew since the quote - re-validate, re-quote, pass the new plan |
+| `Failed to reconnect to dw: ENOENT` (or the client cannot start the server) | The client cannot find the command. Register the venv's **absolute** path to `dw-mcp` ([Use the absolute path](#use-the-absolute-path-to-dw-mcp)). A bare name works only when the client was launched from an activated venv |
+| The server shows connected, but every tool fails | "Connected" means `dw-mcp` launched, not that the engine is reachable. Check `dw.serve` is running |
+| "Cannot reach diffusers-workflow at …" | `dw.serve` is not running. Start it with `dw-serve` (or `python -m dw.serve`) |
+| `dw-mcp` exits 2 at startup | A non-loopback `--url` with no token, or the startup probe failed against a remote URL (unreachable, or the token was rejected with a 401) |
+| A config change has no effect | A running session holds the old config. Start a new session |
+| It broke after rebuilding the venv | Re-run `pip install -e ".[server,mcp]"`. If the repo moved, re-register the new absolute path |
+| A tool call times out | One API request exceeded `--timeout` (30 s); raise it. For a long job use `wait_for_job`, which returns at its cap rather than timing out |
+| `run_workflow` or `rerun_job` refuses with a cost message | The `acknowledged_cost` gate. Confirm with the user and call again with `acknowledged_cost` bound to the plan (or `true`); a 409 means the run changed since the quote: re-validate, re-quote, pass the new plan |

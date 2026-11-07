@@ -38,6 +38,10 @@ logger = logging.getLogger("dw")
 
 CONTENT_TYPE_KEY = "content_type"
 
+# The OpenTimelineIO bundle export_timeline writes: a zip no MIME database
+# names, so its extension is stated here
+OTIOZ_CONTENT_TYPE = "application/x-otioz"
+
 # Audio content types soundfile can write, mapped to their file extension and to any
 # write arguments the extension alone does not imply. Opus has no extension of its own
 # in libsndfile - it is a subtype of the ogg container.
@@ -197,6 +201,9 @@ def guess_extension(content_type):
     # does not recognize every extension mimetypes suggests, such as '.oga' for ogg
     if content_type in AUDIO_FORMATS:
         return AUDIO_FORMATS[content_type][0]
+
+    if content_type == OTIOZ_CONTENT_TYPE:
+        return ".otioz"
 
     ext = mimetypes.guess_extension(content_type)
     if ext is not None:

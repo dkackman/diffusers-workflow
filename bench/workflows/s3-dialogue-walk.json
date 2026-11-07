@@ -1,0 +1,233 @@
+{
+  "id": "BenchS3DialogueWalk",
+  "description": "Long-form bench S3 (dialogue walk): templates/minimax/chained-segments with continuity 'guide' and carry_audio, six segments, a cast portrait (asset:bench/walker.png) and one short spoken line per segment through `prompts`. Each line is sized to a segment (see plugins/dw/skills/minimax-h3/references/dialogue.md). `anchor` and `guide_noise` are the drift-probe knobs; their defaults are today's call. Counter-round knobs (all null/off by default, so the defaults are still the control): anchor_strength, guide_backoff, keystone, look_hold (chain keys) and antiburn_model_name (set to minimax-h3's Imagineer13/H3-Anti-Burn-LoRA to load it at antiburn_scale on every segment). `duration_seconds` (null by default, so the chain keeps `segments`) asks for a length in seconds instead, for the two-minute confirmations. Task 13/14 knobs (off by default, so the defaults are still the control): `check` and `retries` (the per-segment check and its re-roll budget, chain keys) and `keep_segments` (save_segments + keep_segments, the segment files repair-segment needs).",
+  "variables": {
+    "prompt": "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She walks toward the camera down the cobblestone street, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+    "image": "asset:bench/walker.png",
+    "num_frames": 124,
+    "segments": 6,
+    "continuity": "guide",
+    "guide_frames": 22,
+    "width": 960,
+    "height": 544,
+    "num_inference_steps": 5,
+    "video_shift": 6,
+    "audio_shift": 3,
+    "weights_dtype": "{int4}",
+    "seed": 1166,
+    "anchor": "none",
+    "guide_noise": null,
+    "lora_model_name": "lightx2v/Minimax-h3-Turbo",
+    "lora_weight_name": "minimax_h3_fl2v_turbo_4step_v1.2_768p_bf16.safetensors",
+    "attention_backend": "sparse",
+    "prompts": [
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She walks toward the camera down the cobblestone street, slow and steady, glancing up at the lamps. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] I told myself I would not come back here.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. Her eyes move along the shopfronts as she walks on, the long olive coat swinging with each step. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] But the street looks exactly the way I left it.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She slows for a moment, looks down at the stones, then lifts her chin and walks on. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Same lamps, same crooked stones, same bakery smell.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. A faint smile crosses her face as she keeps walking toward the camera. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Funny how a place waits for you without asking.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. Her expression softens and her pace eases, the golden light warm along her shoulder. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Maybe that is what I was afraid of.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None.",
+      "For the target video, at 0.00 seconds into the target video, <Picture 1> (from [Shot 1]) is fully referenced.\n\nintegrated_multimodal_description: [Shot 1] Cinematic, live-action, one continuous shot. The shot opens exactly on <Picture 1>: a woman in her early thirties with shoulder-length dark hair, in a long olive coat, walks toward the camera down a quiet cobblestone street at golden hour. She squares her shoulders and walks on, the camera keeping her centered in frame. The woman (S1), a warm, low female alto voice, calm and unhurried, says <d>[English] Well. Let's see if the door still sticks.</d> The camera holds a steady medium shot at eye level, keeping pace with her as she walks.\n\noverall_soundscape: Soft footsteps on cobblestones, a faint breeze, distant street ambience.\n\nnon_diegetic_music: None."
+    ],
+    "anchor_strength": null,
+    "guide_backoff": null,
+    "keystone": null,
+    "look_hold": null,
+    "antiburn_model_name": null,
+    "antiburn_weight_name": "h3_antiburn_universal_v1.safetensors",
+    "antiburn_scale": 0.6,
+    "duration_seconds": null,
+    "check": false,
+    "retries": 0,
+    "keep_segments": false
+  },
+  "variable_constraints": {
+    "num_frames": {
+      "modulus": 17,
+      "remainder": 5,
+      "min_frames": 124,
+      "max_frames": 345,
+      "snap": "up",
+      "reason": "the video VAE encodes 17 * n + 5 frames, and MiniMax-H3 generates between 5 and 15 seconds at 24 fps"
+    },
+    "width": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "H3 refuses width/height not a multiple of 32"
+    },
+    "height": {
+      "modulus": 32,
+      "remainder": 0,
+      "reason": "H3 refuses width/height not a multiple of 32"
+    }
+  },
+  "seed": "variable:seed",
+  "steps": [
+    {
+      "name": "chained_keyframe_to_video_audio",
+      "pipeline": {
+        "configuration": {
+          "component_type": "ModularPipeline",
+          "pre_load_modules": [
+            "sdnq"
+          ],
+          "load_components": {
+            "dtype": "torch.bfloat16",
+            "quantization_config": {
+              "transformer": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "use_quantized_matmul": true,
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    "proj_in",
+                    "audio_proj_in",
+                    "context_embedder",
+                    "time_embedder",
+                    "time_proj",
+                    "token_refiner",
+                    "norm_out",
+                    "proj_out",
+                    "audio_proj_out"
+                  ]
+                }
+              },
+              "text_encoder": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "variable:weights_dtype",
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false,
+                  "modules_to_not_convert": [
+                    ".model.visual",
+                    "lm_head"
+                  ]
+                }
+              },
+              "vae": {
+                "configuration": {
+                  "config_type": "sdnq.SDNQConfig"
+                },
+                "arguments": {
+                  "weights_dtype": "{int8}",
+                  "quant_conv": true,
+                  "use_quantized_matmul_conv": true,
+                  "quantization_device": "cuda",
+                  "return_device": "cpu",
+                  "dequantize_fp32": false
+                }
+              }
+            }
+          },
+          "components": {
+            "transformer": {
+              "attention_backend": "variable:attention_backend",
+              "sparse_tau": 0.5,
+              "sparse_topk": 0.15,
+              "group_offload": {
+                "offload_type": "block_level",
+                "num_blocks_per_group": 2,
+                "use_stream": true,
+                "record_stream": true,
+                "low_cpu_mem_usage": true
+              }
+            },
+            "text_encoder": {
+              "remove_modules": [
+                "lm_head"
+              ]
+            },
+            "text_encoder.model": {
+              "truncate_layers": {
+                "language_model.layers": 51
+              },
+              "group_offload": {
+                "offload_type": "leaf_level"
+              }
+            },
+            "vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            },
+            "audio_vae": {
+              "device": "cuda",
+              "residency": "on_demand"
+            }
+          }
+        },
+        "from_pretrained_arguments": {
+          "model_name": "MiniMaxAI/MiniMax-H3",
+          "workflow": "fl2va"
+        },
+        "loras": [
+          {
+            "model_name": "variable:lora_model_name",
+            "weight_name": "variable:lora_weight_name",
+            "adapter_name": "turbo",
+            "scale": 1
+          },
+          {
+            "model_name": "variable:antiburn_model_name",
+            "weight_name": "variable:antiburn_weight_name",
+            "adapter_name": "antiburn",
+            "scale": "variable:antiburn_scale"
+          }
+        ],
+        "chain": {
+          "prompts": "variable:prompts",
+          "segments": "variable:segments",
+          "duration_seconds": "variable:duration_seconds",
+          "continuity": "variable:continuity",
+          "guide_frames": "variable:guide_frames",
+          "anchor": "variable:anchor",
+          "segment_argument": "image",
+          "trim_frames": 2,
+          "crossfade_ms": 80,
+          "fps": 24,
+          "frame_snap": "constraint:num_frames",
+          "carry_audio": true,
+          "anchor_strength": "variable:anchor_strength",
+          "guide_backoff": "variable:guide_backoff",
+          "keystone": "variable:keystone",
+          "look_hold": "variable:look_hold",
+          "check": "variable:check",
+          "retries": "variable:retries",
+          "save_segments": "variable:keep_segments",
+          "keep_segments": "variable:keep_segments"
+        },
+        "scheduler": {
+          "shift": "variable:video_shift"
+        },
+        "audio_scheduler": {
+          "shift": "variable:audio_shift"
+        },
+        "arguments": {
+          "prompt": "variable:prompt",
+          "image": "variable:image",
+          "num_frames": "variable:num_frames",
+          "width": "variable:width",
+          "height": "variable:height",
+          "num_inference_steps": "variable:num_inference_steps",
+          "guide_noise": "variable:guide_noise",
+          "output": [
+            "videos",
+            "audio",
+            "sampling_rate"
+          ]
+        }
+      },
+      "result": {
+        "content_type": "video/mp4",
+        "fps": 24,
+        "subfolder": "final"
+      }
+    }
+  ]
+}

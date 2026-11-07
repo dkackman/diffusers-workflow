@@ -186,3 +186,43 @@ def test_the_layout_caption_carries_tags_and_a_0_to_1000_box_table():
         top, left, bottom, right = row["bbox"]
         assert 0 <= top < bottom <= 1000 and 0 <= left < right <= 1000
     assert klein_steps(load(os.path.join(TEMPLATES, "layout-boxes.json")))
+
+
+@pytest.mark.parametrize("path", flux3_definitions())
+def test_every_klein_step_skips_the_repo_s_prompt_upsampler(path):
+    # The repo's modular index also names an 18.8 GB prompt_upsampler (from the -pup
+    # repo); load_components() with no names pulls it too, and with Klein's ~19 GB
+    # that overflows a 24 GB card while loading (#1168)
+    for step in klein_steps(load(path)):
+        load_arguments = step["pipeline"]["configuration"]["load_components"]
+        assert load_arguments["names"] == [
+            "text_encoder",
+            "tokenizer",
+            "transformer",
+            "vae",
+        ], path
+
+
+KLEIN_DEFINITIONS = [
+    "workflows/templates/flux3/text-to-image.json",
+    "workflows/templates/flux3/image-edit.json",
+    "workflows/templates/flux3/multi-reference.json",
+    "workflows/templates/flux3/layout-boxes.json",
+    "workflows/templates/flux3/upsample-then-generate.json",
+    "workflows/models/flux3-klein.json",
+]
+
+
+@pytest.mark.parametrize("path", KLEIN_DEFINITIONS)
+def test_every_klein_definition_removes_the_in_pipeline_upsampler(path):
+    """#1168: the block always runs and needs the 18.8 GB upsampler loaded"""
+    definition = load(os.path.join(ROOT, path))
+    klein = [
+        s["pipeline"]["configuration"]
+        for s in definition["steps"]
+        if "pipeline" in s
+        and s["pipeline"]["configuration"].get("component_type") == "ModularPipeline"
+    ]
+    assert klein
+    for configuration in klein:
+        assert configuration["remove_blocks"] == ["prompt_upsampler"]

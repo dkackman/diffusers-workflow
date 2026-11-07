@@ -1,0 +1,226 @@
+[
+  {
+    "name": "tst-sparse-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-sparse-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-sparse-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-sparse-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-dense-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-dense-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-dense-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-dense-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-tst20-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null,
+      "tst": {
+        "tau": 0.2,
+        "per_head": true
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-tst20-s1-s2",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null,
+      "tst": {
+        "tau": 0.2,
+        "per_head": true
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-tst20-s2-s1166",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null,
+      "tst": {
+        "tau": 0.2,
+        "per_head": true
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-tst20-s2-s2",
+    "scene": "s2-arc",
+    "workflow": "s2-arc.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null,
+      "tst": {
+        "tau": 0.2,
+        "per_head": true
+      }
+    },
+    "seed": 2,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  },
+  {
+    "name": "tst-tau0-s1-s1166",
+    "scene": "s1-static",
+    "workflow": "s1-static.json",
+    "arguments": {
+      "segments": 1,
+      "attention_backend": null,
+      "tst": {
+        "tau": 0.0,
+        "per_head": true
+      }
+    },
+    "seed": 1166,
+    "workflow_id_suffix": "-tst",
+    "moments": [
+      "frame:20",
+      "frame:62",
+      "frame:110"
+    ]
+  }
+]

@@ -101,6 +101,11 @@ class Job:
         # rss when it caused no growth (#272). None for a run that never got
         # a memory_info message at all
         self.host_memory_job_peak_rss_mb = None
+        # The largest committed reading during the run (RssAnon + RssShmem +
+        # the driver's pinned pages) - RSS without the checkpoint pages the
+        # worker maps, which are page cache (#869). None where the platform
+        # has no split
+        self.host_memory_job_peak_committed_mb = None
         # The host RAM it was projected to hold at its peak when admitted,
         # (mb, basis, runs) or None (dw/server/host_ram_need.py, #869)
         self.host_ram_need = None

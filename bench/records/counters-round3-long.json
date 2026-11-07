@@ -1,0 +1,44 @@
+[
+  {
+    "arm": "r3-anchor25-s1-120s",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "25f6bd1da507",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261104-233558-8c6ae697/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 0.9432142857142857,
+      "seam_jump_max": 1.86,
+      "seam_look_mean": 1.0325,
+      "seam_look_max": 2.7,
+      "seam_level_step_db_mean": 5.834285714285714,
+      "seam_level_step_db_max": 24.34,
+      "texture_fine_seg_last": 1.1076040063709027,
+      "texture_mid_seg_last": 0.43039061064808104,
+      "texture_coarse_seg_last": 0.01932700686817017,
+      "wall_minutes": 69.08823354641596
+    }
+  },
+  {
+    "arm": "r3-lf-lookhold-anchor25-s1-120s",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "9877bbfd85a8",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchS1Static/20261105-004501-92f5fbde/final/BenchS1Static-chained_keyframe_to_video_audio.0-0.0.mp4",
+    "measures": {
+      "seam_jump_mean": 1.0195652173913043,
+      "seam_jump_max": 4.24,
+      "seam_look_mean": 1.26,
+      "seam_look_max": 6.36,
+      "seam_level_step_db_mean": 5.507826086956522,
+      "seam_level_step_db_max": 15.04,
+      "texture_fine_seg_last": 0.9299567713663541,
+      "texture_mid_seg_last": 0.6372666412000864,
+      "texture_coarse_seg_last": 0.06779884362428489,
+      "wall_minutes": 48.023191964626314
+    }
+  }
+]

@@ -307,7 +307,7 @@ def normalize_audio(artifact):
     raise ValueError(f"Cannot save audio with shape {waveform.shape}")
 
 
-def as_audio_track(audio):
+def as_audio_track(audio, quiet=False):
     """Convert a generated waveform into the tensor encode_video expects.
 
     encode_video wants a float torch tensor on the CPU shaped (channels, samples) -
@@ -321,6 +321,8 @@ def as_audio_track(audio):
 
     Args:
         audio: Waveform as a torch tensor or numpy array
+        quiet: Skip the duplication warning, for a track the engine itself
+            made mono (stills_to_video's silent one, #1161)
 
     Returns:
         Float CPU torch tensor holding the waveform, with at least 2 channels
@@ -329,10 +331,10 @@ def as_audio_track(audio):
         audio = torch.from_numpy(numpy.asarray(audio))
 
     audio = audio.detach().float().cpu()
-    return _as_stereo(audio)
+    return _as_stereo(audio, quiet)
 
 
-def _as_stereo(audio):
+def _as_stereo(audio, quiet=False):
     """Duplicate a mono waveform into two channels, leaving anything else alone.
 
     Orientation is read the way encode_video reads it: (samples,) and (1, samples)
@@ -353,10 +355,11 @@ def _as_stereo(audio):
     elif audio.ndim != 1:
         return audio
 
-    emit_warning(
-        f"Duplicating a mono audio track of {audio.shape[0]} samples into two "
-        f"channels - an mp4 audio stream takes stereo and nothing else"
-    )
+    if not quiet:
+        emit_warning(
+            f"Duplicating a mono audio track of {audio.shape[0]} samples into two "
+            f"channels - an mp4 audio stream takes stereo and nothing else"
+        )
     return audio.unsqueeze(0).repeat(2, 1)
 
 

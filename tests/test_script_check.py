@@ -1640,3 +1640,20 @@ class PerShotPassTest(unittest.TestCase):
         answer, calls = self._run(whole, [])
         self.assertEqual(len(calls), 1)
         self.assertEqual(answer["transcription_pass"], "whole_cut")
+
+
+def test_line_similarity_closed_compound_is_not_a_mismatch():
+    from dw.tasks.script_findings import line_similarity
+
+    expected = ["those", "are", "candle", "crumbs"]
+    assert line_similarity(expected, ["those", "are", "candlecrumbs"]) == 1.0
+    assert line_similarity(["ice", "cream"], ["icecream"]) == 1.0
+    assert line_similarity(["those", "are", "candlecrumbs"], expected) == 1.0
+
+
+def test_line_similarity_wrong_short_line_still_fails():
+    from dw.tasks.script_findings import line_similarity
+
+    expected = ["those", "are", "candle", "crumbs"]
+    assert line_similarity(expected, ["these", "are", "bread", "crumbs"]) < 0.6
+    assert line_similarity(expected, ["no", "way"]) < 0.6

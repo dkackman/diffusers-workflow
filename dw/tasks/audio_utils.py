@@ -2,7 +2,8 @@
 
 Waveforms are handled as (channels, samples) float32 numpy arrays throughout -
 as_channels_samples normalizes the shapes pipelines and files actually produce
-into that layout.
+into that layout. The slice_audio task is `audio_slice.py`, which reads
+`as_track` and `waveform_and_rate` from here; this module never imports it.
 """
 
 import io
@@ -15,10 +16,8 @@ import soundfile
 from ..dsp import (
     as_channels_samples,
     fade_curve,
-    level_dbfs,
     matched_channels,
     resample_waveform,
-    slice_samples,
 )
 from ..events import emit_log, emit_warning
 from ..media_types import AudioTrack, warn_on_rate_override
@@ -27,8 +26,6 @@ from ..task_domains import (
     check_arguments,
     frames_to_samples,
     real_number,
-    slice_lead_problem,
-    slice_padding,
     slice_region,
     whole_number,
 )
@@ -39,20 +36,6 @@ from ..security import (
 )
 
 logger = logging.getLogger("dw")
-
-
-# A dropped tail is only the "almost reached the end" signature this warning
-# exists for when it is both short next to the slice and short in absolute
-# terms - a deliberate excerpt out of a long recording drops most of the
-# source and should not warn
-SLICE_TRIM_WARN_SECONDS = 10.0
-SLICE_TRIM_WARN_FRACTION = 0.05
-
-# A remainder shorter than this is the rounding frame-aligned slicing
-# produces (or a sub-millisecond seconds-addressed remainder), not a
-# noticeable dropped tail - the same floor SLICE_PAD_WARN_MS applies on the
-# other side of a slice
-SLICE_TRIM_WARN_MIN_MS = 10.0
 
 
 def load_audio(location, base_dir=None):
@@ -100,7 +83,14 @@ def load_audio(location, base_dir=None):
     return as_channels_samples(data), sample_rate
 
 
-def as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=None):
+def as_track(
+    waveform,
+    sample_rate,
+    command="an audio task",
+    source_mean_dbfs=None,
+    asked_seconds=None,
+    snapped_seconds=None,
+):
     """An audio task's return value: the waveform with the rate it is at.
 
     Every one of these commands already knows the rate - it was given, or it
@@ -127,132 +117,11 @@ def as_track(waveform, sample_rate, command="an audio task", source_mean_dbfs=No
             f"written"
         )
     return AudioTrack(
-        numpy.ascontiguousarray(waveform), rate, source_mean_dbfs=source_mean_dbfs
-    )
-
-
-def slice_audio(
-    audio,
-    start_seconds=None,
-    duration_seconds=None,
-    start_frame=None,
-    num_frames=None,
-    fps=None,
-    sample_rate=None,
-    lead_frames=0,
-):
-    """Task command: cut a slice out of an audio track.
-
-    The slice is addressed either in seconds (start_seconds + duration_seconds)
-    or in video frames (start_frame + num_frames + fps).
-
-    In the frame form 'lead_frames' (default 0) adds audio before the cut: the
-    slice starts at start_frame - lead_frames and runs num_frames frames, so a
-    later trim of the head can land exactly on start_frame. A lead-in reaching
-    before the head of the track (start_frame - lead_frames below zero) is
-    refused, as is 'lead_frames' together with the seconds form.
-
-    A slice reaching past the end of the track is zero-padded to the length
-    asked for - it does not fail and it is not shortened - and the padding is
-    digital silence, so asking for more than the source holds returns a track
-    that is partly empty. Anything past a few milliseconds of that is
-    reported as a 'slice_past_end' warning on the job. To fill a cut longer
-    than the recording, make a bed with the 'loop_audio' task first
-    ('target_frames' + 'fps' matches one exactly) and slice that.
-
-    Either half of a pair may be left out: with no start the slice begins at the
-    head of the track, and with no duration it runs to the end of it. A workflow
-    that trims only when it is told a length therefore still produces the track
-    rather than failing.
-
-    Args:
-        audio: Path or URL of an audio file (or of a video file, whose
-            soundtrack is taken), a video generated with a
-            soundtrack (which brings its sample rate along), or a waveform
-            (which needs sample_rate alongside it)
-        sample_rate: Sample rate of a waveform passed directly; given for a
-            file or a video it overrides the rate they carry
-
-    Returns:
-        An AudioTrack holding the slice and the rate it is at, so the next
-        audio command in the chain does not have to be told the rate again
-    """
-    # A variable a workflow declares null carries no type, so a value given for
-    # it on the command line arrives as a string - the same coercion the upscale
-    # and interpolation tasks do on their numeric arguments
-    command = "slice_audio"
-    start_seconds = real_number(start_seconds, "start_seconds", command)
-    duration_seconds = real_number(duration_seconds, "duration_seconds", command)
-    start_frame = whole_number(start_frame, "start_frame", command)
-    num_frames = whole_number(num_frames, "num_frames", command)
-    fps = real_number(fps, "fps", command, exact=True)
-    lead_frames = whole_number(lead_frames, "lead_frames", command)
-
-    # A count or an offset outside its domain is refused rather than handed to
-    # Python's slice semantics, which answered a negative 'num_frames' with
-    # the track minus its last N frames and called it a success (#139).
-    # validate_workflow refuses a literal one for free; this is the same
-    # refusal for a value that arrived from a variable or an earlier step
-    check_arguments(
-        "slice_audio",
-        start_seconds=start_seconds,
-        duration_seconds=duration_seconds,
-        start_frame=start_frame,
-        num_frames=num_frames,
-        fps=fps,
-        sample_rate=sample_rate,
-        lead_frames=lead_frames,
-    )
-    problem = slice_lead_problem(
-        start_frame, lead_frames, start_seconds, duration_seconds
-    )
-    if problem:
-        raise ValueError(problem)
-
-    waveform, sample_rate = waveform_and_rate(audio, sample_rate, "slice_audio")
-    total = waveform.shape[1]
-
-    region = slice_region(
-        sample_rate,
-        start_seconds=start_seconds,
-        duration_seconds=duration_seconds,
-        start_frame=start_frame,
-        num_frames=num_frames,
-        fps=fps,
-        total=total,
-        lead_frames=lead_frames or 0,
-    )
-    if region is None:
-        in_seconds = start_seconds is not None or duration_seconds is not None
-        if not in_seconds and (start_frame is not None or num_frames is not None):
-            raise ValueError("slice_audio needs 'fps' to address a slice in frames")
-        raise ValueError(
-            "slice_audio needs either 'start_seconds'/'duration_seconds' or "
-            "'start_frame'/'num_frames'/'fps'"
-        )
-    start, length = region
-
-    _warn_on_slice_past_end(total, start, length, sample_rate)
-    _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate)
-    if start:
-        emit_log(
-            f"slice_audio: starts {start / sample_rate:.2f} s in, "
-            f"{length / sample_rate:.2f} s long",
-            command="slice_audio",
-            start_seconds=round(start / sample_rate, 3),
-            seconds=round(length / sample_rate, 3),
-            start_frame=start_frame,
-        )
-    # #309: a cut out of a source that was already near-silent (room tone,
-    # a deliberate quiet bed) is not a defect the slice introduced - measure
-    # the source before cutting it down, so save can tell the two apart from
-    # a track that arrived at a normal level and something upstream lost
-    source_mean_dbfs = level_dbfs(waveform, "rms")
-    return as_track(
-        slice_samples(waveform, start, length),
-        sample_rate,
-        "slice_audio",
+        numpy.ascontiguousarray(waveform),
+        rate,
         source_mean_dbfs=source_mean_dbfs,
+        asked_seconds=asked_seconds,
+        snapped_seconds=snapped_seconds,
     )
 
 
@@ -378,88 +247,6 @@ def gain_audio(
     )
 
     return as_track(gained, sample_rate, "gain_audio")
-
-
-def _warn_on_slice_past_end(total, start, length, sample_rate):
-    """Say when a slice asked for more material than its source holds.
-
-    slice_samples zero-pads the shortfall, which is what makes frame-aligned
-    chunking near the end of a track work at all - but the same padding is
-    how a score shorter than the film it is laid under leaves the film
-    unscored for the rest of its length, with nothing anywhere saying so
-    (#126). emit_warning rather than logger.warning for the reason the
-    concat_videos resample warning is emitted: silently substituting silence
-    for four fifths of a track is an audio decision made on the caller's
-    behalf, and a caller reading the job over the API or MCP sees the
-    warnings list and nothing else (#82, #108).
-    """
-    # Frame-aligned slicing lands a sample or two past the end routinely;
-    # that is rounding, not a decision anyone can act on, and slice_padding
-    # answers None for it - the same rule validate's slice check applies
-    padded_seconds = slice_padding(total, start, length, sample_rate)
-    if padded_seconds is None:
-        return
-    emit_warning(
-        f"slice_audio: the requested slice runs "
-        f"{padded_seconds:.2f} s past the end of a "
-        f"{total / float(sample_rate):.2f} s source, so that much of the "
-        f"{length / float(sample_rate):.2f} s returned is digital silence. "
-        f"If you meant to fill a cut of this length, make a bed with the "
-        f"'loop_audio' task ('target_frames' + 'fps' matches one exactly) "
-        f"and slice that; if you meant the tail pad, nothing is wrong.",
-        kind="slice_past_end",
-        command="slice_audio",
-        source_seconds=round(total / float(sample_rate), 3),
-        requested_seconds=round(length / float(sample_rate), 3),
-        padded_seconds=round(padded_seconds, 3),
-        sample_rate=sample_rate,
-    )
-
-
-def _warn_on_slice_trims_tail(waveform, total, start, length, sample_rate):
-    """Say when a slice left material behind that the caller likely wanted.
-
-    slice_audio is a slice, so most unused remainders are deliberate excerpts
-    and warning on every one would be noise. What #342 found is a narrower
-    signature: a cut landing a few seconds short of a source's natural end
-    (a frame-lattice total that cannot land exactly on the score's length)
-    silently drops the source's tail, including whatever is loudest there.
-    Only fires when the dropped remainder is both short in absolute terms
-    and small next to the slice itself, and only when that remainder is not
-    already silence - a track that legitimately ends in a fade should not
-    warn just because its last seconds are quiet.
-    """
-    if not sample_rate or length <= 0:
-        return
-    slice_end = start + length
-    remainder = total - slice_end
-    if remainder <= 0:
-        return
-    remainder_seconds = remainder / float(sample_rate)
-    if remainder_seconds * 1000.0 < SLICE_TRIM_WARN_MIN_MS:
-        return
-    if remainder_seconds >= SLICE_TRIM_WARN_SECONDS:
-        return
-    if remainder_seconds / (length / float(sample_rate)) >= SLICE_TRIM_WARN_FRACTION:
-        return
-    dropped = waveform[:, slice_end:total]
-    peak_dbfs = level_dbfs(dropped, "peak")
-    if peak_dbfs is None:
-        # No level at all is silence - nothing was lost
-        return
-    emit_warning(
-        f"slice_audio: the slice ends {remainder_seconds:.2f} s before the "
-        f"{total / float(sample_rate):.2f} s source does, dropping its tail "
-        f"(peak {peak_dbfs:.1f} dBFS in the dropped {remainder_seconds:.2f} s) "
-        f"- if the slice was meant to reach the source's end, adjust "
-        f"start/length to land there, or fade the source's own tail first",
-        kind="slice_trimmed_tail",
-        command="slice_audio",
-        source_seconds=round(total / float(sample_rate), 3),
-        dropped_seconds=round(remainder_seconds, 3),
-        dropped_peak_dbfs=round(peak_dbfs, 1),
-        sample_rate=sample_rate,
-    )
 
 
 def resample_audio(audio, target_sample_rate, sample_rate=None):
@@ -614,7 +401,87 @@ def crossfade_audio(audios, crossfade_ms=75, sample_rate=None):
     waveforms, sample_rate = _load_tracks_matching_rate(
         audios, sample_rate, "crossfade_audio"
     )
-    return as_track(crossfade_concat(waveforms, sample_rate, crossfade_ms), sample_rate)
+    joined = crossfade_concat(waveforms, sample_rate, crossfade_ms)
+    _warn_on_joined_short(audios, waveforms, joined, sample_rate)
+    return as_track(joined, sample_rate)
+
+
+# A shortfall under this is the rounding of sample-aligned slices, not a
+# piece that came out shorter than it was written
+JOINED_SHORT_WARN_SECONDS = 0.05
+
+
+def _warn_on_joined_short(audios, waveforms, joined, sample_rate):
+    """Say when a joined piece is shorter than its tracks asked for.
+
+    A track that a slice kept at its own length (`past_end: "stop"`) carries
+    the length it was asked for. The shortfall is the sum of each such
+    track's asked less kept length; the overlaps are the same either way, so
+    the asked total is the joined length plus that sum. emit_warning rather
+    than a log: the piece is shorter than the caller wrote it, and a caller
+    reading the job over the API or MCP sees the warnings list and nothing
+    else (#82).
+    """
+    short, shortfall = {}, 0.0
+    snapped, snapped_shortfall = {}, 0.0
+    for name, audio, waveform in zip(_track_names(audios), audios, waveforms):
+        asked = getattr(audio, "asked_seconds", None)
+        if asked is None:
+            continue
+        kept = waveform.shape[1] / float(sample_rate)
+        if asked - kept <= 0:
+            continue
+        # A cut slice_audio moved to a quiet point (`end_snap_seconds`) was
+        # asked for, not a section that ended early
+        if getattr(audio, "snapped_seconds", None):
+            snapped_shortfall += asked - kept
+            snapped[name] = [round(kept, 3), round(asked, 3)]
+        else:
+            shortfall += asked - kept
+            short[name] = [round(kept, 3), round(asked, 3)]
+    real = joined.shape[1] / float(sample_rate)
+    asked_total = real + shortfall + snapped_shortfall
+    snapped_text = ", ".join(
+        f"{name}: {kept:.2f} of {asked:.2f} s"
+        for name, (kept, asked) in snapped.items()
+    )
+    if shortfall < JOINED_SHORT_WARN_SECONDS:
+        if snapped_shortfall >= JOINED_SHORT_WARN_SECONDS:
+            emit_log(
+                f"crossfade_audio: the joined track is {real:.2f} s of the "
+                f"{asked_total:.2f} s its tracks asked for; {len(snapped)} "
+                f"were cut at a quiet point before their length (" + snapped_text + ")",
+                command="crossfade_audio",
+                seconds=round(real, 3),
+                asked_seconds=round(asked_total, 3),
+                snapped_tracks=snapped,
+            )
+        return
+    emit_warning(
+        f"crossfade_audio: the joined track is {real:.2f} s, "
+        f"{shortfall + snapped_shortfall:.2f} s short of the "
+        f"{asked_total:.2f} s its tracks asked for, because "
+        f"{len(short)} of them ended early and were kept at their own length ("
+        + ", ".join(
+            f"{name}: {kept:.2f} of {asked:.2f} s"
+            for name, (kept, asked) in short.items()
+        )
+        + ")"
+        + (
+            f" and {len(snapped)} were cut at a quiet point before their "
+            f"length ({snapped_text})"
+            if snapped
+            else ""
+        )
+        + ". Each join is still sound to sound; to reach the asked length, "
+        "regenerate the short tracks with more material in them.",
+        kind="joined_short",
+        command="crossfade_audio",
+        seconds=round(real, 3),
+        asked_seconds=round(asked_total, 3),
+        short_tracks=short,
+        **({"snapped_tracks": snapped} if snapped else {}),
+    )
 
 
 # #306: templates/assemble-and-score and templates/dissolve-between-shots
@@ -848,7 +715,16 @@ def fade_audio(audio, fade_in_ms=0, fade_out_ms=0, sample_rate=None):
             fade_in_ms=round(fade_in / sample_rate * 1000, 1),
             fade_out_ms=round(fade_out / sample_rate * 1000, 1),
         )
-    return as_track(faded, sample_rate, "fade_audio")
+    # A slice that kept a short source at its own length says what it was
+    # asked for; a fade does not change that, so crossfade_audio can still
+    # tell a short piece from a long one after it
+    return as_track(
+        faded,
+        sample_rate,
+        "fade_audio",
+        asked_seconds=getattr(audio, "asked_seconds", None),
+        snapped_seconds=getattr(audio, "snapped_seconds", None),
+    )
 
 
 def waveform_and_rate(audio, sample_rate, command):

@@ -5,6 +5,7 @@
     edges = false,
     fanIn = false,
     forEach = false,
+    chain = false,
     done = false,
     active = false,
     failed = false,
@@ -14,6 +15,7 @@
     edges?: boolean
     fanIn?: boolean
     forEach?: boolean
+    chain?: boolean
     done?: boolean
     active?: boolean
     failed?: boolean
@@ -42,6 +44,13 @@
   {#if forEach}
     <li title="a for_each step: the entries it runs, inset">
       <span class="swatch chip"></span><code>for_each</code> entries
+    </li>
+  {/if}
+  {#if chain}
+    <li
+      title="a chained step: the pipeline runs once per segment, inset, each seam's carry between them, and the segments are stitched into one video"
+    >
+      <span class="swatch chip"></span><code>chain</code> segments
     </li>
   {/if}
   {#if done}

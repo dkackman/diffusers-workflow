@@ -45,7 +45,14 @@
             "pipeline": {
                 "configuration": {
                     "component_type": "ModularPipeline",
+                    "remove_blocks": ["prompt_upsampler"],
                     "load_components": {
+                        "names": [
+                            "text_encoder",
+                            "tokenizer",
+                            "transformer",
+                            "vae"
+                        ],
                         "dtype": "torch.bfloat16"
                     },
                     "components": {

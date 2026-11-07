@@ -366,6 +366,7 @@ def _modular_block_parameters(cls):
         return []
     import importlib
 
+    from .pipeline_processors.h3_anchor import insert_latent_anchor
     from .pipeline_processors.h3_guides import insert_guides
     from .pipeline_processors.h3_hold import insert_audio_hold
     from .pipeline_processors.h3_rules import REFINE_NOISE
@@ -381,6 +382,7 @@ def _modular_block_parameters(cls):
         pipeline = blocks_class().init_pipeline()
         insert_audio_hold(pipeline)
         insert_guides(pipeline)
+        insert_latent_anchor(pipeline)
         block_inputs = pipeline._blocks.inputs
     except Exception as error:
         # The signature still answers without them

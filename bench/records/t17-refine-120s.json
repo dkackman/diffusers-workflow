@@ -1,0 +1,11 @@
+[
+  {
+    "arm": "t17-s1-120s-r030-rebased",
+    "scene": "s1-static",
+    "seed": 1166,
+    "job_id": "2f6c0073d2f0",
+    "status": "succeeded",
+    "error": null,
+    "output": "BenchRefineWindows/20261105-125907-13420dda/final/BenchRefineWindows-mux.3-0.0.mp4"
+  }
+]

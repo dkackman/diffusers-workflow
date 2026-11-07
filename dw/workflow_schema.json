@@ -1,5 +1,5 @@
 {
-    "$id": "https://github.com/dkackman/diffusers-helper/workflow",
+    "$id": "https://raw.githubusercontent.com/dkackman/diffusers-workflow/master/dw/workflow_schema.json",
     "$schema": "https://json-schema.org/draft/2020-12/schema#",
     "description": "The definition of the diffusers-workflow.",
     "type": "object",
@@ -44,6 +44,12 @@
                     "name": {"type": "string", "description": "The accelerator, for a person: 'RTX 4090', 'M2 Ultra'"},
                     "vram_gb": {"type": "number", "minimum": 0},
                     "minutes": {"type": "number", "minimum": 0},
+                    "scales_with": {
+                        "type": "array",
+                        "description": "Cost drivers this figure is proportional to beyond the generic num_inference_steps, width/height and num_frames: a scalar driver (a run at twice its default is quoted at twice 'minutes'), or a field of a list driver's entries, summed over them. The model's rule, declared here because the engine knows no model's arguments - a Music 3 'audio_duration' is a ceiling, so a track that ends early costs less than the quote.",
+                        "items": {"type": "string"},
+                        "uniqueItems": true
+                    },
                     "per_entry": {
                         "type": "object",
                         "description": "For a list-driven workflow: the measured cost of one entry of 'variable' (every member it produces), and the length of the default list 'minutes' was measured with, so a run over N entries is (minutes - per_entry.minutes * entries) + per_entry.minutes * N.",
@@ -64,6 +70,17 @@
             "type": "array",
             "items": {"type": "string"},
             "uniqueItems": true
+        },
+        "presets": {
+            "description": "One variable that selects a bundle of other variables' values - a template's quality dial. {selector: {value: {variable: value}}}: the selector is a declared variable whose default names one of its bundles, and every key of a bundle is a declared variable. The chosen bundle sets the variables the caller did not pass; an explicit argument always wins. Bundle values are validated exactly as caller values are.",
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": {
+                    "type": "object",
+                    "additionalProperties": {"$ref": "#/$defs/arguments/additionalProperties"}
+                }
+            }
         },
         "variables": {
             "$ref": "#/$defs/arguments"
@@ -141,6 +158,20 @@
                 "max_frames": {
                     "type": "integer",
                     "minimum": 1
+                },
+                "min_length": {
+                    "description": "For a string value: the fewest characters it may have once surrounding whitespace is dropped (a null counts as empty), so 1 refuses an empty string. Put what to send instead in 'reason' - a Music 3 instrumental is a tag-only lyrics body, not an empty one.",
+                    "type": "integer",
+                    "minimum": 1
+                },
+                "max_words_per_second": {
+                    "description": "For a string value: the most words it may carry per second of the number 'seconds_from' names, warned (validation warning and the job's 'text_may_overrun') and never refused. A [bracketed] tag is markup, not a word. The rate is the workflow's own measurement - music-long cuts a section at its 'seconds', so a lyric longer than that fits loses its last lines; say where the rate was measured in 'reason'.",
+                    "type": "number",
+                    "exclusiveMinimum": 0
+                },
+                "seconds_from": {
+                    "description": "With 'max_words_per_second': the number of seconds the value has, read from the same list entry for an entry field (a section's 'seconds'), else from the workflow's variables. Not a number yet (a reference), the value is not judged.",
+                    "type": "string"
                 },
                 "snap": {
                     "description": "What to do with a value the rule refuses. 'up' rounds to the next value the rule accepts, and warns that it did; absent, the value is refused.",
@@ -299,7 +330,7 @@
             ]
         },
         "chain": {
-            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with exactly one of 'segments' or 'match_audio'.",
+            "description": "Run this pipeline repeatedly, carrying visual continuity from each segment into the next, and stitch the segments into one long video. Specify the length with one of 'segments', 'match_audio' or 'duration_seconds' ('duration_seconds' overrides 'segments' when both are given).",
             "type": "object",
             "properties": {
                 "segments": {
@@ -309,6 +340,15 @@
                         "string"
                     ],
                     "minimum": 1
+                },
+                "duration_seconds": {
+                    "description": "Ask for the chain by its length: the segment count and the last segment's frame snap are derived from this many seconds at the chain's frame rate, and the stitched video and its generated audio are trimmed to exactly this length. Needs 'num_frames' in the step's arguments and a frame rate ('fps' on the chain or a 'frame_rate' argument). Not with 'guide_backoff' or 'carry_pick', which drop frames the up-front plan cannot count. Given beside 'segments', the duration wins and 'segments' is ignored (the run logs it), so a template can offer both with a default segment count. Not with 'match_audio'. Accepts a 'variable:' reference.",
+                    "type": [
+                        "number",
+                        "string",
+                        "null"
+                    ],
+                    "exclusiveMinimum": 0
                 },
                 "match_audio": {
                     "description": "Derive the segment count from the duration of this step's hold_audio track, or else its one audio reference, slicing it into frame-aligned per-segment chunks (each segment's hold_audio, or its audio reference); the final video is muxed with the original, unsliced audio track.",
@@ -339,6 +379,104 @@
                         "string"
                     ],
                     "default": 22
+                },
+                "guide_backoff": {
+                    "description": "'guide' only - frames, a multiple of 17, to back the carry off from the end of each segment: the next segment is guided by the frames that many before the end, and every segment but the last loses that tail at assembly, so the join lands inside the held copy and each segment's least-constrained tail is replaced by the next take. Not with 'match_audio' or 'duration_seconds'. Accepts a 'variable:' reference.",
+                    "type": [
+                        "integer",
+                        "string"
+                    ],
+                    "default": 0
+                },
+                "anchor": {
+                    "description": "Latent statistics anchor (MiniMax-H3 t2va and fl2va only, with continuity 'guide' or 'last_frame'). 'segment_1' passes segment 1's decoded frames to every later segment as its 'latent_anchor': each later segment's video latent is rescaled, per VAE latent channel, to segment 1's latent mean and std before decode, so colour and contrast stop drifting from segment to segment. Segment 1 itself is not corrected, and audio is never touched. 'none' (the default) anchors nothing; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
+                    "default": "none"
+                },
+                "anchor_strength": {
+                    "description": "How far each later segment's latent statistics match goes, with anchor 'segment_1' (refused without it): a number from 0 to 1, default 1. 1 is the full per-channel mean/std match; 0 leaves the latent alone; 0.5 moves each channel halfway to segment 1's statistics, holding the look without flattening a deliberate change in light. Anything outside [0, 1], or not a number, is refused naming the range. Accepts a 'variable:' reference."
+                },
+                "keystone": {
+                    "description": "Keyframe source for a guide chain on MiniMax-H3 fl2va. 'segment_1' sets every later segment's keyframe (the 'segment_argument' image) to segment 1's frame 0 instead of the guide's first frame, so each segment is pulled back toward the clean start of the chain; the guide stays the carried tail, and the keyframe region is trimmed at assembly, so segment 1's frame never reaches the output. Needs continuity 'guide': on 'last_frame' the keyframe is the only carry and is refused. 'none' (the default) leaves the keyframe as it is; any other value, of any type, is refused naming the two. Accepts a 'variable:' reference.",
+                    "default": "none"
+                },
+                "experimental_capstone": {
+                    "description": "Scratch spike (#1187, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 t2va/fl2va: segment 1's frame 'from_end' (default 5) frames before its end is held one latent past every later segment's end as a one-frame guide that joins the forward only once the step's sigma falls below 'enter_below_sigma'.",
+                    "type": ["object", "string", "null"],
+                    "properties": {
+                        "enter_below_sigma": {
+                            "type": ["number", "string"]
+                        },
+                        "from_end": {
+                            "type": ["integer", "string"],
+                            "minimum": 1
+                        }
+                    },
+                    "required": ["enter_below_sigma"],
+                    "additionalProperties": false
+                },
+                "keystone_slot": {
+                    "description": "MiniMax-H3 guide chains with keystone 'segment_1' (#1187/#1188): where segment 1's frame 0 sits in each later segment. 'first' (or null, the default) is plain keystone, the fl2va keyframe at the guide's first latent; 'last' makes it the fl2va last_image (the step must pass an image and no last_image), which on a static two-minute take held the backdrop with no reset pop, at the price of the subject easing back to the opening pose at each segment's end (bench/records/structural.md, *Keystone slot*); {frame, enter_below_sigma?} a one-frame guide at that frame (a multiple of 17, past the guide's frames), joining the forward only below the sigma gate when one is given (the gate refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1). With 'last' or a frame the keyframe is the guide's first frame again. Accepts a 'variable:' reference.",
+                    "type": ["object", "string", "null"],
+                    "properties": {
+                        "frame": {
+                            "type": ["integer", "string"]
+                        },
+                        "enter_below_sigma": {
+                            "type": ["number", "string", "null"]
+                        }
+                    },
+                    "required": ["frame"],
+                    "additionalProperties": false
+                },
+                "experimental_latent_carry": {
+                    "description": "Scratch spike (#1150, refused unless DW_EXPERIMENTAL_REFINE_WINDOWS=1), MiniMax-H3 guide chains: each later segment's guide takes the previous segment's own final latents (its guide_frames tail, video and generated audio) as condition rows in place of decoding and re-encoding those frames. Needs continuity 'guide'; refused with look_hold, match_audio or a nonzero guide_noise. False or null is off.",
+                    "type": ["boolean", "string", "null"]
+                },
+                "carry_pick": {
+                    "description": "Continuity 'last_frame' only, any model family: pick the next segment's keyframe as the sharpest of the segment's last N frames (variance of a 3x3 Laplacian on luma; ties go to the latest) instead of always the last, so a motion-blurred final frame does not pass its softness on. The segment is trimmed after the picked frame, so motion continues from it; the last segment keeps its tail, and the job log names the picked frame per seam. {'sharpest': N} with N a whole number from 1 to 8 (1 is the last frame); anything else, or any continuity but 'last_frame', is refused naming the allowed values.",
+                    "type": "object",
+                    "properties": {
+                        "sharpest": {
+                            "type": ["integer", "string"],
+                            "minimum": 1,
+                            "maximum": 8
+                        }
+                    },
+                    "required": ["sharpest"],
+                    "additionalProperties": false
+                },
+                "look_hold": {
+                    "description": "Hold a long chain's look to its first segment with pixel-domain corrections applied to each later segment's decoded frames before its carry is taken, so the carried keyframe and the stitched video are the corrected frames (any model family; segment 1 is the reference and is left as rendered). 'pickup' grades the segment's opening to the carried frame by quantile LUT and carries the mapping to its last frame; 'creep' eases a rise in contrast or saturation back to segment 1's by the last frame, never brightening or touching a darker or paler shot; 'texture' eases faint texture (not edges) back to segment 1's, by at most half; 'precompensate' divides the carried keyframe's contrast and saturation by the boost measured so far (the running mean of rendered opening over fed keyframe, clamped to 1..1.25). true turns all four on; an object picks. 'pickup' and 'precompensate' work on one carried keyframe, so need continuity 'last_frame' (true alone skips them on a guide or last_segment chain, an explicit true there is refused). Absent or false = off, and the chain is unchanged.",
+                    "type": ["boolean", "object", "string"],
+                    "properties": {
+                        "pickup": {"type": "boolean"},
+                        "creep": {"type": "boolean"},
+                        "texture": {"type": "boolean"},
+                        "precompensate": {"type": "boolean"}
+                    },
+                    "additionalProperties": false
+                },
+                "check": {
+                    "description": "Check each segment after the first before keeping it, any model family: its seam against the previous segment (the picture jump and the look step, measured as analyze_seams measures them) and its fine-band texture against segment 1's. true uses the default ceilings; an object overrides any of 'jump_ratio_max', 'look_ratio_max', 'texture_ratio_max' (a number above 1 bounding the ratio both ways, or null to skip it) and 'cut_ratio_max' (the largest frame step inside the segment over its typical step - a cut a few frames after the seam; null skips it); 'face' is reserved and must be null. A failed segment is re-rendered up to 'retries' times. Segment 1 and a seam opened by a hard cut are never checked. Absent or false = off, and the chain is unchanged. Accepts a 'variable:' reference.",
+                    "type": ["boolean", "object", "string"],
+                    "properties": {
+                        "jump_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
+                        "look_ratio_max": {"type": ["number", "string"], "exclusiveMinimum": 0},
+                        "cut_ratio_max": {
+                            "type": ["number", "string", "null"],
+                            "exclusiveMinimum": 0
+                        },
+                        "texture_ratio_max": {"type": ["number", "string", "null"], "exclusiveMinimum": 1},
+                        "face": {"type": "null"}
+                    },
+                    "additionalProperties": false
+                },
+                "retries": {
+                    "description": "With 'check' on, how many times a segment that fails its check is re-rendered from the same carry, each at a new seed (the step's seed plus the attempt number times 1000003): 0 to 3, default 0. When every attempt fails, the chain keeps the attempt with the fewest failed measures (then the lowest jump), records 'check_failed' on its shot, warns and finishes. A cost estimate quotes the worst case. Above 0 without 'check' is refused. Accepts a 'variable:' reference.",
+                    "type": ["integer", "string"],
+                    "minimum": 0,
+                    "maximum": 3,
+                    "default": 0
                 },
                 "segment_argument": {
                     "description": "The pipeline argument the carry-over lands in - e.g. 'image' for image-to-video pipelines, or 'references' for reference-conditioned modular pipelines, where the carry-over is appended as an image or video reference.",
@@ -432,17 +570,25 @@
                     "minItems": 1
                 },
                 "save_segments": {
-                    "description": "Write each completed segment to the output directory as a playable mp4 and free its frames, bounding memory to one segment - a crashed chain leaves the finished segments behind. The final video is streamed from the segment files. Requires PyAV and a frame rate.",
-                    "type": "boolean",
+                    "description": "Write each completed segment to the output directory as a playable mp4 and free its frames, bounding memory to one segment - a crashed chain leaves the finished segments behind. The final video is streamed from the segment files. Requires PyAV and a frame rate. Accepts a 'variable:' reference.",
+                    "type": [
+                        "boolean",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "default": false
                 },
                 "keep_segments": {
-                    "description": "Leave the segment files in place after the final video is written (default: they are removed once it saves successfully). Only meaningful with save_segments.",
-                    "type": "boolean",
+                    "description": "Leave the segment files in place after the final video is written (default: they are removed once it saves successfully). Only meaningful with save_segments. Each kept file is named on the take's shots ('segment_file'), which is how repair-segment finds them. Accepts a 'variable:' reference.",
+                    "type": [
+                        "boolean",
+                        "string"
+                    ],
+                    "pattern": "^variable:",
                     "default": false
                 }
             },
-            "oneOf": [
+            "anyOf": [
                 {
                     "required": [
                         "segments"
@@ -452,8 +598,29 @@
                     "required": [
                         "match_audio"
                     ]
+                },
+                {
+                    "required": [
+                        "duration_seconds"
+                    ]
                 }
             ],
+            "not": {
+                "anyOf": [
+                    {
+                        "required": [
+                            "segments",
+                            "match_audio"
+                        ]
+                    },
+                    {
+                        "required": [
+                            "duration_seconds",
+                            "match_audio"
+                        ]
+                    }
+                ]
+            },
             "additionalProperties": false
         },
         "pipeline": {
@@ -670,6 +837,15 @@
                             }
                         }
                     }
+                },
+                "remove_blocks": {
+                    "description": "Names of top-level blocks to pop off a modular pipeline's block graph once it is built (blocks.sub_blocks.pop). For a block that always runs and has no input that turns it off: FLUX 3 Klein's 'prompt_upsampler' rewrites every caption and needs an 18.8 GB component, so its workflows remove it and use an explicit upsample step instead (#1168). A name the pipeline has no block for is an error.",
+                    "type": "array",
+                    "items": {
+                        "type": "string",
+                        "minLength": 1
+                    },
+                    "uniqueItems": true
                 },
                 "configs": {
                     "description": "Values a modular pipeline's blocks declare and read while they run - not components, and not call arguments. Keys are whatever the pipeline itself declares, so what may be set here depends on the model: MiniMax-H3 declares 'canvas_short_edge', 'canvas_max_pixels' and 'reference_image_short_edge'. A name the pipeline does not declare is an error rather than a setting that quietly did nothing.",
