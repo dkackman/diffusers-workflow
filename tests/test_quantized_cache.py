@@ -1625,3 +1625,37 @@ class TestTransformersRoundTrip:
         assert long.startswith("ValueError: x") and long.endswith("...")
         assert len(long) == len("ValueError: ") + qc._REASON_DETAIL_CHARS
         assert qc._error_detail(OSError()) == "OSError"
+
+
+def test_load_components_raises_on_oom_diffusers_swallowed():
+    """A real diffusers-style swallow: the component's load raises OOM, the
+    logger records "Failed to create component", and the load must still fail."""
+    import logging
+
+    import pytest
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "Failed to create component transformer:\n- Component spec: x\n"
+                "Traceback:\ntorch.OutOfMemoryError: CUDA out of memory."
+            )
+
+    with pytest.raises(RuntimeError, match="out of memory.*transformer"):
+        quantized_cache._load_checked(Pipe(), {})
+
+
+def test_load_components_ignores_non_oom_failure():
+    import logging
+
+    from dw import quantized_cache
+
+    class Pipe:
+        def load_components(self, **kwargs):
+            logging.getLogger("diffusers.modular_pipelines.modular_pipeline").warning(
+                "Failed to create component vae:\nTraceback:\nValueError: nope"
+            )
+
+    quantized_cache._load_checked(Pipe(), {})
