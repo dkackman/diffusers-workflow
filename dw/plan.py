@@ -185,7 +185,9 @@ def build_plan(
             base_dir,
             candidate.workflow_dir,
             measured_entries=measured_entries,
-            observed=_observed_block(observed, arguments),
+            observed=_observed_block(
+                observed, arguments, definition, expanded, entries
+            ),
             cached_steps=cache_hits,
             total_steps=step_count,
             observed_for_child=observed_for_child,
@@ -193,19 +195,57 @@ def build_plan(
     }
 
 
-def _observed_block(observed, arguments):
+def _observed_block(observed, arguments, definition=None, expanded=None, entries=None):
     """The `observed` block for this run, from a block or from a callable
     the caller passed - best effort, since a figure is a nicety and a plan
     that raised because history could not be read would cost the caller the
-    whole pre-flight."""
+    whole pre-flight.
+
+    A run whose drivers this box has never run (a preset tier, say) has no
+    bucket of its own. Rather than fall to the curated row, which can sit far
+    from this box's speed (#1236), the history of the same run under the
+    default preset is scaled by the ratio the drivers moved by."""
     if not callable(observed):
         return observed if isinstance(observed, dict) else None
     try:
         block = observed(arguments or {})
+        if not isinstance(block, dict) and definition is not None:
+            block = _scaled_observed(
+                observed, arguments or {}, definition, expanded, entries
+            )
     except Exception:
         logger.debug("No observed history for the plan", exc_info=True)
         return None
     return block if isinstance(block, dict) else None
+
+
+def _scaled_observed(observed, arguments, definition, expanded, entries):
+    """History of the run with the preset selectors left at their defaults,
+    scaled to `arguments`' drivers, or None when there is none or the move
+    has no rule to scale by."""
+    selectors = set(definition.get("presets") or {})
+    base_args = {k: v for k, v in arguments.items() if k not in selectors}
+    if len(base_args) == len(arguments):
+        return None
+    block = observed(base_args)
+    if not isinstance(block, dict) or not isinstance(
+        block.get("cold_minutes"), (int, float)
+    ):
+        return None
+    baseline = effective_variables(definition, base_args)
+    scaling = _driver_scaling(definition, expanded, entries, baseline=baseline)
+    if scaling is None:
+        return None
+    factor, axes, unscaled = scaling
+    # The selector itself moved by construction; what it moved is scaled
+    if [name for name in unscaled if name not in selectors] or not axes:
+        return None
+    return {
+        **block,
+        "cold_minutes": block["cold_minutes"] * factor,
+        "scaled": f"scaled from the observed {round(block['cold_minutes'], 1)} min: "
+        + ", ".join(axes),
+    }
 
 
 def list_entries(definition, realized):
@@ -806,6 +846,12 @@ def _observed(observed, device):
         "runs": runs,
     }
     inherited_from = observed.get("inherited_from")
+    if observed.get("scaled") and not inherited_from:
+        # This box's history of the default tier, re-priced for the drivers
+        # that moved (#1236): derived, not measured
+        estimate["basis"] = DERIVED
+        estimate["scaled"] = observed["scaled"]
+        estimate["low_confidence"] = True
     if inherited_from:
         # History of the catalog template with this workflow's pipeline,
         # not of this workflow - an approximation (#797)

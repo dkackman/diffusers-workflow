@@ -349,7 +349,7 @@ def _declared_axis_scaling(name, default_value, value, list_entries, proportiona
     return factor, axes
 
 
-def _driver_scaling(definition, expanded, list_entries):
+def _driver_scaling(definition, expanded, list_entries, baseline=None):
     """How far the declared `cost_drivers` moved the run away from the
     defaults the curated `cost` was measured at, as (factor, axes, unscaled),
     or None when a scalable one moved to a value that is not a number, or a
@@ -363,7 +363,7 @@ def _driver_scaling(definition, expanded, list_entries):
     """
     # the defaults the curated cost was measured at, the default preset
     # bundle among them
-    defaults = effective_variables(definition)
+    defaults = baseline if baseline is not None else effective_variables(definition)
     effective = expanded.get("variables") or {}
     factor = 1.0
     axes = []
@@ -413,6 +413,9 @@ def _driver_scaling(definition, expanded, list_entries):
             for name in chain_drivers
         ):
             unscaled.extend(chain_drivers)
+    if baseline is not None:
+        # A ratio between two runs: the re-rolls are in both
+        return factor, scaled_axes, unscaled
     worst, worst_axes, worst_unscaled = _worst_case_retries(definition, effective)
     return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 

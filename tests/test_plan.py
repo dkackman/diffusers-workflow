@@ -910,6 +910,33 @@ class TestObservedEstimate:
         plan(definition(), arguments={"shots": shots}, observed=history)
         assert asked == [{"shots": shots}]
 
+    def test_an_unrun_tier_scales_the_default_tiers_history(self, plan):
+        """#1236: history exists for the default tier only. A draft tier is
+        that figure scaled by the steps ratio, not the curated row (which
+        would quote 10 x 4/8 = 5 min)."""
+        spec = definition()
+        spec["variables"]["tier"] = "standard"
+        spec["variables"]["num_inference_steps"] = 8
+        spec["cost_drivers"] = ["tier", "num_inference_steps"]
+        spec["presets"] = {
+            "tier": {
+                "standard": {"num_inference_steps": 8},
+                "draft": {"num_inference_steps": 4},
+            }
+        }
+        spec["steps"][0]["pipeline"]["arguments"]["num_inference_steps"] = (
+            "variable:num_inference_steps"
+        )
+
+        def history(arguments):
+            return observed(minutes=3.0) if arguments.get("tier") is None else None
+
+        answer = plan(spec, arguments={"tier": "draft"}, observed=history)["estimate"]
+        assert answer["basis"] == "derived"
+        assert answer["minutes"] == 1.5
+        assert "observed 3.0 min" in answer["scaled"]
+        assert answer["low_confidence"] is True
+
     def test_a_callable_that_raises_falls_back_to_the_cost_block(self, plan):
         def boom(arguments):
             raise RuntimeError("no history")
