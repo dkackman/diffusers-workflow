@@ -8,11 +8,14 @@ import pytest
 from PIL import Image
 
 from dw.pipeline_processors.chain_check import (
+    AUDIO_DBFS_MIN,
     CUT_RATIO_MAX,
     JUMP_RATIO_MAX,
     LOOK_RATIO_MAX,
     TEXTURE_RATIO_MAX,
     SegmentCheck,
+    audio_dbfs,
+    check_audio,
     check_segment,
     segment_check,
 )
@@ -128,6 +131,9 @@ class TestRule:
         assert chain_check_problem({"check": {"look_ratio_max": 8}}) is None
         assert chain_check_problem({"check": True, "retries": "variable:r"}) is None
         assert chain_check_problem({"check": "variable:c", "retries": 2}) is None
+        assert chain_check_problem({"check": {"audio_dbfs_min": -60}}) is None
+        assert chain_check_problem({"check": {"audio_dbfs_min": None}}) is None
+        assert chain_check_problem({"check": {"audio_dbfs_min": "variable:f"}}) is None
 
     @pytest.mark.parametrize(
         "chain, words",
@@ -138,6 +144,9 @@ class TestRule:
             ({"check": {"jump_ratio_max": True}}, "jump_ratio_max"),
             ({"check": {"texture_ratio_max": 0.5}}, "texture_ratio_max"),
             ({"check": {"face": 1}}, "face"),
+            ({"check": {"audio_dbfs_min": 0}}, "audio_dbfs_min"),
+            ({"check": {"audio_dbfs_min": 6}}, "below 0"),
+            ({"check": {"audio_dbfs_min": True}}, "audio_dbfs_min"),
             ({"check": True, "retries": 4}, "0 and 3"),
             ({"check": True, "retries": -1}, "0 and 3"),
             ({"check": True, "retries": 1.5}, "0 and 3"),
@@ -227,13 +236,59 @@ def _minutes(segments, check, retries):
 
 def test_the_estimate_quotes_the_worst_case_retries():
     per_segment = 10.0  # 30 minutes over the 3 segments it was measured at
-    # Segment 1 is never checked, so never re-rolled: of 5 segments, 4 can
-    # each run 1 + retries times
+    # A chain that generates its audio checks segment 1 for its level, so
+    # every segment can run 1 + retries times
     for segments, retries in ((3, 1), (5, 2), (5, 3)):
         quoted = _minutes(segments, True, retries)
-        worst = per_segment * (1 + (segments - 1) * (1 + retries))
+        worst = per_segment * segments * (1 + retries)
         assert quoted["minutes"] == pytest.approx(worst), (segments, retries)
-        assert "re-roll" in quoted["scaled"]
+        assert f"of each of {segments} checked" in quoted["scaled"]
+
+
+@pytest.mark.parametrize(
+    "check, chain_extra, step_extra",
+    [
+        ({"audio_dbfs_min": None}, {}, {}),
+        (True, {}, {"hold_audio": "asset:track.wav"}),
+        (True, {"continuity": "guide"}, {}),
+    ],
+)
+def test_the_estimate_leaves_segment_1_out_when_no_audio_is_measured(
+    check, chain_extra, step_extra
+):
+    # Floor off or the audio held: segment 1 has nothing to check, so of N
+    # segments N - 1 can each run 1 + retries times
+    from dw.plan import estimate
+
+    for segments, retries in ((3, 1), (5, 2), (5, 3)):
+        definition, expanded = _priced(segments, check, retries)
+        step = definition["steps"][0]["pipeline"]
+        step["chain"].update(chain_extra)
+        step["arguments"].update(step_extra)
+        quoted = estimate(definition, expanded, {}, "cuda", None, None)
+        worst = 10.0 * (1 + (segments - 1) * (1 + retries))
+        assert quoted["minutes"] == pytest.approx(worst), (segments, retries)
+        assert f"of each of {segments - 1} checked" in quoted["scaled"]
+
+
+def test_a_match_audio_chain_holds_its_audio():
+    from dw.cost_scaling import _chain_checks_audio
+
+    definition, _ = _priced(3, True, 1)
+    assert _chain_checks_audio(definition, {})
+    definition["steps"][0]["pipeline"]["chain"]["match_audio"] = True
+    assert not _chain_checks_audio(definition, {})
+
+
+def test_a_guide_chain_that_does_not_carry_its_audio_checks_segment_1():
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, True, 1)
+    definition["steps"][0]["pipeline"]["chain"].update(
+        {"continuity": "guide", "carry_audio": False}
+    )
+    quoted = estimate(definition, expanded, {}, "cuda", None, None)
+    assert quoted["minutes"] == pytest.approx(10.0 * 3 * 2)
 
 
 def test_the_estimate_is_unchanged_with_no_check_or_no_retries():
@@ -279,3 +334,78 @@ def test_cut_ratio_null_skips_it():
     assert result.passed
     assert chain_check_problem({"check": {"cut_ratio_max": 0}})
     assert chain_check_problem({"check": {"cut_ratio_max": None}}) is None
+
+
+def tone(dbfs, seconds=1.0, rate=100):
+    """A stereo sine whose RMS level reads `dbfs`."""
+    amplitude = 10 ** (dbfs / 20) * numpy.sqrt(2)
+    t = numpy.arange(int(seconds * rate)) / rate
+    wave = amplitude * numpy.sin(2 * numpy.pi * 7 * t)
+    return numpy.stack([wave, wave])
+
+
+class TestAudioFloor:
+    """The audio-level floor (#1221): a segment whose generated audio reads
+    under `audio_dbfs_min` fails and re-rolls, segment 1 included."""
+
+    def test_the_measure_reads_silent_quiet_and_loud_audio(self):
+        assert audio_dbfs(numpy.zeros((2, 100))) == -120.0
+        assert audio_dbfs(tone(-88.5)) == pytest.approx(-88.5, abs=0.1)
+        assert audio_dbfs(tone(-57)) == pytest.approx(-57, abs=0.1)
+        assert audio_dbfs(tone(-12)) == pytest.approx(-12, abs=0.1)
+        assert audio_dbfs(None) is None
+        assert audio_dbfs(numpy.zeros((2, 0))) is None
+
+    def test_the_default_floor_sits_between_a_dropout_and_the_quietest_take(self):
+        assert SegmentCheck().audio_dbfs_min == AUDIO_DBFS_MIN == -70.0
+        assert not check_audio(tone(-88.5), SegmentCheck()).passed
+        assert check_audio(tone(-57), SegmentCheck()).passed
+        silent = check_audio(numpy.zeros((2, 100)), SegmentCheck())
+        assert silent.failed == ["audio_dbfs"]
+        assert silent.measures == {"audio_dbfs": -120.0}
+
+    def test_a_null_floor_or_no_audio_skips_it(self):
+        off = segment_check({"audio_dbfs_min": None})
+        assert off.audio_dbfs_min is None
+        assert check_audio(numpy.zeros((2, 100)), off).passed
+        none = check_audio(None, SegmentCheck())
+        assert none.passed and none.measures == {"audio_dbfs": None}
+
+    def test_segment_check_reads_the_floor(self):
+        assert segment_check({"audio_dbfs_min": -50}).audio_dbfs_min == -50.0
+        assert segment_check(True).audio_dbfs_min == AUDIO_DBFS_MIN
+
+    def test_a_silent_seam_fails_on_audio_alongside_the_frame_measures(self):
+        before = frames_of(noise(1))
+        result = check_segment(
+            before,
+            frames_of(noise(1)),
+            before,
+            SegmentCheck(),
+            audio=numpy.zeros((2, 100)),
+        )
+        assert result.failed == ["audio_dbfs"]
+        assert result.measures["audio_dbfs"] == -120.0
+        loud = check_segment(
+            before, frames_of(noise(1)), before, SegmentCheck(), audio=tone(-20)
+        )
+        assert loud.passed
+        assert loud.measures["audio_dbfs"] == pytest.approx(-20, abs=0.1)
+
+    def test_held_audio_is_never_measured(self):
+        from dw.pipeline_processors.chain import ChainConfig
+
+        generated = ChainConfig({"segments": 2, "check": True}, {})
+        assert generated.audio_floor == AUDIO_DBFS_MIN
+        assert generated.checks_segment_1
+        unchecked = ChainConfig({"segments": 2}, {})
+        assert unchecked.audio_floor == AUDIO_DBFS_MIN
+        assert not unchecked.checks_segment_1
+        off = ChainConfig({"segments": 2, "check": {"audio_dbfs_min": None}}, {})
+        assert off.audio_floor is None and not off.checks_segment_1
+        step_held = ChainConfig(
+            {"segments": 2, "check": True}, {"hold_audio": object()}
+        )
+        assert step_held.audio_held and step_held.audio_floor is None
+        guide = ChainConfig({"segments": 2, "check": True, "continuity": "guide"}, {})
+        assert guide.audio_held and not guide.checks_segment_1

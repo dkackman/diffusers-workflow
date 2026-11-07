@@ -2717,9 +2717,9 @@ as arguments, and the seed is new by default.
 
 #### Checking each segment: `check` and `retries`
 
-With `check` on, each segment after the first is measured before anything of it reaches
-the stitched video, its audio, its shot record, a `save_segments` file or the look-hold
-state:
+With `check` on, each segment is measured before anything of it reaches the stitched
+video, its audio, its shot record, a `save_segments` file or the look-hold state. Segment
+1 has no seam, so it is measured for `audio_dbfs` only:
 
 | Measure | Against | Default ceiling | Fails when |
 |---|---|---|---|
@@ -2727,9 +2727,13 @@ state:
 | `look_ratio` | the previous segment: the largest saturation, lightness or contrast step across the seam over that measure's own rate inside either segment (`analyze_seams`'s measure) | `look_ratio_max` 5.5 | above the ceiling |
 | `texture_ratio` | segment 1: the mean fine-band (2-8 px) luma texture of 4 evenly spaced frames, whole frame | `texture_ratio_max` 2 | above it or below its inverse (doubled or halved); `null` skips it |
 | `cut_ratio` | the segment itself: its largest frame change over its own typical change, floored as `jump_ratio` is - a cut inside the segment, past the seam's windows, which the seam measures do not see | `cut_ratio_max` 3.5 | above the ceiling; `null` skips it |
+| `audio_dbfs` | the segment itself: the RMS level (dBFS, to 0.1) of its generated audio over the kept span, past the head trim; segment 1 included | `audio_dbfs_min` -70 | below the floor; `null` skips it. Skipped (no level) when the segment has no generated audio or the audio is held: `match_audio` or its `hold_audio`, a step `hold_audio` argument, or a `guide` chain carrying its audio |
 
 A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, so set
-`check: {"cut_ratio_max": null}` to turn that measure off.
+`check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
+fails `audio_dbfs` the same way: set `"audio_dbfs_min": null`. The floor sits between the
+-87.8 to -89.2 dBFS that dropout (silent) segments measured and the -57 dBFS of the
+quietest real one. Unlike `texture_ratio`, a failed `audio_dbfs` re-rolls.
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
 it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
@@ -2737,8 +2741,10 @@ it names. `face` is reserved and must be `null`. The jump and look ceilings are 
 the cut ceiling sits between the 2.98 most of 282 good bench segments read and the 4.16 of a cut 26 frames past a seam (`bench/records/check.md`); the texture ceiling is still provisional, because those chains' own texture ratio is the
 drift it exists to catch. A static segment's own
 motion is ~0, so the jump is divided by the floor rather than by ~0. Segment 1 has no seam
-and is never checked. (`check_segment` has a `hard_cut` exemption, but `run_chain`
-does not pass it: a chain's own seams are never cuts, so every later segment is checked.)
+and is checked for `audio_dbfs` alone, when the floor is not null and the audio is
+generated. (`check_segment` has a `hard_cut` exemption that skips every measure, audio
+included, but `run_chain` does not pass it: a chain's own seams are never cuts, so every
+later segment is checked.)
 A re-roll renders a whole segment again, so re-rolls count in the step's timing segments.
 
 A segment that fails is rendered again from the same carry and the same arguments, at a
@@ -2758,9 +2764,16 @@ Each shot of a checked chain records `attempts`; a re-rolled one records the `se
 kept attempt ran at, and one that failed every attempt records `check_failed` (the
 measures its kept attempt failed). The job gets one `warning` (`kind:
 "chain_check_failed"`) per such segment, naming the measures, their values and the kept
-attempt, and the job log names each re-roll. A cost estimate quotes the worst case:
-segment 1 is never re-rolled, so N segments cost up to 1 + (N - 1)(1 + `retries`)
-segment renders where the curated figure, measured without re-rolls, paid N.
+attempt, and the job log names each re-roll. Each shot also records `audio_dbfs`, the kept
+attempt's level, when it is measurable. A kept segment whose generated audio still reads
+under the floor (the re-rolls exhausted, or `check` off, the floor then fixed at -70)
+gets a `warning` (`kind: "chain_segment_silent"`) with the segment number, its
+`audio_dbfs` and the floor; `audio_dbfs_min: null` silences it. `best_attempt` is
+unchanged. A cost estimate quotes the worst case: a checked chain that generates its
+audio (floor on, no `match_audio`, no step `hold_audio`, not a `guide` chain carrying
+audio) re-rolls segment 1 too, so N segments cost up to N(1 + `retries`) segment renders;
+any other checked chain never re-rolls segment 1 and costs up to
+1 + (N - 1)(1 + `retries`). The curated figure, measured without re-rolls, paid N.
 
 ## Schedulers
 

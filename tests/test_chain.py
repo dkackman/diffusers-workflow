@@ -1832,3 +1832,120 @@ class TestCheckAndReroll:
         assert [numpy.asarray(f).tolist() for f in rerolled.frames] == [
             numpy.asarray(f).tolist() for f in direct.frames
         ]
+
+
+class TestAudioFloorReroll:
+    """The audio floor in the run (#1221): a kept segment's generated audio
+    is measured past its head trim, re-rolled under the floor with check on,
+    and warned of as `chain_segment_silent` either way."""
+
+    SEED = TestCheckAndReroll.SEED
+    PRIME = TestCheckAndReroll.PRIME
+    chain = TestCheckAndReroll.chain
+    arguments = TestCheckAndReroll.arguments
+    pattern = staticmethod(TestCheckAndReroll.pattern)
+
+    def silent_on(self, *silent_calls):
+        """Seamless frames every call; the calls named render silence, the
+        rest audio that reads the call number."""
+
+        def output(arguments, index):
+            carry = arguments.get("image")
+            pixels = self.pattern() if carry is None else numpy.asarray(carry)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            level = 0.0 if index in silent_calls else 0.1 * (index + 1)
+            audio = torch.full((1, 2, 200), level)
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        return output
+
+    def silent_warnings(self, warn):
+        return [
+            call
+            for call in warn.call_args_list
+            if call.kwargs.get("kind") == "chain_segment_silent"
+        ]
+
+    def test_a_silent_segment_2_is_rerolled_with_check_on(self):
+        pipeline = FakePipeline(self.silent_on(1))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=1), self.arguments()
+            )
+
+        assert len(pipeline.calls) == 3
+        assert pipeline.calls[2]["generator"].initial_seed() == self.SEED + self.PRIME
+        shot = out.shots[1]
+        assert shot["attempts"] == 2 and "check_failed" not in shot
+        assert shot["audio_dbfs"] > -70
+        assert out.shots[0]["attempts"] == 1
+        assert self.silent_warnings(warn) == []
+        # The kept attempt's audio, call 3's, is what the track carries
+        tail = numpy.unique(numpy.asarray(out.audio)[..., 200:])
+        assert tail == pytest.approx([0.3])
+
+    def test_a_silent_segment_2_only_warns_with_check_off(self):
+        pipeline = FakePipeline(self.silent_on(1))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(pipeline, self.chain(), self.arguments())
+
+        assert len(pipeline.calls) == 2
+        assert "attempts" not in out.shots[1]
+        assert out.shots[1]["audio_dbfs"] == -120.0
+        (silent,) = self.silent_warnings(warn)
+        assert silent.kwargs["segment"] == 2
+        assert silent.kwargs["audio_dbfs"] == -120.0
+        assert silent.kwargs["floor"] == -70.0
+        assert "segment 2/2 is silent" in silent.args[0]
+
+    def test_a_silent_segment_1_is_rerolled(self):
+        pipeline = FakePipeline(self.silent_on(0))
+        out = run_chain(pipeline, self.chain(check=True, retries=1), self.arguments())
+
+        assert len(pipeline.calls) == 3
+        assert pipeline.calls[1]["generator"].initial_seed() == self.SEED + self.PRIME
+        assert out.shots[0]["attempts"] == 2
+        assert out.shots[0]["seed"] == self.SEED + self.PRIME
+        assert out.shots[1]["attempts"] == 1
+
+    def test_a_segment_still_silent_after_its_retries_warns_both_ways(self):
+        pipeline = FakePipeline(self.silent_on(1, 2))
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(
+                pipeline, self.chain(check=True, retries=1), self.arguments()
+            )
+
+        assert out.shots[1]["attempts"] == 2
+        assert out.shots[1]["check_failed"] == ["audio_dbfs"]
+        kinds = [call.kwargs.get("kind") for call in warn.call_args_list]
+        assert kinds.count("chain_check_failed") == 1
+        assert kinds.count("chain_segment_silent") == 1
+
+    def test_a_null_floor_neither_rerolls_nor_warns(self):
+        pipeline = FakePipeline(self.silent_on(0, 1))
+        chain = self.chain(check={"audio_dbfs_min": None}, retries=1)
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(pipeline, chain, self.arguments())
+
+        assert len(pipeline.calls) == 2
+        assert [shot["attempts"] for shot in out.shots] == [1, 1]
+        assert self.silent_warnings(warn) == []
+        assert out.shots[1]["audio_dbfs"] == -120.0
+
+    def test_only_the_kept_span_is_measured(self):
+        # Segment 2's head trim (one frame, 25 samples at 4 fps) is loud and
+        # the rest silent: the kept span reads silent
+        def output(arguments, index):
+            carry = arguments.get("image")
+            pixels = self.pattern() if carry is None else numpy.asarray(carry)
+            frames = [Image.fromarray(pixels) for _ in range(8)]
+            audio = torch.full((1, 2, 200), 0.5)
+            if index == 1:
+                audio[..., 25:] = 0.0
+            return {"videos": [frames], "audio": audio, "sampling_rate": 100}
+
+        with patch("dw.pipeline_processors.chain.emit_warning") as warn:
+            out = run_chain(FakePipeline(output), self.chain(), self.arguments())
+
+        assert out.shots[1]["audio_dbfs"] == -120.0
+        assert len(self.silent_warnings(warn)) == 1

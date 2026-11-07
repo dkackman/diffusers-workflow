@@ -552,8 +552,9 @@ def _record_check(shot, segment, config, checked):
 def _kept_audio(attempt, segment, config):
     """The generated audio a kept attempt puts on the timeline - its span
     past the head trim - or None when it has none or the chain holds its
-    audio, which is not the segment's to measure."""
-    if config.audio_held or attempt.audio is None:
+    audio, which is not the segment's to measure. With no frame rate the
+    span cannot be placed, and the join refuses the chain itself."""
+    if config.audio_held or attempt.audio is None or config.fps is None:
         return None
     return _on_timeline_audio(attempt.audio, segment, config, attempt.rate)
 

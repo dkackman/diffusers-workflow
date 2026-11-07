@@ -1820,6 +1820,16 @@ class TestLongFormSkill:
             ("texture_ratio", chain_check.TEXTURE_RATIO_MAX),
         ):
             assert f"`{name}` (ceiling {ceiling:g})" in text, name
+        # The audio floor re-rolls (#1221), so it is quoted as a floor, not
+        # a warn-only ceiling
+        assert f"`audio_dbfs` (floor {chain_check.AUDIO_DBFS_MIN:g} dBFS)" in text
+        assert '`"audio_dbfs_min": null`' in text
+
+    def test_the_quoted_worst_case_is_the_estimate_s(self):
+        # Both branches of cost_scaling._worst_case_retries (#1221)
+        text = self._text()
+        assert "N(1 + `retries`)" in text
+        assert "1 + (N - 1)(1 + `retries`)" in text
 
     def test_every_rule_cites_the_bench(self):
         text = self._text()
