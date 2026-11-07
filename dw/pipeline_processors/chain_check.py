@@ -84,6 +84,9 @@ class CheckResult:
     passed: bool
     measures: dict
     failed: list = field(default_factory=list)
+    # The segment's own (thumbs, looks), so the next segment's check measures
+    # its seam against them without holding the segment's frames (#1241)
+    frame_data: tuple | None = field(default=None, repr=False, compare=False)
 
     @property
     def rerolls(self):
@@ -119,18 +122,30 @@ def texture_samples(frames):
     return [frames[i] for i in picks]
 
 
-def check_segment(previous_frames, frames, segment_1_frames, check, hard_cut=False):
+def measure_frames(frames):
+    """A segment's (thumbs, looks) - what a seam check reads of the segment
+    before it, small enough to keep in place of its frames."""
+    from ..tasks.assess import frame_measures
+
+    return frame_measures(frames)
+
+
+def check_segment(previous, frames, segment_1_frames, check, hard_cut=False):
     """Measure a segment's kept frames against the segment before it and
-    segment 1, as a CheckResult. `hard_cut` marks a seam meant as a cut,
-    which is never checked."""
+    segment 1, as a CheckResult. `previous` is that segment's frames, or the
+    (thumbs, looks) pair `measure_frames` returned for them. `hard_cut` marks
+    a seam meant as a cut, which is never checked."""
     if hard_cut:
         return CheckResult(True, {"skipped": "hard_cut"}, [])
-    from ..tasks.assess import frame_measures, seam_measures
+    from ..tasks.assess import seam_measures
 
-    before_thumbs, before_looks = frame_measures(previous_frames)
-    after_thumbs, after_looks = frame_measures(frames)
+    before_thumbs, before_looks = (
+        previous if isinstance(previous, tuple) else measure_frames(previous)
+    )
+    after_data = measure_frames(frames)
+    after_thumbs, after_looks = after_data
     if before_thumbs is None or after_thumbs is None:
-        return CheckResult(True, {"skipped": "no frames"}, [])
+        return CheckResult(True, {"skipped": "no frames"}, [], after_data)
     seam = seam_measures(
         numpy.concatenate([before_thumbs, after_thumbs]),
         numpy.concatenate([before_looks, after_looks]),
@@ -162,7 +177,7 @@ def check_segment(previous_frames, frames, segment_1_frames, check, hard_cut=Fal
         measures["cut_ratio"], check.cut_ratio_max
     ):
         failed.append("cut_ratio")
-    return CheckResult(not failed, measures, failed)
+    return CheckResult(not failed, measures, failed, after_data)
 
 
 def best_attempt(results):
