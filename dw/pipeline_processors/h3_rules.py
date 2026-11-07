@@ -664,6 +664,38 @@ CARRY_PICK_MIN = 1
 CARRY_PICK_MAX = 8
 
 
+def _set_for_plan(chain, match_audio_key, duration_key):
+    """Whether the chain block sets `match_audio` or `duration_seconds`, for the
+    settings that do not combine with a fixed-length plan. A reference is
+    unknown until the run substitutes it, so it is not counted as set: a
+    `variable:` that resolves to false must not read truthy here (#1232)."""
+    audio = chain.get(match_audio_key)
+    if isinstance(audio, str) and references.is_ref(references.UNRESOLVED, audio):
+        audio = None
+    duration = chain.get(duration_key)
+    if isinstance(duration, str) and references.is_ref(references.UNRESOLVED, duration):
+        duration = None
+    return bool(audio) or duration is not None
+
+
+def _snapped_up(num_frames, frame_snap):
+    """`num_frames` rounded up to the chain's `frame_snap` grid (the 17n+5 an H3
+    render runs at), as the segments actually render; unchanged when there is
+    no grid or the count is not a number (#1232)."""
+    if (
+        isinstance(num_frames, bool)
+        or not isinstance(num_frames, int)
+        or not isinstance(frame_snap, dict)
+    ):
+        return num_frames
+    modulus, remainder = frame_snap.get("modulus"), frame_snap.get("remainder", 0)
+    if not isinstance(modulus, int) or isinstance(modulus, bool) or modulus < 1:
+        return num_frames
+    remainder = remainder if isinstance(remainder, int) else 0
+    steps = -(-(num_frames - remainder) // modulus)
+    return max(num_frames, steps * modulus + remainder)
+
+
 def chain_carry_pick_problem(chain, num_frames=None):
     """The reason a chain block's `carry_pick` is refused, or None: a shape
     other than {"sharpest": N}, N outside 1..8, a continuity other than
@@ -703,7 +735,7 @@ def chain_carry_pick_problem(chain, num_frames=None):
             f"carry_pick needs continuity 'last_frame' - the other modes carry "
             f"more than one frame; got {continuity!r}"
         )
-    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
+    if _set_for_plan(chain, "match_audio", "duration_seconds"):
         return (
             "carry_pick does not combine with match_audio or duration_seconds: "
             "the plan covers the length up front and the pick drops up to "
@@ -711,6 +743,7 @@ def chain_carry_pick_problem(chain, num_frames=None):
             "shorter than asked - use 'segments'"
         )
     trim = chain.get("trim_frames", 1)
+    num_frames = _snapped_up(num_frames, chain.get("frame_snap"))
     if (
         isinstance(num_frames, int)
         and not isinstance(num_frames, bool)
@@ -838,7 +871,7 @@ def guide_backoff_problems(chain):
                 "'guide' or drop guide_backoff",
             )
         ]
-    if chain.get("match_audio") or chain.get("duration_seconds") is not None:
+    if _set_for_plan(chain, "match_audio", "duration_seconds"):
         return [
             (
                 "guide_backoff",
