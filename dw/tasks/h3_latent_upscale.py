@@ -27,6 +27,7 @@ import math
 import numpy
 import torch
 
+from ..events import emit_warning
 from ..media import media_duration
 from ..media_readers import (
     ShortFrameRange,
@@ -611,6 +612,15 @@ def bounded_take_frames(claimed, path, fps):
                     f"match the duration"
                 )
             count = min(claimed, expected)
+            if count < claimed:
+                # a variable-frame-rate take: the header counts more frames
+                # than duration x fps, and only the smaller is encoded
+                emit_warning(
+                    f"encode_h3_latents: the file's header claims {claimed} "
+                    f"frames but its duration ({seconds:.2f}s at {fps:g} fps) "
+                    f"holds about {expected}; encoding {count} (a "
+                    f"variable-frame-rate take is cut short)"
+                )
     if count > MAX_TAKE_FRAMES:
         raise ValueError(
             f"encode_h3_latents: a take of {count} frames is over the longest "

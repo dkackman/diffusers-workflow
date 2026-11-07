@@ -53,8 +53,10 @@ from .adapter_compatibility import (
 from .for_each import render_path
 from .pipeline_processors.h3_guides import default_num_frames
 from .pipeline_processors.chain_rules import (
+    CHAIN_CAPSTONE,
     CHAIN_KEYSTONE_SLOT,
     CHAIN_LATENT_CARRY,
+    chain_capstone_problem,
     chain_check_problem,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
@@ -447,6 +449,17 @@ def anchor_errors(workflow_definition, source_indices=None):
             errors.append(
                 {
                     "path": render_path(base + ("chain", CHAIN_KEYSTONE_SLOT)),
+                    "message": f"{problem}{where}",
+                }
+            )
+        problem = chain_capstone_problem(
+            chain,
+            arguments.get("num_frames") if isinstance(arguments, dict) else None,
+        )
+        if problem:
+            errors.append(
+                {
+                    "path": render_path(base + ("chain", CHAIN_CAPSTONE)),
                     "message": f"{problem}{where}",
                 }
             )

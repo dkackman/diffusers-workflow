@@ -554,3 +554,19 @@ def test_a_vae_without_token_drop_decodes_whole():
     runs = _streamed(vae, z, 1)
     assert len(runs) == 1
     assert torch.equal(runs[0], whole)
+
+
+def test_a_vfr_take_clamped_to_its_duration_warns(monkeypatch):
+    # header claims 120 frames, duration x fps holds ~49 (#1232)
+    from dw.tasks.h3_latent_upscale import bounded_take_frames
+
+    warned = []
+    monkeypatch.setattr(
+        hlu, "emit_warning", lambda message, **d: warned.append(message)
+    )
+    monkeypatch.setattr(hlu, "media_duration", lambda path: 2.0)
+    assert bounded_take_frames(120, "x.mp4", 24.0) == 49
+    assert warned and "120" in warned[0] and "49" in warned[0]
+    warned.clear()
+    assert bounded_take_frames(49, "x.mp4", 24.0) == 49
+    assert not warned

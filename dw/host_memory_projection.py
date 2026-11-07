@@ -19,6 +19,7 @@ import json
 import logging
 
 from .for_each import FOR_EACH_KEY
+from .presets import effective_variables
 from .validation import _has_seedable_step
 
 logger = logging.getLogger("dw")
@@ -220,7 +221,8 @@ def _projection(definition, list_entries, rows):
         # A task-only workflow loads no model to accumulate across entries -
         # the failure mode this module projects for doesn't apply to it
         return None
-    variables = definition.get("variables") or {}
+    # a history row that names no value ran at the default bundle's
+    variables = effective_variables(definition)
     field = peak_field(rows)
     peaks = [row.get(field) for row in rows]
     peaks = [value for value in peaks if isinstance(value, (int, float))]

@@ -14,6 +14,7 @@ No network here - `dw/lora_hub.py` is the only module that searches the Hub.
 import re
 
 from . import references
+from .presets import effective_variables
 from .schema import load_schema, validate_data
 
 SCHEMA_NAME = "lora_catalog"
@@ -52,9 +53,8 @@ def workflow_bases(definition):
     """The `(repo, partition)` each pipeline step loads, in step order, once
     each. A base that is not a repo id once its variable is substituted (a
     null default, a local path) is skipped: nothing on the Hub is keyed by it."""
-    variables = definition.get("variables")
-    if not isinstance(variables, dict):
-        variables = {}
+    # the default bundle of any `presets` selector is what a run uses
+    variables = effective_variables(definition)
     steps = definition.get("steps")
     bases = []
     for step in steps if isinstance(steps, list) else []:

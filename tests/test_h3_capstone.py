@@ -385,3 +385,42 @@ def test_end_to_end_a_gated_one_frame_guide_inside_the_render(tiny_guided_h3):
     assert never.shape == late.shape
     assert torch.isfinite(late).all()
     assert not torch.allclose(never, late, atol=1e-5)
+
+
+# 5. Validate (#1232): the capstone is refused before the run, not at the load
+
+
+def _capstone_definition(capstone, num_frames=49):
+    return {
+        "steps": [
+            {
+                "name": "s",
+                "pipeline": {
+                    "chain": {"experimental_capstone": capstone},
+                    "arguments": {"num_frames": num_frames},
+                },
+            }
+        ]
+    }
+
+
+def test_validate_refuses_the_capstone_with_the_flag_off(monkeypatch):
+    from dw.guides import anchor_errors
+
+    monkeypatch.delenv(FLAG, raising=False)
+    errors = anchor_errors(_capstone_definition({"enter_below_sigma": 0.5}))
+    assert any(FLAG in e["message"] for e in errors)
+    assert any(e["path"].endswith("experimental_capstone") for e in errors)
+
+
+def test_validate_checks_the_capstone_against_num_frames(flag_on):
+    from dw.guides import anchor_errors
+
+    capstone = {"enter_below_sigma": 0.5, "from_end": 60}
+    errors = anchor_errors(_capstone_definition(capstone, num_frames=49))
+    assert any("from_end 60" in e["message"] for e in errors)
+    assert not [
+        e
+        for e in anchor_errors(_capstone_definition({"enter_below_sigma": 0.5}))
+        if "capstone" in e["message"]
+    ]
