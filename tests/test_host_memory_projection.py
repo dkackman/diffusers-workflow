@@ -160,3 +160,21 @@ class TestProjection:
         rows.append(row(3200 * MB, {"shots": list(range(16))}))
         warnings = host_memory_warnings(definition, {"shots": 32}, rows, 3_000 * MB)
         assert len(warnings) == 1
+
+
+    def test_a_row_that_chose_another_bundle_reads_that_bundles_list(self):
+        # a row's stored arguments name the selector, not the bundle's values:
+        # its list length is the bundle it chose, not the default bundle's
+        definition = for_each_workflow(release=False)
+        definition["variables"]["shots"] = [1, 2]
+        definition["variables"]["size"] = "small"
+        definition["presets"] = {
+            "size": {"small": {"shots": [1, 2]}, "big": {"shots": list(range(16))}}
+        }
+        rows = [row(2000 * MB, {}) for _ in range(3)]
+        rows.append(row(3200 * MB, {"size": "big"}))
+        # read the big row as 2 entries (the default bundle) and the fit is flat
+        # at ~2000-3200 MB; read as 16 it extrapolates past the ceiling at 32
+        warnings = host_memory_warnings(definition, {"shots": 32}, rows, 3_000 * MB)
+        assert len(warnings) == 1
+        assert "extrapolated from runs of 2 and 16" in warnings[0]

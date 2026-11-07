@@ -84,7 +84,7 @@ def _requested_count(list_entries):
     return max(counts) if counts else None
 
 
-def _row_count(row, list_entries, variables):
+def _row_count(row, list_entries, variables, definition=None):
     """The list length a historical row ran with, read from its own stored
     arguments rather than the current request's - a row that ran a shorter
     or longer list is still comparable, once divided out, for the resident
@@ -111,6 +111,10 @@ def _row_count(row, list_entries, variables):
         arguments = {}
     if not isinstance(arguments, dict):
         arguments = {}
+    if definition is not None:
+        # a row that overrode the preset selector ran that bundle, not the
+        # default one `variables` carries
+        variables = effective_variables(definition, arguments)
     counts = []
     for name in list_entries:
         value = arguments.get(name, variables.get(name))
@@ -119,14 +123,14 @@ def _row_count(row, list_entries, variables):
     return max(counts) if counts else None
 
 
-def _peak_by_count(rows, list_entries, variables, field=RSS_PEAK):
+def _peak_by_count(rows, list_entries, variables, field=RSS_PEAK, definition=None):
     """This workflow's history grouped by list length, each count's peak
     (`field`'s) reduced to its median - the input a fixed+marginal fit
     reads."""
     by_count = {}
     for row in rows:
         peak = row.get(field)
-        count = _row_count(row, list_entries, variables)
+        count = _row_count(row, list_entries, variables, definition)
         if isinstance(peak, (int, float)) and count:
             by_count.setdefault(count, []).append(peak)
     medians = {}
@@ -174,6 +178,7 @@ def _already_survived(
     variables,
     released=False,
     field=RSS_PEAK,
+    definition=None,
 ):
     """Whether a run at least as large as this request already finished on
     this box at or above the projected peak.
@@ -200,7 +205,7 @@ def _already_survived(
             continue
         if released:
             return True
-        count = _row_count(row, list_entries, variables)
+        count = _row_count(row, list_entries, variables, definition)
         if count is not None and count >= requested:
             return True
     return False
@@ -235,7 +240,7 @@ def _projection(definition, list_entries, rows):
         projected = max(peaks)
         shape = f"~{round(projected)} MB, the largest single iteration observed"
     else:
-        medians = _peak_by_count(rows, list_entries, variables, field)
+        medians = _peak_by_count(rows, list_entries, variables, field, definition)
         if not medians:
             return None
         base, slope, low_count, high_count = _fit_peak_model(medians)
@@ -291,7 +296,14 @@ def host_memory_warnings(definition, list_entries, rows, ceiling_mb):
     if projected <= ceiling_mb:
         return []
     if _already_survived(
-        rows, list_entries, requested, projected, variables, released, field
+        rows,
+        list_entries,
+        requested,
+        projected,
+        variables,
+        released,
+        field,
+        definition,
     ):
         return []
     return [
