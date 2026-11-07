@@ -21,7 +21,6 @@ from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
-    MATCH_AUDIO_SOURCE_RULE,
     chain_capstone_problem,
     chain_check_problem,
     chain_keystone_slot,
@@ -31,6 +30,7 @@ from .chain_rules import (
     chain_look_hold_flags,
     chain_look_hold_problem,
     keystone_slot_plan_problem,
+    match_audio_source_problem,
 )
 from .h3_hold import hold_audio_reference
 from .h3_rules import (
@@ -302,6 +302,9 @@ class ChainConfig:
                 "as the per-segment length"
             )
 
+        problem = match_audio_source_problem(arguments)
+        if problem:
+            raise ValueError(problem)
         held = arguments.get(HOLD_AUDIO_INPUT)
         if held is not None:
             # Read once here, sliced per segment - each slice is a reference
@@ -543,9 +546,10 @@ def _resolve_fps(chain_definition, arguments):
 def _find_audio_reference(arguments):
     """The single audio reference a match_audio chain with no `hold_audio`
     slices per segment."""
-    references = arguments.get("references", None)
-    if not isinstance(references, list):
-        raise ValueError(MATCH_AUDIO_SOURCE_RULE)
+    problem = match_audio_source_problem(arguments)
+    if problem:
+        raise ValueError(problem)
+    references = arguments.get("references") or []
 
     audio_references = [
         reference
