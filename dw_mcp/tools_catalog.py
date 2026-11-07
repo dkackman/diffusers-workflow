@@ -321,6 +321,9 @@ class CatalogTools:
         sample rate, channels, fps, size and level - how an agent that
         cannot listen checks a deliverable, or an image's measured
         `width`/`height`; `media.shots` places a joined video's shots.
+        For an `.otioz` (export_timeline) `media` is the timeline: `tracks`
+        (clips in order with name, frames, seconds, media member),
+        `has_audio_track` and `members`.
         `include_workflow=false` omits the large embedded workflow.
         `envelope=true` adds that level second by second
         (`media.envelope.rms_dbfs` / `peak_dbfs`), which says *where* in a

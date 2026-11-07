@@ -27,7 +27,7 @@ import json
 import logging
 import os
 import zipfile
-from urllib.parse import quote
+from urllib.parse import quote, unquote
 from types import SimpleNamespace
 
 from ..locations import validate_media_path
@@ -349,3 +349,80 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
     if info.get("sample_rate"):
         tracks.append(_track("Audio", lay_out()))
     return TimelineBundle(_timeline(name, tracks), media)
+
+
+MAX_CONTENT_BYTES = 8 * 1024 * 1024
+
+
+def summarize_bundle(path):
+    """A read-only summary of an `.otioz` this module wrote (#1254): the
+    tracks with their clips and gaps in order, each clip's name, source
+    range and media member, and the bundle's member list. `path` is a file
+    the caller already confined; nothing is extracted, and `content.otio`
+    is read bounded so a hostile zip cannot expand in memory.
+    Raises ValueError for a file that is not a timeline bundle."""
+    try:
+        bundle = zipfile.ZipFile(path)
+    except (zipfile.BadZipFile, OSError) as error:
+        raise ValueError(f"not an .otioz bundle: {error}") from error
+    with bundle:
+        infos = bundle.infolist()
+        members = [i.filename for i in infos if not i.filename.endswith("/")]
+        try:
+            info = bundle.getinfo("content.otio")
+        except KeyError as error:
+            raise ValueError("not an .otioz bundle: no content.otio") from error
+        if info.file_size > MAX_CONTENT_BYTES:
+            raise ValueError("content.otio is too large to summarize")
+        with bundle.open(info) as handle:
+            raw = handle.read(MAX_CONTENT_BYTES + 1)
+        if len(raw) > MAX_CONTENT_BYTES:
+            raise ValueError("content.otio is too large to summarize")
+        version = None
+        if "version.txt" in members:
+            version = bundle.read("version.txt")[:64].decode("utf-8", "replace")
+    try:
+        document = json.loads(raw)
+    except ValueError as error:
+        raise ValueError(f"content.otio is not JSON: {error}") from error
+    stack = document.get("tracks") or {}
+    tracks = []
+    for track in stack.get("children") or []:
+        clips, total = [], 0.0
+        for child in track.get("children") or []:
+            span = child.get("source_range") or {}
+            duration = span.get("duration") or {}
+            rate = duration.get("rate") or 0
+            frames = duration.get("value") or 0
+            seconds = round(frames / rate, 4) if rate else None
+            if seconds:
+                total += seconds
+            entry = {
+                "type": str(child.get("OTIO_SCHEMA", "")).split(".")[0],
+                "name": child.get("name", ""),
+                "start_frame": (span.get("start_time") or {}).get("value"),
+                "frames": frames,
+                "rate": rate,
+                "seconds": seconds,
+            }
+            reference = child.get("media_reference") or {}
+            if reference.get("target_url"):
+                entry["media"] = unquote(reference["target_url"])
+            clips.append(entry)
+        tracks.append(
+            {
+                "kind": track.get("kind", ""),
+                "name": track.get("name", ""),
+                "clip_count": sum(1 for c in clips if c["type"] == "Clip"),
+                "seconds": round(total, 4),
+                "items": clips,
+            }
+        )
+    return {
+        "kind": "timeline",
+        "name": document.get("name", ""),
+        "otio_version": version,
+        "has_audio_track": any(t["kind"] == "Audio" for t in tracks),
+        "tracks": tracks,
+        "members": members,
+    }

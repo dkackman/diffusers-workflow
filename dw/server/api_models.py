@@ -832,7 +832,8 @@ class GalleryMetadata(ApiModel):
     version: int | None
     media: dict[str, Any] | None = Field(
         description="The probe of an audio or video file, or an image's kind, width, height "
-        "and mode; null for another file."
+        "and mode, or an .otioz's timeline (tracks, clips with durations, members); "
+        "null for another file."
     )
     findings: list[LevelFinding]
     role: Literal["final", "intermediate"] | None = sometimes(

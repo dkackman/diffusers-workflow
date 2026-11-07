@@ -324,3 +324,28 @@ def test_shots_running_past_the_video_are_refused(tmp_path, facts, spans):
     video = a_file(tmp_path, "joined.mp4", facts, 72)
     with pytest.raises(InvalidInputError, match="only 72 frames"):
         te.export_timeline(video, shots=shots(*spans))
+
+
+def test_summarize_bundle_reads_the_real_written_bundle(tmp_path, facts):
+    video = a_file(tmp_path, "joined.mp4", facts, 72)
+    out = tmp_path / "cut.otioz"
+    te.export_timeline(video, shots=shots((0, 24), (24, 48)), name="cut").save(str(out))
+    summary = te.summarize_bundle(str(out))
+    assert summary["kind"] == "timeline"
+    assert summary["name"] == "cut"
+    assert summary["has_audio_track"] is True
+    assert "media/joined.mp4" in summary["members"]
+    video_track = summary["tracks"][0]
+    assert video_track["kind"] == "Video"
+    assert video_track["clip_count"] == 2
+    assert [c["name"] for c in video_track["items"]] == ["shot 0", "shot 1"]
+    assert [c["frames"] for c in video_track["items"]] == [24, 48]
+    assert video_track["items"][0]["media"] == "media/joined.mp4"
+    assert video_track["seconds"] == 3.0
+
+
+def test_summarize_bundle_refuses_a_non_bundle(tmp_path):
+    bad = tmp_path / "x.otioz"
+    bad.write_bytes(b"not a zip")
+    with pytest.raises(ValueError):
+        te.summarize_bundle(str(bad))

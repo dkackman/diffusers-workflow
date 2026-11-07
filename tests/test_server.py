@@ -1631,6 +1631,33 @@ def test_gallery_lists_media_and_reads_metadata(server, tmp_path):
             is None
         )
 
+        # an .otioz reports its timeline in `media` (#1254)
+        import json as _json
+        import zipfile as _zip
+
+        clip = {
+            "OTIO_SCHEMA": "Clip.1",
+            "name": "shot 0",
+            "source_range": {
+                "duration": {"rate": 24.0, "value": 48},
+                "start_time": {"rate": 24.0, "value": 0},
+            },
+            "media_reference": {"target_url": "media/a.mp4"},
+        }
+        doc = {
+            "name": "cut",
+            "tracks": {
+                "children": [{"kind": "Video", "name": "Video", "children": [clip]}]
+            },
+        }
+        with _zip.ZipFile(outputs / "cut.otioz", "w") as z:
+            z.writestr("content.otio", _json.dumps(doc))
+            z.writestr("media/a.mp4", b"x")
+        timeline = client.get("/api/gallery/cut.otioz/metadata").json()["media"]
+        assert timeline["kind"] == "timeline"
+        assert timeline["members"] == ["content.otio", "media/a.mp4"]
+        assert timeline["tracks"][0]["items"][0]["seconds"] == 2.0
+
         # confinement
         assert client.get("/api/gallery/..%2Fsecret.png/metadata").status_code == 404
 
