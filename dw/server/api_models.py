@@ -105,8 +105,9 @@ class HealthInfo(ApiModel):
     version: str
     worker_alive: bool = Field(
         description="Whether any worker is alive. Workers are on-demand: false on an "
-        "idle server that has not run a job yet, or after a memory clear, is normal - "
-        "no model process is resident, not a fault."
+        "idle server that has not run a job yet is normal - no model process "
+        "is resident, not a fault. A memory clear keeps a live worker alive "
+        "(same pid); it frees models, it does not restart the process."
     )
     current_job: str | None = Field(
         description="The longest-running job; `workers` names every running one."

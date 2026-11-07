@@ -913,6 +913,22 @@ def _observed(observed, device):
     return estimate
 
 
+# Task commands that only cut or join text in memory: no model, no media, no
+# loop over one, so a parent whose own steps are these plus child workflows
+# has no uncosted work of its own (#1222: narration-long's `split`).
+TEXT_GLUE_TASKS = frozenset({"split_takes"})
+
+
+def _is_text_glue(step):
+    """Whether `step` is a TEXT_GLUE_TASKS task run once (no for_each)."""
+    task = step.get("task") if isinstance(step, dict) else None
+    return (
+        isinstance(task, dict)
+        and task.get("command") in TEXT_GLUE_TASKS
+        and not step.get("for_each")
+    )
+
+
 def _only_composes_children(definition):
     """Whether every step the workflow *declares* is a `workflow` step -
     i.e. the parent does no work of its own beyond assembling children.
@@ -930,6 +946,8 @@ def _only_composes_children(definition):
     if not steps:
         return False
     for step in steps:
+        if _is_text_glue(step):
+            continue
         reference = step.get("workflow") if isinstance(step, dict) else None
         if not isinstance(reference, dict) or not isinstance(
             reference.get("path"), str

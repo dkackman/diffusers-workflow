@@ -500,7 +500,7 @@ def health(request: Request):
         "status": "ok",
         "version": __version__,
         # on-demand subprocess: false on an idle server that hasn't run
-        # a job yet (or after a memory clear) is normal, not a fault -
+        # a job yet is normal (a memory clear keeps a live worker, #1240), not a fault -
         # it means no model process is currently resident, not that the
         # server is unhealthy (#206). Any worker of the pool (#462)
         "worker_alive": any(worker["alive"] for worker in workers),
