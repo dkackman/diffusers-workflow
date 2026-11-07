@@ -316,3 +316,11 @@ def test_target_url_is_percent_encoded(tmp_path, facts):
     clip = content["tracks"]["children"][0]["children"][0]
     assert clip["media_reference"]["target_url"] == "media/my%20clip%20%231.mp4"
     assert "media/my clip #1.mp4" in archive.namelist()
+
+
+@pytest.mark.parametrize("spans", [[(0, 30), (30, 60)], [(0, 24), (80, 10)]])
+def test_shots_running_past_the_video_are_refused(tmp_path, facts, spans):
+    # 72 frames: a shot that overruns the end, or starts beyond it
+    video = a_file(tmp_path, "joined.mp4", facts, 72)
+    with pytest.raises(InvalidInputError, match="only 72 frames"):
+        te.export_timeline(video, shots=shots(*spans))

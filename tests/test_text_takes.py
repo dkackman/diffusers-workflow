@@ -110,7 +110,8 @@ def test_narration_long_validates_and_names_its_child():
     root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
     path = root / "narration-long.json"
     definition = json.loads(path.read_text())
-    assert Workflow(definition, str(root), str(path)).validation_errors() == []
+    voice = {"reference_audio": "asset:voice.wav", "reference_text": "Some words."}
+    assert Workflow(definition, str(root), str(path)).validation_errors(voice) == []
     child = definition["steps"][1]["workflow"]
     assert child["path"] == "./narration-from-takes.json"
     assert child["arguments"]["takes"] == "previous_result:split.takes"
@@ -292,3 +293,22 @@ def test_company_month_and_country_abbreviations_are_not_sentence_ends():
 
     assert len(_sentences("Acme Inc. makes it. Foo Ltd. sells it.")) == 2
     assert len(_sentences("It shipped Oct. 5 in the U.S. last year.")) == 1
+
+
+@pytest.mark.parametrize("template", ["narration-long", "narration-from-takes"])
+@pytest.mark.parametrize("given", ["null", "empty"])
+def test_a_missing_reference_is_refused_at_validate(template, given):
+    import json
+    from pathlib import Path
+
+    from dw.workflow import Workflow
+
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    path = root / f"{template}.json"
+    definition = json.loads(path.read_text())
+    arguments = {"reference_text": "Some words."}
+    arguments["reference_audio"] = None if given == "null" else ""
+    errors = Workflow(definition, str(root), str(path)).validation_errors(arguments)
+    messages = [e["message"] for e in errors if "reference_audio" in e["path"]]
+    assert messages, errors
+    assert "reference_audio" in messages[0]

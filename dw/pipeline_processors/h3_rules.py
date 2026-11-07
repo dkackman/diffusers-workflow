@@ -1043,6 +1043,9 @@ def listen_canvas(width, height, scale):
     return (long, short) if width >= height else (short, long)
 
 
+H3_MAX_FRAMES = 345  # mirrors the templates' num_frames max_frames
+
+
 def retimed_indices(frame_count, fps):
     """The source frame each conditioning frame of an audio pass shows: the
     source's `frame_count` frames at `fps` resampled in time, nearest frame,
@@ -1066,11 +1069,31 @@ def media_problems(name, shape, width, height, num_frames=None, fps=None):
             f"{name} is {shape[2]}x{shape[1]}, and the step renders "
             f"{width}x{height} - they must match"
         )
-    if num_frames is not None and name != MASK_IMAGE_INPUT and shape[0] != num_frames:
-        problems.append(
-            f"{name} has {shape[0]} frames, and the step renders num_frames="
-            f"{num_frames} - they must match"
+    # An audio pass at another rate conditions on the source retimed to H3_FPS,
+    # so it is that count, not the source's own, the step must render
+    expected = shape[0]
+    retimed = name == SOURCE_VIDEO_INPUT and fps not in (None, H3_FPS)
+    if retimed:
+        expected = len(retimed_indices(shape[0], fps))
+    if num_frames is not None and name != MASK_IMAGE_INPUT and expected != num_frames:
+        if retimed:
+            have = (
+                f"{name} has {shape[0]} frames at {fps:g} fps ({expected} once "
+                f"retimed to {H3_FPS} fps)"
+            )
+        else:
+            have = f"{name} has {shape[0]} frames"
+        problem = (
+            f"{have}, and the step renders num_frames={num_frames} - they must match"
         )
+        if name == SOURCE_VIDEO_INPUT and expected > H3_MAX_FRAMES:
+            problem += (
+                f". MiniMax-H3 renders at most {H3_MAX_FRAMES} frames "
+                f"({H3_MAX_FRAMES / H3_FPS:.0f} seconds at {H3_FPS} fps), so this "
+                f"clip is too long - trim it to {aligned_down(H3_MAX_FRAMES, RENDER_GRID)} "
+                f"frames or fewer"
+            )
+        problems.append(problem)
     elif (
         num_frames is not None and name == SOURCE_VIDEO_INPUT and fps in (None, H3_FPS)
     ):

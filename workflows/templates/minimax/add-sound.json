@@ -213,7 +213,6 @@
             },
             "result": {
                 "content_type": "video/mp4",
-                "fps": 24,
                 "subfolder": "final"
             }
         }

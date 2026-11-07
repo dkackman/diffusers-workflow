@@ -48,6 +48,7 @@ from . import references
 from .argument_media import is_media_reference
 from .for_each import render_path
 from .pipeline_processors.h3_rules import (
+    H3_FPS,
     HOLD_AUDIO_INPUT,
     LISTEN_SCALE_INPUT,
     MASK_IMAGE_INPUT,
@@ -64,6 +65,7 @@ from .pipeline_processors.h3_rules import (
     media_problems,
     not_h3,
     refine_problems,
+    retimed_indices,
 )
 from .probe_paths import resolve_probe_path
 from .security import ALLOWED_AUDIO_EXTENSIONS, ALLOWED_VIDEO_EXTENSIONS
@@ -296,7 +298,10 @@ def _media_problems(arguments, base_dir, probe):
     if shape is not None:
         width = shape[2] if width is None else width
         height = shape[1] if height is None else height
-        num_frames = shape[0] if num_frames is None else num_frames
+        if num_frames is None:
+            num_frames = shape[0]
+            if fps not in (None, H3_FPS):
+                num_frames = len(retimed_indices(shape[0], fps))
     canvas = (_static(width), _static(height), _static(num_frames))
     if shape is not None and None not in canvas[:2]:
         problems += [

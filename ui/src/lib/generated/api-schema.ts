@@ -2586,6 +2586,11 @@ export interface components {
              * @description Read from job history rather than a live job.
              */
             historical?: boolean;
+            /**
+             * Host Memory Job Peak Committed Mb
+             * @description The job's peak committed host memory in MB (anonymous + shared + device-mapped pages), the figure the host-RAM gate projects from; null until a reading lands.
+             */
+            host_memory_job_peak_committed_mb?: number | null;
             /** Id */
             id: string;
             /**

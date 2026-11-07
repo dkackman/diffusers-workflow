@@ -11,6 +11,16 @@
     "gap_seconds": 0.3,
     "crossfade_ms": 30
   },
+  "variable_constraints": {
+    "reference_audio": {
+      "min_length": 1,
+      "reason": "there is no default voice: give an asset: reference of the voice to clone (at most 20 s) together with its reference_text"
+    },
+    "reference_text": {
+      "min_length": 1,
+      "reason": "the words spoken in reference_audio, exactly as said, are required with it"
+    }
+  },
   "seed": "variable:seed",
   "steps": [
     {

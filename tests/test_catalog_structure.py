@@ -590,7 +590,9 @@ def test_no_stale_entry_in_the_allowlist():
 # Then to 13_900 (measured 13_836) for `minimax/add-sound` (#1192, task 21):
 # one new entry, the catalog's only audio pass over a finished picture (new
 # sound under the clip's own frames), with its cost block.
-COMPACT_BUDGET = 13_900
+# Then to 13_950 (measured 13_910) for the `reference_audio`/`reference_text`
+# non-empty rules on `narration-long` and `narration-from-takes` (#1209).
+COMPACT_BUDGET = 13_950
 FILTERED_BUDGET = 1_500
 
 

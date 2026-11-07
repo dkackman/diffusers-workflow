@@ -366,7 +366,8 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device, note, rerun_of FROM jobs WHERE id = ?",
+                " run_version, device, note, rerun_of,"
+                " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?",
                 (job_id,),
             ).fetchone()
         return self._to_detail(row) if row else None
@@ -621,6 +622,9 @@ class JobHistory:
             "device": row["device"],
             "acknowledged": row["acknowledged"] or ACK_NONE,
             "acknowledged_cost": (spec or {}).get("acknowledged_cost"),
+            "host_memory_job_peak_committed_mb": row[
+                "host_memory_job_peak_committed_mb"
+            ],
             "traceback": None,
             "event_count": len(events) if isinstance(events, list) else 0,
             "historical": True,

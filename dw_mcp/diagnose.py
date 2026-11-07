@@ -242,6 +242,8 @@ _SLIM_KEYS = (
     # is what separates a slow job from a hung one on a poll that would
     # otherwise come back byte-identical
     "progress",
+    # Peak committed host memory (MB) the host-RAM gate projects from
+    "host_memory_job_peak_committed_mb",
     # Clipped in slim_job: a poll repeats it
     "note",
 )

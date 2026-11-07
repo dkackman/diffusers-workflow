@@ -314,6 +314,48 @@ class TestSegmentFiles:
                 tail_frames=22,
             )
 
+    def _edit_shots(self, made, edit):
+        import json
+
+        path = os.path.join(
+            os.path.dirname(os.path.dirname(made["take"])), "manifest.json"
+        )
+        with open(path) as file:
+            manifest = json.load(file)
+        edit(manifest["steps"][0]["shots"])
+        with open(path, "w") as file:
+            json.dump(manifest, file)
+
+    def _cut(self, made):
+        return chain_repair_cut(
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
+        )
+
+    def test_a_take_without_keep_segments_names_that_fix(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+        self._edit_shots(
+            made, lambda shots: [shot.pop("segment_file") for shot in shots]
+        )
+        with pytest.raises(ValueError, match="keep_segments: true"):
+            self._cut(made)
+
+    def test_a_take_copied_away_names_chain_output(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+        with pytest.raises(ValueError, match="copied away.*chain_output"):
+            self._cut(made)
+
+    def test_an_already_repaired_take_names_the_original(self, tmp_path):
+        made = write_run(str(tmp_path), [40, 51, 51, 51])
+
+        def mark(shots):
+            for shot in shots:
+                shot.pop("segment_file")
+            shots[1]["name"] = "segment 2 (repaired)"
+
+        self._edit_shots(made, mark)
+        with pytest.raises(ValueError, match="already a repaired take.*original"):
+            self._cut(made)
+
     def test_without_a_manifest_the_siblings_are_found_by_name(self, tmp_path):
         # The by-name fallback finds the files only; the take must still
         # have shots, so the cut refuses it
