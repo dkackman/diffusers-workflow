@@ -101,7 +101,7 @@ def is_cut(opening_tone, reference_tone):
     return float(gap) > CUT_JUMP
 
 
-def pickup_grade(frames, carried):
+def pickup_grade(frames, carried, report=None):
     """Match frame 1 to the carried frame by quantile LUT, and carry the same
     mapping to the last frame, interpolating the LUT per frame between.
 
@@ -111,21 +111,32 @@ def pickup_grade(frames, carried):
     keyframe copy and stays as it is. Returned unchanged when
     there are under two frames (frame 0 plus one more), when a frame is flat,
     or when the opening differs from the carried frame by more than CUT_JUMP
-    (a cut, not drift).
+    (a cut, not drift). `report`, when a list, gets one line saying whether the
+    grade was applied or skipped, and why.
     """
     frames = numpy.asarray(frames)
     count = len(frames)
+    note = report.append if report is not None else (lambda _: None)
     if count < 2:
+        note("pickup skipped (under two frames)")
         return frames
     carried_tone = tone(numpy.asarray(carried))
     first_tone, last_tone = tone(frames[1]), tone(frames[-1])
-    for each in (carried_tone, first_tone, last_tone):
+    for name, each in (
+        ("carried", carried_tone),
+        ("opening", first_tone),
+        ("last", last_tone),
+    ):
         if each[0, -1] - each[0, 0] < FLAT_SPREAD:
+            note(f"pickup skipped (flat: {name} frame luma spread < {FLAT_SPREAD})")
             return frames
     # Known limit (#1242): is_cut reads a fade or exposure ramp past CUT_JUMP
     # as a cut, so a pickup across one is skipped, not graded
+    jump = float(numpy.abs(first_tone - carried_tone).mean(axis=1).max())
     if is_cut(first_tone, carried_tone):
+        note(f"pickup skipped (cut: jump {jump:.3f} > {CUT_JUMP})")
         return frames
+    note(f"pickup applied (jump {jump:.3f})")
 
     first_luts = [_lut(first_tone[c], carried_tone[c]) for c in range(3)]
     # last_luts refits first_luts on the last frame's quantiles (it maps
@@ -149,7 +160,7 @@ def pickup_grade(frames, carried):
     return out
 
 
-def ease_creep(frames, scene_look, tolerance=0.03):
+def ease_creep(frames, scene_look, tolerance=0.03, report=None):
     """Scale contrast (about the frame mean) and chroma (about 0.5) down by a
     factor running linearly from 1 at the first frame to the needed gain at the
     last, when the last frame's look exceeds the scene's by more than the
@@ -165,6 +176,12 @@ def ease_creep(frames, scene_look, tolerance=0.03):
         contrast_gain = min(1.0, scene_spread / spread)
     if chroma - scene_chroma > tolerance and chroma > _EPS:
         chroma_gain = min(1.0, scene_chroma / chroma)
+    if report is not None:
+        report.append(
+            f"creep contrast gain {contrast_gain:.3f}, chroma gain {chroma_gain:.3f} "
+            "at the last frame"
+            + (" (none needed)" if contrast_gain == chroma_gain == 1.0 else "")
+        )
     if contrast_gain == 1.0 and chroma_gain == 1.0:
         return frames
     out = frames.copy()
@@ -243,7 +260,7 @@ def _cut_for(frame, limit, max_cut):
     return high
 
 
-def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5):
+def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5, report=None):
     """Subtract a fraction (at most max_cut) of the masked faint detail at
     whichever end exceeds the scene's texture by more than the tolerance,
     interpolating the fraction linearly across the shot. Frame 0 is the keyframe
@@ -254,6 +271,11 @@ def ease_texture(frames, scene_texture, tolerance=0.03, max_cut=0.5):
         return frames
     limit = scene_texture + tolerance
     ends = (_cut_for(frames[1], limit, max_cut), _cut_for(frames[-1], limit, max_cut))
+    if report is not None:
+        report.append(
+            f"texture cut {ends[0]:.3f} at the opening, {ends[1]:.3f} at the last "
+            f"frame (of max {max_cut})"
+        )
     if not any(ends):
         return frames
     out = frames.copy()
@@ -285,6 +307,8 @@ class LookHold:
         self._ratios = []
         self._fed = None
         self._fed_tone = None
+        self._fed_boost = (1.0, 1.0)
+        self.notes = []
 
     def boost(self):
         if not self._ratios:
@@ -294,25 +318,37 @@ class LookHold:
     def correct(self, frames, carried, first):
         """One segment's PIL frames, corrected. Segment 1 only sets the scene;
         later ones also learn the boost from their rendered opening."""
+        self.notes = notes = []
         stack = numpy.stack([numpy.asarray(f.convert("RGB")) for f in frames])
         opening = stack[min(1, len(stack) - 1)]
         if first:
             self.scene_look, self.scene_texture = look(opening), scene_texture(stack)
             return frames
+        if self.flags["precompensate"]:
+            notes.append(
+                f"precompensate divided out contrast {self._fed_boost[0]:.3f}, "
+                f"chroma {self._fed_boost[1]:.3f} from the fed keyframe"
+            )
         if self._fed is not None and not is_cut(tone(opening), self._fed_tone):
             rendered = look(opening)
             # Each gain is learned on its own: a fed frame with no chroma (a
             # greyscale keyframe) says nothing of the chroma boost but still
             # measures the contrast one, and the other way round (#1242)
-            self._ratios.append(
-                [r / f if f > _EPS else 1.0 for r, f in zip(rendered, self._fed)]
+            ratio = [r / f if f > _EPS else 1.0 for r, f in zip(rendered, self._fed)]
+            self._ratios.append(ratio)
+            notes.append(
+                f"measured opening/fed ratio contrast {ratio[0]:.3f}, chroma "
+                f"{ratio[1]:.3f}; running boost now contrast {self.boost()[0]:.3f}, "
+                f"chroma {self.boost()[1]:.3f}"
             )
+        elif self._fed is not None:
+            notes.append("boost not learned (opening is a cut from the fed keyframe)")
         if self.flags["pickup"] and carried is not None:
-            stack = pickup_grade(stack, numpy.asarray(carried.convert("RGB")))
+            stack = pickup_grade(stack, numpy.asarray(carried.convert("RGB")), notes)
         if self.flags["creep"]:
-            stack = ease_creep(stack, self.scene_look)
+            stack = ease_creep(stack, self.scene_look, report=notes)
         if self.flags["texture"]:
-            stack = ease_texture(stack, self.scene_texture)
+            stack = ease_texture(stack, self.scene_texture, report=notes)
         return [Image.fromarray(each) for each in stack]
 
     def feed(self, carry):
@@ -320,6 +356,7 @@ class LookHold:
         boost so far. Records its look to measure the next opening against."""
         if self.flags["precompensate"]:
             pixels = numpy.asarray(carry.convert("RGB"))
+            self._fed_boost = tuple(min(max(g, 1.0), BOOST_MAX) for g in self.boost())
             carry = Image.fromarray(precompensate(pixels, self.boost()))
         pixels = numpy.asarray(carry.convert("RGB"))
         self._fed, self._fed_tone = look(pixels), tone(pixels)

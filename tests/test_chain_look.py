@@ -181,3 +181,31 @@ def test_a_greyscale_feed_still_learns_the_contrast_boost():
     contrast, chroma = hold.boost()
     assert contrast > 1.15
     assert chroma == 1.0
+
+
+def test_correct_reports_what_each_part_measured_and_applied():
+    # #1251: the notes carry the learned boost, pickup outcome, creep gains and
+    # texture cuts, so a consumer can read them off the seam log line
+    from PIL import Image
+
+    hold = LookHold(
+        dict.fromkeys(("pickup", "creep", "texture", "precompensate"), True)
+    )
+    carry = Image.fromarray(gradient())
+    hold.correct([carry] * 3, None, True)
+    hold.feed(carry)
+    drift = Image.fromarray(gradient(1.2))
+    hold.correct([carry, drift, drift], carry, False)
+    text = " | ".join(hold.notes)
+    for expected in (
+        "precompensate divided out",
+        "measured opening/fed ratio",
+        "pickup",
+        "creep contrast gain",
+        "texture cut",
+    ):
+        assert expected in text
+    cut = Image.fromarray((gradient() * 0.3).astype(numpy.uint8))
+    hold.feed(carry)
+    hold.correct([carry, cut, cut], carry, False)
+    assert "cut" in " | ".join(hold.notes)

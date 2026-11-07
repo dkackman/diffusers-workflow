@@ -256,7 +256,11 @@ def _log_seam_holds(config, segment, attempt, state):
             f"from segment 1 ({parts}); segment 1 is left as rendered"
         )
     else:
-        emit_log(f"{seam}: look_hold corrected segment {segment.index + 1} ({parts})")
+        detail = "; ".join(attempt.hold.notes)
+        emit_log(
+            f"{seam}: look_hold corrected segment {segment.index + 1} ({parts})"
+            + (f" - {detail}" if detail else "")
+        )
 
 
 def _lay_down(timeline, config, segment, attempt, checked, spill):
