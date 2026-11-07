@@ -17,6 +17,7 @@ import pytest
 import torch
 from PIL import Image
 
+from dw.pipeline_processors import chain as chain_module
 from dw.pipeline_processors.chain import ChainConfig, run_chain
 from dw.pipeline_processors.chain_config import (
     plan_segments,
@@ -1011,7 +1012,7 @@ class TestGuideContinuity:
 
     def test_keystone_is_logged_per_seam(self):
         pipeline = FakePipeline(self.output)
-        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+        with patch.object(chain_module, "emit_log") as emit_log:
             run_chain(
                 pipeline,
                 self.chain(keystone="segment_1"),
@@ -1573,7 +1574,7 @@ class TestLookHold:
         assert first_last.shape == opening.shape
 
     def test_look_hold_is_logged_per_seam(self):
-        with patch("dw.pipeline_processors.chain.emit_log") as emit_log:
+        with patch.object(chain_module, "emit_log") as emit_log:
             run_chain(FakePipeline(self.output), self.chain(look_hold=True), {})
         notes = [call.args[0] for call in emit_log.call_args_list]
         assert any("segment 1 is left as rendered" in n for n in notes)
