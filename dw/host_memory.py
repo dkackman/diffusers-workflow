@@ -19,6 +19,8 @@ import logging
 import os
 import tempfile
 
+from filelock import FileLock, Timeout
+
 logger = logging.getLogger("dw")
 
 __all__ = [
@@ -477,20 +479,16 @@ def release_host_caches():
 # file named for its pid listing its running jobs as `[worker_pid, peak_mb]`;
 # `foreign` reads the other live servers' files and answers in the form
 # `host_ram_wait` takes for its own running jobs, `(peak_mb, committed_mb now)`.
-# `lock` is a flock around a pass's check-and-publish, so two servers starting
+# `lock` is a `filelock.FileLock` around a pass's check-and-publish, so two servers starting
 # at once see each other's claim rather than both passing.
 #
 # The directory is `DW_HOST_CLAIMS_DIR`, else a per-user folder in the system
-# temp dir. Where flock is missing (Windows) the lock is a no-op. A file whose
+# temp dir. A file whose
 # server pid is gone is deleted when read. Nothing here raises: a claim that
 # cannot be written or read leaves the gate where it was before this module.
 
 ENV_DIR = "DW_HOST_CLAIMS_DIR"
-
-try:
-    import fcntl
-except ImportError:  # no flock: the claims still publish, unlocked
-    fcntl = None
+LOCK_TIMEOUT_S = 10
 
 
 def claims_dir():
@@ -521,20 +519,23 @@ class HostClaims:
 
     @contextlib.contextmanager
     def lock(self):
-        """Hold the host-wide lock for one check-and-publish."""
-        handle = None
+        """Hold the host-wide lock for one check-and-publish; best effort -
+        a lock that cannot be taken is logged and the pass carries on."""
+        held = None
         try:
             os.makedirs(self.directory, mode=0o700, exist_ok=True)
-            handle = open(os.path.join(self.directory, ".lock"), "a")
-            if fcntl is not None:
-                fcntl.flock(handle, fcntl.LOCK_EX)
-        except OSError as e:
+            held = FileLock(
+                os.path.join(self.directory, ".lock"), timeout=LOCK_TIMEOUT_S
+            )
+            held.acquire()
+        except (OSError, Timeout) as e:
             logger.debug(f"Host claims lock unavailable: {e}")
+            held = None
         try:
             yield
         finally:
-            if handle is not None:
-                handle.close()  # closing releases the flock
+            if held is not None:
+                held.release()
 
     def publish(self, claims):
         """Record this server's running jobs, `[(worker_pid, peak_mb)]`,
