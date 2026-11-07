@@ -1170,3 +1170,21 @@ def test_ltx2_chained_segments_look_hold_false_is_the_plain_chain():
 
     chain = _ltx2_chain_after_substitution(segments=2, look_hold=False)
     assert not ChainConfig(chain, {"prompt": "x"}).look_hold
+
+
+def test_cost_drivers_show_the_default_preset_bundle_value(tmp_path):
+    # a driver the default bundle sets is shown at the bundle's value (#1232)
+    from dw.library import library_path
+
+    (tmp_path / "w.json").write_text(
+        json.dumps(
+            {
+                "variables": {"tier": "best", "steps": 10},
+                "presets": {"tier": {"best": {"steps": 40}}},
+                "cost_drivers": ["steps"],
+                "steps": [],
+            }
+        )
+    )
+    found, _ = library_path("workflows", None, primary=str(tmp_path)).entries()
+    assert workflow_details(found)["w"]["cost_drivers"] == {"steps": 40}
