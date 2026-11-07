@@ -157,3 +157,27 @@ def test_a_cut_opening_does_not_move_the_boost():
     hold.feed(carry)
     hold.correct([carry, drift, drift], carry, False)
     assert hold.boost()[0] > 1.1
+
+
+def test_a_greyscale_feed_still_learns_the_contrast_boost():
+    # The fed frame has no chroma, so the chroma gain is unmeasurable (stays
+    # 1.0) - but that must not discard the contrast measure (#1242)
+    from PIL import Image
+
+    def grey(scale):
+        ramp = numpy.linspace(60, 180, W, dtype=numpy.float32)
+        mean = ramp.mean()
+        row = numpy.clip(mean + (ramp - mean) * scale, 0, 255).astype(numpy.uint8)
+        return Image.fromarray(numpy.tile(row[None, :, None], (H, 1, 3)))
+
+    hold = LookHold(
+        dict.fromkeys(("pickup", "creep", "texture", "precompensate"), True)
+    )
+    carry = grey(1.0)
+    hold.correct([carry] * 3, None, True)
+    hold.feed(carry)
+    rendered = grey(1.3)
+    hold.correct([carry, rendered, rendered], carry, False)
+    contrast, chroma = hold.boost()
+    assert contrast > 1.15
+    assert chroma == 1.0

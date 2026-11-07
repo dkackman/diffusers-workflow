@@ -105,7 +105,10 @@ def pickup_grade(frames, carried):
     """Match frame 1 to the carried frame by quantile LUT, and carry the same
     mapping to the last frame, interpolating the LUT per frame between.
 
-    Frame 0 is the keyframe copy and stays as it is. Returned unchanged when
+    The mapping matches the carried frame's chroma as well as its tone, so a
+    carried frame more saturated than the opening raises the opening's
+    saturation - that is the match, not a side effect (#1242). Frame 0 is the
+    keyframe copy and stays as it is. Returned unchanged when
     there are under two frames (frame 0 plus one more), when a frame is flat,
     or when the opening differs from the carried frame by more than CUT_JUMP
     (a cut, not drift).
@@ -119,6 +122,8 @@ def pickup_grade(frames, carried):
     for each in (carried_tone, first_tone, last_tone):
         if each[0, -1] - each[0, 0] < FLAT_SPREAD:
             return frames
+    # Known limit (#1242): is_cut reads a fade or exposure ramp past CUT_JUMP
+    # as a cut, so a pickup across one is skipped, not graded
     if is_cut(first_tone, carried_tone):
         return frames
 
@@ -184,7 +189,8 @@ def _scaled(frame, contrast, chroma):
 def _detail(luma):
     """(luma - its box blur, mask of faint detail in flat areas). The blur
     radius is about height / 64; edges and strong detail fall outside the
-    mask. A blurred step's gradient falls as 1 / (2 radius + 1), so the edge
+    mask. An edge softer than about 0.09 at a 3 px box is flat to this mask
+    and counts as texture (#1242). A blurred step's gradient falls as 1 / (2 radius + 1), so the edge
     test scales it back to the 3 px box TEXTURE_GRADIENT was set at: the mask
     reads the same at any resolution."""
     radius = max(1, luma.shape[0] // 64)
@@ -294,8 +300,12 @@ class LookHold:
             return frames
         if self._fed is not None and not is_cut(tone(opening), self._fed_tone):
             rendered = look(opening)
-            if min(self._fed) > _EPS:
-                self._ratios.append([r / f for r, f in zip(rendered, self._fed)])
+            # Each gain is learned on its own: a fed frame with no chroma (a
+            # greyscale keyframe) says nothing of the chroma boost but still
+            # measures the contrast one, and the other way round (#1242)
+            self._ratios.append(
+                [r / f if f > _EPS else 1.0 for r, f in zip(rendered, self._fed)]
+            )
         if self.flags["pickup"] and carried is not None:
             stack = pickup_grade(stack, numpy.asarray(carried.convert("RGB")))
         if self.flags["creep"]:
