@@ -17,7 +17,14 @@ from fastapi.testclient import TestClient
 
 from dw.host_memory_projection import host_memory_warnings, projected_mb
 from dw.server.app import create_app
-from dw.server.host_ram_need import host_memory_block, memory_key, projected_peak
+from dw.host_memory import HostClaims
+from dw.server.host_ram_need import (
+    declared_mb,
+    host_memory_block,
+    host_too_small,
+    memory_key,
+    projected_peak,
+)
 from dw.server.job_history import JobHistory
 from dw.server.job_record import SUCCEEDED, Job
 from dw.server.jobs import JobManager
@@ -642,3 +649,114 @@ class TestDispatchNeverReadsSmaps:
         self._proc(tmp_path, monkeypatch)
         assert dispatch._worker_rss_mb(self._slot(None)) == 3.0
         assert dispatch._worker_rss_mb(self._slot({})) == 3.0
+
+
+H3_TEMPLATE = "workflows/templates/minimax/chained-segments.json"
+
+
+def h3():
+    with open(H3_TEMPLATE) as file:
+        return json.load(file)
+
+
+class TestDeclaredHostRam:
+    """#1227: the tier rows declare their host RAM; int8 is the heavy one."""
+
+    def test_each_tier_declares_its_figure(self):
+        definition = h3()
+        assert declared_mb(definition, {"tier": "draft"}) == 51 * 1024
+        assert declared_mb(definition, {"tier": "standard"}) == 51 * 1024
+        assert declared_mb(definition, {"tier": "best"}) == 69 * 1024
+        assert declared_mb(definition, None) == 51 * 1024
+
+    def test_an_explicit_argument_beats_the_bundle(self):
+        assert declared_mb(h3(), {"tier": "best", "host_ram_gb": 80}) == 80 * 1024
+
+    def test_a_definition_without_a_declaration_has_none(self):
+        assert declared_mb(template(), {}) is None
+        assert declared_mb({"host_ram_gb": 0}, {}) is None
+        assert declared_mb({"host_ram_gb": "variable:nope"}, {}) is None
+
+    def test_the_declaration_is_a_floor_under_an_observed_peak(self):
+        definition = h3()
+        assert projected_peak(definition, {"tier": "best"}, None) == (
+            69 * 1024,
+            "declared",
+            0,
+        )
+
+    def test_a_larger_observed_peak_wins(self, tmp_path):
+        history = JobHistory(str(tmp_path / "jobs.sqlite"))
+        definition = h3()
+        arguments = {"tier": "best"}
+        history.record(recorded_job("a", definition, 80000.0, arguments=arguments))
+        mb, basis, _ = projected_peak(definition, arguments, history)
+        assert (mb, basis) == (80000.0, "observed")
+
+    def test_a_host_too_small_for_the_declaration_is_refused(self):
+        best = host_too_small(h3(), {"tier": "best"}, 64 * 1024)
+        assert best is not None and "64 GB" in best and "69 GB" in best
+        # int4 on the same 64 GB host: 51 GB plus margin fits
+        assert host_too_small(h3(), {"tier": "standard"}, 64 * 1024) is None
+        # a 128 GB host holds either, one at a time
+        assert host_too_small(h3(), {"tier": "best"}, 125 * 1024) is None
+        # no reading of the host, no refusal
+        assert host_too_small(h3(), {"tier": "best"}, None) is None
+
+
+class TestSmallHostIsRefusedUpFront:
+    def test_validate_refuses_the_best_tier_on_a_64_gb_host(self, server, monkeypatch):
+        monkeypatch.setattr(
+            "dw.server.admission.host_memory_stats",
+            lambda: {"total_mb": 64 * 1024},
+        )
+        manager, client = server
+        with client:
+            response = client.post(
+                "/api/validate", json={"workflow_path": "Heavy", "arguments": {}}
+            )
+            assert response.status_code == 200
+            assert response.json()["valid"] is True
+
+    def test_admission_adds_the_error(self, monkeypatch):
+        from dw.server import admission
+
+        monkeypatch.setattr(
+            admission, "host_memory_stats", lambda: {"total_mb": 64 * 1024}
+        )
+
+        class Candidate:
+            workflow_definition = h3()
+
+        class Fake:
+            workflow = Candidate()
+            arguments = {"tier": "best"}
+            errors = []
+
+        fake = Fake()
+        admission._refuse_for_small_host(fake)
+        assert fake.errors[0]["path"] == "host_ram_gb"
+        assert "64 GB" in fake.errors[0]["message"]
+
+
+class TestHostClaims:
+    def test_another_live_servers_claim_is_seen_and_ones_own_is_not(self, tmp_path):
+        mine = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        mine.publish([(999999, 1000.0)])
+        theirs.publish([(999998, 2000.0)])
+        assert mine.foreign() == [(2000.0, None)]
+        assert theirs.foreign() == [(1000.0, None)]
+
+    def test_a_dead_servers_claim_is_dropped(self, tmp_path):
+        dead = HostClaims(directory=str(tmp_path), pid=2**22 + 12345)
+        dead.publish([(999999, 1000.0)])
+        reader = HostClaims(directory=str(tmp_path), pid=os.getpid())
+        assert reader.foreign() == []
+        assert not os.path.exists(os.path.join(str(tmp_path), f"{dead.pid}.json"))
+
+    def test_withdrawing_removes_the_claim(self, tmp_path):
+        theirs = HostClaims(directory=str(tmp_path), pid=os.getppid())
+        theirs.publish([(999999, 1000.0)])
+        theirs.withdraw()
+        assert HostClaims(directory=str(tmp_path)).foreign() == []

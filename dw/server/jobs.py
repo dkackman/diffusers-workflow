@@ -769,6 +769,7 @@ class JobManager(Dispatcher):
             thread.join(timeout=max(0.0, deadline - time.monotonic()))
         for slot in self.slots:
             slot.manager.shutdown_worker()
+        self._host_claims().withdraw()
 
     # ---------------------------------------------------------------- runner
 

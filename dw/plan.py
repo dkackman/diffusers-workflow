@@ -57,6 +57,7 @@ DOCUMENTATION_KEYS = (
     "cost",
     "cost_drivers",
     "description",
+    "host_ram_gb",
     "shape",
     "summary",
     "traits",

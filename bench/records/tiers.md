@@ -208,6 +208,12 @@ with both cards has a single RAM gate, which waits instead of failing. The two
 bench servers each had their own gate. So on a 128 GB two-card box, `best`
 runs one job at a time.
 
+The engine now enforces this (#1227): the H3 templates declare `host_ram_gb`
+(51 for draft and standard, 69 for best); admission refuses a run whose
+declared need plus margin exceeds the host's total RAM, so a 64 GB host
+refuses `best` up front; and each server publishes its running jobs' claims
+so a second server on the host holds a job instead of OOM-killing the first.
+
 ## Choices
 
 - **standard stays today's default** on every template: int4, 960x544,

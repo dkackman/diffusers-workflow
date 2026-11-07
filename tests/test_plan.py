@@ -276,6 +276,7 @@ class TestFingerprintKeys:
             "cost",
             "cost_drivers",
             "description",
+            "host_ram_gb",
             "shape",
             "summary",
             "traits",

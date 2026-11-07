@@ -82,6 +82,11 @@
                 }
             }
         },
+        "host_ram_gb": {
+            "description": "Host RAM (GB) a run of this workflow is declared to hold at its peak: a number, or a 'variable:' reference so a presets bundle can set it per tier. The server's host-RAM gate holds the job until the host has that much free beside the jobs already running - including those of other dw.serve processes on the same machine - and refuses it at submit when the host's total RAM could never hold it. A maintainer's reading of the measured peak, the way 'cost' is; a figure the server has observed for the same memory key that is larger wins.",
+            "type": ["number", "string"],
+            "exclusiveMinimum": 0
+        },
         "variables": {
             "$ref": "#/$defs/arguments"
         },

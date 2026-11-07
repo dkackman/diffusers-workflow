@@ -13,8 +13,11 @@ available on every POSIX platform. Nothing raises - a reading that cannot be
 taken is reported as None rather than failing the call that asked for it.
 """
 
+import contextlib
+import json
 import logging
 import os
+import tempfile
 
 logger = logging.getLogger("dw")
 
@@ -29,6 +32,7 @@ __all__ = [
     "committed_mb",
     "device_mapped_mb",
     "rss_split_mb",
+    "HostClaims",
 ]
 
 _MB = 1024.0 * 1024.0
@@ -456,3 +460,129 @@ def release_host_caches():
     if before is None or after is None:
         return 0.0
     return max(0.0, before - after)
+
+
+# --- Claims across dw.serve processes on one host (#1227) ---
+#
+# What the dw.serve processes on one host have claimed of its RAM (#1227).
+#
+# `pool.host_ram_wait` gates a job on the host's MemAvailable less the growth
+# the jobs already running have still to make. A second dw.serve on the same
+# machine is invisible to that sum: its workers hold what they have loaded
+# (MemAvailable shows it) but not what they are about to load, so two servers
+# each starting a 65 GB job on a 125 GB host both pass their own gate and the
+# kernel OOM-kills one.
+#
+# Each server publishes, to a directory every server on the host shares, one
+# file named for its pid listing its running jobs as `[worker_pid, peak_mb]`;
+# `foreign` reads the other live servers' files and answers in the form
+# `host_ram_wait` takes for its own running jobs, `(peak_mb, committed_mb now)`.
+# `lock` is a flock around a pass's check-and-publish, so two servers starting
+# at once see each other's claim rather than both passing.
+#
+# The directory is `DW_HOST_CLAIMS_DIR`, else a per-user folder in the system
+# temp dir. Where flock is missing (Windows) the lock is a no-op. A file whose
+# server pid is gone is deleted when read. Nothing here raises: a claim that
+# cannot be written or read leaves the gate where it was before this module.
+
+ENV_DIR = "DW_HOST_CLAIMS_DIR"
+
+try:
+    import fcntl
+except ImportError:  # no flock: the claims still publish, unlocked
+    fcntl = None
+
+
+def claims_dir():
+    explicit = os.environ.get(ENV_DIR)
+    if explicit:
+        return explicit
+    user = os.getuid() if hasattr(os, "getuid") else "user"
+    return os.path.join(tempfile.gettempdir(), f"dw-host-claims-{user}")
+
+
+def _alive(pid):
+    try:
+        os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except OSError:  # PermissionError: it exists, as another user's
+        return True
+    return True
+
+
+class HostClaims:
+    def __init__(self, directory=None, pid=None):
+        self.directory = directory or claims_dir()
+        self.pid = pid if pid is not None else os.getpid()
+
+    def _path(self, pid):
+        return os.path.join(self.directory, f"{pid}.json")
+
+    @contextlib.contextmanager
+    def lock(self):
+        """Hold the host-wide lock for one check-and-publish."""
+        handle = None
+        try:
+            os.makedirs(self.directory, mode=0o700, exist_ok=True)
+            handle = open(os.path.join(self.directory, ".lock"), "a")
+            if fcntl is not None:
+                fcntl.flock(handle, fcntl.LOCK_EX)
+        except OSError as e:
+            logger.debug(f"Host claims lock unavailable: {e}")
+        try:
+            yield
+        finally:
+            if handle is not None:
+                handle.close()  # closing releases the flock
+
+    def publish(self, claims):
+        """Record this server's running jobs, `[(worker_pid, peak_mb)]`,
+        replacing its last record; none removes the file."""
+        path = self._path(self.pid)
+        try:
+            if not claims:
+                with contextlib.suppress(FileNotFoundError):
+                    os.remove(path)
+                return
+            os.makedirs(self.directory, mode=0o700, exist_ok=True)
+            temp = f"{path}.tmp"
+            with open(temp, "w") as f:
+                json.dump([[int(pid), float(mb)] for pid, mb in claims], f)
+            os.replace(temp, path)
+        except OSError as e:
+            logger.debug(f"Could not publish host claims: {e}")
+
+    def withdraw(self):
+        self.publish([])
+
+    def foreign(self):
+        """`[(peak_mb, committed_mb or None)]` for every job the other live
+        servers on this host are running."""
+        out = []
+        try:
+            names = os.listdir(self.directory)
+        except OSError:
+            return out
+        for name in names:
+            stem, dot, ext = name.partition(".")
+            if ext != "json" or not stem.isdigit() or int(stem) == self.pid:
+                continue
+            path = os.path.join(self.directory, name)
+            if not _alive(int(stem)):
+                with contextlib.suppress(OSError):
+                    os.remove(path)
+                continue
+            try:
+                with open(path) as f:
+                    entries = json.load(f)
+                for worker_pid, peak_mb in entries:
+                    out.append(
+                        (
+                            float(peak_mb),
+                            committed_rss_mb(int(worker_pid), device=False),
+                        )
+                    )
+            except (OSError, ValueError, TypeError):
+                continue
+        return out

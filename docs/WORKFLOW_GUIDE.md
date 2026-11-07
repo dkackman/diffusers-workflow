@@ -498,6 +498,16 @@ All of it is reported by `validate_workflow`, before anything is queued, so
 a draft that names a file the server may not read costs nothing to find out.
 `get_server_info`'s `trust_workflows` says which posture is in force.
 
+### Declaring host RAM
+
+A top-level `host_ram_gb` (a number, or `variable:` set per tier by a
+`presets.tier` bundle) declares the host RAM a run needs. The server holds a
+job while that, with a margin, does not fit beside the jobs already running
+on the host - including another dw.serve's - and a larger observed peak wins
+over it. Validate and submit refuse a run whose declared need exceeds the
+host's total RAM, so the H3 `best` (int8) tier, which declares 69 GB, is
+refused on a 64 GB machine.
+
 ### A workflow you wrote inherits the catalog's VRAM ceiling
 
 A template can declare a `vram_estimate`, and a workflow over it that

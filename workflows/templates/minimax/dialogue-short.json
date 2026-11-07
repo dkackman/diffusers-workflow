@@ -10,6 +10,7 @@
             "minutes": 21.2
         }
     ],
+    "host_ram_gb": "variable:host_ram_gb",
     "cost_drivers": [
         "tier",
         "shots",
@@ -34,6 +35,7 @@
     },
     "variables": {
         "tier": "standard",
+        "host_ram_gb": 51,
         "character_a_portrait_prompt": "a 3/4-length studio portrait of a wiry man in his early 30s with short curly dark hair and expressive eyebrows, wearing a mustard-yellow sweater vest over a white button-down shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
         "character_b_portrait_prompt": "a 3/4-length studio portrait of a heavyset man in his mid 40s with a shaved head and a calm, heavy-lidded expression, wearing an open gray flannel shirt over a dark t-shirt, standing in a 1990s multi-camera sitcom apartment set with a sagging olive-green couch and a brick wall behind him, warm even studio lighting, sharp focus, photographic",
         "shots": [
@@ -161,19 +163,22 @@
                 "width": 960,
                 "height": 544,
                 "num_inference_steps": 5,
-                "weights_dtype": "{int4}"
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
             },
             "standard": {
                 "width": 960,
                 "height": 544,
                 "num_inference_steps": 9,
-                "weights_dtype": "{int4}"
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
             },
             "best": {
                 "width": 1344,
                 "height": 768,
                 "num_inference_steps": 9,
-                "weights_dtype": "{int8}"
+                "weights_dtype": "{int8}",
+                "host_ram_gb": 69
             }
         }
     },

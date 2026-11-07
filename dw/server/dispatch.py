@@ -10,7 +10,12 @@ running jobs (#869; the figure is `dw/server/host_ram_need.py`'s, the
 comparison `pool.host_ram_wait`).
 """
 
-from ..host_memory import committed_rss_mb, device_term_mb, host_memory_stats
+from ..host_memory import (
+    HostClaims,
+    committed_rss_mb,
+    device_term_mb,
+    host_memory_stats,
+)
 from . import pool
 from .job_record import QUEUED
 
@@ -20,11 +25,19 @@ HOST_RAM_RECHECK_SECONDS = 10.0
 
 
 class _HostReading:
-    """The host's MemAvailable for one dispatch pass, read on first ask."""
+    """The host's MemAvailable for one dispatch pass, read on first ask, and
+    the jobs other dw.serve processes on this host are running (#1227)."""
 
-    def __init__(self):
+    def __init__(self, claims=None):
         self._read = False
         self._available = None
+        self._claims = claims
+        self._foreign = None
+
+    def foreign(self):
+        if self._foreign is None:
+            self._foreign = self._claims.foreign() if self._claims else []
+        return self._foreign
 
     def available_mb(self):
         if not self._read:
@@ -52,10 +65,49 @@ def _worker_rss_mb(slot):
     return committed + (device_term_mb(getattr(slot, "last_memory", None)) or 0.0)
 
 
+def _worker_pid(slot):
+    pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
+    return pid if isinstance(pid, int) and pid > 0 else None
+
+
 class Dispatcher:
     """The queue scan `JobManager._run_loop` asks for its next job."""
 
+    def _host_claims(self):
+        if getattr(self, "_claims", None) is None:
+            self._claims = HostClaims()
+        return self._claims
+
+    def _running_claims(self):
+        """[(worker pid, projected peak MB)] for this server's running jobs
+        that have a figure and a worker to read. Called holding _lock."""
+        out = []
+        for slot in self.slots:
+            job = self.jobs.get(slot.current_job_id) if slot.current_job_id else None
+            pid = _worker_pid(slot)
+            if job is not None and job.host_ram_need and pid is not None:
+                out.append((pid, job.host_ram_need[0]))
+        return out
+
     def _next_dispatch(self):
+        """(slot, job) for the next job to start, or None - `_pick` under the
+        host-wide claims lock, so a server starting a heavy job and another
+        deciding on one at the same moment see each other's claim (#1227).
+        Called holding _lock."""
+        claims = self._host_claims()
+        with claims.lock():
+            running = self._running_claims()
+            claims.publish(running)
+            picked = self._pick(claims)
+            if picked is not None:
+                slot, job = picked
+                pid = _worker_pid(slot)
+                need = job.host_ram_need
+                if need and pid is not None:
+                    claims.publish(running + [(pid, need[0])])
+            return picked
+
+    def _pick(self, claims):
         """(slot, job) for the first queued job, in queue order, that fits
         a free card - the one it has an affinity for (`_choose_slot`) - or
         None. A job too big for every free card keeps its place, and the
@@ -68,7 +120,7 @@ class Dispatcher:
         free = [slot for slot in self.slots if slot.current_job_id is None]
         if not free:
             return None
-        host = _HostReading()
+        host = _HostReading(claims)
         for job_id in list(self._pending):
             job = self.jobs.get(job_id)
             if job is None or job.status != QUEUED:
@@ -128,7 +180,8 @@ class Dispatcher:
             for other in self.slots
             if other.current_job_id is not None
         ]
-        if not running:
+        foreign = host.foreign()
+        if not running and not foreign:
             return None
         available = host.available_mb()
         if available is None:
@@ -142,6 +195,7 @@ class Dispatcher:
                     _worker_rss_mb(other),
                 )
                 for other, job in running
-            ],
+            ]
+            + foreign,
             _worker_rss_mb(slot),
         )

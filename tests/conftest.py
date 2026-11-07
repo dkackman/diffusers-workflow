@@ -275,3 +275,10 @@ def gallery_client(tmp_path, output_root):
         prompt_dir=str(tmp_path / "prompts"),
     )
     return TestClient(app, base_url="http://localhost")
+
+
+@pytest.fixture(autouse=True)
+def _isolated_host_claims(tmp_path, monkeypatch):
+    # Servers on one host share a claims folder (dw/host_memory.py HostClaims,
+    # #1227); a test's manager must not see another test's or the machine's
+    monkeypatch.setenv("DW_HOST_CLAIMS_DIR", str(tmp_path / "host-claims"))

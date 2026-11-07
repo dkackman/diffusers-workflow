@@ -38,7 +38,8 @@ from ..runs import (
 from ..validation import WARNING, run_checks, to_warnings
 from ..vram_estimate import required_vram_gb
 from ..workflow import Workflow, workflow_from_definition, workflow_from_file
-from .host_ram_need import projected_peak
+from ..host_memory import host_memory_stats
+from .host_ram_need import host_too_small, projected_peak
 from .deps import ceiling_index, lora_index, server_prompt_library
 from .job_record import ACK_BOOLEAN, ACK_BOUND, ACK_NONE
 from .outputs import resolution_library
@@ -494,7 +495,24 @@ def admit_for(
         admission.host_ram_need = _host_ram_need(
             state, admission, catalog_name, history_workspace
         )
+        _refuse_for_small_host(admission)
     return admission
+
+
+def _refuse_for_small_host(admission):
+    """A declared host-RAM need the machine's total RAM can never hold is an
+    error here, at submit and validate alike (#1227). Best effort: an
+    unreadable host or definition refuses nothing."""
+    try:
+        total = (host_memory_stats() or {}).get("total_mb")
+        message = host_too_small(
+            admission.workflow.workflow_definition, admission.arguments, total
+        )
+    except Exception:
+        logger.debug("Could not check the declared host RAM", exc_info=True)
+        return
+    if message:
+        admission.errors.append({"path": "host_ram_gb", "message": message})
 
 
 def _host_ram_need(state, admission, catalog_name, history_workspace):

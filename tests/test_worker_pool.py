@@ -2,6 +2,7 @@
 isolation, cancel routing, VRAM-aware dispatch with backfill, the fit check at
 submit, the OOM ranking, and what /api/health reports."""
 
+import os
 import subprocess
 import sys
 import threading
@@ -9,6 +10,7 @@ import time
 
 import pytest
 
+from dw.host_memory import HostClaims
 from dw.server.jobs import JobManager, WorkerBusy
 from dw.vram_estimate import _entries_for, required_vram_gb
 from tests.test_server import (  # noqa: F401
@@ -1339,6 +1341,38 @@ class TestHostRamGate:
         host["available_mb"] = 40 * GB
         second_gate.wait_started()
         wait_for(held, {"running"})
+
+    def test_another_servers_running_job_holds_a_job_on_an_idle_pool(
+        self, pool, host, monkeypatch
+    ):
+        # #1227: no job of this server's is running, but another dw.serve on
+        # the host has claimed a heavy one it has yet to finish loading
+        monkeypatch.setattr("dw.server.dispatch.HOST_RAM_RECHECK_SECONDS", 0.05)
+        manager, first_gate, second_gate = self._two_cards(pool)
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        other.publish([(999999, 60 * GB)])
+        host["available_mb"] = 40 * GB
+
+        held = self.submit(manager, "held", host_gb=30)
+        assert wait_until(lambda: held.waiting_for is not None)
+        assert held.status == "queued"
+        assert not first_gate.started.is_set()
+        assert "waiting for host RAM" in held.waiting_for
+
+        # The other server's job finishing withdraws its claim
+        other.withdraw()
+        first_gate.wait_started()
+        wait_for(held, {"running"})
+
+    def test_a_started_job_is_claimed_for_the_other_servers(self, pool, host):
+        manager, first_gate, second_gate = self._two_cards(pool)
+        for slot in manager.slots:
+            slot.manager.pid = lambda: os.getpid()
+        self.submit(manager, "running", host_gb=30)
+        first_gate.wait_started()
+        other = HostClaims(directory=manager._host_claims().directory, pid=os.getppid())
+        assert [peak for peak, _ in other.foreign()] == [30 * GB]
+        first_gate.release.set()
 
     def test_a_smaller_job_starts_past_a_held_one(self, pool, host):
         gates = [Gate(), Gate(), Gate()]

@@ -9,6 +9,7 @@
             "minutes": 35
         }
     ],
+    "host_ram_gb": "variable:host_ram_gb",
     "cost_drivers": [
         "tier",
         "shots",
@@ -34,6 +35,7 @@
     },
     "variables": {
         "tier": "standard",
+        "host_ram_gb": 51,
         "singer_portrait_prompt": "prompt:zimage/otter_singer_portrait",
         "song_prompt": "prompt:minimax/otter_soul_song",
         "song_lyrics": "[verse]\nI've been waiting on you darling like a render overnight\nEvery frame of my devotion coming slowly into light\n[chorus]\nOoh, progress bar of love\nOoh, don't you stall on me now",
@@ -110,19 +112,22 @@
                 "width": 960,
                 "height": 544,
                 "num_inference_steps": 5,
-                "weights_dtype": "{int4}"
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
             },
             "standard": {
                 "width": 960,
                 "height": 544,
                 "num_inference_steps": 9,
-                "weights_dtype": "{int4}"
+                "weights_dtype": "{int4}",
+                "host_ram_gb": 51
             },
             "best": {
                 "width": 1344,
                 "height": 768,
                 "num_inference_steps": 9,
-                "weights_dtype": "{int8}"
+                "weights_dtype": "{int8}",
+                "host_ram_gb": 69
             }
         }
     },
