@@ -69,6 +69,23 @@ GUIDES = {
         "IP_ADAPTER.md",
         "Conditioning generation on a reference image with IP-Adapter.",
     ),
+    "server": (
+        "SERVER.md",
+        "The HTTP server: choosing the card (--devices), the jobs API and its "
+        "progress events, workspaces, files and models. Served because the "
+        "other guides link into it.",
+    ),
+    "security": (
+        "SECURITY.md",
+        "The validators and the trust gate: what a workflow may reach and "
+        "what a caller must acknowledge. Served because the other guides "
+        "link into it.",
+    ),
+    "remote": (
+        "REMOTE.md",
+        "Using a dw server on another machine. Served because the other "
+        "guides link into it.",
+    ),
     "workspaces": (
         "WORKSPACES.md",
         "How a run's workflows, prompts, assets and outputs are rooted, and "

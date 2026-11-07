@@ -261,6 +261,28 @@ class TestTheRealDocs:
         for name in guides.GUIDES:
             assert guides.read_guide(name).strip()
 
+    def test_a_served_guide_links_only_docs_that_are_served(self):
+        # #1237: a link a served guide follows must land in a guide the MCP
+        # serves, or the consumer holding only the MCP dead-ends.
+        import re
+
+        served = {meta[0] for meta in guides.GUIDES.values()}
+        # the guides that were already served; the ones added for #1237 link
+        # onward (DOCKER, MCP...) and following those is not what it fixes
+        original = set(guides.GUIDES) - {"server", "security", "remote"}
+        link = re.compile(r"\]\(([A-Z][A-Z_0-9]*\.md)[#)]")
+        unserved = {}
+        for name in original:
+            for target in link.findall(guides.read_guide(name)):
+                # credits for third-party models; not guidance for a consumer
+                if target not in served and target != "ATTRIBUTIONS.md":
+                    unserved.setdefault(name, set()).add(target)
+        assert not unserved
+
+    def test_the_server_guide_reaches_the_sections_other_guides_link(self):
+        for section in ("Choosing the card", "Progress events"):
+            assert guides.get_guide("server", section=section)["content"].strip()
+
     def test_the_tasks_guide_indexes_speech_generation(self):
         tasks = next(g for g in guides.list_guides()["guides"] if g["name"] == "tasks")
 

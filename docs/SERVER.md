@@ -28,7 +28,7 @@ server uses, and in what order they are resolved, is in
 [WORKSPACES.md](WORKSPACES.md). Running it for other machines is
 [REMOTE.md](REMOTE.md); in a container, [DOCKER.md](DOCKER.md).
 
-### The HTTP API
+## The HTTP API
 
 Everything the web UI and the MCP server do goes through one HTTP API, and a
 running server describes it:
@@ -54,7 +54,7 @@ Each job runs in a persistent GPU worker ([WORKER_GUIDE.md](WORKER_GUIDE.md)):
 models stay loaded between runs, so re-running a workflow with a new prompt
 skips the load.
 
-### The command line
+## The command line
 
 `dw.run` is a thin client of `dw.serve`: it queues a job over HTTP, prints
 its progress, and reports the run directory the server wrote to - start the
@@ -77,7 +77,7 @@ only says which server and which of its workspaces to run in.
 `python -m dw.test` runs a small built-in workflow end to end - it downloads
 SD 1.5 (a few GB) and generates one image on whichever accelerator was found.
 
-### Environment
+## Environment
 
 The server reads these from its environment (e.g. `.env`) and its workers inherit them; changing one needs a restart.
 
@@ -89,7 +89,7 @@ The server reads these from its environment (e.g. `.env`) and its workers inheri
 | `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
 | `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
 
-### Choosing the card
+## Choosing the card
 
 `--devices cuda:1` runs the worker on that card, pinned with
 `CUDA_VISIBLE_DEVICES` (and `DW_DEVICE=cuda`), so inside the worker it is the
