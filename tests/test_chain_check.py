@@ -291,6 +291,42 @@ def test_a_guide_chain_that_does_not_carry_its_audio_checks_segment_1():
     assert quoted["minutes"] == pytest.approx(10.0 * 3 * 2)
 
 
+@pytest.mark.parametrize(
+    "chain_extra, step_extra",
+    [
+        ({"check": True}, {}),
+        ({"check": {"audio_dbfs_min": -50}}, {}),
+        ({"check": {"audio_dbfs_min": None}}, {}),
+        ({"check": {"audio_dbfs_min": "variable:floor"}}, {}),
+        ({}, {}),
+        ({"check": True}, {"hold_audio": "asset:track.wav"}),
+        ({"check": True, "continuity": "guide"}, {}),
+        ({"check": True, "continuity": "guide", "carry_audio": False}, {}),
+    ],
+)
+def test_the_estimate_and_the_run_agree_on_segment_1(chain_extra, step_extra):
+    # One owner (#1221): the estimate's checked-segment count and the run's
+    # ChainConfig ask chain_config.chain_checks_segment_1, so they cannot drift
+    from dw.cost_scaling import _chain_checks_audio
+    from dw.pipeline_processors.chain import ChainConfig
+
+    variables = {"floor": None}
+    definition, _ = _priced(3, None, 1)
+    step = definition["steps"][0]["pipeline"]
+    step["chain"].update(chain_extra)
+    step["arguments"].update(step_extra)
+    estimated = _chain_checks_audio(definition, variables)
+
+    run_chain = {"segments": 3, **chain_extra}
+    if isinstance(run_chain.get("check"), dict):
+        run_chain["check"] = {
+            key: variables["floor"] if str(value).startswith("variable:") else value
+            for key, value in run_chain["check"].items()
+        }
+    run_arguments = {"hold_audio": object()} if step_extra else {}
+    assert ChainConfig(run_chain, run_arguments).checks_segment_1 == estimated
+
+
 def test_the_estimate_is_unchanged_with_no_check_or_no_retries():
     assert _minutes(3, None, None)["minutes"] == pytest.approx(30)
     assert _minutes(3, True, 0)["minutes"] == pytest.approx(30)

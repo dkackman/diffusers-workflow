@@ -302,29 +302,21 @@ def _chain_checks_audio(definition, variables):
     whose `audio_dbfs_min` is not null) and the audio is not held - no
     `match_audio`, no step `hold_audio`, no guide chain carrying its audio.
     The estimate cannot see whether the pipeline makes audio at all, so it
-    assumes one that can does, as the worst case."""
-    from .pipeline_processors.h3_rules import GUIDE_CONTINUITY, HOLD_AUDIO_INPUT
+    assumes one that can does, as the worst case. The rule is the run's own,
+    `chain_config.chain_checks_segment_1`, asked at `variables`."""
+    from .pipeline_processors.chain_config import chain_checks_segment_1
 
     blocks = list(_chain_blocks(definition.get("steps")))
     if len(blocks) != 1:
         return False
     chain, arguments = blocks[0]
-    check = _resolved(chain.get("check"), variables)
-    if isinstance(check, dict):
-        if (
-            "audio_dbfs_min" in check
-            and _resolved(check["audio_dbfs_min"], variables) is None
-        ):
-            return False
-    elif check is not True:
-        return False
-    if _resolved(chain.get("match_audio"), variables):
-        return False
-    if arguments.get(HOLD_AUDIO_INPUT) is not None:
-        return False
-    continuity = _resolved(chain.get("continuity", "last_frame"), variables)
-    carry_audio = _resolved(chain.get("carry_audio", True), variables)
-    return not (continuity == GUIDE_CONTINUITY and carry_audio)
+    chain = {key: _resolved(value, variables) for key, value in chain.items()}
+    if isinstance(chain.get("check"), dict):
+        chain["check"] = {
+            key: _resolved(value, variables) for key, value in chain["check"].items()
+        }
+    arguments = {key: _resolved(value, variables) for key, value in arguments.items()}
+    return chain_checks_segment_1(chain, arguments)
 
 
 def _worst_case_retries(definition, variables):
