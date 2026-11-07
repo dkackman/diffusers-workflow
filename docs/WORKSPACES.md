@@ -227,6 +227,15 @@ held in memory by the running server, not read back from `outputs/`, so a
 disk - a `plan.cached_steps` of 0 right after a restart is expected, not a
 lost run.
 
+For the same reason, two `dw.serve` processes on the same workspace share no
+cache entries: a run on one server is a cache miss on the other, even though
+both read the same `outputs/`. To avoid recomputing, either use one server
+with `--devices cuda:0,cuda:1`, whose identity affinity sends a rerun back to
+the card that holds it warm (see [SERVER.md](SERVER.md) *Choosing the card*),
+or, with two servers, split the work so each server only reruns what it ran
+itself: submit each arms file (or job set) to one server, and never resubmit
+another server's arms expecting hits.
+
 A later workflow names what an earlier run made with an `output:` reference —
 `output:ltx2/Gyre/latest/Gyre-still.0-0.0.png` — so a multi-stage pipeline no
 longer needs files copied back by hand. See
