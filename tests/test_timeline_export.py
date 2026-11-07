@@ -287,3 +287,32 @@ def test_the_command_is_registered_with_an_otioz_content_type():
     from dw.content_types import guess_extension
 
     assert guess_extension("application/x-otioz") == ".otioz"
+
+
+def test_sources_mode_does_not_bundle_the_joined_video(tmp_path, facts):
+    video = a_file(tmp_path, "joined.mp4", facts, 48)
+    a = a_file(tmp_path, "a.mp4", facts, 24)
+    b = a_file(tmp_path, "b.mp4", facts, 24)
+    archive, _ = bundle_of(
+        video, tmp_path, shots=shots((0, 24), (24, 24)), sources=[a, b]
+    )
+    assert "media/joined.mp4" not in archive.namelist()
+
+
+def test_a_source_at_another_rate_keeps_its_own_rate(tmp_path, facts):
+    video = a_file(tmp_path, "joined.mp4", facts, 48, fps=24.0)
+    a = a_file(tmp_path, "a.mp4", facts, 25, fps=25.0)
+    b = a_file(tmp_path, "b.mp4", facts, 24, fps=24.0)
+    _, content = bundle_of(
+        video, tmp_path, shots=shots((0, 24), (24, 24)), sources=[a, b]
+    )
+    clips = content["tracks"]["children"][0]["children"]
+    assert [c["source_range"]["duration"]["rate"] for c in clips] == [25.0, 24.0]
+
+
+def test_target_url_is_percent_encoded(tmp_path, facts):
+    video = a_file(tmp_path, "my clip #1.mp4", facts, 24)
+    archive, content = bundle_of(video, tmp_path)
+    clip = content["tracks"]["children"][0]["children"][0]
+    assert clip["media_reference"]["target_url"] == "media/my%20clip%20%231.mp4"
+    assert "media/my clip #1.mp4" in archive.namelist()

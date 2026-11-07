@@ -13,7 +13,8 @@ has a soundtrack, one audio track; each shot is a clip whose media is the
 joined video itself with `source_range` set to the shot's span, so the bundle
 holds one media file and every clip points into it. With `sources` (one file
 per shot, in order) each clip points at its own file over that file's full
-range, the shot lengths of the join giving way to the files' own.
+range and at its own frame rate, the shot lengths of the join giving way
+to the files' own. `target_url` is percent-encoded.
 
 Frame values are integers on a track whose rate is the exact rational the
 engine writes (23.976 is 24000/1001); OTIO stores the rate as a float.
@@ -26,6 +27,7 @@ import json
 import logging
 import os
 import zipfile
+from urllib.parse import quote
 from types import SimpleNamespace
 
 from ..locations import validate_media_path
@@ -82,7 +84,8 @@ def _clip(name, start, duration, target_url, available_frames, rate):
             "name": os.path.basename(target_url),
             "metadata": {},
             "available_range": time_range(0, available_frames, rate),
-            "target_url": target_url,
+            # A URL: spaces, '#' and '%' in a file name are percent-encoded
+            "target_url": quote(target_url),
         },
     }
 
@@ -270,8 +273,12 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
     )
 
     media = {}
-    video_arc = _media_name(path, media)
-    media[video_arc] = path
+    video_arc = None
+    if not sources:
+        # Sources mode points every clip at its own file; the joined video
+        # would be dead weight in the bundle
+        video_arc = _media_name(path, media)
+        media[video_arc] = path
 
     if sources:
         if len(sources) != len(records):
@@ -286,6 +293,8 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
             arc = _media_name(source_path, media)
             media[arc] = source_path
             frames = int(source_info["frame_count"])
+            # Each clip runs at its own file's rate, not the join's
+            source_rate = float(exact_frame_rate(source_info["fps"]))
             children.append(
                 _clip(
                     str(shot.get("name", f"shot {index + 1}")),
@@ -293,7 +302,7 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
                     frames,
                     arc,
                     frames,
-                    rate,
+                    source_rate,
                 )
             )
         has_audio = bool(info.get("sample_rate"))

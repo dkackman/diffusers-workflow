@@ -285,3 +285,10 @@ def test_narration_long_estimate_says_its_child_list_is_unknown():
         "takes" in note and "unknown until the run" in note and "0.56" in note
         for note in result["differs"]
     )
+
+
+def test_company_month_and_country_abbreviations_are_not_sentence_ends():
+    from dw.tasks.text_takes import _sentences
+
+    assert len(_sentences("Acme Inc. makes it. Foo Ltd. sells it.")) == 2
+    assert len(_sentences("It shipped Oct. 5 in the U.S. last year.")) == 1

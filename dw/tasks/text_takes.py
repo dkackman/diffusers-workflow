@@ -51,7 +51,8 @@ DEFAULT_WORDS_PER_SECOND = 3.0
 # A period after one of these, or after a single capital letter (an initial),
 # is not the end of a sentence
 _ABBREVIATIONS = frozenset(
-    "mr mrs ms dr prof st sr jr vs etc e.g i.e mt no fig".split()
+    "mr mrs ms dr prof st sr jr vs etc e.g i.e mt no fig inc ltd co corp "
+    "jan feb mar apr jun jul aug sep sept oct nov dec u.s u.k".split()
 )
 
 
