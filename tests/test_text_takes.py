@@ -266,3 +266,22 @@ def test_a_paragraph_break_after_whitespace_lines_counts():
     text = paragraph(3, 5) + "\n  \n\n" + paragraph(2, 5)
     takes = split_takes(text, max_seconds=20, words_per_second=1)
     assert len(takes) == 2
+
+
+def test_narration_long_estimate_says_its_child_list_is_unknown():
+    import json
+    from pathlib import Path
+
+    from dw.plan import estimate
+
+    root = Path(__file__).resolve().parent.parent / "workflows" / "templates"
+    definition = json.loads((root / "narration-long.json").read_text())
+    expanded = json.loads(json.dumps(definition))
+    expanded["variables"] = dict(definition["variables"])
+    result = estimate(definition, expanded, {}, "mps", str(root), str(root))
+    assert result["minutes"] is not None
+    assert result["low_confidence"] is True
+    assert any(
+        "takes" in note and "unknown until the run" in note and "0.56" in note
+        for note in result["differs"]
+    )

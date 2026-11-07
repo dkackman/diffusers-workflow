@@ -523,6 +523,36 @@ class _ChildTotals:
             self.minutes = child["minutes"]
 
 
+def _unresolved_list_note(path, child_cost, step_arguments, device):
+    """Why a child's figure may under-quote, or None: its per_entry list is
+    handed by an earlier step's output (`previous_result:` / `gather:`), so
+    its length is unknown until the run and the child was priced at its own
+    default entry count (#1222)."""
+    chosen = None
+    for entry in child_cost or []:
+        if isinstance(entry, dict) and (
+            chosen is None or entry.get("device") == device
+        ):
+            chosen = entry
+            if entry.get("device") == device:
+                break
+    per = chosen.get("per_entry") if isinstance(chosen, dict) else None
+    if not isinstance(per, dict):
+        return None
+    value = (step_arguments or {}).get(per.get("variable"))
+    if not isinstance(value, str) or not (
+        references.is_ref(references.PREVIOUS_RESULT, value)
+        or references.is_ref(references.GATHER, value)
+    ):
+        return None
+    return (
+        f"{path}: '{per['variable']}' comes from an earlier step "
+        f"({value}), so its length is unknown until the run; priced at the "
+        f"child's default {per.get('entries')} entries - add about "
+        f"{per.get('minutes')} min for each entry beyond that"
+    )
+
+
 def _unique(names):
     return list(dict.fromkeys(names))
 
@@ -708,6 +738,13 @@ def estimate(
                 child_definition, child_cost, step_arguments, device
             )
         totals.add(path, child, is_observed)
+        note = (
+            None
+            if is_observed
+            else _unresolved_list_note(path, child_cost, step_arguments, device)
+        )
+        if note and child["minutes"] is not None:
+            totals.differs.append(note)
     result = _rolled_up_estimate(own, totals, device, cached_steps, total_steps)
     withheld = observed.get("withheld") if isinstance(observed, dict) else None
     if withheld and result["basis"] == UNKNOWN and result["minutes"] is None:
