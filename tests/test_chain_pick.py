@@ -49,7 +49,7 @@ def test_a_tiny_frame_has_no_sharpness_to_measure():
 
 
 def test_the_rule_names_the_allowed_values():
-    from dw.pipeline_processors.h3_rules import chain_carry_pick_problem
+    from dw.pipeline_processors.chain_rules import chain_carry_pick_problem
 
     assert chain_carry_pick_problem({}) is None
     assert chain_carry_pick_problem({"carry_pick": {"sharpest": 4}}) is None
@@ -62,7 +62,7 @@ def test_the_rule_names_the_allowed_values():
 
 
 def test_the_rule_refuses_match_audio_and_a_window_that_fills_the_segment():
-    from dw.pipeline_processors.h3_rules import chain_carry_pick_problem
+    from dw.pipeline_processors.chain_rules import chain_carry_pick_problem
 
     pick = {"sharpest": 4}
     assert "match_audio" in chain_carry_pick_problem(
@@ -93,10 +93,8 @@ def test_validation_refuses_match_audio():
 
 def test_a_reference_for_match_audio_is_not_read_as_set():
     # a variable that resolves to false must not refuse the pick at validate (#1232)
-    from dw.pipeline_processors.h3_rules import (
-        chain_carry_pick_problem,
-        guide_backoff_problems,
-    )
+    from dw.pipeline_processors.chain_rules import chain_carry_pick_problem
+    from dw.pipeline_processors.h3_rules import guide_backoff_problems
 
     pick = {"carry_pick": {"sharpest": 3}, "match_audio": "variable:use_audio"}
     assert chain_carry_pick_problem(pick) is None
@@ -109,7 +107,7 @@ def test_a_reference_for_match_audio_is_not_read_as_set():
 def test_the_pick_window_is_checked_against_the_snapped_length():
     # 9 frames render as 22 (17n+5), so a window of 8 fits; the raw 9 - 1 = 8
     # would have refused it
-    from dw.pipeline_processors.h3_rules import chain_carry_pick_problem
+    from dw.pipeline_processors.chain_rules import chain_carry_pick_problem
 
     snap = {"modulus": 17, "remainder": 5}
     chain = {"carry_pick": {"sharpest": 8}, "frame_snap": snap}

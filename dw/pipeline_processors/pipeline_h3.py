@@ -110,6 +110,41 @@ def with_audio_pass(pipeline, arguments, where, fps):
     return arguments
 
 
+def _take_mask(arguments, where):
+    """Pop a regional edit's mask (an image or a video) off `arguments`, put
+    it back as the bool frames under REGENERATE_MASK, and return the canvas
+    problems it has - none when the step passes no mask (an audio pass).
+
+    Raises:
+        ValueError: If the mask is not an image or video, or is all black
+    """
+    name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
+    if name is None:
+        return []
+    value = arguments.pop(name)
+    try:
+        if name == MASK_IMAGE_INPUT:
+            mask = binarized(value)
+        else:
+            mask = binarized(guide_frames_array(value))
+    except (AttributeError, ValueError) as e:
+        kind = "an image" if name == MASK_IMAGE_INPUT else "a video"
+        raise ValueError(f"{where}: {name} is not {kind}: {e}")
+    if not mask.any():
+        raise ValueError(
+            f"{where}: {name} is all black, so nothing would regenerate "
+            f"- white marks the region to regenerate"
+        )
+    arguments[REGENERATE_MASK] = mask
+    return media_problems(
+        name,
+        mask.shape,
+        arguments["width"],
+        arguments["height"],
+        arguments["num_frames"],
+    )
+
+
 class H3Arguments:
     """The H3 argument wrappers, mixed into `Pipeline` (which supplies `name`,
     `pipeline`, `base_dir`, `segment_label` and `latent_anchor_source`)."""
@@ -333,30 +368,7 @@ class H3Arguments:
             arguments["num_frames"],
             fps,
         )
-        name = next((n for n in MASK_INPUTS if arguments.get(n) is not None), None)
-        if name is not None:
-            value = arguments.pop(name)
-            try:
-                if name == MASK_IMAGE_INPUT:
-                    mask = binarized(value)
-                else:
-                    mask = binarized(guide_frames_array(value))
-            except (AttributeError, ValueError) as e:
-                kind = "an image" if name == MASK_IMAGE_INPUT else "a video"
-                raise ValueError(f"{where}: {name} is not {kind}: {e}")
-            if not mask.any():
-                raise ValueError(
-                    f"{where}: {name} is all black, so nothing would regenerate "
-                    f"- white marks the region to regenerate"
-                )
-            problems += media_problems(
-                name,
-                mask.shape,
-                arguments["width"],
-                arguments["height"],
-                arguments["num_frames"],
-            )
-            arguments[REGENERATE_MASK] = mask
+        problems += _take_mask(arguments, where)
         if problems:
             raise ValueError(f"{where}: {problems[0]}")
         if audio_pass:

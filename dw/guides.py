@@ -57,6 +57,7 @@ from .pipeline_processors.chain_rules import (
     CHAIN_KEYSTONE_SLOT,
     CHAIN_LATENT_CARRY,
     chain_capstone_problem,
+    chain_carry_pick_problem,
     chain_check_finding,
     chain_keystone_slot_problem,
     chain_latent_carry_problem,
@@ -77,7 +78,6 @@ from .pipeline_processors.h3_rules import (
     anchor_strength_problem,
     RENDER_GRID,
     chain_anchor_problem,
-    chain_carry_pick_problem,
     chain_keystone_problem,
     guide_backoff_problems,
     guide_chain_problems,
@@ -403,85 +403,10 @@ def anchor_errors(workflow_definition, source_indices=None):
         chain = pipeline.get("chain")
         if not isinstance(chain, dict):
             continue
-        strength = chain.get("anchor_strength")
-        problem = None if strength is None else anchor_strength_problem(strength)
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", "anchor_strength")),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_carry_pick_problem(
-            chain,
-            arguments.get("num_frames") if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", "carry_pick")),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_look_hold_problem(chain)
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", "look_hold")),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_keystone_problem(chain)
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", "keystone")),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_keystone_slot_problem(
-            chain,
-            arguments.get("num_frames") if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", CHAIN_KEYSTONE_SLOT)),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_capstone_problem(
-            chain,
-            arguments.get("num_frames") if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", CHAIN_CAPSTONE)),
-                    "message": f"{problem}{where}",
-                }
-            )
-        problem = chain_latent_carry_problem(
-            chain,
-            arguments.get(GUIDE_NOISE_INPUT) if isinstance(arguments, dict) else None,
-            arguments.get("hold_audio") if isinstance(arguments, dict) else None,
-        )
-        if problem:
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", CHAIN_LATENT_CARRY)),
-                    "message": f"{problem}{where}",
-                }
-            )
-        finding = chain_check_finding(chain)
-        if finding:
-            key, problem = finding
-            errors.append(
-                {
-                    "path": render_path(base + ("chain", key)),
-                    "message": f"{problem}{where}",
-                }
-            )
+        errors += [
+            {"path": render_path(base + ("chain", key)), "message": f"{problem}{where}"}
+            for key, problem in _chain_rule_findings(chain, arguments)
+        ]
         path = render_path(base + ("chain", "anchor"))
         problem = chain_anchor_problem(chain)
         if problem:
@@ -494,6 +419,35 @@ def anchor_errors(workflow_definition, source_indices=None):
         if problem:
             errors.append({"path": path, "message": f"{problem}{where}"})
     return errors
+
+
+def _chain_rule_findings(chain, arguments):
+    """(chain key, problem) for every chain-block rule this step's chain
+    breaks, in the order validation reports them: the anchor strength, the
+    carry pick, the look hold, the keystone and its slot, the capstone, the
+    latent carry and the per-segment check."""
+    arguments = arguments if isinstance(arguments, dict) else {}
+    num_frames = arguments.get("num_frames")
+    strength = chain.get("anchor_strength")
+    findings = [
+        (
+            "anchor_strength",
+            None if strength is None else anchor_strength_problem(strength),
+        ),
+        ("carry_pick", chain_carry_pick_problem(chain, num_frames)),
+        ("look_hold", chain_look_hold_problem(chain)),
+        ("keystone", chain_keystone_problem(chain)),
+        (CHAIN_KEYSTONE_SLOT, chain_keystone_slot_problem(chain, num_frames)),
+        (CHAIN_CAPSTONE, chain_capstone_problem(chain, num_frames)),
+        (
+            CHAIN_LATENT_CARRY,
+            chain_latent_carry_problem(
+                chain, arguments.get(GUIDE_NOISE_INPUT), arguments.get("hold_audio")
+            ),
+        ),
+    ]
+    findings.append(chain_check_finding(chain) or (None, None))
+    return [(key, problem) for key, problem in findings if problem]
 
 
 def _guide_noise_steps(workflow_definition, source_indices):

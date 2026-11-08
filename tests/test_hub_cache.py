@@ -335,7 +335,9 @@ class TestDownloadManager:
         )
         started = manager.start("acme/tiny")
         assert started["cancel_requested"] is False
-        with mock.patch("dw.hub_cache._abort_xet_session") as abort:
+        from dw import hub_cache
+
+        with mock.patch.object(hub_cache, "_abort_xet_session") as abort:
             pending = manager.cancel(started["id"])
         abort.assert_called_once()
         assert pending["status"] == "downloading"
