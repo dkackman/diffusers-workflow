@@ -382,7 +382,10 @@ def _summarize_bundle(path):
             raise ValueError("content.otio is too large to summarize")
         version = None
         if "version.txt" in members:
-            version = bundle.read("version.txt")[:64].decode("utf-8", "replace")
+            # Opened and read 64 bytes: bundle.read would inflate the whole
+            # member first, however large a hostile one expands to
+            with bundle.open("version.txt") as handle:
+                version = handle.read(64).decode("utf-8", "replace")
     try:
         document = json.loads(raw)
     except ValueError as error:

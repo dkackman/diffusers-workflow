@@ -30,9 +30,9 @@ import torch
 from ..events import emit_warning
 from ..media import media_duration
 from ..media_readers import (
+    ForwardFrameReader,
     ShortFrameRange,
     count_video_frames,
-    read_frame_range,
     video_shape,
 )
 from ..pipeline_processors.h3_rules import H3_FPS, RENDER_GRID
@@ -567,14 +567,16 @@ def encode_take(vae, read, source_frames, pixel_mean, pixel_std, seed, device):
 
 def _take_reader(source):
     """`(read, source_frames, fps, path, (height, width))` for a take: a file
-    read a clip's range at a time (#695), or frames already in memory sliced."""
+    read a clip's range at a time (#695) by one forward decode
+    (`ForwardFrameReader`, which the caller closes), or frames already in
+    memory sliced."""
     from .video_utils import frames_as_array, local_path_or_video
 
     path, source = local_path_or_video(source)
     if path is not None:
         shape = video_shape(path)
         return (
-            lambda start, stop: read_frame_range(path, start, stop),
+            ForwardFrameReader(path),
             shape["frame_count"],
             shape["fps"],
             path,
@@ -626,7 +628,11 @@ def bounded_take_frames(claimed, path, fps):
                     f"encode_h3_latents: the file's header claims {claimed} "
                     f"frames but its duration ({seconds:.2f}s at {fps:g} fps) "
                     f"holds about {expected}; encoding {count} (a "
-                    f"variable-frame-rate take is cut short)"
+                    f"variable-frame-rate take is cut short)",
+                    kind="take_frames_cut_short",
+                    command="encode_h3_latents",
+                    claimed_frames=claimed,
+                    encoded_frames=count,
                 )
     if count > MAX_TAKE_FRAMES:
         raise ValueError(
@@ -685,25 +691,31 @@ def encode_h3_latents(source, device="cpu", model_name=None):
 
     pipeline = _load_decoder(device, model_name or DEFAULT_H3_REPO)
 
-    def encode(total):
-        return encode_take(
-            pipeline.vae,
-            read,
-            total,
-            pipeline.pixel_mean,
-            pipeline.pixel_std,
-            pipeline.keyframe_encode_seed,
-            pipeline._execution_device,
-        )
+    def encode(reader, total):
+        try:
+            return encode_take(
+                pipeline.vae,
+                reader,
+                total,
+                pipeline.pixel_mean,
+                pipeline.pixel_std,
+                pipeline.keyframe_encode_seed,
+                pipeline._execution_device,
+            )
+        finally:
+            close = getattr(reader, "close", None)
+            if close is not None:
+                close()
 
     try:
-        latents, num_frames = encode(source_frames)
+        latents, num_frames = encode(read, source_frames)
     except ShortFrameRange:
         if path is None:
             raise
-        # The header over-counted: encode again on a counted total
+        # The header over-counted: encode again on a counted total, from a
+        # fresh forward decode
         source_frames = bounded_take_frames(count_video_frames(path), path, fps)
-        latents, num_frames = encode(source_frames)
+        latents, num_frames = encode(ForwardFrameReader(path), source_frames)
     logger.info(
         f"Encoded a {source_frames}-frame take ({source_frames / H3_FPS:.2f}s) "
         f"to {latents.shape[2]} latent frames, padded to {num_frames} frames"

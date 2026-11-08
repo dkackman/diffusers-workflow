@@ -340,10 +340,33 @@ class TestSegmentFiles:
         with pytest.raises(ValueError, match="keep_segments: true"):
             self._cut(made)
 
-    def test_a_take_copied_away_names_chain_output(self, tmp_path):
+    def test_a_take_copied_away_without_its_manifest_names_the_run(self, tmp_path):
+        # chain_output cannot help: the splice needs the shots, so the cut
+        # must not send the caller after a refusal
         made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
-        with pytest.raises(ValueError, match="copied away.*chain_output"):
+        with pytest.raises(ValueError, match="copied away.*manifest.json") as error:
             self._cut(made)
+        assert "pass 'chain_output'" not in str(error.value)
+
+    def test_a_take_without_shots_is_refused_before_any_decode(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], manifest=False)
+
+        def no_decode(path):
+            raise AssertionError("refused before the neighbours decode")
+
+        monkeypatch.setattr(chain_repair, "load_audio_video", no_decode)
+        with pytest.raises(ValueError, match="chain's own output with its shots"):
+            chain_repair_cut(
+                chain_take=made["take"],
+                chain_output=made["segments"][0],
+                segment=2,
+                num_frames=107,
+                tail_frames=22,
+            )
 
     def test_a_take_beside_a_manifest_but_not_its_segments_names_chain_output(
         self, tmp_path
@@ -526,6 +549,43 @@ class TestSplice:
         for index in (0, 3):
             assert spliced.shots[index] == own[index], index
         assert not any("segment_file" in shot for shot in spliced.shots)
+
+    def test_a_render_track_short_of_the_span_warns_of_the_silence(
+        self, tmp_path, monkeypatch
+    ):
+        import dw.tasks.chain_repair as chain_repair
+
+        made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)
+        cut = chain_repair_cut(
+            chain_take=made["take"], segment=2, num_frames=107, tail_frames=22
+        )
+        render = stand_in_render(cut)
+        # A full second of the render's soundtrack is missing at its end
+        render.audio = render.audio[:, : render.audio.shape[1] - RATE]
+        warnings = []
+        monkeypatch.setattr(
+            chain_repair, "emit_warning", lambda m, **d: warnings.append(d)
+        )
+        chain_repair_splice(
+            chain_take=cut["chain_take"],
+            video=render,
+            segment=2,
+            start_frame=cut["start_frame"],
+            end_frame=cut["end_frame"],
+            keep_start=cut["keep_start"],
+        )
+        assert [w["kind"] for w in warnings] == ["splice_audio_short"]
+        assert warnings[0]["silent_seconds"] > 0
+
+    def test_a_full_render_track_does_not_warn(self, tmp_path, monkeypatch):
+        import dw.tasks.chain_repair as chain_repair
+
+        warnings = []
+        monkeypatch.setattr(
+            chain_repair, "emit_warning", lambda m, **d: warnings.append(d)
+        )
+        repaired(write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75))
+        assert warnings == []
 
     def test_the_repaired_seams_are_recorded_as_the_chain_records_one(self, tmp_path):
         made = write_run(str(tmp_path), [40, 51, 51, 51], crossfade_ms=75)

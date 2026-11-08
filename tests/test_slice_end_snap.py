@@ -292,3 +292,13 @@ class TestJoinedShortTellsASnapFromAnEarlyEnd:
         assert warning["snapped_tracks"] == {"track 2": [round(snapped_kept, 3), 20.0]}
         assert "1 of them ended early" in warning["message"]
         assert "quiet" in warning["message"]
+
+
+def test_a_window_as_long_as_the_slice_never_cuts_into_its_first_half():
+    # A quiet lead-in at the head and a loud end: a window as long as the
+    # slice would find the lead-in and leave a sliver of the section
+    source = song((0.5, 0.0), (5.5, 0.5), (4.0, 0.5))
+    sliced = slice_audio(
+        source, duration_seconds=6.0, sample_rate=RATE, end_snap_seconds=6.0
+    )
+    assert sliced.audio.shape[1] / RATE >= 3.0
