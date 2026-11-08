@@ -3267,8 +3267,11 @@ the limit; `worst` is `{index, word_error_rate}`. An inserted word that
 replaces expected words (a word misheard) belongs to the take of the words it
 replaces; a pure insertion belongs to the take whose words it sits in front of
 (the last take when it follows them all), so a filler between two takes counts
-against the later one and a looped take shows as insertions, with the takes
-after it still aligned. Each failing take also emits a
+against the later one. The exception is a pure insertion at a take boundary
+whose words repeat the end of the take before it: that belongs to the earlier
+take, because the alignment can match either copy of a looped take and leave
+the repeat in front of the next one. A looped take therefore shows as
+insertions in its own take, with the takes after it still aligned. Each failing take also emits a
 `narration_take_mismatch` warning naming the take, its rate and its first
 dropped words. `templates/check-narration` runs it.
 

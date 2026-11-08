@@ -55,6 +55,7 @@ def test_a_looped_take_shows_as_inserted_and_later_takes_still_align():
     result = run("the cat sat the cat sat on the mat")
     first, second = result["takes"]
     assert first["inserted"] == ["the", "cat", "sat"]
+    assert first["ok"] is False
     assert second["ok"] is True
     assert second["dropped"] == [] and second["inserted"] == []
 
@@ -120,3 +121,22 @@ def test_a_pure_insert_at_a_boundary_belongs_to_the_next_take():
     first, second = result["takes"]
     assert first["inserted"] == []
     assert second["inserted"] == ["um"]
+
+
+def test_a_repeat_aligned_after_its_first_copy_belongs_to_the_take_it_repeats():
+    # A short take after the loop makes SequenceMatcher align the first copy
+    # of the repeated take and leave the repeat in front of the next take
+    takes = [
+        "The fox ran far today and then further still.",
+        "Then it slept under a tree.",
+        "It woke.",
+    ]
+    heard = " ".join([takes[0], takes[1], takes[1], takes[2]])
+    result = run(heard, takes=takes)
+    first, looped, last = result["takes"]
+    assert first["ok"] is True
+    assert looped["ok"] is False
+    assert looped["inserted"] == ["then", "it", "slept", "under", "a", "tree"]
+    assert last["ok"] is True
+    assert last["inserted"] == []
+    assert result["failed"] == [1]

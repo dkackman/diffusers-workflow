@@ -12,9 +12,14 @@ Two rules place an inserted word. One that replaces expected words (a word
 misheard) belongs to the take of the words it replaces, so a misheard last
 word is blamed on its own take. A pure insertion belongs to the take whose
 expected words it sits in front of (the last take when it comes after them
-all), so a filler between two takes counts against the later one; a looped
-take therefore shows as insertions in the take that follows the loop's start,
-and the takes after it still align.
+all), so a filler between two takes counts against the later one - unless it
+sits at a take boundary and its words repeat the end of the take before it,
+when it belongs to that earlier take. `SequenceMatcher` aligns one copy of a
+looped take as equal and the other as a pure insertion, and which copy
+depends on the block lengths: the repeat can land in front of the next take,
+and the tail rule charges it to the take that was looped. Either way a
+looped take shows as insertions in its own take, and the takes after it
+still align.
 """
 
 import difflib
@@ -75,18 +80,41 @@ def _owners(pairs, expected_tokens, heard_tokens, starts):
                 owner = index
         return owner
 
+    def repeats_previous(position, index):
+        """Whether the pure insertion from pairs[index] on repeats the tail of
+        the take that ends at `position` (a take boundary)."""
+        if position not in starts or starts.index(position) == 0:
+            return None
+        previous = starts.index(position) - 1
+        run = []
+        for kind, _, j in pairs[index:]:
+            if kind != "inserted":
+                break
+            run.append(heard_tokens[j])
+        tail = expected_tokens[starts[previous] : position]
+        if run and len(run) <= len(tail) and tail[-len(run) :] == run:
+            return previous
+        return None
+
     cursor = 0  # the expected position the next inserted word sits in front of
     replaced = None  # the take of the words the current replace dropped
-    for kind, i, j in pairs:
+    repeated = None  # the take a pure insertion run repeats the tail of
+    for index, (kind, i, j) in enumerate(pairs):
         if kind == "inserted":
             if replaced is not None:
                 owner = replaced
-            elif cursor >= count:
-                owner = len(starts) - 1
             else:
-                owner = take_at(cursor)
+                if repeated is None:
+                    repeated = repeats_previous(cursor, index)
+                if repeated is not None:
+                    owner = repeated
+                elif cursor >= count:
+                    owner = len(starts) - 1
+                else:
+                    owner = take_at(cursor)
             inserted[owner].append(heard_tokens[j])
             continue
+        repeated = None
         replaced = None
         if kind == "dropped":
             replaced = take_at(i)
