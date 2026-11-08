@@ -282,7 +282,8 @@ def test_a_count_slightly_over_duration_times_fps_is_clamped(monkeypatch, tmp_pa
     )
     with pytest.raises(RuntimeError, match="stop after"):
         encode_h3_latents(path)
-    assert seen["n"] <= 121
+    # ceil(5.0 s x 24) + 1: the duration's count wins over the header's 130
+    assert seen["n"] == 121
 
 
 # 4. The decode returns the take's own length
