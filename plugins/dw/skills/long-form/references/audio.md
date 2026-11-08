@@ -21,6 +21,9 @@ A longer narration is cut into takes at sentence boundaries and joined.
   this pair to see or edit the takes before speaking them. `split-takes`
   returns `{takes, count, words}`. Pass the edited list as `takes`. The list
   is a variable because the engine expands `for_each` before a run starts.
+- **Check the speech.** After `narration-long`, run
+  `templates/check-narration` on the narration with the same text; re-speak
+  the takes it lists.
 - **Listen at the joins.** The same seed does not make takes sound alike. If
   the voice drifts between takes, lower `max_seconds`. A join is also where a
   level step shows, so read `get_gallery_metadata`'s levels before relying on

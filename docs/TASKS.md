@@ -3234,6 +3234,34 @@ text, runs this task, and hands the takes to `templates/narration-from-takes`
 as a child workflow, which expands its own `for_each`. Refused: empty text, a limit that is not
 above zero.
 
+## Checking a Narration
+
+`check_narration` checks that a long narration spoke its script
+(`dw/tasks/narration_check.py`). A narration is assembled from takes
+(`templates/narration-long`) and a take can loop, skip or stop early with
+nothing saying so. The joined audio is transcribed once with the pipeline
+`transcribe_audio` caches, the words heard are aligned to the script's words
+in order, and each dropped or inserted word is attributed to its take.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `audio` | Yes | The narration: an audio file, a video's soundtrack, or a waveform (with `sample_rate`) |
+| `text` | One of | The script as one string, split into takes as `split_takes` does by default |
+| `takes` | One of | The takes it was spoken from: a list, or one string split as `text` is |
+| `max_word_error_rate` | No | A take over this fails (default 0.1; 0 to 1) |
+| `model_name` | No | A Whisper-class ASR model (the `transcribe_audio` default) |
+| `device`, `sample_rate` | No | As `transcribe_audio` |
+
+Exactly one of `text` and `takes` is given; both or neither is refused. It
+answers `{takes, checked, failed, worst}`: per take `{index, text, words,
+dropped, inserted, word_error_rate, ok}`, where the rate is dropped plus
+inserted words over the take's expected words; `failed` lists the indices over
+the limit; `worst` is `{index, word_error_rate}`. An inserted word belongs to
+the take whose words it sits in front of, so a looped take shows as
+insertions and the takes after it still align. Each failing take also emits a
+`narration_take_mismatch` warning naming the take, its rate and its first
+dropped words. `templates/check-narration` runs it.
+
 ## Extracting Sections
 
 Reduce generated text to a known set of labelled sections, dropping anything else:
@@ -3818,6 +3846,7 @@ Canny edge detection followed by ControlNet generation:
 - [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
 - [split-takes.json](../workflows/templates/split-takes.json) — `split_takes` alone: see or edit a long text's takes before speaking them
+- [check-narration.json](../workflows/templates/check-narration.json) — `check_narration`: the script against the joined speech, per take
 - [narration-long.json](../workflows/templates/narration-long.json) — Split a long text into takes, speak each in one cloned voice and join them
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
