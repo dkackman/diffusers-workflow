@@ -552,9 +552,12 @@ MATCH_NEAR_SILENT_DBFS = -40.0
 MATCH_LARGE_GAIN_WARN_DB = 20.0
 
 
-def _match_target(measure, target_dbfs, target_lufs, sample_rate, command):
+def _match_target(
+    measure, target_dbfs, target_lufs, sample_rate, command, measured=True
+):
     """The target a measure moves every shot to, refusing the arguments that
-    do not belong with it: dBFS for peak/rms, LUFS for "lufs"."""
+    do not belong with it: dBFS for peak/rms, LUFS for "lufs". `measured` is
+    whether any shot has a waveform: with none, "lufs" reads no rate."""
     if measure not in MATCH_MEASURES:
         raise ValueError(
             f"{command} 'match_levels' must be one of {MATCH_MEASURES}, got '{measure}'"
@@ -565,7 +568,7 @@ def _match_target(measure, target_dbfs, target_lufs, sample_rate, command):
                 f"{command} 'match_levels_dbfs' does not apply to "
                 "'match_levels': \"lufs\" - give 'match_levels_lufs'"
             )
-        if sample_rate is None:
+        if measured and sample_rate is None:
             raise ValueError(f"{command} 'match_levels': \"lufs\" needs a sample rate")
         target = DEFAULT_MATCH_LUFS if target_lufs is None else target_lufs
         if target > 0:
@@ -623,12 +626,20 @@ def match_levels(
     waveform in a warning; without them an input is "video N", counted from 1.
 
     "lufs" matches integrated loudness (BS.1770) to `target_lufs` and holds a
-    gain at a -1 dBTP true peak; it needs `sample_rate`. Its warnings and log
+    gain at a -1 dBTP true peak; it needs `sample_rate` unless every entry is
+    None (no soundtrack to measure). Its warnings and log
     events carry `unit` ("LUFS" for levels, whose payload fields still read
     `*_dbfs`). A shot too short to
     measure (under 0.4 s) is matched by rms instead and said so.
     """
-    base_target = _match_target(measure, target_dbfs, target_lufs, sample_rate, command)
+    base_target = _match_target(
+        measure,
+        target_dbfs,
+        target_lufs,
+        sample_rate,
+        command,
+        measured=any(waveform is not None for waveform in waveforms),
+    )
     matched = []
     for index, waveform in enumerate(waveforms):
         label = names[index] if names else f"video {index + 1}"
