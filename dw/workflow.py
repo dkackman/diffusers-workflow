@@ -204,6 +204,11 @@ class Workflow:
     # deep-copied them again; the child's one copy is _owned_arguments, on
     # entry. None for a workflow nothing composed
     _handed_arguments = None
+    # The pipeline keys the enclosing runs' steps hold, handed down when a
+    # parent composes this workflow: a release_models task inside a child
+    # must not evict a model a parent step loaded and a later parent step
+    # still addresses (pipeline_reference, a reused key). Empty at top level
+    _claimed_by_ancestors = frozenset()
 
     def __init__(self, workflow_definition, output_dir, file_spec, workflow_dir=None):
         self.workflow_definition = workflow_definition
@@ -218,6 +223,13 @@ class Workflow:
         # Which pipeline each step owns. run() replaces it per run; this one
         # serves a step action created outside run()
         self.pipeline_ownership = PipelineOwnership()
+
+    def claimed_pipeline_keys(self):
+        """The pipeline keys this run's steps recorded and every enclosing
+        run's: what a release_models task here must leave loaded."""
+        return frozenset(self.pipeline_ownership.keys_by_step.values()) | (
+            self._claimed_by_ancestors
+        )
 
     @property
     def name(self):
@@ -870,6 +882,10 @@ class Workflow:
         # The parent's objects arrive as this child's arguments; the child
         # copies them once on entry rather than editing the parent's
         workflow._composed = True
+        # The child shares this run's pipeline dict but keeps its own
+        # ownership table, so what this run (and its ancestors) hold is
+        # handed down for the child's release_models to spare
+        workflow._claimed_by_ancestors = self.claimed_pipeline_keys()
         # One execution, one directory: the child writes into the
         # parent's run directory and leaves no manifest of its own - its
         # steps roll up into the parent's manifest already
