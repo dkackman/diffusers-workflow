@@ -34,7 +34,9 @@ def test_a_dict_realizes_each_value_to_a_dtype():
 
 
 def test_component_names_are_not_special_cased():
-    arguments = _arguments({"default": "torch.bfloat16", "anything_at_all": "torch.float16"})
+    arguments = _arguments(
+        {"default": "torch.bfloat16", "anything_at_all": "torch.float16"}
+    )
     realize_args(arguments)
     assert arguments["torch_dtype"]["anything_at_all"] is torch.float16
 
