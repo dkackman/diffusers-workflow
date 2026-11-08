@@ -171,9 +171,10 @@ timeline.
 
 - `rerun_job` and `POST /api/jobs/{id}/rerun` take `arguments`, variable
   overrides merged onto the stored job before admission: `rerun_job(id,
-  arguments={"tier": "best"})` promotes a draft. An override changes the
-  plan, so validate first; a bound acknowledgement is checked against the
-  merged plan.
+  arguments={"tier": "standard"})` promotes a draft, keeping its seed and so
+  its staging, even a seed the template drew at run time (`best` re-stages,
+  so it is a render of its own). An override changes the plan, so validate
+  first; a bound acknowledgement is checked against the merged plan.
 
 **Quality tiers and cost** (#1218, #1222, #1224, #1236, #1239)
 

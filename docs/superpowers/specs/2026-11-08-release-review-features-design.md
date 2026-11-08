@@ -63,7 +63,10 @@ ceiling or a function over the complexity ratchet.
 **What.** `POST /api/jobs/{id}/rerun` and the MCP `rerun_job` tool take an
 optional `arguments` object of variable overrides merged onto the stored
 job's arguments before admission. `rerun_job(job_id, arguments={"tier":
-"best"}, acknowledged_cost=...)` is the one-call promotion of a draft.
+"standard"}, acknowledged_cost=...)` is the one-call promotion of a draft.
+The rerun keeps the draft's seed (one the template drew is read from the
+realized workflow), so it keeps the draft's staging; `best` re-stages, so it
+is a render of its own, not a promotion.
 
 **Behaviour.**
 - Merge is shallow, by variable name, overrides win; `new_seed` still draws
@@ -84,7 +87,7 @@ job's arguments before admission. `rerun_job(job_id, arguments={"tier":
 **Surface.** `RerunRequest.arguments: dict | None`; `rerun_spec(job_id,
 new_seed, overrides)`; MCP `rerun_job(..., arguments: dict | None = None)`
 with one added docstring sentence: "`arguments` overrides variables for the
-rerun (a draft promoted with `{"tier": "best"}`); validate first, since an
+rerun (a draft promoted with `{"tier": "standard"}`); validate first, since an
 override changes the plan a bound acknowledgement must name." `docs/MCP.md`
 and `docs/SERVER.md` get the paragraph; the long-form skill's
 quality-and-speed reference says "promote with rerun_job".

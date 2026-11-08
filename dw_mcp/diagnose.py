@@ -390,7 +390,7 @@ def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments
     binds a new-seed rerun.
 
     `arguments` overrides variables for the rerun (a draft promoted with
-    `{"tier": "best"}`); an override may change the plan, so a bound
+    `{"tier": "standard"}`); an override may change the plan, so a bound
     acknowledgement must name the plan of the merged arguments."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)

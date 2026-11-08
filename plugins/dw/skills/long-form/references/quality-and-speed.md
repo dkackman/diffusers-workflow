@@ -59,8 +59,10 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
   cleaner for 0-5% more time (2-minute `static_long`: seam look 1.50 to
   0.66). Offer it when the host runs one H3 job at a time; it is not the
   default. Any argument you pass still wins over the tier. Promote a draft
-  you like with `rerun_job(job_id, arguments={"tier": "best"})`. LTX chains have no
-  tier: their schedule is fixed, and the step up is `ltx2/upscale-clip`.
+  you like with `rerun_job(job_id, arguments={"tier": "standard"})`: the
+  rerun keeps the draft's seed, so its staging. `best` re-stages, so it is a
+  render of its own, not a promotion. LTX chains have no tier: their
+  schedule is fixed, and the step up is `ltx2/upscale-clip`.
 - **LTX-2.5 parity** (Task 23, `bench/records/ltx.md`): measured.
   `last_frame` stays the `templates/ltx2/chained-segments` default. Cap an
   LTX take at about 15-20 s (3-4 segments), then cut and start the next

@@ -146,3 +146,20 @@ def test_the_rms_held_warning_keeps_its_dbfs_wording():
     held = [w for w in warnings if w["kind"] == "match_levels_held"][0]
     assert "dBFS peak" in held["message"]
     assert held["unit"] == "dBFS"
+
+
+def test_a_lufs_match_of_only_silent_entries_needs_no_sample_rate():
+    assert match_levels([None, None], "lufs", sample_rate=None) == [None, None]
+
+
+def test_a_lufs_match_of_waveforms_still_needs_a_sample_rate():
+    with pytest.raises(ValueError, match="needs a sample rate"):
+        match_levels([noise(2, 0.3), None], "lufs", sample_rate=None)
+
+
+def test_concat_joins_videos_with_no_soundtrack_at_all_under_lufs():
+    silent = AudioVideo([Image.new("RGB", (8, 8))] * 4, None, None, fps=30)
+
+    result = concat_videos([silent, silent], match_levels="lufs", fps=30)
+
+    assert len(result.frames) == 8

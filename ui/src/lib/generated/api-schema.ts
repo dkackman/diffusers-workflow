@@ -3516,7 +3516,7 @@ export interface components {
             acknowledged_cost?: boolean | components["schemas"]["AcknowledgedCost"] | null;
             /**
              * Arguments
-             * @description Variable overrides merged over the original job's arguments before admission (a draft promoted with {"tier": "best"}). A variable the workflow does not declare is refused; the seed variable cannot be overridden together with `new_seed`.
+             * @description Variable overrides merged over the original job's arguments before admission (a draft promoted with {"tier": "standard"}), keeping the original's seed unless `new_seed`. A variable the workflow does not declare is refused; the seed variable cannot be overridden together with `new_seed`.
              */
             arguments?: {
                 [key: string]: unknown;

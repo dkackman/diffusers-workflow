@@ -198,7 +198,7 @@ class JobTools:
         `acknowledged_cost` takes the same bound form as run_workflow; a
         fresh seed never changes the fingerprint, so the original plan still
         binds a new_seed rerun. `arguments` overrides variables for the rerun
-        (a draft promoted with `{"tier": "best"}`); validate first, since an
+        (a draft promoted with `{"tier": "standard"}`); validate first, since an
         override changes the plan a bound acknowledgement must name."""
         return diagnose.rerun_job(
             self.client,

@@ -55,6 +55,7 @@ def test_a_looped_take_shows_as_inserted_and_later_takes_still_align():
     result = run("the cat sat the cat sat on the mat")
     first, second = result["takes"]
     assert first["inserted"] == ["the", "cat", "sat"]
+    assert first["ok"] is False
     assert second["ok"] is True
     assert second["dropped"] == [] and second["inserted"] == []
 
@@ -120,3 +121,37 @@ def test_a_pure_insert_at_a_boundary_belongs_to_the_next_take():
     first, second = result["takes"]
     assert first["inserted"] == []
     assert second["inserted"] == ["um"]
+
+
+def test_a_repeat_aligned_after_its_first_copy_belongs_to_the_take_it_repeats():
+    # A short take after the loop makes SequenceMatcher align the first copy
+    # of the repeated take and leave the repeat in front of the next take
+    takes = [
+        "The fox ran far today and then further still.",
+        "Then it slept under a tree.",
+        "It woke.",
+    ]
+    heard = " ".join([takes[0], takes[1], takes[1], takes[2]])
+    result = run(heard, takes=takes)
+    first, looped, last = result["takes"]
+    assert first["ok"] is True
+    assert looped["ok"] is False
+    assert looped["inserted"] == ["then", "it", "slept", "under", "a", "tree"]
+    assert last["ok"] is True
+    assert last["inserted"] == []
+    assert result["failed"] == [1]
+
+
+def test_a_boundary_insertion_is_charged_whole_not_split_at_a_matching_tail():
+    # "um sat" is not the tail of take 0, though "sat" alone is: the run is
+    # decided once, so its last word does not re-match on its own
+    from dw.tasks.narration_check import _owners
+
+    expected = ["the", "cat", "sat", "on", "the", "mat"]
+    heard = ["the", "cat", "sat", "um", "sat", "on", "the", "mat"]
+    pairs = [("equal", k, k) for k in range(3)]
+    pairs += [("inserted", None, 3), ("inserted", None, 4)]
+    pairs += [("equal", k, k + 2) for k in range(3, 6)]
+    dropped, inserted = _owners(pairs, expected, heard, [0, 3])
+    assert inserted == [[], ["um", "sat"]]
+    assert dropped == [[], []]
