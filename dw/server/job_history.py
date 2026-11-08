@@ -356,6 +356,20 @@ class JobHistory:
         return [row["id"] for row in rows]
 
     def peaks_for_key(self, key):
+        return self.peaks_and_basis_for_key(key)[0]
+
+    def peaks_and_basis_for_key(self, key):
+        """(peaks, basis) - `peaks_for_key`'s list, and the
+        host_memory_projection field it was read on (COMMITTED_PEAK or
+        RSS_PEAK; None with no peaks), so a fit is compared on one basis."""
+        from ..host_memory_projection import COMMITTED_PEAK, RSS_PEAK
+
+        peaks, committed = self._peaks_for_key(key)
+        if not peaks:
+            return peaks, None
+        return peaks, COMMITTED_PEAK if committed else RSS_PEAK
+
+    def _peaks_for_key(self, key):
         """This machine's committed job peak, in MB, for every successful run
         with this memory key - inline and renamed runs too, since the key is
         not the workflow's name (#869). Empty for a key no run has reported.
@@ -378,7 +392,7 @@ class JobHistory:
                 (SUCCEEDED, key),
             ).fetchall()
         committed = [row["committed"] for row in rows if row["committed"] is not None]
-        return committed or [row["peak"] for row in rows]
+        return (committed or [row["peak"] for row in rows]), bool(committed)
 
     def recent_summaries(self, limit=200, workspace=None, statuses=None):
         """Summary rows only - the jobs list is polled, and parsing four JSON

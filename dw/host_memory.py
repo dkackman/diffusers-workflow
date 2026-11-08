@@ -19,6 +19,7 @@ import logging
 import os
 import stat
 import tempfile
+import time
 
 from filelock import FileLock, Timeout
 
@@ -344,6 +345,26 @@ def device_term_mb(report):
     return max(0.0, committed - anon - (report.get("host_memory_rss_shmem_mb") or 0.0))
 
 
+# How long host_memory_fields reuses a device-mapping reading. smaps is read
+# whole, which takes seconds on a large worker, and the worker reports memory
+# at every phase boundary (each segment's generate and decode on a chain); the
+# driver's pinned mappings are tens of MB and move only as pipelines load
+DEVICE_TERM_SECONDS = 30.0
+_device_term = [None, None, None]  # (reader, monotonic time, MB)
+
+
+def _recent_device_mapped_mb():
+    """`device_mapped_mb()`, reused for DEVICE_TERM_SECONDS after a read."""
+    reader = device_mapped_mb
+    now = time.monotonic()
+    cached_reader, at, value = _device_term
+    if cached_reader is reader and at is not None and now - at < DEVICE_TERM_SECONDS:
+        return value
+    value = reader()
+    _device_term[:] = [reader, now, value]
+    return value
+
+
 def host_memory_fields():
     """host_memory_stats under the names the memory payload reports, with
     the readings this platform cannot take left out rather than sent as
@@ -358,7 +379,7 @@ def host_memory_fields():
         fields[SPLIT_FIELD_NAMES[key]] = value
     # What the host-RAM gate charges a run (#869); read only where the split
     # is, so a platform without /proc sends neither
-    committed = _committed_from(split, device_mapped_mb()) if split else None
+    committed = _committed_from(split, _recent_device_mapped_mb()) if split else None
     if committed is not None:
         fields[SPLIT_FIELD_NAMES["committed_mb"]] = committed
     return fields

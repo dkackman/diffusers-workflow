@@ -157,7 +157,7 @@ def _number_under(value, ceiling):
     )
 
 
-def chain_check_problem(chain):
+def chain_check_finding(chain):
     """The reason a chain block's `check` or `retries` is refused, or None.
     `check` is true (the default ceilings), false, or an object of
     `CHAIN_CHECK_FIELDS`: the ratio ceilings above 0, `texture_ratio_max`
@@ -165,54 +165,72 @@ def chain_check_problem(chain):
     floor below 0 or null, `face` null. `retries`
     is a whole number from 0 to `CHAIN_RETRIES_MAX`; above 0 it needs the
     check on, as with no check nothing fails. Unresolved references are left
-    to the run, whose `ChainConfig` asks this same rule."""
+    to the run, whose `ChainConfig` asks this same rule.
+
+    Returns (key, message) - the key, `check` or `retries`, the message is
+    about - or None."""
     check = chain.get("check")
     expected = "expected true, false or an object of " + ", ".join(CHAIN_CHECK_FIELDS)
     if isinstance(check, dict):
         unknown = sorted(set(check) - set(CHAIN_CHECK_FIELDS))
         if unknown:
-            return f"check has unknown key(s) {unknown} - {expected}"
+            return "check", f"check has unknown key(s) {unknown} - {expected}"
         for name in ("jump_ratio_max", "look_ratio_max"):
             if name in check and not _number_over(check[name], 0):
-                return f"check {name} must be a number above 0, got {check[name]!r}"
+                return (
+                    "check",
+                    f"check {name} must be a number above 0, got {check[name]!r}",
+                )
         texture = check.get("texture_ratio_max")
         if texture is not None and not _number_over(texture, 1):
-            return (
+            return "check", (
                 "check texture_ratio_max bounds the fine-band ratio both ways, "
                 f"so must be a number above 1 or null, got {texture!r}"
             )
         cut = check.get("cut_ratio_max")
         if cut is not None and not _number_over(cut, 0):
-            return f"check cut_ratio_max must be a number above 0 or null, got {cut!r}"
+            return (
+                "check",
+                f"check cut_ratio_max must be a number above 0 or null, got {cut!r}",
+            )
         floor = check.get("audio_dbfs_min")
         if floor is not None and not _number_under(floor, 0):
-            return (
+            return "check", (
                 "check audio_dbfs_min is a floor in dBFS, so must be a number "
                 f"below 0 or null, got {floor!r}"
             )
         if check.get("face") is not None:
-            return f"check face is reserved and must be null, got {check['face']!r}"
+            return (
+                "check",
+                f"check face is reserved and must be null, got {check['face']!r}",
+            )
     elif not (
         check is None
         or isinstance(check, bool)
         or (isinstance(check, str) and _number_over(check, 0))
     ):
-        return f"invalid check {check!r} - {expected}"
+        return "check", f"invalid check {check!r} - {expected}"
     retries = chain.get("retries", 0)
     if isinstance(retries, str) and _number_over(retries, 0):
         return None
     whole = isinstance(retries, int) and not isinstance(retries, bool)
     if not whole or not 0 <= retries <= CHAIN_RETRIES_MAX:
-        return (
+        return "retries", (
             f"retries must be a whole number between 0 and {CHAIN_RETRIES_MAX}, "
             f"got {retries!r}"
         )
     if retries and (check is None or check is False):
-        return (
+        return "retries", (
             f"retries {retries} needs check on - a re-roll replaces a segment "
             "its check failed, and with no check no segment fails"
         )
     return None
+
+
+def chain_check_problem(chain):
+    """`chain_check_finding`'s message alone, or None."""
+    finding = chain_check_finding(chain)
+    return finding[1] if finding else None
 
 
 # The experimental late capstone (#1187, #1199 Task 14 Step 4): segment 1's

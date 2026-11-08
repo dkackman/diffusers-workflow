@@ -982,3 +982,20 @@ def test_validate_and_submit_refuse_a_fraction_for_an_int_variable_alike(server)
         assert response.status_code == 400, response.text
         assert response.json()["detail"] == f"arguments.scale: {message}"
         assert client.get("/api/jobs").json()["jobs"] == []
+
+
+def test_a_bad_preset_selector_is_the_callers_error_not_the_documents(server):
+    # A tier no bundle names is reported at arguments.tier: the caller's
+    # mistake, so the answer still names what it checked, as any other
+    # bad argument's does, rather than reading as a broken document
+    workflow = for_each_workflow()
+    workflow["variables"]["tier"] = "draft"
+    workflow["presets"] = {"tier": {"draft": {}, "best": {}}}
+    with server() as client:
+        answer = client.post(
+            "/api/validate?sizes=false",
+            json={"workflow": workflow, "arguments": {"tier": "ultra"}},
+        ).json()
+    assert not answer["valid"]
+    assert [e["path"] for e in answer["errors"]] == ["arguments.tier"]
+    assert answer["checked_arguments"] == ["tier"]

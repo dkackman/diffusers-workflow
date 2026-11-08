@@ -21,3 +21,21 @@ def test_960x544_is_priced_near_the_measured_run(name):
         {"width": 960, "height": 544},
     )
     assert axes and scaled == pytest.approx(3.5, abs=0.1)
+
+
+def test_a_scales_with_field_that_cannot_be_summed_leaves_no_figure():
+    # music-long's sections: one side's entries omit audio_duration, so the
+    # sum cannot be taken - quoting the curated figure unscaled would hide
+    # sections asking 3x the default
+    from dw.cost_scaling import _list_frames_scaling
+
+    default = [{"audio_duration": 60}, {"audio_duration": 60}]
+    moved = [{"audio_duration": 180}, {"prompt": "no duration"}]
+    assert (
+        _list_frames_scaling("sections", default, moved, {}, "audio_duration") is None
+    )
+    # Unmoved, an unsummable field is still the curated figure
+    assert _list_frames_scaling("sections", moved, moved, {}, "audio_duration") == (
+        1.0,
+        None,
+    )

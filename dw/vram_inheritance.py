@@ -364,8 +364,14 @@ def inherited_vram_warnings(
     variables = variables if isinstance(variables, dict) else {}
     identities = [pipeline_identity(step, variables) for step in steps]
     written_definition = written if isinstance(written, dict) else definition
-    written_variables = written_definition.get("variables")
-    written_variables = effective_variables(written_definition, arguments)
+    # The expanded definition is already folded: applying the bundle to it
+    # again would undo a rule's rounding (effective_variables), so without
+    # the written document its own variables are read as they are
+    written_variables = (
+        effective_variables(written, arguments)
+        if isinstance(written, dict)
+        else variables
+    )
     written_steps = written_definition.get("steps")
     written_steps = written_steps if isinstance(written_steps, list) else []
     warnings = []

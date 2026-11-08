@@ -25,9 +25,10 @@ resolution and reference count are not in it either (#869's D3).
     workflow's own history - also ahead of `observed` when it is the larger
     for a shape that holds its pipeline across the list, since the key
     leaves list length out and a longer list outgrows the observed max
-    (#910). The fit reads committed rows once any has one, as `observed`
-    does (`host_memory_projection.peak_field`), so the comparison is on one
-    basis;
+    (#910). The fit reads committed rows once any of the workflow's has
+    one, as `observed` does for the key's (`host_memory_projection.peak_field`);
+    the two can differ, so the fit is weighed against `observed` only when
+    both read the same basis;
   - otherwise None - no figure.
 
 Mapped checkpoint pages are not charged: they are page cache, which
@@ -151,13 +152,16 @@ def _measured_peak(definition, arguments, history, rows, list_entries):
     fit = projected_mb(definition, list_entries, rows or [])
     key = memory_key(definition, arguments)
     if key is not None and history is not None:
-        peaks = history.peaks_for_key(key)
+        peaks, basis = _peaks_with_basis(history, key)
         if peaks:
             # The key leaves list length out, so a resident list longer than
             # any observed one outgrows the observed max: the fit's growth is
             # taken when it is the larger, as validate's warning quotes (#910)
+            # - compared only on one basis, committed or RSS: the workflow's
+            # rows and this key's may have recorded different ones
             if (
                 fit is not None
+                and (basis is None or fit.get("field") == basis)
                 and fit["projected_mb"] > max(peaks)
                 and not releases_between_iterations(definition)
             ):
@@ -166,6 +170,15 @@ def _measured_peak(definition, arguments, history, rows, list_entries):
     if fit is not None:
         return fit["projected_mb"], "fit", fit["runs"]
     return None
+
+
+def _peaks_with_basis(history, key):
+    """(peaks, basis) for `key`: `JobHistory.peaks_and_basis_for_key`, or a
+    history that reports peaks alone, whose basis is unknown (None)."""
+    both = getattr(history, "peaks_and_basis_for_key", None)
+    if both is not None:
+        return both(key)
+    return history.peaks_for_key(key), None
 
 
 def host_memory_block(need):
