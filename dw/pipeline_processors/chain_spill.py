@@ -154,6 +154,7 @@ class SegmentSpill:
         pipeline._chain_iteration = iteration
 
         self.output_dir = output_dir
+        self.iteration = iteration
         self.base_name = f"{file_prefix}.{iteration}"
         self.fps = config.fps
         self.paths = []

@@ -121,6 +121,11 @@ def test_continuity_last_frame_is_still_the_old_chain_block():
     assert chain.pop("keystone_slot", None) is None
     assert chain.pop("check") is False  # off by default, as before
     assert chain.pop("retries") == 0
+    # Every take spills its segments since resume_from (Don, 2026-11-08),
+    # off by default before; no resume by default
+    assert chain.pop("resume_from", None) is None
+    assert chain.pop("save_segments") is True
+    assert before.pop("save_segments") is False
     assert chain == before
 
 

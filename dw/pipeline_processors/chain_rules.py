@@ -626,3 +626,63 @@ def place_keystone(arguments, keystone, slot):
         guide["enter_below_sigma"] = slot["enter_below_sigma"]
     # A copy: iteration arguments share nested values
     arguments["guides"] = list(arguments.get("guides") or []) + [guide]
+
+
+# A chain resumed from an earlier run's kept segments (`resume_from`,
+# dw/pipeline_processors/chain_resume.py): one segment file of that run,
+# named by reference, and the run renders only the segments after its set
+CHAIN_RESUME_FROM = "resume_from"
+# The continuities a resume can carry out of a file on disk
+RESUMABLE_CONTINUITIES = ("last_frame", "guide")
+
+
+def resume_reference_problem(value):
+    """Why a `resume_from` value is refused as a location, or None: anything
+    but an output reference (or one still unresolved) - a bare path names a
+    file outside the reference rules every earlier run's file is read by, so
+    it is refused in the media location policy's words (dw/locations.py)."""
+    if value is None or _unresolved(value):
+        return None
+    if isinstance(value, str) and references.is_ref(references.OUTPUT, value):
+        return None
+    example = references.make_ref(
+        references.OUTPUT, "<workflow>/<run id>/<prefix>.0.segment-000.mp4"
+    )
+    return (
+        f"Refusing to read chain {CHAIN_RESUME_FROM} at {value!r}: a resume "
+        f"reads one segment file an earlier run wrote, named by its output "
+        f"reference like '{example}' (the chain's failure warning quotes it), "
+        f"never by a path"
+    )
+
+
+def chain_resume_problem(chain):
+    """The reason a chain block's `resume_from` is refused, or None: absent,
+    null or unresolved is no resume. Refused: without `save_segments` true
+    (the kept files are copied into the new run's spill); a continuity other
+    than `last_frame` or `guide`; and `experimental_latent_carry`, whose
+    carried latents are not on disk. The reference itself is
+    `resume_reference_problem`'s."""
+    value = chain.get(CHAIN_RESUME_FROM)
+    if value is None or _unresolved(value):
+        return None
+    if chain.get(CHAIN_LATENT_CARRY) is True:
+        return (
+            f"{CHAIN_RESUME_FROM} does not combine with {CHAIN_LATENT_CARRY}: "
+            "the carried latents are not on disk, only the kept segments' "
+            "decoded frames and audio"
+        )
+    continuity = chain.get("continuity", "last_frame")
+    if not _unresolved(continuity) and continuity not in RESUMABLE_CONTINUITIES:
+        return (
+            f"{CHAIN_RESUME_FROM} carries a last frame or a guide out of a kept "
+            f"file, so it needs continuity 'last_frame' or 'guide', got "
+            f"{continuity!r}"
+        )
+    save = chain.get("save_segments", False)
+    if save is not True and not _unresolved(save):
+        return (
+            f"{CHAIN_RESUME_FROM} copies the kept segment files into this run's "
+            "own spill, so it needs save_segments true"
+        )
+    return None

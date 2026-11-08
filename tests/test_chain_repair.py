@@ -861,7 +861,17 @@ class TestTemplate:
         assert definition["variables"]["keep_segments"] is False
         (chain,) = list(chain_blocks(definition))
         assert chain["keep_segments"] == "variable:keep_segments"
-        assert chain["save_segments"] in ("variable:keep_segments", True)
+        # The guide chain spills every take (Don, 2026-11-08): a chain that
+        # dies leaves its finished segments for resume_from
+        expected = (
+            (True,)
+            if name == "chained-segments.json"
+            else (
+                "variable:keep_segments",
+                True,
+            )
+        )
+        assert chain["save_segments"] in expected
         assert "repair-segment" in definition["description"]
 
 

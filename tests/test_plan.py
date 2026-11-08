@@ -2718,3 +2718,77 @@ class TestTiersPriceFromTheObservedDefault:
         # 10 + 3.5 x (the 7.2 / 13.5 proportional factor)
         assert draft["curated_minutes"] == pytest.approx(11.87, abs=0.05)
         assert "scaled from the curated 13.5 min" in draft["scaled"]
+
+
+class TestResumedChainEstimate:
+    """A chain resumed from an earlier run's kept segments prices only the
+    segments it renders (chain_resume.kept_count, cost_scaling)."""
+
+    RUN = "20261108-100000-aaaaaaaa"
+
+    def _definition(self, resume_from):
+        variables = {"segments": 4, "resume_from": None}
+        definition = {
+            "cost": [{"device": "cuda", "name": "card", "minutes": 40}],
+            "cost_drivers": ["segments"],
+            "variables": variables,
+            "steps": [
+                {
+                    "pipeline": {
+                        "chain": {
+                            "segments": "variable:segments",
+                            "fps": 4,
+                            "save_segments": True,
+                            "resume_from": "variable:resume_from",
+                        },
+                        "arguments": {},
+                    }
+                }
+            ],
+        }
+        expanded = {"variables": {**variables, "resume_from": resume_from}}
+        return definition, expanded
+
+    @pytest.fixture
+    def kept(self, tmp_path):
+        """Two kept segment files of a dead run, under an active output root."""
+        from dw.runs import activate_output_root, deactivate_output_root
+
+        run = tmp_path / "outputs" / "chained" / self.RUN
+        run.mkdir(parents=True)
+        for index in (0, 1):
+            (run / f"chained.video.0.segment-{index:03d}.mp4").write_bytes(b"")
+        token = activate_output_root(str(tmp_path / "outputs"))
+        yield f"chained/{self.RUN}/chained.video.0.segment-000.mp4"
+        deactivate_output_root(token)
+
+    def test_a_resolvable_resume_prices_the_rest(self, kept):
+        from dw import references
+        from dw.plan import estimate
+
+        reference = references.make_ref(references.OUTPUT, kept)
+        quoted = estimate(*self._definition(reference), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(20.0)
+        assert "2 of 4 segment(s) kept" in quoted["scaled"]
+
+    def test_an_unresolvable_resume_prices_every_segment_and_says_so(self, kept):
+        from dw import references
+        from dw.pipeline_processors.chain_resume import UNRESOLVED_NOTE
+        from dw.plan import estimate
+
+        missing = references.make_ref(
+            references.OUTPUT, "chained/latest/none.0.segment-000.mp4"
+        )
+        quoted = estimate(*self._definition(missing), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert UNRESOLVED_NOTE in quoted["differs"]
+
+    def test_no_resume_is_todays_estimate(self, kept):
+        from dw.plan import estimate
+
+        quoted = estimate(*self._definition(None), {}, "cuda", None, None)
+
+        assert quoted["minutes"] == pytest.approx(40.0)
+        assert not quoted.get("differs")
