@@ -12,7 +12,7 @@ import re
 
 from . import references
 from .argument_media import is_media_reference
-from .arguments import fetch_constant, is_constant_reference
+from .arguments import fetch_constant, is_constant_reference, is_escaped
 from .for_each import render_path
 from .introspection import (
     CLASS_NAME_PATTERN,
@@ -139,7 +139,7 @@ def _per_component_dtype_error(key, value, path, warnings=None):
             }
         if references.is_ref(references.VARIABLE, dtype):
             continue
-        if dtype.startswith("{") and dtype.endswith("}"):
+        if is_escaped(dtype):
             return {
                 "path": component_path,
                 "message": (
