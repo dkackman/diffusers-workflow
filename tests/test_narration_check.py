@@ -104,3 +104,19 @@ def test_the_threshold_is_a_unit_interval_domain():
     from dw.task_domains import TASK_ARGUMENT_DOMAINS, UNIT
 
     assert TASK_ARGUMENT_DOMAINS["check_narration"]["max_word_error_rate"] == UNIT
+
+
+def test_a_misheard_last_word_is_blamed_on_its_own_take():
+    result = run("the cat sad on the mat")
+    first, second = result["takes"]
+    assert first["dropped"] == ["sat"] and first["inserted"] == ["sad"]
+    assert second["ok"] is True
+    assert second["inserted"] == [] and second["dropped"] == []
+    assert result["failed"] == [0]
+
+
+def test_a_pure_insert_at_a_boundary_belongs_to_the_next_take():
+    result = run("the cat sat um on the mat")
+    first, second = result["takes"]
+    assert first["inserted"] == []
+    assert second["inserted"] == ["um"]

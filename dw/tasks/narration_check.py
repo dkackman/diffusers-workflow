@@ -8,10 +8,13 @@ order (`difflib.SequenceMatcher`, the alignment `check_script` uses for
 lines) and attributes every dropped or inserted word to the take it falls in,
 so the takes to re-speak are named.
 
-An inserted word belongs to the take whose expected words it sits in front of
-(the last take when it comes after them all); a looped take therefore shows
-as insertions in the take that follows the loop's start, and the takes after
-it still align.
+Two rules place an inserted word. One that replaces expected words (a word
+misheard) belongs to the take of the words it replaces, so a misheard last
+word is blamed on its own take. A pure insertion belongs to the take whose
+expected words it sits in front of (the last take when it comes after them
+all), so a filler between two takes counts against the later one; a looped
+take therefore shows as insertions in the take that follows the loop's start,
+and the takes after it still align.
 """
 
 import difflib
@@ -73,16 +76,21 @@ def _owners(pairs, expected_tokens, heard_tokens, starts):
         return owner
 
     cursor = 0  # the expected position the next inserted word sits in front of
+    replaced = None  # the take of the words the current replace dropped
     for kind, i, j in pairs:
         if kind == "inserted":
-            if cursor >= count:
+            if replaced is not None:
+                owner = replaced
+            elif cursor >= count:
                 owner = len(starts) - 1
             else:
                 owner = take_at(cursor)
             inserted[owner].append(heard_tokens[j])
             continue
+        replaced = None
         if kind == "dropped":
-            dropped[take_at(i)].append(expected_tokens[i])
+            replaced = take_at(i)
+            dropped[replaced].append(expected_tokens[i])
         cursor = i + 1
     return dropped, inserted
 
@@ -161,7 +169,7 @@ def check_narration(
 
     results = []
     for index, words in enumerate(per_take):
-        rate_ = (len(dropped[index]) + len(inserted[index])) / max(1, len(words))
+        error_rate = (len(dropped[index]) + len(inserted[index])) / max(1, len(words))
         results.append(
             {
                 "index": index,
@@ -169,8 +177,8 @@ def check_narration(
                 "words": len(words),
                 "dropped": dropped[index],
                 "inserted": inserted[index],
-                "word_error_rate": round(rate_, 4),
-                "ok": rate_ <= max_word_error_rate,
+                "word_error_rate": round(error_rate, 4),
+                "ok": error_rate <= max_word_error_rate,
             }
         )
     failed = [r["index"] for r in results if not r["ok"]]

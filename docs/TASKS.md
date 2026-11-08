@@ -3256,9 +3256,12 @@ Exactly one of `text` and `takes` is given; both or neither is refused. It
 answers `{takes, checked, failed, worst}`: per take `{index, text, words,
 dropped, inserted, word_error_rate, ok}`, where the rate is dropped plus
 inserted words over the take's expected words; `failed` lists the indices over
-the limit; `worst` is `{index, word_error_rate}`. An inserted word belongs to
-the take whose words it sits in front of, so a looped take shows as
-insertions and the takes after it still align. Each failing take also emits a
+the limit; `worst` is `{index, word_error_rate}`. An inserted word that
+replaces expected words (a word misheard) belongs to the take of the words it
+replaces; a pure insertion belongs to the take whose words it sits in front of
+(the last take when it follows them all), so a filler between two takes counts
+against the later one and a looped take shows as insertions, with the takes
+after it still aligned. Each failing take also emits a
 `narration_take_mismatch` warning naming the take, its rate and its first
 dropped words. `templates/check-narration` runs it.
 
