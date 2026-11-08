@@ -296,7 +296,9 @@ shares the template's history, and a different `weights_dtype` or offload
 is a different key. From it the server projects a run's host-RAM peak:
 `observed` (the largest job peak RSS among this machine's successful runs
 with the same key), else `fit` (the list-run projection from the
-workflow's own history), else no figure. Rows recorded before the column
+workflow's own history), else no figure. A workflow's declared
+`host_ram_gb` is a floor under that figure (basis `declared` when it is the
+larger). Rows recorded before the column
 existed have no key and count as no data. Validate reports it as
 `plan.host_memory`.
 

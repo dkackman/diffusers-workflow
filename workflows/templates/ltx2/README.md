@@ -77,4 +77,4 @@ generated. Deblur, decompression and colorization are 0.9 preview weights traine
 | Example | What it introduces |
 | ------- | ------------------ |
 | [extend-clip.json](extend-clip.json) | Continuing a clip by conditioning on it in full; `clip` extends an existing clip instead of generating one |
-| [chained-segments.json](chained-segments.json) | A chain re-runs the pipeline per segment on the previous last frame and stitches frames and audio back together |
+| [chained-segments.json](chained-segments.json) | A chain re-runs the pipeline per segment on the previous last frame and stitches frames and audio back together. `look_hold` (default true) eases each later segment's look back to segment 1's, so the seams hold one look; pass false for the plain chain. Cap a take at about 15-20 s (3-4 segments): past that the subject drifts and is replaced (`bench/records/ltx.md`) |

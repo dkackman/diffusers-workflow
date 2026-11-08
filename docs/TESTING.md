@@ -74,6 +74,8 @@ The MCP tests fake the REST API with `httpx.MockTransport`; they never start `dw
 - `_trust_workflows_by_default` sets `DW_TRUST_WORKFLOWS=1`; `tests/test_workflow_trust.py` unsets it to test the trust gate.
 - `_isolate_settings_dir` points `DIFFUSERS_HELPER_ROOT` at the test's `tmp_path`.
 - `_isolate_device_capacity` checks a `vram_estimate` against the catalog's measured cards, never the local accelerator.
+- `_offline_hub_lookups` makes the validate pre-flight's Hub lookups (`dw/plan_downloads.py`) answer as an offline box would, so a placeholder `model_name` is not refused as a repo the Hub says is missing; a test that wants a Hub answer patches over it.
+- `_isolated_host_claims` points `DW_HOST_CLAIMS_DIR` at the test's `tmp_path`, so a test's server never sees another's host-RAM claims or the machine's.
 - `_clear_task_model_cache` and `_clear_step_cache_after_test` empty the process-wide task model cache and step cache, so a cache hit in one test cannot starve a later test's mocked loader.
 
 Shared fixtures (`test_data_dir`, `temp_output_dir`, `temp_image`, `valid_workflow_json`, and others) are defined there too.

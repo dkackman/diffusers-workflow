@@ -88,6 +88,7 @@ The server reads these from its environment (e.g. `.env`) and its workers inheri
 | `DW_PUBLIC_URL` | unset | The origin absolute URLs in responses are built from ([REMOTE.md](REMOTE.md#urls-handed-to-a-person)) |
 | `DW_QUANTIZED_CACHE` | off | `1` caches SDNQ on-the-fly-quantized components on disk, so a later cold load skips the quantize. Anything else is off. See [QUANTIZATION.md](QUANTIZATION.md#cached-on-the-fly-dw_quantized_cache) |
 | `DW_QUANTIZED_CACHE_DIR` | `<HF_HOME>/dw-quantized` | Where the cache lives; resolved to an absolute path at start and pinned for the workers |
+| `DW_HOST_CLAIMS_DIR` | `<tmp>/dw-host-claims-<uid>` | The folder every `dw.serve` on the machine shares for its running jobs' host-RAM claims, so one server's host-RAM hold counts another's jobs ([Dispatch](#dispatch)). Servers that should see each other must agree on it |
 
 ## Choosing the card
 
@@ -152,7 +153,10 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
   workflow schema), and **flow**, a read-only data-flow graph - a box per
   step, an arrow per `previous_result` labelled with the argument it feeds,
   entry steps marked, and fan-in steps flagged with their cartesian-product
-  multiplier where it is known statically. Clicking a step in the flow jumps
+  multiplier where it is known statically; a chained step draws its
+  segments inside its box, one chip per segment with what each seam carries.
+  A variable declared `required: true` is marked required in the form.
+  Clicking a step in the flow jumps
   to it in the form. Validate, save and run from the same screen; a valid
   verdict shows the run's plan - step and list counts, the estimate with its
   basis, how many steps the step cache would serve, and the weights to
@@ -164,10 +168,12 @@ icon, a finish-alert toggle, the theme toggle, and links to these docs and
 - **Jobs** - the workspace's queue and run history (history persists in
   `~/.diffusers_helper/jobs.sqlite`; a job queued or running when the
   server stopped is listed as `cancelled` with `error` starting
-  `server restart:`, and `rerun_job` resubmits it), filterable by status; a waiting job
+  `server restart:`, and `rerun_job` resubmits it; each server holds a
+  lock under `servers/` beside the database for its life, so a second server
+  sharing the database leaves a live sibling's jobs alone), filterable by status; a waiting job
   shows its place in line, can be moved, and shows `waiting_for` while held
   for host RAM. A job's page streams step progress, denoise ticks, the phase
-  between them (loading, decoding, saving), its log, and its results as they
+  between them (loading, decoding, saving; a model download shows its bytes and rate), its log, and its results as they
   land - finals first, intermediates folded, and a section per
   `result.subfolder` when a step chose one. **Cancel**, **Run again**,
   **New seed**, and **Export** (gathers the run into the workspace's `exports/` with
@@ -272,7 +278,7 @@ server's refusal when a job is running:
 | --- | --- |
 | `POST /api/jobs` | Queue a run: `{"workflow_path": ...}` or an inline `{"workflow": {...}, "base_dir": ...}`, plus `arguments` for variable overrides. `workflow_path` accepts a stored workflow name as listed by `/api/workflows` (with or without `.json`, nested names included), or a relative/absolute path that still resolves under `--workflow-dir` - confined the same way the `/api/workflows` CRUD routes are; a path that names a real file outside that directory is rejected with 400, not opened. Answers with argument warnings from signature checking. Takes an optional `acknowledged_cost`: `true` is recorded as `acknowledged: boolean`; the object `{fingerprint, minutes, downloads}` from a validate answer's `plan` is `bound` - the server re-plans the run for the arguments given and answers **409** when the fingerprint differs or a repo in `downloads_required` (pipeline `model_name`s and the repos task steps fetch) is not in `downloads` (a download that has since vanished is not a refusal); the body is `{"detail": {message, reason: "fingerprint" \| "downloads" \| "unplannable", acknowledged, plan, acknowledge}}` with the current plan, so the caller re-quotes from it, and `acknowledge` - the `{fingerprint, minutes, downloads}` to resend - whenever there is a plan. A `null` in `downloads` (a URL with no repo) is ignored. The validate `plan` sent unedited is bound too: when `downloads` is absent, its `downloads_required` repos (and `estimate.minutes`) are what was acknowledged; an explicit `downloads`, even `[]`, wins. `minutes` is recorded, never compared. Nothing is required: the web UI and every caller that sends nothing are `acknowledged: none`, and every job answer and history row carries `acknowledged` (and `acknowledged_cost` when bound). `POST /api/jobs/{id}/rerun` takes the same field and checks against the stored spec; a fresh seed does not change a fingerprint. |
 | `GET /api/jobs?workspace=&status=&limit=` | Queue + history summaries, oldest first, with `total` beside them. `status` narrows to one state or a comma-separated set (`queued`, `running`, `succeeded`, `failed`, `cancelled`; anything else is a 400); `limit` keeps the newest N, and `total` still reports how many matched, so a bounded answer cannot be mistaken for a complete one. Each summary carries `device`, the card the job ran on (`"cuda:1 NVIDIA GeForce RTX 3090"`; null while queued and for older jobs), and `rerun_of`, present on a job started by rerun: the id of the job it reran; absent for a fresh submit. No parameters means every job, which is what the web UI polls |
-| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. |
+| `GET /api/jobs/{id}` | Full detail: spec, events, manifest, error. A manifest entry for a step served from the step cache carries `reused: true`. Every entry carries `subfolder` - the in-run subfolder the step's `result.subfolder` chose, `''` for none. A `for_each` step appears in the manifest as its members (`shot@wide_open`, `shot@closeup`), because the manifest records what ran; the run's `workflow.json` keeps the `for_each` form, because it records what was asked Carries `output_kinds`: each manifest file mapped to its media kind (`image`, `video`, `audio`, `text`, or null), and each file-carrying run event (`step_end`) carries the same map for its own files. The entry of a pipeline step that ran carries `timing` (see [Step timing](WORKSPACES.md#step-timing)). Carries `rerun_of` - present on a job started by rerun: the id of the job it reran; absent for a fresh submit. Carries `host_memory_job_peak_committed_mb`, the job's peak committed host memory (anonymous + shared + device-mapped pages, the figure the host-RAM gate projects from), null until a reading lands (#1214). |
 | `DELETE /api/jobs/{id}/run` | Delete the run directory a finished job wrote, whole, from the output root the job ran against (no workspace selector applies): `{job_id, run_dir, deleted, run_swept}`. 404 for an unknown job or one with no run directory, 409 for one still queued or running |
 | `GET /api/jobs/{id}/workflow` | The workflow the job ran: `{id, definition, realized, seed_variable}`. `seed_variable` names the variable a `new_seed` rerun would draw into (null when the workflow has none), read from the workflow as written rather than the realized copy, whose seed is pinned. `realized: true` is the copy the run itself wrote (`workflow.json` in its run directory), with arguments, seed, prompts and `output:latest` pinned; `false` falls back to the submitted definition, which is what a job from before run tracking has. 404 means neither is readable - the job itself still is. The equivalent MCP tool is `get_job_workflow` (see [MCP.md](MCP.md#diagnose)) |
 | `POST /api/jobs/{id}/export?workspace=&overwrite=` | Gather one finished job into `<workspace>/exports/<job id>/`: `workflow.json`, `manifest.json`, `job.json`, `README.md`, `assets/`, `inputs/`, `outputs/`. 201 with the file list, total bytes, anything it could not find, a `zip_url`, and the three JSON files inline. 404 unknown job, 409 for a job still running or an existing export without `overwrite` |
@@ -327,14 +333,22 @@ files under RssFile); the rest of RssFile, the checkpoint pages a worker
 mmaps, is page cache that `MemAvailable` already counts as free. Two workers
 loading different checkpoints evict and re-read each other's pages - a
 slowdown, not an OOM. Every peak is taken with a margin of 10%, at least 2 GB,
-since a peak recorded at phase boundaries is a lower bound. Backfill applies. A job is never held when no other
-job is running, nor when it has no figure, nor where host RAM cannot be read
-(macOS without psutil), and with one card the gate is never exercised. A held
-job is re-checked every 10 s. The hold emits one `queue_wait` event (message
+since a peak recorded at phase boundaries is a lower bound. Backfill applies.
+Another `dw.serve` on the same machine counts too (#1227): each server
+publishes its running jobs' peaks to a shared claims directory
+(`DW_HOST_CLAIMS_DIR`, else a per-user folder in the system temp dir) under
+a file lock, and each dispatch adds the other live servers' claims to its own
+running jobs. A job is never held when no other job is running on this server
+or another, nor when it has no figure, nor where host RAM cannot be read
+(macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
 `waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job
 detail and summaries carry `waiting_for` - that message - only while held.
-The gate never refuses a submit; it only delays a start, and the OOM ranking
-is the backstop for a wrong projection.
+An observed or fitted figure never refuses a submit; it only delays a start,
+and the OOM ranking is the backstop for a wrong projection. A workflow's
+declared `host_ram_gb` (a number or a `variable:` a `presets.tier` bundle
+sets) is a floor under the projection, and the one figure that refuses:
+validate and submit fail at `host_ram_gb` when it, with the margin, exceeds
+the host's total RAM - the H3 `best` tier's 69 GB on a 64 GB machine.
 
 **Affinity.** Among the free cards a job fits, dispatch prefers a rerun's
 original card, else the card whose worker last ran the same workflow (the
@@ -587,9 +601,10 @@ The editor's forms come from these; they are just as usable from scripts:
   `host_memory`, `{projected_mb, basis, runs}`, the run's projected host-RAM
   peak - `basis` is `observed` (the largest committed job peak of this
   machine's successful runs with the same memory key, or the largest job peak
-  RSS where none measured it) or `fit` (the list-run projection from the
-  workflow's own history, on the same basis), and the key is absent when there is no
-  figure. `plan` is `null` when
+  RSS where none measured it), `fit` (the list-run projection from the
+  workflow's own history, on the same basis) or `declared` (the workflow's
+  `host_ram_gb`, when it is larger than either; `runs` is 0), and the key is
+  absent when there is no figure. `plan` is `null` when
   it could not be built; an invalid answer carries no `plan` key.
 
 ## Files and models
@@ -701,7 +716,10 @@ The editor's forms come from these; they are just as usable from scripts:
   the metadata route reports the file's `role` and the run's `inputs` too,
   and `findings`: each level problem the probed soundtrack shows
   (`full_scale`, `near_silent`), measured against `dw/audio_qc.py`'s
-  thresholds, in the assess route's finding shape
+  thresholds, in the assess route's finding shape. For an `.otioz` bundle
+  (`export_timeline`), the metadata's `media` is the timeline - `tracks`
+  (clips in order with name, frames, seconds and media member),
+  `has_audio_track` and `members` (#1254)
 - `GET /api/gallery/{name:path}/download` — download an output file
 - `GET /api/builtin-workflows` — the packaged fragments a sub-workflow step
   names as `builtin:<name>.json` (`dw/workflows/`), which no workflow listing

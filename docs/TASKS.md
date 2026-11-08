@@ -729,7 +729,7 @@ to `join_into_song`).
 A joined piece as an editable timeline: an OpenTimelineIO `.otioz` bundle that
 DaVinci Resolve (18.5+) imports with one clip per shot. The bundle is a zip of
 `version.txt` (`1.0.0`), `content.otio` and a `media/` folder; each clip's
-`target_url` is `media/<file>`. The OTIO JSON is written directly, so there is
+`target_url` is `media/<file>`, percent-encoded. The OTIO JSON is written directly, so there is
 no `opentimelineio` dependency. Rates are the exact rational the engine writes
 (23.976 is 24000/1001, stored by OTIO as a float) with integral frame values.
 
@@ -757,14 +757,15 @@ an `.otio` reports "The clip was not found".
 | Argument | Meaning |
 | -------- | ------- |
 | `video` | The joined video, a stored file (`asset:`, `output:` or a path). A clip still in memory is refused: the bundle carries the file |
-| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
+| `sources` | One file per shot, in order. Each clip then points at its own file over that file's whole range, at that file's own frame rate, and the bundle holds those files, not `video`. A count other than one per shot is refused. Default: every clip points into `video` over its shot's span, so the bundle holds one media file |
 | `shots` | Shot records; else the video's own from the run manifest, else the whole file is one clip |
 | `name` | The timeline's name |
 
 By default there is one video track and, when the file has a soundtrack, one
 audio track. Where the shots leave frames uncovered the track carries a gap, so
 clips and gaps add up to the video's length; shots that overlap are refused,
-since a track lays its clips end to end. The concept and schema come from
+since a track lays its clips end to end, and so is a shot that runs past the
+video's last frame. The concept and schema come from
 leonardofrito/Directors-Cut (MIT); see [ATTRIBUTIONS.md](ATTRIBUTIONS.md).
 
 ### dissolve_videos
@@ -962,6 +963,12 @@ repair sits on the take:
 | `head_frames` | No | Segment k-1's last frames, held at the render's frame 0: a whole-latent length, 17m + 5 from 22 (default `22`) |
 | `tail_frames` | No | Segment k+1's frames held as a guide ending at the render's last frame, a whole-latent length (default `39`, so the tail hold outnumbers the head) |
 | `width`, `height` | No | The render's canvas; when given, refused unless it is the segment files' own size |
+
+A `chain_take` alone whose segment files cannot be found is refused with the
+fix for its case: a take run without `keep_segments` (re-run the chain with
+`keep_segments` and `save_segments`), a take that is already a repair, which
+leaves no segment files (repair the original chain take), and a take copied
+away from its run, with no manifest beside it (pass `chain_output` as well).
 
 It returns a record for later steps (`previous_result:cut.<field>`):
 `head_guide` and `tail_guide` (clips with their audio, cut from the segment
@@ -2883,7 +2890,9 @@ A validate's `downloads_required` lists the repo for the `mode` given; `model_na
 
 Two tasks promote a MiniMax-H3 take in latent space; the workflow guide's
 [Promoting an H3 take](WORKFLOW_GUIDE.md#promoting-an-h3-take-to-768p-in-latent-space-upscale_h3_latents-and-decode_h3_latents)
-section has the full recipe.
+section has the full recipe. A third, `encode_h3_latents`, goes the other way
+for the experimental windowed refine of a long take
+([Refining a long take in time windows](WORKFLOW_GUIDE.md#experimental-refining-a-long-take-in-time-windows)).
 
 ### upscale_h3_latents
 
@@ -2906,11 +2915,35 @@ latents. `downloads_required` lists the upscaler file.
 
 Decode H3 latents to frames through diffusers' `MiniMaxH3VideoDecodeStep` (VAE
 in fp32), so the colours match the pipeline's own decode. Takes `latents` (a
-pipeline step's `latents` or an `upscale_h3_latents` result) and `model_name`
-(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder). Returns one video of the
+pipeline step's `latents` or an `upscale_h3_latents` result), `model_name`
+(default `MiniMaxAI/MiniMax-H3`, its `vae` subfolder) and `num_frames` (keep
+only the first that many frames: an `encode_h3_latents` step's `source_frames`,
+so a padded take comes back at its own length). Returns one video of the
 first batch item at 24 fps with no audio; `pair_audio` puts a soundtrack back.
+Latents too short to decode to any frame (one or two latent frames) are
+refused, and so is a `num_frames` above what the latents decode to.
 It declares no `required_weights`: the VAE is the one the H3 pipeline step
 already cached.
+
+### encode_h3_latents
+
+Experimental. Encode a finished take into one H3 video latent, one 17-frame VAE
+clip at a time, so a take too long to encode whole (a `source_video` refine
+encodes it as one float32 tensor) still reaches a refine. The result is
+bit-identical to the whole-take encode.
+
+| Argument | Required | Description |
+| -------- | -------- | ----------- |
+| `source` | Yes | The take: an `output:`/`asset:` video file, read a clip's range at a time, or an earlier step's video. 24 fps, both sides a multiple of 32 |
+| `model_name` | No | The MiniMax-H3 repo whose `vae` subfolder encodes (default `MiniMaxAI/MiniMax-H3`) |
+
+Returns `latents` (the refine's `latents` argument), `num_frames` (the take
+padded with its last frame up to the next 17m + 5, the refine's `num_frames`)
+and `source_frames` (the take's own count, for `decode_h3_latents`'
+`num_frames`). Refused: a take that is not 24 fps, a side off the 32 grid, an
+empty take, and one over 30 minutes. A file header that claims far more frames
+than its duration holds is refused; one that claims a few more (a
+variable-frame-rate take) is encoded at the duration's count, with a warning.
 
 ## Face Restoration
 
@@ -3784,6 +3817,8 @@ Canny edge detection followed by ControlNet generation:
 - [best-of-n-to-video.json](../workflows/templates/best-of-n-to-video.json) — `judge` and `select` pick the best of several stills
 - [relevel-clip.json](../workflows/templates/relevel-clip.json) — Fix a clipping soundtrack on a rendered clip without re-rendering
 - [generate-speech.json](../workflows/templates/generate-speech.json) — Speak a line with a local text-to-speech model
+- [split-takes.json](../workflows/templates/split-takes.json) — `split_takes` alone: see or edit a long text's takes before speaking them
+- [narration-long.json](../workflows/templates/narration-long.json) — Split a long text into takes, speak each in one cloned voice and join them
 - [voice-timbre-reference.json](../workflows/templates/minimax/voice-timbre-reference.json) — Generate a voice and condition H3's `<Audio 1>` on it
 - [dissolve-between-shots.json](../workflows/templates/dissolve-between-shots.json) — Dissolve between supplied shots and mix a score under their own audio
 - [face-repair.json](../workflows/templates/ltx2/face-repair.json) — Track, refine and paste back a wide shot's small face

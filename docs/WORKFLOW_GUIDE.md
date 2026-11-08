@@ -1006,7 +1006,14 @@ run that moves `num_inference_steps`, `width`/`height` or `num_frames` (per
 entry in a list, summed) is quoted scaled in proportion to them, so a figure
 measured at another size or step count is re-priced to the defaults before it
 is written (dialogue-short's 42 min at 1344x768 is 21.2 at its 960x544). An
-entry carrying `cost` has been run to completion on the device it names; one
+entry's `scales_with` names further drivers its figure is proportional to: a
+scalar variable, or a field of a list driver's entries summed over them
+(Music 3's `audio_duration`, summed over `music-long`'s sections). Its
+`fixed_minutes` is the share that does not scale (model load, encode, decode),
+held out of the scaling: a moved run is quoted `fixed_minutes + (minutes -
+fixed_minutes) x factor`, so a long chain is not charged its load once per
+segment (`minimax/chained-segments` declares 10). Absent, the whole figure
+scales. An entry carrying `cost` has been run to completion on the device it names; one
 without has only been authored, and its first run is the one that finds out
 what its description could not check.
 
@@ -1017,8 +1024,8 @@ reports the result as `observed` beside the curated `cost`, so a 345-frame run
 never informs a 124-frame figure, and a list driver buckets on its length.
 With no drivers, the figure falls back to runs that overrode nothing at all, so
 a measured workflow with no drivers mostly answers "unknown". A driver the
-estimate cannot scale along (anything but steps, width, height and frames,
-such as a weights dtype, a LoRA name or an audio duration) still splits the
+estimate cannot scale along (anything but steps, width, height, frames and
+the entry's `scales_with`, such as a weights dtype or a LoRA name) still splits the
 buckets, a text value by its exact value. When a run moves one off its
 default, the curated figure is kept but carries `low_confidence: true`, and
 `differs` names the drivers. Each name must be a variable the workflow
@@ -1234,8 +1241,10 @@ workflow, `result_index` counts the argument-combination iterations the step ran
 cartesian product, above), and `artifact_index` counts multiple artifacts within one result
 (`num_images_per_prompt > 1`, or a dict result saved key by key); a JSON result is one
 `{base_name}-{result_index}.json`. In a composed child the composing step's name leads
-`base_name`. `file_base_name` may not
-contain a path separator; `"file_base_name": "episode"` in a `final` subfolder writes
+`base_name`. `file_base_name` is one name of letters, digits, `_`, `.`, `@`
+and `-`, starting with a letter, digit or underscore, so an `output:` reference
+can name the file it writes; anything else, a path separator included, is
+refused at validation, naming the character; `"file_base_name": "episode"` in a `final` subfolder writes
 `final/episode-0.0.mp4`. The derived name is what makes two steps' files distinct, so when
 you replace it on more than one step in the same subfolder, give each a different name -
 otherwise the second one gets a `-2` counter.
@@ -2626,8 +2635,11 @@ joined into a single file:
   held track's slice is that segment's `hold_audio`, a reference's replaces the
   reference - and the final video is muxed with the **original, unsliced track** - so
   the soundtrack has no seams at all. Requires
-  `num_frames` (the per-segment length) and a frame rate. One of `segments`,
-  `match_audio` or `duration_seconds` must be given.
+  `num_frames` (the per-segment length) and a frame rate, and a track: a step with
+  neither `hold_audio` nor a `references` list is refused. One of
+  `segments`, `match_audio` or `duration_seconds` must be given, and `segments`
+  beside `match_audio` is refused (beside `duration_seconds` it is ignored). Validation asks both rules of the
+  substituted block, so a `variable:` value is caught before the model loads.
 - `duration_seconds` — instead of a count, ask for the chain by its length: the plan
   covers `round(duration_seconds * fps)` frames (the same planner `match_audio` uses,
   so the last segment shrinks to what remains, snapped by `frame_snap`), and the
