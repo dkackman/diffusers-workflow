@@ -113,6 +113,24 @@ class TestForwardFrameReader:
         finally:
             reader.close()
 
+    def test_a_read_after_close_restarts_from_the_top(self, tmp_path):
+        # close() releases the container; a later read must not reopen the
+        # file at frame 0 while still counting from the old position
+        from dw.media_readers import ForwardFrameReader
+
+        path = tmp_path / "clip.mp4"
+        write_shifted_ramp_mp4(path, offset=5)
+        reference = full_decode(path)
+        reader = ForwardFrameReader(str(path))
+        try:
+            assert numpy.array_equal(reader(0, 3), reference[0:3])
+            reader.close()
+            assert numpy.array_equal(reader(3, 5), reference[3:5])
+            # And the held range is the new one, not the one before the close
+            assert numpy.array_equal(reader(3, 4), reference[3:4])
+        finally:
+            reader.close()
+
     def test_a_stop_past_the_end_raises_short(self, tmp_path):
         from dw.media_readers import ForwardFrameReader
 
