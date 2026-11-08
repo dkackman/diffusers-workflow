@@ -6239,6 +6239,66 @@ class TestBoundAcknowledgement:
             assert response.json()["detail"]["reason"] == "fingerprint"
 
 
+def overridable_workflow(seeded=False):
+    workflow = valid_workflow("overridable")
+    workflow["variables"]["num_images_per_prompt"] = 1
+    workflow["steps"][0]["pipeline"]["arguments"]["num_images_per_prompt"] = (
+        "variable:num_images_per_prompt"
+    )
+    if seeded:
+        workflow["seed"] = "variable:seed"
+        workflow["variables"]["seed"] = 1
+    return workflow
+
+
+def test_rerun_overrides_merge_onto_the_stored_arguments(server, no_hub):
+    with server(success_script) as client:
+        first = client.post(
+            "/api/jobs",
+            json={
+                "workflow": overridable_workflow(),
+                "arguments": {"prompt": "a", "num_images_per_prompt": 1},
+            },
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"arguments": {"num_images_per_prompt": 2}},
+        )
+        assert response.status_code == 201, response.json()
+        body = response.json()
+        assert body["arguments"]["num_images_per_prompt"] == 2
+        assert body["arguments"]["prompt"] == "a"
+        assert body["overrides"] == {"num_images_per_prompt": 2}
+        assert "overrides" not in client.get(f"/api/jobs/{first['id']}").json()
+
+
+def test_rerun_override_of_an_undeclared_variable_is_refused(server, no_hub):
+    with server(success_script) as client:
+        first = client.post("/api/jobs", json={"workflow": valid_workflow()}).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun", json={"arguments": {"nope": 1}}
+        )
+        assert response.status_code == 400
+        assert "Unknown variable 'nope'" in response.json()["detail"]
+
+
+def test_rerun_override_of_the_seed_with_new_seed_is_refused(server, no_hub):
+    with server(success_script) as client:
+        first = client.post(
+            "/api/jobs", json={"workflow": overridable_workflow(seeded=True)}
+        ).json()
+        wait_for_status(client, first["id"], TERMINAL_STATES)
+        response = client.post(
+            f"/api/jobs/{first['id']}/rerun",
+            json={"new_seed": True, "arguments": {"seed": 7}},
+        )
+        assert response.status_code == 400
+        detail = response.json()["detail"]
+        assert "'seed'" in detail and "new_seed" in detail
+
+
 class TestBoundRerun:
     def test_a_rerun_with_the_original_plan_queues_even_with_a_new_seed(
         self, server, no_hub
@@ -6268,6 +6328,41 @@ class TestBoundRerun:
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_overrides_that_change_the_plan_refuse_the_original_acknowledgement(
+        self, server, no_hub
+    ):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            first = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            ).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_an_acknowledgement_of_the_merged_arguments_queues(self, server, no_hub):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            merged = plan_for(client, list_workflow(), changed)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(merged)},
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["acknowledged"] == "bound"
 
     def test_a_rerun_with_true_is_unchanged(self, server, no_hub):
         with server(success_script) as client:

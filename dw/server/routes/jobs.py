@@ -12,7 +12,7 @@ import json
 import logging
 import os
 from types import SimpleNamespace
-from typing import Optional, Union
+from typing import Any, Optional, Union
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Request
@@ -418,6 +418,14 @@ class RerunRequest(BaseModel):
         "the step cache serves from the earlier run - the same seed and "
         "inputs would produce the same files.",
     )
+    arguments: Optional[dict[str, Any]] = Field(
+        default=None,
+        description="Variable overrides merged over the original job's "
+        "arguments before admission (a draft promoted with "
+        '{"tier": "best"}). A variable the workflow does not declare is '
+        "refused; the seed variable cannot be overridden together with "
+        "`new_seed`.",
+    )
     acknowledged_cost: Optional[Union[bool, AcknowledgedCost]] = ACKNOWLEDGED_COST_FIELD
 
 
@@ -432,12 +440,15 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
     a new submission would be - a reference that resolved when the
     original ran may not any more. Takes `acknowledged_cost` as POST
     /api/jobs does; a bound one is checked against the stored spec's
-    plan - the fresh seed of `new_seed` does not change a fingerprint."""
+    plan of the merged arguments - a fresh seed of `new_seed` never changes
+    a fingerprint, an override of `arguments` may."""
     state = request.app.state
     manager = request.app.state.job_manager
     form = acknowledgement_form(body.acknowledged_cost)
     try:
-        prepared = manager.rerun_spec(job_id, new_seed=body.new_seed)
+        prepared = manager.rerun_spec(
+            job_id, new_seed=body.new_seed, overrides=body.arguments
+        )
         if prepared is None:
             raise HTTPException(status_code=404, detail="Unknown job")
         spec, arguments = prepared
@@ -488,6 +499,7 @@ def rerun_job(request: Request, job_id: str, body: RerunRequest = RerunRequest()
             warnings=admission.warnings,
             # The arguments admitted - the fresh seed already drawn
             arguments=arguments,
+            overrides=body.arguments,
             admitted=admission.workflow,
             vram_need=admission.vram_need,
             host_ram_need=admission.host_ram_need,
