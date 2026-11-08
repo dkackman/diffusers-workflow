@@ -373,7 +373,7 @@ def cancel_job(client, job_id):
     return client.post_json(api_path("api", "jobs", job_id, "cancel"))
 
 
-def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False):
+def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False, arguments=None):
     """Queue a fresh job from a previous job's stored spec. This costs the
     same GPU time as `run_workflow` and passes through the same gate - a
     rerun is a run, and the gate would be worth nothing if a job id bought
@@ -387,12 +387,20 @@ def rerun_job(client, job_id, acknowledged_cost=False, new_seed=False):
 
     `acknowledged_cost` takes the same bound form as `run_workflow`; a
     fresh seed never changes a fingerprint, so the original plan still
-    binds a new-seed rerun."""
+    binds a new-seed rerun.
+
+    `arguments` overrides variables for the rerun (a draft promoted with
+    `{"tier": "best"}`); an override may change the plan, so a bound
+    acknowledgement must name the plan of the merged arguments."""
     if not acknowledged_cost:
         raise DwApiError(COST_REFUSAL)
     return client.post_json(
         api_path("api", "jobs", job_id, "rerun"),
-        {"new_seed": new_seed, **_acknowledgement_body(acknowledged_cost)},
+        {
+            "new_seed": new_seed,
+            **({"arguments": arguments} if arguments else {}),
+            **_acknowledgement_body(acknowledged_cost),
+        },
     )
 
 

@@ -332,6 +332,11 @@ class Job:
         return {
             **self.summary(),
             "arguments": self.spec.get("arguments", {}),
+            **(
+                {"overrides": self.spec["overrides"]}
+                if self.spec.get("overrides")
+                else {}
+            ),
             "warnings": self.warnings,
             "manifest": self.manifest,
             "error": self.error,

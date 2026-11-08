@@ -454,7 +454,7 @@ class TestOomRanking:
         manager, _ = self._pair(pool)
         values = {101: 1000, 102: 0}
         monkeypatch.setattr(
-            "dw.server.jobs.read_oom_score_adj", lambda pid: values.get(pid)
+            "dw.server.worker_memory.read_oom_score_adj", lambda pid: values.get(pid)
         )
 
         workers = manager.workers()

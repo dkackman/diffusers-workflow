@@ -45,8 +45,6 @@ from contextlib import contextmanager
 
 from ..events import NON_INTERRUPTIBLE_PHASES
 from ..worker_protocol import Execute, workflow_identity
-from ..devices import device_ordinal
-from ..host_memory import process_rss_mb, read_oom_score_adj
 from ..worker_manager import WorkerManager
 from ..workflow_run import SEED_BITS
 from ..security import (
@@ -256,6 +254,7 @@ class JobManager(Dispatcher):
         preferred_device=None,
         note=None,
         rerun_of=None,
+        overrides=None,
     ):
         """Record a job request and queue it.
 
@@ -303,7 +302,8 @@ class JobManager(Dispatcher):
         `note` is the run's note, already cleaned (`admitted_note`): kept on
         the job and written into the run directory when the run opens.
 
-        `rerun_of` is the job this one reruns, recorded so the list can say so.
+        `rerun_of` is the job this one reruns, recorded so the list can say so;
+        `overrides` the variables the rerun changed, recorded beside it.
 
         `workflow_path`, `workflow` and `base_dir` are the request as the
         caller made it, kept for a rerun (which admits afresh) and for
@@ -355,6 +355,8 @@ class JobManager(Dispatcher):
             spec["note"] = note
         if rerun_of:
             spec["rerun_of"] = rerun_of
+        if overrides:
+            spec["overrides"] = overrides
 
         job = Job(spec)
         job.host_ram_need = host_ram_need
@@ -494,14 +496,15 @@ class JobManager(Dispatcher):
             return None
         return name if name in (definition.get("variables") or {}) else None
 
-    def rerun_spec(self, job_id, new_seed=False):
+    def rerun_spec(self, job_id, new_seed=False, overrides=None):
         """The spec and arguments a rerun of `job_id` would submit, as
         (spec, arguments), or None for an unknown job - split from rerun()
         so a route can admit the run before queuing it (#85).
 
         `new_seed` draws a fresh seed into the workflow's seed variable
-        (see rerun). Raises ValueError when it cannot, and when the named
-        workspace the job ran in is gone."""
+        (see rerun). `overrides` are variables merged over the stored
+        arguments first. Raises ValueError when it cannot, and when the
+        named workspace the job ran in is gone."""
         job = self.jobs.get(job_id)
         if job is not None:
             spec = {key: job.spec[key] for key in RERUN_SPEC_KEYS if key in job.spec}
@@ -517,8 +520,14 @@ class JobManager(Dispatcher):
             }
             arguments = historical["arguments"]
 
+        arguments = {**arguments, **(overrides or {})}
         if new_seed:
             variable = self.seed_variable(job_id)
+            if variable in (overrides or {}):
+                raise ValueError(
+                    f"'new_seed' and an override of the seed variable "
+                    f"'{variable}' cannot both be given"
+                )
             if variable is None:
                 raise ValueError(
                     "This workflow does not draw its seed from a variable, so "
@@ -551,6 +560,7 @@ class JobManager(Dispatcher):
         arguments=None,
         vram_need=None,
         host_ram_need=None,
+        overrides=None,
     ):
         """Queue a fresh job from a previous job's spec.
 
@@ -581,7 +591,9 @@ class JobManager(Dispatcher):
         there, which is what makes a same-seed rerun finish at once. When
         that card is busy, the rerun takes any free card it fits.
         """
-        prepared = self.rerun_spec(job_id, new_seed=new_seed and arguments is None)
+        prepared = self.rerun_spec(
+            job_id, new_seed=new_seed and arguments is None, overrides=overrides
+        )
         if prepared is None:
             return None
         spec, recorded = prepared
@@ -608,6 +620,7 @@ class JobManager(Dispatcher):
             preferred_device=self._original_device(job_id),
             note=spec.get("note"),
             rerun_of=job_id,
+            overrides=overrides,
         )
 
     def _original_device(self, job_id):
@@ -1042,28 +1055,7 @@ class JobManager(Dispatcher):
         job it is running, whether its worker process is alive, and that
         process's resident host memory - the pool shares one machine's RAM.
         """
-        with self._lock:
-            running = [(slot, slot.current_job_id) for slot in self.slots]
-        described = []
-        for slot, job_id in running:
-            pid = slot.manager.pid() if hasattr(slot.manager, "pid") else None
-            entry = {
-                "device": device_ordinal(slot.device),
-                "name": slot.device_fields()[1],
-                "vram_gb": slot.capacity_gb(),
-                "current_job": job_id,
-                "alive": slot.alive(),
-            }
-            rss = process_rss_mb(pid) if pid is not None else None
-            if rss is not None:
-                entry["host_memory_rss_mb"] = rss
-            if pid is not None and slot.alive():
-                entry["pid"] = pid
-                adj = read_oom_score_adj(pid)
-                if adj is not None:
-                    entry["oom_score_adj"] = adj
-            described.append(entry)
-        return described
+        return worker_memory.describe_workers(self.slots, self._lock)
 
     # ---------------------------------------------------------------- memory
 

@@ -413,6 +413,9 @@ class JobSummary(ApiModel):
     rerun_of: str = sometimes(
         "The job this one reran; absent for a job submitted fresh."
     )
+    overrides: dict = sometimes(
+        "The variables a rerun changed from the job it reran; absent when none were."
+    )
 
 
 class StepTiming(ApiModel):
