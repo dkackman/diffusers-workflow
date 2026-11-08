@@ -617,12 +617,15 @@ def match_levels(
     Returns a new list in the same order and shape; a None entry (a video
     with no soundtrack) and a silent track pass through untouched, since
     neither has a level to move. A gain that would push the peak past
-    the ceiling (-3 dBFS for rms, leaving room for the mux's AAC overshoot; -0.5 for peak) is held there and said so in the log - the shot is
+    the ceiling (-3 dBFS for rms, leaving room for the mux's AAC overshoot;
+    -0.5 for peak) is held there and said so in the log - the shot is
     then quieter than the target rather than clipped. `names` labels each
     waveform in a warning; without them an input is "video N", counted from 1.
 
     "lufs" matches integrated loudness (BS.1770) to `target_lufs` and holds a
-    gain at a -1 dBTP true peak; it needs `sample_rate`. A shot too short to
+    gain at a -1 dBTP true peak; it needs `sample_rate`. Its warnings and log
+    events carry `unit` ("LUFS" for levels, whose payload fields still read
+    `*_dbfs`). A shot too short to
     measure (under 0.4 s) is matched by rms instead and said so.
     """
     base_target = _match_target(measure, target_dbfs, target_lufs, sample_rate, command)
@@ -631,6 +634,9 @@ def match_levels(
         label = names[index] if names else f"video {index + 1}"
         if label == f"video {index + 1}":
             label += " (counting from 1, in join order)"
+        if waveform is None:
+            matched.append(waveform)
+            continue
         shot_measure, target_dbfs = measure, base_target
         if measure == "lufs":
             shot_measure, target_dbfs = _lufs_or_rms(
@@ -641,13 +647,14 @@ def match_levels(
             ceiling_dbfs = LUFS_TRUE_PEAK_CEILING_DBTP
             peak = true_peak_dbfs(waveform.T)
             unit = "LUFS"
+            ceiling_unit = "dBTP"
         else:
             level = level_dbfs(waveform, shot_measure)
             ceiling_dbfs = (
                 MATCH_RMS_CEILING_DBFS if shot_measure == "rms" else MATCH_CEILING_DBFS
             )
             peak = level_dbfs(waveform, "peak")
-            unit = "dBFS"
+            unit = ceiling_unit = "dBFS"
         if level is None:
             matched.append(waveform)
             continue
@@ -664,8 +671,9 @@ def match_levels(
             # the job's warnings list is the one who can act on it (#82)
             emit_warning(
                 f"{command}: {label} would clip at the {shot_measure} target "
-                f"({peak + target_gain_db:+.1f} dBFS peak) - held to "
-                f"{ceiling_dbfs} dBFS, {shortfall_db:.1f} dB short of target",
+                f"({peak + target_gain_db:+.1f} {ceiling_unit} peak) - held to "
+                f"{ceiling_dbfs} {ceiling_unit}, {shortfall_db:.1f} dB short of "
+                "target",
                 kind="match_levels_held",
                 command=command,
                 index=index,
@@ -674,6 +682,7 @@ def match_levels(
                 gain_db=round(gain_db, 1),
                 shortfall_db=round(shortfall_db, 1),
                 ceiling_dbfs=ceiling_dbfs,
+                unit=unit,
             )
         elif level <= MATCH_NEAR_SILENT_DBFS or gain_db >= MATCH_LARGE_GAIN_WARN_DB:
             # The other end of the range `held` covers (#434): an input this
@@ -690,6 +699,7 @@ def match_levels(
                 measure_dbfs=round(level, 1),
                 target_dbfs=target_dbfs,
                 gain_db=round(gain_db, 1),
+                unit=unit,
             )
         emit_log(
             f"{command}: {label} {shot_measure} {level:.1f} {unit}, "
@@ -698,6 +708,7 @@ def match_levels(
             measure_dbfs=round(level, 1),
             gain_db=round(gain_db, 1),
             held=held,
+            unit=unit,
         )
         matched.append((waveform * (10 ** (gain_db / 20.0))).astype(numpy.float32))
     return matched

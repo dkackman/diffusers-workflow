@@ -103,3 +103,46 @@ def test_concat_matches_the_joined_inputs_to_the_lufs_target():
     )
 
     assert lufs_of(numpy.asarray(result.audio)) == pytest.approx(-23.0, abs=0.7)
+
+
+def test_a_silent_video_entry_passes_through_a_lufs_match():
+    loud = noise(2, 0.5)
+
+    matched = match_levels([None, loud], "lufs", sample_rate=RATE)
+
+    assert matched[0] is None
+    assert lufs_of(matched[1]) == pytest.approx(-16.0, abs=0.5)
+
+
+def test_concat_joins_a_video_with_no_soundtrack_under_lufs():
+    silent = AudioVideo([Image.new("RGB", (8, 8))] * 4, None, None, fps=30)
+    voiced = AudioVideo([Image.new("RGB", (8, 8))] * 4, noise(2, 0.3), RATE, fps=30)
+
+    result = concat_videos([silent, voiced], match_levels="lufs", fps=30)
+
+    assert len(result.frames) == 8
+
+
+def test_the_lufs_held_warning_names_lufs_and_dbtp_not_dbfs():
+    spiky = noise(2, 0.01)
+    spiky[:, 8000] = 0.8
+
+    _, warnings = run_with_events(
+        lambda: match_levels([spiky, noise(2, 0.3)], "lufs", sample_rate=RATE)
+    )
+
+    held = [w for w in warnings if w["kind"] == "match_levels_held"][0]
+    assert "dBTP" in held["message"]
+    assert "dBFS" not in held["message"]
+    assert held["unit"] == "LUFS"
+
+
+def test_the_rms_held_warning_keeps_its_dbfs_wording():
+    spiky = noise(2, 0.01)
+    spiky[:, 8000] = 0.95
+
+    _, warnings = run_with_events(lambda: match_levels([spiky, noise(2, 0.3)], "rms"))
+
+    held = [w for w in warnings if w["kind"] == "match_levels_held"][0]
+    assert "dBFS peak" in held["message"]
+    assert held["unit"] == "dBFS"

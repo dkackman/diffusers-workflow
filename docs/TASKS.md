@@ -715,7 +715,8 @@ to `join_into_song`).
   than 3 dB is an `inner_level_step` warning. Left off, a spread of 6 dB or more
   is a job warning, unless a later step such as `pair_audio` replaces the track.
   A shot at or below -40 dBFS, or one needing 20 dB or more of gain, is reported
-  as `match_levels_near_silent`.
+  as `match_levels_near_silent`. Under `"lufs"` the `inner_level_step` check
+  still measures rms.
 - **Sample rate.** Inputs at different rates are resampled up to the highest,
   with a warning, unless `sample_rate` pins the target.
 - **Joined track.** The soundtrack is fitted to the joined frames. A track short

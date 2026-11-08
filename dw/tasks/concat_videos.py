@@ -99,7 +99,9 @@ def concat_videos(
             get_gallery_metadata reports as mean_dbfs), "peak" matches the
             loudest sample, "lufs" matches BS.1770 integrated loudness (the
             unit editors deliver in; a shot under 0.4 s is matched by rms
-            and warned as match_levels_short_shot). Off by default. Shots generated independently
+            and warned as match_levels_short_shot; the inner_level_step
+            check on inputs that are themselves joins measures rms under
+            "lufs"). Off by default. Shots generated independently
             land 10 dB apart routinely, and that jump is the one seam
             artifact none of the fade controls can hide, because it is not
             at the seam but either side of it. Left off, a spread wide
