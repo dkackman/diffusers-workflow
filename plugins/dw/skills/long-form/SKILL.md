@@ -121,7 +121,10 @@ replaces `steps` whole.
 - `audio_dbfs` re-rolls a segment (segment 1 too) whose generated audio reads
   under `audio_dbfs_min`, -70 dBFS by default: dropout segments read -88, the
   quietest real one -57. Held audio is not measured. Set
-  `"audio_dbfs_min": null` for a step that asks for silence.
+  `"audio_dbfs_min": null` for a step that asks for silence. The re-roll is
+  not guaranteed to bring sound back (on the measured repro both seeds read
+  about -89), so don't spend `retries` expecting a fix: the
+  `chain_segment_silent` warning reports the segment either way.
 - `texture_ratio` is warn-only: the drift is in the carry, so a re-roll
   inherits it (`bench/records/check.md`; ruling R38).
 - A segment whose prompt asks for a cut inside it needs

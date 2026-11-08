@@ -2763,7 +2763,10 @@ A segment whose prompt asks for a cut inside it fails `cut_ratio` and re-rolls, 
 `check: {"cut_ratio_max": null}` to turn that measure off. A step that asks for silence
 fails `audio_dbfs` the same way: set `"audio_dbfs_min": null`. The floor sits between the
 -87.8 to -89.2 dBFS that dropout (silent) segments measured and the -57 dBFS of the
-quietest real one. Unlike `texture_ratio`, a failed `audio_dbfs` re-rolls.
+quietest real one. Unlike `texture_ratio`, a failed `audio_dbfs` re-rolls. The re-roll
+draws fresh noise but is not guaranteed to bring sound back: on the one repro measured
+(LTX-2.5 on mps), both seeds read about -89 dBFS and the re-roll cost about 3 minutes.
+The `chain_segment_silent` warning reports the segment either way.
 
 `"check": true` uses those ceilings; `"check": {"jump_ratio_max": 20}` overrides the ones
 it names. `face` is reserved and must be `null`. The jump and look ceilings are twice the
