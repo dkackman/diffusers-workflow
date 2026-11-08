@@ -1347,6 +1347,21 @@
                 "task": {
                     "description": "The name of a task that transformers.Pipeline understands",
                     "type": "string"
+                },
+                "torch_dtype": {
+                    "description": "The dtype to load the weights as, e.g. torch.bfloat16 - or diffusers' per-component form, an object from component name to dtype, e.g. {\"default\": \"torch.bfloat16\", \"vocoder\": \"torch.float32\"}. 'default' applies to every component the object does not name; without it those load as torch.float32. Each value must name a dtype: a {}-escaped value is refused.",
+                    "oneOf": [
+                        {
+                            "type": "string"
+                        },
+                        {
+                            "type": "object",
+                            "additionalProperties": {
+                                "type": "string"
+                            },
+                            "minProperties": 1
+                        }
+                    ]
                 }
             },
             "additionalProperties": {

@@ -255,6 +255,26 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 
 **Example:** [flux-dev-compile.json](../workflows/models/flux-dev-compile.json), [flux-torchao.json](../workflows/models/flux-torchao.json)
 
+## Per-Component Dtype
+
+A pipeline's `from_pretrained_arguments.torch_dtype` can be diffusers' per-component dict instead of one dtype. This keeps one sensitive component at higher precision while the rest of the pipeline stays narrow:
+
+```json
+"from_pretrained_arguments": {
+    "model_name": "Lightricks/LTX-2",
+    "torch_dtype": { "default": "torch.bfloat16", "vocoder": "torch.float32" }
+}
+```
+
+- **Keys** are the pipeline's component names, passed through to diffusers as written. The engine knows no model's components.
+- **`default`** covers every component the dict doesn't name. Without it, those components load as `torch.float32`, and `validate_workflow` warns.
+- **Values** must each name a dtype. A `{}`-escaped value or an unknown name is refused, and the error names the component.
+- **Readers:**
+  - The MPS float16 warning names each float16 component.
+  - The quantized cache keys each component on its own dtype.
+  - The warm-pipeline cache keys each dict separately from the single-dtype form.
+- **Scope:** a component declared in its own `components` entry still takes its own single `torch_dtype`.
+
 ## Layerwise Casting
 
 Store a component's weights in a narrow dtype and upcast only for compute:
