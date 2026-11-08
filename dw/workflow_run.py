@@ -995,9 +995,11 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
     mark("load_started")
     if (
         cached_result is None
-        and "task" in step_data
+        and ("task" in step_data or "workflow" in step_data)
         and step_data.get("release_models", False)
     ):
+        # A composed child (the flux3 templates' upsample step) carries the
+        # flag on the parent step, so a `workflow` step counts as a task here
         evict_idle_for_task(
             loop.pipelines,
             set(workflow.pipeline_ownership.keys_by_step.values()),

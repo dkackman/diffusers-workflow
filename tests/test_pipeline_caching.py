@@ -1057,3 +1057,45 @@ def test_release_models_task_evicts_idle_warm_pipelines():
     pipelines = {"old-job-klein": object(), "claimed": object()}
     evict_idle_for_task(pipelines, {"claimed"}, "upsample")
     assert list(pipelines) == ["claimed"]
+
+
+@pytest.mark.parametrize("kind", ["task", "workflow"])
+def test_release_models_step_frees_a_previous_jobs_pipeline_through_run(kind, tmp_path):
+    """#1265: through Workflow.run, a release_models step of either kind - a
+    task, or a composed child like the flux3 templates' upsample step - frees
+    a pipeline a warm worker kept from an earlier job before it loads."""
+    import json
+
+    child = tmp_path / "child.json"
+    child.write_text(
+        json.dumps(
+            {
+                "id": "child",
+                "steps": [
+                    {
+                        "name": "t",
+                        "task": {
+                            "command": "text_generation",
+                            "arguments": {"prompt": "hi"},
+                        },
+                    }
+                ],
+            }
+        )
+    )
+    step = {"name": "upsample", "release_models": True}
+    if kind == "task":
+        step["task"] = {"command": "text_generation", "arguments": {"prompt": "hi"}}
+    else:
+        step["workflow"] = {"path": str(child)}
+    workflow = Workflow({"id": "t1265", "steps": [step]}, str(tmp_path), "test.json")
+    pipelines = {"previous-job-klein": MagicMock()}
+    with patch.object(
+        Step, "run", lambda self, *args, **kwargs: MagicMock(result_list=[])
+    ):
+        with patch("dw.pipeline_ownership.empty_device_cache"):
+            try:
+                workflow.run({}, previous_pipelines=pipelines)
+            except Exception:
+                pass
+    assert "previous-job-klein" not in pipelines
