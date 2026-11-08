@@ -138,6 +138,7 @@ UTILITIES = {
     "workflows/templates/attribute-lines.json",
     "workflows/templates/audio-trim-fade.json",
     "workflows/templates/check-script.json",
+    "workflows/templates/check-narration.json",
     "workflows/templates/split-takes.json",
     "workflows/templates/face-drift-check.json",
     "workflows/templates/image-processors.json",
@@ -592,7 +593,10 @@ def test_no_stale_entry_in_the_allowlist():
 # sound under the clip's own frames), with its cost block.
 # Then to 13_950 (measured 13_910) for the `reference_audio`/`reference_text`
 # non-empty rules on `narration-long` and `narration-from-takes` (#1209).
-COMPACT_BUDGET = 13_950
+# Then to 14_100 (measured 14_027) for `check-narration`: one new entry, the
+# catalog's only narration-against-script check, with no cost block (a
+# transcription only).
+COMPACT_BUDGET = 14_100
 FILTERED_BUDGET = 1_500
 
 

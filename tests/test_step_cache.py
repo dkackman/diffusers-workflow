@@ -686,6 +686,7 @@ TEMPLATE_PIPELINE_KEYS = {
     "narration-from-takes.json": {},
     "narration-long.json": {},
     "split-takes.json": {},
+    "check-narration.json": {},
     "image-edit.json": {
         "edit": "241e4cc77f00d837873d01e3ea9ec7105513af8362908d8229c740cbca997737"
     },
