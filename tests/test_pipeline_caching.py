@@ -1047,3 +1047,13 @@ def test_a_pipeline_step_missing_from_the_runs_key_table_is_an_error(tmp_path):
 
     with pytest.raises(RuntimeError, match="'gen' is not in this run's pipeline"):
         workflow.create_step_action(_model_step("gen", "m"), {}, {}, 1, "cpu")
+
+
+def test_release_models_task_evicts_idle_warm_pipelines():
+    """#1265: a warm worker's pipeline from an earlier job is freed before a
+    release_models task loads; one this run already claimed stays."""
+    from dw.pipeline_ownership import evict_idle_for_task
+
+    pipelines = {"old-job-klein": object(), "claimed": object()}
+    evict_idle_for_task(pipelines, {"claimed"}, "upsample")
+    assert list(pipelines) == ["claimed"]
