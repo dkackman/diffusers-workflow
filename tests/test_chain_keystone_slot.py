@@ -199,6 +199,7 @@ def test_first_is_todays_keystone(flag_on):
     today = FakePipeline(shape.output)
     run_chain(today, chain(), shape.arguments(image=solid_frame((1, 2, 3))))
     first = render("first")
+    assert len(first) == len(today.calls)
     for got, want in zip(first, today.calls):
         assert got["image"].getpixel((0, 0)) == want["image"].getpixel((0, 0))
         assert "last_image" not in got

@@ -5,6 +5,7 @@ import json
 from pathlib import Path
 
 
+from dw.pipeline_processors.h3_rules import REFINE_WINDOWS_ENV_VAR
 from dw.workflow import Workflow
 
 ROOT = Path(__file__).resolve().parent
@@ -27,7 +28,7 @@ SHOTS = ("static", "static_long", "moving", "dialogue")
 
 def test_template_validates_for_every_shot(monkeypatch):
     # on a normal server: no shot needs the windowed refine's scratch flag
-    monkeypatch.delenv("DW_EXPERIMENTAL_REFINE_WINDOWS", raising=False)
+    monkeypatch.delenv(REFINE_WINDOWS_ENV_VAR, raising=False)
     for shot in SHOTS:
         assert _workflow().validation_errors({"shot": shot}) == []
     assert _workflow().validation_errors({}) == []

@@ -104,6 +104,13 @@ def test_texture_drift_from_segment_1_fails_both_ways():
     assert crusted.measures["texture_ratio"] is None
     assert "texture_ratio" not in crusted.failed
 
+    # And the sharper way: a faintly textured segment 1, a crusty later one
+    rng = numpy.random.default_rng(2)
+    faint = frames_of((118 + rng.random((32, 32, 3)) * 20).astype(numpy.uint8))
+    sharpened = check_segment(faint, textured, faint, check)
+    assert sharpened.failed == ["texture_ratio"]
+    assert sharpened.measures["texture_ratio"] > TEXTURE_RATIO_MAX
+
 
 def test_segment_1_texture_measured_once_reads_as_its_frames_do():
     textured = frames_of(noise(1))

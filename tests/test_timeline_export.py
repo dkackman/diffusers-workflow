@@ -185,15 +185,24 @@ def test_the_bundle_path_is_confined_by_the_result_writer(tmp_path, facts):
 
 
 def test_save_does_not_derive_its_own_confinement(tmp_path, facts, monkeypatch):
-    calls = []
-    monkeypatch.setattr(
-        te,
-        "validate_output_path",
-        lambda path, base: calls.append(base) or path,
-        raising=False,
-    )
+    # The confining validators themselves, where any spelling of a call
+    # (a module import, a function-local one) reaches them - a patch of a
+    # name timeline_export does not hold would see nothing
+    from dw import security
+
     video = a_file(tmp_path, "joined.mp4", facts, 24)
-    te.export_timeline(video).save(str(tmp_path / "out.otioz"))
+    bundle = te.export_timeline(video)
+    calls = []
+    for name in ("validate_output_path", "validate_path"):
+        original = getattr(security, name)
+        monkeypatch.setattr(
+            security,
+            name,
+            lambda *a, _name=name, _original=original, **k: (
+                calls.append(_name) or _original(*a, **k)
+            ),
+        )
+    bundle.save(str(tmp_path / "out.otioz"))
     assert calls == []
 
 

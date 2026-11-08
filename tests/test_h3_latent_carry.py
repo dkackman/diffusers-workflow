@@ -204,9 +204,12 @@ def test_an_incompatible_combination_is_refused_at_validate_time(
 ):
     chain = {CHAIN_LATENT_CARRY: True, **chain}
     errors = anchor_errors(h3_workflow(chain, arguments))
-    paths = [error["path"] for error in errors]
-    assert f"steps[0].pipeline.chain.{CHAIN_LATENT_CARRY}" in paths
-    assert any(match in error["message"] for error in errors)
+    own = [
+        error["message"]
+        for error in errors
+        if error["path"] == f"steps[0].pipeline.chain.{CHAIN_LATENT_CARRY}"
+    ]
+    assert own and any(match in message for message in own), errors
 
 
 def test_a_zero_guide_noise_is_not_a_conflict(flag_on):

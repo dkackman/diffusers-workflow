@@ -74,12 +74,8 @@ class TestGeometry:
     ):
         shortest = head + frames[segment - 1] + tail
         num_frames = shortest + (5 - shortest) % 17
-        try:
-            geometry = repair_geometry(frames, segment, num_frames, head, tail)
-        except ValueError as error:
-            # Only a neighbour too short for the tail guide may refuse
-            assert "tail guide would be" in str(error)
-            return
+        # Every case here fits: a refusal is a regression, not a skip
+        geometry = repair_geometry(frames, segment, num_frames, head, tail)
         assert splice_length(frames, segment, geometry) == sum(frames)
         assert geometry["total_frames"] == sum(frames)
         assert geometry["tail_frame"] % 17 == 0

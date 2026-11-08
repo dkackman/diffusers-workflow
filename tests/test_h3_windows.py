@@ -423,6 +423,13 @@ def test_an_unheld_audio_row_or_a_conditioning_video_row_is_refused():
         DwH3WindowedLoopDenoiser()(
             SimpleNamespace(transformer=StubTransformer()), state, 0, 0
         )
+    # Every audio row held, but a guide or keyframe condition video row
+    state, scheduler = block_state({"frames": 7, "overlap": 2})
+    state.num_condition_video_rows = 1
+    with pytest.raises(ValueError, match="held"):
+        DwH3WindowedLoopDenoiser()(
+            SimpleNamespace(transformer=StubTransformer()), state, 0, 0
+        )
 
 
 # 4. The graph change
@@ -834,11 +841,18 @@ def test_end_to_end_one_window_is_the_plain_refine_of_a_source_video(
 
 
 def test_the_flag_has_one_owner():
-    assert h3_windows.ENABLE_ENV_VAR is h3_rules.REFINE_WINDOWS_ENV_VAR
+    # By source: equal string literals are interned, so `is` would pass for
+    # a second copy of the name too
+    assert h3_windows.ENABLE_ENV_VAR == h3_rules.REFINE_WINDOWS_ENV_VAR
     from dw.pipeline_processors import components
 
-    source = Path(components.__file__).read_text()
-    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in source
+    assert h3_rules.REFINE_WINDOWS_ENV_VAR not in Path(components.__file__).read_text()
+    # h3_windows names the flag in its docs; a second definition would need
+    # the name as a string literal
+    source = Path(h3_windows.__file__).read_text()
+    for quote in ('"', "'"):
+        literal = f"{quote}{h3_rules.REFINE_WINDOWS_ENV_VAR}{quote}"
+        assert literal not in source
 
 
 @pytest.mark.parametrize("value, on", [(None, False), ("1", True), ("0", False)])
