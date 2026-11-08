@@ -91,8 +91,8 @@ audio_duration}`. Each section is trimmed, faded and crossfaded into the next
 
 - **`templates/assemble-and-score`** cuts the shots and lays one score under
   them. It mixes each shot's own sound beneath the score, and `match_levels`
-  evens the shots out before the join. `series-episodes` has the full
-  procedure.
+  evens the shots out before the join. To deliver at -16 LUFS, pass
+  `match_levels: lufs`. `series-episodes` has the full procedure.
 - **Room tone.** `find_loop_bed` picks the window of a recording worth
   looping, measured as it will sound looped. `loop_audio` then lays it under
   dialogue gaps.

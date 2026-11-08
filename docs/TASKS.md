@@ -628,7 +628,8 @@ workflow guide).
 | `audio_bleed_gain_db` | No | Gain applied to the bled tail before it is added, in dB - negative ducks a tail that would otherwise push the seam over 0 dBFS (default: 0, unchanged) |
 | `seam_fade_ms` | No | Fade on each side of a seam that gets neither a crossfade nor a bleed - for tonal material, not for a continuous bed (default: 3, just enough not to click) |
 | `fps` | No | Frame rate of the videos - required to join audio when trimming, and the rate the joined file is written at unless `result.fps` overrides it. An input carrying a different rate is re-timed, with an `fps_overrides_input` warning |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample. Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` for perceived level (the measurement `get_gallery_metadata` reports as `mean_dbfs`), `"peak"` for the loudest sample, `"lufs"` for BS.1770 integrated loudness (the unit editors deliver in; held at -1 dBTP true peak, and a shot under 0.4 s is matched by rms with a `match_levels_short_shot` warning). Off by default |
+| `match_levels_lufs` | No | The loudness `"lufs"` moves every shot to (default -16 LUFS; -23 is EBU R128 broadcast). A shot whose true peak would pass -1 dBTP is held there and reported as `match_levels_held`. `match_levels_dbfs` is refused with `"lufs"` |
 | `match_levels_dbfs` | No | The level `match_levels` moves every shot to (default: -1 dBFS for `peak`, -20 dBFS for `rms`). A shot that would clip at the target is held at -3 dBFS peak instead for `rms` (room for the AAC mux; -0.5 for `peak`), reported as a `match_levels_held` warning with a per-shot log event |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning (#108) |
 | `continuous_joins` | No | `true` when the joins continue one take rather than cut between shots, for example pieces of one chain take joined back up. Each seam is recorded without `hard_cut`, so `analyze_seams` measures its frame jump as it measures a chain's own seams, and the audio keeps the default few-ms declick (`seam_fade_ms: 0` butt-joins it). Refused beside `seam_fade_ms` above 0 or `audio_bleed_ms` (default: `false`, every seam a cut) |
@@ -798,8 +799,9 @@ The [join input rules](#join-input-rules) apply.
 | `fade_out_frames` | No | Frames over which the last video sinks into it (default: 0) |
 | `fade_color` | No | The RGB colour the fades come from and go to (default: black) |
 | `fps` | No | Frame rate of the videos - required to crossfade audio at a dissolve, and the rate the dissolved file is written at unless `result.fps` overrides it |
-| `match_levels` | No | Even the shots' loudness out before joining - `"rms"` or `"peak"`, as with [`concat_videos`](#concat_videos). Off by default |
+| `match_levels` | No | Even the shots' loudness out before joining - `"rms"`, `"peak"` or `"lufs"`, as with [`concat_videos`](#concat_videos). Off by default |
 | `match_levels_dbfs` | No | As with `concat_videos` |
+| `match_levels_lufs` | No | As with `concat_videos` |
 | `sample_rate` | No | The joined soundtrack's rate. Default: the highest among the inputs, the rest resampled up with a warning |
 
 Every seam shortens the result by one overlap, so eight 124-frame shots joined
