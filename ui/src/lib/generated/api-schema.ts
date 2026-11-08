@@ -930,7 +930,8 @@ export interface paths {
          *     a new submission would be - a reference that resolved when the
          *     original ran may not any more. Takes `acknowledged_cost` as POST
          *     /api/jobs does; a bound one is checked against the stored spec's
-         *     plan - the fresh seed of `new_seed` does not change a fingerprint.
+         *     plan of the merged arguments - a fresh seed of `new_seed` never changes
+         *     a fingerprint, an override of `arguments` may.
          */
         post: operations["rerun_job_api_jobs__job_id__rerun_post"];
         delete?: never;
@@ -2610,6 +2611,13 @@ export interface components {
             output_kinds?: {
                 [key: string]: ("image" | "video" | "audio" | "text") | null;
             };
+            /**
+             * Overrides
+             * @description The variables a rerun changed from the job it reran; absent when none were.
+             */
+            overrides?: {
+                [key: string]: unknown;
+            };
             /** @description Where a running (or failed) job had got to; live jobs only. */
             progress?: components["schemas"]["JobProgress"] | null;
             /**
@@ -2829,6 +2837,13 @@ export interface components {
              * @description The note it was submitted with; also its run's note.
              */
             note?: string;
+            /**
+             * Overrides
+             * @description The variables a rerun changed from the job it reran; absent when none were.
+             */
+            overrides?: {
+                [key: string]: unknown;
+            };
             /**
              * Queue Position
              * @description Index in the waiting queue; only while queued.
@@ -3499,6 +3514,13 @@ export interface components {
              * @description Cost acknowledgement: true (recorded), or an object {fingerprint, minutes, downloads} bound to the plan validate answered with - then the run is refused with 409 if its plan changed
              */
             acknowledged_cost?: boolean | components["schemas"]["AcknowledgedCost"] | null;
+            /**
+             * Arguments
+             * @description Variable overrides merged over the original job's arguments before admission (a draft promoted with {"tier": "best"}). A variable the workflow does not declare is refused; the seed variable cannot be overridden together with `new_seed`.
+             */
+            arguments?: {
+                [key: string]: unknown;
+            } | null;
             /**
              * New Seed
              * @description Draw a fresh seed into the workflow's seed variable. Without it a rerun repeats the original arguments exactly, which the step cache serves from the earlier run - the same seed and inputs would produce the same files.
