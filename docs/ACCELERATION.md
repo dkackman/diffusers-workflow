@@ -257,14 +257,20 @@ Typical gains are 1.3-1.5x on diffusion transformers, and compile stacks with th
 
 ## Per-Component Dtype
 
-A pipeline's `from_pretrained_arguments.torch_dtype` can be diffusers' per-component dict instead of one dtype. This keeps one sensitive component at higher precision while the rest of the pipeline stays narrow:
+A pipeline's `from_pretrained_arguments.torch_dtype` can be diffusers' per-component dict instead of one dtype. This keeps sensitive components at higher precision while the rest of the pipeline stays narrow:
 
 ```json
 "from_pretrained_arguments": {
     "model_name": "Lightricks/LTX-2",
-    "torch_dtype": { "default": "torch.bfloat16", "vocoder": "torch.float32" }
+    "torch_dtype": {
+        "default": "torch.bfloat16",
+        "audio_vae": "torch.float32",
+        "vocoder": "torch.float32"
+    }
 }
 ```
+
+**Components a pipeline chains together must share a dtype** unless the pipeline casts between them. For LTX-2, load `audio_vae` and `vocoder` in the same dtype. The decode casts the audio latents to `audio_vae.dtype`, then hands the mel to the vocoder with no cast. A vocoder-only dict validates, then fails at decode with a dtype mismatch (on MPS: `Input type (c10::BFloat16) and bias type (float) should be the same`). The engine doesn't check this, because which components chain is model knowledge.
 
 - **Keys** are the pipeline's component names, passed through to diffusers as written. The engine knows no model's components.
 - **`default`** covers every component the dict doesn't name. Without it, those components load as `torch.float32`, and `validate_workflow` warns.
