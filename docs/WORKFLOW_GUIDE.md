@@ -13,6 +13,11 @@ one template carries them all and its `description` spells out the per-checkpoin
 argument sets. The `templates/ltx2/` and `templates/minimax/` subfolders each
 hold a family whose members build on one baseline.
 
+The full catalog is `list_workflows` over MCP, or `GET /api/workflows` and the web
+UI's Workflows page, each entry with its shape and description. This guide and
+`docs/TASKS.md` link only the templates that show a feature, so a template
+named in neither is still in the catalog.
+
 **`workflows/models/`** records a hardware fact: the quantization, offloading and
 component placement that make one checkpoint fit a real card. Each is runnable
 and carries a `configures` naming the template it is an instance of:
