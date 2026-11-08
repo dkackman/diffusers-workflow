@@ -6270,7 +6270,7 @@ def test_rerun_overrides_merge_onto_the_stored_arguments(server, no_hub):
         assert body["arguments"]["num_images_per_prompt"] == 2
         assert body["arguments"]["prompt"] == "a"
         assert body["overrides"] == {"num_images_per_prompt": 2}
-        assert "overrides" not in first
+        assert "overrides" not in client.get(f"/api/jobs/{first['id']}").json()
 
 
 def test_rerun_override_of_an_undeclared_variable_is_refused(server, no_hub):
@@ -6296,7 +6296,7 @@ def test_rerun_override_of_the_seed_with_new_seed_is_refused(server, no_hub):
         )
         assert response.status_code == 400
         detail = response.json()["detail"]
-        assert "seed" in detail and "new_seed" in detail
+        assert "'seed'" in detail and "new_seed" in detail
 
 
 class TestBoundRerun:
@@ -6328,6 +6328,41 @@ class TestBoundRerun:
             )
             assert response.status_code == 409
             assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_overrides_that_change_the_plan_refuse_the_original_acknowledgement(
+        self, server, no_hub
+    ):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            plan = plan_for(client, list_workflow())
+            first = client.post(
+                "/api/jobs",
+                json={"workflow": list_workflow(), "acknowledged_cost": bound(plan)},
+            ).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(plan)},
+            )
+            assert response.status_code == 409
+            assert response.json()["detail"]["reason"] == "fingerprint"
+
+    def test_an_acknowledgement_of_the_merged_arguments_queues(self, server, no_hub):
+        changed = {
+            "shots": [{"name": "a", "prompt": "a"}, {"name": "b", "prompt": "b"}]
+        }
+        with server(success_script) as client:
+            first = client.post("/api/jobs", json={"workflow": list_workflow()}).json()
+            wait_for_status(client, first["id"], TERMINAL_STATES)
+            merged = plan_for(client, list_workflow(), changed)
+            response = client.post(
+                f"/api/jobs/{first['id']}/rerun",
+                json={"arguments": changed, "acknowledged_cost": bound(merged)},
+            )
+            assert response.status_code == 201, response.json()
+            assert response.json()["acknowledged"] == "bound"
 
     def test_a_rerun_with_true_is_unchanged(self, server, no_hub):
         with server(success_script) as client:

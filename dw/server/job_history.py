@@ -116,6 +116,9 @@ _ADDED_COLUMNS = (
     # The job a rerun reran. NULL for a fresh submit and for every row
     # before the column
     ("rerun_of", "TEXT"),
+    # The variables a rerun changed, as JSON. NULL for a job without any
+    # and for every row before the column
+    ("overrides", "TEXT"),
     # The server that admitted the job - a fresh id per JobManager start
     # (#1220). The startup sweep closes a dead server's open rows by it and
     # leaves a live sibling's alone. NULL for every row before the column,
@@ -180,6 +183,10 @@ _RECORDED = (
     ("note", lambda job: getattr(job, "note", None)),
     ("memory_key", _memory_key_of),
     ("rerun_of", lambda job: getattr(job, "rerun_of", None)),
+    (
+        "overrides",
+        lambda job: _json(job.spec["overrides"]) if job.spec.get("overrides") else None,
+    ),
     ("server_instance", lambda job: getattr(job, "server_instance", None)),
 )
 
@@ -470,7 +477,7 @@ class JobHistory:
                 "SELECT id, workflow, status, created_at, started_at, finished_at,"
                 " arguments, spec, manifest, warnings, error, workspace,"
                 " workflow_name, run_id, run_dir, acknowledged, events,"
-                " run_version, device, note, rerun_of,"
+                " run_version, device, note, rerun_of, overrides,"
                 " host_memory_job_peak_committed_mb FROM jobs WHERE id = ?"
                 f" AND status NOT IN ({_OPEN_PLACEHOLDERS})",
                 (job_id, *_OPEN_STATES),
@@ -735,6 +742,7 @@ class JobHistory:
             "historical": True,
             **({"note": row["note"]} if row["note"] else {}),
             **({"rerun_of": row["rerun_of"]} if row["rerun_of"] else {}),
+            **({"overrides": parse(row["overrides"], {})} if row["overrides"] else {}),
         }
 
 
