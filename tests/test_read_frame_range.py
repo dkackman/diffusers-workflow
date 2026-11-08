@@ -85,3 +85,44 @@ class TestBadArguments:
         with pytest.raises(ValueError) as raised:
             read_frame_range(str(path), start, stop)
         assert not isinstance(raised.value, ShortFrameRange)
+
+
+class TestForwardFrameReader:
+    """One forward decode, byte for byte the full decode, for a run of reads
+    that moves forward (encode_h3_latents' clips)."""
+
+    @pytest.mark.parametrize("offset", [0, 5])
+    def test_forward_clips_equal_the_full_decode(self, tmp_path, offset):
+        from dw.media_readers import ForwardFrameReader
+
+        path = tmp_path / "clip.mp4"
+        write_shifted_ramp_mp4(path, offset=offset)
+        reference = full_decode(path)
+        total = len(reference)
+        reader = ForwardFrameReader(str(path))
+        try:
+            # encode_take's pattern: 17-frame clips, then the last frame again
+            for start in range(0, total, 17):
+                stop = min(start + 17, total)
+                assert numpy.array_equal(reader(start, stop), reference[start:stop])
+            assert numpy.array_equal(
+                reader(total - 1, total), reference[total - 1 : total]
+            )
+            # Behind the held range it falls back to a seek, still exact
+            assert numpy.array_equal(reader(0, 3), reference[0:3])
+        finally:
+            reader.close()
+
+    def test_a_stop_past_the_end_raises_short(self, tmp_path):
+        from dw.media_readers import ForwardFrameReader
+
+        path = tmp_path / "clip.mp4"
+        write_shifted_ramp_mp4(path, frames=60)
+        reader = ForwardFrameReader(str(path))
+        try:
+            reader(0, 51)
+            with pytest.raises(ShortFrameRange) as raised:
+                reader(51, 68)
+            assert raised.value.decoded == 60
+        finally:
+            reader.close()

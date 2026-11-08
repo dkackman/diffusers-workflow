@@ -386,3 +386,18 @@ def test_summarize_bundle_refuses_a_corrupt_member(tmp_path):
     path.write_bytes(bytes(raw))
     with pytest.raises(ValueError):
         te.summarize_bundle(str(path))
+
+
+def test_summarize_bundle_reads_only_the_head_of_version_txt(tmp_path, monkeypatch):
+    # bundle.read would inflate the whole member, however large it expands
+    import zipfile
+
+    path = _bundle(tmp_path, '{"tracks": {"children": []}}')
+    with zipfile.ZipFile(path, "a") as bundle:
+        bundle.writestr("version.txt", "1.0.0" + " " * 4096)
+
+    def whole_read(self, name, pwd=None):
+        raise AssertionError(f"read {name} whole")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", whole_read)
+    assert te.summarize_bundle(str(path))["otio_version"] == "1.0.0" + " " * 59

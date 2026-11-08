@@ -369,3 +369,11 @@ def test_the_composed_child_takes_the_parents_reference():
     given = {"reference_audio": "asset:voice.wav", "reference_text": "Some words."}
     errors = workflow.validation_errors(given)
     assert [e for e in errors if "required" in e["message"]] == []
+
+
+def test_a_numeric_string_limit_is_read_as_its_number():
+    # A command-line value for a variable declared null arrives as text
+    text = "One two three. Four five six. Seven eight nine."
+    assert split_takes(text, "2", "1.5") == split_takes(text, 2, 1.5)
+    with pytest.raises(ValueError, match="max_seconds"):
+        split_takes(text, "soon")
