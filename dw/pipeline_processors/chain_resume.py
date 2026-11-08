@@ -7,6 +7,16 @@ file's output reference. Naming that file in `resume_from` makes a new run of
 the same chain take that run's segment set (`chain_repair.segment_files`, in
 index order, complete) as its segments 1..k and render only k+1..N:
 
+- Each iteration reads its own files. A previous_result fan-out runs one
+  chain block once per iteration, and the spill numbers them
+  `<prefix>.<iteration>.segment-NNN.mp4` with a counter on the step's
+  Pipeline wrapper, which is new each job, so iteration i of the resumed run
+  is iteration i of the dead one. The reference names one iteration's file
+  (the one the hint quoted); every iteration takes the siblings with its own
+  number beside it (`own_segments`). One with none there, or with a
+  complete set it is not the named one of (it finished), renders in full
+  and says so in a `chain_resumed` warning with `kept: 0`.
+
 - The plan does not move: every kept file must hold the frames the plan puts
   on the timeline for its segment (`check_plan`), and k must be under N.
 - The kept files are copied, never moved, into this run's spill under its
@@ -30,7 +40,14 @@ index order, complete) as its segments 1..k and render only k+1..N:
   file's carry; the boost restarts at none.
 - The kept segments' audio is laid on the timeline whole, end to end: each
   file holds only its span past the head trim, so the crossfade material of
-  their own seams is gone; the first rendered seam is joined as usual.
+  their own seams is gone, and each kept seam gets the declick fade the chain
+  gives a seam with no head material (`equal_power_crossfade_join` with an
+  empty head) rather than the `crossfade_ms` blend; the first rendered seam
+  is joined as usual. All kept files carry audio or none does, and the
+  rendered segments must agree with them (`check_rendered_audio`): a mixed
+  set would leave the track shorter than the picture and offset from it, and
+  a silent kept set under voiced segments means the earlier run was not this
+  plan, so both are refused rather than padded with silence.
 - The step generator restarts at the step's seed, so the rendered segments
   are not the renders the dead run would have made next.
 
@@ -53,7 +70,8 @@ from ..runs import output_root, resolve_output_reference
 from ..security import PathTraversalError, SecurityError, validate_path
 from ..shots import shot_record
 from ..task_domains import frames_to_samples
-from ..tasks.chain_repair import segment_files
+from ..tasks.chain_repair import SEGMENT_FILE, segment_files
+from ..tasks.joins import equal_power_crossfade_join
 from ..tasks.video_utils import load_audio_video
 from ..writers import output_file_path
 from .chain_check import measure_frames, texture_base
@@ -93,6 +111,24 @@ class ResumeState:
         timeline.shots.extend(self.shots)
         timeline.frame_count = self.frame_count
         timeline.audio, timeline.audio_rate = self.audio, self.audio_rate
+
+    def check_rendered_audio(self, config, segment, audio):
+        """Refuse a rendered segment that disagrees with the kept ones on
+        audio: the joined track would be shorter than the picture and start
+        at the wrong frame."""
+        if config.source_audio is not None:
+            return
+        kept, rendered = self.audio is not None, audio is not None
+        if kept == rendered:
+            return
+        raise ValueError(
+            f"Chain {CHAIN_RESUME_FROM}: segment {segment.index + 1} rendered "
+            + ("no audio" if kept else "audio")
+            + f" and the {self.count} kept segment(s) carry "
+            + ("audio" if kept else "none")
+            + " - a resume never changes the plan, so resume with the "
+            "settings the earlier run used"
+        )
 
 
 def resolved_reference(value):
@@ -154,13 +190,19 @@ def load(config, spill, hold=None):
     if config.resume_from is None:
         return None
     named = resolved_reference(config.resume_from)
-    sources = segment_files(named)
+    sources = own_segments(named, spill)
+    if sources is None or (
+        len(sources) >= len(config.plan) and not _names_iteration(named, spill)
+    ):
+        _warn_rendered_in_full(config, spill, sources)
+        return None
     check_plan(
         sources,
         config.plan,
         config.tail_trim,
         config.carry_pick - 1 if config.carry_pick else 0,
     )
+    _check_kept_audio(config, sources)
     kept = _Kept(config)
     for path in sources:
         spill.frame_count += kept.add(path, _copied_into(spill, path))
@@ -195,6 +237,80 @@ def load(config, spill, hold=None):
         previous_kept=measure_frames(last.frames) if config.check else None,
         segment_1_texture=texture_base(kept.first.frames) if config.check else None,
         warning=warning,
+    )
+
+
+def _iteration_base(named):
+    """(stem, iteration) of a spilled segment file's name, `<stem>.<n>`
+    before `.segment-NNN.mp4`, or None for a name a spill did not make."""
+    match = SEGMENT_FILE.match(os.path.basename(named))
+    if match is None:
+        return None
+    stem, dot, number = match["base"].rpartition(".")
+    if not dot or not number.isdigit():
+        return None
+    return stem, int(number)
+
+
+def _names_iteration(named, spill):
+    """Whether the reference names this spill's own iteration."""
+    base = _iteration_base(named)
+    return base is None or base[1] == spill.iteration
+
+
+def own_segments(named, spill):
+    """This iteration's kept segment files beside the one `named` names: the
+    siblings numbered with this spill's iteration, in index order, or None
+    when it left none there. A name a spill did not make is taken whole."""
+    base = _iteration_base(named)
+    if base is None or base[1] == spill.iteration:
+        return segment_files(named)
+    stem, _ = base
+    own = os.path.join(
+        os.path.dirname(named), f"{stem}.{spill.iteration}.segment-000.mp4"
+    )
+    if not os.path.isfile(own):
+        return None
+    return segment_files(own)
+
+
+def _warn_rendered_in_full(config, spill, sources):
+    """Say an iteration took nothing from the reference: none of its files
+    are there, or it finished in the earlier run."""
+    why = (
+        "left no segment files beside it"
+        if sources is None
+        else "finished in the earlier run"
+    )
+    emit_warning(
+        f"Chain iteration {spill.iteration} {why}, so it rendered all "
+        f"{len(config.plan)} segments in full rather than resuming from "
+        f"{config.resume_from}",
+        kind="chain_resumed",
+        kept=0,
+        segments=len(config.plan),
+        resume_from=config.resume_from,
+    )
+
+
+def _check_kept_audio(config, sources):
+    """Refuse a kept set where some files carry audio and some do not, read
+    off the headers before anything is copied."""
+    if config.source_audio is not None:
+        return
+    voiced = [
+        (probe_metadata(path) or {}).get("sample_rate") is not None for path in sources
+    ]
+    if all(voiced) or not any(voiced):
+        return
+    named = {True: [], False: []}
+    for path, has in zip(sources, voiced):
+        named[has].append(os.path.basename(path))
+    raise ValueError(
+        f"Chain {CHAIN_RESUME_FROM}: the kept segments carry audio in "
+        f"{', '.join(named[True])} and none in {', '.join(named[False])} - "
+        "laid end to end the track would be shorter than the picture and "
+        "offset from it"
     )
 
 
@@ -238,8 +354,9 @@ class _Kept:
         return count
 
     def _join_audio(self, video, count):
-        """Lay a kept file's own track end to end on the joined one - the
-        generated audio only: a held or matched track is the chain's own."""
+        """Lay a kept file's own track end to end on the joined one, declicked
+        at the seam - the generated audio only: a held or matched track is
+        the chain's own."""
         if self.config.source_audio is not None or video.audio is None:
             return
         audio = fit_codec_padding(
@@ -256,7 +373,11 @@ class _Kept:
                 f"Chain {CHAIN_RESUME_FROM}: the kept segments' audio runs at "
                 f"different sample rates, {self.audio_rate} then {video.sample_rate}"
             )
-        self.audio = numpy.concatenate([self.audio, audio], axis=1)
+        # No head material survives in a kept file: the chain's own seam
+        # treatment for that case, the declick fade, not the crossfade
+        self.audio = equal_power_crossfade_join(
+            self.audio, audio[:, :0], audio, self.audio_rate, self.config.crossfade_ms
+        )
 
 
 def _copied_into(spill, source):

@@ -2743,7 +2743,17 @@ joined into a single file:
   usual. `look_hold` reads its scene from the first kept file and is fed the last
   one's carry, but its learned boost starts again. Needs `save_segments: true` and
   continuity `last_frame` or `guide`; refused with `experimental_latent_carry` (the
-  latents are not on disk) and as a bare path.
+  latents are not on disk) and as a bare path. The kept seams' audio is joined
+  with the short declick fade the chain gives a seam with no head material, not the
+  `crossfade_ms` blend: a kept file holds only its on-timeline audio, so the blend
+  material is gone (the first rendered seam is crossfaded as usual). All kept files
+  must carry audio or none may, and the rendered segments must agree with them, or
+  the run is refused rather than laying a track shorter than the picture. Under a
+  `previous_result` fan-out each iteration resumes from its own files: the
+  reference names the iteration the hint quoted, and every iteration takes the
+  `<prefix>.<its iteration>.segment-NNN.mp4` siblings beside it. An iteration with
+  none there, or one that finished (a complete set it is not the named one of),
+  renders in full, which a `chain_resumed` warning with `kept: 0` says.
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a

@@ -207,6 +207,8 @@ def run_chain(pipeline, chain_definition, arguments):
                     previous_kept = measure_frames(attempt.kept)
                 else:
                     previous_kept = checked["result"].frame_data
+            if resumed is not None:
+                resumed.check_rendered_audio(config, segment, attempt.audio)
             _log_carry_pick(config, segment, attempt)
             _log_seam_holds(config, segment, attempt, state, keystone_note)
             _lay_down(timeline, config, segment, attempt, checked, spill)

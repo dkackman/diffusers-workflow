@@ -70,7 +70,7 @@ COMMAND = "chain_repair_cut"
 SPLICE = "chain_repair_splice"
 
 # The name SegmentSpill gives a segment file (chain_spill.py)
-_SEGMENT_FILE = re.compile(r"^(?P<base>.+)\.segment-(?P<index>\d{3})\.mp4$")
+SEGMENT_FILE = re.compile(r"^(?P<base>.+)\.segment-(?P<index>\d{3})\.mp4$")
 # The shortest whole-latent guide a hold is made of
 MIN_HOLD = 22
 
@@ -166,7 +166,7 @@ def segment_files(chain_output):
     the fallback for a take whose shots name no files (no manifest beside
     it), checked by the caller against each other."""
     path = validate_media_path(chain_output, what="chain_output")
-    match = _SEGMENT_FILE.match(os.path.basename(path))
+    match = SEGMENT_FILE.match(os.path.basename(path))
     if match is None:
         raise ValueError(
             f"{COMMAND}: 'chain_output' must name one of a chain's segment files "
@@ -176,7 +176,7 @@ def segment_files(chain_output):
     directory = os.path.dirname(path)
     found = {}
     for name in os.listdir(directory):
-        sibling = _SEGMENT_FILE.match(name)
+        sibling = SEGMENT_FILE.match(name)
         if sibling and sibling["base"] == match["base"]:
             found[int(sibling["index"])] = validate_path(
                 os.path.join(directory, name), directory

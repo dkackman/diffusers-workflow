@@ -101,7 +101,11 @@ reference.
    is a new take, not a resume.
 3. Read the `chain_resumed` warning. On a guide chain the first resumed
    seam carries the decoded audio, so check that seam with
-   `assess_output(probe="analyze_seams")`.
+   `assess_output(probe="analyze_seams")`. The kept seams get a short
+   declick fade, not `crossfade_ms`, because the blend material is gone.
+4. A fan-out (three keyframes, three takes) resumes each take from its
+   own files. A take with none left renders in full, and its
+   `chain_resumed` warning says `kept: 0`.
 
 Unmeasured: no bench record covers a resumed take yet.
 

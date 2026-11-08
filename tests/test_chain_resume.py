@@ -267,3 +267,147 @@ def test_the_estimate_counts_the_kept_segments(outputs, events):
         references.OUTPUT, f"{WORKFLOW}/latest/nothing.0.segment-000.mp4"
     )
     assert kept_count({"resume_from": missing}) == 0
+
+
+def _iteration_reference(iteration, run=FIRST_RUN):
+    return references.make_ref(
+        references.OUTPUT,
+        f"{WORKFLOW}/{run}/chained.video.{iteration}.segment-000.mp4",
+    )
+
+
+def _fanned_out_dead_run(outputs, events, keep_iteration_0=False):
+    """A previous_result fan-out of two iterations through one wrapper:
+    iteration 0 finishes, iteration 1 dies at its segment 3. Without
+    `keep_iteration_0` iteration 0's files are removed, as a finished take's
+    are once its video is written; returns iteration 1's hint."""
+    pipeline = _pipeline(outputs, FIRST_RUN, _factory(fail_at=6))
+    run_chain(pipeline, _chain(), _arguments())
+    with pytest.raises(SegmentFailed):
+        run_chain(pipeline, _chain(), _arguments())
+    first_run = outputs / WORKFLOW / FIRST_RUN
+    if not keep_iteration_0:
+        for path in first_run.glob("chained.video.0.segment-*.mp4"):
+            path.unlink()
+    (hint,) = _warnings(events, "chain_resume_hint")
+    return hint
+
+
+def test_a_fan_out_resumes_each_iteration_from_its_own_files(outputs, events):
+    hint = _fanned_out_dead_run(outputs, events)
+    # The hint quotes the iteration that died
+    assert hint["resume_from"] == _iteration_reference(1)
+
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory())
+    chain = _chain(resume_from=hint["resume_from"])
+    first = run_chain(pipeline, chain, _arguments())
+    # Iteration 0 kept nothing beside the reference: it renders in full
+    assert len(pipeline.calls) == 4
+    assert not any(shot.get("resumed") for shot in first.shots)
+    second = run_chain(pipeline, chain, _arguments())
+    # Iteration 1 keeps its own two segments and renders the other two
+    assert len(pipeline.calls) == 6
+    assert [shot.get("resumed", False) for shot in second.shots] == [
+        True,
+        True,
+        False,
+        False,
+    ]
+    # Keyed on iteration 1's own segment 2 (the dead run's call 5), not
+    # iteration 0's (call 1)
+    carried = pipeline.calls[4]["image"]
+    assert abs(carried.getpixel((8, 8))[0] - 200) <= 4
+    skipped = [w for w in _warnings(events, "chain_resumed") if w["kept"] == 0]
+    assert len(skipped) == 1 and "in full" in skipped[0]["message"]
+
+
+def test_a_fan_out_renders_an_iteration_that_finished_in_full(outputs, events):
+    hint = _fanned_out_dead_run(outputs, events, keep_iteration_0=True)
+
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory())
+    chain = _chain(resume_from=hint["resume_from"])
+    first = run_chain(pipeline, chain, _arguments())
+    second = run_chain(pipeline, chain, _arguments())
+
+    # Iteration 0's complete set is not the one named: it renders in full
+    # rather than refusing the job
+    assert len(pipeline.calls) == 6
+    assert not any(shot.get("resumed") for shot in first.shots)
+    assert sum(1 for shot in second.shots if shot.get("resumed")) == 2
+
+
+def test_the_named_iteration_with_every_segment_kept_is_refused(outputs, events):
+    pipeline = _pipeline(outputs, FIRST_RUN, _factory())
+    run_chain(pipeline, _chain(), _arguments())
+
+    with pytest.raises(ValueError, match="nothing is left to render"):
+        run_chain(
+            _pipeline(outputs, SECOND_RUN, _factory()),
+            _chain(resume_from=_iteration_reference(0)),
+            _arguments(),
+        )
+
+
+def _audio_at(result, sample):
+    return abs(float(result.audio[..., sample].reshape(-1)[0]))
+
+
+def test_kept_seams_are_declicked_as_a_seam_with_no_head_material(outputs, events):
+    _dead_run(outputs, events, audio=True)
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory(audio=True))
+
+    result = run_chain(
+        pipeline, _chain(resume_from=_first_file_reference()), _arguments()
+    )
+
+    kept_seam = result.shots[1]["start_sample"]
+    middle = result.shots[1]["start_sample"] + result.shots[1]["num_samples"] // 2
+    assert _audio_at(result, middle) > 0.1
+    # The kept seam fades out and in, as the chain's declick does
+    assert _audio_at(result, kept_seam - 1) < 0.02
+    assert _audio_at(result, kept_seam) < 0.02
+    assert (
+        result.audio.shape[-1]
+        == result.shots[-1]["start_sample"] + (result.shots[-1]["num_samples"])
+    )
+
+
+def _first_call_voiced():
+    """Audio on the dead run's first segment only."""
+    voiced, silent = _factory(audio=True), _factory(fail_at=2)
+
+    def output(arguments, index):
+        return (voiced if index == 0 else silent)(arguments, index)
+
+    return output
+
+
+def test_a_mixed_silent_and_voiced_kept_set_is_refused(outputs, events):
+    pipeline = _pipeline(outputs, FIRST_RUN, _first_call_voiced())
+    with pytest.raises(SegmentFailed):
+        run_chain(pipeline, _chain(), _arguments())
+
+    resumed = _pipeline(outputs, SECOND_RUN, _factory(audio=True))
+    with pytest.raises(ValueError) as refused:
+        run_chain(resumed, _chain(resume_from=_first_file_reference()), _arguments())
+
+    message = str(refused.value)
+    assert "chained.video.0.segment-000.mp4" in message
+    assert "chained.video.0.segment-001.mp4" in message
+    assert resumed.calls == []
+    assert list((outputs / WORKFLOW / SECOND_RUN).glob("*.mp4")) == []
+
+
+@pytest.mark.parametrize(
+    "kept_audio, live_audio", [(False, True), (True, False)], ids=["silent", "voiced"]
+)
+def test_kept_and_rendered_segments_must_agree_on_audio(
+    outputs, events, kept_audio, live_audio
+):
+    _dead_run(outputs, events, audio=kept_audio)
+    pipeline = _pipeline(outputs, SECOND_RUN, _factory(audio=live_audio))
+
+    with pytest.raises(ValueError, match="audio") as refused:
+        run_chain(pipeline, _chain(resume_from=_first_file_reference()), _arguments())
+
+    assert "segment 3" in str(refused.value)
