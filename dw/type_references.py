@@ -137,7 +137,7 @@ def _per_component_dtype_error(key, value, path, warnings=None):
                     f"such as torch.float32, not {dtype!r}"
                 ),
             }
-        if dtype.startswith("variable:"):
+        if references.is_ref(references.VARIABLE, dtype):
             continue
         if dtype.startswith("{") and dtype.endswith("}"):
             return {
