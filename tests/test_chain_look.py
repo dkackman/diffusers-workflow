@@ -10,6 +10,7 @@ from dw.pipeline_processors.chain_look import (
     look,
     pickup_grade,
     precompensate,
+    scene_texture,
     texture,
     tone,
 )
@@ -257,3 +258,32 @@ def test_a_grey_feed_after_coloured_ones_leaves_the_chroma_boost_alone():
     assert hold.boost()[1] == pytest.approx(1.2)
     assert len(hold._ratios[0]) == 3  # the contrast gain was still measured
     assert len(hold._ratios[1]) == 2
+
+
+def test_inplace_corrections_match_the_copying_ones():
+    carried = gradient()
+    frames = numpy.stack([tinted(carried, 10), gradient(1.2), gradient(1.4)])
+    scene = look(gradient())
+    for correct in (
+        lambda f, **k: pickup_grade(f, carried, **k),
+        lambda f, **k: ease_creep(f, scene, **k),
+        lambda f, **k: ease_texture(f, texture(gradient()), **k),
+    ):
+        copied_from = frames.copy()
+        copied = correct(copied_from)
+        assert (copied_from == frames).all()  # the default leaves its input be
+        written = frames.copy()
+        assert (correct(written, inplace=True) == copied).all()
+
+
+def test_segment_1_reads_the_scene_without_stacking_the_segment():
+    from PIL import Image
+
+    stack = numpy.stack([gradient(1.0 + i / 10) for i in range(9)])
+    frames = [Image.fromarray(each) for each in stack]
+    hold = LookHold(
+        {"pickup": True, "creep": True, "texture": True, "precompensate": False}
+    )
+    assert hold.correct(frames, None, True) is frames
+    assert hold.scene_look == look(stack[1])
+    assert hold.scene_texture == scene_texture(stack)

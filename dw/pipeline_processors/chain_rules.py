@@ -451,9 +451,9 @@ def _frame_slot_problem(chain, frame, num_frames):
 
 def keystone_slot_plan_problem(slot, plan):
     """The reason a checked frame slot (`chain_keystone_slot`) does not fit a
-    planned later segment, or None. A match_audio chain renders its last
-    segment only as long as the track has left (snapped up to a length the
-    pipeline takes), which `chain_keystone_slot_problem` cannot know from
+    planned later segment, or None. A match_audio or duration_seconds chain
+    renders its last segment only as long as the track or the asked length
+    has left (snapped up to a length the pipeline takes), which `chain_keystone_slot_problem` cannot know from
     the step's `num_frames` - so the run asks again of the plan before
     segment 1 renders, rather than failing on the last segment after every
     earlier one has."""
@@ -465,7 +465,7 @@ def keystone_slot_plan_problem(slot, plan):
             return (
                 f"{CHAIN_KEYSTONE_SLOT} frame {frame} is past segment "
                 f"{segment.index + 1}'s {segment.num_frames} frames - the "
-                f"matched audio leaves the last segment that short; move the "
+                f"planned length leaves the last segment that short; move the "
                 f"slot below {segment.num_frames} or use 'last'"
             )
     return None

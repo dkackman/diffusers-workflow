@@ -270,3 +270,26 @@ def test_the_schema_does_not_refuse_match_audio_beside_a_null_or_reference_durat
     assert _schema_accepts({"match_audio": True, "duration_seconds": "variable:d"})
     assert not _schema_accepts({"match_audio": True, "duration_seconds": 4})
     assert not _schema_accepts({"match_audio": True, "segments": 3})
+
+
+def test_the_shortened_last_segment_renders_at_its_planned_length():
+    # 18 frames from 8 + 6 + 6: the last segment is asked for its 6, not the
+    # step's 8, so no GPU time goes on frames the trim then drops
+    pipeline = FakePipeline(modular_output)
+    run_chain(pipeline, chain(), {"num_frames": 8})
+    assert [call["num_frames"] for call in pipeline.calls] == [8, 8, 6]
+
+
+def test_a_frame_slot_past_the_shortened_last_segment_is_refused_up_front():
+    # 205 frames of 175-frame guide segments: the last needs 52 and snaps up
+    # to the 124 minimum, which frame 136 is past - refused before segment 1
+    definition = {
+        "duration_seconds": 205 / 24,
+        "fps": 24,
+        "continuity": "guide",
+        "frame_snap": MINIMAX_SNAP,
+        "keystone": "segment_1",
+        "keystone_slot": {"frame": 136},
+    }
+    with pytest.raises(ValueError, match="frame 136 is past segment 2's 124"):
+        ChainConfig(definition, {"num_frames": 175, "image": object()})

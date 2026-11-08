@@ -168,9 +168,10 @@ def check_segment(
     """Measure a segment's kept frames against the segment before it and
     segment 1, and its kept audio against the floor, as a CheckResult.
     `previous` is that segment's frames, or the (thumbs, looks) pair
-    `measure_frames` returned for them. `audio` is the segment's kept
-    generated audio, None when it has none or the chain holds it. `hard_cut`
-    marks a seam meant as a cut, which is never checked."""
+    `measure_frames` returned for them; `segment_1_frames` is segment 1's
+    frames, or the base `texture_base` returned for them. `audio` is the
+    segment's kept generated audio, None when it has none or the chain holds
+    it. `hard_cut` marks a seam meant as a cut, which is never checked."""
     if hard_cut:
         return CheckResult(True, {"skipped": "hard_cut"}, [])
     from ..tasks.assess import seam_measures
@@ -286,10 +287,22 @@ def _fine_luma(frames):
     return float(numpy.mean(values)) if values else None
 
 
-def _texture_ratio(frames, segment_1_frames):
+def texture_base(frames):
+    """Segment 1's fine-band luma, the base every later segment's
+    texture_ratio divides by - measured once, after segment 1, and passed to
+    `check_segment` in place of its frames; None when it has none to measure."""
+    return _fine_luma(frames)
+
+
+def _texture_ratio(frames, segment_1):
     """The segment's fine-band luma over segment 1's, or None where either
-    has none to measure."""
-    base = _fine_luma(segment_1_frames)
+    has none to measure. `segment_1` is segment 1's frames, or the base
+    `texture_base` measured from them (None: nothing to measure)."""
+    base = (
+        segment_1
+        if segment_1 is None or isinstance(segment_1, (int, float))
+        else _fine_luma(segment_1)
+    )
     value = _fine_luma(frames)
     if not base or value is None:
         return None

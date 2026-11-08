@@ -183,7 +183,8 @@ def test_turning_the_anchor_off_on_a_static_shot_is_refused_as_documented():
 
 
 def test_check_and_retries_are_variables_and_price_the_worst_case():
-    """`retries` on a checked chain grows the estimate by 1 + (N-1)(1+retries)."""
+    """`retries` on a checked chain grows the estimate by N(1+retries): the
+    guide template generates its audio, so segment 1 is checked too."""
     from dw.cost_scaling import _worst_case_retries
 
     template = json.loads(TEMPLATE.read_text())
@@ -197,4 +198,4 @@ def test_check_and_retries_are_variables_and_price_the_worst_case():
         factor = _worst_case_retries(
             definition, {**template["variables"], **variables}
         )[0]
-        assert factor == (1 + 2 * (1 + retries)) / 3
+        assert factor == 1 + retries
