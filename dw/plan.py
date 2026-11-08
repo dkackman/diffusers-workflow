@@ -33,7 +33,7 @@ from .cost_scaling import (
     fixed_minutes,
     _entry_cost_field_shifted,
     _scaled,
-    _worst_case_retries,
+    _chain_render_scaling,
 )
 from .elision import elide_definition
 from . import references
@@ -884,7 +884,7 @@ def _unpriced_reason(definition):
 def _with_worst_case(measured, definition, expanded, device=None):
     """An observed or inherited estimate with a checked chain's worst-case
     re-rolls quoted on it, as the curated figure quotes them (#1246): the
-    history is read as N segment renders, and `_worst_case_retries` says how
+    history is read as N segment renders, and `_chain_render_scaling` says how
     many a run at `expanded`'s variables may pay. Unchanged when nothing can
     re-roll. A history that ran checked already holds what re-rolls it drew,
     so this is an upper bound, which is what the worst case promises. This
@@ -893,7 +893,7 @@ def _with_worst_case(measured, definition, expanded, device=None):
     if measured is None or measured.get("minutes") is None:
         return measured
     variables = (expanded or {}).get("variables") or {}
-    factor, axes, unscaled = _worst_case_retries(definition, variables)
+    factor, axes, unscaled = _chain_render_scaling(definition, variables)
     if unscaled:
         measured = {
             **measured,

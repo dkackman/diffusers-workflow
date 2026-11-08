@@ -86,6 +86,25 @@ break at segment k.
 A repaired take cannot be repaired again. Repair the original take, or
 re-render it.
 
+## A chain that died at segment k
+
+Both chain templates write each finished segment beside the take as it
+runs. A chain that fails at segment k leaves segments 1..k-1 on disk, and
+the job's `chain_resume_hint` warning quotes the first file's `output:`
+reference.
+
+1. Rerun the same template with the same settings, and pass that
+   reference as `resume_from`. Only segments k..N render, and the estimate
+   prices only those.
+2. A kept file whose frame count does not match the plan is refused,
+   naming the segment. Changing `num_frames`, `guide_frames` or the length
+   is a new take, not a resume.
+3. Read the `chain_resumed` warning. On a guide chain the first resumed
+   seam carries the decoded audio, so check that seam with
+   `assess_output(probe="analyze_seams")`.
+
+Unmeasured: no bench record covers a resumed take yet.
+
 ## The repair ladder
 
 1. Re-roll the segment (the check does this during the run).

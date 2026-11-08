@@ -63,6 +63,7 @@ from .chain_check import (
     reroll_seed,
     texture_base,
 )
+from . import chain_resume
 from .chain_config import ChainConfig
 from .chain_continuity import CONTINUITY_MODES, _generated_audio
 from .chain_look import LookHold
@@ -114,17 +115,7 @@ def run_chain(pipeline, chain_definition, arguments):
         _check_guide_chain(pipeline, arguments, chain_definition, config)
     if config.anchor == ANCHOR_SEGMENT_1:
         _check_anchor_chain(pipeline, arguments)
-    if (
-        config.keystone == KEYSTONE_SEGMENT_1
-        and config.keystone_slot is None
-        and arguments.get(config.segment_argument) is None
-    ):
-        # t2va has no keyframe argument for the keystone to replace (#1232)
-        emit_warning(
-            f"Chain keystone 'segment_1' has no effect on this step: it takes "
-            f"no {config.segment_argument!r} keyframe (t2va), so every later "
-            f"segment is generated without the keystone frame"
-        )
+    _warn_idle_keystone(config, arguments)
 
     # With save_segments, each completed segment is written to disk and its
     # frames freed, bounding memory to one segment - a crash leaves the
@@ -157,8 +148,18 @@ def run_chain(pipeline, chain_definition, arguments):
     previous_kept = None
     segment_1_texture = None
 
+    # An earlier run's kept segments, copied in as segments 1..k
+    resumed = chain_resume.load(config, spill, hold)
+    if resumed is not None:
+        resumed.lay_down(timeline)
+        carry, raw_carry = resumed.carry, resumed.raw_carry
+        anchor_frames, keystone_frame = resumed.anchor_frames, resumed.keystone_frame
+        capstone_frame = resumed.capstone_frame
+        previous_kept = resumed.previous_kept
+        segment_1_texture = resumed.segment_1_texture
+
     try:
-        for segment in config.plan:
+        for segment in config.plan[resumed.count if resumed else 0 :]:
             logger.info(
                 f"Chain segment {segment.index + 1}/{len(config.plan)}"
                 + (f": {segment.num_frames} frames" if segment.num_frames else "")
@@ -216,6 +217,10 @@ def run_chain(pipeline, chain_definition, arguments):
             del attempt
             gc.collect()
             empty_device_cache()
+    except Exception:
+        # The finished segments on disk are where a rerun can pick up
+        chain_resume.warn_resumable(spill)
+        raise
     finally:
         # The label belongs to the run that set it - on a raise or a cancel
         # as much as on the way out
@@ -230,6 +235,21 @@ def run_chain(pipeline, chain_definition, arguments):
         timeline.audio_rate,
         timeline.shots,
     )
+
+
+def _warn_idle_keystone(config, arguments):
+    """Warn that `keystone: "segment_1"` does nothing on a t2va step, which
+    has no keyframe argument for the keystone to replace (#1232)."""
+    if (
+        config.keystone == KEYSTONE_SEGMENT_1
+        and config.keystone_slot is None
+        and arguments.get(config.segment_argument) is None
+    ):
+        emit_warning(
+            f"Chain keystone 'segment_1' has no effect on this step: it takes "
+            f"no {config.segment_argument!r} keyframe (t2va), so every later "
+            f"segment is generated without the keystone frame"
+        )
 
 
 @dataclass

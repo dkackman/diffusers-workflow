@@ -363,6 +363,53 @@ def _worst_case_retries(definition, variables):
     )
 
 
+def _chain_kept(definition, variables):
+    """(kept, unscaled) for the workflow's one chain at `variables`: the
+    segments its `resume_from` keeps (`chain_resume.kept_count`), and the
+    plan note when it names a file that does not resolve yet, so the figure
+    is priced for every segment."""
+    blocks = list(_chain_blocks(definition.get("steps")))
+    if len(blocks) != 1:
+        return 0, []
+    value = _resolved(blocks[0][0].get("resume_from"), variables)
+    if value is None:
+        return 0, []
+    from .pipeline_processors.chain_resume import UNRESOLVED_NOTE, kept_count
+
+    kept = kept_count({"resume_from": value})
+    return kept, [] if kept else [UNRESOLVED_NOTE]
+
+
+def _chain_render_scaling(definition, variables):
+    """(factor, axes, unscaled) for the segment renders a run pays against
+    the N a figure was measured over: a resumed chain renders only the
+    segments after its kept ones, every one of them after a seam and so
+    checked, (N - k)(1 + retries) in the worst case; any other chain is
+    `_worst_case_retries`'s."""
+    kept, unscaled = _chain_kept(definition, variables)
+    if not kept:
+        factor, axes, retry_unscaled = _worst_case_retries(definition, variables)
+        return factor, axes, retry_unscaled + unscaled
+    segments = _chain_segments(definition, variables)
+    if not segments or kept >= segments:
+        return 1.0, [], ["resume_from"]
+    retries = _chain_retries(definition, variables)
+    rendered = segments - kept
+    renders = rendered * (1 + retries)
+    return (
+        renders / segments,
+        [
+            f"resumed: {kept} of {segments} segment(s) kept, {rendered} rendered"
+            + (
+                f", worst case {retries} re-roll(s) each: {renders} renders"
+                if retries
+                else ""
+            )
+        ],
+        [],
+    )
+
+
 def _declared_axis_scaling(name, default_value, value, list_entries, proportional):
     """A list driver's summed fields, or a `scales_with` scalar, as
     (factor, axes), or None when one moved in a way nothing can scale.
@@ -404,7 +451,7 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
 
     `baseline` replaces the curated defaults as the point the movement is
     measured from (an observed run's own variables, #1236). In that mode
-    `_worst_case_retries` is skipped: the re-rolls are in both runs.
+    `_chain_render_scaling` is skipped: the re-rolls are in both runs.
     """
     # the defaults the curated cost was measured at, the default preset
     # bundle among them
@@ -461,7 +508,7 @@ def _driver_scaling(definition, expanded, list_entries, baseline=None):
     if baseline is not None:
         # A ratio between two runs: the re-rolls are in both
         return factor, scaled_axes, unscaled
-    worst, worst_axes, worst_unscaled = _worst_case_retries(definition, effective)
+    worst, worst_axes, worst_unscaled = _chain_render_scaling(definition, effective)
     return factor * worst, scaled_axes + worst_axes, unscaled + worst_unscaled
 
 

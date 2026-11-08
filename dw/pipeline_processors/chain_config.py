@@ -25,6 +25,7 @@ from .chain_rules import (
     CHAIN_CAPSTONE,
     CHAIN_CAPSTONE_FROM_END,
     CHAIN_LATENT_CARRY,
+    CHAIN_RESUME_FROM,
     chain_capstone_problem,
     chain_carry_pick_problem,
     chain_check_problem,
@@ -35,6 +36,7 @@ from .chain_rules import (
     chain_look_hold_flags,
     chain_look_hold_problem,
     chain_needs_frame_snap,
+    chain_resume_problem,
     keystone_slot_plan_problem,
     match_audio_source_problem,
 )
@@ -124,6 +126,10 @@ class ChainConfig:
         self.frame_snap = chain_definition.get("frame_snap", None)
         self.save_segments = bool(chain_definition.get("save_segments", False))
         self.keep_segments = bool(chain_definition.get("keep_segments", False))
+        # An earlier run's kept segments to start from (chain_resume.py); the
+        # reference itself is refused there, as a location
+        _raise_chain_problem(chain_resume_problem(chain_definition))
+        self.resume_from = chain_definition.get(CHAIN_RESUME_FROM)
 
         self.source_audio = None
         self.source_rate = None

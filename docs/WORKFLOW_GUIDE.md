@@ -2719,8 +2719,31 @@ joined into a single file:
   at save time, and they are removed once it is written (`keep_segments: true`
   retains them). A crashed chain leaves the finished segments behind - stitch
   them by hand by listing their paths in a `concat_videos` step (`trim_frames: 0`,
-  the trim was already applied). Requires PyAV and a frame rate. The trade-off is
-  one extra encode/decode cycle through h264 for the segment files.
+  the trim was already applied), or resume the chain from them (`resume_from`).
+  Requires PyAV and a frame rate. The trade-off is one extra encode/decode cycle
+  through h264 for the segment files. Both chain templates set it on.
+- `resume_from` — resume a chain that died part way: an `output:` reference naming
+  one segment file an earlier run of the same chain left. A chain that fails after
+  spilling a segment says so in a `chain_resume_hint` job warning quoting the first
+  file's reference (`output:<workflow>/<run id>/<prefix>.0.segment-000.mp4`); a
+  failed run's files resolve by name, with or without its manifest. Rerun with the
+  same settings and that reference: its finished segments become segments 1..k and
+  only k+1..N render, which the estimate prices (N - k segments; a reference that
+  does not resolve yet is priced for every segment and says so). Each kept file must
+  hold the frames the plan puts on the timeline for its segment, or the run is
+  refused naming the segment and both counts - a resume never changes the plan. The
+  files are copied, not moved, into the new run's spill, so the new take stands on
+  its own and `keep_segments` names them on its shots (with `resumed: true`). The
+  carry is read off the last kept file: its last frame (`last_frame`), or its last
+  `guide_frames` frames and their audio (`guide`). That first resumed seam's audio
+  guide is the file's decoded AAC track, not a live carry, which the run's
+  `chain_resumed` warning ("Resumed k of N segments from ...") says. `anchor` and
+  `keystone` read segment 1 from the first kept file; the kept segments are not
+  checked again, and the first rendered one is checked against the last kept one as
+  usual. `look_hold` reads its scene from the first kept file and is fed the last
+  one's carry, but its learned boost starts again. Needs `save_segments: true` and
+  continuity `last_frame` or `guide`; refused with `experimental_latent_carry` (the
+  latents are not on disk) and as a bare path.
 
 The chain runs inside one iteration of the step, so it composes with
 `previous_result` fan-out (three keyframes in, three chained videos out), and a

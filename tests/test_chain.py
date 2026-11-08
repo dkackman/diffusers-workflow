@@ -2037,3 +2037,25 @@ class TestChainLengthErrors:
             e["path"] == "steps[0].pipeline.chain" and "exactly one of" in e["message"]
             for e in errors
         ), errors
+
+
+class TestResumeTemplates:
+    """The two chain templates take a resume (chain_resume.py)."""
+
+    @pytest.mark.parametrize("family", ["minimax", "ltx2"])
+    def test_the_chain_templates_take_resume_from(self, family):
+        import json
+        import pathlib
+
+        template = pathlib.Path(__file__).parent.parent / (
+            f"workflows/templates/{family}/chained-segments.json"
+        )
+        workflow = json.loads(template.read_text())
+        assert workflow["variables"]["resume_from"] is None
+        chain = workflow["steps"][-1]["pipeline"]["chain"]
+        assert chain["resume_from"] == "variable:resume_from"
+        # Every take spills its finished segments as it runs, so a chain that
+        # dies at segment k leaves 1..k-1 to resume from (the H3 template's
+        # default since Don's 2026-11-08 ruling; the final output is the same)
+        assert chain["save_segments"] is True
+        assert "resume_from" in workflow["description"]
