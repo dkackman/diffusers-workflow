@@ -43,6 +43,7 @@ def concat_videos(
     fps=None,
     match_levels=None,
     match_levels_dbfs=None,
+    match_levels_lufs=None,
     sample_rate=None,
     continuous_joins=False,
 ):
@@ -96,7 +97,11 @@ def concat_videos(
         match_levels: Even the shots' loudness out before joining -
             "rms" matches perceived level (the measurement
             get_gallery_metadata reports as mean_dbfs), "peak" matches the
-            loudest sample. Off by default. Shots generated independently
+            loudest sample, "lufs" matches BS.1770 integrated loudness (the
+            unit editors deliver in; a shot under 0.4 s is matched by rms
+            and warned as match_levels_short_shot; the inner_level_step
+            check on inputs that are themselves joins measures rms under
+            "lufs"). Off by default. Shots generated independently
             land 10 dB apart routinely, and that jump is the one seam
             artifact none of the fade controls can hide, because it is not
             at the seam but either side of it. Left off, a spread wide
@@ -110,6 +115,11 @@ def concat_videos(
             leaving room for the AAC mux) or -0.5 ("peak") instead,
             reported as a match_levels_held warning, with a per-shot log
             event naming the hold
+        match_levels_lufs: The loudness "lufs" moves every shot to -
+            defaults to -16 LUFS (-23 is EBU R128 broadcast). A shot whose
+            true peak would pass -1 dBTP is held there, reported as a
+            match_levels_held warning. Refused with any other measure, and
+            match_levels_dbfs is refused with "lufs"
         sample_rate: The rate the joined soundtrack is at. Shots that come
             from different sources routinely carry different rates - a 24 kHz
             voice clip paired onto a 32 kHz generation - and unlike a level
@@ -136,7 +146,7 @@ def concat_videos(
     seam_fade_ms = _continuous_seam_fade(continuous_joins, seam_fade_ms, audio_bleed_ms)
     _warn_bleed_without_seam(videos, audio_bleed_ms)
     names, videos, clips, waveforms, sample_rate = _prepare_inputs(
-        videos, match_levels, match_levels_dbfs, sample_rate
+        videos, match_levels, match_levels_dbfs, sample_rate, match_levels_lufs
     )
 
     frames, audio, shots = _joined_tracks(
@@ -296,7 +306,9 @@ def _warn_fps_override(videos, names, fps):
             )
 
 
-def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
+def _prepare_inputs(
+    videos, match_levels, match_levels_dbfs, sample_rate, match_levels_lufs=None
+):
     """The inputs loaded, named and made ready to join: (names, videos,
     clips, waveforms, sample_rate) - every track at one rate and, when
     asked, one level."""
@@ -305,12 +317,20 @@ def _prepare_inputs(videos, match_levels, match_levels_dbfs, sample_rate):
     check_same_frame_size(clips, "concat_videos")
     native = _input_waveforms(videos)
     if match_levels:
-        _warn_inner_level_steps(videos, names, native, match_levels)
+        _warn_inner_level_steps(
+            videos, names, native, "rms" if match_levels == "lufs" else match_levels
+        )
     waveforms, sample_rate = reconcile_sample_rates(
         "concat_videos", videos, names, native, sample_rate
     )
     waveforms = level_waveforms(
-        "concat_videos", waveforms, match_levels, match_levels_dbfs, names
+        "concat_videos",
+        waveforms,
+        match_levels,
+        match_levels_dbfs,
+        names,
+        sample_rate,
+        match_levels_lufs,
     )
     return names, videos, clips, waveforms, sample_rate
 
