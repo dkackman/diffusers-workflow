@@ -456,13 +456,44 @@ FIXED_MINUTES_KEY = "fixed_minutes"
 def fixed_minutes(entry):
     """The part of one `cost` entry that does not scale (`fixed_minutes`: model
     load, encode, decode - #1224), 0.0 when it declares none. `entry` is the one
-    `dw/plan.py`'s `_choose_entry` chose to quote from; this only reads it."""
+    `_choose_entry` chose to quote from; this only reads it."""
     if not isinstance(entry, dict):
         return 0.0
     value = entry.get(FIXED_MINUTES_KEY)
     if isinstance(value, bool) or not isinstance(value, (int, float)):
         return 0.0
     return float(value) if math.isfinite(value) and value > 0 else 0.0
+
+
+def _choose_entry(cost, device):
+    """The `cost` entry a run on `device` is quoted from, as (entry, basis):
+    this device's own (CATALOG), else the first (OTHER_DEVICE); (None, UNKNOWN)
+    for no entry. The one place this choice is made - `_price` and the entry's
+    `fixed_minutes` (#1224) both read it."""
+    entries = [entry for entry in (cost or []) if isinstance(entry, dict)]
+    if not entries:
+        return None, UNKNOWN
+    own = next((entry for entry in entries if entry.get("device") == device), None)
+    if own is None:
+        return entries[0], OTHER_DEVICE
+    return own, CATALOG
+
+
+def fixed_share(definition, device):
+    """The share of a run that does not scale: the `fixed_minutes` of the
+    cost entry a run on `device` is quoted from (`_choose_entry`) over its
+    `minutes`, 0.0 when it declares none. `dw/plan.py` scales this box's
+    observed history holding this share of it fixed, as `_scaled` holds the
+    entry's own minutes for the curated row. A share, not the minutes: the
+    history can be far faster or slower than the curated card, and 10
+    curated minutes held against a 5.5 minute observed run would leave none
+    of it to scale."""
+    entry = _choose_entry(definition.get("cost"), device)[0]
+    fixed = fixed_minutes(entry)
+    total = entry.get("minutes") if fixed else None
+    if isinstance(total, bool) or not isinstance(total, (int, float)) or total <= 0:
+        return 0.0
+    return min(1.0, fixed / total)
 
 
 def _scaled(price, scaling, fixed=0.0):

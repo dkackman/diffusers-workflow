@@ -463,6 +463,19 @@ def test_an_observed_estimate_quotes_the_worst_case_retries():
     assert "6 renders for 3" in quoted["scaled"]
 
 
+def test_an_observed_worst_case_holds_the_fixed_share():
+    # A re-roll renders a segment again; it does not load the model again.
+    # The entry's fixed share (12 of 30 min) is held, as the curated path
+    # holds it (#1224)
+    from dw.plan import estimate
+
+    definition, expanded = _priced(3, True, 1)
+    definition["cost"][0]["fixed_minutes"] = 12
+    history = {"cold_minutes": 30.0, "cold_runs": 10, "device": "cuda"}
+    quoted = estimate(definition, expanded, {}, "cuda", None, None, observed=history)
+    assert quoted["minutes"] == pytest.approx(12 + 18 * 2)
+
+
 def test_an_inherited_estimate_quotes_the_worst_case_retries():
     quoted = _observed_quote(True, 1, inherited_from="templates/ltx2/chained-segments")
     assert quoted["minutes"] == pytest.approx(60.0)
