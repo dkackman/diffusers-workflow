@@ -66,7 +66,8 @@ Defaults favour quality. A speedup with no marked loss becomes a default.
   shot from a fresh still of the subject. `templates/ltx2/extend-clip` is a
   knob at about 2.1x the wall time, for a subject that stays in frame.
   `look_hold` on LTX wins on numbers, is invisible by eye and is safe on a
-  moving camera; whether it becomes the default is Don's call.
+  moving camera; it is the `ltx2/chained-segments` default (pass false for
+  the plain chain).
 - **Windowed refine seam pass**: measured. It wins as a seam pass on every
   shot type, at about 36-40 min per minute of take, and is not a burn fix
   (`bench/records/structural.md`, *Step 4*). It is experimental and
