@@ -532,7 +532,9 @@ def _ensure_private_dir(directory):
         raise OSError(f"host claims folder {directory} is not a directory")
     if hasattr(os, "geteuid") and info.st_uid != os.geteuid():
         raise OSError(f"host claims folder {directory} is owned by another user")
-    if info.st_mode & 0o022:
+    # A posix rule: Windows reports 0o777 for every ordinary folder, so the
+    # check there would refuse them all and HostClaims would silently stop
+    if os.name == "posix" and info.st_mode & 0o022:
         raise OSError(f"host claims folder {directory} is writable by others")
 
 
