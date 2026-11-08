@@ -1858,6 +1858,18 @@ class TestLongFormSkill:
         assert f"`audio_dbfs` (floor {chain_check.AUDIO_DBFS_MIN:g} dBFS)" in text
         assert '`"audio_dbfs_min": null`' in text
 
+    def test_the_audio_re_roll_is_not_promised_to_fix_silence(self):
+        # Plan v2 of #1221: on the S5 repro both seeds read about -89 dBFS,
+        # so the skill and the guide say a re-roll may not bring sound back
+        guide = " ".join(
+            open(os.path.join(REPO_ROOT, "docs", "WORKFLOW_GUIDE.md"), encoding="utf-8")
+            .read()
+            .split()
+        )
+        for text in (self._text(), guide):
+            assert "not guaranteed to bring sound back" in text
+            assert "`chain_segment_silent`" in text
+
     def test_the_quoted_worst_case_is_the_estimate_s(self):
         # Both branches of cost_scaling._worst_case_retries (#1221)
         text = self._text()

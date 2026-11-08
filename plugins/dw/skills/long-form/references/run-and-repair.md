@@ -47,7 +47,11 @@ Each segment is measured before it is kept (segment 1 for `audio_dbfs` only):
   one -57, so the `audio_dbfs_min` floor of -70 sits between. A kept segment
   still under it carries a `chain_segment_silent` warning (segment, level,
   floor), with `check` on or off. Turn `check` on with `retries` to re-roll
-  it, or set `"audio_dbfs_min": null` when the silence is intended.
+  it, or set `"audio_dbfs_min": null` when the silence is intended. The
+  re-roll draws fresh noise but is not guaranteed to bring sound back: on the
+  S5 repro on mini-ai both seeds read about -89 dBFS and the re-roll cost
+  about 3 minutes. A segment still silent after it is reported by
+  `chain_segment_silent` and by its shot's `check_failed`.
 - **Cost.** The quote is the worst case: N(1 + `retries`) segment renders
   for a checked chain that generates its audio (floor on, no `match_audio`,
   no step `hold_audio`, not a guide chain carrying audio), else
