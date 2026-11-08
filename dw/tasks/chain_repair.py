@@ -222,9 +222,15 @@ def _named_files(take, shots):
         validate_path(os.path.join(directory, shot["segment_file"]), directory)
         for shot in shots
     ]
-    for path in paths:
-        if not os.path.isfile(path):
-            return None  # not beside the take: it left its run
+    missing = [path for path in paths if not os.path.isfile(path)]
+    if len(missing) == len(paths):
+        return None  # none beside the take: it left its run
+    if missing:
+        # Some still beside it: the take is in its run and one was pruned
+        raise ValueError(
+            f"{COMMAND}: the take's segment file {os.path.basename(missing[0])} "
+            "is gone - a repair needs every one of them kept"
+        )
     return paths
 
 
@@ -285,6 +291,14 @@ def _locate(chain_take, chain_output):
             "chain's kept segment files, as well"
         )
     paths = segment_files(output)
+    if shots and len(shots) > len(paths):
+        # Fewer files than the take has shots: a trailing segment is gone,
+        # which a gap check on the files alone cannot see
+        raise ValueError(
+            f"{COMMAND}: {os.path.basename(take)} has {len(shots)} shots but only "
+            f"{len(paths)} segment file(s) sit beside "
+            f"{os.path.basename(output)} - a repair needs every one of them kept"
+        )
     if shots is not None and len(shots) != len(paths):
         shots = None
     _check_siblings_agree(paths)

@@ -2662,12 +2662,18 @@ class TestTiersPriceFromTheObservedDefault:
         assert (standard["minutes"], standard["basis"]) == (5.5, "observed")
         assert best["basis"] == "derived"
         assert best["scaled"] == (
-            "scaled from the observed 5.5 min: canvas 1344x768 vs 960x544"
+            "scaled from the observed 5.5 min (4.1 min of it fixed): "
+            "canvas 1344x768 vs 960x544"
         )
         assert best["differs"] == ["weights_dtype"]
         assert best["low_confidence"] is True
-        # 5.5 x (1344 x 768) / (960 x 544)
-        assert best["minutes"] == pytest.approx(10.9, abs=0.05)
+        # The entry's fixed share (10 of 13.5 min) held, the rest scaled by
+        # (1344 x 768) / (960 x 544), as the curated row is (#1224)
+        share = 10 / 13.5
+        area = (1344 * 768) / (960 * 544)
+        assert best["minutes"] == pytest.approx(
+            5.5 * (share + (1 - share) * area), abs=0.05
+        )
         assert standard["minutes"] < best["minutes"]
 
     def test_dialogue_short_best_scales_its_observed_default(self, plan):
@@ -2689,10 +2695,16 @@ class TestTiersPriceFromTheObservedDefault:
         assert draft["basis"] == "observed"
         assert draft["tempered"] is True
         assert draft["observed_minutes"] == 3.0
-        # 5.5 x 4/5 steps, not 13.5 x 4/5 x 2/3 segments (7.2)
-        assert draft["curated_minutes"] == pytest.approx(4.4)
-        assert draft["minutes"] == pytest.approx(4.4 * 2 / 3 + 3.0 / 3, abs=0.05)
-        assert "scaled from the observed 5.5 min: steps 4 vs 5" in draft["scaled"]
+        # 5.5 with its fixed share (10 of 13.5 min) held and the rest x 4/5
+        # steps - not the curated 13.5 scaled
+        share = 10 / 13.5
+        partner = 5.5 * (share + (1 - share) * 4 / 5)
+        assert draft["curated_minutes"] == pytest.approx(partner, abs=0.05)
+        assert draft["minutes"] == pytest.approx(partner * 2 / 3 + 3.0 / 3, abs=0.05)
+        assert (
+            "scaled from the observed 5.5 min (4.1 min of it fixed): steps 4 vs 5"
+            in draft["scaled"]
+        )
         assert "curated" not in draft["scaled"]
         assert "tier" not in (draft.get("differs") or [])
         assert draft["minutes"] < standard["minutes"]

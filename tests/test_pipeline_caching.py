@@ -1099,3 +1099,37 @@ def test_release_models_step_frees_a_previous_jobs_pipeline_through_run(kind, tm
             except Exception:
                 pass
     assert "previous-job-klein" not in pipelines
+
+
+def test_a_composed_childs_release_models_spares_the_parents_pipelines(tmp_path):
+    """A child keeps its own ownership table but shares the parent's
+    pipeline dict, so it is handed what the parent (and its ancestors) hold:
+    a release_models task inside the child must not evict a model a later
+    parent step addresses by pipeline_reference."""
+    import json
+
+    from dw.pipeline_ownership import evict_idle_for_task
+
+    child_path = tmp_path / "child.json"
+    task = {"command": "text_generation", "arguments": {"prompt": "hi"}}
+    child_path.write_text(
+        json.dumps({"id": "child", "steps": [{"name": "t", "task": task}]})
+    )
+    grandchild_path = tmp_path / "grandchild.json"
+    grandchild_path.write_text(
+        json.dumps({"id": "grandchild", "steps": [{"name": "t", "task": task}]})
+    )
+    parent = Workflow({"id": "parent", "steps": []}, str(tmp_path), "p.json")
+    parent.pipeline_ownership.record("gen", "parent-key")
+    child = parent._sub_workflow_action(
+        {"name": "inner", "workflow": {"path": str(child_path)}}, 1
+    )
+    child.pipeline_ownership.record("own", "child-key")
+    grandchild = child._sub_workflow_action(
+        {"name": "deeper", "workflow": {"path": str(grandchild_path)}}, 1
+    )
+    assert grandchild.claimed_pipeline_keys() == {"parent-key", "child-key"}
+
+    pipelines = {"parent-key": object(), "child-key": object(), "old-job": object()}
+    evict_idle_for_task(pipelines, set(grandchild.claimed_pipeline_keys()), "t")
+    assert sorted(pipelines) == ["child-key", "parent-key"]

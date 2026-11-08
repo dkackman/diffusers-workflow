@@ -349,3 +349,40 @@ def test_summarize_bundle_refuses_a_non_bundle(tmp_path):
     bad.write_bytes(b"not a zip")
     with pytest.raises(ValueError):
         te.summarize_bundle(str(bad))
+
+
+def _bundle(tmp_path, content):
+    import zipfile
+
+    path = tmp_path / "foreign.otioz"
+    with zipfile.ZipFile(path, "w") as bundle:
+        bundle.writestr("content.otio", content)
+    return path
+
+
+@pytest.mark.parametrize(
+    "content",
+    [
+        "[1, 2, 3]",
+        '{"tracks": [1]}',
+        '{"tracks": {"children": ["a track"]}}',
+        '{"tracks": {"children": [{"children": [{"source_range": '
+        '{"duration": {"value": "24", "rate": 24}}}]}]}}',
+        '{"tracks": {"children": [{"children": [{"source_range": '
+        '{"duration": {"value": 24, "rate": "fast"}}}]}]}}',
+    ],
+)
+def test_summarize_bundle_refuses_json_of_another_shape(tmp_path, content):
+    # The gallery maps ValueError to 422; anything else would be a 500
+    with pytest.raises(ValueError):
+        te.summarize_bundle(str(_bundle(tmp_path, content)))
+
+
+def test_summarize_bundle_refuses_a_corrupt_member(tmp_path):
+    path = _bundle(tmp_path, '{"tracks": {"children": []}}' + " " * 200)
+    raw = bytearray(path.read_bytes())
+    at = raw.index(b'{"tracks"')
+    raw[at + 2] ^= 0xFF  # the stored member no longer matches its CRC
+    path.write_bytes(bytes(raw))
+    with pytest.raises(ValueError):
+        te.summarize_bundle(str(path))

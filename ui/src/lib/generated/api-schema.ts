@@ -3388,10 +3388,10 @@ export interface components {
         PlanHostMemory: {
             /**
              * Basis
-             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length.
+             * @description `observed`: the largest job peak of this machine's successful runs with the same pipelines, quantization and offload; `fit`: projected from this workflow's own runs for the requested list length; `declared`: the workflow's own `host_ram_gb`, larger than anything observed.
              * @enum {string}
              */
-            basis: "observed" | "fit";
+            basis: "observed" | "fit" | "declared";
             /**
              * Projected Mb
              * @description The host RAM, in MB, this run is projected to hold at its peak.

@@ -907,7 +907,7 @@ class JobManager(Dispatcher):
                     # so the outcome is the cancel itself
                     outcome = (CANCELLED, None, None)
                 else:
-                    manager.ensure_worker(self.log_level)
+                    self._start_worker(slot, job)
                     self._rank_for_oom(slot, job)
                     command = Execute(
                         # The snapshot admission checked, which the worker runs

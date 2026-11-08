@@ -1002,7 +1002,7 @@ def _run_started_step(workflow, loop, index, step_data, step, step_seed, record,
         # flag on the parent step, so a `workflow` step counts as a task here
         evict_idle_for_task(
             loop.pipelines,
-            set(workflow.pipeline_ownership.keys_by_step.values()),
+            set(workflow.claimed_pipeline_keys()),
             step_data["name"],
         )
     if cached_result is None:

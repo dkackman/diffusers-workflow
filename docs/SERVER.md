@@ -338,7 +338,13 @@ Another `dw.serve` on the same machine counts too (#1227): each server
 publishes its running jobs' peaks to a shared claims directory
 (`DW_HOST_CLAIMS_DIR`, else a per-user folder in the system temp dir) under
 a file lock, and each dispatch adds the other live servers' claims to its own
-running jobs. A job is never held when no other job is running on this server
+running jobs. The default folder is used only while it is a real directory
+the server's user owns that no one else can write: one planted at that
+predictable path by another local user is refused, and the gate falls back
+to this server's own jobs. A job is claimed once its worker is up, so a
+job on a cold card counts as soon as its worker starts. A claim carries the
+worker's driver-pinned host memory, so a sibling charges it on the basis
+this server's own gate does. A job is never held when no other job is running on this server
 or another, nor when it has no figure, nor where host RAM cannot be read
 (macOS without psutil). A held job is re-checked every 10 s. The hold emits one `queue_wait` event (message
 `waiting for host RAM: needs ~N GB with its margin, ~M GB free`; not a `warning`), and job

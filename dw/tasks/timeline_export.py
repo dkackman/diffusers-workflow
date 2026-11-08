@@ -27,6 +27,7 @@ import json
 import logging
 import os
 import zipfile
+import zlib
 from urllib.parse import quote, unquote
 from types import SimpleNamespace
 
@@ -354,13 +355,14 @@ def export_timeline(video, sources=None, shots=None, name="timeline"):
 MAX_CONTENT_BYTES = 8 * 1024 * 1024
 
 
-def summarize_bundle(path):
+def _summarize_bundle(path):
     """A read-only summary of an `.otioz` this module wrote (#1254): the
     tracks with their clips and gaps in order, each clip's name, source
     range and media member, and the bundle's member list. `path` is a file
     the caller already confined; nothing is extracted, and `content.otio`
     is read bounded so a hostile zip cannot expand in memory.
-    Raises ValueError for a file that is not a timeline bundle."""
+    Raises ValueError for a file that is not a timeline bundle - and, read
+    through `summarize_bundle`, for nothing else."""
     try:
         bundle = zipfile.ZipFile(path)
     except (zipfile.BadZipFile, OSError) as error:
@@ -426,3 +428,32 @@ def summarize_bundle(path):
         "tracks": tracks,
         "members": members,
     }
+
+
+# What reading a damaged or foreign member can raise: a CRC mismatch
+# (BadZipFile), an encrypted member (RuntimeError), an unsupported
+# compression method (NotImplementedError), a truncated stream (EOFError,
+# zlib.error); and what valid JSON of another shape raises when read as a
+# bundle's dict (AttributeError, TypeError, ZeroDivisionError)
+_MALFORMED = (
+    zipfile.BadZipFile,
+    RuntimeError,
+    NotImplementedError,
+    EOFError,
+    zlib.error,
+    OSError,
+    AttributeError,
+    TypeError,
+    ZeroDivisionError,
+)
+
+
+def summarize_bundle(path):
+    """`_summarize_bundle`, with every way a malformed bundle fails read as
+    the ValueError the gallery route maps to 422."""
+    try:
+        return _summarize_bundle(path)
+    except ValueError:
+        raise
+    except _MALFORMED as error:
+        raise ValueError(f"not a readable timeline bundle: {error}") from error

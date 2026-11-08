@@ -774,7 +774,9 @@ class _SwallowedOOM(logging.Handler):
             message = record.getMessage()
         except Exception:
             return
-        match = re.match(r"Failed to create component (\S+?):", message)
+        # Leading whitespace and a quoted name tolerated: the wording is
+        # diffusers' own, and a newline before it would defeat a bare match
+        match = re.match(r"\s*Failed to create component '?(\S+?)'?:", message)
         if match is None:
             return
         lowered = message.lower()
