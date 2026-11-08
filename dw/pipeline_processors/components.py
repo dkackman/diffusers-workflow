@@ -827,13 +827,22 @@ def _warn_float16_on_mps(component_name, from_pretrained_arguments, device):
     """MPS (Apple Silicon) has numerical instability with float16 matmul operations,
     producing NaN values that result in black images. The dtype is left as asked for -
     silently loading a model in a dtype the workflow did not request would be worse -
-    so this only warns."""
-    if (
-        get_device_type(device) == "mps"
-        and from_pretrained_arguments.get("torch_dtype") == torch.float16
-    ):
+    so this only warns. A per-component torch_dtype dict warns for each
+    component it loads in float16 ('default' standing for the rest)."""
+    if get_device_type(device) != "mps":
+        return
+    torch_dtype = from_pretrained_arguments.get("torch_dtype")
+    if isinstance(torch_dtype, dict):
+        names = [
+            f"{component_name}.{part}"
+            for part, dtype in torch_dtype.items()
+            if dtype == torch.float16
+        ]
+    else:
+        names = [component_name] if torch_dtype == torch.float16 else []
+    for name in names:
         logger.warning(
-            f"{component_name} loads in float16 on MPS, which can produce NaN "
+            f"{name} loads in float16 on MPS, which can produce NaN "
             "values (black images) on Apple Silicon - bfloat16 is the usual fix"
         )
 
